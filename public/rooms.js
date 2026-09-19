@@ -9,7 +9,7 @@
    (Customize › Specialists › Trunks, "Choosing a Trunk to answer in any conversation"), off at first.
    Colours only through tokens (public/rooms.css). */
 import { api, displayView, openConversation, toast } from "/app.js";
-import { t } from "/i18n.js";
+import { formatDate, t } from "/i18n.js";
 import { fillMarkdown } from "/markdown.js";
 import { trackPopover } from "/popover.js";
 import { avatar } from "/trunks.js";
@@ -74,24 +74,9 @@ async function refresh() {
 function face(trunk, size) {
   const holder = el("span", "rooms-face");
   holder.dataset.trunk = trunk.id;
-  try { holder.append(keepColours(avatar(trunk, size))); } catch { holder.textContent = (trunk.name || "?").slice(0, 1); }
+  // Integration review: avatar() now sets its colours in a way the window's content rules allow (public/trunks.js).
+  try { holder.append(avatar(trunk, size)); } catch { holder.textContent = (trunk.name || "?").slice(0, 1); }
   return holder;
-}
-/**
- * The window's content rules refuse colours written into a `style` attribute, so a drawn face would
- * show black. The same declarations set through the element's own style are allowed.
- */
-function keepColours(node) {
-  for (const part of [node, ...node.querySelectorAll?.("[style]") ?? []]) {
-    const written = part.getAttribute?.("style");
-    if (!written) continue;
-    part.removeAttribute("style");
-    for (const line of written.split(";")) {
-      const at = line.indexOf(":");
-      if (at > 0) part.style.setProperty(line.slice(0, at).trim(), line.slice(at + 1).trim());
-    }
-  }
-  return node;
 }
 function assistantGlyph() {
   const holder = el("span", "rooms-face rooms-face-assistant");
@@ -429,7 +414,7 @@ async function drawRoom() {
   const nodes = roomView.events.map(eventNode).filter(Boolean);
   if (!nodes.length) nodes.push(el("p", "rooms-line", say("rooms.empty", "Say something to the room. Only those you @mention answer; nobody mentioned means everyone.")));
   const grown = box.dataset.roomSeen !== `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
-  box.replaceChildren(...nodes, ...asks(roomView), ...talking(roomView));
+  box.replaceChildren(...nodes, ...allowedCard(roomView), ...asks(roomView), ...talking(roomView));
   box.dataset.roomSeen = `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
   // Only something new brings the newest line into view, so reading back up is never interrupted.
   if (grown) ($("chat") ?? box).scrollIntoView({ block: "end" }); // its end keeps room for the message box
@@ -484,7 +469,7 @@ function askRow(view, ask) {
   const words = el("span", "rooms-row-words");
   words.append(el("b", "", trunk.name), el("small", "", ask.label || ask.tool));
   row.append(face(trunk, 24), words,
-    press("rooms-yes", say("rooms.yes", "Yes"), () => answer(view, ask, "allow"), say("rooms.yesLabel", "Yes, {name} may do this in this room", { name: trunk.name })),
+    press("rooms-yes", say("rooms.yes", "Yes"), () => answer(view, ask, "allow"), say("rooms.yesLabel", "Yes: {name} may do this in this room, for up to an hour", { name: trunk.name })),
     press("rooms-no", say("rooms.no", "No"), () => answer(view, ask, "deny"), say("rooms.noLabel", "No, {name} may not", { name: trunk.name })));
   return row;
 }
@@ -502,6 +487,34 @@ function asks(view) {
       for (const ask of view.waiting) await answer(view, ask, "allow");
     }));
   return [card];
+}
+
+/* ---------- what a member may do in this room (integration review) ---------- */
+/** Each yes a Trunk holds here, said plainly, with Revoke: that Trunk, that thing, this room only. */
+function allowedCard(view) {
+  if (!view.allowed?.length) return [];
+  const card = el("div", "rooms-allowed");
+  card.setAttribute("role", "group");
+  card.setAttribute("aria-label", say("rooms.allowedTitle", "Allowed in this room"));
+  for (const grant of view.allowed) {
+    const trunk = byId(grant.memberId) ?? { id: grant.memberId, name: "?", handle: "?" };
+    const words = el("span", "rooms-row-words");
+    words.append(el("b", "", say("rooms.allowed", "{name} may do this in this room: {what}", { name: trunk.name, what: grant.label || grant.tool })),
+      el("small", "", say("rooms.allowedUntil", "Until {time}, or until {name} leaves the room.",
+        { name: trunk.name, time: formatDate(grant.expiresAt, { timeStyle: "short" }) })));
+    const row = el("div", "rooms-allowed-row");
+    row.append(face(trunk, 20), words, press("rooms-revoke", say("rooms.revoke", "Revoke"), () => revoke(view, grant, trunk),
+      say("rooms.revokeLabel", "Take this back: {name} will ask again next time", { name: trunk.name })));
+    card.append(row);
+  }
+  return [card];
+}
+async function revoke(view, grant, trunk) {
+  await attempt(async () => {
+    await api(`trunks/rooms/${view.id}/revoke`, { memberId: grant.memberId, tool: grant.tool, target: grant.target });
+    toast(say("rooms.revoked", "{name} will ask again next time.", { name: trunk.name }));
+    await drawRoom();
+  });
 }
 
 /* ---------- the message box ---------- */

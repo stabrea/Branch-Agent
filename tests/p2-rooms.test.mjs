@@ -221,3 +221,143 @@ test("piece 2: household people, short-lived keys and Talk live cannot use a Tru
   assert.equal(household.status, 400);
   assert.doesNotMatch(JSON.stringify(household.body), /Ann/, "nothing of the owner's is shown");
 });
+
+/* ---------------------------------------------------------------- integration review */
+
+/** Ann waits for a yes to write room.txt in an Ask first room of three (so one can be taken out). */
+async function waitingRoom(t) {
+  const made = await fixture(t, writer);
+  on(made.app, "rooms");
+  const ann = made.app.trunks.create({ name: "Ann" }), ben = made.app.trunks.create({ name: "Ben" }), cy = made.app.trunks.create({ name: "Cy" });
+  await made.app.trunks.introduced();
+  const r = made.app.trunks.rooms.create({ name: "Work", members: [ann.id, ben.id, cy.id] });
+  const { pickConversationMode } = await import("../dist/conversation-mode-api.js");
+  pickConversationMode(made.app, r.sessionId, "ask");
+  made.app.trunks.rooms.send(r.id, { text: "@ann write it" });
+  await made.app.trunks.rooms.settled(r.id);
+  return { ...made, ann, ben, cy, room: r };
+}
+
+test("integration review: a room yes is that Trunk, that thing, this room; shown with Revoke; it ends when the Trunk leaves or the room goes", async (t) => {
+  const { app, room: r, ann, ben, cy } = await waitingRoom(t);
+  const [ask] = app.trunks.rooms.view(r.id).waiting;
+  app.trunks.rooms.answer(r.id, { memberId: ann.id, decision: "allow", ...(ask.fingerprint ? { fingerprint: ask.fingerprint } : {}) });
+  await app.trunks.rooms.settled(r.id);
+  const annSide = r.memberSessions[ann.id], benSide = r.memberSessions[ben.id];
+  const allowed = app.trunks.rooms.view(r.id).allowed;
+  assert.equal(allowed.length, 1, "one yes, for Ann");
+  assert.equal(allowed[0].memberId, ann.id);
+  assert.equal(allowed[0].tool, "files.write");
+  assert.match(allowed[0].target, /room\.txt/);
+  assert.equal(app.runtime.allowedNow(benSide).length, 0, "Ben holds nothing");
+  // Only that exact request: another file for Ann is asked about again.
+  const annRun = app.store.runs(app.runtime.owner).find((run) => run.sessionId === annSide);
+  const context = app.runtime.context({ runId: annRun.id });
+  assert.equal(app.runtime.checkPolicy("files.write", { path: "other.txt", content: "x" }, context).decision, "ask");
+  // Revoke.
+  assert.deepEqual(app.trunks.rooms.revoke(r.id, { memberId: ann.id, tool: allowed[0].tool, target: allowed[0].target }), { revoked: true });
+  assert.equal(app.trunks.rooms.view(r.id).allowed.length, 0);
+  // Given again, then Ann is taken out of the room: the yes goes with the seat, and the copy kept for a restart too.
+  app.runtime.approvals.remember(annSide, "files.write", allowed[0].target, "allow");
+  const { rememberSessionCarry, readSessionCarry } = await import("../dist/session-carry.js");
+  rememberSessionCarry({ store: app.store, models: app.runtime.models, approvals: app.runtime.approvals, toolboxes: () => [] }, app.runtime.owner, annSide);
+  assert.equal(readSessionCarry(app.store, app.runtime.owner, annSide).grants.length, 1);
+  app.trunks.rooms.edit(r.id, { members: [ben.id, cy.id] });
+  assert.equal(app.runtime.allowedNow(annSide).length, 0, "Ann's yes ended when Ann left the room");
+  assert.equal(readSessionCarry(app.store, app.runtime.owner, annSide).grants.length, 0, "and cannot come back after a restart");
+  // Removing the room ends every yes in it.
+  app.runtime.approvals.remember(benSide, "files.write", "b.txt", "allow");
+  app.trunks.rooms.remove(r.id);
+  assert.equal(app.runtime.allowedNow(benSide).length, 0, "the room's yeses ended with the room");
+});
+
+test("integration review: a Trunk's side of a room follows the room's mode, even if a mode was put on that side", async (t) => {
+  const { app, room: r, ann } = await room(t);
+  const { pickConversationMode } = await import("../dist/conversation-mode-api.js");
+  pickConversationMode(app, r.sessionId, "ask");
+  pickConversationMode(app, r.memberSessions[ann.id], "full");
+  app.trunks.rooms.send(r.id, { text: "@ann write it" });
+  await app.trunks.rooms.settled(r.id);
+  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false, "the room's Ask first holds");
+  assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1);
+});
+
+test("integration review: Talk live is refused where it opens (every task's socket), not only on its route", async (t) => {
+  const { app, room: r, ann } = await room(t);
+  const out = { audio: () => undefined, notice: () => undefined };
+  const memberRun = app.store.createRun(app.runtime.owner, "A live conversation", r.memberSessions[ann.id]);
+  await assert.rejects(app.live.start(memberRun.id, memberRun.sessionId, out), /not with a Trunk/);
+  const roomRun = app.store.createRun(app.runtime.owner, "A live conversation", r.sessionId);
+  await assert.rejects(app.live.start(roomRun.id, roomRun.sessionId, out), /not in a room/);
+  // A conversation that began outside Branch stays held: talking in it would make it the owner's own.
+  const outside = app.store.createRun(app.runtime.owner, "from a chat app");
+  app.store.event(outside.id, "run.started", { source: "channel" });
+  app.store.finish(outside.id, "completed", "ok");
+  const liveOutside = app.store.createRun(app.runtime.owner, "A live conversation", outside.sessionId);
+  await assert.rejects(app.live.start(liveOutside.id, liveOutside.sessionId, out), /began outside Branch/);
+  // Lockdown: the sound would leave this computer.
+  const { setLockdown } = await import("../dist/lockdown.js");
+  const plain = app.store.createRun(app.runtime.owner, "A live conversation");
+  setLockdown(app.store, app.runtime.owner, { on: true });
+  await assert.rejects(app.live.start(plain.id, plain.sessionId, out), /Lockdown is on/);
+  setLockdown(app.store, app.runtime.owner, { on: false });
+  // A household person at the window.
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  await assert.rejects(app.live.start(plain.id, plain.sessionId, out), /for the owner/);
+});
+
+test("integration review: a room's inner conversations stay out of Recents; the room itself is there", async (t) => {
+  const { app, room: r, ann, ben } = await room(t);
+  app.trunks.rooms.send(r.id, { text: "@ann hello" });
+  await app.trunks.rooms.settled(r.id);
+  assert.ok(app.store.messages(r.memberSessions[ann.id]).length > 0, "Ann's side has the room's instructions in it");
+  const listed = app.store.searchSessions(app.runtime.owner, { query: "" }).sessions.map((s) => s.sessionId);
+  assert.ok(listed.includes(r.sessionId), "the room is listed");
+  assert.equal(listed.includes(r.memberSessions[ann.id]), false, "Ann's side is not");
+  assert.equal(listed.includes(r.memberSessions[ben.id]), false);
+  assert.equal(app.store.searchSessions(app.runtime.owner, { query: "[Room" }).sessions.some((s) => s.sessionId === r.memberSessions[ann.id]), false);
+  const recent = app.store.recentSessions(app.runtime.owner, 50).sessions.map((s) => s.sessionId);
+  assert.equal(recent.includes(r.memberSessions[ann.id]), false, "nor on the phone's list");
+});
+
+test("integration review: the banner names the Trunk that asked and opens its room; keys give no standing yes in a room", async (t) => {
+  const { app, call } = await served(t, writer);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const r = app.trunks.rooms.create({ name: "Work", members: [ann.id, ben.id] });
+  const { pickConversationMode } = await import("../dist/conversation-mode-api.js");
+  pickConversationMode(app, r.sessionId, "ask");
+  const key = app.sessionTokens.create(app.runtime.owner, { name: "script", scope: "run", minutes: 5 }).token;
+  assert.equal((await call(`/api/trunks/rooms/${r.id}/send`, { text: "@ann write it" }, key)).status, 200);
+  await app.trunks.rooms.settled(r.id);
+  const [ask] = app.trunks.rooms.view(r.id).waiting;
+  assert.ok(ask, "Ann asks");
+  const state = (await call("/api/state")).body;
+  const item = state.attention.find((a) => a.sessionId === r.memberSessions[ann.id]);
+  assert.equal(item.who, "Ann");
+  assert.equal(item.room, "Work");
+  assert.equal(item.open, r.sessionId, "Open leads to the room itself");
+  // The key started Ann's turn, so it may answer it once, but never leave a yes standing in the room.
+  const standing = await call("/api/policy/approve", { sessionId: ask.sessionId, decision: "allow", remember: "session", ...(ask.fingerprint ? { fingerprint: ask.fingerprint } : {}) }, key);
+  assert.equal(standing.status, 401);
+  assert.match(standing.body.error, /given by the owner, in the room/);
+  assert.equal(app.runtime.allowedNow(ask.sessionId).length, 0);
+  assert.equal((await call(`/api/trunks/rooms/${r.id}/revoke`, { memberId: ann.id, tool: "files.write", target: "x" }, key)).status, 401, "Revoke is the owner's");
+  assert.equal((await call(`/api/trunks/rooms/${r.id}/answer`, { memberId: ann.id, decision: "allow" }, key)).status, 401, "so is the room's yes");
+});
+
+test("integration review: with the switch off, a conversation can still be given back to your assistant", async (t) => {
+  const { app, call } = await served(t, seesAnn);
+  on(app, "conversations");
+  const ann = app.trunks.create({ name: "Ann" });
+  await app.trunks.introduced();
+  const started = (await call("/api/trunks/conversations", { trunkId: ann.id })).body;
+  const { saveTrunkMode } = await import("../dist/trunks/settings.js");
+  saveTrunkMode(app.store, app.runtime.owner, "conversations", { mode: "off" });
+  assert.equal((await call(`/api/trunks/conversations/${started.sessionId}`, { trunkId: ann.id })).status, 409, "choosing is off");
+  const back = await call(`/api/trunks/conversations/${started.sessionId}`, { trunkId: null });
+  assert.equal(back.status, 200);
+  assert.equal(back.body.kind, "plain");
+});

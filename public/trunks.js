@@ -73,7 +73,15 @@ const list = (text) => text.split(",").map((part) => part.trim()).filter(Boolean
 const SVG = "http://www.w3.org/2000/svg";
 function shape(tag, attributes) {
   const node = document.createElementNS(SVG, tag);
-  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+  for (const [name, value] of Object.entries(attributes)) {
+    // phase2/rooms (integration review): the window's content rules refuse a `style` attribute, so every
+    // drawn face (the sidebar's too) came out black; the same colours set through the element's own style are allowed.
+    if (name === "style") for (const line of String(value).split(";")) {
+      const at = line.indexOf(":");
+      if (at > 0) node.style.setProperty(line.slice(0, at).trim(), line.slice(at + 1).trim());
+    }
+    else node.setAttribute(name, String(value));
+  }
   return node;
 }
 function hash(text) {

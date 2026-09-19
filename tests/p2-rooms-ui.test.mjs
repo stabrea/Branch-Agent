@@ -126,7 +126,7 @@ test("a room opens as a conversation: signed replies, a question answered in pla
   await ask.waitFor({ state: "visible", timeout: 15000 });
   assert.match(await ask.innerText(), /Ledger needs you/);
   assert.equal(existsSync(join(f.app.runtime.workspace, "totals.csv")), false, "nothing written before the yes");
-  await ask.getByRole("button", { name: "Yes, Ledger may do this in this room" }).click();
+  await ask.getByRole("button", { name: "Yes: Ledger may do this in this room, for up to an hour" }).click();
   await f.page.waitForFunction(() => /Written\./.test(document.getElementById("conversation").textContent), null, { timeout: 15000 });
   assert.equal(existsSync(join(f.app.runtime.workspace, "totals.csv")), true);
   const width = await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -147,4 +147,22 @@ test("bringing a second Trunk into a Trunk's conversation makes a room and opens
   assert.match(await f.page.locator("#who-button").getAttribute("aria-label"), /Scout, Ledger/);
   assert.equal(await f.page.locator("#thread-name").innerText(), "Scout and Ledger");
   assert.deepEqual(f.errors, []);
+});
+
+test("integration review: every drawn face has its colours, in the sidebar too (the content rules refuse a style attribute)", async (t) => {
+  const f = await fixture(t, []);
+  const drawn = await f.page.evaluate(async () => {
+    const refused = [];
+    document.addEventListener("securitypolicyviolation", (event) => refused.push(event.violatedDirective));
+    const { avatar } = await import("/trunks.js");
+    const faces = ["Ann", "Ben", "Cy", "Scout", "Ledger", "Atlas"].map((name) => avatar({ name }, 28));
+    document.body.append(...faces);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const fills = faces.map((svg) => getComputedStyle(svg.firstElementChild).fill);
+    faces.forEach((svg) => svg.remove());
+    return { refused, fills };
+  });
+  for (const fill of drawn.fills) assert.notEqual(fill, "rgb(0, 0, 0)", "coloured, not black");
+  assert.deepEqual(drawn.refused, [], "nothing refused by the content rules");
+  assert.ok(await f.page.locator("svg.trunk-face").count() >= 2, "the sidebar draws the Trunks' faces with the same code");
 });

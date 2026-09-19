@@ -102,7 +102,7 @@ import {
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import {
-  carrySentences, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession,
+  carrySentences, readSessionCarry, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession, // phase2/rooms: readSessionCarry
 } from "./session-carry.js";
 import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
@@ -2164,8 +2164,9 @@ ${run.output.slice(0, 6000)}`;
     for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
       seen.add(id);
       const session = this.store.run(id)?.sessionId;
-      const record = readConversationMode(this.store, this.owner, session)
-        ?? (session ? readConversationMode(this.store, this.owner, this.modeFollows(session)) : null); // phase2/rooms
+      // phase2/rooms: a Trunk's side of a room follows the room's own conversation, never a mode of its own.
+      const follows = session ? this.modeFollows(session) : null;
+      const record = readConversationMode(this.store, this.owner, follows ?? session);
       if (record) return record;
     }
     return null;
@@ -2656,6 +2657,18 @@ ${run.output.slice(0, 6000)}`;
         reason: "You took back a yes you had given for this conversation", outcome: "refused",
       });
     return gone;
+  }
+  /**
+   * phase2/rooms (integration review): ends every answer kept for one conversation — a Trunk taken
+   * out of a room, or the room removed — including the copy written down for a restart, so it
+   * cannot come back when that conversation is next used.
+   */
+  endGrants(sessionId: string): number {
+    const grants = this.approvals.grants(sessionId);
+    for (const grant of grants) this.revokeGrant(sessionId, grant.tool, grant.target);
+    const carried = readSessionCarry(this.store, this.owner, sessionId);
+    if (carried?.grants.length) rememberSessionCarry(this.carryDeps(), this.owner, sessionId, carried.toolboxes);
+    return grants.length;
   }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {

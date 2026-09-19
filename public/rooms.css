@@ -304,6 +304,31 @@
 .rooms-yes-all {
   justify-self: end;
 }
+/* Integration review: what a member may do in this room, with Revoke beside it. */
+.rooms-allowed {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.rooms-allowed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 4px 2px;
+}
+.rooms-allowed-row .rooms-row-words {
+  flex: 1;
+  min-width: 0;
+}
+.rooms-allowed-row .rooms-row-words b,
+.rooms-allowed-row .rooms-row-words small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 /* ---------- "@" in the message box ---------- */
 .rooms-mentions {

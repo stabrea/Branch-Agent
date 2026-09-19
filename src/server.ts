@@ -835,11 +835,16 @@ function toolInventory(app: Branch) {
 }
 /** Tasks waiting for the person's answer: the latest run of a conversation that stopped with a question. */
 function attention(app: Branch) {
-  const seen = new Set<string>(), waiting: { runId: string; sessionId: string; question: string; createdAt: string }[] = [];
+  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; who?: string; room?: string; open?: string };
+  const seen = new Set<string>(), waiting: Waiting[] = [];
   for (const run of app.store.runs(app.runtime.owner)) {
     if (seen.has(run.sessionId)) continue;
     seen.add(run.sessionId);
-    if (run.status === "needs_input") waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt });
+    if (run.status !== "needs_input") continue;
+    // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
+    const by = app.trunks.conversations.answerer(run.sessionId);
+    waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt,
+      ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) });
   }
   return waiting;
 }
@@ -1525,6 +1530,10 @@ async function api(
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
     // bucket 19: a short-lived key answers only the questions of tasks it started itself.
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId);
+    // phase2/rooms (integration review): a yes that holds for a Trunk in a room is the owner's, given in the room.
+    if (input.remember !== "never" && app.trunks.conversations.kind(input.sessionId) === "member"
+      && (startedWithShortLivedKey() || !app.store.profiles.isOwner()))
+      throw new HttpError(401, "A yes that holds in a room is given by the owner, in the room. Answer this once instead.");
     // With nothing waiting, the answer below says so in its own words.
     const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
     const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
@@ -3874,10 +3883,8 @@ function voiceDeps(app: Branch) {
  * would step round the Trunk's own limits.
  */
 function liveRefusalFor(app: Branch, sessionId: string): string | null {
-  const kind = app.trunks.conversations.kind(sessionId);
-  if (kind === "plain") return null;
-  return kind === "room" ? "Talk live works in a conversation with your assistant, not in a room of Trunks."
-    : "Talk live works in a conversation with your assistant, not with a Trunk. Start a new conversation to talk live.";
+  // Integration review: the same words LiveConversations.start answers with (src/live-refusal.ts).
+  return app.live.refuse(sessionId);
 }
 /**
  * Batch 20 (wave 8): the doors a short-lived key never opens, whatever its scope. A "run" key is

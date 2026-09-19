@@ -74,9 +74,7 @@ export class TrunkConversations {
     this.check(sessionId);
     const kind = this.kind(sessionId), all = this.deps.records.list();
     const room = this.roomOf(sessionId);
-    const trunkId = kind === "trunk" ? this.saved(sessionId)!.trunkId
-      : kind === "trunk-chat" ? all.find((t) => t.chatSessionId === sessionId || t.retiredChats.includes(sessionId))?.id
-        : kind === "member" ? this.deps.rooms.memberConversations().get(sessionId) : undefined;
+    const trunkId = this.trunkIdOf(sessionId, kind);
     const trunk = trunkId ? this.deps.records.find(trunkId) : undefined;
     return {
       sessionId, kind, trunk: trunk ? brief(trunk) : null,
@@ -86,6 +84,24 @@ export class TrunkConversations {
       memberOf: kind === "member" ? this.deps.rooms.list().find((r) => Object.values(r.memberSessions).includes(sessionId))?.id ?? null : null,
       trunks: all.filter((t) => !t.hidden).map(brief),
     };
+  }
+
+  private trunkIdOf(sessionId: string, kind: ConversationKind): string | null | undefined {
+    return kind === "trunk" ? this.saved(sessionId)!.trunkId
+      : kind === "trunk-chat" ? this.deps.records.list().find((t) => t.chatSessionId === sessionId || t.retiredChats.includes(sessionId))?.id
+        : kind === "member" ? this.deps.rooms.memberConversations().get(sessionId) : undefined;
+  }
+  /**
+   * Integration review: for "… needs you", the Trunk that answers in this conversation and where to
+   * open it (a Trunk's side of a room opens the room itself); null for your assistant.
+   */
+  answerer(sessionId: string): { name: string; room: string | null; sessionId: string } | null {
+    const kind = this.kind(sessionId);
+    const trunkId = this.trunkIdOf(sessionId, kind);
+    const trunk = trunkId ? this.deps.records.find(trunkId) : undefined;
+    if (!trunk) return null;
+    const room = kind === "member" ? this.deps.rooms.list().find((r) => Object.values(r.memberSessions).includes(sessionId)) : undefined;
+    return { name: trunk.name, room: room?.name ?? null, sessionId: room?.sessionId ?? sessionId };
   }
 
   /** Makes a Trunk answer in this conversation from now on, or (null) your assistant again. */

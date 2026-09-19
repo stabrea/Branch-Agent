@@ -1783,7 +1783,11 @@ A **live conversation** is the other way of talking to Branch: instead of holdin
 Routes: `POST /api/voice/live` (opens a task for a live conversation and answers with whether one is possible); the conversation itself runs on the task's existing socket `/api/runs/<id>/ws`, with your microphone going up as binary frames and the answer coming back as binary frames numbered so they play in order. `GET /api/voice/plan` reports under `live` whether the connection in use can hold one, and the limits it would run under.
 Until redesign phase 2 the server never answered `POST /api/voice/live` (the route was not in its voice list), so the button
 could not open a conversation; it does now. It is the owner's alone: a household person and a short-lived key are refused,
-because a live conversation's tools run as the owner. It is also refused in a room and in a conversation a Trunk answers in.
+because a live conversation's tools run as the owner. It is also refused in a room and in a conversation a Trunk answers in,
+under Lockdown (your voice would go to a service outside this computer), and in a conversation that began outside Branch
+(a chat app, a schedule, a trigger or another program), which stays held however it is carried on. These refusals are
+checked where a live conversation really opens (`LiveConversations.start`, reached from any task's socket), not only by the
+route, and each tool it uses is still judged with the conversation's mode (src/live-refusal.ts).
 
 ### Which model does what (wave 7)
 
@@ -7975,7 +7979,7 @@ Inbox → Needs you.
 | Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
 | Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
 | Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
-| Conversations (`trunks-conversations`, redesign phase 2) | Choosing a Trunk to answer in any conversation: the faces at the top of a conversation say who answers there; pick a Trunk and every task in that conversation runs as it (its instructions, memory, tools, model and keys), exactly as in its own chat, until you pick your assistant again. Each reply is signed with whoever gave it. Bringing a second Trunk in (with Rooms on) makes a room with both, which is handed the last few messages so they know what came before; the conversation itself stays as it was. `@name` in a conversation then brings that Trunk here rather than switching to its own chat. Off: the faces are not there and `@name …` goes to the Trunk's own chat, as before. |
+| Conversations (`trunks-conversations`, redesign phase 2) | Choosing a Trunk to answer in any conversation: the faces at the top of a conversation say who answers there; pick a Trunk and every task in that conversation runs as it (its instructions, memory, tools, model and keys), exactly as in its own chat, until you pick your assistant again. Each reply is signed with whoever gave it. Bringing a second Trunk in (with Rooms on) makes a room with both, which is handed the last few messages so they know what came before; the conversation itself stays as it was. `@name` in a conversation then brings that Trunk here rather than switching to its own chat. Off: the faces are not there and `@name …` goes to the Trunk's own chat, as before; a conversation a Trunk was chosen for before it was switched off keeps that Trunk (which only ever narrows what it may do) until you give it back to your assistant, which works with the switch off. |
 
 What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
 sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
@@ -8005,10 +8009,17 @@ for the room, and every turn it takes follows the room's mode, the moment it cha
 restart too (`modeFollows` in `src/runtime.ts`), capped by that Trunk's own limits: a Full access room
 gives a Trunk no command it may not run and no tool it was not given. A message sent to a room with a
 short-lived key is written down as that key's, and the turns it starts are held to your own setting,
-never to a looser mode you picked for the room. A yes you give a Trunk in a room holds for that Trunk in
-that room (for the same kind of action on the same thing), because the Trunk takes its turn again from
-the start after your answer; before redesign phase 2 a yes "just this once" was used up by nothing and
-the Trunk asked the same question for ever. A no is remembered the same way. Talk live is refused in a room and in any conversation
+never to a looser mode you picked for the room. A Trunk's own side of a room never has a mode of its own:
+the room's always wins. A yes you give a Trunk in a room holds for that Trunk, that exact request (the same
+tool on the same thing, with the same bytes), in that room only, for at most an hour, because the Trunk takes
+its turn again from the start after your answer; before redesign phase 2 a yes "just this once" was used up
+by nothing and the Trunk asked the same question for ever. The room shows each such yes ("Ledger may do this
+in this room: …") with **Revoke**; it ends when that Trunk is taken out of the room or the room is removed
+(the copy kept for a restart too), and Lock ends it as it ends every yes. Only the owner, in the room, gives
+it: a short-lived key or a household profile answering a room Trunk's question may answer once only, and a
+chat app never reaches a room's questions. A request the safety check advised against is allowed once, never
+kept. A no is remembered the same way as a yes. A Trunk's side of a room is kept out of Recents and search;
+the room itself is what you open, and "… needs you" names the Trunk and opens the room. Talk live is refused in a room and in any conversation
 a Trunk answers in, because its tools would not keep the Trunk's limits.
 
 Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping

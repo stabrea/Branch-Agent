@@ -79,7 +79,8 @@ export async function voiceApi(
  */
 export function openLive(deps: VoiceApiDeps, input: unknown) {
   const { sessionId } = liveBody.parse(input);
-  const refused = sessionId ? deps.liveRefusal?.(sessionId) : null; // phase2/rooms
+  // phase2/rooms: asked for a new conversation too (Lockdown, a household person); src/live-refusal.ts.
+  const refused = deps.liveRefusal?.(sessionId ?? "") ?? null;
   if (refused) throw new Error(refused);
   const plan = livePlanFor(deps.voice.settings(deps.owner), deps.models.plan(deps.owner, sessionId ?? "voice").candidates[0]);
   if (!plan.available) throw new Error(plan.reason);
