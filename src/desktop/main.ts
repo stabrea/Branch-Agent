@@ -32,15 +32,46 @@ import { electronBannerWindow } from "./banner-window.js";
 // mac3/never-break: trying a new version on a copy of the data before an update.
 import { snapshotData, updateCanary } from "../never-break/canary.js";
 import { appEntryName } from "./release-assets.js";
+// mac7/app-icon: the right size of the KeepOak mark for the window, the menu bar and the dock.
+import { WINDOW_ICON_SIZE, isTemplateTrayIcon, trayIconScales, trayIconSize } from "./icon-sizes.js";
+// mac7/safe-rollback: what an update changes is written down before the hand-over moves anything.
+import { recordActivation } from "../install/headless-update.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let stop: (() => Promise<void>) | undefined;
 let quitting = false;
 
+function markPath(): string {
+  return fileURLToPath(new URL("../../public/assets/keepoak-mark.png", import.meta.url));
+}
+
+/**
+ * The window's icon, which Windows and Linux also use for the taskbar. macOS ignores it and takes
+ * the dock icon from the `.icns` inside the bundle, so this is only ever the big one.
+ */
 function branchIcon(): NativeImage {
-  const path = fileURLToPath(new URL("../../public/assets/keepoak-mark.png", import.meta.url));
-  return nativeImage.createFromPath(path).resize({ width: 32, height: 32 });
+  return nativeImage
+    .createFromPath(markPath())
+    .resize({ width: WINDOW_ICON_SIZE, height: WINDOW_ICON_SIZE, quality: "best" });
+}
+
+/**
+ * The menu-bar or notification-area icon: small, with a sharper copy for a Retina menu bar, and on
+ * macOS a template image so the system colours it for a light or a dark menu bar (see icon-sizes.ts).
+ */
+function trayIcon(): NativeImage {
+  const source = nativeImage.createFromPath(markPath());
+  const side = trayIconSize(process.platform);
+  const image = source.resize({ width: side, height: side, quality: "best" });
+  for (const scale of trayIconScales(process.platform)) {
+    if (scale === 1) continue;
+    const pixels = side * scale;
+    const drawn = source.resize({ width: pixels, height: pixels, quality: "best" });
+    image.addRepresentation({ scaleFactor: scale, width: pixels, height: pixels, buffer: drawn.toBitmap() });
+  }
+  if (isTemplateTrayIcon(process.platform)) image.setTemplateImage(true);
+  return image;
 }
 
 function protectWindow(
@@ -129,7 +160,7 @@ function setMacMenu(): void {
 }
 
 function createTray(): void {
-  tray = new Tray(branchIcon());
+  tray = new Tray(trayIcon());
   tray.setToolTip("Branch Agent");
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -161,6 +192,22 @@ async function folders(base: string): Promise<{ dataDir: string; workspace: stri
     workspace: process.env.BRANCH_WORKSPACE ?? location.workspace,
   };
 }
+/**
+ * mac7/safe-rollback: the app's Update button writes the same record `branch update --yes` does, so
+ * a person who updates from the window can go back afterwards. It stays `staged` until the next
+ * start says the swap landed, because this process quits into the hand-over script.
+ */
+function desktopRecord(dataDir: string): Pick<UpdateHooks, "record"> {
+  const installRoot = installedAppRoot(app.isPackaged, process.platform, process.execPath);
+  // A copy that cannot update itself never hands over, so there is nothing to write down.
+  if (!installRoot) return {};
+  return { record: async (stagedDir, toVersion) => {
+    const recorded = await recordActivation({ dataDir, installRoot, stagedDir, fromVersion: app.getVersion(),
+      toVersion, executableName: appEntryName(process.platform) });
+    recorded.close();
+  } };
+}
+
 async function start(): Promise<void> {
   const base = app.getPath("userData");
   const settings = await loadDesktopSettings(join(base, "model-settings.json"));
@@ -174,6 +221,7 @@ async function start(): Promise<void> {
       backup: () => requestUpdateBackup(running.url, running.token),
       stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
       canary: desktopCanary(dataDir, () => engineSnapshot(running.url, running.token)), // mac3/never-break
+      ...desktopRecord(dataDir), // mac7/safe-rollback
     });
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(base, "chatgpt-auth.json"), {
     available: () => safeStorage.isEncryptionAvailable(),
@@ -230,6 +278,7 @@ async function start(): Promise<void> {
         writeUpdateBackup(dataDir, branch.store.backup(branch.version), branch.version).then(() => undefined),
       // mac3/never-break: the new version is tried on a copy of this data before it is used.
       canary: desktopCanary(dataDir, () => snapshotData({ dataDir, database: branch.store.sqlite, journal: branch.neverBreak.journal.database })),
+      ...desktopRecord(dataDir), // mac7/safe-rollback
     });
   } catch (error) {
     await stop();

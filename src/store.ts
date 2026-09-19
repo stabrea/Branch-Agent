@@ -86,9 +86,10 @@ export class Store {
       );
     } catch (e) {
       this.db.close();
+      // mac7/install-torture: a second Branch on the same folder is refused in words a person can act on.
       if (e instanceof Error && e.message.includes("locked"))
         throw new Error(
-          "Branch Agent is already running against this data directory",
+          `Branch is already open and using the work saved in ${this.folder}, so this second Branch stopped rather than write to the same files. Nothing was changed. Use the Branch that is already running, or close it and try again.`,
         );
       throw e;
     }

@@ -16,6 +16,7 @@ import {
   ScriptedRealtime, ScriptedSpeech, ScriptedSandbox,
   renderTrajectory,
   journalEntry, journalDiff, journalReport, journalReplayPlan, fingerprintOf,
+  conditionsVersion, machineIdentity,
   ndcgAt, recallAt, precisionAt, reciprocalRank, averagePrecision, scoreRetrieval, retrievalTable,
   readBeirSet, scoreBeirSet,
   parseCall, judgeCall, nexusAdapter, findBenchmarkAdapter,
@@ -321,8 +322,16 @@ const result = (id, cells) => ({
   cells: cells.map((cell) => ({ preset: "fast", repeat: 0, attempts: 1, ms: 100, tokens: 10, dollars: 0.001, runId: null, reasons: [], score: cell.passed ? 1 : 0, ...cell })),
   rows: [], resumed: 0, stoppedEarly: null,
 });
+// mac7/eval-honesty: an entry now also carries the conditions the run was made under. These two
+// were made the same way, so the report is about what changed in the study, not about the machine.
+const madeUnder = (over = {}) => ({
+  version: conditionsVersion, presets: ["fast"], models: ["demo"], judgeModel: null,
+  settings: { maxSteps: 30 }, appVersion: "0.16.0", machine: machineIdentity(),
+  taskSetHash: "abc123", scorerDigest: "def456", costBasis: "estimated", ...over,
+});
 const inputs = (over = {}) => ({
-  study, tasks: ["one", "two"], scorerKinds: ["exact"], benchmarksFolder: "", version: "0.16.0", ...over,
+  study, tasks: ["one", "two"], scorerKinds: ["exact"], benchmarksFolder: "", version: "0.16.0",
+  conditions: madeUnder(), ...over,
 });
 
 test("A1736: an entry keeps what the study was, and the fingerprint only moves when an input does", () => {
@@ -348,7 +357,10 @@ test("A1736: replaying names what changed before it names what moved", () => {
   const report = journalReport(before, after);
   assert.match(report, /did \*\*not\*\* measure the same thing/);
   assert.match(report, /\| Model choices \| fast \| careful \|/);
-  assert.match(report, /Accuracy went from 0\.0% to 100\.0%/);
+  // mac7/eval-honesty: the accuracy line used to be printed underneath the table of what changed,
+  // and that line is the one that gets quoted. Two runs that measured different experiments now
+  // get the table and a refusal, and no accuracy at all.
+  assert.doesNotMatch(report, /Accuracy went from/);
   assert.match(report, /Change one thing at a time/);
   // The same experiment twice says so instead.
   const same = journalEntry(result("cc", [{ taskId: "one", passed: true }, { taskId: "two", passed: false }]), inputs());

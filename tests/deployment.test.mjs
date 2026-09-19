@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { performInstall, bootstrapperScript, uninstallEntries, uninstallScript, uninstallKey, defaultInstallRoot } from "../dist/install/installer.js";
+import { performInstall, bootstrapperScript, uninstallEntries, uninstallScript, uninstallKey, defaultInstallRoot, shippedIconPath, shortcutIcon } from "../dist/install/installer.js";
 import { shortcutScript, regAddArgs, regDeleteValueArgs } from "../dist/install/windows.js";
 import { portableLocation, installedLocation, resolveDataLocation, migrateLegacyData, legacyDataDirs } from "../dist/install/layout.js";
 import { autostartCommand, setAutostart, startsMinimized, minimizedFlag } from "../dist/install/autostart.js";
@@ -22,7 +22,7 @@ import { Readable } from "node:stream";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { doctorFix, doctorText } from "../dist/doctor-fix.js";
-import { backupsToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
+import { backupsToPrune, formatCopiesToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
 import { Updater } from "../dist/desktop/updater.js";
 
 const run = promisify(execFile);
@@ -110,6 +110,17 @@ test("the installer script and the Uninstall entry say what they will do", () =>
   assert.ok(script.split("\r\n").every((line) => !/(^|&\s*)pause\b/.test(line)), "the installer's waits go through %PAUSE%, which /quiet switches off");
   assert.match(script, /if \/i "%%~A"=="\/quiet" set "PAUSE=type NUL"/);
   assert.match(shortcutScript({ path: "C:\\M\\a.lnk", target: "C:\\App\\x.exe" }), /CreateObject\("WScript\.Shell"\)/);
+
+  // mac7/app-icon: the packager copies the stock Electron executable back over the packaged one, so it
+  // still carries Electron's logo. Every shortcut and every list entry has to name the KeepOak .ico.
+  assert.equal(shippedIconPath, join("resources", "app", "public", "assets", "keepoak.ico"));
+  assert.equal(shortcutIcon("C:\\App", "Branch Agent.exe", true), `${join("C:\\App", shippedIconPath)},0`);
+  assert.equal(shortcutIcon("C:\\App", "Branch Agent.exe", false), `${join("C:\\App", "Branch Agent.exe")},0`,
+    "an older copy without the icon still gets a working shortcut");
+  assert.match(shortcutScript({ path: "a", target: "t", iconLocation: "C:\\App\\k.ico,0" }), /link\.IconLocation = "C:\\App\\k\.ico,0"/);
+  assert.equal(byName.DisplayIcon, join("C:\\App", "Branch Agent.exe"), "no icon given, the executable as before");
+  const withIcon = uninstallEntries({ installRoot: "C:\\App", executableName: "Branch Agent.exe", version: "1.2.3", uninstaller: "u", icon: "C:\\App\\k.ico" });
+  assert.equal(Object.fromEntries(withIcon.map((entry) => [entry.name, entry.value])).DisplayIcon, "C:\\App\\k.ico");
   assert.ok(defaultInstallRoot({ LOCALAPPDATA: "C:\\L" }).endsWith(join("Programs", "Branch Agent")));
 });
 
@@ -380,6 +391,32 @@ test("the pairing door is shut on this computer's own address", async (t) => {
   assert.equal(body.installed, false, "running from source, so the switches say so");
   assert.equal(body.remote.enabled, false);
   assert.match(body.remote.message, /off/i);
+  assert.equal(body.platform, process.platform, "the window learns which system Branch runs on");
+});
+
+test("the sign-in switches name the system Branch runs on: Windows, your Mac, or this computer", async () => {
+  const { signInKey, signInSystem, opensWhenSignedIn } = await import("../public/deployment.js");
+  assert.equal(signInSystem("win32"), "windows");
+  assert.equal(signInSystem("darwin"), "mac");
+  assert.equal(signInSystem("linux"), "computer");
+  assert.equal(signInSystem(""), "computer", "not known yet: no system is guessed");
+  assert.equal(opensWhenSignedIn("win32"), "Branch will open when you sign in to Windows.");
+  assert.equal(opensWhenSignedIn("darwin", true), "Branch will open quietly when you sign in to your Mac.");
+  assert.equal(opensWhenSignedIn("linux"), "Branch will open when you sign in to this computer.");
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const script = await readFile(new URL("../public/deployment.js", import.meta.url), "utf8");
+  assert.doesNotMatch(script, /sign in to Windows/, "no status line names Windows on every system");
+  const expected = { win32: /Windows$/, darwin: /(my Mac|mon Mac)$/, linux: /(this computer|cet ordinateur)$/ };
+  for (const language of ["en", "fr"]) {
+    const words = JSON.parse(await readFile(new URL(`../public/locales/${language}.json`, import.meta.url), "utf8"));
+    for (const key of ["field.open-branch-when-i-sign", "field.start-branch-when-i-sign"]) {
+      assert.ok(html.includes(`data-t="${key}"`), key);
+      assert.doesNotMatch(words[key], /Windows/, `${language} ${key}: the default names no system`);
+      for (const [platform, ending] of Object.entries(expected))
+        assert.match(words[signInKey(key, platform)] ?? "", ending, `${language} ${key} on ${platform}`);
+    }
+  }
+  assert.doesNotMatch(html, /sign in to Windows/);
 });
 
 // ---------------------------------------------------------------- P4: a safety copy before every update
@@ -498,3 +535,11 @@ function fakeRelease() {
     return new Response(`${digest}  app.zip\n`, { status: 200 });
   };
 }
+
+test("merge-queue review: pruning format copies never removes the one just taken, even under a clock that jumped back", () => {
+  const names = ["before-format-500.sqlite", "before-format-400.sqlite", "before-format-300.sqlite", "before-format-100.sqlite"];
+  const pruned = formatCopiesToPrune(names, 3, "before-format-100.sqlite");
+  assert.equal(pruned.includes("before-format-100.sqlite"), false, "the copy an undo points at stays");
+  assert.deepEqual(pruned, ["before-format-300.sqlite"], "still only three are kept");
+  assert.deepEqual(formatCopiesToPrune(names, 3), ["before-format-100.sqlite"], "without one to keep, the oldest goes");
+});

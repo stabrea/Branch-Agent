@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { findOnPath } from "./voice-tts.js";
+// mac7/live-voice: the microphone itself now lives on its own in src/mic-capture.ts, because live
+// dictation wants exactly the same sound from exactly the same programs, held open rather than
+// taken one window at a time. Nothing about the wake word changed with the move: the names below
+// are still the ones this file has always exported, and the commands are byte for byte the same.
+import { micSampleRate, onThisComputer as programOnThisComputer, recorderFor, recorderName,
+  windowBytes as micWindowBytes, type ProgramPresent as MicProgramPresent } from "./mic-capture.js";
 import { FeatureModeSchema, type FeatureMode } from "./feature-switches.js";
 import { lockdownOverrides } from "./lockdown.js";
 import type { Store } from "./store.js";
@@ -194,12 +199,8 @@ export function wakeSpotter(
 
 /* ---------- what opens the microphone, on each computer ---------- */
 
-/**
- * Whether a program is on this computer, asked without running it. Always passed in, so a test
- * decides the answer and the result never depends on what happens to be installed on the machine
- * running the tests.
- */
-export type ProgramPresent = (name: string) => boolean;
+/** Whether a program is on this computer, asked without running it (src/mic-capture.ts). */
+export type ProgramPresent = MicProgramPresent;
 
 /**
  * How the sound gets in.
@@ -220,55 +221,10 @@ export interface WakeCapture {
   command: { file: string; args: string[] } | null;
 }
 
-/** Sixteen thousand samples a second, two bytes each, one channel: what every recorder below is asked for. */
-export const wakeSampleRate = 16000;
+/** Sixteen thousand samples a second, two bytes each, one channel: what every recorder is asked for. */
+export const wakeSampleRate = micSampleRate;
 /** The most bytes one window may ever be, so a recorder that will not stop is stopped by the count. */
-export const windowBytes = (windowSeconds: number): number => wakeSampleRate * 2 * windowSeconds + 4096;
-
-const alsaRecorder = (windowSeconds: number): WakeCapture["command"] => ({
-  file: "arecord",
-  // `-d` ends it on its own after the window; the count of bytes ends it too, so a recorder that
-  // ignores the flag still cannot hold more than one window.
-  args: ["-q", "-f", "S16_LE", "-r", String(wakeSampleRate), "-c", "1", "-t", "wav", "-d", String(windowSeconds), "-"],
-});
-
-// parecord has no length of its own, so this one is ended by the count of bytes alone rather than
-// by a flag guessed at. Writing to "-" is standard output; no file name is ever an argument.
-const pulseRecorder = (): WakeCapture["command"] => ({
-  file: "parecord",
-  args: ["--file-format=wav", `--rate=${wakeSampleRate}`, "--channels=1", "--format=s16le", "-"],
-});
-
-/**
- * mac7/wake-mac: sox, which the owner installed themselves. `rec` is sox with the microphone
- * already chosen; where only `sox` is here, `-d` is what chooses it, and the two are otherwise the
- * same command. `trim 0 <window>` ends it after one window, and the count of bytes ends it too, so
- * a build that ignored the effect still could not hold more than the owner allowed.
- */
-const soxRecorder = (file: string, windowSeconds: number): WakeCapture["command"] => ({
-  file,
-  // Writing to "-" is standard output; no file name is ever an argument, and the word never is.
-  args: [
-    ...(file === "sox" ? ["-d"] : []),
-    "-q", "-c", "1", "-r", String(wakeSampleRate), "-b", "16", "-e", "signed-integer", "-t", "wav", "-",
-    "trim", "0", String(windowSeconds),
-  ],
-});
-
-/**
- * mac7/wake-mac: ffmpeg, also the owner's own, for a Mac that has it and not sox. One window from
- * the microphone macOS calls the default one, straight to standard output and no further.
- */
-const ffmpegRecorder = (windowSeconds: number): WakeCapture["command"] => ({
-  file: "ffmpeg",
-  args: [
-    "-hide_banner", "-loglevel", "quiet", "-nostdin", "-f", "avfoundation", "-i", ":default",
-    "-t", String(windowSeconds), "-ac", "1", "-ar", String(wakeSampleRate), "-c:a", "pcm_s16le", "-f", "wav", "-",
-  ],
-});
-
-/** The recording programs a Mac is looked at for, best first. None is ever installed or bundled. */
-const macRecorders = ["rec", "sox", "ffmpeg"] as const;
+export const windowBytes = micWindowBytes;
 
 /**
  * mac7/wake-mac: what would open the microphone on a Mac. macOS ships no recorder a program can
@@ -279,12 +235,13 @@ const macRecorders = ["rec", "sox", "ffmpeg"] as const;
  * Branch may open the microphone and they should know what would be asking before they say yes.
  */
 function macRecorder(present: ProgramPresent, windowSeconds: number): WakeCapture {
-  const file = macRecorders.find((name) => present(name));
-  if (!file)
+  const file = recorderName("darwin", present);
+  const command = recorderFor("darwin", present, windowSeconds, "window");
+  if (!file || !command)
     return cannotListen("This Mac has no recording program on it: macOS ships no recorder a program can ask for sound, and Branch will not install one of its own to open your microphone. Install one yourself — `brew install sox` is the smallest — and the wake word can use it; until then the switch stays off.");
   return {
     kind: "recorder", available: true,
-    command: file === "ffmpeg" ? ffmpegRecorder(windowSeconds) : soxRecorder(file, windowSeconds),
+    command,
     // Integration review: "which you installed yourself" implied a check that is not made. Branch
     // runs the first program of that name on the owner's own search path and does not look at what
     // it is, so the card says so. What is really true of it is said beside it: it is given an
@@ -311,7 +268,7 @@ export function wakeCapture(
     return { kind: "spotter-listens", available: true, command: null,
       how: "Windows' own speech recognition opens the microphone itself, for one window at a time, and no sound ever reaches Branch." };
   if (platform === "linux") {
-    const recorder = present("arecord") ? alsaRecorder(windowSeconds) : present("parecord") ? pulseRecorder() : null;
+    const recorder = recorderFor("linux", present, windowSeconds, "window");
     return recorder
       ? { kind: "recorder", available: true, command: recorder,
           how: `${recorder.file}, which is already on this computer, run for one window of sound at a time and then ended.` }
@@ -323,7 +280,7 @@ export function wakeCapture(
 /* ---------- starting, and every reason not to ---------- */
 
 /** The real answer on this computer: a look at the search path, which starts nothing. */
-export const onThisComputer: ProgramPresent = (name) => findOnPath(name) !== null;
+export const onThisComputer: ProgramPresent = programOnThisComputer;
 
 /**
  * The settings, the spotter and the capture, worked out together and in that order. A spotter that

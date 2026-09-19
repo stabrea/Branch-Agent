@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const MOBILE = join(repo, "apps", "mobile");
-export const OUT = join(repo, "release", "mobile");
+/** Where the finished files go; BRANCH_MOBILE_OUT keeps them outside the checkout (a build drive). */
+export const OUT = process.env.BRANCH_MOBILE_OUT ?? join(repo, "release", "mobile");
 export const KEYCHAIN = { service: "branch-mobile-keystore", account: "branch-agent" };
 export const KEY_ALIAS = "branch-agent";
 
@@ -85,8 +86,9 @@ export async function buildAndroid(sdk, key, runner = run) {
   if (key?.password) Object.assign(env, { BRANCH_ANDROID_KEYSTORE: key.store, BRANCH_ANDROID_KEYSTORE_PASSWORD: key.password, BRANCH_ANDROID_KEY_ALIAS: KEY_ALIAS });
   const gradle = join(project, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   await runner(gradle, ["--no-daemon", "assembleRelease", "bundleRelease"], { cwd: project, env });
-  const apk = join(project, "app", "build", "outputs", "apk", "release", key ? "app-release.apk" : "app-release-unsigned.apk");
-  const aab = join(project, "app", "build", "outputs", "bundle", "release", "app-release.aab");
+  const built = env.BRANCH_GRADLE_BUILD_DIR ? join(env.BRANCH_GRADLE_BUILD_DIR, "app") : join(project, "app", "build");
+  const apk = join(built, "outputs", "apk", "release", key ? "app-release.apk" : "app-release-unsigned.apk");
+  const aab = join(built, "outputs", "bundle", "release", "app-release.aab");
   const outputs = [[apk, "Branch-Agent-android.apk"], [aab, "Branch-Agent-android.aab"]];
   for (const [from, to] of outputs) await copyFile(from, join(OUT, to));
   if (key) await runner(join(sdk, "build-tools", await buildTools(sdk), "apksigner"), ["verify", "--print-certs", join(OUT, "Branch-Agent-android.apk")], { quiet: true, env });

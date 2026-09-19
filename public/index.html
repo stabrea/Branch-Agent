@@ -152,7 +152,7 @@
               <button id="first-run-done" type="button" hidden data-t="action.done-start-chatting">Done, start chatting</button>
             </div>
             <div id="first-run-extras" class="first-run-extras">
-              <label><input id="first-run-autostart" type="checkbox" /> <span data-t="field.open-branch-when-i-sign">Open Branch when I sign in to Windows</span></label>
+              <label><input id="first-run-autostart" type="checkbox" /> <span data-t="field.open-branch-when-i-sign">Open Branch when I sign in to this computer</span></label>
               <label><input id="first-run-phone" type="checkbox" /> <span data-t="field.let-me-reach-branch-from">Let me reach Branch from my phone</span></label>
               <p id="first-run-extras-status" role="status"></p>
             </div>
@@ -271,6 +271,11 @@
               ><!-- Wave 8: the same button, live. It only appears when the connection you are using
                    can hold a live conversation; everything it does lives in public/voice-live.js. -->
               <button id="voice-live" type="button" class="text-button" hidden title="Talk and be answered as you go. Press again to cut in, and again to stop.">Talk live</button
+              ><!-- mac7/live-voice: speak and see the words. It only appears when the switch allows
+                   it and this computer has a streaming speech program; everything it does lives in
+                   public/dictation.js. While it is pressed the microphone is open, and the line
+                   under the box says so for exactly as long as it is. It never sends. -->
+              <button id="voice-dictate" type="button" class="text-button" hidden aria-pressed="false" title="Speak and the words appear in the box as you say them. Press again to stop. While it is on, the microphone is open. It fills the box; you press Send." data-t="action.dictate">Dictate</button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
@@ -286,6 +291,7 @@
           </form>
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="voice-live-status" class="meta" hidden></span></p>
+          <p class="composer-note"><span id="voice-dictate-status" class="meta" hidden></span></p>
           <!-- Wave 8: the helper line and the room meter share one quiet row under the box. -->
           <div class="composer-foot">
             <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
@@ -873,6 +879,30 @@
             <button id="docs3-limits-go" type="button" data-t="action.check-the-limits">Check the limits</button>
             <div id="docs3-limits-result" role="status"></div>
           </div>
+          <div class="card" id="learn-card">
+            <h2 data-t="documents.card.understanding-something">Understanding something</h2>
+            <p class="subtle" data-t="documents.note.a-picture-of-what-is">A picture of what is in a folder of code or a knowledge base and how the parts connect, and a guided walk through it. Every claim names the line or the passage it came from, and a claim with nothing behind it says so.</p>
+            <div class="input-row">
+              <select id="learn-subject" data-t-label="field.what-to-understand" aria-label="What to understand">
+                <option value="code" data-t="field.a-folder-of-code">A folder of code</option>
+                <option value="documents" data-t="field.a-knowledge-base">A knowledge base</option>
+              </select>
+              <input id="learn-of" type="text" maxlength="200" placeholder="." data-t-label="field.which-folder-or-knowledge-base" aria-label="Which folder or knowledge base" />
+              <button id="learn-cost-go" type="button" data-t="action.what-would-this-cost">What would this cost</button>
+            </div>
+            <p id="learn-cost-result" role="status" class="meta"></p>
+            <div class="input-row">
+              <button id="learn-map-go" type="button" data-t="action.build-the-map">Build the map</button>
+              <button id="learn-tour-go" type="button" data-t="action.start-the-tour">Start the tour</button>
+            </div>
+            <label><input id="learn-use-model" type="checkbox" /> <span data-t="field.let-a-model-write-the">Let a model write the words on each stop (one call, priced above)</span></label>
+            <div id="learn-map-result" role="status"></div>
+            <div id="learn-tour-result" role="status"></div>
+            <div class="input-row" id="learn-tour-controls" hidden>
+              <button id="learn-tour-back" type="button" data-t="action.back">Back</button>
+              <button id="learn-tour-next" type="button" data-t="action.next">Next</button>
+            </div>
+          </div>
           <div class="card">
             <h2 data-t="documents.card.made-by-the-assistant">Made by the assistant</h2>
             <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
@@ -885,7 +915,7 @@
           <section id="deployment-card" class="card">
             <h2 data-t="settings.card.how-branch-runs-on-this">How Branch runs on this computer</h2>
             <p id="deployment-note" role="status">Choose when Branch starts, whether it keeps working with the window closed, and whether your phone can reach it.</p>
-            <label><input id="start-with-windows" type="checkbox" /> <span data-t="field.start-branch-when-i-sign">Start Branch when I sign in to Windows</span></label>
+            <label><input id="start-with-windows" type="checkbox" /> <span data-t="field.start-branch-when-i-sign">Start Branch when I sign in to this computer</span></label>
             <label><input id="start-minimised" type="checkbox" checked /> <span data-t="field.start-quietly-in-the-corner">Start quietly in the corner of the taskbar, without opening the window</span></label>
             <p id="start-with-windows-status" role="status" class="meta"></p>
             <label><input id="keep-running" type="checkbox" /> <span data-t="field.keep-branch-working-when-the">Keep Branch working when the window is closed</span></label>
@@ -1044,6 +1074,28 @@
             <p id="wake-word-refusal" class="field-note" aria-live="polite"></p>
             <p id="wake-word-state" class="field-note" aria-live="polite"></p>
             <button data-t="action.save-wake-word">Save the wake word</button>
+          </form>
+          <form id="dictation-form" class="card" data-home="settings:voice">
+            <h2 data-t="settings.card.dictation">Speak and see the words</h2>
+            <p class="warn" data-t="settings.dictation.warning">Read this before you switch it on: while dictation is listening, the microphone stays open. A recording program runs for as long as you are dictating, which is what lets the words appear as you speak. This is the one place Branch holds a microphone open — the word that starts a turn takes one window of sound at a time and lets go of the microphone every window; this does not. It is opened when you press Dictate and closed the moment you press it again, a quiet room ends the phrase, the conversation closes, Branch is locked, or Lockdown comes on. The line below is on for exactly as long as the microphone is.</p>
+            <p data-t="settings.dictation.intro">Speak, and the words appear in the message box as you say them, on this computer, for nothing, and nothing is sent anywhere. It uses a streaming speech program you installed yourself — Branch installs none of its own and downloads none — so where this computer has none, the line below says which one to install and the switch stays off. Dictation fills the message box; it does not send it. You press send, exactly as if you had typed. Nothing is written to disk, nothing is kept beyond the phrase being written out, and the words go to the screen rather than into any record. Words appear about a second behind you and may change as it hears more. Dictation is the owner's: nobody else who uses this computer is offered it.</p>
+            <div id="dictation-fields">
+            <label for="dictation-mode" data-t="field.dictation-mode">Speaking to Branch</label>
+            <select id="dictation-mode" aria-describedby="dictation-mode-note">
+              <option value="off" data-t="switch.off">Off</option>
+              <option value="when-needed" data-t="switch.when-needed">When needed</option>
+              <option value="on" data-t="switch.on">On</option>
+            </select>
+            <p id="dictation-mode-note" class="field-note" data-t="settings.dictation.mode-note">Off, the Dictate control is not there and nothing can open the microphone. When needed, it appears once a conversation is open on screen. On, it is always there. That is the whole difference: which windows offer the control. On does not mean the microphone is open — no setting here ever opens one: only pressing Dictate does, and only at this window. Lockdown switches it off whatever this says.</p>
+            <label for="dictation-silence" data-t="field.dictation-silence">Seconds of quiet that end a phrase</label>
+            <input id="dictation-silence" type="number" min="1" max="30" step="1" aria-describedby="dictation-silence-note" />
+            <p id="dictation-silence-note" class="field-note" data-t="settings.dictation.silence-note">Nobody speaking for this long ends the phrase and lets go of the microphone. Branch does not hold a microphone open for a room that has gone quiet.</p>
+            </div>
+            <p id="dictation-open" class="field-note" aria-live="polite"></p>
+            <p id="dictation-how" class="field-note" aria-live="polite"></p>
+            <p id="dictation-refusal" class="field-note" aria-live="polite"></p>
+            <p id="dictation-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-dictation">Save dictation</button>
           </form>
           <form id="pins-form" class="card" data-home="settings:permissions">
             <h2 data-t="settings.card.pins">Settings you have pinned</h2>
@@ -1234,6 +1286,8 @@
           <section id="updates-card" class="card" hidden>
             <h2 data-t="settings.card.updates">Updates</h2>
             <p id="updates-version" class="subtle"></p>
+            <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
+            <p id="updates-newest" class="subtle"></p>
             <p id="updates-status" role="status"></p>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
@@ -1712,6 +1766,13 @@
             <input id="local-routing-ceiling" type="number" min="0" max="100" step="0.01" />
             <button id="local-routing-save" type="button" data-t="action.save-these-rules">Save these rules</button>
           </section>
+          <!-- mac7/adapt: getting what a stopped task is missing. Its own card, because it works
+               for blockers that have nothing to do with models on this computer. -->
+          <section id="adapt-card" class="card">
+            <h2 data-t="settings.card.adapt">Getting what a stopped task is missing</h2>
+            <p data-t="settings.adapt.purpose">When a task cannot go on because something is missing, Branch works out what it is, tells you what would fix it and what that costs, and gets it only after you say yes. Then the task carries on from where it stopped.</p>
+            <div id="adapt-body"></div>
+          </section>
           <form id="model-settings-form" class="card" hidden>
             <h2 data-t="settings.card.model-connection">Model connection</h2>
             <p id="model-settings-note" class="subtle"></p>
@@ -1744,6 +1805,25 @@
               <button data-t="action.save-model-connection">Save model connection</button>
             </fieldset>
           </form>
+          <!-- mac7/clean-uninstall: the danger zone, last in Settings, like the delete-account area
+               in other products. It shows what would go before anything goes. -->
+          <section id="danger-zone" class="card danger-zone" data-home="settings:about">
+            <h2 data-t="danger.card.title">Danger zone</h2>
+            <p class="subtle" data-t="danger.intro">Removing Branch closes it, takes away the app, the programs it downloaded to run models, the models themselves, and the entry that starts it when you sign in. Nothing here can be undone.</p>
+            <p id="danger-status" role="status"></p>
+            <div id="danger-list" class="card-list"></div>
+            <p id="danger-total" class="subtle"></p>
+            <div id="danger-left"></div>
+            <label class="checkbox-row" for="danger-keep">
+              <input id="danger-keep" type="checkbox" checked />
+              <span data-t="danger.field.keep">Keep my conversations and settings</span>
+            </label>
+            <label for="danger-confirm" data-t="danger.field.confirm">Type Branch Agent to confirm</label>
+            <input id="danger-confirm" type="text" maxlength="60" autocomplete="off" spellcheck="false" />
+            <div class="identity-actions">
+              <button id="danger-remove" type="button" class="danger-button" disabled data-t="danger.action.remove">Remove Branch and everything it installed</button>
+            </div>
+          </section>
         </section>
       </div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
@@ -1893,6 +1973,8 @@
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
     <script src="/local-oneclick.js" type="module"></script>
+    <script src="/adapt.js" type="module"></script>
+    <script src="/danger-zone.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
@@ -1901,6 +1983,7 @@
     <script src="/chat-live.js" type="module"></script>
     <script src="/chat-permissions.js" type="module"></script>
     <script src="/wake-word.js" type="module"></script>
+    <script src="/dictation.js" type="module"></script>
     <script src="/pins.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
     <!-- Bucket 17: watching videos and speech plug-ins. -->
@@ -1914,6 +1997,7 @@
     <!-- bucket-18: code editor (A0098) -->
     <script src="/code-editor.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
+    <script src="/learn.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
     <script src="/move-in.js" type="module"></script>
@@ -1957,6 +2041,7 @@
     <!-- mac6/bucket-23: the smaller asks, one card in each part's home. -->
     <script src="/asks.js" type="module"></script>
     <script src="/devices.js" type="module"></script>
+    <script src="/phone-app.js" type="module"></script>
     <script src="/autonomy.js" type="module"></script>
     <script src="/trunks.js" type="module"></script>
     <script src="/coding.js" type="module"></script>

@@ -260,6 +260,28 @@ export function encodeQr(text: string): QrMatrix {
   return { version, size: best!.size, modules: best!.modules };
 }
 
+/**
+ * mac7/phone-qr: the barcode for a terminal, two rows of squares per line of text, framed by the
+ * four-square quiet margin a camera looks for. With colour it is forced black on white, so a dark
+ * terminal does not print it inverted (which many phone cameras will not read); without colour
+ * (`NO_COLOR`) the dark squares are printed as blocks for a light terminal.
+ */
+export function qrTerminal(matrix: QrMatrix, colour = true): string {
+  const quiet = 4, size = matrix.size + quiet * 2;
+  const dark = (row: number, column: number): boolean => matrix.modules[row - quiet]?.[column - quiet] === true;
+  const escape = String.fromCharCode(27);
+  const lines: string[] = [];
+  for (let row = 0; row < size; row += 2) {
+    let line = "";
+    for (let column = 0; column < size; column++) {
+      const top = dark(row, column), bottom = row + 1 < size && dark(row + 1, column);
+      line += top && bottom ? "█" : top ? "▀" : bottom ? "▄" : " ";
+    }
+    lines.push(colour ? `${escape}[38;5;16;48;5;231m${line}${escape}[0m` : line);
+  }
+  return lines.join("\n");
+}
+
 /** The barcode as rows of text, for a terminal or a test. */
 export function qrText(matrix: QrMatrix): string {
   return matrix.modules.map((row) => row.map((dark) => (dark ? "##" : "  ")).join("")).join("\n");

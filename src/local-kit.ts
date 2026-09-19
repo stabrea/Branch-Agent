@@ -43,7 +43,9 @@ const kits = new WeakMap<Store, LocalKit>();
 export function localKitFor(store: Store): LocalKit | undefined { return kits.get(store); }
 
 export function createLocalKit(options: LocalKitOptions): LocalKit {
-  const launcher = new RuntimeLauncher(options.launcher ?? {});
+  // mac7/clean-uninstall: the launcher is told Branch's own folder, so a program Branch fetched for
+  // itself is found there (after any copy the person installed themselves) and removed with Branch.
+  const launcher = new RuntimeLauncher({ dataDir: options.dataDir, ...(options.launcher ?? {}) });
   const library = options.library ?? libraryFetch(options.policy);
   const room = async () => readRoom(await readHardware(), { platform: launcher.at.platform, ...(options.memory ?? {}) });
   const shared = { models: options.models, store: options.store, owner: options.owner, policy: options.policy,

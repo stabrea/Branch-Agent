@@ -16,6 +16,7 @@ import {
   compareStudies, comparisonTable, studyTable, studyLines,
   runToolEvaluations, builtInToolSuites, toolEvaluationLine, readTrajectory, saveSuite,
   ScriptedProvider, say, callTool, findBash,
+  conditionsVersion, machineIdentity,
 } from "../dist/index.js";
 
 const runFile = promisify(execFile);
@@ -415,8 +416,15 @@ test("comparing two studies reports the difference with a range, and the same an
     score: passed[index] ? 1 : 0, ms: 10, tokens: 10, dollars: 0.001, runId: null, reasons: [],
   }));
   const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
-  const before = { id: "11111111-1111-4111-8111-111111111111", name: "Before", cells: cells(ids, [true, false, false, false, false, false, false, false]) };
-  const after = { id: "22222222-2222-4222-8222-222222222222", name: "After", cells: cells(ids, [true, true, true, true, true, true, true, true]) };
+  // mac7/eval-honesty: two studies may only be compared when both wrote down the conditions they
+  // ran under and those conditions match. These two were measured the same way.
+  const measured = {
+    version: conditionsVersion, presets: ["fast"], models: ["demo"], judgeModel: null,
+    settings: { maxSteps: 30 }, appVersion: "0.17.0", machine: machineIdentity(),
+    taskSetHash: "abc123", scorerDigest: "def456", costBasis: "estimated",
+  };
+  const before = { id: "11111111-1111-4111-8111-111111111111", name: "Before", conditions: measured, cells: cells(ids, [true, false, false, false, false, false, false, false]) };
+  const after = { id: "22222222-2222-4222-8222-222222222222", name: "After", conditions: measured, cells: cells(ids, [true, true, true, true, true, true, true, true]) };
   const comparison = compareStudies(before, after);
   assert.equal(comparison.tasks, 8);
   assert.equal(comparison.delta, 0.875);
@@ -429,7 +437,10 @@ test("comparing two studies reports the difference with a range, and the same an
   assert.equal(flat.delta, 0);
   assert.equal(flat.clear, false);
   assert.match(comparisonTable(flat), /not yet a real difference/);
-  assert.throws(() => compareStudies(before, { id: "44444444-4444-4444-8444-444444444444", name: "Other", cells: cells(["z"], [true]) }), /no task in common/);
+  assert.throws(() => compareStudies(before, { id: "44444444-4444-4444-8444-444444444444", name: "Other", conditions: measured, cells: cells(["z"], [true]) }), /no task in common/);
+  // mac7/eval-honesty: and a run that never wrote its conditions down is refused before any of that.
+  assert.throws(() => compareStudies(before, { id: "55555555-5555-4555-8555-555555555555", name: "Unrecorded", cells: cells(ids, [true, true, true, true, true, true, true, true]) }),
+    /did not write down the conditions/i);
 });
 
 /* --------------------------------------------- E5 tool checks, and the CLI */

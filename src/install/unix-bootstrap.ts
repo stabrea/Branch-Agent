@@ -8,7 +8,11 @@ import { launcherMarker } from "./unix-install.js";
  * inside the app, run by the app's own runtime. It never asks anything and never downloads anything.
  *
  *   sh install-branch-agent.sh [--quiet] [--no-menu-entry] [--repair] [--assistant <file>]
+ *                              [--applications | --no-applications]
  *   sh install-branch-agent.sh --uninstall [--delete-data]
+ *
+ * On a Mac it asks one question, about the Applications folder, unless it was answered on the command
+ * line or there is no person at a terminal to ask (mac7/app-icon; see unix-install-cli.ts).
  */
 export const unixBootstrapperName = "install-branch-agent.sh";
 
@@ -108,6 +112,7 @@ export function unixBootstrapperScript(): string {
     "#!/bin/sh",
     "# Installs Branch Agent for this person on macOS or Linux, with no questions and no administrator.",
     "#   sh install-branch-agent.sh [--quiet] [--no-menu-entry] [--repair] [--assistant <file from branch export-agent>]",
+    "#     macOS also: [--applications | --no-applications] — where Branch Agent is put.",
     "#   sh install-branch-agent.sh --uninstall [--delete-data]",
     "set -eu",
     // The system's own tools, whatever PATH the caller had; and a person to install for.

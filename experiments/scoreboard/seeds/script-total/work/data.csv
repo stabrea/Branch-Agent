@@ -1,0 +1,6 @@
+id,customer,amount,status
+1,alba,1200.00,paid
+2,berta,312.50,paid
+3,cyrus,0.25,refunded
+4,dina,2700.00,paid
+5,emil,0.00,void

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
-import type { TrialReport, TrialTask } from "./skill-revisions.js";
+import { trialRefusal, type TrialReport, type TrialTask } from "./skill-revisions.js";
 import { parseSkillDocument } from "./skill-document.js";
 import { detectInjection } from "./content-guard.js";
 import { describeFindings, scanSkill } from "./skill-scan.js";
@@ -212,7 +212,7 @@ export async function trialNewSkill(store: Store, owner: string, runtime: Runtim
   if (!tasks.length) throw new Error("There is no past task to try this skill on yet.");
   const skill = store.skills.view(owner, skillId);
   const { parent, context } = learningTask(store, owner, `Try the new skill "${skill.name}" on ${tasks.length} task(s)`, runtime, true);
-  const sides = { baseline: { finished: 0, ms: 0, tokens: 0 }, candidate: { finished: 0, ms: 0, tokens: 0 } };
+  const sides = { baseline: { finished: 0, ms: 0, tokens: 0, errors: 0 }, candidate: { finished: 0, ms: 0, tokens: 0, errors: 0 } };
   const instructions = { baseline: "No skill is being tried. Do the task as you normally would.", candidate: `The skill being tried:\n${skill.document}` };
   for (const task of tasks) for (const side of ["baseline", "candidate"] as const) {
     const started = Date.now();
@@ -221,12 +221,16 @@ export async function trialNewSkill(store: Store, owner: string, runtime: Runtim
     const permissions = [...context.permissions].filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage"].includes(p));
     const run = await runtime.delegate(task.prompt, context, permissions, instructions[side], { timeoutMs: 120000 }).catch(() => null);
     const usage = run ? store.usage(run.id) as { estimatedInput?: number; estimatedOutput?: number } : {};
+    // mac7/eval-honesty: a try that produced no result at all is counted apart from one that
+    // finished badly, so an outage on one side cannot make the other look better.
+    if (!run) sides[side].errors += 1;
     sides[side].finished += run?.status === "completed" ? 1 : 0;
     sides[side].ms += Date.now() - started;
     sides[side].tokens += (usage.estimatedInput ?? 0) + (usage.estimatedOutput ?? 0);
   }
   const report: TrialReport = { tasks: tasks.length, baseline: sides.baseline, candidate: sides.candidate,
-    noWorse: sides.candidate.finished >= sides.baseline.finished, ranAt: new Date().toISOString(), parentRunId: parent.id };
+    noWorse: sides.candidate.finished >= sides.baseline.finished,
+    unreadable: trialRefusal(sides.baseline, sides.candidate), ranAt: new Date().toISOString(), parentRunId: parent.id };
   store.event(parent.id, "skill.new_tried", { skillId, ...report });
   store.finish(parent.id, "completed", `Tried ${skill.name}: ${sides.candidate.finished} of ${tasks.length} finished with it, ${sides.baseline.finished} without`);
   return report;

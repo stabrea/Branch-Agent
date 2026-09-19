@@ -2,6 +2,7 @@ import { z } from "zod";
 import { offers, searchHuggingFace, lookUpOllama, searchQuery } from "./local-catalogue.js";
 import { savedLocalConnections } from "./local-connections.js";
 import { assertLocalModelsOn, localModelsMode, saveLocalModelsMode } from "./local-jobs.js";
+import { oneButtonMode, saveOneButtonMode } from "./local-one-button.js";
 import type { LocalKit } from "./local-kit.js";
 import { runtimeIds, runtimeInfo, type RuntimeId } from "./local-launch.js";
 import { RuntimeSchema } from "./local-manage.js";
@@ -51,6 +52,9 @@ export async function localModelsApi(
     return { shape, choice: routeForTask(store, models, owner, input) };
   }
   if (method === "POST" && path === "/api/local-models/switch") return saveLocalModelsMode(store, owner, await body());
+  // mac7/one-click: installing the program is its own switch, because it is the one thing here that
+  // changes the owner's computer. It ships off, and Lockdown holds it off whatever is saved.
+  if (method === "POST" && path === "/api/local-models/install/switch") return saveOneButtonMode(store, owner, await body());
   if (method === "POST" && path === "/api/local-models/details")
     return runtimes.details(modelBody.parse(await body()).model);
   if (method === "POST" && path.startsWith("/api/local-models/")) return changes(deps, path, await body());
@@ -77,6 +81,9 @@ async function changes(deps: LocalModelsDeps, path: string, input: unknown): Pro
   if (path === "/api/local-models/search") return search(kit, input);
   switch (path) {
     case "/api/local-models/setup": return kit.oneClick.begin(input);
+    // mac7/one-click (issue #107): what the button would do, and the button itself.
+    case "/api/local-models/one-button/plan": return kit.oneClick.buttonPlan(input);
+    case "/api/local-models/one-button": return kit.oneClick.buttonGo(input);
     case "/api/local-models/setup/stop": return kit.oneClick.stop(idBody.parse(input).id);
     case "/api/local-models/unload": return kit.manager.unload(input);
     case "/api/local-models/delete": return kit.manager.remove(input);
@@ -104,6 +111,8 @@ async function overview(deps: LocalModelsDeps) {
     routing: routingSettings(deps.store, deps.owner),
     lastError: deps.runtimes.lastError,
     mode: localModelsMode(deps.store, deps.owner),
+    installMode: oneButtonMode(deps.store, deps.owner), // mac7/one-click
+
     oneClick: deps.kit ? await oneClickView(deps, deps.kit) : null,
   };
 }

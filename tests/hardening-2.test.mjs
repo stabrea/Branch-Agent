@@ -346,7 +346,9 @@ test("a study's own place is what stops it starving when the computer is full", 
   t.after(() => other());
   const { saveSuite } = await import("../dist/evaluation-suites.js");
   saveSuite(app.store, app.runtime.owner, {
-    id: "small", name: "Small", tasks: [{ id: "one", prompt: "one" }, { id: "two", prompt: "two" }, { id: "three", prompt: "three" }],
+    // mac7/eval-honesty: a task with nothing that could decide it is refused when it is saved.
+    id: "small", name: "Small",
+    tasks: ["one", "two", "three"].map((id) => ({ id, prompt: id, checks: { mustMention: [id] } })),
   });
   app.studies.save({ id: "busy", name: "Busy", source: { kind: "suite", suite: "small" }, presets: ["default"], concurrency: 3 });
   const result = await app.studies.run("busy");

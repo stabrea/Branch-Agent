@@ -17,12 +17,19 @@ import type { Runtime } from "./runtime.js";
 import type { ExecutionLimit } from "./execution-limit.js";
 import { codeRunSettings } from "./code-run.js";
 import { estimateCost, pricingSettings } from "./pricing.js";
-import { findSuite } from "./evaluation-suites.js";
+import { findSuite, type EvaluationTask } from "./evaluation-suites.js";
+import { denyProblem } from "./evaluation-grading.js";
+import { evaluateChecks } from "./reliability.js";
 import { readTrajectory, runtimeJudge, scoreTrajectory } from "./evaluation-run.js";
 import type { ScoredTrajectory } from "./evaluation-scorers.js";
 import { findBenchmarkAdapter } from "./benchmark-adapters.js";
 import type { BenchmarkAdapter, BenchmarkBrowser, BenchmarkTask, LiveAttempt } from "./benchmarks.js";
 import { datasetVersionOf, journalEntry, journalReport, journalReplayPlan, type JournalEntry } from "./study-journal.js";
+import {
+  combinedBasis, comparisonRefusal, completenessRefusal, conditionsVersion, costNote, incompleteWarning,
+  ledgerTokens, machineIdentity, scorerDigest, spreadOf,
+  type Completeness, type CostBasis, type RunConditions, type Spread,
+} from "./evaluation-honesty.js";
 
 export const StudySchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
@@ -66,26 +73,68 @@ export interface StudyCell {
   runId: string | null; reasons: string[];
   /** Best-of-N: the score of each try, so the choice can be seen rather than trusted. */
   candidates?: number[];
+  /** Whether the tokens behind `dollars` were the provider's own count or Branch's guess. */
+  costBasis?: CostBasis;
+  /** Set when nothing decided this task, so a run cannot go green while measuring nothing. */
+  ungraded?: boolean;
 }
 export interface StudyRunResult {
   id: string; studyId: string; name: string; startedAt: string; finishedAt: string;
   presets: string[]; tasks: string[]; cells: StudyCell[];
-  rows: { preset: string; tasks: number; passed: number; accuracy: number; meanMs: number; tokens: number; dollars: number | null }[];
+  rows: {
+    preset: string; tasks: number; passed: number; accuracy: number; meanMs: number; tokens: number; dollars: number | null;
+    /** Where the money figure came from; never printed without saying which. */
+    costBasis?: CostBasis;
+    /** Repeats of the same task as a range rather than one number, when the study repeated anything. */
+    spread?: Spread | null;
+    /** How many of this choice's cells nothing decided at all. */
+    ungraded?: number;
+  }[];
   /** How many cells were already done when the study was picked back up. */
   resumed: number;
   stoppedEarly: string | null;
+  /**
+   * What this run was measured under. A result without it cannot be compared with anything: see
+   * `comparisonRefusal`. Missing on results written before this existed, which is the point.
+   */
+  conditions?: RunConditions;
+  /** What the run set out to do against what it actually recorded. */
+  completeness?: Completeness;
 }
 
 const cellKey = (studyId: string, cell: { preset: string; taskId: string; repeat: number }): string =>
   `study-cell:${studyId}:${cell.preset}:${cell.taskId}:${cell.repeat}`;
 
-/** The plain-language table a person reads, and a study report pastes in unchanged. */
+/**
+ * The plain-language table a person reads, and a study report pastes in unchanged.
+ *
+ * Three things are said out loud rather than left to be assumed: what a repeated task's accuracy
+ * actually ranged over, where the money figure came from, and whether anything the run planned
+ * produced no result at all. The last is the one that matters most — a run missing pieces has a
+ * smaller denominator, and a smaller denominator flatters whatever is left.
+ */
 export function studyTable(result: StudyRunResult): string {
-  const head = "| Model choice | Tasks | Right | Accuracy | Mean ms | Tokens | Cost |";
-  const rule = "| --- | ---: | ---: | ---: | ---: | ---: | ---: |";
+  const head = "| Model choice | Tasks | Right | Accuracy | Over repeats | Mean ms | Tokens | Cost |";
+  const rule = "| --- | ---: | ---: | ---: | :---: | ---: | ---: | ---: |";
+  const percent = (value: number): string => `${(value * 100).toFixed(1)}%`;
+  const range = (spread: Spread | null | undefined): string =>
+    !spread || spread.repeats < 2 ? "one repeat" : `${percent(spread.low)}–${percent(spread.high)}`;
   const rows = result.rows.map((row) =>
-    `| ${row.preset} | ${row.tasks} | ${row.passed} | ${(row.accuracy * 100).toFixed(1)}% | ${row.meanMs} | ${row.tokens} | ${row.dollars === null ? "no price on file" : "$" + row.dollars.toFixed(4)} |`);
-  return [`### ${result.name}`, "", head, rule, ...rows, ""].join("\n");
+    `| ${row.preset} | ${row.tasks} | ${row.passed} | ${percent(row.accuracy)} | ${range(row.spread)} | ${row.meanMs} | ${row.tokens} | `
+    + `${row.dollars === null ? "no price on file" : "$" + row.dollars.toFixed(4)} |`);
+  const basis = combinedBasis(result.rows.flatMap((row) => (row.costBasis ? [row.costBasis] : [])));
+  const priced = result.rows.some((row) => row.dollars !== null);
+  const warning = result.completeness ? incompleteWarning(result.completeness) : null;
+  const ungraded = result.rows.reduce((total, row) => total + (row.ungraded ?? 0), 0);
+  return [
+    `### ${result.name}`, "",
+    ...(warning ? [`**${warning}**`, ""] : []),
+    ...(ungraded ? [`**${ungraded} task(s) had nothing that could decide them, and are counted as not right.**`, ""] : []),
+    head, rule, ...rows, "",
+    `Cost: ${costNote(basis, priced)}.`,
+    ...(result.stoppedEarly ? ["", result.stoppedEarly] : []),
+    "",
+  ].join("\n");
 }
 /** Every cell as JSON Lines, one per line, for a spreadsheet or another program to read. */
 export function* studyLines(result: StudyRunResult): Generator<string> {
@@ -95,6 +144,13 @@ export function* studyLines(result: StudyRunResult): Generator<string> {
 /** One task a study runs, whatever it came from. */
 interface StudyTask {
   id: string; prompt: string; expected?: string | undefined; scorers?: unknown[] | undefined;
+  /**
+   * The task's own checks and its "must not" list, when it came from one of the owner's suites.
+   * A study used to drop both, which meant a suite task decided by checks passed every study it
+   * was in whatever the answer said. They are carried and applied here instead.
+   */
+  checks?: EvaluationTask["checks"] | undefined;
+  deny?: EvaluationTask["deny"] | undefined;
   judge?: ((answer: string) => Promise<{ pass: boolean; reasons: string[] }>) | undefined;
   /** Why this task cannot be run on this computer. Set, it is failed without asking the model. */
   refusal?: string | undefined;
@@ -199,7 +255,12 @@ export class StudyRunner {
     }
     const resumed = done.size;
     const stopped = await this.workThrough(study, planned.filter((item) => !done.has(cellKey(study.id, { preset: item.preset, taskId: item.task.id, repeat: item.repeat }))), done);
-    return this.finish(study, tasks, [...done.values()], startedAt, resumed, stopped);
+    // What the study set out to do, so a cell that never produced a result is named rather than
+    // dropped from the denominator. A worker that gave up waiting for a place leaves cells here.
+    const wanted = planned.map((item) => `${item.preset}/${item.task.id}/${item.repeat}`);
+    const got = new Set([...done.values()].map((cell) => `${cell.preset}/${cell.taskId}/${cell.repeat}`));
+    const completeness: Completeness = { planned: wanted.length, recorded: got.size, missing: wanted.filter((key) => !got.has(key)) };
+    return this.finish(study, tasks, [...done.values()], startedAt, resumed, stopped, completeness);
   }
 
   /**
@@ -287,8 +348,11 @@ export class StudyRunner {
       prompt: task.prompt, model: preset, budget: { maxSteps: study.maxSteps, maxTokens: study.maxTokens },
       traceAttributes: { "branch.study.id": study.id, "branch.benchmark.id": study.source.kind === "benchmark" ? study.source.benchmark : study.source.suite, "branch.study.task": task.id },
     });
-    const usage = this.store.usage(run.id);
-    const tokens = { input: usage.estimatedInput ?? 0, output: usage.estimatedOutput ?? 0 };
+    // The provider's own token count is the ledger; Branch's estimate is only the fallback for a
+    // provider that reports nothing. Which of the two was used travels with the cell, because an
+    // estimate must never be read as a bill.
+    const counted = ledgerTokens(this.store.usage(run.id));
+    const tokens = { input: counted.input, output: counted.output };
     const dollars = estimateCost(preset, tokens, pricingSettings(this.store, this.owner).overrides).amount;
     const ms = Date.now() - began, total = tokens.input + tokens.output;
     const trajectory = readTrajectory(this.store, run.id, { ms, tokens: total, dollars });
@@ -302,19 +366,34 @@ export class StudyRunner {
       if (trajectory.dollars !== null) trajectory.dollars += cost.dollars ?? 0;
     });
     return { passed: verdict.pass, score: verdict.score, ms, tokens: total + judged.tokens,
-      dollars: dollars === null ? null : dollars + judged.dollars, runId: run.id, reasons: verdict.reasons };
+      dollars: dollars === null ? null : dollars + judged.dollars, runId: run.id, reasons: verdict.reasons,
+      costBasis: dollars === null ? "unknown" : counted.basis, ...(verdict.ungraded ? { ungraded: true } : {}) };
   }
 
   /** How a task is decided: its own judge when it came from a benchmark, else its scorers. */
   private async decide(
     task: StudyTask, answer: string, trajectory: ScoredTrajectory, status: string,
     spent: (cost: { tokens: number; dollars: number | null }) => void = () => undefined,
-  ): Promise<{ pass: boolean; score: number; reasons: string[] }> {
+  ): Promise<{ pass: boolean; score: number; reasons: string[]; ungraded?: boolean }> {
     if (status !== "completed") return { pass: false, score: 0, reasons: [`The task did not finish (${status})`] };
     if (task.judge) { const judged = await task.judge(answer); return { ...judged, score: judged.pass ? 1 : 0 }; }
+    // What the task said must not happen is fatal, and decided without a model, as it is everywhere
+    // else. A study used to ignore this entirely.
+    const forbidden = task.deny ? await denyProblem(answer, { ...task, deny: task.deny } as never, this.runtime.workspace) : null;
+    if (forbidden) return { pass: false, score: 0, reasons: [forbidden] };
     const scored = await scoreTrajectory(task.scorers, { workspace: this.runtime.workspace, judge: runtimeJudge(this.runtime, spent), judgeCache: this.judgeCache },
       { id: task.id, prompt: task.prompt, expected: task.expected }, trajectory, answer);
-    return scored ? { pass: scored.pass, score: scored.score, reasons: scored.reasons } : { pass: true, score: 1, reasons: [] };
+    if (!scored && task.checks) {
+      const problem = await evaluateChecks(answer, { ...task.checks, maxRetries: 0 }, this.runtime.workspace);
+      return problem ? { pass: false, score: 0, reasons: [problem] } : { pass: true, score: 1, reasons: [] };
+    }
+    if (!scored && task.deny) return { pass: true, score: 1, reasons: [] };
+    // A task with nothing that could decide it used to pass, which is how a study goes green while
+    // measuring nothing. It is now counted as not right and named, so the suite says what is wrong
+    // with itself instead of quietly inflating its own accuracy.
+    return scored
+      ? { pass: scored.pass, score: scored.score, reasons: scored.reasons }
+      : { pass: false, score: 0, ungraded: true, reasons: [`${task.id} has no checks, no scorers and no judge, so nothing could decide it. Give it a check or a scorer, or take it out of the study.`] };
   }
 
   /** The tasks a study will run: from one of the owner's suites, or from a benchmark's own files. */
@@ -323,7 +402,7 @@ export class StudyRunner {
       (study.subset.length ? study.subset.flatMap((id) => all.filter((task) => task.id === id)) : all).slice(0, study.limit);
     if (study.source.kind === "suite") {
       const suite = findSuite(this.store, this.owner, study.source.suite);
-      return chosen(suite.tasks.map((task) => ({ id: task.id, prompt: task.prompt, expected: task.expected, scorers: task.scorers })));
+      return chosen(suite.tasks.map((task) => ({ id: task.id, prompt: task.prompt, expected: task.expected, scorers: task.scorers, checks: task.checks, deny: task.deny })));
     }
     const adapter = findBenchmarkAdapter(study.source.benchmark);
     const directory = study.source.directory;
@@ -368,25 +447,77 @@ export class StudyRunner {
       if (record.id.startsWith(`study-cell:${studyId}:`)) this.store.delete("governance", this.owner, record.id);
   }
 
-  private finish(study: Study, tasks: StudyTask[], cells: StudyCell[], startedAt: string, resumed: number, stoppedEarly: string | null): StudyRunResult {
+  private finish(study: Study, tasks: StudyTask[], cells: StudyCell[], startedAt: string, resumed: number, stoppedEarly: string | null, completeness: Completeness): StudyRunResult {
     const rows = study.presets.map((preset) => {
       const mine = cells.filter((cell) => cell.preset === preset);
       const priced = mine.filter((cell) => cell.dollars !== null);
+      // A repeated task is reported as the range its repeats covered, not as their mean alone: one
+      // task that passed once in three is not the same measurement as one that passed every time.
+      const byRepeat = [...new Set(mine.map((cell) => cell.repeat))].sort()
+        .map((repeat) => mine.filter((cell) => cell.repeat === repeat))
+        .filter((group) => group.length)
+        .map((group) => group.filter((cell) => cell.passed).length / group.length);
       return {
         preset, tasks: mine.length, passed: mine.filter((cell) => cell.passed).length,
         accuracy: mine.length ? Math.round((mine.filter((cell) => cell.passed).length / mine.length) * 1000) / 1000 : 0,
         meanMs: mine.length ? Math.round(mine.reduce((total, cell) => total + cell.ms, 0) / mine.length) : 0,
         tokens: mine.reduce((total, cell) => total + cell.tokens, 0),
         dollars: priced.length ? Math.round(priced.reduce((total, cell) => total + (cell.dollars ?? 0), 0) * 1e6) / 1e6 : null,
+        costBasis: combinedBasis(mine.flatMap((cell) => (cell.costBasis ? [cell.costBasis] : []))),
+        spread: byRepeat.length > 1 ? spreadOf(byRepeat) : null,
+        ungraded: mine.filter((cell) => cell.ungraded).length,
       };
     });
     const result: StudyRunResult = {
       id: randomUUID(), studyId: study.id, name: study.name, startedAt, finishedAt: new Date().toISOString(),
       presets: study.presets, tasks: tasks.map((task) => task.id), cells, rows, resumed, stoppedEarly,
+      conditions: this.conditionsFor(study, tasks, rows.flatMap((row) => (row.costBasis ? [row.costBasis] : []))),
+      completeness,
     };
     this.store.save("governance", this.owner, `study-run:${result.id}`, { ...result });
     this.record(study, tasks, result);
     return result;
+  }
+
+  /** Which model grades, when anything in this study is graded by one. Null when nothing is. */
+  private judgeModel(tasks: StudyTask[]): string | null {
+    const asksAModel = tasks.some((task) => task.judge)
+      || tasks.some((task) => (task.scorers ?? []).some((scorer) => (scorer as { kind?: unknown }).kind === "rubric"));
+    if (!asksAModel) return null;
+    // A grader always runs on whichever model the owner's plan would pick, the same way
+    // `runtimeJudge` charges it, so that is the identity that belongs in the conditions.
+    try { return this.runtime.models.plan(this.owner, "").choice.model ?? null; } catch { return null; }
+  }
+
+  /**
+   * Everything about how this run was measured, as opposed to what it found. A result that carries
+   * this can be checked against another one; a result without it is refused rather than guessed at.
+   */
+  private conditionsFor(study: Study, tasks: StudyTask[], bases: CostBasis[]): RunConditions {
+    const modelOf = (preset: string): string => {
+      try { return this.runtime.models.plan(this.owner, "", { preset }).choice.model ?? preset; } catch { return preset; }
+    };
+    const judge = this.judgeModel(tasks);
+    return {
+      version: conditionsVersion,
+      presets: [...study.presets].sort(),
+      models: [...new Set(study.presets.map(modelOf))].sort(),
+      judgeModel: judge,
+      settings: {
+        maxSteps: study.maxSteps, maxTokens: study.maxTokens, repeats: study.repeats,
+        bestOfN: study.bestOfN, limit: study.limit, retries: study.retries,
+        source: JSON.stringify(study.source), benchmarksFolder: this.settings().benchmarksFolder,
+      },
+      appVersion: this.appVersion,
+      machine: machineIdentity(),
+      taskSetHash: datasetVersionOf(tasks.map(({ id, prompt, expected, scorers }) => ({ id, prompt, expected, scorers }))),
+      scorerDigest: scorerDigest({
+        scorers: tasks.flatMap((task) => task.scorers ?? []),
+        judgeModel: judge,
+        benchmarkJudge: study.source.kind === "benchmark" ? study.source.benchmark : null,
+      }),
+      costBasis: combinedBasis(bases),
+    };
   }
 
   /** The journal entry for one finished run: what the study was, not only what it found. */
@@ -400,6 +531,7 @@ export class StudyRunner {
     const entry = journalEntry(result, {
       study, tasks: tasks.map((task) => task.id), scorerKinds: [...kinds].sort(),
       benchmarksFolder: this.settings().benchmarksFolder, version: this.appVersion,
+      ...(result.conditions ? { conditions: result.conditions } : {}),
       datasetVersion: datasetVersionOf(tasks.map(({ id, prompt, expected, scorers }) => ({ id, prompt, expected, scorers }))), // w911 (A1082)
     });
     this.store.save("governance", this.owner, `study-journal:${result.id}`, { ...entry });
@@ -426,14 +558,25 @@ export class StudyRunner {
     if (!previous) return { entry: latest, plan: journalReplayPlan(latest), report: `This is the first run of ${latest.name}, so there is nothing to compare it with yet.` };
     const results = this.results(studyId);
     const before = results.find((one) => one.id === previous.runId), after = results.find((one) => one.id === latest.runId);
-    const comparison = before && after ? tryCompare(before, after) : undefined;
-    return { entry: latest, plan: journalReplayPlan(latest), report: journalReport(previous, latest, comparison) };
+    // When the two results themselves are no longer on file, nothing is handed in and the report
+    // works the refusal out from the entries' own conditions. Handing it null would say "I checked,
+    // and there is nothing wrong" — which is exactly the silence this branch is removing.
+    const attempt = before && after ? tryCompare(before, after) : undefined;
+    return { entry: latest, plan: journalReplayPlan(latest),
+      report: journalReport(previous, latest, attempt?.comparison, attempt?.refusal) };
   }
 }
 
-/** Two studies with no task in common cannot be compared; that is a fact to report, not an error. */
-function tryCompare(before: StudyRunResult, after: StudyRunResult): StudyComparison | undefined {
-  try { return compareStudies(before, after); } catch { return undefined; }
+/**
+ * The comparison, or the reason there is none. Two kinds of "no": a refusal, which is a fact about
+ * how the two runs were measured and has to be read out loud, and two studies with no task in
+ * common, which is only a fact to mention. Swallowing the first is how a refused comparison used to
+ * turn back into an ordinary accuracy line further down the page.
+ */
+function tryCompare(before: StudyRunResult, after: StudyRunResult): { comparison?: StudyComparison; refusal: string | null } {
+  const refusal = studyComparisonRefusal(before, after);
+  if (refusal) return { refusal };
+  try { return { comparison: compareStudies(before, after), refusal: null }; } catch { return { refusal: null }; }
 }
 
 /* ------------------------------------------------------------- comparison */
@@ -471,7 +614,20 @@ export interface StudyComparison {
  * tasks with replacement two thousand times — no library, and the same answer every time, because
  * the generator is seeded by the two studies' own ids.
  */
+export function studyComparisonRefusal(a: StudyRunResult, b: StudyRunResult): string | null {
+  const names = { before: a.name || "the earlier run", after: b.name || "this run" };
+  return comparisonRefusal(a.conditions, b.conditions, names)
+    ?? completenessRefusal(
+      a.completeness ?? { planned: a.cells.length, recorded: a.cells.length, missing: [] },
+      b.completeness ?? { planned: b.cells.length, recorded: b.cells.length, missing: [] },
+      names);
+}
+
 export function compareStudies(a: StudyRunResult, b: StudyRunResult): StudyComparison {
+  // Before anything is worked out: were these two runs measured the same way at all? A difference
+  // between two runs made under different settings is not a weaker result, it is not a result.
+  const refusal = studyComparisonRefusal(a, b);
+  if (refusal) throw new Error(refusal);
   const left = perTask(a), right = perTask(b);
   const shared = [...left.keys()].filter((id) => right.has(id));
   if (!shared.length) throw new Error("These two studies have no task in common, so there is nothing to compare");

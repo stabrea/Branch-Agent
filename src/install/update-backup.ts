@@ -11,15 +11,33 @@ import { maximumBackupBytes } from "../backup.js";
 export const backupFolder = "update-backups";
 export const keepBackups = 3;
 const namePattern = /^before-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-v(.+)\.json$/;
+/** The copies `migrate` takes before it changes the database's shape (see never-break/migrations.ts). */
+const formatCopyPattern = /^before-format-(\d+)\.sqlite$/;
 
 export function backupFileName(version: string, at: Date): string {
   const stamp = at.toISOString().replace(/\..*$/, "").replace(/:/g, "-");
   return `before-${stamp}-v${version.replace(/[^\w.-]/g, "")}.json`;
 }
 /** The safety copies to throw away: everything older than the newest `keep` of them. */
-export function backupsToPrune(names: string[], keep = keepBackups): string[] {
-  const mine = names.filter((name) => namePattern.test(name)).sort();
-  return mine.slice(0, Math.max(0, mine.length - keep));
+export function backupsToPrune(names: string[], keep = keepBackups, keepAlways?: string): string[] {
+  const mine = names.filter((name) => namePattern.test(name) && name !== keepAlways).sort();
+  // mac7/install-torture: a clock that jumped backwards names the newest copy with an old date, so
+  // sorting alone would throw away the one just written. The caller's own copy is always kept.
+  const room = Math.max(0, keep - (keepAlways && namePattern.test(keepAlways) ? 1 : 0));
+  return mine.slice(0, Math.max(0, mine.length - room));
+}
+
+/**
+ * The copies taken before a change to the database's shape. They are whole databases, so a machine
+ * that keeps failing the same change would otherwise grow one per start, for ever.
+ */
+export function formatCopiesToPrune(names: string[], keep = keepBackups, keepAlways?: string): string[] {
+  // merge-queue review: the copy just taken is the one an undo of this update points at
+  // (activation.sqlite records it), and a clock that jumped backwards gives it the oldest name.
+  const room = Math.max(0, keep - (keepAlways && formatCopyPattern.test(keepAlways) ? 1 : 0));
+  const mine = names.filter((name) => formatCopyPattern.test(name) && name !== keepAlways)
+    .sort((a, b) => Number(formatCopyPattern.exec(a)![1]) - Number(formatCopyPattern.exec(b)![1]));
+  return mine.slice(0, Math.max(0, mine.length - room));
 }
 
 export interface RestorePoint { name: string; path: string; bytes: number; savedAt: string; version: string }
@@ -48,10 +66,12 @@ export async function writeUpdateBackup(
   const body = JSON.stringify(archive);
   if (Buffer.byteLength(body) > maximumBackupBytes)
     throw new Error(`This copy holds more saved work than a safety copy can hold (${Math.round(maximumBackupBytes / 1048576)} MiB).`);
-  const path = join(dir, backupFileName(version, at));
+  const name = backupFileName(version, at);
+  const path = join(dir, name);
   await writeFile(path, body, { mode: 0o600 });
-  const pruned = backupsToPrune(await readdir(dir), keep);
-  for (const name of pruned) await rm(join(dir, name), { force: true });
+  const here = await readdir(dir);
+  const pruned = [...backupsToPrune(here, keep, name), ...formatCopiesToPrune(here, keep)];
+  for (const entry of pruned) await rm(join(dir, entry), { force: true });
   return { path, pruned };
 }
 

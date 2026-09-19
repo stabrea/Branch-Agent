@@ -3,12 +3,18 @@ import { posix, win32 } from "node:path";
 import { errorText } from "./contracts.js";
 import { findVariant, ollamaDownloadBytes, variantBytes, type CatalogueEntry, type CatalogueVariant } from "./local-catalogue.js";
 import { registerLocalConnection, smokeTest, type LocalConnectionDeps } from "./local-connections.js";
-import { assertRoomOnDisk, downloadFile, mlxFilesWanted, modelsFolder, repoFiles, resolveUrl, type StatFs } from "./local-files.js";
+import { assertRoomOnDisk, downloadFile, freeDiskBytes, mlxFilesWanted, modelsFolder, repoFiles, resolveUrl, type StatFs } from "./local-files.js";
 import { chooseContext, judgeFit, type MachineRoom } from "./local-fit.js";
 import { SetupJobs, SetupRequestSchema, assertLocalModelsOn, type SetupJob, type SetupRequest } from "./local-jobs.js";
 import { runtimeIds, runtimeInfo, type RuntimeId, type RuntimeLauncher } from "./local-launch.js";
 import { LmStudioClient, OllamaClient, OpenAiServerClient, lmStudioModelName, localModelName } from "./local-models.js";
 import { localRuntimeFetch } from "./local-policy.js";
+import { detectTools, installPlan, isInstallable, planSize, runInstall, type InstallPlan, type InstallableRunner } from "./local-install.js";
+import {
+  ButtonGoSchema, ButtonPlanSchema, installGuard, needsAgreementNote, notInstalledNote, planChangedNote, sizeChoices,
+  systemWideAllowed,
+  type ButtonGo, type PressContext, type SizeChoice,
+} from "./local-one-button.js";
 
 /**
  * Wave mac5 (local models): one click, from "I want this model" to a connection that answers.
@@ -33,6 +39,32 @@ export interface OneClickDeps extends LocalConnectionDeps {
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
   test?: typeof smokeTest;
+}
+
+/** mac7/one-click: what the button would do, before anything is done. */
+export interface OneButtonView {
+  runner: InstallableRunner;
+  name: string;
+  alreadyInstalled: boolean;
+  install: InstallPlan | null;
+  downloadNote: string;
+  /** mac7/clean-uninstall: where the models this button downloads will be kept. */
+  modelsFolder: string;
+  /** Free bytes on the disk that folder is on, or null when it cannot be told. */
+  freeBytes: number | null;
+  choices: SizeChoice[];
+  recommended: SizeChoice["size"] | null;
+  /** Why this caller may not press it, or null. The plan itself is only ever a description. */
+  refusal: string | null;
+}
+export interface OneButtonAnswer {
+  done: boolean;
+  runner: InstallableRunner;
+  message: string;
+  job: SetupJob | null;
+  chose: SizeChoice | null;
+  /** Set when Branch is waiting for the owner to agree to exactly this plan. */
+  needsAgreement?: InstallPlan;
 }
 
 interface Resolved {
@@ -144,8 +176,19 @@ export class OneClick {
 
   private async checkDisk(resolved: Resolved): Promise<void> {
     if (!resolved.bytes) return;
-    const folder = modelsFolder(resolved.runtime, this.deps.launcher.at, this.deps.dataDir);
+    const folder = await this.modelsGoTo(resolved.runtime);
     await assertRoomOnDisk(folder, resolved.bytes, this.deps.launcher.at.platform, this.deps.statfs);
+  }
+
+  /** mac7/clean-uninstall: where this runtime's models land, inside Branch when Branch fetched it. */
+  async modelsGoTo(runtime: RuntimeId): Promise<string> {
+    return modelsFolder(runtime, this.deps.launcher.at, this.deps.dataDir, await this.deps.launcher.isOwn(runtime));
+  }
+
+  /** How much room is left where the models go, before anything is downloaded. The card says it. */
+  async roomLeft(runtime: RuntimeId): Promise<number | null> {
+    const folder = await this.modelsGoTo(runtime);
+    return freeDiskBytes(folder, this.deps.launcher.at.platform, this.deps.statfs).catch(() => null);
   }
 
   /** Whether Ollama or LM Studio is answering now. */
@@ -255,6 +298,85 @@ export class OneClick {
       ?? models.find((model) => model.name === resolved.source);
     if (!match) throw new Error("LM Studio finished the download but Branch could not find the model in its list. Load it in LM Studio once.");
     return match.name;
+  }
+
+  /* ------------------------------------------- mac7/one-click (issue #107): the one button */
+
+  /**
+   * What pressing the button would do, with nothing done yet: the program that would be installed
+   * (where from, how big, how it is checked), and a small, a middle and a large model sized for
+   * this computer. The owner reads this, then presses again with the plan's own line to agree.
+   */
+  async buttonPlan(input: unknown, context: PressContext = {}): Promise<OneButtonView> {
+    ButtonPlanSchema.parse(input ?? {});
+    const refusal = installGuard(this.deps.store, this.deps.owner, context);
+    const runner = ((input as { runner?: InstallableRunner } | null)?.runner) ?? await this.pickInstallable();
+    const program = await this.deps.launcher.find(runner);
+    const room = await this.deps.room();
+    const { choices, recommended } = sizeChoices(room, runner);
+    // mac7/clean-uninstall: the copy outside Branch is only ever offered when the owner switched
+    // "Allow installing outside Branch" on, or where it is the only honest option (LM Studio).
+    const wanted = ((input as { systemWide?: boolean } | null)?.systemWide ?? false)
+      && systemWideAllowed(this.deps.store, this.deps.owner);
+    const plan = program ? null : installPlan(runner, this.deps.launcher.at,
+      await detectTools(this.deps.launcher.at, this.deps.launcher.fileExists), this.deps.dataDir, wanted);
+    return {
+      runner, name: runtimeInfo[runner].name, alreadyInstalled: Boolean(program), install: plan,
+      downloadNote: plan ? `${planSize(plan)} from ${plan.source}.` : "",
+      // mac7/clean-uninstall: where the download lands and how much of this disk is left for it.
+      modelsFolder: await this.modelsGoTo(runner), freeBytes: await this.roomLeft(runner),
+      choices, recommended: recommended?.size ?? null, refusal,
+    };
+  }
+
+  /** The program to offer: one that is installed, else Ollama, which Branch can install everywhere. */
+  private async pickInstallable(): Promise<InstallableRunner> {
+    for (const id of runtimeIds) if (isInstallable(id) && await this.deps.launcher.find(id)) return id;
+    return "ollama";
+  }
+
+  /**
+   * The button itself. Installs the program when it is missing — only the plan the owner agreed to,
+   * and only after saying so — then checks the program really arrived, and hands straight over to
+   * the ordinary setup, which downloads the model, loads it, asks it one question and connects it.
+   */
+  async buttonGo(input: unknown, context: PressContext = {}): Promise<OneButtonAnswer> {
+    const wanted = ButtonGoSchema.parse(input ?? {});
+    const refusal = installGuard(this.deps.store, this.deps.owner, context);
+    if (refusal) throw new Error(refusal);
+    const view = await this.buttonPlan({ ...(wanted.runner ? { runner: wanted.runner } : {}), ...(wanted.systemWide ? { systemWide: true } : {}) }, context);
+    if (!view.alreadyInstalled) {
+      const outcome = await this.install(view.install, wanted);
+      if (outcome) return outcome;
+    }
+    const pick = this.pickSize(view.choices, wanted.size);
+    if (!pick) throw new Error("Branch's list has no model that fits this computer and can use tools.");
+    const job = await this.begin({ runtime: view.runner, model: pick.model, quant: pick.quant, force: pick.fit !== "no" ? false : true });
+    return { done: false, runner: view.runner, message: `Setting up ${pick.name} ${pick.quant}…`, chose: pick, ...("id" in job ? { job } : { job: null }) };
+  }
+
+  /** Installs the program, or says what is still needed. Null means it is installed and Branch may go on. */
+  private async install(plan: InstallPlan | null, wanted: ButtonGo): Promise<OneButtonAnswer | null> {
+    if (!plan) throw new Error("Branch could not work out how to install that program on this computer.");
+    if (plan.instead) throw new Error(plan.instead);
+    if (wanted.agreedPlan !== plan.fingerprint)
+      return { done: false, runner: plan.runner, message: wanted.agreedPlan ? planChangedNote : needsAgreementNote(plan.name),
+        needsAgreement: plan, job: null, chose: null };
+    const outcome = await runInstall(plan, {
+      at: this.deps.launcher.at, run: this.deps.launcher.program, exists: this.deps.launcher.fileExists,
+      library: this.deps.library, scratchDir: this.installFolder(), dataDir: this.deps.dataDir,
+    });
+    if (!outcome.installed) throw new Error(outcome.message);
+    if (!(await this.deps.launcher.find(plan.runner))) throw new Error(notInstalledNote(plan.name));
+    return null;
+  }
+  private installFolder(): string {
+    const join = this.deps.launcher.at.platform === "win32" ? win32.join : posix.join;
+    return join(this.deps.dataDir, "local-installers");
+  }
+  private pickSize(choices: SizeChoice[], size: ButtonGo["size"]): SizeChoice | null {
+    if (size) return choices.find((one) => one.size === size) ?? null;
+    return [...choices].reverse().find((one) => one.fit === "well") ?? choices[0] ?? null;
   }
 
   /** Stops a setup that is still going; what was downloaded stays for next time. */
