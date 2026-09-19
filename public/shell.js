@@ -573,3 +573,5 @@ if (!workspace.hidden) void loadRail();
 new MutationObserver(() => {
   if (!workspace.hidden) void loadRail();
 }).observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
+/* A finished task has saved its conversation: it belongs in Recents straight away (public/app.js). */
+document.addEventListener("branch-run-finished", () => void loadRail());

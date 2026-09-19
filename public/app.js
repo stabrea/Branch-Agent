@@ -1547,11 +1547,17 @@ $("conversation-import").addEventListener("change", async () => {
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   token = $("token").value.trim();
+  /* Kept before the workspace shows, not after: a reload in the gap used to find no token and put the
+     sign-in form back over a session that had just connected, and the parts that draw themselves the
+     moment it shows (Recents, the Lockdown switch) read it from here. Put back if the token is refused. */
+  const kept = sessionStorage.getItem("branch-token");
+  sessionStorage.setItem("branch-token", token);
   try {
-    await refresh();
-    /* Kept the moment the workspace shows, before anything else is waited on: a reload in the gap
-       used to find no token and put the sign-in form back over a session that had just connected. */
-    sessionStorage.setItem("branch-token", token);
+    try { await refresh(); }
+    catch (error) {
+      if (kept === null) sessionStorage.removeItem("branch-token"); else sessionStorage.setItem("branch-token", kept);
+      throw error;
+    }
     // Signing back in is what unlocks the secrets locker again.
     await api("lock/unlock", {}).catch(() => undefined);
     $("token").value = "";
@@ -1735,6 +1741,12 @@ $("chat-form").addEventListener("submit", async (event) => {
     await loadConversation(run.sessionId, run.status);
     await refresh();
     await loadSessionModel();
+    /* The conversation is saved now: Recents (public/shell.js) and the calm window's one-time
+       suggestion (public/layout.js) hear it here, not only after New conversation or a reload. */
+    document.dispatchEvent(new CustomEvent("branch-run-finished", { detail: {
+      sessionId: run.sessionId, status: run.status, temporary: currentTemporary,
+      completedRuns: (state.runs ?? []).filter((entry) => entry.status === "completed").length,
+    } }));
     // Auto-read-aloud when setting is enabled
     if (typeof speakText !== "undefined") {
       try {

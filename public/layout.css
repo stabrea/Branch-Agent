@@ -1365,12 +1365,13 @@ body.lx #connection[data-state="lost"] {
   #composer-media, #composer-attach, #voice-record, #voice-talk,
   .composer-temporary, .composer-specialist, #new-session, .lx-model-chip,
   .composer-foot, .context-stats, #session-context[data-kind="plain"], #activity, #first-run-next,
-  [data-t^="first-run-next.watch"]
+  [data-t^="first-run-next.watch"], #composer-media-file
 ) {
   display: none !important;
 }
-/* kept apart from the list above: inside :is() their weight would outweigh the voice rule below */
-:root:not([data-everything="on"]) #context-panel .context-block:is(:has(#context-provider), :has(#context-allowed)) {
+/* kept apart from the list above: inside :is() their weight would outweigh the voice rule below.
+   The model is said once, as Practice mode; "What is allowed right now" stays in the pane (More). */
+:root:not([data-everything="on"]) #context-panel .context-block:has(#context-provider) {
   display: none !important;
 }
 /* the places stay one click away in More; Inbox comes back to the rail while something waits in it */
@@ -1387,12 +1388,19 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"])[data-voice="on"] :is(#voice-record, #voice-talk) {
   display: inline-flex !important;
 }
-/* while work runs on its own, the pane says only what is running */
+/* while work runs on its own, the pane says only what is running, and what could stop or limit it:
+   a goal's own Stop, and any yes this conversation is carrying */
 :root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:not(:has(#context-tasks)) {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:has(#context-tasks) {
+:root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:is(
+  :has(#context-tasks), :has(#goal-strip:not([hidden])), :has(#context-allowed .allowed-row)
+) {
   display: block;
+}
+/* the goal's block, while it runs, shows the goal and not the to-do list around it */
+:root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:has(#goal-strip:not([hidden])) > :not(#goal-strip) {
+  display: none;
 }
 /* a reply's own buttons appear when the pointer is on it, where there is a pointer */
 @media (hover: hover) {
@@ -1412,6 +1420,77 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
   justify-content: flex-end;
 }
-:root:not([data-everything="on"]) .welcome {
-  padding-top: var(--s7);
+/* The grove is the full window's. Seen through the calm window's frosted rail it was only a blurred
+   glow (the moon or the sun) and a strip of raw pixels in the gap between the panes, so the calm
+   window stands on the plain ground colour. "Clear the view" still shows the grove. */
+:root:not([data-everything="on"]):not([data-quiet]) .lx-wall {
+  display: none;
+}
+/* The empty conversation: the question and the box together, in the middle of the pane. Once there is
+   a message the box goes back to the foot. public/shell.js keeps --composer-h at the dock's height. */
+@media (min-width: 821px) {
+  :root:not([data-everything="on"]) body.lx #chat:has(> .welcome:not([hidden])) .composer-dock {
+    top: 50%;
+    bottom: auto;
+    transform: translateY(calc(-50% + 44px));
+    background: none;
+  }
+  :root:not([data-everything="on"]) body.lx #chat > .welcome:not([hidden]) {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(50% + var(--composer-h, 150px) / 2 - 44px);
+    padding: 0 var(--s5) var(--s1);
+    text-align: center;
+  }
+}
+@media (max-width: 820px) {
+  :root:not([data-everything="on"]) body.lx #chat:has(> .welcome:not([hidden])) > #conversation {
+    flex: 0 0 auto;
+  }
+  :root:not([data-everything="on"]) body.lx #chat > .welcome:not([hidden]) {
+    margin: auto 0;
+    padding: 0;
+    text-align: center;
+  }
+}
+/* The one-time line after the first finished task (public/layout.js offerNextSteps): one row above the box. */
+.lx-tip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 auto var(--s2);
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+.lx-tip-lead {
+  margin-right: 2px;
+}
+.lx-tip :is(.lx-tip-offer, .lx-tip-close) {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 550;
+}
+.lx-tip .lx-tip-offer:hover,
+.lx-tip .lx-tip-close:hover {
+  background: var(--hover);
+}
+.lx-tip .lx-tip-close {
+  margin-left: auto;
+  border-color: transparent;
+  color: var(--text-2);
+}
+:root[data-everything="on"] .lx-tip {
+  display: none;
 }

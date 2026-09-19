@@ -11,6 +11,8 @@ const SCALE = 3;
 const ORDER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const threshold = (x, y) => (ORDER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
+/* The calm window hides the grove unless the view is cleared (public/layout.css), so nothing moves behind it then. */
+const unseen = () => document.documentElement.dataset.everything !== "on" && !document.documentElement.dataset.quiet;
 
 let look = { season: "summer", mode: "dark" };
 let scene = null;
@@ -232,7 +234,7 @@ function moveAir(dt, now) {
 }
 let last = 0, running = false;
 function frame(now) {
-  if (document.hidden || still() || !scene) { running = false; return; }
+  if (document.hidden || still() || unseen() || !scene) { running = false; return; }
   requestAnimationFrame(frame);
   const gap = document.documentElement.dataset.quiet ? 33 : 80;
   if (now - last < gap) return;
@@ -241,13 +243,13 @@ function frame(now) {
   moveAir(dt, now);
 }
 function wake() {
-  if (running || !air || document.hidden || still()) return;
+  if (running || !air || document.hidden || still() || unseen()) return;
   running = true;
   last = 0;
   requestAnimationFrame(frame);
 }
 document.addEventListener("visibilitychange", wake);
-new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-motion"] });
+new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-motion", "data-everything"] });
 let resizeTimer, seen = "";
 new ResizeObserver(() => {
   const size = `${innerWidth}x${innerHeight}`;

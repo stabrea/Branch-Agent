@@ -139,28 +139,5 @@ if (card) {
         .join("\n");
     } catch (error) { say("doctor-report", error.message, true); }
   });
-  // The same two switches on the first-run checklist, where a new owner meets them first.
-  const firstRunAutostart = pick("first-run-autostart"), firstRunPhone = pick("first-run-phone");
-  if (firstRunAutostart)
-    firstRunAutostart.addEventListener("change", async (event) => {
-      try {
-        await call("/autostart", { enabled: event.target.checked, minimized: true });
-        pick("start-with-windows").checked = event.target.checked;
-        say("first-run-extras-status", event.target.checked
-          ? opensWhenSignedIn(platform, true)
-          : "Branch will not open by itself.");
-      } catch (error) { event.target.checked = false; say("first-run-extras-status", error.message, true); }
-    });
-  if (firstRunPhone)
-    firstRunPhone.addEventListener("change", async (event) => {
-      try {
-        const status = await call("/remote", { enabled: event.target.checked });
-        pick("phone-switch").checked = status.enabled;
-        pick("phone-invite").hidden = !status.enabled;
-        say("first-run-extras-status", status.enabled
-          ? "Switched on. Open Settings to show the square code your phone scans."
-          : status.message);
-      } catch (error) { event.target.checked = false; say("first-run-extras-status", error.message, true); }
-    });
   if (token() || desktop) void refresh();
 }
