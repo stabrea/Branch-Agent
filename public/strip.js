@@ -73,20 +73,26 @@ const needsYou = () => Number($("lx-inbox-badge")?.textContent || 0) > 0 && !$("
 export function stripItems() {
   const here = { id: "here", kind: "computer", name: say("strip.here", "This computer"), spec: computerSpec({ id: "here", name: "here", here: true }),
     status: needsYou() ? "wait" : "on" };
+  if (shell.join?.state === "waiting") here.status = "pairing";
   const devices = (shell.devices?.devices ?? []).map((device) => ({ id: `device:${device.id}`, kind: "device", name: device.name, device,
     spec: computerSpec(device), status: device.connected ? "on" : "off" }));
+  // A computer or phone asking to join shows at once, its ring turning until it is let in (critique #46).
+  const asking = (shell.devices?.requests ?? []).filter((request) => request.status === "waiting").map((request) => ({ id: `asking:${request.id}`,
+    kind: "asking", name: request.name, request, spec: computerSpec({ id: request.id, name: request.name, platform: request.platform }), status: "pairing" }));
   const trunks = visibleTrunks().map((trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
     spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 }));
-  return { computers: [here, ...devices], trunks };
+  return { computers: [here, ...devices, ...asking], trunks };
 }
 function statusWords(item) {
+  if (item.status === "pairing") return item.kind === "asking" ? say("strip.status.asking", "Asking to join") : say("strip.status.joining", "Joining another Branch");
   if (item.kind === "trunk") return item.working ? say("strip.status.working", "Working") : say("strip.status.on", "Ready");
   if (item.status === "wait") return say("strip.status.wait", "Needs you");
   return item.status === "on" ? say("strip.status.online", "Online") : say("strip.status.off", "Off");
 }
 function kindWords(item) {
   if (item.kind === "trunk") return say("strip.kind.trunk", "Trunk");
-  return item.device ? platformWord(item.device.platform) : say("strip.kind.here", "the computer you are on");
+  const platform = item.device?.platform ?? item.request?.platform;
+  return platform ? platformWord(platform) : say("strip.kind.here", "the computer you are on");
 }
 
 /* ---------- which face is picked ---------- */
@@ -121,7 +127,7 @@ function stripFace(item, owner) {
     badge.setAttribute("aria-label", say("trunks.unread", "{n} unread", { n: item.unread }));
     wrap.append(badge);
   }
-  if (owner) {
+  if (owner && item.kind !== "asking") {
     const more = make("button", "strip-more");
     more.type = "button";
     more.setAttribute("aria-label", say("strip.change", "Change {name}", { name: item.name }));
@@ -167,7 +173,15 @@ function peopleButton() {
 }
 const separator = () => make("span", "strip-sep");
 
+/** Which control in the strip has the keyboard, so a redraw can give it back. */
+function focusedInStrip() {
+  const node = document.activeElement;
+  if (!node || !$("trunk-strip")?.contains(node)) return null;
+  const id = node.closest("[data-strip-id]")?.dataset.stripId;
+  return id ? `[data-strip-id="${id}"] .${node.classList[0]}` : `.${node.classList[0]}`;
+}
 export function drawStrip() {
+  const focused = focusedInStrip();
   const on = shell.look.strip !== "off";
   document.body.classList.toggle("lx-strip", on);
   let nav = $("trunk-strip");
@@ -186,10 +200,13 @@ export function drawStrip() {
   if (owner) list.append(addButton());
   nav.replaceChildren(brand(), separator(), list, peopleButton());
   markSelected();
+  // A person moving through the strip with the keyboard keeps their place across a redraw.
+  if (focused) nav.querySelector(focused)?.focus({ preventScroll: true });
 }
 
 /* ---------- going somewhere ---------- */
 async function choose(item) {
+  if (item.kind === "asking") return void import("/studio.js").then((studio) => studio.openLetIn(item.request));
   if (item.kind === "trunk") return openTrunk(item.trunk);
   if (item.kind === "device") return showOverview(item.id);
   const wasTrunk = selectedId().startsWith("trunk:");
@@ -366,6 +383,7 @@ whenReady(() => {
   void refresh();
   setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
   document.addEventListener("branch-profile", () => void refresh());
+  document.addEventListener("branch-language", () => { drawStrip(); document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell })); });
   document.addEventListener("branch-place", markSelected);
   if ($("conversation")) new MutationObserver(markSelected).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
   new MutationObserver(() => repaintPatterns()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });

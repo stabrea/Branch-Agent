@@ -80,7 +80,7 @@ function tabStrip() {
   return strip;
 }
 /** The tab strip stays; only what is under it changes (critique #34). */
-export async function showTab(id) {
+export async function showTab(id, keep = false) {
   const body = $("studio-body");
   if (!body) return;
   if (studio.tab !== id && studio.closing && studio.closing(() => { studio.closing = null; void showTab(id); }) === false) return;
@@ -91,7 +91,18 @@ export async function showTab(id) {
   body.replaceChildren(tabStrip(), panel);
   if (id === "trunk") return trunkPanel(panel);
   const pairing = await import("/pairing.js");
-  return id === "computer" ? pairing.computerPanel(panel) : pairing.phonePanel(panel);
+  return id === "computer" ? pairing.computerPanel(panel, keep) : pairing.phonePanel(panel, keep);
+}
+/** A computer or phone asking to join, picked in the strip: straight to Let it in. */
+export async function openLetIn(request) {
+  const phone = request.platform === "ios" || request.platform === "android";
+  const pairing = await import("/pairing.js");
+  pairing.askingFrom(request, phone ? "phone" : "computer");
+  studio.editing = null;
+  studio.draft = newDraft();
+  openDialog("studio.title.add", "Add a Trunk");
+  studio.tab = phone ? "phone" : "computer";
+  await showTab(studio.tab, true);
 }
 /** + in the strip: the studio on the tab asked for. */
 export function openAdd(tab = "trunk") {
@@ -384,6 +395,16 @@ export async function openEdit(id, { rename = false } = {}) {
   await trunkPanel(panel);
   if (rename) { $("studio-name")?.focus(); $("studio-name")?.select(); }
 }
+
+/* ---------- a change of language ----------
+   Words with a data-t key follow by themselves; sentences with a name in them are drawn again. */
+document.addEventListener("branch-language", () => {
+  if (!studio.dialog) return;
+  const title = $("studio-title");
+  if (title?.dataset.tTemplate && studio.editing) title.textContent = say(title.dataset.tTemplate, "Change {name}", { name: studio.draft.name });
+  if (studio.tab === "trunk" || studio.editing) { drawForm(); drawPreview(); }
+  else void import("/pairing.js").then((pairing) => pairing.relabelPairing());
+});
 
 /* ---------- small questions: remove, rename a computer ---------- */
 function ask(key, english, values, words, actions) {

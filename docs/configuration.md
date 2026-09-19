@@ -8009,6 +8009,8 @@ foot **Who is using Branch**. Each face has a ring that follows its shape: green
 you, grey is off. Right-click, a long press or the small **⋯** opens Branch's own menu for that face
 (never the browser's): Change look, Rename, Settings for this Trunk, Overview, Pin to the top, Move
 up or down, Hide from the strip and sidebar, Remove. Trunks can also be dragged into a new order.
+A computer or phone asking to join shows in the strip at once with a smooth turning ring; pressing
+it opens the studio at Let it in. While this computer is joining another Branch, its own ring turns.
 
 Two switches, in Settings › Appearance (card "The strip and faces"), saved in the settings record
 `shell-look` (`src/shell-look.ts`, `GET`/`POST /api/shell-look`; changing them is the owner's alone,

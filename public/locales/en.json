@@ -3170,6 +3170,8 @@
   "rail.recents": "Recents",
   "rail.search": "Search everything",
   "rail.sections": "Sections",
+  "strip.status.asking": "Asking to join",
+  "strip.status.joining": "Joining another Branch",
   "pair.waiting.phone": "Waiting for your phone…",
   "pair.waiting.computer": "Waiting for the other computer…",
   "pair.onlyHere": "Right now Branch here only answers on this computer itself, so another computer or a phone cannot reach it. Open it to your private network first, then come back for a new invitation.",

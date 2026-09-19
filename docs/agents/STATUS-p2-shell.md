@@ -33,7 +33,9 @@ the new thing is **the Trunks strip** (`#trunk-strip`, `public/strip.js`) everyw
       conversations get the Trunk's face unless p2-rooms' `public/rooms.js` is present (it signs those). Status is a
       ring following the face's shape (green/amber/grey), not a dot.
 - [x] 6. 3D stand-ins (#46): hand-written CSS (six slabs of the shape in a slowly tilting block), per Trunk
-      `depth: "3d"`, only while `shell-look.faces3d` is on (ships off). Pairing ring is a smooth conic band.
+      `depth: "3d"`, only while `shell-look.faces3d` is on (ships off). The pairing ring is a smooth conic band,
+      drawn on a computer/phone asking to join (a provisional `asking:` face in the strip, which opens the studio at
+      Let it in) and on this computer's face while it is joining another Branch.
 - [ ] 7. Guide lightbulb (#36): **not present in the real app** (no guide, tour or compass button exists), so
       nothing to change; deliberately not invented.
 - [x] Docs: docs/configuration.md "The Trunks strip, faces, Overview and People"; docs/places.md homes.
@@ -43,7 +45,7 @@ the new thing is **the Trunks strip** (`#trunk-strip`, `public/strip.js`) everyw
 
 ## Test runs (merged tree)
 
-- tests/p2-shell.test.mjs 4/4, tests/p2-shell-ui.test.mjs 10/10.
+- tests/p2-shell.test.mjs 4/4, tests/p2-shell-ui.test.mjs 12/12 (includes the French redraw and the pairing ring).
 - 30 files (p2-shell*, trunks*, devices*, people*, calm-ui, shell-ui, web-ui, redesign-phase1, glass-select, mobile-shell,
   conversation-mode, suggestions, household-profile, lockdown-*, hardening-3, outside-resume, static-assets,
   index-structure, handbook): 312 tests, 308 pass, 3 skipped, 1 fail = shell-ui "a folded Projects group stays folded"

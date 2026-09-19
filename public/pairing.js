@@ -24,8 +24,16 @@ export const pair = { kind: "computer", mode: "choose", step: "pair", invite: nu
 function stopTimers() { for (const timer of pair.timers) clearInterval(timer); pair.timers = []; }
 function every(ms, work) { pair.timers.push(setInterval(() => { if (!$("studio")) return stopTimers(); void work(); }, ms)); }
 document.addEventListener("branch-studio-closed", stopTimers);
+/** Sentences with a name or a time in them are drawn again in the new language. */
+export function relabelPairing() { if (studio.tab !== "trunk") redraw(); }
 function redraw() { stopTimers(); const panel = document.querySelector("#studio .studio-panel"); if (panel) void draw(panel); }
 function draw(panel) { return pair.kind === "phone" ? phonePanel(panel, true) : computerPanel(panel, true); }
+
+/** Picked from the strip while it asks: the steps start at Let it in. */
+export function askingFrom(request, kind) {
+  Object.assign(pair, { kind, mode: "invite", step: "letin", invite: null, request, device: null, error: null });
+  pair.seen.add(request.id);
+}
 
 /* ---------- the two tabs ---------- */
 export async function computerPanel(panel, keep = false) {
@@ -130,10 +138,11 @@ function inviteBox() {
   const link = make("code", "pair-link");
   link.id = "pair-link";
   link.textContent = pair.invite.link;
-  const copy = button("pair-copy", "pair.copy", "Copy", async () => {
+  const copy = button("pair-copy", null, null, async () => {
     await navigator.clipboard.writeText(pair.invite.link).then(() => toast(say("pair.copied", "Copied."))).catch(() => toast(say("pair.copyFailed", "Select the invitation and copy it by hand.")));
   });
-  copy.prepend(icon("copy"));
+  // The words are their own element, so a change of language redraws them and leaves the icon.
+  copy.append(icon("copy"), make("span", "", "pair.copy", "Copy"));
   const number = make("p", "pair-number");
   number.id = "pair-number";
   number.textContent = `${pair.invite.code.slice(0, 3)} ${pair.invite.code.slice(3)}`;

@@ -3171,6 +3171,8 @@
   "rail.recents": "Récents",
   "rail.search": "Tout chercher",
   "rail.sections": "Rubriques",
+  "strip.status.asking": "Demande à entrer",
+  "strip.status.joining": "Rejoint un autre Branch",
   "pair.waiting.phone": "En attente de votre téléphone…",
   "pair.waiting.computer": "En attente de l'autre ordinateur…",
   "pair.onlyHere": "Pour l'instant, Branch ici ne répond que sur cet ordinateur lui-même, donc un autre ordinateur ou un téléphone ne peut pas le joindre. Ouvrez-le d'abord à votre réseau privé, puis revenez pour une nouvelle invitation.",
