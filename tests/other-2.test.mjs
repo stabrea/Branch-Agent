@@ -552,7 +552,20 @@ function shortPathOf(folder) {
   } catch { return null; }
 }
 
-test("branch watch runs the action on a change, never twice at once, and stops cleanly", async (t) => {
+/**
+ * Saves into the folder until the watcher has noticed. The system starts a watch on its own time
+ * (on a Mac, FSEvents arms on another thread), so a save made in the first instants can go unseen on
+ * a busy machine; saving again is what a person would do, and the wait ends on the run itself.
+ */
+async function saveUntilNoticed(handle, save) {
+  for (let round = 0; round < 30 && handle.runs === 0; round++) {
+    await save(round);
+    for (let waited = 0; waited < 25 && handle.runs === 0; waited++)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+test("branch watch runs the action on a change, never twice at once, and stops cleanly", { timeout: 60_000 }, async (t) => {
   const base = await mkdtemp(join(tmpdir(), "branch-watch-"));
   t.after(() => discard(base));
   const folder = join(base, "src");
@@ -567,12 +580,14 @@ test("branch watch runs the action on a change, never twice at once, and stops c
     await new Promise((resolve) => setTimeout(resolve, 5));
     running -= 1;
   }, { settleMs: 20, ignore: ["node_modules"] });
+  // Stopped whatever happens below: a watch left open keeps this whole file from ever finishing.
+  t.after(() => handle.stop());
 
-  await writeFile(join(folder, "one.txt"), "hello");
-  await writeFile(join(folder, "two.txt"), "there");
   // A burst of saves settles into a single run.
-  for (let waited = 0; waited < 100 && handle.runs === 0; waited++)
-    await new Promise((resolve) => setTimeout(resolve, 20));
+  await saveUntilNoticed(handle, async (round) => {
+    await writeFile(join(folder, "one.txt"), `hello ${round}`);
+    await writeFile(join(folder, "two.txt"), `there ${round}`);
+  });
   assert.ok(handle.runs >= 1, "a change set the action going");
   assert.ok(reasons.length >= 1);
   assert.match(reasons[0], /changed/);
@@ -591,7 +606,7 @@ test("branch watch runs the action on a change, never twice at once, and stops c
   assert.equal(ignored("src/app.ts", ["dist", "node_modules"]), false);
 });
 
-test("branch watch survives a folder named the short Windows way", async (t) => {
+test("branch watch survives a folder named the short Windows way", { timeout: 60_000 }, async (t) => {
   // Windows keeps short names like RUNNER~1 for some folders, and the watcher underneath Node stops
   // the whole program with an assertion when it is handed one. A build machine's temp folder is
   // often named that way even though a desktop's is not, so the short name is asked for outright
@@ -608,9 +623,7 @@ test("branch watch survives a folder named the short Windows way", async (t) => 
   const reasons = [];
   const handle = watchFolder(short, async (reason) => { reasons.push(reason); }, { settleMs: 20 });
   t.after(() => handle.stop());
-  await writeFile(join(folder, "one.txt"), "hello");
-  for (let waited = 0; waited < 100 && handle.runs === 0; waited++)
-    await new Promise((resolve) => setTimeout(resolve, 20));
+  await saveUntilNoticed(handle, (round) => writeFile(join(folder, "one.txt"), `hello ${round}`));
   assert.ok(handle.runs >= 1, "watching through the short name never noticed the change");
   assert.match(reasons[0] ?? "", /changed/);
 });
