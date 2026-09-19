@@ -10,7 +10,9 @@ import android.hardware.biometrics.BiometricPrompt;
 import android.net.Uri;
 import android.os.Build;
 import android.os.CancellationSignal;
+import android.webkit.PermissionRequest;
 import androidx.activity.result.ActivityResult;
+import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -35,8 +37,28 @@ public class BranchPhonePlugin extends Plugin {
     public void load() {
         vault = new BranchVault(getContext());
         node = new BranchNode(getContext());
+        guardMedia();
         BranchWeb.install(getBridge(), vault.load());
         BranchShareInbox.applySwitch(getContext());
+    }
+
+    /**
+     * mac7/phone-pairing review: Capacitor's own web view client grants the camera and the microphone
+     * to any page that asks, and the owner's Branch opens in this same web view. The phone's "never
+     * allow" list is checked here first, so a ticked refusal holds whatever Branch's page asks for.
+     */
+    private void guardMedia() {
+        getBridge().getWebView().setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                boolean ownPage = BranchRefusals.sameOrigin(String.valueOf(request.getOrigin()), getBridge().getAppUrl());
+                if (!BranchRefusals.mayCapture(node.never(), request.getResources(), ownPage)) {
+                    request.deny();
+                    return;
+                }
+                super.onPermissionRequest(request);
+            }
+        });
     }
 
     @PluginMethod

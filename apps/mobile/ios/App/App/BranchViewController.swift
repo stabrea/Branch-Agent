@@ -7,12 +7,19 @@ class BranchViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var priming: (session: BranchSession, at: String)?
     private var loadingWatch: NSKeyValueObservation?
     private var statusStyle: UIStatusBarStyle = .lightContent
+    /// Held here: a web view keeps its UI delegate weakly.
+    private var mediaGuard: BranchMediaGuard?
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(BranchPhonePlugin())
         view.backgroundColor = BranchNative.dynamic("ground")
         webView?.isOpaque = false
         webView?.backgroundColor = BranchNative.dynamic("ground")
+        // mac7/phone-pairing review: the "never allow" list holds for the camera and microphone too.
+        if let web = webView, let capacitor = web.uiDelegate {
+            mediaGuard = BranchMediaGuard(inner: capacitor, local: bridge?.config.localURL)
+            web.uiDelegate = mediaGuard
+        }
         guard let controller = webView?.configuration.userContentController else { return }
         // A script with no secret in it; it acts only where the app has written its note (see inject.js).
         if let url = Bundle.main.url(forResource: "inject", withExtension: "js", subdirectory: "public"),

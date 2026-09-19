@@ -276,3 +276,32 @@ test("the phone's key is made, kept and used only on the native side", () => {
   }
   assert.doesNotMatch(read("web/phone-device.js"), /privateKey|\bsign\(/);
 });
+
+test("the phone's never-allow list holds for the camera and microphone in the web view, too", () => {
+  const read = (path) => readFileSync(new URL(`../apps/mobile/${path}`, import.meta.url), "utf8");
+  const plugin = read("android/app/src/main/java/com/keepoak/branchagent/BranchPhonePlugin.java");
+  const gate = read("android/app/src/main/java/com/keepoak/branchagent/BranchRefusals.java");
+  // Android: Capacitor grants any page's request; ours checks the refusals first, then hands on.
+  assert.match(plugin, /setWebChromeClient\(new BridgeWebChromeClient\(getBridge\(\)\)/);
+  assert.match(plugin, /if \(!BranchRefusals\.mayCapture\(node\.never\(\), request\.getResources\(\), ownPage\)\) \{\s*request\.deny\(\);\s*return;/);
+  assert.match(gate, /VIDEO\.equals\(resource\) && never\.contains\("camera"\)/);
+  assert.match(gate, /AUDIO\.equals\(resource\) && never\.contains\("listen"\)/);
+  // iOS: the same gate stands in front of Capacitor's delegate, which answers every page with a yes.
+  const swift = read("ios/App/App/BranchPhonePlugin.swift");
+  const window = read("ios/App/App/BranchViewController.swift");
+  assert.match(swift, /if !ownPage && Self\.refused\(type, never: BranchNode\.refuses\) \{\s*decisionHandler\(\.deny\)/);
+  assert.match(swift, /case \.cameraAndMicrophone: return never\("camera"\) \|\| never\("listen"\)/);
+  assert.match(window, /web\.uiDelegate = mediaGuard/);
+  // iOS pairing never follows a redirect off the checked address, as Android already does not.
+  assert.match(swift, /willPerformHTTPRedirection[\s\S]*?completionHandler\(nil\)/);
+  assert.doesNotMatch(swift.split("enum BranchNode")[1], /URLSession\.shared/);
+  // A refusal that could not be saved is said, not shown as kept; an old Android phone can still keep one.
+  assert.match(swift, /static func setNever\(_ never: \[String\]\) throws/);
+  const node = read("android/app/src/main/java/com/keepoak/branchagent/BranchNode.java");
+  assert.match(node, /if \(record == null\) record = new JSONObject\(\);\s*record\.put\("never"/);
+  // Android 13+: a bare getInstance("Ed25519") is the Keystore's generator and throws "Not initialized"
+  // without a Keystore spec; found on the emulator. The key is made inside the Keystore by name.
+  assert.match(node, /KeyPairGenerator\.getInstance\(KeyProperties\.KEY_ALGORITHM_EC, "AndroidKeyStore"\)/);
+  assert.match(node, /new ECGenParameterSpec\("ed25519"\)/);
+  assert.doesNotMatch(node, /KeyPairGenerator\.getInstance\("Ed25519"\)\.generateKeyPair/);
+});

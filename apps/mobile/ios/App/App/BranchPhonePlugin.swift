@@ -192,7 +192,11 @@ public class BranchPhonePlugin: CAPPlugin, CAPBridgedPlugin {
     /// The phone's own refusals. They only take away, so no computer is asked about them.
     @objc func deviceNever(_ call: CAPPluginCall) {
         guard fromAppPage(call) else { return }
-        call.resolve(["never": BranchNode.setNever(call.getArray("never", String.self) ?? [])])
+        do {
+            call.resolve(["never": try BranchNode.setNever(call.getArray("never", String.self) ?? [])])
+        } catch {
+            call.reject(BranchNative.word("phone.device.failed", "That did not work."))
+        }
     }
 
     /// Throws this phone's key away; its signature stops working at once.
@@ -264,16 +268,20 @@ enum BranchNode {
 
     static func forget() { SecItemDelete(query as CFDictionary) }
 
-    static func setNever(_ never: [String]) -> [String] {
+    /// Saved or refused, never pretended: the card only shows what the Keychain really holds.
+    static func setNever(_ never: [String]) throws -> [String] {
         let kept = keep(never: never)
         if var record = load() {
             record.never = kept
-            try? save(record)
+            try save(record)
         } else {
-            try? save(Record(seed: Curve25519.Signing.PrivateKey().rawRepresentation, never: kept))
+            try save(Record(seed: Curve25519.Signing.PrivateKey().rawRepresentation, never: kept))
         }
         return kept
     }
+
+    /// Whether this phone refuses a capability, for the web view's camera and microphone gate.
+    static func refuses(_ capability: String) -> Bool { load()?.never.contains(capability) ?? false }
 
     /// The phone's key, made once and kept in the Keychain. The private half never leaves this file.
     private static func key() throws -> (Curve25519.Signing.PrivateKey, Record) {
@@ -286,13 +294,23 @@ enum BranchNode {
         return (made, record)
     }
 
+    /// Never follows a redirect, as Android does not (BranchNode.java): the invitation, the six
+    /// numbers and the signed ask go to the checked address and nowhere else.
+    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+    private static let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+
     private static func post(_ address: String, _ body: [String: Any]) async throws -> [String: Any] {
         guard let url = URL(string: address) else { throw URLError(.badURL) }
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw NSError(domain: "BranchNode", code: 1, userInfo: [NSLocalizedDescriptionKey: answer["error"] as? String
@@ -326,5 +344,50 @@ enum BranchNode {
         }
         throw NSError(domain: "BranchNode", code: 3, userInfo: [NSLocalizedDescriptionKey:
             BranchNative.word("phone.node.late", "Nobody answered in time. Make a new invitation and try again.")])
+    }
+}
+
+/// mac7/phone-pairing review: Capacitor answers every page's camera and microphone request with a
+/// yes, and the owner's Branch opens in this same web view. This stands in front of Capacitor's own
+/// delegate and turns them away from any page but the app's own when this phone's "never allow" list
+/// says so. The app's own page (the square-code scanner, "Hold to talk") is the owner's own hand, not
+/// Branch asking. Everything else is handed to Capacitor's delegate untouched.
+final class BranchMediaGuard: NSObject, WKUIDelegate {
+    private let inner: WKUIDelegate
+    private let local: URL?
+
+    init(inner: WKUIDelegate, local: URL?) {
+        self.inner = inner
+        self.local = local
+    }
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || inner.responds(to: aSelector)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        inner.responds(to: aSelector) ? inner : nil
+    }
+
+    /// The refusals a request would break: the camera, the microphone, or both.
+    static func refused(_ type: WKMediaCaptureType, never: (String) -> Bool) -> Bool {
+        switch type {
+        case .camera: return never("camera")
+        case .microphone: return never("listen")
+        case .cameraAndMicrophone: return never("camera") || never("listen")
+        @unknown default: return never("camera") || never("listen")
+        }
+    }
+
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let ownPage = origin.protocol == local?.scheme && origin.host == local?.host
+        if !ownPage && Self.refused(type, never: BranchNode.refuses) {
+            decisionHandler(.deny)
+            return
+        }
+        // What Capacitor itself answers; iOS still asks the owner the first time.
+        decisionHandler(.grant)
     }
 }
