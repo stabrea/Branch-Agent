@@ -32,7 +32,16 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
   are both fixed by e1c540b8, already on trunk; 81f9e022 was green after it. Q6 French / Q2 /
   NUL byte / static-assets / desktop* failures were in `verify` jobs on superseded commits, green since.
 
+- artifacts-ui "W2 a chart block is drawn…" (Windows, trunk 7c456c73, reading was ''): TEST TIMING
+  over a double draw. After a run the reply is appended at once, then `loadConversation` clears the
+  conversation and draws it again from the saved copy (a MutationObserver counts 2 charts drawn for
+  1 reply). The test hovered the first drawing and read the second, empty one. Fixed in the test by
+  using the chart after `branch-run-finished`, and waiting on that chart's own reading. The double
+  draw itself is a small product wart (a hover or an opened table in the first drawing is lost after
+  one request); not changed here because the send flow in app.js is being reworked by the redesign.
+
 ## Progress
+- [x] artifacts-ui W2: waits for `branch-run-finished`, then for its own chart's reading (file 9/9).
 - [x] ws: `pollRun` stops when `Store.isOpen` is false and closes the socket with a close frame.
       New test: a run socket open when the app closes ends cleanly (fails before: database is not open).
       The client test now waits for the socket's close and for the server loop to end.

@@ -122,15 +122,23 @@ const CHART_REPLY = 'Here are the figures.\n\n```chart\n{"type":"bar","title":"C
 test("W2 a chart block is drawn in the page, reads out under the pointer and shows its numbers", async (t) => {
   const { page, errors } = await fixture(t, saying(CHART_REPLY));
   await settle(page);
+  /* The reply is shown at once and then drawn again when the saved conversation is loaded; a hover
+     on the first drawing was read back from the second, empty one (CI, Windows, trunk 7c456c73).
+     So the chart is used once the page says the run is finished. */
+  await page.evaluate(() => {
+    window.chartRunFinished = false;
+    document.addEventListener("branch-run-finished", () => { window.chartRunFinished = true; }, { once: true });
+  });
   await page.locator("#prompt").fill("Chart my week.");
   await page.locator("#send").click();
+  await page.waitForFunction(() => window.chartRunFinished === true);
   const chart = page.locator(".message.assistant .chart").first();
   await chart.waitFor();
   assert.equal(await chart.locator("svg.chart-svg rect").count(), 4, "three bars and a background");
 
   /* The number under the pointer is written out in words, for anyone who cannot hover. */
   await chart.locator("svg.chart-svg rect").nth(2).hover();
-  await page.waitForFunction(() => document.querySelector(".chart-reading")?.textContent?.includes(":"));
+  await chart.locator(".chart-reading", { hasText: ":" }).waitFor();
   assert.match(await chart.locator(".chart-reading").innerText(), /Tue: 7/);
 
   /* The same numbers as a table, and back again. */
