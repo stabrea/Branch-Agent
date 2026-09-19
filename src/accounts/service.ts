@@ -18,7 +18,7 @@ import { freshState } from "./pool.js";
 import { pooled, unwrapProvider } from "./pool-provider.js";
 import {
   type Account, type AccountKind, type Pool, accountsSettings, applyPoolingRule, keyName, keyProject, primaryAccount,
-  saveAccountsSettings, saveSessionChoice, sessionChoice,
+  saveAccountsSettings, saveSessionChoice, savedAccountsSettings, sessionChoice,
 } from "./settings.js";
 import { AccountUsageLedger } from "./usage.js";
 
@@ -203,9 +203,9 @@ export class AccountsService {
    * written to the record of what Branch did.
    */
   applyPoolingRule(): string[] {
-    const saved = this.deps.store.get("settings", this.deps.owner, "accounts");
-    if (!saved) return [];
-    const current = this.settings();
+    // Nothing saved, or a damaged record (which reads as switched off and is left as it is).
+    const current = savedAccountsSettings(this.deps.store, this.deps.owner);
+    if (!current) return [];
     const { settings, stopped } = applyPoolingRule(current);
     if (settings === current) return [];
     saveAccountsSettings(this.deps.store, this.deps.owner, settings);

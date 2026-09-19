@@ -264,7 +264,8 @@ export async function viewAll(service: AccountsService) {
     const view = viewPool(service, poolOf(draft, id, about.kind, new Date(service.now())));
     const signIn = about.kind === "chatgpt" ? await signInState(service, view.accounts.map((a) => a.id)) : null;
     // mac7/account-pooling: the one-time notice is the owner's alone to read.
-    const notice = !someoneElse(service) && settings.poolingNotices.includes(id) ? poolingNotice(about.name) : null;
+    const notice = !someoneElse(service) && settings.poolingNotices.includes(id)
+      ? { key: "accounts.notice.own-plans", service: about.name, text: poolingNotice(about.name) } : null;
     pools.push({ ...view, name: about.name, notice, signedIn: signIn?.signedIn ?? null, signInProblems: signIn?.problems ?? null });
   }
   return { mode: settings.mode, pools };

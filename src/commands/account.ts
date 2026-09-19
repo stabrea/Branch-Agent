@@ -8,7 +8,7 @@ import type { Call, Reply } from "./handlers.js";
  * hand. On its own it lists; `/account <name>` switches this conversation; `/account default <name>`
  * changes what new work uses. Switching is the owner's own, like the Settings screen.
  * mac7/account-pooling: `/account separate <name>` marks a sign-in account as someone else's or
- * work's ("kept separate"), `/account own <name>` takes the mark off.
+ * work's ("kept separate"), `/account not-separate <name>` takes the mark off.
  */
 export async function accountCommand(call: Call): Promise<Reply> {
   // Even the list is the owner's: a household profile or a signed-in person is refused outright.
@@ -25,7 +25,7 @@ export async function accountCommand(call: Call): Promise<Reply> {
     const lines = view.accounts!.map((account) => `${account.id === view.account ? "→ " : "  "}${account.label}${account.keptSeparate ? " (kept separate)" : ""}`);
     return { text: [...noticeOnce(service, view.pool), "Type /account followed by a name:", ...lines].join("\n") };
   }
-  const mark = /^(separate|own)\s+/i.exec(words)?.[1]?.toLowerCase();
+  const mark = /^(separate|not-separate)\s+/i.exec(words)?.[1]?.toLowerCase();
   const asDefault = /^default\s+/i.test(words);
   const wanted = (mark || asDefault ? words.replace(/^\S+\s+/, "") : words).toLowerCase();
   const matches = view.accounts!.filter((account) => account.label.toLowerCase() === wanted || account.id === wanted);
@@ -39,7 +39,7 @@ export async function accountCommand(call: Call): Promise<Reply> {
     await updateAccount(service, { pool: view.pool, account: found[0]!.id, keptSeparate: mark === "separate" });
     return { text: mark === "separate"
       ? `"${found[0]!.label}" is now kept separate: it belongs to someone else or to work, so it may share work with your own account.`
-      : `"${found[0]!.label}" is now one of your own accounts: Branch will not switch to it by itself.` };
+      : `"${found[0]!.label}" is no longer kept separate: it counts as one of your own plans, and Branch never moves work between those by itself.` };
   }
   const bySession = !asDefault && call.sessionId;
   const result = switchAccount(service, { pool: view.pool, account: found[0]!.id, ...(bySession ? { sessionId: call.sessionId } : {}) });

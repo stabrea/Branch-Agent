@@ -94,14 +94,27 @@ export function applyPoolingRule(settings: AccountsSettings): { settings: Accoun
   const notices = [...new Set([...settings.poolingNotices, ...stopped])];
   return { settings: { ...settings, pools, poolingRule: poolingRuleVersion, poolingNotices: notices }, stopped };
 }
-/** The one-time notice (locale key `accounts.notice.own-plans`), naming the service: "ChatGPT", "Claude Code". */
+/**
+ * The one-time notice, naming the service ("ChatGPT", "Claude Code"). The window shows the locale
+ * key `accounts.notice.own-plans` with the same words; this text is for `/account`.
+ */
 export const poolingNotice = (service: string): string =>
-  `Branch no longer switches between your own ${service} plans when one runs out — providers treat that as abuse. Mark an account 'kept separate' if it really belongs to someone else or to work.`;
+  `Branch no longer switches between your own ${service} plans when one runs out: providers treat that as abuse, so sharing work is now off for this list. If an account really belongs to someone else or to work, mark it kept separate and turn sharing back on.`;
 type Reader = Pick<Store, "get">;
 
+/** The list as saved, or null when nothing is saved or what is saved is damaged. */
+export function savedAccountsSettings(store: Reader, owner: string): AccountsSettings | null {
+  const found = store.get("settings", owner, settingKey);
+  if (!found) return null;
+  const saved = AccountsSettingsSchema.safeParse(found.data ?? {});
+  return saved.success ? saved.data : null;
+}
+/**
+ * A list never saved starts under the current sharing rule, so one made from now on is never
+ * mistaken for an old one that shared work between the owner's own plans (mac7/account-pooling).
+ */
 export function accountsSettings(store: Reader, owner: string): AccountsSettings {
-  const saved = AccountsSettingsSchema.safeParse(store.get("settings", owner, settingKey)?.data ?? {});
-  return saved.success ? saved.data : AccountsSettingsSchema.parse({});
+  return savedAccountsSettings(store, owner) ?? AccountsSettingsSchema.parse({ poolingRule: poolingRuleVersion });
 }
 export function saveAccountsSettings(store: Store, owner: string, value: AccountsSettings): AccountsSettings {
   const parsed = AccountsSettingsSchema.parse(value);

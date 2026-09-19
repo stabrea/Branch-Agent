@@ -36,7 +36,7 @@
   "accounts.mode.off": "Off: each connection uses its one key or sign-in, exactly as before.",
   "accounts.mode.on": "On: the lists below work, and /account switches between them.",
   "accounts.mode.when-needed": "When needed: the lists below work, and /account switches between them.",
-  "accounts.notice.own-plans": "Branch no longer switches between your own {service} plans when one runs out — providers treat that as abuse. Mark an account 'kept separate' if it really belongs to someone else or to work.",
+  "accounts.notice.own-plans": "Branch no longer switches between your own {service} plans when one runs out: providers treat that as abuse, so sharing work is now off for this list. If an account really belongs to someone else or to work, mark it kept separate and turn sharing back on.",
   "accounts.program.sign-in": "To sign this account in, run the program once in a terminal with this setting, and sign in there. Branch uses the program with the same setting and never reads its sign-in:",
   "accounts.saved": "Saved.",
   "accounts.sign-in.code": "Enter the code {code} at {url} to finish signing in. This list updates when you are done.",

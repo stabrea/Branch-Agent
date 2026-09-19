@@ -14,7 +14,9 @@ person's own account).
 6. self-review, merge trunk, retest, merge into mac/cross-platform, push.
 
 ## Progress
-- [ ] 1-2 core
-- [ ] 3 surfaces
+- [x] 1-2 core (21bf2901; finished here: limit sentence names only allowed accounts, own-plans wording,
+      `firstChoice` shared by single() and rotationSet so both pick the same own account, id comparison,
+      a never-saved list starts under the rule, a damaged record is not overwritten by the migration)
+- [x] 3 surfaces (manage/api/command; `/account separate|not-separate <name>`; notice returned as locale key + service)
 - [ ] 4-5 docs/locales/tests
 - [ ] 6 merged

@@ -37,7 +37,7 @@
   "accounts.mode.off": "Désactivé : chaque connexion utilise sa seule clé ou connexion, exactement comme avant.",
   "accounts.mode.on": "Activé : les listes ci-dessous fonctionnent, et /account permet de passer de l'une à l'autre.",
   "accounts.mode.when-needed": "Au besoin : les listes ci-dessous fonctionnent, et /account permet de passer de l'une à l'autre.",
-  "accounts.notice.own-plans": "Branch ne passe plus d'un de vos abonnements {service} à un autre quand l'un est épuisé : les fournisseurs y voient un abus. Marquez un compte comme « tenu à part » s'il appartient vraiment à une autre personne ou au travail.",
+  "accounts.notice.own-plans": "Branch ne passe plus d'un de vos abonnements {service} à un autre quand l'un est épuisé : les fournisseurs y voient un abus, la répartition du travail est donc désactivée pour cette liste. Si un compte appartient vraiment à une autre personne ou au travail, marquez-le comme tenu à part et réactivez la répartition.",
   "accounts.program.sign-in": "Pour connecter ce compte, lancez une fois le programme dans un terminal avec ce réglage et connectez-vous-y. Branch utilise le programme avec le même réglage et ne lit jamais sa connexion :",
   "accounts.saved": "Enregistré.",
   "accounts.sign-in.code": "Saisissez le code {code} sur {url} pour terminer la connexion. Cette liste se met à jour une fois que c'est fait.",

@@ -104,11 +104,13 @@ function accountRow(pool, account) {
   head.append(data("strong", account.label), node("span", "", " "));
   if (account.id === pool.defaultAccount) head.append(worded("span", "accounts.badge.default", "subtle"));
   if (account.pinned) head.append(node("span", "", " "), worded("span", "accounts.badge.pinned", "subtle"));
+  if (account.keptSeparate) head.append(node("span", "", " "), worded("span", "accounts.badge.kept-separate", "subtle"));
   const state = node("p", "subtle", `${statusOf(pool, account)} ${usageOf(pool, account)}`);
   state.dataset.tKey = "accounts.state";
   state.setAttribute("role", "status");
   row.append(head, state, renameBlock(pool, account), buttonsFor(pool, account));
   if (pool.kind === "api-key") row.append(capBlock(pool, account));
+  else row.append(separateBlock(pool, account));
   if (pool.kind === "cli" && account.home) row.append(programHelp(pool, account));
   return row;
 }
@@ -163,6 +165,21 @@ function capBlock(pool, account) {
   box.append(...field(id, "accounts.field.cap", cap),
     action("accounts.action.save-cap", () => api("/update", { pool: pool.pool, account: account.id, monthlyCapUsd: cap.value === "" ? null : Number(cap.value) })),
     shareLabel);
+  return box;
+}
+/** mac7/account-pooling: a sign-in that belongs to someone else or to work may share work with the owner's own. */
+function separateBlock(pool, account) {
+  const box = node("div", "identity-actions");
+  const tick = node("input");
+  tick.type = "checkbox";
+  tick.checked = account.keptSeparate;
+  const label = worded("label", "accounts.field.kept-separate");
+  label.prepend(tick);
+  tick.addEventListener("change", async () => {
+    try { await api("/update", { pool: pool.pool, account: account.id, keptSeparate: tick.checked }); } catch (error) { said = error.message; }
+    await refresh();
+  });
+  box.append(label);
   return box;
 }
 function programHelp(pool, account) {
@@ -234,7 +251,17 @@ function poolBlock(pool) {
   heading.append(data("span", pool.name), node("span", "", " · "), worded("span", `accounts.kind.${pool.kind}`));
   const list = node("ul", "accounts-list");
   list.append(...pool.accounts.map((account) => accountRow(pool, account)));
-  box.append(heading, poolControls(pool), list, addBlock(pool), termsLine(pool));
+  box.append(heading);
+  if (pool.notice) box.append(noticeBlock(pool));
+  box.append(poolControls(pool), list, addBlock(pool), termsLine(pool));
+  return box;
+}
+/** mac7/account-pooling: said once, why sharing between the owner's own plans stopped. */
+function noticeBlock(pool) {
+  const box = node("div", "field-note accounts-notice");
+  const words = worded("p", pool.notice.key, "", { service: pool.notice.service });
+  words.setAttribute("role", "status");
+  box.append(words, action("accounts.action.dismiss-notice", () => api("/notice", { pool: pool.pool }), false));
   return box;
 }
 
