@@ -1384,6 +1384,10 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) .rail-group[data-group="projects"]:not(:has(#rail-projects > .rail-row + .rail-row)) {
   display: none;
 }
+/* while Lockdown is on, its shield stays in the title bar beside the red banner */
+:root:not([data-everything="on"]) body.lx-locked #lx-shield {
+  display: grid !important;
+}
 /* the voice buttons, only when voice is switched on */
 :root:not([data-everything="on"])[data-voice="on"] :is(#voice-record, #voice-talk) {
   display: inline-flex !important;
@@ -1419,12 +1423,6 @@ body.lx #connection[data-state="lost"] {
 /* the composer: the box, then Send */
 :root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
   justify-content: flex-end;
-}
-/* The grove is the full window's. Seen through the calm window's frosted rail it was only a blurred
-   glow (the moon or the sun) and a strip of raw pixels in the gap between the panes, so the calm
-   window stands on the plain ground colour. "Clear the view" still shows the grove. */
-:root:not([data-everything="on"]):not([data-quiet]) .lx-wall {
-  display: none;
 }
 /* The empty conversation: the question and the box together, in the middle of the pane. Once there is
    a message the box goes back to the foot. public/shell.js keeps --composer-h at the dock's height.

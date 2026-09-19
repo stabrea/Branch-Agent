@@ -11,8 +11,6 @@ const SCALE = 3;
 const ORDER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const threshold = (x, y) => (ORDER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
-/* The calm window hides the grove unless the view is cleared (public/layout.css), so nothing moves behind it then. */
-const unseen = () => document.documentElement.dataset.everything !== "on" && !document.documentElement.dataset.quiet;
 
 let look = { season: "summer", mode: "dark" };
 let scene = null;
@@ -81,7 +79,8 @@ function paintSky(s) {
   for (let y = 0; y < horizon; y++)
     for (let x = 0; x < W; x++) dithered(s, x, y, P.sky[0], P.sky[1], y / horizon);
   /* the moon, or a pale sun, with a soft ring */
-  const cx = W * 0.18, cy = horizon * 0.24, r = Math.max(4, U * 0.045);
+  const cy = horizon * 0.24, r = Math.max(4, U * 0.045);
+  const cx = clearOfRail(W * 0.18, r * 2.6);
   const disc = P.dark ? mix(P.text, P.accent, 0.12) : mix([255, 255, 255], P.accent, 0.18);
   for (let y = Math.floor(cy - r * 2.6); y < cy + r * 2.6; y++)
     for (let x = Math.floor(cx - r * 2.6); x < cx + r * 2.6; x++) {
@@ -92,6 +91,19 @@ function paintSky(s) {
   if (!P.dark) return;
   const star = mix(P.sky[0], P.text, 0.6);
   for (let n = 0; n < W * horizon * 0.0016; n++) s.put(s.random() * W, s.random() * horizon * 0.8, star);
+}
+/**
+ * Where the moon goes across. Straddling the edge of the sidebar it showed as a blurred glow in the
+ * sidebar's frosted glass and a sliver of raw pixels in the gap beside it, so when its ring would
+ * cross that edge it moves into the open sky just past the gap. A folded or floating sidebar (a
+ * narrow window) changes nothing.
+ */
+function clearOfRail(cx, ring) {
+  const rail = document.querySelector("body.lx > .rail")?.getBoundingClientRect();
+  if (!rail || rail.width < 1 || rail.left < 0) return cx;
+  const gap = 12;
+  const from = (rail.left - gap) / SCALE, to = (rail.right + gap) / SCALE;
+  return cx + ring < from || cx - ring > to ? cx : to + ring + 2;
 }
 function paintHills(s) {
   const { W, H, P, horizon } = s;
@@ -234,7 +246,7 @@ function moveAir(dt, now) {
 }
 let last = 0, running = false;
 function frame(now) {
-  if (document.hidden || still() || unseen() || !scene) { running = false; return; }
+  if (document.hidden || still() || !scene) { running = false; return; }
   requestAnimationFrame(frame);
   const gap = document.documentElement.dataset.quiet ? 33 : 80;
   if (now - last < gap) return;
@@ -243,13 +255,13 @@ function frame(now) {
   moveAir(dt, now);
 }
 function wake() {
-  if (running || !air || document.hidden || still() || unseen()) return;
+  if (running || !air || document.hidden || still()) return;
   running = true;
   last = 0;
   requestAnimationFrame(frame);
 }
 document.addEventListener("visibilitychange", wake);
-new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-motion", "data-everything"] });
+new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-motion"] });
 let resizeTimer, seen = "";
 new ResizeObserver(() => {
   const size = `${innerWidth}x${innerHeight}`;

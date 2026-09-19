@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { closeSettings, openSettingFor, showEverything } from "./places.mjs";
+import { closeSettings, openSettingFor } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -249,12 +249,15 @@ test("calm: Lockdown says so while it is on, and turns off from the banner", asy
   await f.page.getByRole("menuitemcheckbox", { name: "Lockdown: refuse commands" }).click();
   await f.page.locator("#lx-lockbanner").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await f.call("/api/lockdown")).on, true);
+  assert.equal(await visible(f.page, "#lx-shield"), true, "the shield stays in the title bar while Lockdown is on");
+  assert.equal(await f.page.locator("#lx-shield").getAttribute("aria-pressed"), "true");
   await f.page.locator("#lx-more").click();
   assert.equal(await f.page.getByRole("menuitemcheckbox", { name: "Lockdown: refuse commands" }).getAttribute("aria-checked"), "true");
   await f.page.keyboard.press("Escape");
   await f.page.locator("#lx-lockbanner").getByRole("button", { name: "Turn it off" }).click();
   await f.page.locator("#lx-lockbanner").waitFor({ state: "hidden", timeout: 10000 });
   assert.equal((await f.call("/api/lockdown")).on, false);
+  assert.equal(await visible(f.page, "#lx-shield"), false, "and goes back under More once it is off");
   assert.deepEqual(f.errors, []);
 });
 
@@ -330,10 +333,10 @@ test("calm: the offer opens the real switch rather than flipping it", async (t) 
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: the empty screen is the question over the box in the middle, on plain ground; the grove is Show everything's", async (t) => {
+test("calm: the empty screen is the question over the box in the middle, over the same oak and glass", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.waitForTimeout(300);
-  assert.equal(await visible(f.page, "#wall"), false, "no grove behind the calm window");
+  assert.equal(await visible(f.page, "#wall"), true, "the oak behind the glass stays (the approved KeepOak look)");
   const main = await f.page.locator("main").boundingBox();
   const heading = await f.page.locator("#greeting").boundingBox();
   const box = await f.page.locator("#chat-form").boundingBox();
@@ -343,11 +346,6 @@ test("calm: the empty screen is the question over the box in the middle, on plai
   assert.ok(main.y + main.height - (box.y + box.height) > 150, "the box is not at the foot while the conversation is empty");
   const top = heading.y - main.y, bottom = main.y + main.height - (box.y + box.height);
   assert.ok(Math.abs(top - bottom) < 80, `the pair is in the middle (${top} above, ${bottom} below)`);
-  await f.page.evaluate(() => document.getElementById("lx-quiet-exit") && document.documentElement.setAttribute("data-quiet", "1"));
-  assert.equal(await visible(f.page, "#wall"), true, "Clear the view still shows the grove");
-  await f.page.evaluate(() => document.documentElement.removeAttribute("data-quiet"));
-  await showEverything(f.page);
-  assert.equal(await visible(f.page, "#wall"), true, "Show everything brings the grove back");
   assert.deepEqual(f.errors, []);
 });
 
@@ -386,4 +384,23 @@ test("the desktop restart channel answers only its own window's page, and relaun
   assert.equal(relaunched, 1, "two presses, one relaunch");
   closed.find(([name]) => name === "closed")[1]();
   assert.equal(handlers.has(restartChannel), false, "the channel goes with its window");
+});
+
+test("the moon clears the sidebar's edge, so it never glows in the sidebar or shows in the gap beside it", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.waitForTimeout(400);
+  /* The brightest column of the sky's top half, in screen pixels, is the moon's centre. */
+  const found = await f.page.evaluate(() => {
+    const wall = document.getElementById("wall"), paint = wall.getContext("2d");
+    const { data, width, height } = paint.getImageData(0, 0, wall.width, Math.floor(wall.height / 2));
+    let best = -1, at = 0;
+    for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * 4, light = data[i] + data[i + 1] + data[i + 2];
+      if (light > best) { best = light; at = x; }
+    }
+    const rail = document.querySelector("body.lx > .rail").getBoundingClientRect();
+    return { x: at * innerWidth / width, railRight: rail.right };
+  });
+  assert.ok(found.x > found.railRight + 60, `the moon (${Math.round(found.x)}px) is clear of the sidebar edge (${found.railRight}px)`);
+  assert.deepEqual(f.errors, []);
 });
