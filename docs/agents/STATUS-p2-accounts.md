@@ -40,3 +40,34 @@ Screenshots: `claude-session-files/branch/phase2-shots/accounts/` (harness: `cla
   sample, which drew several of them. Password managers have no list in the app to decorate.
 - Secrets keep the name commands use visible under the plain name at every level (it is what commands need); the level
   control can hide `.secret-raw` later.
+
+## Integration (adversarial review, 2026-09-19)
+Reviewed against the brief, the account-sharing rule (STATUS-account-pooling.md) and the sample; fixed with tests:
+- [x] Thinking levels: Azure OpenAI reuses `openaiBody`, so it sends `reasoning_effort`, but the map (and K1) said it
+      took none. Added; o1-mini, o1-preview and the GPT-5 chat models (which refuse the field) now get none. `sent` on
+      each model says whether a saved level is still sent: the window no longer calls such a level "unused" (it said
+      so while Branch still sent it); it says the service may refuse it. K2 now also finds providers that reuse the
+      shared body builders and checks every provider they define against the map. Nothing about what is sent changed.
+- [x] Agent-files undo: it trusted the path saved with the record, so after the project changed or its folder lost
+      trust it still wrote there. Now refused unless the record's path is still the slot's file and may be written
+      (F5). The saved texts sit one level down in the record, so the diagnostics summary (top-level short values)
+      can never copy a word of a file (F5). Backups still copy the record (owner-only, documented).
+- [x] Accounts page: a household person with nothing shared fell through to the owner's "When one runs low" and
+      "Which key each Trunk uses" cards (and the mode switch they cannot change). `household: true` on their view;
+      the page shows neither card nor the switch (A6).
+- [x] Terms line: several links all read "Read the terms ↗". Each now names whose terms (keyed, en + fr; the ChatGPT
+      page says it is an unofficial guide) (A1, accounts-ui U2).
+- [x] Marks: M5 checks every mark file is exactly one title and one path of drawing commands (no script, foreign
+      object, style, event, href or url()). All 49 are Simple Icons CC0/MIT, or OpenAI's own brand page, recorded in
+      THIRD_PARTY_NOTICES.md; Google, Meta, Slack, Microsoft, Amazon, Apple, Cisco, MiniMax, X/xAI get neutral tiles.
+- [x] shell-ui counted twelve Settings pages; Accounts makes thirteen.
+Checked and fine: the Trunk key picker lists API-key lists only and the server refuses a sign-in for a Trunk anyway
+(pool-provider `forTrunk`); "When one runs low" is read-only text plus a link to Models; search is a local filter;
+no new control can rotate between the owner's own plans. The undo route is owner POST, and the short-lived-key and
+household rules refuse it (F3); the 8,000-byte limit is enforced on the server (F2); slots are a fixed enum.
+Not fixed (trunk, not this branch): `settings-describe.js` and `settings-kit.js` add their CSS with an inline
+`<style>`, which the CSP blocks, so the "Applies to everything" scope chip shows as plain text on every Settings card;
+glass-select "flush under the select" fails the same way (gap -388) on a trunk-only checkout.
+Tests after merging trunk 73f73153: 26 files 230/230, automation 5/5 alone; build and tsc clean from an empty dist.
+Screenshots: `phase2-shots/accounts/*-fixed.png` (accounts-low with named terms links, thinking-sent), 1440/1024/390,
+light and dark, no sideways overflow, no console errors after load.
