@@ -44,3 +44,8 @@ async function save(event) {
 $("second-opinion-form")?.addEventListener("submit", save);
 /* Settings that will not load leave the card as it is rather than breaking the rest of the page. */
 load().catch(() => {});
+// phase2/settings: the page signs in after this first try, so read the saved values when Settings opens
+// (an empty box here was saved as 0).
+document.addEventListener("branch-place", (event) => {
+  if (String(event.detail?.view ?? "").startsWith("settings")) load().catch(() => {});
+});

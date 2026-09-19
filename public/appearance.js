@@ -67,7 +67,7 @@ export function applyAppearance(value) {
   render();
   document.dispatchEvent(new CustomEvent("branch-appearance", { detail: { ...current } })); // phase2/panels
 }
-/** phase2/panels: a change made from anywhere, saved like one made here. */
+/** phase2/panels (and phase2/settings, for the Settings level): a change made from anywhere, saved like one made here. */
 export const changeAppearance = (patch) => change(patch);
 
 function render() {

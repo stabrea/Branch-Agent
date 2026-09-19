@@ -3948,6 +3948,26 @@ Settings → Appearance, or at the foot of the More menu). `showVoice` (default 
 microphone and Talk buttons beside the message box in the calm window; the full window always
 shows them.
 
+**How much Settings shows (phase 2).** `settingsLevel` is `regular`, `advanced` or `technical`
+and is optional: while it is unset the level is `regular`, or `advanced` for someone who already
+had `showEverything` on, so nobody loses what they saw. It is chosen under "How much to show" at
+the foot of the Settings list (on a phone, under the search box). Regular shows the essentials;
+Advanced shows every card; Technical also names where each card's settings are saved ("Saved as")
+and the plumbing (counters, retries, launch-file settings). Choosing a level also sets
+`showEverything` (Regular is the calm window, Advanced and Technical the full one), and turning
+"Show everything" on or off moves the level between Regular and Advanced, so the two never
+disagree. The level only decides what is shown: a card above it is one click away ("N more with
+Advanced" under its group's heading), and Settings search always finds every setting at any level.
+It never changes what a setting does, and owner-only settings stay owner-only at every level.
+
+Each Settings page is grouped by what a person wants to do (the groups and each card's level are
+listed in `public/settings-buckets.js`); a card a group does not name shows under "More on this
+page" at every level. Settings search also reads `public/settings-index.js`, the list of every
+setting Branch has (530, from the settings audit), so a setting behind a switch, inside a dialog
+or in Inbox, Automations, Library or Customize is found too, under "Also found, elsewhere or
+behind a switch", with Go there. Settings is the cog right after the account row at the foot of
+the rail, and closing and opening it, or pressing the page you are on, keeps your place.
+
 **The side panel, its tabs and panes you can resize (redesign phase 2, panels).** The title bar has one
 side-panel button (in the calm window too); the panel's tabs sit inside it: Activity, Plan, Files, Memory,
 Browser and Terminal. **Browser** lists the web pages the assistant opened in this conversation, with the last

@@ -674,6 +674,14 @@ async function staticFile(
     "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
+    // phase2/settings: Settings grown up (groups, levels, search over every setting).
+    "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
+    "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
+    "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
+    "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
+    "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
+    // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
+    "/settings-kit.css": ["settings-kit.css", "text/css; charset=utf-8"],
     // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
     "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
     "/panels.css": ["panels.css", "text/css; charset=utf-8"],

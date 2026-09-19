@@ -91,9 +91,23 @@ function close({ focus = false } = {}) {
   entry = null;
   if (focus) select.focus();
 }
+/**
+ * phase2/settings integration: a select inside something still moving into place (the Settings window rises
+ * for a fifth of a second) keeps its list with it, frame by frame, until nothing around it moves; so the list
+ * never stays where the select was. At most a second and a half of frames.
+ */
+function placeWhenSettled(select, frames = 90) {
+  requestAnimationFrame(() => {
+    if (openFor !== select || frames <= 0) return;
+    place(select);
+    const moving = document.getAnimations().some((animation) => animation.playState === "running" && animation.effect?.target?.contains?.(select));
+    if (moving) placeWhenSettled(select, frames - 1);
+  });
+}
 function open(select) {
   fill(select);
   place(select);
+  placeWhenSettled(select);
   panel.hidden = false;
   openFor = select;
   select.setAttribute("aria-expanded", "true");
