@@ -255,6 +255,7 @@ function poolBlock(pool) {
   box.append(heading);
   if (pool.notice) box.append(noticeBlock(pool));
   // hardening-3: a household person is sent only the accounts shared with them, not how the list is run.
+  // The owner's lists always carry a strategy (it has a default in src/accounts/settings.ts).
   const owners = pool.strategy !== undefined;
   box.append(...(owners ? [poolControls(pool)] : []), list, ...(owners ? [addBlock(pool)] : []), termsLine(pool));
   return box;

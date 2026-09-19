@@ -76,6 +76,8 @@ test("1 a folder rule covers a tool whose file is called `file` (documents.analy
   assert.equal(eventsOf(app, run, "tool.completed").length, 0, "nothing was read");
   // The same for a folder added to a knowledge base, whose path sits inside `source`.
   assert.equal(app.registry.targetOf("knowledge.add", { collection: "notes", source: { kind: "folder", path: " finance " } }, {}), "finance");
+  // And for a document edited into a new file: the file written (`saveAs`) is what the rule sees.
+  assert.equal(app.registry.targetOf("documents.edit", { path: "public/a.docx", changes: [{ op: "replace-text", find: "a", replaceWith: "b" }], saveAs: " finance/leak.docx " }, {}), "finance/leak.docx");
 });
 
 test("1 the question shows the call as it will run: the mapped name, not the one sent; the yes stays bound to what was sent", async (t) => {

@@ -40,19 +40,24 @@ finance" did not match, and the edit was made.
 - `playground` ("Try a tool") and `mcp-policy.dryRunPlan` judge `runArgs`; the dry run now also passes the
   `resource`, so a folder rule is weighed there as it is when the call runs (it said "ask" where the call is refused).
 - Tools whose file is not under `path`/`url` got their own `target()`: `documents.analyse` and `documents.compare`
-  (`file`), `knowledge.add` (`source.path`).
+  (`file`), `knowledge.add` (`source.path`), `documents.edit` (`saveAs || path`: the file it writes; before, a
+  `saveAs: "finance/…"` was judged against the source `path` and written into the refused folder).
+- Checked, no change needed: `carriesCredential` in src/tool-gate.ts reads `args.url` as sent; no tool maps or
+  renames a `url` key (the only name-mapping schema is `files.edit`'s), and trimming cannot remove a password from
+  an address, so it sees the same address the tool runs with.
 - Kept: the approval fingerprint is the exact bytes sent (coding-next's choice: a yes can only get narrower). The
   card now shows the call as it will run (mapped names, defaults) whenever that differs from what was sent.
 
 Tests (`tests/hardening-3.test.mjs` "1 …"): `runArgs` unit; `files.edit` via `file_path` into `finance/` refused and
 the file unchanged; `documents.analyse` with `file: finance/…` refused; `knowledge.add` target; the question's target
 and bytes show `path` while the fingerprint stays that of what was sent; MCP dry run target and decision.
-Proved: with `runArgs` returning its input and the two `target()`s removed in `dist/`, all five "1 …" tests fail.
+Proved: with `runArgs` returning its input and the two `target()`s removed in `dist/`, all five "1 …" tests fail;
+with `documents.edit`'s `target()` removed, the `file` test fails.
 
 ### Every tool checked (331 names: 213 from a running app, the rest from the source)
 Grouped by where the thing a rule is about comes from. "own" = the tool's `target()`, now fed parsed arguments.
 
-- **Own `target()` (70):** agents.ask, blocks.list, blocks.run, browser.act, browser.borrow, browser.click, browser.fill,
+- **Own `target()` (70, plus 4 new here):** agents.ask, blocks.list, blocks.run, browser.act, browser.borrow, browser.click, browser.fill,
   browser.tab, browser.upload, chat.send_file, code.change_set, code.patch, code.rename, code.run, computer.look,
   computer.press, computer.type, debug.start, desktop.click, desktop.clipboard, desktop.key, desktop.open, desktop.read,
   desktop.screenshot, desktop.type, desktop.windows, git.worktree_add, git.worktree_remove, github.publish_repo,
@@ -62,7 +67,7 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   screen.background, shell.session.open, shell.session.run, skills.bundle.preview, skills.sync,
   tools.forget_service, tools.from_openapi, troubleshoot.run, trunk.message, trunks.remote.message, video.generate,
   voice.say, wasm.run, web.crawl, web.page, workspace.checkpoint, workspace.redo, workspace.undo; plus, new here,
-  documents.analyse, documents.compare, knowledge.add.
+  documents.analyse, documents.compare, knowledge.add, documents.edit.
 - **`path` / `url` read by `policyTarget` (40):** artifacts.keep, artifacts.restore, assistant.market, browser.navigate,
   code.definition, code.diagnostics, code.format, code.hover, code.map, code.references, data.export, data.load,
   documents.add, documents.edit, documents.write, files.edit (was bypassable via `file_path`; fixed), files.glob,
@@ -112,7 +117,7 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   `clean()` skips `z.record` by design and the outside server judges its own arguments. `runArgs` returns the same record.
 
 **Found, not fixed (single-target policy, pre-existing, larger than this pass):** a rule sees one target per call, so
-`documents.compare`'s `against`, `documents.edit`'s `saveAs` (the file written when set), `knowledge.create`'s
+`documents.compare`'s `against`, `documents.edit`'s source `path` when `saveAs` is set (it is read, not written), `knowledge.create`'s
 `sources[]`, and the "N files: a, b" target of `code.patch`/`code.change_set` are not matched by a folder rule;
 `files.patch` has no target at all (its paths are inside the patch text). Judging every path a call names needs
 `target()` to return a list and `checkPolicy` to take the strictest answer; recommended as its own piece of work.
@@ -177,6 +182,9 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   a task that has not finished asked for." (en + fr key `usage.stillBeingMade`); the `/usage` command line says
   "including about $X for something still being made". In-flight *tokens* are still counted when the task ends, as
   before (not asked; the brief was about media).
+- Not switchable, on purpose: this corrects a figure that was understated (money already spent), it adds no
+  feature; the only visible change for an existing owner with "pause at budget" on is that the pause comes when
+  the money really reaches the limit rather than after a running task ends.
 - Test "6 …": a running task's $1.20 video is in the month and in `stillBeingMade`, a new task is refused at a $1
   budget naming $1.20, and after the task finishes it is counted once. Proved: with `inFlightSpend` zeroed in
   `dist/usage.js` it fails. `reach-leftovers` (the video budget tests), usage, dashboard, cost tests pass.
