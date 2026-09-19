@@ -834,6 +834,9 @@ test("G4 the conversation title has a label picker that puts a label on what you
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible" });
   await page.locator("#rail-list .rail-item").first().click();
+  /* Opening a conversation reads it from the server first. The picker is for the conversation that
+     is open, so pressing Labels before it has arrived only says "open a conversation first". */
+  await page.waitForFunction((id) => document.getElementById("conversation")?.dataset.sessionId === id, run.sessionId, { timeout: 15000 });
   await page.locator("#thread-labels").click();
   const picker = page.locator(".label-picker");
   await picker.waitFor();
