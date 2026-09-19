@@ -170,6 +170,7 @@ test("every appearance control applies at once and survives a reload", async (t)
     acorn: "off",
     everything: "on",
     voice: "off",
+    settingsLevel: "advanced", // phase2/settings: Show everything is the Advanced level of Settings
   };
   assert.deepEqual(await look(f.page), chosen, "every choice shows straight away");
   assert.equal(await f.page.locator(".acorn-art").isVisible(), false);
@@ -424,12 +425,14 @@ test("Tab walks the rail first, then the title bar, the messages and the compose
     "app-switcher",
     "cmd-open",
     "appearance-shortcut",
-    "rail-settings",
     "rail-new",
+    "rail-find",
   ]);
   const walk = await tabStops(f.page, 60);
   const at = (id) => walk.indexOf(id);
   assert.equal(at("rail-toggle") > -1, true, "the title bar is reachable");
+  /* phase2/settings: the Settings cog sits right after the account row, at the foot of the rail. */
+  assert.equal(at("rail-settings"), at("owner-menu-button") + 1, "the cog comes right after the account row");
   assert.equal(at("conversation") > -1, true, "the messages are a stop of their own");
   assert.equal(at("rail-toggle") < at("conversation"), true, "title bar before the messages");
   assert.equal(at("conversation") < at("prompt"), true, "messages before the composer");

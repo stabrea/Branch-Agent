@@ -106,7 +106,8 @@ function moveLevel(event, group) {
   chooseLevel(next);
   group.querySelector(`[data-level-pick="${next}"]`)?.focus();
 }
-globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...LEVELS] };
+/* For other modules: the level now, choosing one, and showing one card whatever the level until you leave its page. */
+globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...LEVELS], peek: (node) => peek(node) };
 
 /* ---------- the groups on each page ---------- */
 const hostFor = (page) => (page.startsWith("models:") ? $(`lx-models-${page.slice(7)}`) : $(`lx-page-${page}`));
@@ -156,6 +157,7 @@ function wanted(page, host) {
       const card = cardIn(host, ref);
       if (!card) continue;
       card.dataset.level = level;
+      if (peeked.has(card.id)) card.dataset.sgPeek = "1";
       card.dataset.sgBucket = head.dataset.bucket;
       head.dataset.cards += `${card.id || ref} `;
       placed.add(card);
@@ -196,8 +198,11 @@ function putKeys(card) {
   const keys = KEYS_BY_CARD.get(card.id);
   if (!keys) return;
   if (!keyLines.has(card.id)) {
-    const line = make("p", "sg-keys");
-    line.append(worded("span", "sg-keys-label", "settingsGrown.savedAs", "Saved as"), make("code", "", keys.join(" · ")));
+    const line = make("div", "sg-keys");
+    /* The keys are names, not words: drawn from an attribute, so nothing on the card needs a translation. */
+    const code = make("code", "sg-keys-names");
+    code.dataset.keys = keys.join(" · ");
+    line.append(worded("span", "sg-keys-label", "settingsGrown.savedAs", "Saved as"), code);
     keyLines.set(card.id, line);
   }
   const line = keyLines.get(card.id);
@@ -246,7 +251,7 @@ function dressNav() {
     nav.querySelector(`.lx-settings-link[data-page="${before}"]`)?.before(worded("p", "sg-nav-group", `settingsGrown.nav.${key}`, english));
   nav.append(worded("p", "sg-nav-group", "settingsGrown.nav.elsewhere", "Elsewhere in Branch"));
   for (const [place, iconName] of ELSEWHERE) {
-    const link = worded("button", "lx-settings-link sg-place-link", `place.${place}`, place);
+    const link = worded("button", "sg-place-link", `place.${place}`, place);
     link.type = "button";
     link.dataset.place = place;
     withIcon(link, iconName);
@@ -261,7 +266,7 @@ function pagePicker(nav) {
   const words = worded("span", "sr-only", "settings.pages", "Settings pages");
   const select = make("select");
   select.id = "sg-page-pick";
-  for (const link of nav.querySelectorAll(".lx-settings-link:not(.sg-place-link)")) {
+  for (const link of nav.querySelectorAll(".lx-settings-link")) {
     const option = make("option", "", link.textContent.trim());
     option.value = link.dataset.page;
     select.append(option);
@@ -417,15 +422,22 @@ function peekOnReveal() {
   if (!layout?.reveal) return;
   const reveal = layout.reveal;
   layout.reveal = (target) => {
-    const node = typeof target === "string" ? $(target) : target;
-    const card = node?.closest?.(".lx-settings [data-level]");
-    if (card) card.dataset.sgPeek = "1";
+    peek(typeof target === "string" ? $(target) : target);
     revealing = true;
     setTimeout(() => { revealing = false; }, 400);
     return reveal(target);
   };
 }
+/** Cards shown whatever the level until you leave the page; kept by id, since a card may draw itself anew. */
+const peeked = new Set();
+function peek(node) {
+  const card = node?.closest?.(".lx-page > *, .lx-subpanel > *");
+  if (!card) return;
+  card.dataset.sgPeek = "1";
+  if (card.id) peeked.add(card.id);
+}
 function clearPeeks() {
+  peeked.clear();
   for (const node of document.querySelectorAll("[data-sg-peek]")) delete node.dataset.sgPeek;
 }
 
@@ -460,7 +472,7 @@ function watchPlace() {
     returnToSpot();
   }).observe(win, { attributes: true, attributeFilter: ["hidden"] });
   document.querySelector(".lx-settings-nav").addEventListener("click", (event) => {
-    const link = event.target.closest(".lx-settings-link:not(.sg-place-link)");
+    const link = event.target.closest(".lx-settings-link");
     if (!link) return;
     const again = link.dataset.page === pageNow;
     if (!again) { clearPeeks(); hold = null; }

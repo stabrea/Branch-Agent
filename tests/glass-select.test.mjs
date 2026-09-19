@@ -152,7 +152,9 @@ test("integration review: the list sits flush under the select and fully covers 
   for (const viewport of [{ width: 1440, height: 950 }, { width: 390, height: 844 }]) {
     const f = await fixture(t, { viewport });
     await openSettingFor(f.page, "#policy-preset");
-    await f.page.locator("#policy-preset").scrollIntoViewIfNeeded();
+    /* phase2/settings: on a phone the Settings list is a search, a page choice and the level above the page,
+       so "if needed" left the select at the very bottom, where the list rightly opens upwards. Room below it: */
+    await f.page.locator("#policy-preset").evaluate((node) => node.scrollIntoView({ block: "center" }));
     await f.page.locator("#policy-preset").click();
     await f.page.locator("#glass-list").waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over

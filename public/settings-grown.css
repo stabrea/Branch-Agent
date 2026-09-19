@@ -138,6 +138,9 @@
   color: var(--text-3);
   font-size: 11.5px;
 }
+.sg-keys-names::after {
+  content: attr(data-keys);
+}
 .sg-keys code {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -150,6 +153,29 @@
 /* ---------- the list of pages ---------- */
 .lx-settings-link {
   gap: 9px;
+}
+/* The places outside Settings, listed after its pages: they look like a page link and go to the place. */
+.sg-place-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+}
+.sg-place-link:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sg-place-link .sg-icon {
+  color: var(--text-3);
 }
 .lx-settings-link .sg-icon {
   color: var(--text-3);
@@ -229,6 +255,7 @@
     overflow: visible;
   }
   .lx-settings-nav .lx-settings-link,
+  .lx-settings-nav .sg-place-link,
   .lx-settings-nav .sg-nav-group,
   .sg-level-label,
   .sg-level-note {
@@ -486,4 +513,8 @@
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The calm window already says once when no model is connected; the account row keeps to its name there. */
+:root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {
+  display: none;
 }

@@ -224,7 +224,8 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   await f.page.locator('.sg-level [data-level-pick="technical"]').click();
   await f.page.locator("#developer-card").waitFor({ state: "visible" });
   await openSettings(f.page, "general");
-  assert.match(await f.page.locator("#never-break-card .sg-keys").textContent(), /never-break\.mode/);
+  assert.equal(await f.page.locator("#never-break-card .sg-keys").isVisible(), true);
+  assert.match(await f.page.locator("#never-break-card .sg-keys-names").getAttribute("data-keys"), /never-break\.mode/);
   /* Show everything off is Regular again, and the other way round. */
   await openSettings(f.page, "appearance");
   await f.page.locator("#settings-form").evaluate((card) => { card.dataset.sgPeek = "1"; });

@@ -23,9 +23,15 @@ Screenshots: `claude-session-files/branch/phase2-shots/settings/`. Scratch scrip
 - [x] 4. Gear after the account row (#37); keep place (#54): the calm Settings row and the full-window gear become one
       cog after `#owner-menu-button` (which now shows in the calm window too; calm-ui test updated). Scroll kept per
       page across close/open and re-pressing the page; level changes keep the heading you were reading in place.
-- [ ] 5. Appearance laid out to be looked at (#5, #24, #25, #38, #39): themes their own place, live mirror light + dark.
-- [ ] 6. Chips never overflow (#62): sweep every page at 1440/1024/390.
-- [ ] Tests: tests/settings-grown.test.mjs (inventory walk, defaults, search, levels, gear, keep place, overflow).
+- [x] 5. Appearance (#5, #24, #25, #38, #39): `public/settings-look.js`. Two small live mirrors side by side (dark, light)
+      copy the window's panes into blank same-origin iframes (own document: no id clashes, no app watchers), dressed in
+      the chosen theme or the tile under the pointer; redrawn at most once a second while visible. Plain-word tile tags
+      ("Easiest to read" ≥16:1, "Softer" <9:1, never numbers). Eye beside Light and dark clears the view.
+- [x] 6. Chips never overflow (#62): S12 sweeps every page and Models tab at 1440/1024/390 at Technical with every safe
+      switch on; long paths now wrap inside cards (the video-programs card pushed Models › Pictures & sound sideways).
+- [x] Tests: tests/settings-grown.test.mjs S1–S13 (inventory walk, defaults, search, Go there, levels, household, groups,
+      cog, keep place, overflow sweep, mirrors). Other UI tests: tests/places.mjs openSettings shows every card of the
+      page it opens (`showEveryCard`) and uses the page picker on narrow windows.
 - [ ] Screenshots, merge latest trunk, final report.
 
 ## Notes for the other phase-2 builders

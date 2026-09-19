@@ -76,7 +76,7 @@ export async function openSettings(page, name) {
  */
 export async function showEveryCard(page) {
   await page.evaluate(() => {
-    for (const card of document.querySelectorAll(".lx-page:not([hidden]) [data-level]")) card.dataset.sgPeek = "1";
+    for (const card of document.querySelectorAll(".lx-page:not([hidden]) [data-level]")) globalThis.branchSettingsLevel.peek(card);
   });
 }
 
