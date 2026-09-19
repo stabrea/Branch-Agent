@@ -31,6 +31,8 @@ export function speechStreamRunner(): SpeechStreamRunner {
     child.on("error", (error) => finish(error.message));
     child.on("close", () => finish(null));
     child.stdin.on("error", () => undefined); // a program that has gone is not an unhandled failure
+    // merge-queue review: a broken output pipe ends dictation in words instead of crashing Branch.
+    child.stdout.on("error", (error) => finish(error.message));
     return {
       hear(sound) {
         if (done || !child.stdin.writable) return false;
@@ -64,6 +66,9 @@ export function soundStreamRunner(): SoundStreamRunner {
     });
     child.on("error", (error) => finish(error.message));
     child.on("close", () => finish(null));
+    // merge-queue review: an unguarded stream error would be an unhandled 'error' event.
+    child.stdout.on("error", (error) => finish(error.message));
+    child.stdin.on("error", () => undefined);
     child.stdin.end(); // a recorder is given nothing on its standard input and never reads it
     return { stop() { finish(null); } };
   };
