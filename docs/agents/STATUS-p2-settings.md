@@ -34,9 +34,28 @@ Screenshots: `claude-session-files/branch/phase2-shots/settings/`. Scratch scrip
       page it opens (`showEveryCard`) and uses the page picker on narrow windows.
 - [x] Screenshots: `claude-session-files/branch/phase2-shots/settings/` (10 scenes × 1440/1024/390 × light/dark, report.txt:
       no sideways scroll, no console errors after settle).
-- [x] Merged origin/mac/cross-platform (98beb5d8) cleanly; rebuilt; 902 tests over 85 files (every Playwright UI file but
+- [x] Final: merged origin/mac/cross-platform (f5b8d582) cleanly at 48c02b88; rebuilt in a separate checkout; 913 tests over
+      86 files (every Playwright UI file but desktop*, static-assets, index-structure, handbook, every preferences user,
+      outside-review): 889 pass, 0 fail, 24 skipped. 54 screenshots, all without sideways scroll or console errors.
+- [x] Earlier: merged origin/mac/cross-platform (98beb5d8) cleanly; rebuilt; 902 tests over 85 files (every Playwright UI file but
       desktop*, plus static-assets, index-structure, handbook, preferences users): 876 pass, 24 skipped, 2 fail, both fixed
       after (S9's churn check was too strict; glass-select's 390 click raced the window's rise animation).
+
+- [x] Household (integration-style self-review): a window on somebody else's profile always shows Regular (level
+      greyed, "The owner keeps this profile on Regular."), and search leaves out owner-only settings (index column 8).
+      S8 switches the window to a household profile and checks both.
+
+## Test-side changes to know about
+
+- `tests/places.mjs` `openSettings` now calls `branchSettingsLevel.peekPage()`, so the ~32 UI files that use it see every
+  card of the page they open, as before this branch; they no longer exercise the Regular default. S5–S8 and S11 in
+  tests/settings-grown.test.mjs cover what each level hides and shows. On narrow windows it uses the page picker.
+- `tests/glass-select.test.mjs` (phase 1's) passed on base 7c456c73. At 390 px my taller Settings header left
+  `#policy-preset` at the bottom edge (the list rightly opened upwards) and the click raced the window's rise animation;
+  the test now centres the select and waits for the window's animations to finish (a wait for the condition, no
+  product timeout touched).
+- `tests/calm-ui.test.mjs`: the account row now shows in the calm window (#37); `tests/shell-ui.test.mjs`: tab order
+  (the cog is at the foot, right after the account row) and the look record includes `settingsLevel`.
 
 ## Found and fixed on the way
 
