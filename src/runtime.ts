@@ -104,7 +104,7 @@ import {
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import {
-  carrySentences, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession,
+  carrySentences, dropCarriedGrants, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession, // phase2/rooms: dropCarriedGrants
 } from "./session-carry.js";
 import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
@@ -1172,6 +1172,11 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /**
+   * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
+   * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
+   */
+  modeFollows: (sessionId: string) => string | null = () => null;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -2181,7 +2186,10 @@ ${run.output.slice(0, 6000)}`;
     const seen = new Set<string>();
     for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
       seen.add(id);
-      const record = readConversationMode(this.store, this.owner, this.store.run(id)?.sessionId);
+      const session = this.store.run(id)?.sessionId;
+      // phase2/rooms: a Trunk's side of a room follows the room's own conversation, never a mode of its own.
+      const follows = session ? this.modeFollows(session) : null;
+      const record = readConversationMode(this.store, this.owner, follows ?? session);
       if (record) return record;
     }
     return null;
@@ -2710,6 +2718,17 @@ ${run.output.slice(0, 6000)}`;
         reason: "You took back a yes you had given for this conversation", outcome: "refused",
       });
     return gone;
+  }
+  /**
+   * phase2/rooms (integration review): ends every answer kept for one conversation — a Trunk taken
+   * out of a room, or the room removed — including the copy written down for a restart, so it
+   * cannot come back when that conversation is next used.
+   */
+  endGrants(sessionId: string): number {
+    const grants = this.approvals.grants(sessionId);
+    for (const grant of grants) this.revokeGrant(sessionId, grant.tool, grant.target);
+    dropCarriedGrants(this.store, this.owner, sessionId);
+    return grants.length;
   }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {

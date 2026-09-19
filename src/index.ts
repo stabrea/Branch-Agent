@@ -107,6 +107,7 @@ import { SpeechEngineService } from "./speech-engine-service.js";
 import { registerTroubleshoot } from "./troubleshoot.js"; // w911 (A0374) hook.
 import { builtInSpeech } from "./speech-engines.js";
 import { LiveConversations } from "./realtime-voice.js";
+import { liveRefusal } from "./live-refusal.js"; // phase2/rooms
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
@@ -1062,6 +1063,10 @@ export async function createBranch(options: {
       return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
     } });
   retention.keeps = (sessionId) => trunks.keeps(sessionId);
+  // phase2/rooms (integration review): a Trunk's side of a room stays out of Recents (the room is what is
+  // opened), and Talk live is refused where it would step round a Trunk, Lockdown or an outside hold.
+  store.hiddenSessions = () => [...trunks.rooms.memberConversations().keys()];
+  live.refuse = (sessionId) => liveRefusal({ store, owner: runtime.owner, kind: (id) => trunks.conversations.kind(id) }, sessionId);
   channels.trunkReach = (channel, sessionId) => {
     const owned = trunks.trunkForConversation(sessionId);
     const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;

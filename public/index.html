@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/layout.css" />
     <!-- phase2/panels: the side panel's tabs, resizable panes, the conversation's width, hiding parts of the window. -->
     <link rel="stylesheet" href="/panels.css" />
+    <link rel="stylesheet" href="/rooms.css" /><!-- phase2/rooms -->
     <!-- phase2/shell: faces, the Trunks strip, the Add a Trunk studio, Overview and People. -->
     <link rel="stylesheet" href="/faces.css" />
     <link rel="stylesheet" href="/strip.css" />
@@ -1232,6 +1233,13 @@
             <label class="check-row">
               <input id="voice-live-record" type="checkbox" /> Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)
             </label>
+            <!-- phase2/rooms: Talk live in a view of its own (public/voice-view.js). Off by default. -->
+            <label for="voice-live-view" data-t="field.voice-live-view">Talk live in its own view</label>
+            <select id="voice-live-view" aria-describedby="voice-live-view-note">
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="on" data-t="field.switch-on">On</option>
+            </select>
+            <p id="voice-live-view-note" class="field-note" data-t="settings.voice.liveViewNote">On: pressing Talk live, or the send button while the message box is empty, opens a calm view with a circle that moves with the sound, what each of you says as it is said, Mute and End. The microphone is asked for the first time you press it, never before. Off: Talk live is the plain button it always was.</p>
             <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
@@ -2136,6 +2144,11 @@
     <script src="/phone-app.js" type="module"></script>
     <script src="/autonomy.js" type="module"></script>
     <script src="/trunks.js" type="module"></script>
+    <!-- phase2/rooms: who answers in a conversation, rooms as conversations, @mentions. -->
+    <script src="/rooms.js" type="module"></script>
+    <!-- phase2/rooms: dictation surfaced as a bar, and Talk live in its own view (off at first). -->
+    <script src="/voice-bar.js" type="module"></script>
+    <script src="/voice-view.js" type="module"></script>
     <!-- phase2/shell: the Trunks strip, the Overview and People (studio.js and pairing.js load when opened). -->
     <script src="/strip.js" type="module"></script>
     <script src="/overview.js" type="module"></script>

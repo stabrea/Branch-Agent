@@ -52,6 +52,9 @@ export function parseConversationArchive(input: unknown): Archive {
   return archive;
 }
 
+/** phase2/rooms: leaves the given conversations out of a list (bound as parameters, never written in). */
+const notIn = (hidden: readonly string[]): string => (hidden.length ? `AND s.id NOT IN (${hidden.map(() => "?").join(",")})` : "");
+
 export class SessionLibrary {
   constructor(private readonly db: DatabaseSync) {
     db.function("branch_fold", { deterministic: true }, value => String(value ?? "").normalize("NFC").toLowerCase());
@@ -70,7 +73,8 @@ export class SessionLibrary {
    * and what was last said, so picking up on a phone what was begun at the desk needs one request.
    * It is the same list the app already shows, served through the same door and the same key.
    */
-  recent(owner: string, limit = 20) {
+  /** `hidden`: conversations kept out of every list (phase2/rooms: a Trunk's side of a room). */
+  recent(owner: string, limit = 20, hidden: readonly string[] = []) {
     const rows = this.db.prepare(`SELECT s.id, s.created_at,
       (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count,
       (SELECT substr(json_extract(m.body,'$.content'),1,240) FROM messages m
@@ -82,8 +86,8 @@ export class SessionLibrary {
       (SELECT json_extract(m.body,'$.role') FROM messages m
         WHERE m.session_id=s.id AND json_extract(m.body,'$.role') IN ('user','assistant')
         ORDER BY m.id DESC LIMIT 1) AS latest_role
-      FROM sessions s WHERE s.owner=? AND s.temporary=0
-      ORDER BY s.created_at DESC, s.id DESC LIMIT ?`).all(owner, Math.min(Math.max(limit, 1), 100));
+      FROM sessions s WHERE s.owner=? AND s.temporary=0 ${notIn(hidden)}
+      ORDER BY s.created_at DESC, s.id DESC LIMIT ?`).all(owner, ...hidden, Math.min(Math.max(limit, 1), 100));
     return {
       sessions: rows.map((row) => ({
         sessionId: String(row.id), createdAt: String(row.created_at), messageCount: Number(row.message_count),
@@ -92,7 +96,7 @@ export class SessionLibrary {
       })),
     };
   }
-  search(owner: string, input: unknown) {
+  search(owner: string, input: unknown, hidden: readonly string[] = []) {
     const { query, offset, labels } = SessionSearchSchema.parse(input);
     const wanted = labels.map((label) => label.toLocaleLowerCase("en"));
     // Only conversations carrying every wanted label; an empty list means no label filter at all.
@@ -109,8 +113,8 @@ export class SessionLibrary {
       FROM sessions s WHERE s.owner=? AND s.temporary=0 AND EXISTS(SELECT 1 FROM messages m WHERE m.session_id=s.id
         AND json_extract(m.body,'$.role') IN ('user','assistant')
         AND (?='' OR instr(branch_fold(json_extract(m.body,'$.content')),branch_fold(?))>0))
-      ${labelFilter}
-      ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, ...labelArgs, offset);
+      ${labelFilter} ${notIn(hidden)}
+      ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, ...labelArgs, ...hidden, offset);
     return {
       sessions: rows.slice(0, 20).map(row => ({ sessionId: String(row.id),
         createdAt: String(row.created_at), preview: String(row.preview ?? ""),

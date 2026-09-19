@@ -71,6 +71,8 @@ export class Store {
   private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
+  /** False once the app has closed the database, so something still running can stop instead of reading it. */
+  get isOpen(): boolean { return !this.closed; }
   /**
    * The folder the database lives in, which is also where things that belong to the owner rather
    * than to one piece of work are kept — their SOUL.md and USER.md, for instance, which should
@@ -167,12 +169,18 @@ export class Store {
     return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
   }
   searchSessions(owner: string, input: unknown) {
-    return this.library.search(owner, input);
+    return this.library.search(owner, input, this.hiddenSessions().slice(0, 500));
   }
   /** The recent conversations with what was last said in each, for picking one up on a phone. */
   recentSessions(owner: string, limit?: number) {
-    return this.library.recent(owner, limit);
+    return this.library.recent(owner, limit, this.hiddenSessions().slice(0, 500));
   }
+  /**
+   * phase2/rooms (integration review): conversations kept out of Recents and search. Set by
+   * src/index.ts to each Trunk's side of a room, whose first message is the room's instructions to
+   * that Trunk; the room itself is the conversation the owner opens.
+   */
+  hiddenSessions: () => readonly string[] = () => [];
   exportSession(owner: string, sessionId: string) {
     return this.library.export(owner, sessionId);
   }

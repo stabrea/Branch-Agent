@@ -348,7 +348,15 @@ export class LiveConversations {
     );
   }
   get(runId: string): LiveConversation | undefined { return this.open.get(runId); }
+  /**
+   * phase2/rooms (integration review): why a live conversation may not open on this conversation, or
+   * null. Set by src/index.ts (src/live-refusal.ts); asked here because every task's socket reaches
+   * `start`, not only the route that hands out a live conversation's task.
+   */
+  refuse: (sessionId: string) => string | null = () => null;
   async start(runId: string, sessionId: string, out: LiveOutput): Promise<{ conversation: LiveConversation; plan: LivePlan }> {
+    const refused = this.refuse(sessionId); // phase2/rooms
+    if (refused) throw new Error(refused);
     this.stop(runId);
     const conversation = new LiveConversation(this.deps, runId, sessionId, out);
     const plan = await conversation.start();

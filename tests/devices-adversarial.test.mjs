@@ -214,7 +214,7 @@ class SilentPeer extends Duplex {
 }
 
 test("a run socket whose peer goes silent without closing is let go", async () => {
-  const store = { events: () => [], run: () => ({ status: "running" }) };
+  const store = { isOpen: true, events: () => [], run: () => ({ status: "running" }) };
   const peer = new SilentPeer();
   const request = { headers: { "sec-websocket-key": "abc" } };
   const served = serveRunSocket(store, "run", request, peer, { pollMs: 5, liveOpen: () => true, pingMs: 20, idleMs: 80 });
@@ -225,7 +225,7 @@ test("a run socket whose peer goes silent without closing is let go", async () =
 });
 
 test("a run socket peer that answers pings stays open, and a half-closed peer is let go", async () => {
-  const store = { events: () => [], run: () => ({ status: "running" }) };
+  const store = { isOpen: true, events: () => [], run: () => ({ status: "running" }) };
   const peer = new SilentPeer();
   let live = true;
   const served = serveRunSocket(store, "run", { headers: { "sec-websocket-key": "abc" } }, peer,

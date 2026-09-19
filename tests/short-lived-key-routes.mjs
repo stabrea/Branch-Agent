@@ -307,6 +307,10 @@ export const ROUTES = {
   "/api/devices/invite": "owner POST",
   "/api/devices/invite/cancel": "owner POST",
   "/api/devices/pick": "owner POST",
+  // phase2/shell: lending this computer to another Branch from the window. Reading where it stands
+  // (with the check code) is refused to keys by the /api/devices reads rule; answering and leaving are the owner's.
+  "/api/devices/join": "owner POST",
+  "/api/devices/join/leave": "owner POST",
   "/api/devices/[a-f0-9]{16}/switch": "owner POST",
   "/api/devices/[a-f0-9]{16}/folder": "owner POST",
   "/api/devices/[a-f0-9]{16}/share": "owner POST",
@@ -350,6 +354,8 @@ export const ROUTES = {
   "/api/autonomy/switch": "owner POST",
   // ---- end of the r17-b block ----
   // ---- R17-A: Trunks (src/trunks/api.ts); talking to one is a task, every change is the owner's ----
+  // phase2/shell: which parts of the shell to draw; anyone at the window may read, changing is the owner's.
+  "/api/shell-look": "owner POST",
   "/api/trunks": "owner POST",
   "/api/trunks/": "prefix",
   "/api/trunks/switch": "owner POST",
@@ -373,6 +379,11 @@ export const ROUTES = {
   "/api/trunks/rooms/:id/send": "task POST",
   "/api/trunks/rooms/:id/stop": "task POST",
   "/api/trunks/rooms/:id/answer": "owner POST",
+  "/api/trunks/rooms/:id/revoke": "owner POST", // phase2/rooms (integration review): Revoke beside a yes in a room
+  // phase2/rooms: who answers in a conversation is the owner's to choose.
+  "/api/trunks/conversations": "owner POST",
+  "/api/trunks/conversations/:id": "owner POST",
+  "/api/trunks/conversations/:id/room": "owner POST",
   // ---- end of the R17-A block ----
   // ---- mac7/r17-d: coding polish (src/coding/api.ts); checks and forks only start work ----
   "/api/coding": "look",
@@ -998,7 +1009,7 @@ export const ROUTES = {
   "/api/voice/": "prefix",
   "/api/voice/command": "task POST",
   "/api/voice/engines": "owner POST",
-  "/api/voice/live": "task POST",
+  "/api/voice/live": "owner POST", // phase2/rooms: its tools run as the owner
   "/api/voice/plan": "look",
   "/api/voice/settings": "owner POST",
   "/api/voice/speak": "task POST",

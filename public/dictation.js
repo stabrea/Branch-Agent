@@ -93,6 +93,8 @@ let asking = null;
  * so without this the words were written in twice.
  */
 let settledAlready = null;
+/** phase2/rooms: what the box held when the microphone opened, so the bar's ✕ can put it back. */
+let startedWith = "";
 
 const line = (text, open) => {
   const note = ask("voice-dictate-status");
@@ -132,7 +134,7 @@ function stopAsking() {
 async function press() {
   const button = ask("voice-dictate");
   const on = button.getAttribute("aria-pressed") !== "true";
-  if (on) { typed = (box()?.value ?? "").trim(); settledAlready = null; }
+  if (on) { typed = (box()?.value ?? "").trim(); settledAlready = null; startedWith = box()?.value ?? ""; }
   try {
     const answer = await api("voice/dictation/listen", { on });
     if (answer.refusal) { line(answer.refusal, false); stopAsking(); return; }
@@ -163,6 +165,22 @@ export async function refreshDictateButton() {
 }
 
 ask("voice-dictate")?.addEventListener("click", () => void press());
+/**
+ * phase2/rooms: the dictation bar's two ways to stop (public/voice-bar.js). Keep: exactly what the
+ * Dictate button does. Throw away: the same, then the box goes back to what it held before.
+ */
+globalThis.branchDictation = {
+  listening: () => ask("voice-dictate")?.getAttribute("aria-pressed") === "true",
+  async stop(keep) {
+    if (ask("voice-dictate")?.getAttribute("aria-pressed") === "true") await press();
+    const field = box();
+    if (keep || !field) return;
+    field.value = startedWith;
+    field.classList.remove("dictating");
+    typed = startedWith.trim();
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  },
+};
 /* Escape stops it, as it does everything else that is open: the microphone closes with it. */
 box()?.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && ask("voice-dictate")?.getAttribute("aria-pressed") === "true") void press();
