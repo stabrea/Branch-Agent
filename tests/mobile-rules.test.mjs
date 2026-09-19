@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import * as catalogue from "../public/theme-catalogue.js";
 import { encodeQr } from "../dist/remote/qr.js";
 import {
-  DEFAULT_SWITCHES, SHARED_OPENING, checkAddress, isPrivateHost, newAttention, pairingBody, planShare, pollPlan, readInvitation, readSwitches,
+  DEFAULT_SWITCHES, DEVICE_REFUSALS, SHARED_OPENING, checkAddress, isPrivateHost, newAttention, pairingBody, planShare, pollPlan,
+  readDeviceInvitation, readInvitation, readNever, readSwitches, sixDigits,
 } from "../apps/mobile/web/rules.js";
 import { nativePalette, nativePalettes, opaque, androidColour } from "../apps/mobile/web/palette.js";
 import { createVault } from "../apps/mobile/web/vault.js";
@@ -66,7 +67,8 @@ test("the native rules repeat the address rule and keep the bridge to the app's 
   const plugin = read("ios/App/App/BranchPhonePlugin.swift");
   const methods = plugin.match(/@objc func \w+\(_ call: CAPPluginCall\) \{\n/g) ?? [];
   const guarded = plugin.match(/@objc func \w+\(_ call: CAPPluginCall\) \{\n\s+guard fromAppPage\(call\) else \{ return \}/g) ?? [];
-  assert.equal(methods.length, 14);
+  assert.equal(methods.length, 18); // mac7/phone-pairing added four
+  
   assert.equal(guarded.length, methods.length);
   // Android: without an origin-scoped bridge, the owner's Branch is never shown inside the app.
   const android = read("android/app/src/main/java/com/keepoak/branchagent/BranchPhonePlugin.java");
@@ -216,4 +218,90 @@ test("the square code the computer draws is read back by the phone's decoder", {
   assert.deepEqual(readInvitation(readFrame(decode, { data, width: size, height: size })).offerId, offer);
   assert.equal(readFrame(decode, { data: new Uint8ClampedArray(64 * 64 * 4), width: 64, height: 64 }), null);
   assert.equal(readFrame(decode, null), null);
+});
+
+/* ---------- mac7/phone-pairing: lending this phone to Branch as one of its devices ---------- */
+
+const square = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+
+test("the Devices square gives the computer's address and the invitation id, and nothing else", () => {
+  assert.deepEqual(readDeviceInvitation(`http://desk.tail1.ts.net:4567/devices/pair?offer=${square}`),
+    { origin: "http://desk.tail1.ts.net:4567", offer: square });
+  assert.deepEqual(readDeviceInvitation(` https://branch.example.com/devices/pair?offer=${square}&extra=ignored `),
+    { origin: "https://branch.example.com", offer: square });
+  // The same address rule as everything else on this phone: plain http stays on the owner's network.
+  assert.throws(() => readDeviceInvitation(`http://203.0.113.9:3210/devices/pair?offer=${square}`), /Plain http/);
+  assert.throws(() => readDeviceInvitation(`http://me:secret@100.64.0.1/devices/pair?offer=${square}`), /name and password/);
+  assert.throws(() => readDeviceInvitation("http://100.64.0.1:3210/devices/pair?offer=nope"), /damaged/);
+  assert.throws(() => readDeviceInvitation(`http://100.64.0.1:3210/devices/pair?offer=${square.toUpperCase()}`), /damaged/);
+  assert.throws(() => readDeviceInvitation("http://100.64.0.1:3210/pair?id=x"), /not the square from Your devices/);
+  assert.throws(() => readDeviceInvitation("100.64.0.1:3210"), /not the square from Your devices/);
+  assert.throws(() => readDeviceInvitation(""), /Scan the square code/);
+});
+
+test("each square is read by the screen it belongs to, and says so when it is the other one", () => {
+  assert.throws(() => readInvitation(`http://100.64.0.1:3210/devices/pair?offer=${square}`), /Lend this phone to Branch/);
+  assert.throws(() => readDeviceInvitation(`http://100.64.0.1:3210/pair?id=${offer}`), /Press Pair a device/);
+});
+
+test("the six numbers are the same six numbers the computer shows", () => {
+  assert.equal(sixDigits(" 123 456 "), "123456");
+  assert.equal(sixDigits("000000"), "000000");
+  for (const wrong of ["12345", "1234567", "12345a", "", null, undefined, "      "])
+    assert.throws(() => sixDigits(wrong), /six numbers/, String(wrong));
+});
+
+test("the phone's own refusals keep their order and drop anything it does not know", () => {
+  assert.deepEqual(DEVICE_REFUSALS, ["camera", "screen", "listen", "run"]);
+  assert.deepEqual(readNever(["run", "camera", "location", "nonsense"]), ["camera", "run"]);
+  assert.deepEqual(readNever(undefined), []);
+  assert.deepEqual(readNever("camera"), []);
+  assert.deepEqual(readNever(DEVICE_REFUSALS), DEVICE_REFUSALS);
+});
+
+test("the phone's key is made, kept and used only on the native side", () => {
+  const read = (path) => readFileSync(new URL(`../apps/mobile/${path}`, import.meta.url), "utf8");
+  const swift = read("ios/App/App/BranchPhonePlugin.swift");
+  const java = read("android/app/src/main/java/com/keepoak/branchagent/BranchNode.java");
+  // iOS: the Keychain, this phone only, never a backup and never iCloud.
+  assert.match(swift, /kSecAttrAccessible as String\] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly/);
+  assert.match(swift, /Curve25519\.Signing\.PrivateKey/);
+  // Android: sealed with a key that never leaves the Keystore, as the session vault already is.
+  assert.match(java, /KeyGenerator\.getInstance\(KeyProperties\.KEY_ALGORITHM_AES, "AndroidKeyStore"\)/);
+  assert.match(java, /Signature\.getInstance\("Ed25519"\)/);
+  // Neither side ever answers the page with the key, and the address rule comes first on both.
+  for (const [name, text] of [["swift", swift], ["java", java]]) {
+    assert.ok(!/"privateKey"|"seed"|\bkey\b\s*:\s*record\.key/.test(text.split("enum BranchNode")[0] ?? ""), name);
+    assert.match(text, /checkOrigin/);
+  }
+  assert.doesNotMatch(read("web/phone-device.js"), /privateKey|\bsign\(/);
+});
+
+test("the phone's never-allow list holds for the camera and microphone in the web view, too", () => {
+  const read = (path) => readFileSync(new URL(`../apps/mobile/${path}`, import.meta.url), "utf8");
+  const plugin = read("android/app/src/main/java/com/keepoak/branchagent/BranchPhonePlugin.java");
+  const gate = read("android/app/src/main/java/com/keepoak/branchagent/BranchRefusals.java");
+  // Android: Capacitor grants any page's request; ours checks the refusals first, then hands on.
+  assert.match(plugin, /setWebChromeClient\(new BridgeWebChromeClient\(getBridge\(\)\)/);
+  assert.match(plugin, /if \(!BranchRefusals\.mayCapture\(node\.never\(\), request\.getResources\(\), ownPage\)\) \{\s*request\.deny\(\);\s*return;/);
+  assert.match(gate, /VIDEO\.equals\(resource\) && never\.contains\("camera"\)/);
+  assert.match(gate, /AUDIO\.equals\(resource\) && never\.contains\("listen"\)/);
+  // iOS: the same gate stands in front of Capacitor's delegate, which answers every page with a yes.
+  const swift = read("ios/App/App/BranchPhonePlugin.swift");
+  const window = read("ios/App/App/BranchViewController.swift");
+  assert.match(swift, /if !ownPage && Self\.refused\(type, never: BranchNode\.refuses\) \{\s*decisionHandler\(\.deny\)/);
+  assert.match(swift, /case \.cameraAndMicrophone: return never\("camera"\) \|\| never\("listen"\)/);
+  assert.match(window, /web\.uiDelegate = mediaGuard/);
+  // iOS pairing never follows a redirect off the checked address, as Android already does not.
+  assert.match(swift, /willPerformHTTPRedirection[\s\S]*?completionHandler\(nil\)/);
+  assert.doesNotMatch(swift.split("enum BranchNode")[1], /URLSession\.shared/);
+  // A refusal that could not be saved is said, not shown as kept; an old Android phone can still keep one.
+  assert.match(swift, /static func setNever\(_ never: \[String\]\) throws/);
+  const node = read("android/app/src/main/java/com/keepoak/branchagent/BranchNode.java");
+  assert.match(node, /if \(record == null\) record = new JSONObject\(\);\s*record\.put\("never"/);
+  // Android 13+: a bare getInstance("Ed25519") is the Keystore's generator and throws "Not initialized"
+  // without a Keystore spec; found on the emulator. The key is made inside the Keystore by name.
+  assert.match(node, /KeyPairGenerator\.getInstance\(KeyProperties\.KEY_ALGORITHM_EC, "AndroidKeyStore"\)/);
+  assert.match(node, /new ECGenParameterSpec\("ed25519"\)/);
+  assert.doesNotMatch(node, /KeyPairGenerator\.getInstance\("Ed25519"\)\.generateKeyPair/);
 });

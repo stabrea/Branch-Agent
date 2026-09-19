@@ -12,10 +12,20 @@
  * anything while the app is closed (no background socket without a native service).
  *
  * Every browser and system call is passed in (`env`), so the same code is tested in Node with fakes.
+ *
+ * mac7/phone-pairing: what the phone app actually ships is the native pairing (BranchPhonePlugin),
+ * because the app page may only talk to itself (the page's Content-Security-Policy). This module
+ * stays the written-down protocol, proved against a real Branch in tests/devices-phone.test.mjs, and
+ * is what a future socket will use. Both sides keep the same two rules: the address rule
+ * (rules.js `checkAddress`) and the phone's own "never allow" list, which can only take away.
  */
+import { checkAddress, readNever } from "./rules.js";
+
 const PROTOCOL = 1;
 const MEDIA_LIMIT = 8 * 1024 * 1024;
 export const PHONE_OFFERS = ["camera", "location", "open-url", "speak", "listen", "canvas"];
+/** What this phone offers Branch: what it can do, less what the owner told it here never to do. */
+export const offersLess = (never) => PHONE_OFFERS.filter((capability) => !readNever(never).includes(capability));
 
 const text = new TextEncoder();
 const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -36,10 +46,13 @@ async function signed(env, key, message) {
 }
 
 /** Answers an invitation from a scanned link and the typed number, then waits for the owner's yes. */
-export async function pairPhone(env, link, code, name) {
+export async function pairPhone(env, link, code, name, never = []) {
   const url = new URL(link);
   const offer = url.searchParams.get("offer") ?? "";
   if (!hexOk(offer, 32)) throw new Error(env.say("phone.node.badLink", "That is not a pairing link from Branch's Devices card."));
+  // The same address rule as the rest of the phone: https anywhere, plain http only to this
+  // network or a Tailscale address. Checked here as well as natively, never instead of it.
+  checkAddress(url.origin);
   const key = await phoneKey(env);
   const post = async (path, body) => {
     const response = await env.fetch(`${url.origin}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -47,10 +60,10 @@ export async function pairPhone(env, link, code, name) {
     if (!response.ok) throw new Error(answer.error ?? `Branch answered ${response.status}`);
     return answer;
   };
-  const { requestId } = await post("/api/devices/pair", { offer, code, name, platform: env.platform, publicKey: key.publicKey, offers: PHONE_OFFERS });
+  const { requestId } = await post("/api/devices/pair", { offer, code, name, platform: env.platform, publicKey: key.publicKey, offers: offersLess(never) });
   for (let tries = 0; tries < (env.tries ?? 200); tries++) {
     const status = await post("/api/devices/pair/status", { requestId, signature: await signed(env, key, `branch-node-status-v1\n${requestId}`) });
-    if (status.status === "approved") { await env.store.set("device", { hub: url.origin, id: status.deviceId }); return status.deviceId; }
+    if (status.status === "approved") { await env.store.set("device", { hub: url.origin, id: status.deviceId, never: readNever(never) }); return status.deviceId; }
     if (status.status === "refused") throw new Error(env.say("phone.node.refused", "The owner refused this phone."));
     await env.wait(3000);
   }
@@ -98,6 +111,7 @@ export async function perform(env, capability, args = {}) {
  */
 export function connectPhone(env, device, key, onState = () => undefined) {
   let enabled = new Set(), stopped = false, attempt = 0, socket = null;
+  const never = readNever(device.never), offers = offersLess(device.never);
   const seen = new Set();
   const dial = () => {
     if (stopped) return;
@@ -118,11 +132,11 @@ export function connectPhone(env, device, key, onState = () => undefined) {
   const reply = (value) => socket.send(JSON.stringify(value));
   async function onMessage(frame) {
     if (frame.type === "challenge") {
-      reply({ type: "hello", version: PROTOCOL, deviceId: device.id, platform: env.platform, offers: PHONE_OFFERS,
+      reply({ type: "hello", version: PROTOCOL, deviceId: device.id, platform: env.platform, offers,
         signature: await signed(env, key, `branch-node-hello-v1\n${device.id}\n${frame.nonce}`) });
     } else if (frame.type === "welcome" || frame.type === "enabled") {
       attempt = 0;
-      enabled = new Set((frame.enabled ?? []).filter((c) => PHONE_OFFERS.includes(c)));
+      enabled = new Set((frame.enabled ?? []).filter((c) => offers.includes(c)));
       onState({ connected: true, enabled: [...enabled] });
     } else if (frame.type === "invoke") {
       await invoke(frame);
@@ -135,6 +149,9 @@ export function connectPhone(env, device, key, onState = () => undefined) {
     const refuse = (error) => reply({ type: "result", id: frame.id, ok: false, error });
     if (!hexOk(frame.id, 32) || seen.has(frame.id)) return;
     seen.add(frame.id);
+    // Looked at again here: Branch switches a capability on by what the platform can do, not by what
+    // this phone offered, so a refused one can still arrive. The phone turns it away itself.
+    if (never.includes(frame.capability)) return refuse("This phone never allows that.");
     if (!enabled.has(frame.capability)) return refuse("That is switched off on this phone.");
     if (typeof frame.deadline !== "number" || frame.deadline < env.now()) return refuse("The request came too late.");
     try {

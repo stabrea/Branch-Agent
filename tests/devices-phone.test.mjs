@@ -12,7 +12,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { connectPhone, pairPhone, phoneKey, PHONE_OFFERS } from "../apps/mobile/web/phone-node.js";
+import { connectPhone, offersLess, pairPhone, phoneKey, PHONE_OFFERS } from "../apps/mobile/web/phone-node.js";
 
 const scripted = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
 const jpeg = Buffer.from("ffd8ffe000104a464946", "hex");
@@ -78,4 +78,65 @@ test("a phone pairs, is switched on for its location and camera only, and answer
 
   await call(`devices/${deviceId}/revoke`, {});
   await until(async () => (await env.store.get("device")) === null, "the phone to forget its pairing");
+});
+
+test("the phone will not pair over plain http off its own network, and keeps its own refusals", { skip: typeof WebSocket !== "function" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-devices-never-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  let stopPhone = () => undefined;
+  t.after(async () => { stopPhone(); await server.close(); await app.close(); await discardTemp(root); });
+  const call = async (path, body) => {
+    const response = await fetch(`${server.url}/api/${path}`, { method: body === undefined ? "GET" : "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error);
+    return value;
+  };
+  const kept = new Map();
+  const spoken = [];
+  const env = {
+    crypto: globalThis.crypto, fetch, platform: "android", WebSocket, now: Date.now,
+    store: { get: async (key) => kept.get(key) ?? null, set: async (key, value) => void kept.set(key, value) },
+    say: (_key, english) => english, wait: (ms) => wait(Math.min(ms, 25)), later: (work) => setTimeout(work, 20), tries: 400,
+    media: { getUserMedia: async () => { throw new Error("the camera was opened"); } },
+    frame: async () => Buffer.alloc(0), record: async () => Buffer.alloc(0),
+    geolocation: { getCurrentPosition: (ok) => ok({ coords: { latitude: 1, longitude: 2, accuracy: 3 } }) },
+    open: () => undefined, speak: (words) => spoken.push(words), showPage: () => undefined,
+  };
+  await call("devices/mode", { mode: "on" });
+  const invite = await call("devices/invite", {});
+
+  // The address rule is the phone's, not Branch's: a public host over plain http is refused here.
+  const square = new URL(invite.link).searchParams.get("offer");
+  await assert.rejects(pairPhone(env, `http://203.0.113.9:3210/devices/pair?offer=${square}`, invite.code, "Phone"), /Plain http/);
+  assert.equal((await call("devices")).invitation.attemptsLeft, 5, "a refused address never even reached the invitation");
+
+  // What the phone refuses here is never offered to Branch at all.
+  const never = ["camera", "listen", "run"];
+  assert.deepEqual(offersLess(never), ["location", "open-url", "speak", "canvas"]);
+  const pairing = pairPhone(env, invite.link, invite.code, "Sam's phone", never);
+  let request;
+  await until(async () => (request = (await call("devices")).requests[0]), "the phone's request");
+  await call(`devices/requests/${request.id}`, { approve: true });
+  const deviceId = await pairing;
+  const [device] = (await call("devices")).devices;
+  assert.deepEqual(device.offers, ["location", "open-url", "speak", "canvas"]);
+  // "run" is kept too although a phone never offers it: the refusal is the phone's own, not Branch's list.
+  assert.deepEqual((await env.store.get("device")).never, ["camera", "listen", "run"]);
+
+  // Branch lets the owner switch on whatever the *platform* can do (DeviceBook.setSwitch reads
+  // offeredOn(platform), not what this phone offered), so a refused capability really can be
+  // switched on at the computer and really does reach the phone. This is why the phone keeps its
+  // own list: it turns the request away itself, with its own words, and nothing is opened.
+  stopPhone = connectPhone(env, await env.store.get("device"), await phoneKey(env));
+  await until(() => app.devices.hub.connected(deviceId), "the phone to connect");
+  await call(`devices/${deviceId}/switch`, { capability: "camera", on: true });
+  await until(() => app.devices.book.device(deviceId).enabled.includes("camera"), "the camera to be switched on");
+  await assert.rejects(app.runtime.executeTool("device.camera", {}, { mode: "owner" }), /never allows/);
+  // Nothing else is touched: what the phone did not refuse still works once it is switched on.
+  await call(`devices/${deviceId}/switch`, { capability: "speak", on: true });
+  await until(async () => (await app.runtime.executeTool("device.speak", { text: "hello" }, { mode: "owner" }).then(() => true).catch(() => false)), "speaking to be allowed");
+  assert.deepEqual(spoken, ["hello"]);
+  assert.deepEqual(PHONE_OFFERS.filter((c) => !device.offers.includes(c)), ["camera", "listen"]);
 });
