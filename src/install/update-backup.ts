@@ -31,10 +31,13 @@ export function backupsToPrune(names: string[], keep = keepBackups, keepAlways?:
  * The copies taken before a change to the database's shape. They are whole databases, so a machine
  * that keeps failing the same change would otherwise grow one per start, for ever.
  */
-export function formatCopiesToPrune(names: string[], keep = keepBackups): string[] {
-  const mine = names.filter((name) => formatCopyPattern.test(name))
+export function formatCopiesToPrune(names: string[], keep = keepBackups, keepAlways?: string): string[] {
+  // merge-queue review: the copy just taken is the one an undo of this update points at
+  // (activation.sqlite records it), and a clock that jumped backwards gives it the oldest name.
+  const room = Math.max(0, keep - (keepAlways && formatCopyPattern.test(keepAlways) ? 1 : 0));
+  const mine = names.filter((name) => formatCopyPattern.test(name) && name !== keepAlways)
     .sort((a, b) => Number(formatCopyPattern.exec(a)![1]) - Number(formatCopyPattern.exec(b)![1]));
-  return mine.slice(0, Math.max(0, mine.length - keep));
+  return mine.slice(0, Math.max(0, mine.length - room));
 }
 
 export interface RestorePoint { name: string; path: string; bytes: number; savedAt: string; version: string }

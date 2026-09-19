@@ -22,7 +22,7 @@ import { Readable } from "node:stream";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { doctorFix, doctorText } from "../dist/doctor-fix.js";
-import { backupsToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
+import { backupsToPrune, formatCopiesToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
 import { Updater } from "../dist/desktop/updater.js";
 
 const run = promisify(execFile);
@@ -509,3 +509,11 @@ function fakeRelease() {
     return new Response(`${digest}  app.zip\n`, { status: 200 });
   };
 }
+
+test("merge-queue review: pruning format copies never removes the one just taken, even under a clock that jumped back", () => {
+  const names = ["before-format-500.sqlite", "before-format-400.sqlite", "before-format-300.sqlite", "before-format-100.sqlite"];
+  const pruned = formatCopiesToPrune(names, 3, "before-format-100.sqlite");
+  assert.equal(pruned.includes("before-format-100.sqlite"), false, "the copy an undo points at stays");
+  assert.deepEqual(pruned, ["before-format-300.sqlite"], "still only three are kept");
+  assert.deepEqual(formatCopiesToPrune(names, 3), ["before-format-100.sqlite"], "without one to keep, the oldest goes");
+});

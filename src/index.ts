@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { existsSync, readdirSync, rmSync } from "node:fs";
-import { resolve, join, relative, isAbsolute } from "node:path";
+import { resolve, join, relative, isAbsolute, basename } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
@@ -1493,9 +1493,10 @@ function noteStoreMigration(dataDir: string, store: Store, report: MigrateReport
 }
 
 /** mac7/install-torture: keeps the newest few copies taken before a change to the database's shape. */
-function pruneFormatCopies(dir: string): void {
+function pruneFormatCopies(dir: string, justTaken: string | null): void {
   try {
-    for (const name of formatCopiesToPrune(readdirSync(dir))) rmSync(join(dir, name), { force: true });
+    const keep = justTaken ? basename(justTaken) : undefined;
+    for (const name of formatCopiesToPrune(readdirSync(dir), undefined, keep)) rmSync(join(dir, name), { force: true });
   } catch { /* tidying is never a reason not to start */ }
 }
 
@@ -1512,7 +1513,7 @@ function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; 
     noteStoreMigration(dataDir, store, report);
     // mac7/install-torture: those copies are whole databases; a change that keeps failing would
     // otherwise leave one behind on every start until the disk filled up.
-    pruneFormatCopies(join(dataDir, "update-backups"));
+    pruneFormatCopies(join(dataDir, "update-backups"), report.backup);
     // A journal that cannot be read is put aside rather than stopping Branch from starting.
     return openJournal(join(dataDir, "journal.sqlite"));
   } catch (error) {
