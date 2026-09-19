@@ -32,7 +32,11 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   command is marked `listed`: with no rule about it, it goes ahead as before (the program is on the owner's own
   list) instead of getting the unknown-command question, so nothing changes for existing users without a rule.
   Test 4a; taking out the `command` hook or the `listed` exemption each fails it. 212 process/policy tests pass.
-- [ ] 4b. `code.run` judged only by its permission.
+- [ ] 4b. `code.run` judged only by its permission. **Not changed (no decision given; a design question).**
+  Its "target" is a script, not a path or a command: no folder or command rule can say what a script will do.
+  It is held by a rule on `code.run` / `code.execute`, the job limits, and the wall when that is on
+  (src/sandbox-wall.ts `walledTools`). Judging it by a folder rule would need the script run inside a
+  deny-aware sandbox; left for the owner to decide.
 - [x] 4c. `mail.save_attachment` declares its file target.
   Its target is the owner's attachments folder (`mail.settings().folder`), so a folder rule ("never under finance")
   judges it. The file's own name is known only after the message is fetched, so a rule on a file name or type
@@ -51,7 +55,10 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   while a ticked connection is a Codex program (`cli-agent:codex` or `app-server:codex`) and a ChatGPT sign-in
   (`chatgpt`) is configured; it follows the boxes as they are ticked. Behaviour unchanged. (public/app.js
   `codexFallbackNote`, public/index.html; not a settings*.js file.) tests/residuals-ui.test.mjs 5; always-hidden fails it.
-- [ ] 6. Coding-next notes (hung local model, read-set after 500 tasks, short names / case).
+- [ ] 6. Coding-next notes (hung local model, read-set after 500 tasks, short names / case). **Not changed (notes, all
+  fail closed; no decision given).** A hung local model still ends (300 s + grace, then the fallback or the plain
+  sentence); a read-set dropped after 500 tasks or a short/differently-cased name only asks the task to read the
+  file again before editing (the safe side). Changing any of them trades memory or a timeout the reviewers accepted.
 
 ## UI / polish
 
