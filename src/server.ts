@@ -636,6 +636,8 @@ async function staticFile(
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
+    "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],

@@ -25,8 +25,12 @@ export const ConversationRoomSchema = z.object({ trunkId: z.string().uuid() }).s
 export type ConversationKind = "plain" | "trunk" | "trunk-chat" | "room" | "member";
 interface Choice { sessionId: string; trunkId: string | null; authors: { from: number; trunkId: string | null }[]; updatedAt: string }
 /** What the window needs to know about a Trunk: never its instructions, keys or reach. */
-export interface TrunkBrief { id: string; name: string; handle: string; title: string; avatar: Trunk["avatar"] }
-const brief = (t: Trunk): TrunkBrief => ({ id: t.id, name: t.name, handle: t.handle, title: t.title, avatar: t.avatar });
+export interface TrunkBrief { id: string; name: string; handle: string; title: string; avatar: Trunk["avatar"]; look?: unknown }
+/** `look` is the face the owner gave it (p2-shell), passed along when there is one. */
+const brief = (t: Trunk): TrunkBrief => {
+  const look = (t as unknown as { look?: unknown }).look;
+  return { id: t.id, name: t.name, handle: t.handle, title: t.title, avatar: t.avatar, ...(look ? { look } : {}) };
+};
 const key = (sessionId: string) => `trunk-conversation:${sessionId}`;
 /** How much of the conversation a room made from it carries over, so its Trunks know what came before. */
 const contextMessages = 8, contextChars = 3000;
@@ -78,6 +82,8 @@ export class TrunkConversations {
       sessionId, kind, trunk: trunk ? brief(trunk) : null,
       room: room ? { id: room.id, name: room.name, members: this.deps.rooms.roster(room).map((m) => brief(this.deps.records.get(m.id))) } : null,
       authors: this.saved(sessionId)?.authors ?? [],
+      /** For one Trunk's side of a room: the room, so the window can open it instead. */
+      memberOf: kind === "member" ? this.deps.rooms.list().find((r) => Object.values(r.memberSessions).includes(sessionId))?.id ?? null : null,
       trunks: all.filter((t) => !t.hidden).map(brief),
     };
   }

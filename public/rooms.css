@@ -1,0 +1,330 @@
+/* Redesign phase 2 "rooms": the faces at the top of a conversation, the list of who is in, a room
+   drawn as a conversation, and the "@" list. Colours only through tokens (public/tokens.css). */
+
+/* ---------- faces ---------- */
+.rooms-face {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 999px;
+  line-height: 0;
+}
+.rooms-face svg,
+.rooms-face img {
+  display: block;
+  border-radius: inherit;
+}
+.rooms-face-assistant {
+  width: 22px;
+  height: 22px;
+  background: var(--copper-tint);
+  color: var(--copper-text);
+  font-size: 12px;
+  line-height: 1;
+}
+.rooms-stack {
+  display: inline-flex;
+  align-items: center;
+}
+.rooms-stack > .rooms-face + .rooms-face {
+  margin-left: -7px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.rooms-more {
+  margin-left: 4px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+/* ---------- the button at the top, and "Talking to" ---------- */
+.rooms-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 200px;
+  height: 32px;
+  margin-left: 8px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 520;
+}
+.rooms-who[hidden],
+.rooms-hero[hidden] {
+  display: none;
+}
+.rooms-who:hover,
+.rooms-who[aria-expanded="true"],
+.rooms-hero:hover,
+.rooms-hero[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.rooms-who:focus-visible,
+.rooms-hero:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.rooms-who-words {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rooms-hero {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(100%, 420px);
+  margin: 6px auto 14px;
+  padding: 5px 12px 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 450;
+}
+.rooms-hero b {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rooms-chevron {
+  color: var(--text-3);
+}
+
+/* ---------- the list of who is in (glass, like the mode list) ---------- */
+.rooms-pop {
+  position: fixed;
+  z-index: 70;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  color: var(--text);
+  text-align: left;
+}
+.rooms-pop[hidden] {
+  display: none;
+}
+.rooms-heading {
+  margin: 0;
+  padding: 8px 10px 4px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.rooms-row,
+.rooms-add,
+.rooms-ask-row,
+.rooms-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 450;
+  text-align: left;
+}
+.rooms-add:hover,
+.rooms-add:focus-visible,
+.rooms-option[aria-selected="true"] {
+  background: var(--hover);
+  outline: none;
+}
+.rooms-add[hidden] {
+  display: none;
+}
+.rooms-row-words {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.rooms-row-words b {
+  overflow: hidden;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rooms-row-words small {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rooms-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.rooms-icon:hover,
+.rooms-icon:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+}
+.rooms-search {
+  width: calc(100% - 12px);
+  max-width: none;
+  margin: 2px 6px 4px;
+}
+.rooms-note {
+  margin: 4px 10px 8px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rooms-section {
+  display: grid;
+  gap: 4px;
+}
+
+/* ---------- a room, drawn as the conversation ---------- */
+.rooms-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rooms-by .message-face {
+  width: 20px;
+  height: 20px;
+}
+.rooms-handoff {
+  margin: 2px 0 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.rooms-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rooms-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px 0 2px;
+  border-radius: 999px;
+  background: var(--copper-tint);
+  color: var(--copper-text);
+  font-weight: 560;
+  vertical-align: baseline;
+}
+.rooms-line {
+  margin: 10px auto;
+  color: var(--text-3);
+  font-size: 12.5px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.rooms-line.warn {
+  color: var(--warn);
+}
+.rooms-talking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.rooms-dots {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--copper);
+  animation: rooms-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rooms-pulse {
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rooms-dots { animation: none; }
+}
+.rooms-stop {
+  margin-left: auto;
+  border-color: var(--bad);
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+.rooms-ask {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--copper-edge);
+  border-radius: 14px;
+  background: var(--copper-tint);
+}
+.rooms-ask-title {
+  margin: 0 4px 4px;
+  font-weight: 600;
+}
+.rooms-ask-row {
+  flex-wrap: wrap;
+  padding: 6px 4px;
+}
+.rooms-ask-row .rooms-row-words small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rooms-yes {
+  border-color: var(--copper);
+  background: var(--copper);
+  color: var(--on-copper);
+}
+.rooms-yes-all {
+  justify-self: end;
+}
+
+/* ---------- "@" in the message box ---------- */
+.rooms-mentions {
+  position: absolute;
+  bottom: calc(100% - 4px);
+  left: 12px;
+  z-index: 60;
+  width: min(340px, calc(100% - 16px));
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  list-style: none;
+}
+.rooms-option {
+  cursor: pointer;
+}
+body.lx .composer-dock:has(> .rooms-mentions) {
+  z-index: 8;
+}
