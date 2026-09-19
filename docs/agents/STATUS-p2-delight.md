@@ -19,7 +19,7 @@ junction to this worktree's — remove the junction with `cmd /c rmdir node_modu
 | 5 | 3D look for the acorn and the pet beside pixel (#46) | [x] `look.style` pixel (default) / 3d |
 | 6 | Tests | [x] tests/delight.test.mjs (server), tests/delight-ui.test.mjs (headless) |
 | 7 | Screenshots 1440/390 light/dark, fit at 1024x700 | [x] phase2-shots/delight/ |
-| 8 | Merge latest trunk, rebuild, retest, push | [ ] |
+| 8 | Merge latest trunk, rebuild, retest, push | [x] trunk 98beb5d8 merged; 159/159 on 2a712323 (delight, delight-ui, ui, shell-ui, calm-ui, static-assets, web-ui, handbook, household-profile, short-lived-keys, redesign-phase1, glass-select, source-hygiene, index-structure, outside-resume) |
 
 Each of pets, achievements and own background has its own off/on switch; all ship off (`look.style` ships pixel).
 
@@ -34,3 +34,14 @@ Each of pets, achievements and own background has its own off/on switch; all shi
 - "It's lonely over here" is earned when something dispatches `branch-everything-hidden` on `document`
   (the hide-anything feature belongs to p2-panels).
 - Achievement names and sentences come from the server in English (505 of them); the window's own words are en + fr.
+
+## For the integrator
+
+- With p2-panels: its "What's on screen" list (public/panels-hide.js `HIDE`) has `.acorn-art`, which still
+  matches (the acorn moved into `#delight-corner`). It has no entry for the pet (`#pet`) yet, and nothing
+  dispatches `branch-everything-hidden` yet: one line where every entry is hidden,
+  `document.dispatchEvent(new CustomEvent("branch-everything-hidden"))`, makes "It's lonely over here" earnable.
+- Deliberate differences from the sample: the pet lives beside the acorn in the rail's corner (not movable
+  to the composer or rail, no per-Trunk pets); tips are the real app's own (the sample's mentioned features
+  Branch does not have); no "KeepOak connected" achievement (Branch has no KeepOak account link, #14); the
+  3D is hand-written WebGL, not three.js; SSS+ "Every leaf" asks for every theme by day and night in each season.
