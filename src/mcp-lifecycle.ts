@@ -6,6 +6,7 @@
  * will not answer is retried a few times with a growing wait before it is given up on.
  */
 import { z } from "zod";
+import { diagnose } from "./diagnostic-log.js"; // mac7/diagnostics
 import type { Store } from "./store.js";
 
 export const McpLifecycleSchema = z
@@ -155,6 +156,7 @@ export class McpConnections {
       } catch (error) {
         entry.attempts++;
         entry.lastError = error instanceof Error ? error.message.slice(0, 200) : "Unknown problem";
+        diagnose("mcp", "warn", `Could not reach the "${entry.id}" server (try ${attempt + 1} of ${tries}): ${entry.lastError}`); // mac7/diagnostics
         if (attempt + 1 < tries) await sleep(this.backoffMs(attempt));
       }
     }

@@ -19,6 +19,8 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "completion", summary: "Print a completion script for bash, zsh, fish or PowerShell", options: [] },
   { name: "demo", summary: "Run the offline demonstration", options: ["--json"] },
   { name: "doctor", summary: "Check that everything works", options: ["--probe", "--fix"] },
+  // mac7/diagnostics: nothing is sent; it shows, saves a zip, or prints a GitHub issue link.
+  { name: "report", summary: "Report a problem: show what a report holds, save it as a zip, or print a GitHub issue link", options: ["log", "--save", "--without", "--issue", "--json"] },
   // mac7/nodes: lend this computer's camera, screen, notifications and more to Branch elsewhere (src/devices/node/cli.ts).
   { name: "node", summary: "Lend this computer to your Branch elsewhere: node pair | run | status | never | forget", options: ["--name"] },
   { name: "daemon", summary: "Keep Branch working with the window closed: daemon install | uninstall | status", options: [] },
