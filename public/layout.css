@@ -2238,18 +2238,14 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
    (public/suggestions.js, public/comfort.js) Copied from the sample's "Keep Branch up to date by
    itself? Recommended": a small glass bar with the KeepOak mark, the question and three answers. */
 .suggest-bar {
-  position: absolute;
-  top: 64px;
-  left: 50%;
-  z-index: 40;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 8px 10px;
-  width: min(640px, calc(100% - 24px));
-  transform: translateX(-50%);
-  box-shadow: var(--card-shadow, var(--shadow));
+  width: min(680px, 100%);
+  margin: 4px auto 12px;
+  box-sizing: border-box;
   padding: 8px 10px 8px 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -2353,4 +2349,111 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
   font-size: 11px;
   font-weight: 560;
   vertical-align: 1px;
+}
+
+/* ---------- redesign phase 1: glass lists for every select, and hover help for icon buttons ----------
+   (public/glass-select.js) The select itself stays, dressed with the theme's own chevron; the list it
+   opens is a sheet of glass whose highlight is the theme's tint, never the system's blue. */
+select.glass {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+select.glass[aria-expanded="true"] {
+  border-color: var(--copper-edge);
+  box-shadow: 0 0 0 3px var(--copper-tint);
+}
+.glass-list {
+  position: fixed;
+  z-index: 95;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  color: var(--text);
+  font-size: 13.5px;
+}
+.glass-list[hidden] {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .glass-list:not([hidden]) {
+    animation: glass-open 0.12s ease-out;
+  }
+}
+@keyframes glass-open {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.glass-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px 6px 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+  line-height: 1.35;
+}
+.glass-option[aria-selected="true"] {
+  background: var(--copper-tint);
+  font-weight: 560;
+}
+.glass-option[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 5px;
+  height: 9px;
+  margin-top: -6px;
+  border: solid var(--copper-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.glass-option:focus,
+.glass-option:hover {
+  background: color-mix(in srgb, var(--copper) 12%, transparent);
+  outline: none;
+}
+.glass-option[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.glass-group-label {
+  padding: 8px 10px 3px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.glass-tip {
+  position: fixed;
+  z-index: 99;
+  max-width: 260px;
+  padding: 6px 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--card-shadow, var(--shadow));
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.glass-tip[hidden] {
+  display: none;
 }

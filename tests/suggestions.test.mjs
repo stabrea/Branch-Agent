@@ -84,17 +84,17 @@ test("Yes on the update bar turns on updating by itself; nothing changes before 
   assert.deepEqual(f.errors, []);
 });
 
-test("Not now lasts until the window opens again; Don't ask again lasts; first run always comes first", async (t) => {
+test("first run comes first and the bar is its last question; Not now lasts until the window opens again; Don't ask again lasts", async (t) => {
   const f = await fixture(t, { onboarded: false });
   await f.open();
+  await f.page.locator("#first-run").waitFor({ state: "visible" });
   await f.page.waitForTimeout(800);
-  assert.equal(await f.page.locator("#suggest-bar").count(), 0, "never before the first-run screen is done");
-  await f.call("/api/onboarding", { done: true });
-  await f.page.evaluate(() => globalThis.branchSuggestions.offer());
-  assert.equal(await f.page.locator("#suggest-bar").count(), 0, "and not later in that same first launch either");
-  await f.open();
   const bar = f.page.locator("#suggest-bar");
+  assert.equal(await bar.count(), 0, "never while the first-run screen is up");
+  await f.page.getByRole("button", { name: /Try it without an account/ }).click();
+  await f.page.locator("#first-run").waitFor({ state: "hidden" });
   await bar.waitFor({ state: "visible" });
+  assert.equal(readComfort(f.app.store, f.app.runtime.owner, "notify").autoUpdate, "off");
   await bar.getByRole("button", { name: "Not now", exact: true }).click();
   await bar.waitFor({ state: "detached" });
   await f.page.evaluate(() => globalThis.branchSuggestions.offer());

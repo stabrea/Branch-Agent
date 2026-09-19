@@ -46,9 +46,13 @@ function barFor(id) {
   bar.setAttribute("role", "region");
   bar.setAttribute("aria-label", t(spec.words));
   bar.dataset.tLabel = spec.words;
-  const mark = el("img", undefined, "suggest-mark");
-  mark.src = "/assets/keepoak-mark.png";
-  mark.alt = "";
+  /* The KeepOak mark, the light one on a dark theme and the dark one in Daylight (style.css swaps them). */
+  const marks = [["oak-reversed", "/assets/keepoak-mark-reversed.png"], ["oak-normal", "/assets/keepoak-mark.png"]].map(([kind, src]) => {
+    const mark = el("img", undefined, `suggest-mark ${kind}`);
+    mark.src = src;
+    mark.alt = "";
+    return mark;
+  });
   const words = el("span", undefined, "suggest-words");
   words.append(worded("span", spec.words), document.createTextNode(" "), worded("b", "suggest.recommended"), worded("small", spec.why));
   const close = () => { bar.remove(); $("prompt")?.focus(); };
@@ -61,7 +65,7 @@ function barFor(id) {
     close();
     try { await api("deployment/suggestion", { id, answer: "never" }); } catch (error) { toast(error.message); }
   });
-  bar.append(mark, words, yes, later, never);
+  bar.append(...marks, words, yes, later, never);
   return bar;
 }
 
@@ -69,14 +73,19 @@ function barFor(id) {
 export async function offerSuggestion() {
   if (asked || $("workspace")?.hidden !== false || !sessionStorage.getItem("branch-token")) return;
   if ($("first-run") && !$("first-run").hidden) return;
+  /* The full window keeps its greeting in the page's flow, where a bar above it would push it under
+     the message box on a short screen; there the bar waits for a conversation to be on screen. */
+  if (document.documentElement.dataset.everything === "on" && !$("conversation")?.childElementCount) return;
   asked = true;
   const { bar } = await api("deployment/suggestion").catch(() => ({ bar: null }));
   if (!bar || !BARS[bar] || $("suggest-bar") || $("lx-tip")) return;
-  /* It floats at the top of the conversation pane, so the message box and the question over it never move. */
-  (document.querySelector("main") ?? document.body).append(barFor(bar));
+  /* At the top of the conversation, in its flow: it never covers anything, and the message box and
+     the question over it do not move. */
+  $("chat").prepend(barFor(bar));
 }
-/* Tried when the window unlocks and again when the first-run screen closes. */
+/* Tried when the window unlocks, when the first-run screen closes and when a conversation shows. */
 new MutationObserver(() => void offerSuggestion()).observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
 if ($("first-run")) new MutationObserver(() => void offerSuggestion()).observe($("first-run"), { attributes: true, attributeFilter: ["hidden"] });
+new MutationObserver(() => void offerSuggestion()).observe($("conversation"), { childList: true });
 void offerSuggestion();
 globalThis.branchSuggestions = { offer: offerSuggestion, again: () => { asked = false; return offerSuggestion(); } };
