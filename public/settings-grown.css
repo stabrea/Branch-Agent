@@ -22,12 +22,13 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-/* Two columns of cards on a wide screen; each group's heading spans both. */
+/* One column of cards on all screen widths (DG-009); group headings span all. */
 @media (min-width: 1200px) {
   .lx-page:not(#lx-page-models),
   .lx-subpanel {
-    column-count: 2;
-    column-gap: 18px;
+    /* DG-009: One full-width column instead of two columns */
+    /* column-count: 2; */ /* removed - sample shows one column */
+    /* column-gap: 18px; */ /* removed */
   }
   .lx-page > *,
   .lx-subpanel > * {
@@ -181,12 +182,13 @@
   color: var(--copper-text);
 }
 .sg-nav-group {
-  margin: 12px 0 2px;
+  /* DG-076: Make nav group headings smaller and quieter */
+  margin: 18px 0 2px;
   padding: 0 10px;
   color: var(--text-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: 0.1em;
 }
 .sg-picker {
   display: none;

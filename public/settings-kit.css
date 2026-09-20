@@ -4,6 +4,7 @@
 
 /* ---------- public/settings-describe.js ---------- */
 .card > p.kit-scope {
+  display: none !important;
   width: fit-content;
   max-width: 100%;
   margin: 0 0 var(--s2, 8px);
