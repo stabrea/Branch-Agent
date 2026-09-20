@@ -30,10 +30,10 @@ jobs:
           for attempt in $(seq 1 100); do
             waiting=""
             evidence=""
+            runs="$(gh api --method GET "repos/$GH_REPO/actions/runs" -f head_sha="$GITHUB_SHA" -f per_page=100)"
             for workflow in pr-fast.yml checks.yml; do
-              run="$(gh api --method GET "repos/$GH_REPO/actions/workflows/$workflow/runs" \
-                -f head_sha="$GITHUB_SHA" -f per_page=100 \
-                --jq '[.workflow_runs[] | select(.event == "push" or .event == "pull_request")] | sort_by(.created_at) | last // {}')"
+              run="$(printf '%s' "$runs" | jq -c --arg path ".github/workflows/$workflow" \
+                '[.workflow_runs[] | select(.path == $path and (.event == "push" or .event == "pull_request"))] | sort_by(.created_at) | last // {}')"
               status="$(printf '%s' "$run" | jq -r '.status // "missing"')"
               conclusion="$(printf '%s' "$run" | jq -r '.conclusion // ""')"
               url="$(printf '%s' "$run" | jq -r '.html_url // ""')"
