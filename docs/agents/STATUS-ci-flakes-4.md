@@ -118,6 +118,27 @@ once the shards do. Not a fifth cause.
 - [x] merged into trunk: pushed e18f559f..b837d52e (fast-forward). Checks run 35481505692.
 - [ ] two consecutive full green Checks runs on trunk
 
+## Run 35481505692 on b837d52e (green candidate 1): every shard green but two Windows ones
+
+Every fix above held — flow-editor, coding-gap, add-ons-walled and delight were all green this time.
+Two left:
+
+- mac2-desktop-ui "the cards go to their homes…" (Windows 5/6): the message fix worked (it got seven
+  lines further, to line 538), and then a press on the voice card's Save sat in Playwright's
+  "performing click action" for the whole 30 s and nothing happened. That is the THIRD time this exact
+  signature has shown up — the Settings gear in this round's never-break-ui, a select in ci-flakes-3
+  ("cause of the swallowed click not proven"), and now a Save button. The cause is still not proven. It
+  is not the product: the button keeps the one listener `switchCard` gave it and the card is never
+  drawn again (`place()` returns early once it exists). So the cure is the one a person would use —
+  press again when nothing happened. `pressUntil` in tests/places.mjs now does that for any control,
+  and the gear helper is built on it.
+- hardening-3 "3 a model on this computer that never starts answering…" (Windows 4/6, 2570 ms):
+  **TEST.** The clock check `took < 2000` had a 1 s first-reply wait, a 300 ms deliberate event-loop
+  hold and a 100 ms grace inside it, so it left only about 600 ms for everything else a run does, and a
+  crawling Windows machine used more. The waits are now 3 s and a 300 ms grace with a 500 ms hold, and
+  the bound is 5 s: the thing it guards (ci-flakes-2's bug, a retry given a whole first-reply wait
+  instead of the grace) would land at 6 s and still fails the check, so nothing it proves is weakened.
+
 ## Where the two green runs stand
 
 Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
