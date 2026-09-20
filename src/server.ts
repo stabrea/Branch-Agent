@@ -664,6 +664,8 @@ async function staticFile(
     "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
     "/panels.css": ["panels.css", "text/css; charset=utf-8"],
     "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
+    "/composer-grown.js": ["composer-grown.js", "text/javascript; charset=utf-8"],
+    "/composer-grown.css": ["composer-grown.css", "text/css; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
