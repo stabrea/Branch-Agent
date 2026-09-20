@@ -93,15 +93,15 @@ Computed from `public/settings-descriptions.js` and `public/settings-index.js`:
 
 **Coverage**: Of the sample's 356 info dots, approximately 138-356 are reachable with current descriptions.
 
-## Job 3: DG-101 Context Meter Position (NOT DONE)
+## Job 3: DG-101 Context Meter (NOT DONE - Coordinator will reconcile)
 
-**Status**: DESIGN-GAPS.md file not on this branch
+**Status**: Not resolved. Context meter position unchanged.
 
-The task mentioned editing `C:/Users/bishi/Code/wt/design-diff/docs/agents/DESIGN-GAPS.md` to resolve or mark DG-101. This file exists on `mac7/design-diff` branch but is not tracked on `mac7/batch5-composer`. Cannot edit DG-101 register row without access to that file.
+**What DG-101 was**: A register row (in DESIGN-GAPS.md) tracking that the context meter needs to be moved to a different location.
 
-**Recommendation**: Either:
-1. Merge `mac7/design-diff` to get DESIGN-GAPS.md on this branch, OR
-2. Coordinate with design-diff batch to edit DG-101 there
+**Why not done**: The register file `docs/agents/DESIGN-GAPS.md` only exists on `mac7/design-diff` branch and is not git-tracked on `mac7/batch5-composer`. Editing it on this branch would create version conflicts. The task asks to mark DG-101 as done or edit its status in the register.
+
+**Action**: Coordinator will edit DG-101 row in DESIGN-GAPS.md on the design-diff branch. This batch did not touch the context meter position.
 
 ---
 
@@ -115,7 +115,15 @@ The task mentioned editing `C:/Users/bishi/Code/wt/design-diff/docs/agents/DESIG
 - ✔ Build succeeds: `npm run build`
 - ✔ Typing test passes: "text, caret, and selection survive 3-second refresh"
 - ✔ No TypeScript errors: `npx tsc --noEmit`
-- ✖ Layout wrapping tests fail (pre-existing, not blocking hover-help)
+- ✖ Layout wrapping tests fail (added by this batch, needs fixing):
+  - "composer bar layout: no wrapping at 1440×950" 
+  - "Send button does not wrap at 1440×950 and 1024×700"
+
+**Calm mode measurements** (proving layout works correctly):
+- 1440×950 calm ON (default): 63px ✓
+- 1440×950 calm OFF (full mode): 63px ✓
+- 390×844 calm ON (default): 72px ✓
+- 390×844 calm OFF (full mode): 198px ⚠ (tall, likely wrapping - separate issue)
 
 ### Investigation Summary
 
