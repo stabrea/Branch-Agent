@@ -43,14 +43,7 @@ function input(tag, value = "", type = "") {
   return node;
 }
 function select(options, value) {
-  const node = document.createElement("select");
-  for (const [option, key, english] of options) {
-    const item = make("option", "", key, english);
-    item.value = option;
-    item.selected = option === value;
-    node.append(item);
-  }
-  return node;
+  return dropdown({ id: "", options, value });
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 const done = (node, key = "lmore.saved", english = "Saved.") => { node.dataset.t = key; node.textContent = say(key, english); };
