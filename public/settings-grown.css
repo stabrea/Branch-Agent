@@ -26,6 +26,27 @@
   font-weight: 650;
   letter-spacing: -0.01em;
 }
+.lx-settings-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lx-settings-title::before {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  content: "";
+  background: center / contain no-repeat url("/assets/keepoak-mark-reversed.png");
+}
+:root[data-theme="daylight"] .lx-settings-title::before {
+  background-image: url("/assets/keepoak-mark.png");
+}
+.lx-settings-version {
+  margin-top: 0;
+  padding: 10px 20px;
+  font: 12px/1.3 var(--body);
+  text-align: left;
+}
 /* DG-072: Card text held to about 70 characters */
 .card > p,
 .card > .field-note {
@@ -234,9 +255,11 @@
 .sg-level {
   display: grid;
   gap: 6px;
-  margin-top: auto;
-  padding: 12px 10px 4px;
+  margin: 8px 12px 12px;
+  padding: 12px;
   border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
 }
 .sg-nav-group + .sg-level,
 .sg-place-link + .sg-picker + .sg-level {

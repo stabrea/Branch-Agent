@@ -98,6 +98,9 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
     const nav = document.querySelector(".lx-settings-nav");
     const page = document.querySelector("#lx-page-general");
     const title = page.querySelector(".lx-page-title");
+    const settingsTitle = document.querySelector(".lx-settings-title");
+    const version = document.querySelector(".lx-settings-version");
+    const level = document.querySelector(".sg-level");
     const card = page.querySelector(":scope > .card:not(.danger)");
     const label = card.querySelector('label:has(> input[type="checkbox"][role="switch"])');
     const input = label.querySelector('input[role="switch"]');
@@ -110,6 +113,10 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
       navWidth: nav.getBoundingClientRect().width,
       pageMax: getComputedStyle(page).maxWidth,
       titleSize: getComputedStyle(title).fontSize,
+      settingsMark: getComputedStyle(settingsTitle, "::before").backgroundImage.includes("keepoak-mark-reversed.png"),
+      footerOrder: level.compareDocumentPosition(version) & Node.DOCUMENT_POSITION_FOLLOWING ? "level-version" : "wrong",
+      versionAlign: getComputedStyle(version).textAlign,
+      levelRadius: getComputedStyle(level).borderRadius,
       card: {
         background: cardStyle.backgroundColor,
         radius: cardStyle.borderRadius,
@@ -120,6 +127,7 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
   });
   assert.deepEqual(geometry, {
     inset: [10, 10], radius: "18px", navWidth: 272, pageMax: "1000px", titleSize: "28px",
+    settingsMark: true, footerOrder: "level-version", versionAlign: "left", levelRadius: "14px",
     card: { background: "rgba(0, 0, 0, 0)", radius: "0px", divider: "solid" },
     switchAfterWords: true,
   });
