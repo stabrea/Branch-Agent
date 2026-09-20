@@ -330,7 +330,8 @@ test("the release signs the Android app once and every desktop download carries 
   assert.notEqual(digests(`V2 Signer: certificate SHA-256 digest: ${ours}\nV3 Signer: certificate SHA-256 digest: ${"0".repeat(64)}\n`), ours);
   assert.match(android, /built: \$\{\{ steps\.phone-app\.outputs\.built \}\}/);
   // Every desktop build waits for it and takes the same APK into the folder stagePhoneApp reads.
-  assert.match(build, /^  build:\n    needs: android\n/);
+  assert.match(build, /^  build:\n    needs: \[release-gate, android\]\n/,
+    "every desktop build waits for the exact-commit release gate and the one signed phone app");
   const fetch = build.split(/\n\s+- /).find((step) => step.includes("Fetch the phone app"));
   assert.match(fetch, /if: needs\.android\.outputs\.built == 'true'/, "without the key the download is built as before");
   assert.match(fetch, /name: phone-app\n\s+path: release\/mobile\n/);
