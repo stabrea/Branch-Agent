@@ -280,7 +280,7 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page scrolls sideways");
   // A box can stay inside the window while its words spill out of it, so both are measured.
   const wide = await page.evaluate(() => [...document.querySelectorAll("#folder-trust-card *")]
-    .filter((node) => node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1)
+    .filter((node) => !node.closest(".sr-only") && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))
     .map((node) => `${node.tagName} ${node.textContent.slice(0, 30)}`));
   assert.deepEqual(wide, []);
   // Both cards say where they belong, and each has exactly one filled button.

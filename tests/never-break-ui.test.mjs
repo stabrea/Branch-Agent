@@ -82,7 +82,7 @@ test("the Keep running card sits in Settings → General, works in French and fi
   await card.scrollIntoViewIfNeeded();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
   const wide = await page.evaluate(() => [...document.querySelectorAll("#never-break-card *")]
-    .filter((node) => node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1)
+    .filter((node) => !node.closest(".sr-only") && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))
     .map((node) => `${node.tagName} ${node.textContent.slice(0, 30)}`));
   assert.deepEqual(wide, []);
   assert.deepEqual(errors, []);

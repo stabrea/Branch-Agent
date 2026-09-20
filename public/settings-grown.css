@@ -277,14 +277,14 @@
     border: 0;
   }
   .sg-head {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
   .sg-tile {
     width: 32px;
     height: 32px;
   }
   .sg-more {
-    grid-column: 2;
+    grid-column: 1;
     justify-self: start;
     margin-left: 0;
   }
