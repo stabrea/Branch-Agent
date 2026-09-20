@@ -29,6 +29,18 @@ const PLACE_COMMANDS = new Set(["inbox", "automations", "library", "customize", 
 export const terminalCommandNames = new Set(TERMINAL_CLI_COMMANDS.map((entry) => entry.name));
 
 /**
+ * mac7/smoke-fixes (B4): the terminal commands that only look. These are the ones a second terminal
+ * may run against the Branch already open, over `GET /api/terminal`, so the window being open no
+ * longer makes the terminal useless. Everything left out either writes (`theme`, `model use`,
+ * `lockdown`, `permissions <preset>`) or wants a terminal of its own (`resume`, `setup`), and still
+ * refuses while another Branch holds the saved work.
+ */
+export const readOnlyTerminalCommands = new Set([
+  "inbox", "automations", "library", "customize", "settings", "places", "sessions", "memory",
+  "skills", "channels", "mcp", "tools", "projects", "usage", "snapshots", "version",
+]);
+
+/**
  * The command line as Branch reads it: nothing at all opens the view in a terminal (and starts the
  * web app anywhere else, as it always has), and a name brought from Hermes or OpenClaw becomes the
  * Branch command it means.

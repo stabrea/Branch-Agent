@@ -144,4 +144,84 @@ sentence says: the tests question, and only that.
 
 ## B4 — the terminal while the window is open
 
-- [ ] not started
+### What was wrong
+
+Every command except `schedule`, `send` and `connect` fell through to `configuredApp(...)`
+(`src/cli.ts`), which opens the database — and SQLite is held `locking_mode=EXCLUSIVE` by the Branch
+already running, so the second copy stopped with "Branch is already open". That is the right rule and
+I have not touched it. What was wrong is that it was the *only* answer: reading `branch doctor` or
+`branch memory` beside the open window was impossible, and `branch token create` — the one moment a
+script needs a key is while Branch is running — could not be reached at all, because there was no
+HTTP route that makes one either.
+
+### The split I implemented
+
+`branch schedule` already showed the way: it talks to the Branch that is running, through the same
+local key and the same rules the app window goes through, and never opens the database. Everything
+below now does the same, in one place (`overRunningBranch` in `src/cli.ts`). With nothing running it
+answers null and the command opens the saved work here exactly as before.
+
+**Now work while Branch is open** (through the running Branch, nothing opens the database):
+
+| Command | How |
+|---|---|
+| `branch doctor` | `GET /api/health`; the output says which Branch answered. `--fix`/`--repair` repair things, so they still need it closed |
+| `branch trace <task id>` | `GET /api/runs/<id>/trace` (new) |
+| `branch token create｜list｜revoke` | `GET｜POST /api/tokens`, `POST /api/tokens/<id>/revoke` (new) |
+| `memory`, `usage`, `sessions`, `inbox`, `library`, `settings`, `places`, `tools`, `skills`, `projects`, `snapshots`, `channels`, `mcp`, `customize`, `automations` | `GET /api/terminal?command=…&arg=…` (new): the running Branch runs the command and hands back the very lines it would have printed, so the words are the same either way |
+| `schedule`, `send`, `connect` | unchanged; they already did this |
+
+**Still refuse, and why:** `backup`, `restore`, `security audit --fix`, `activity verify`, `doctor
+--fix`, `theme`, `model use`, `lockdown`, `permissions <preset>`, `resume`, `setup`, `chat`, `run`,
+`headless`, `eval`, `study`, `import-agent`, `export-agent`, `watch`, `skill`, `plugin`, `trigger`,
+`login`, `logout`, `quit`, `uninstall`, `rollback`, `report`, `qa`, `status`, `logs`, `approve`.
+Each of these either writes to the saved work or wants a terminal of its own, and letting a second
+copy do that is exactly what the one-writer rule exists to stop. The refusal is no longer a dead
+end: it now names the commands that do work and says to close that Branch first.
+
+`status`, `logs` and `approve` could follow later — they only read — but each needs its own route and
+its own words, and I would rather ship the ones the repro named than half-finish six more.
+
+### Not weakened
+
+- Nothing here opens the database twice. Every new path is an HTTP request to the one Branch that
+  holds it.
+- All four routes are the owner's alone at this computer. A household profile is refused
+  (`offLimitsToHousehold`), and a short-lived key is refused both the read (`ownerOnlyReads` in
+  `src/short-lived-keys.ts`) and the write, so **a key cannot make or take back a key** — no
+  self-renewal. Tested.
+- `GET /api/terminal` only runs the commands on an explicit list of ones that never write
+  (`readOnlyTerminalCommands` in `src/terminal-cli.ts`); anything else is refused in plain words.
+
+### Changed
+
+- `src/trace-report.ts` (new) — one task's trace and the lines it prints, so the terminal and the
+  running Branch say the same thing.
+- `src/terminal-cli.ts` — `readOnlyTerminalCommands`.
+- `src/server.ts` — the four routes, and `terminalReadApi`.
+- `src/short-lived-keys.ts` — `/api/tokens` and `/api/terminal` added to the owner-only reads.
+- `src/cli.ts` — `overRunningBranch`; `tokenCommand` now takes a `TokenAccess` so the same words are
+  printed whether the keys come from this copy or from the running one.
+- `src/store.ts` — the "already open" sentence says what works and what to do.
+- `docs/configuration.md` — the new paragraph under "Short-lived keys for a script".
+
+### Tests
+
+`tests/deployment.test.mjs`, five new, all driving the **real** `node dist/cli.js` in a second
+process against a Branch held open in the test process (the smoke test's own repro):
+
+- the commands that only look work: `doctor`, `memory` (shows a fact saved in the open Branch),
+  `usage --json`.
+- a key can be made while Branch is open, and the key the terminal printed really works against the
+  running Branch, is refused `POST /api/run`, lists, and stops working once taken back.
+- a short-lived key cannot make or take back another key, or read the list.
+- a command that writes still refuses, and the sentence names what works and says to close it first;
+  `theme dark` is refused too, not quietly allowed.
+- `branch trace` reads a real task's steps, and a task with nothing recorded says so plainly.
+
+**Mutation-checked**: with `overRunningBranch`'s answer forced to null in `dist/cli.js` and the
+key self-renewal refusal deleted from `dist/server.js`, four of the five fail (21 pass, 4 fail); with
+only the "already open" sentence put back to its old wording, the fifth fails (24 pass, 1 fail).
+Restored: 25 pass, 0 fail.
+
+- [x] B4 done.

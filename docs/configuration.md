@@ -7262,6 +7262,22 @@ branch token list
 branch token revoke <id>
 ```
 
+**While the app window is open (mac7/smoke-fixes, B4).** Only one Branch may write to the saved
+work at a time, so a second `branch` used to stop with "Branch is already open" — which made
+`branch token create` unreachable at exactly the moment a script needs a key. These now go through
+the Branch that is already running, by the same door and the same local key the app window uses, as
+`branch schedule` always did: `branch doctor` (the health checks; `--fix` and `--repair` still need
+the app closed), `branch trace <task id>`, `branch token create|list|revoke`, and every terminal
+place that only looks — `memory`, `usage`, `sessions`, `inbox`, `library`, `settings`, `places`,
+`tools`, `skills`, `projects`, `snapshots`, `channels`, `mcp`, `customize`, `automations`. With
+nothing running they open the saved work here exactly as before. Anything that writes to the saved
+work — `backup`, `restore`, `security audit`, `activity verify`, `theme`, `model use`, `lockdown`,
+`permissions`, `chat`, `run` — still refuses while a Branch is open, and the refusal now names the
+commands that do work and says to close that Branch first. Routes: `GET|POST /api/tokens`,
+`POST /api/tokens/<id>/revoke`, `GET /api/runs/<id>/trace`, `GET /api/terminal?command=<name>&arg=…`.
+All four are the owner's alone at this computer: a household profile is refused, and a short-lived
+key can neither read the list of keys nor make or take one back, so no key can renew itself.
+
 - `--scope read` may look at things only: any request that is not a GET is refused, in those words.
   `--scope run` may also start a task. Neither may ever become the master key.
 - The key is shown once. Only its hash is kept (`session_tokens` in the database), so nothing can

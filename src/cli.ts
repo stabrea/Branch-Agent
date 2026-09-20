@@ -16,11 +16,14 @@ import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
 import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
-import { runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
+import { readOnlyTerminalCommands, runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
 import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
-import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
+import { clientFor, connect, conversations, messagesOf, since, transcriptLines, type Client } from "./cli-attach.js";
+// mac7/smoke-fixes (B4): the terminal beside a Branch that is already open.
+import { attachToRunning } from "./install/running.js";
+import { traceLines, type TraceReport } from "./trace-report.js";
 import { scopeDescriptions } from "./session-tokens.js";
 import { errorText, type Run } from "./contracts.js";
 import { watchFolder } from "./watch.js";
@@ -197,6 +200,11 @@ async function main(): Promise<void> {
     version: String(createRequire(import.meta.url)("../package.json").version), port: Number(process.env.BRANCH_PORT ?? 3210) })) return;
   // --- end mac3/never-break ---
   if (command === "chat" && process.argv.includes("--attach")) return attachedChat(dataDir);
+  // mac7/smoke-fixes (B4): the Branch already open holds the saved work, so the commands that only
+  // look - and making a key, which a script needs at exactly that moment - go through its door
+  // instead of refusing. With nothing running this answers null and everything opens here as before.
+  const answered = await overRunningBranch(command, dataDir);
+  if (answered !== null) { process.exitCode = answered; return; }
   const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(dataDir, "chatgpt-auth.json")), { userAgent: "BranchAgent" });
   const { app, close } = await configuredApp({ workspace, dataDir, presets, chatgpt });
@@ -262,7 +270,7 @@ async function main(): Promise<void> {
       console.log(`Backup written to ${target}. Secrets are not included; they stay on this device.`);
       return;
     }
-    if (command === "token") { tokenCommand(app); return; }
+    if (command === "token") { await tokenCommand(ownKeys(app)); return; }
     // mac7/phone-qr: the "Get Branch on your phone" code, in the terminal (src/phone-app/cli.ts).
     if (command === "phone") {
       process.exitCode = await phoneCommand({ store: app.store, owner: app.runtime.owner, write: (line) => console.log(line),
@@ -357,39 +365,109 @@ function flag(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index > 0 ? process.argv[index + 1] : undefined;
 }
+/** Where `branch token` gets its answers: the copy this terminal opened, or the Branch already open. */
+interface TokenAccess {
+  create(input: { scope: string; name: string; minutes: number }): Promise<{ token: string; entry: TokenRow; scopeNote: string }>;
+  list(): Promise<TokenRow[]>;
+  revoke(id: string): Promise<boolean>;
+}
+interface TokenRow { id: string; scope: string; name: string; expiresAt: string; revokedAt: string | null; uses: number }
+/** mac7/smoke-fixes (B4): the keys of the copy this terminal opened itself. */
+function ownKeys(app: Awaited<ReturnType<typeof createBranch>>): TokenAccess {
+  const owner = app.runtime.owner;
+  return {
+    async create(input) {
+      const made = app.sessionTokens.create(owner, input);
+      return { token: made.token, entry: made.entry, scopeNote: scopeDescriptions[made.entry.scope] };
+    },
+    async list() { return app.sessionTokens.list(owner); },
+    async revoke(id) { return app.sessionTokens.revoke(owner, id); },
+  };
+}
+/** mac7/smoke-fixes (B4): the keys of the Branch already open, through the door the window uses. */
+function runningKeys(client: Client): TokenAccess {
+  return {
+    create: (input) => client.post("/api/tokens", input),
+    list: async () => (await client.get<{ tokens: TokenRow[] }>("/api/tokens")).tokens,
+    revoke: async (id) => (await client.post<{ revoked: boolean }>(`/api/tokens/${id}/revoke`, {})).revoked,
+  };
+}
 /**
  * `branch token create|list|revoke`. A short-lived key for a script, an extension or the SDK —
  * never the local key itself, which never stops working and may do everything.
  */
-function tokenCommand(app: Awaited<ReturnType<typeof createBranch>>): void {
+async function tokenCommand(keys: TokenAccess): Promise<void> {
   const action = process.argv[3] ?? "list", asJson = process.argv.includes("--json");
-  const owner = app.runtime.owner;
   if (action === "create") {
-    const made = app.sessionTokens.create(owner, {
+    const made = await keys.create({
       scope: flag("scope") ?? "read", name: flag("name") ?? "A script",
       minutes: Number(flag("minutes") ?? 60) || 60,
     });
-    if (asJson) return void console.log(JSON.stringify(made));
+    if (asJson) return void console.log(JSON.stringify({ token: made.token, entry: made.entry }));
     console.log(made.token);
-    console.log(`\nThis is the only time it is shown. ${scopeDescriptions[made.entry.scope]}`);
+    console.log(`\nThis is the only time it is shown. ${made.scopeNote}`);
     console.log(`It stops working at ${made.entry.expiresAt}. Take it back sooner with: branch token revoke ${made.entry.id}`);
     return;
   }
   if (action === "revoke") {
     const id = process.argv[4];
     if (!id) throw new Error("Name the key to take back: branch token revoke <id>");
-    const done = app.sessionTokens.revoke(owner, id);
+    const done = await keys.revoke(id);
     if (asJson) return void console.log(JSON.stringify({ id, revoked: done }));
     console.log(done ? `That key stops working now.` : `There is no key of yours with the number ${id}.`);
     return;
   }
   if (action !== "list") throw new Error("Usage: branch token create [--scope read|run] [--minutes 60] | token list | token revoke <id>");
-  const entries = app.sessionTokens.list(owner);
+  const entries = await keys.list();
   if (asJson) return void console.log(JSON.stringify({ tokens: entries }, null, 2));
   if (!entries.length) return void console.log("You have not made any short-lived keys.");
   for (const entry of entries)
     console.log([entry.id, entry.scope, entry.name, entry.revokedAt ? "taken back" : `until ${entry.expiresAt}`, `${entry.uses} use(s)`].join("\t"));
 }
+
+/**
+ * mac7/smoke-fixes (B4): what a second terminal may do while a Branch is already open.
+ *
+ * Only one Branch may write to the saved work at a time, and that rule is not weakened here: none of
+ * these opens the database. They ask the Branch that is running, through the same local key and the
+ * same rules the app window goes through, exactly as `branch schedule` already did. Answers the exit
+ * code, or null when nothing is running and this copy should open the saved work itself.
+ *
+ * What is here: `doctor` (the checks), `trace` (one task's steps), `token` (a short-lived key for a
+ * script — the one moment a script needs one is while Branch is running), and every terminal place
+ * that only looks. Everything else would fight the running Branch for the same files and still
+ * refuses, in a sentence that now says which commands do work.
+ */
+async function overRunningBranch(command: string, dataDir: string): Promise<number | null> {
+  const wanted = ["doctor", "trace", "token"].includes(command) || readOnlyTerminalCommands.has(command);
+  if (!wanted) return null;
+  // `branch doctor --fix` repairs things, so it is not one of the ones that only look.
+  if (command === "doctor" && (process.argv.includes("--fix") || process.argv.includes("--repair"))) return null;
+  const found = await attachToRunning(dataDir);
+  if (!found) return null;
+  const client = clientFor(found);
+  if (command === "token") { await tokenCommand(runningKeys(client)); return 0; }
+  if (command === "doctor") {
+    const health = await client.get<unknown>(`/api/health${process.argv.includes("--probe") ? "?probe=1" : ""}`);
+    console.log(JSON.stringify({ from: `the Branch already open at ${client.url}`, dataDir, health }, null, 2));
+    return 0;
+  }
+  if (command === "trace") {
+    const runId = process.argv[3];
+    if (!runId) throw new Error("Name a task: branch trace <task id>");
+    const report = await client.get<TraceReport>(`/api/runs/${encodeURIComponent(runId)}/trace`);
+    if (process.argv.includes("--json")) console.log(JSON.stringify(report, null, 2));
+    else for (const line of traceLines(report)) console.log(line);
+    return 0;
+  }
+  const args = process.argv.slice(3).filter((word) => !word.startsWith("--"));
+  const query = [`command=${encodeURIComponent(command)}`, ...(process.argv.includes("--json") ? ["json=1"] : []),
+    ...args.map((word) => `arg=${encodeURIComponent(word)}`)].join("&");
+  const { lines } = await client.get<{ lines: string[] }>(`/api/terminal?${query}`);
+  for (const line of lines) console.log(line);
+  return 0;
+}
+
 /**
  * `branch trace <task id>`. The number a tracing tool knows this task by, and whether its steps
  * went anywhere. Printing it is the join between what happened here and what a viewer shows.

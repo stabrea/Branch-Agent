@@ -235,6 +235,10 @@ import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
 import { panelsWork, panelsWorkPath } from "./panels-work.js"; // phase2/panels
 import { conversationModeApi, ConversationModeError, handlesConversationModePath, modeRefusal, planAgreed } from "./conversation-mode-api.js";
+// mac7/smoke-fixes (B4): the terminal beside an open window — keys, one task's trace, the places that only look.
+import { traceReport } from "./trace-report.js";
+import { scopeDescriptions } from "./session-tokens.js";
+import { readOnlyTerminalCommands, runTerminalCommand } from "./terminal-cli.js";
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
@@ -1441,6 +1445,24 @@ async function api(
   // Wave 9: "Just do it" or "Show me the plan first", per conversation and per project.
   if (path === "/api/plan-act" && (request.method === "GET" || request.method === "POST"))
     return planActApi(app, request, await (request.method === "POST" ? readBody(request) : Promise.resolve({})));
+  // ── mac7/smoke-fixes (B4): the terminal while the window is open ──────────────────────────────
+  // A second Branch may not open the same saved work, so `branch token`, `branch trace` and the
+  // places that only look go through the Branch already running, exactly as `branch schedule` does.
+  // All three are the owner's alone, at this computer: a household profile and a short-lived key are
+  // refused before they arrive here (offLimitsToShortLivedKeys, offLimitsToHousehold).
+  if (path === "/api/tokens" && (request.method === "GET" || request.method === "POST")) {
+    if (request.method === "GET") return { tokens: app.sessionTokens.list(app.runtime.owner) };
+    const made = app.sessionTokens.create(app.runtime.owner, await readBody(request));
+    return { token: made.token, entry: made.entry, scopeNote: scopeDescriptions[made.entry.scope] };
+  }
+  const takingBack = /^\/api\/tokens\/([a-f0-9]{1,64})\/revoke$/.exec(path);
+  if (takingBack && request.method === "POST")
+    return { id: takingBack[1]!, revoked: app.sessionTokens.revoke(app.runtime.owner, takingBack[1]!) };
+  const tracing = /^\/api\/runs\/([A-Za-z0-9_-]{1,64})\/trace$/.exec(path);
+  if (tracing && request.method === "GET")
+    return traceReport(app.store, app.traceExport.settings(), tracing[1]!);
+  if (request.method === "GET" && path === "/api/terminal") return terminalReadApi(app, request);
+  // ── end mac7/smoke-fixes (B4) ─────────────────────────────────────────────────────────────────
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") {
@@ -2625,6 +2647,24 @@ function planActApi(app: Branch, request: IncomingMessage, body: unknown): unkno
   return { projectId, project: projectPlanAct(app.store, owner, projectId), effective,
     words: { planMode: planModeWords, autonomy: autonomyWords },
     plan: sessionId ? app.runtime.orchestration.plan(sessionId) ?? null : null };
+}
+/**
+ * mac7/smoke-fixes (B4): one of the terminal's own commands that only looks, run here and handed
+ * back as the very lines it would have printed. The Branch that is running owns the saved work, so
+ * this is how a second terminal reads it without opening the same files.
+ */
+async function terminalReadApi(app: Branch, request: IncomingMessage): Promise<unknown> {
+  const url = new URL(request.url ?? "/", "http://local");
+  const command = (url.searchParams.get("command") ?? "").trim();
+  if (!readOnlyTerminalCommands.has(command))
+    throw new HttpError(400, `"${command}" changes things, so it cannot be run against the Branch that is already open.`);
+  const args = url.searchParams.getAll("arg").map((word) => word.slice(0, 200)).slice(0, 8);
+  const json = url.searchParams.get("json") === "1";
+  const lines: string[] = [];
+  await runTerminalCommand(app, command, args, {
+    interactive: false, env: {}, json, write: (line) => { lines.push(line); },
+  });
+  return { command, lines };
 }
 /** Every tool event of a run with its verified outcome: success with a genuine receipt, or why not. */
 async function receiptsView(app: Branch, runId: string) {
@@ -3999,6 +4039,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered
   // are the owner's; `/preset` and `/default` already refused a "run" key, their routes did not.
+  // mac7/smoke-fixes (B4): a key can never make or take back another key. No self-renewal.
+  if (path === "/api/tokens" || /^\/api\/tokens\//.test(path))
+    return "A short-lived key cannot make or take back a short-lived key. Do that at this computer.";
   if (path === "/api/policy" || path === "/api/models" || path === "/api/commands/settings")
     return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
