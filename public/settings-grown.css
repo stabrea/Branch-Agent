@@ -7,14 +7,24 @@
   .lx-settings-win {
     inset: 10px;
     max-width: none;
-    grid-template-columns: 252px minmax(0, 1fr);
+    grid-template-columns: 272px minmax(0, 1fr);
+    border-radius: 18px;
   }
 }
 .lx-page {
-  max-width: none;
+  max-width: 1000px;
 }
 .lx-page-intro {
-  max-width: 72ch;
+  max-width: 64ch;
+}
+.lx-settings-body {
+  padding: 34px clamp(16px, 4vw, 52px) 60px;
+}
+.lx-page-title {
+  font-size: 28px;
+  font-stretch: normal;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 /* DG-072: Card text held to about 70 characters */
 .card > p,
@@ -26,6 +36,35 @@
 .lx-subpanel > * {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+/* The sample is one quiet reading column. Its sections sit on the page instead of inside
+   stacked glass boxes, while dangerous and interactive specialist surfaces keep their borders. */
+.lx-page > .card:not(.danger),
+.lx-subpanel > .card:not(.danger) {
+  margin: 0;
+  padding: 18px 0 22px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.lx-page > .card:not(.danger):last-child,
+.lx-subpanel > .card:not(.danger):last-child {
+  border-bottom: 0;
+}
+/* Most older forms put the switch before its words. The approved row reads label first and puts
+   the switch at the far edge; row-reverse changes only presentation and keeps label semantics. */
+.lx-page label:has(> input[type="checkbox"][role="switch"]),
+.lx-subpanel label:has(> input[type="checkbox"][role="switch"]) {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
 }
 /* One column of cards on all screen widths (DG-009); group headings span all. */
 @media (min-width: 1200px) {

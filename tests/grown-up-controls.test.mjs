@@ -185,3 +185,40 @@ test("the knowledge fallback keeps its literal label when the language changes",
   assert.equal(await option.innerText(), "the usual way", "a missing locale key never replaces the label");
   assert.deepEqual(f.errors, []);
 });
+
+test("Settings uses the sample reading column instead of stacked glass cards", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "general");
+  const geometry = await f.page.evaluate(() => {
+    const win = document.querySelector(".lx-settings-win");
+    const nav = document.querySelector(".lx-settings-nav");
+    const page = document.querySelector("#lx-page-general");
+    const title = page.querySelector(".lx-page-title");
+    const card = page.querySelector(":scope > .card:not(.danger)");
+    const label = card.querySelector('label:has(> input[type="checkbox"][role="switch"])');
+    const input = label.querySelector('input[role="switch"]');
+    const words = label.querySelector("span");
+    const cardStyle = getComputedStyle(card);
+    const winBox = win.getBoundingClientRect();
+    return {
+      inset: [winBox.left, winBox.top],
+      radius: getComputedStyle(win).borderRadius,
+      navWidth: nav.getBoundingClientRect().width,
+      pageMax: getComputedStyle(page).maxWidth,
+      titleSize: getComputedStyle(title).fontSize,
+      card: {
+        background: cardStyle.backgroundColor,
+        radius: cardStyle.borderRadius,
+        divider: cardStyle.borderBottomStyle,
+      },
+      switchAfterWords: input.getBoundingClientRect().left > words.getBoundingClientRect().right,
+    };
+  });
+  assert.deepEqual(geometry, {
+    inset: [10, 10], radius: "18px", navWidth: 272, pageMax: "1000px", titleSize: "28px",
+    card: { background: "rgba(0, 0, 0, 0)", radius: "0px", divider: "solid" },
+    switchAfterWords: true,
+  });
+  assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  assert.deepEqual(f.errors, []);
+});
