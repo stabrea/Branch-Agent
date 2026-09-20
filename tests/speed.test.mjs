@@ -511,3 +511,31 @@ test("A: a reply whose calls are all about different things asks the rules nothi
   parallelGroups([read("a", 1), read("a", 2)], rules);
   assert.ok(asked > 0, "and it is asked as soon as one thing comes up twice");
 });
+
+test("C: a many-file read never hands back more than the task will keep, and names what it left", async (t) => {
+  // Ten files of 4,000 characters each: each one fits in an answer on its own, all ten together do
+  // not (the task keeps 12,000 characters of a tool's answer). Returning all ten would have the end
+  // simply cut off — worse than reading them one at a time, and silently. What should happen is
+  // that the ones with no room are named instead.
+  const { app, workspace } = await fixture(t, [
+    calls(["files.read_many", { paths: Array.from({ length: 10 }, (_, n) => `src/big${n}.js`) }]),
+    say("Read what I could."),
+  ]);
+  app.coding.setMode("fewer-rounds", "on");
+  for (let n = 0; n < 10; n++) await writeFile(join(workspace, "src", `big${n}.js`), `// ${n}\n` + "y".repeat(4000));
+  const run = await app.runtime.run({ prompt: "read the big files" });
+  assert.equal(run.status, "completed", run.output);
+  const [done] = app.store.events(run.id).filter((e) => e.kind === "tool.completed").map((e) => e.data);
+  const result = done.result;
+  assert.ok(result.read >= 1, "at least one file came back whole");
+  assert.ok(result.skipped >= 1, `${result.skipped} were left for another call; ten 4k files cannot fit in 12k`);
+  assert.equal(result.read + result.skipped + result.refused, 10, "every path is accounted for");
+  assert.match(result.note, /ask for those on their own/, "and the assistant is told what to do about it");
+  // Every file that did come back came back whole.
+  const { readFile } = await import("node:fs/promises");
+  for (const one of result.files.filter((f) => f.content !== undefined))
+    assert.equal(one.content, await readFile(join(workspace, one.path), "utf8"), `${one.path} was cut short`);
+  // Nothing was clipped away behind the model's back.
+  assert.equal(app.store.events(run.id).filter((e) => e.kind === "tool.result_clipped").length, 0,
+    "the answer fitted, so nothing had to be cut off");
+});
