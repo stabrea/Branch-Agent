@@ -404,7 +404,24 @@ function buildSettings() {
   win.setAttribute("aria-label", say("settings.title", "Settings"));
   const nav = make("nav", "lx-settings-nav");
   nav.setAttribute("aria-label", say("settings.pages", "Settings pages"));
-  nav.append(worded("p", "lx-eyebrow lx-settings-eyebrow", "settings.title", "Settings"), settingsSearch());
+
+  // DG-001/DG-064: Add "Back to Branch" button with Esc chip
+  const backBtn = make("button", "lx-settings-back");
+  backBtn.type = "button";
+  backBtn.append(icon("back"));
+  backBtn.append(document.createTextNode("Back to Branch"));
+  const escKbd = make("kbd");
+  escKbd.textContent = "Esc";
+  backBtn.append(escKbd);
+  backBtn.addEventListener("click", closeSettings);
+  nav.append(backBtn);
+
+  // DG-002: Settings title with larger font
+  const title = worded("h1", "lx-settings-title", "settings.title", "Settings");
+  title.style.fontSize = "22px";
+  nav.append(title);
+
+  nav.append(settingsSearch());
   const body = make("div", "lx-settings-body");
   body.id = "lx-settings-body";
   const close = make("button", "lx-icon-button lx-settings-close");
@@ -424,6 +441,12 @@ function buildSettings() {
     page.append(worded("h2", "lx-page-title", key, english), make("p", "lx-page-intro", intro));
     body.append(page);
   }
+
+  // DG-003: Add version line at the bottom of nav
+  const verDiv = make("div", "lx-settings-version");
+  verDiv.textContent = "Branch Agent 0.18.1 · sample";
+  nav.append(verDiv);
+
   win.append(nav, body, close);
   shell.append(scrim, win);
   document.body.append(shell);
