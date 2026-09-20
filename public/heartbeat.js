@@ -6,6 +6,7 @@
  */
 import { api, toast } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const healthKeys = { healthy: "schedules.health.healthy", failing: "schedules.health.failing", "never-run": "schedules.health.never-run", held: "schedules.health.held" };
 const modeKeys = { off: "schedules.switch.off", on: "schedules.switch.on", "when-needed": "schedules.switch.when-needed" };
@@ -90,14 +91,11 @@ function lastWords(state) {
   return state.lastOutcome ? t("schedules.checkin.last", { outcome: state.lastOutcome }) : t("schedules.checkin.none-yet");
 }
 function modeSelect(id, value) {
-  const select = document.createElement("select");
-  select.id = id;
-  for (const [mode, key] of Object.entries(modeKeys)) {
-    const option = node("option", key);
-    option.value = mode;
-    select.append(option);
-  }
-  select.value = value;
+  const select = segmented({
+    id: id,
+    options: [["off", modeKeys.off], ["on", modeKeys.on], ["when-needed", modeKeys["when-needed"]]],
+    value: value
+  });
   return select;
 }
 

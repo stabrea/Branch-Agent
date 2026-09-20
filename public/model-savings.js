@@ -9,6 +9,7 @@
  * aria-describedby. Every word is behind a key in public/locales.
  */
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let view = null;
@@ -32,11 +33,6 @@ function keyed(tag, key, className, values) {
   node.textContent = t(key, values);
   if (!values) node.dataset.t = key;
   if (className) node.className = className;
-  return node;
-}
-function option(value, key) {
-  const node = keyed("option", key);
-  node.value = value;
   return node;
 }
 function note(id, key) {
@@ -76,21 +72,14 @@ const CARDS = [
 const slugOf = (spec) => spec.slug ?? spec.id;
 
 function select(id, key, values, current) {
-  const box = document.createElement("select");
-  box.append(...values.map(([value, label]) => option(value, label)));
-  box.value = current ?? "";
+  const box = dropdown({ id, options: values, value: current ?? "" });
   return { nodes: labelled(id, key, box), box };
 }
 function connectionChoices(none = "savings.option.same-connection") {
-  return [["", none], ...view.connections.map((one) => [one.id, null, one.name])];
+  return [["", none], ...view.connections.map((one) => [one.id, one.name, one.name])];
 }
 function connectionSelect(id, key, current, none) {
-  const box = document.createElement("select");
-  for (const [value, label, name] of connectionChoices(none)) {
-    const node = label ? option(value, label) : Object.assign(document.createElement("option"), { value, textContent: name });
-    box.append(node);
-  }
-  box.value = current ?? "";
+  const box = dropdown({ id, options: connectionChoices(none), value: current ?? "" });
   return { nodes: labelled(id, key, box), read: () => box.value || null };
 }
 

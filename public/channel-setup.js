@@ -6,6 +6,7 @@
 // panel. The square codes are drawn black on white on purpose, like the phone code in deployment.js.
 import { api, ownerAtWindow } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const MODES = ["off", "when-needed", "on"];
@@ -175,12 +176,16 @@ function inputsFor(view, place) {
 
 function enableChoice(view, place) {
   if (view.turnOn === "file") return { select: null, nodes: [make("p", "channel-setup.file-note", "field-note")] };
-  const select = document.createElement("select");
-  for (const value of ["", "when-needed", "on"]) {
-    const option = make("option", `channel-setup.enable.${value || "leave"}`);
-    option.value = value;
-    select.append(option);
-  }
+  const options = [
+    ["", "channel-setup.enable.leave"],
+    ["when-needed", "channel-setup.enable.when-needed"],
+    ["on", "channel-setup.enable.on"]
+  ];
+  const select = dropdown({
+    id: `channel-setup-${place}-enable`,
+    options,
+    value: ""
+  });
   return { select, nodes: labelled(`channel-setup-${place}-enable`, "channel-setup.enable-label", select) };
 }
 
@@ -265,13 +270,12 @@ async function panelFor(id) {
 }
 
 function modeRow() {
-  const select = document.createElement("select");
-  for (const mode of MODES) {
-    const option = make("option", `channel-setup.mode.${mode}`);
-    option.value = mode;
-    select.append(option);
-  }
-  select.value = state.list.mode;
+  const options = MODES.map((mode) => [mode, `channel-setup.mode.${mode}`]);
+  const select = dropdown({
+    id: "channel-setup-mode",
+    options,
+    value: state.list.mode
+  });
   const said = status();
   const save = quiet("channel-setup.mode-save", async () => {
     try { state.list = await api("channel-setup", { mode: select.value }); state.said.set("card", t("channel-setup.mode-saved")); await drawCard(); }
@@ -282,16 +286,16 @@ function modeRow() {
 }
 
 function picker() {
-  const select = document.createElement("select");
-  for (const channel of state.list.channels) {
-    const option = document.createElement("option");
-    option.value = channel.id;
-    option.textContent = channel.name;
-    select.append(option);
-  }
-  select.value = state.chosen;
+  const options = state.list.channels.map((channel) => [channel.id, channel.name, channel.name]);
+  const select = dropdown({
+    id: "channel-setup-app",
+    options,
+    value: state.chosen
+  });
   select.addEventListener("change", () => void choose(select.value, false));
-  return labelled("channel-setup-app", "channel-setup.app-label", select);
+  const label = make("label", "channel-setup.app-label");
+  label.htmlFor = "channel-setup-app";
+  return [label, select];
 }
 
 function card() {

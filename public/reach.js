@@ -11,6 +11,7 @@
    settings:models:second    Model arena */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown, switchControl } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -43,14 +44,7 @@ function field(value = "", type = "text") {
   return node;
 }
 function choice(options, value) {
-  const select = document.createElement("select");
-  for (const [option, key, english] of options) {
-    const item = key ? make("option", "", key, english) : plain("option", english);
-    item.value = option;
-    item.selected = option === value;
-    select.append(item);
-  }
-  return select;
+  return dropdown({ id: "", options, value });
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 const done = (node, key = "reach.saved", english = "Saved.") => { node.dataset.t = key; node.textContent = say(key, english); };
@@ -181,10 +175,11 @@ async function backgroundCard(state) {
 /* ---------- settings:computer — USB devices ---------- */
 function usbRule(rule, status) {
   const line = plain("li", `${rule.label} (${rule.vendorId}:${rule.productId}${rule.serial ? ` ${rule.serial}` : ""})`);
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox";
-  toggle.checked = rule.enabled;
-  toggle.addEventListener("change", act(status, () => api("reach/usb/enable", { id: rule.id, on: toggle.checked })));
+  const toggle = switchControl({
+    id: `reach-usb-on-${rule.id}`,
+    checked: rule.enabled,
+    onChange: (checked) => act(status, () => api("reach/usb/enable", { id: rule.id, on: checked }))()
+  });
   const [remove, removeHint] = button(`reach-usb-remove-${rule.id}`, "reach.usb.remove", "Remove", "reach.usb.removeHint", "Forgets this device.",
     act(status, () => api("reach/usb/remove", { id: rule.id })));
   line.append(" ", ...control(`reach-usb-on-${rule.id}`, "reach.usb.on", "On", "reach.usb.onHint", "Starts the task when this device is plugged in.", toggle), remove, removeHint);
@@ -290,10 +285,11 @@ async function chatsCard(state) {
   if (state.modes["platform-pause"] !== "off") {
     const paused = new Set(state.platforms.paused);
     for (const channel of state.channels) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = paused.has(channel);
-      box.addEventListener("change", act(status, () => api("reach/platforms/pause", { channel, paused: box.checked })));
+      const box = switchControl({
+        id: `reach-pause-${channel}`.replace(/[^\w-]/g, "_"),
+        checked: paused.has(channel),
+        onChange: (checked) => act(status, () => api("reach/platforms/pause", { channel, paused: checked }))()
+      });
       const [label, element, hint] = control(`reach-pause-${channel}`.replace(/[^\w-]/g, "_"), "reach.chats.paused", "Paused", "reach.chats.pausedHint", "Its messages are let go without an answer.", box);
       node.append(row(plain("span", channel), label, element), hint);
     }
@@ -349,20 +345,35 @@ async function bundlesCard(state) {
   node.append(...switchFor("skill-bundles", state.modes, status));
   if (state.modes["skill-bundles"] !== "off") {
     const skills = ((await api("state")).skills ?? []).filter((s) => s.activeVersion !== null);
-    const picker = document.createElement("select");
-    picker.multiple = true;
-    for (const s of skills) { const o = plain("option", s.name); o.value = s.id; picker.append(o); }
+    const skillsGroup = document.createElement("fieldset");
+    const skillsTitle = make("legend", "", "reach.bundles.skills", "Skills to bundle");
+    const skillsHint = make("p", "field-note", "reach.bundles.skillsHint", "Only switched-on skills can be bundled.");
+    skillsHint.id = "reach-bundles-skills-hint";
+    skillsGroup.append(skillsTitle, skillsHint);
+    const skillSwitches = [];
+    for (const s of skills) {
+      const sw = switchControl({
+        id: `reach-bundle-skill-${s.id}`,
+        checked: false,
+      });
+      sw.setAttribute("aria-describedby", skillsHint.id);
+      const skillRow = document.createElement("label");
+      skillRow.className = "check-row";
+      skillRow.append(sw, " ", plain("span", s.name));
+      skillsGroup.append(skillRow);
+      skillSwitches.push({ id: s.id, control: sw });
+    }
+    node.append(skillsGroup);
     const name = field(""), path = field("bundles/my-skills.branch-skills"), source = field("");
     const shown = document.createElement("div");
     const where = () => (/^https:/i.test(source.value.trim()) ? { url: source.value.trim() } : { path: source.value.trim() });
     const [write, writeHint] = button("reach-bundles-write", "reach.bundles.write", "Write the bundle", "reach.bundles.writeHint", "Writes the chosen skills into that workspace file.",
-      attempt(status, async () => { await api("reach/bundles/write", { name: name.value.trim(), path: path.value.trim(), skills: [...picker.selectedOptions].map((o) => o.value) }); done(status); }));
+      attempt(status, async () => { await api("reach/bundles/write", { name: name.value.trim(), path: path.value.trim(), skills: skillSwitches.filter((s) => s.control.checked).map((s) => s.id) }); done(status); }));
     const [look, lookHint] = button("reach-bundles-look", "reach.bundles.look", "Look inside", "reach.bundles.lookHint", "Installs nothing.",
       attempt(status, async () => { const b = await api("reach/bundles/preview", where()); shown.replaceChildren(plain("p", b.name), list(b.skills.map((s) => plain("li", s.name)))); }));
     const [install, installHint] = button("reach-bundles-install", "reach.git.install", "Bring it in", "reach.bundles.installHint", "Each skill starts switched off; one you already have is left alone.",
       attempt(status, async () => { await api("reach/bundles/install", where()); done(status); }));
-    node.append(...control("reach-bundles-skills", "reach.bundles.skills", "Skills to bundle", "reach.bundles.skillsHint", "Only switched-on skills can be bundled.", picker),
-      ...control("reach-bundles-name", "reach.bundles.name", "Bundle name", "reach.bundles.nameHint", "Shown to whoever opens it.", name),
+    node.append(...control("reach-bundles-name", "reach.bundles.name", "Bundle name", "reach.bundles.nameHint", "Shown to whoever opens it.", name),
       ...control("reach-bundles-path", "reach.bundles.path", "Workspace file", "reach.bundles.pathHint", "Ends in .branch-skills.", path),
       row(write, writeHint),
       ...control("reach-bundles-source", "reach.bundles.source", "Bundle to bring in", "reach.bundles.sourceHint", "A workspace file or an https address.", source),

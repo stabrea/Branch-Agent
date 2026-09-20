@@ -7,6 +7,7 @@
    shows only the switch. */
 import { api, displayView, loadSlashCommands } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -53,22 +54,22 @@ function report(words, key) {
 /* ---------- the switch ---------- */
 
 function switchRow(mode) {
-  const select = document.createElement("select");
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === mode;
-    select.append(option);
-  }
-  const note = make("p", "field-note", ...(NOTES[mode] ?? NOTES.off));
-  select.addEventListener("change", async () => {
-    try {
-      await api("prompts/settings", { mode: select.value });
-      await loadSlashCommands(true);
-      await draw();
-    } catch (error) { report(error.message); }
+  const control = segmented({
+    id: "prompts-mode",
+    options: POSITIONS,
+    value: mode,
+    onChange: async (value) => {
+      try {
+        await api("prompts/settings", { mode: value });
+        await loadSlashCommands(true);
+        await draw();
+      } catch (error) { report(error.message); }
+    }
   });
-  return [...field("prompts-mode", "prompts.field.switch", "Saved prompts", select), note];
+  const label = make("label", "", "prompts.field.switch", "Saved prompts");
+  label.htmlFor = "prompts-mode";
+  const note = make("p", "field-note", ...(NOTES[mode] ?? NOTES.off));
+  return [label, control, note];
 }
 
 /* ---------- the list ---------- */
@@ -135,15 +136,12 @@ function inputs(names) {
   }
 }
 function modelSelect(id, choices, blank) {
-  const select = document.createElement("select");
-  if (blank) { const none = make("option", "", "prompts.compare.none", "Nobody else"); none.value = ""; select.append(none); }
+  const options = [];
+  if (blank) options.push(["", "prompts.compare.none", "Nobody else"]);
   for (const choice of choices) {
-    const option = text("option", choice.name);
-    option.value = choice.id;
-    select.append(option);
+    options.push([choice.id, choice.name, choice.name]);
   }
-  select.id = id;
-  return select;
+  return dropdown({ id, options, value: blank ? "" : (choices.length > 0 ? choices[0].id : "") });
 }
 function editor(choices) {
   const box = make("fieldset", "prompts-editor");
@@ -222,17 +220,18 @@ function earlier(prompt) {
   const box = $("prompts-versions");
   box.replaceChildren();
   if (!prompt?.versions?.length) return;
-  const select = document.createElement("select");
-  prompt.versions.forEach((version, index) => {
-    const option = text("option", `${new Date(version.savedAt).toLocaleString()} — ${version.body.slice(0, 40)}`);
-    option.value = String(index);
-    select.append(option);
+  const options = prompt.versions.map((version, index) => {
+    const text = `${new Date(version.savedAt).toLocaleString()} — ${version.body.slice(0, 40)}`;
+    return [String(index), text, text];
   });
+  const select = dropdown({ id: "prompts-version", options, value: "0" });
+  const label = make("label", "", "prompts.field.versions", "Earlier wordings");
+  label.htmlFor = "prompts-version";
   const back = button("prompts.action.putBack", "Put this wording back", true, () => {
     $("prompts-body").value = prompt.versions[Number(select.value)].body;
     inputs(blanksOf($("prompts-body").value));
   });
-  box.append(...field("prompts-version", "prompts.field.versions", "Earlier wordings", select), back);
+  box.append(label, select, back);
 }
 
 /* ---------- examples, and moving prompts between computers ---------- */

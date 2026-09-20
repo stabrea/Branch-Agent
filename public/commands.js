@@ -10,6 +10,7 @@
    3. The card. Settings › General gets "Typed commands": the three-way switch, and what works where. */
 import { api, displayView, openConversation, loadSlashCommands, SLASH_COMMANDS } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -211,14 +212,11 @@ function buildCard(settings, table) {
     make("p", "subtle", "commands.card.purpose", "Commands that start with a slash, such as /status or /help, and work the same in this window, on your phone, in the terminal and in chat apps."));
   const label = make("label", "", "commands.card.switch", "The shared commands");
   label.htmlFor = "commands-mode";
-  const select = document.createElement("select");
-  select.id = "commands-mode";
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === settings.mode;
-    select.append(option);
-  }
+  const select = dropdown({
+    id: "commands-mode",
+    options: POSITIONS,
+    value: settings.mode
+  });
   const note = make("p", "field-note");
   noteFor(note, settings.mode);
   select.addEventListener("change", () => noteFor(note, select.value));

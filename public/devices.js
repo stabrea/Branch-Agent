@@ -9,6 +9,7 @@
    Every word has a data-t key with English and French (public/locales/). No colour is written here. */
 import { api } from "/app.js";
 import { formatDate, t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -97,16 +98,13 @@ function inviteBox(invite) {
 }
 
 function modeSwitch(view, status) {
-  const select = document.createElement("select");
-  select.id = "devices-mode";
-  for (const [value, key, english] of MODES) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === view.mode;
-    select.append(option);
-  }
-  select.addEventListener("change", async () => {
-    try { await api("devices/mode", { mode: select.value }); await draw(); } catch (error) { tell(status, error); }
+  const select = segmented({
+    id: "devices-mode",
+    options: MODES,
+    value: view.mode,
+    onChange: async (mode) => {
+      try { await api("devices/mode", { mode }); await draw(); } catch (error) { tell(status, error); }
+    }
   });
   const label = make("label", "", "devices.mode.label", "Using your other devices");
   label.htmlFor = select.id;
@@ -257,8 +255,11 @@ function picker(view) {
     wrap = document.createElement("label");
     wrap.id = "composer-device-wrap";
     wrap.className = "check composer-specialist";
-    const select = document.createElement("select");
-    select.id = "composer-device";
+    const select = dropdown({
+      id: "composer-device",
+      options: [["", "devices.picker.any"]],
+      value: ""
+    });
     select.setAttribute("aria-label", say("devices.picker.label", "Which device to use"));
     select.addEventListener("change", () => void choose(select.value || null));
     wrap.append(make("span", "sr-only", "devices.picker.label", "Which device to use"), select);
@@ -266,9 +267,8 @@ function picker(view) {
   }
   wrap.hidden = false;
   const select = $("composer-device");
-  const any = make("option", "", "devices.picker.any", "Any connected device");
-  any.value = "";
-  select.replaceChildren(any, ...view.devices.map((device) => { const option = plain("option", device.name); option.value = device.id; return option; }));
+  const deviceOptions = [["", "devices.picker.any"], ...view.devices.map((device) => [device.id, device.name])];
+  select.setOptions?.(deviceOptions);
   select.value = picked ?? "";
 }
 

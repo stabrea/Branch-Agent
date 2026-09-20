@@ -73,11 +73,26 @@ export const changeAppearance = (patch) => change(patch);
 function render() {
   if (!$("appearance")) return;
   $("appearance").value = current.appearance;
-  $("appearance-follow").checked = current.followSystem;
+  if ($("appearance-follow")) {
+    $("appearance-follow").checked = current.followSystem;
+    $("appearance-follow").setAttribute("aria-checked", String(current.followSystem));
+  }
   $("appearance").disabled = current.followSystem;
-  $("appearance-motion").checked = current.reduceMotion;
-  $("appearance-acorn").checked = current.showAcorn;
-  for (const [id, key] of SWITCHES) if ($(id)) $(id).checked = current[key];
+  if ($("appearance-motion")) {
+    $("appearance-motion").checked = current.reduceMotion;
+    $("appearance-motion").setAttribute("aria-checked", String(current.reduceMotion));
+  }
+  if ($("appearance-acorn")) {
+    $("appearance-acorn").checked = current.showAcorn;
+    $("appearance-acorn").setAttribute("aria-checked", String(current.showAcorn));
+  }
+  for (const [id, key] of SWITCHES) {
+    const el = $(id);
+    if (el) {
+      el.checked = current[key];
+      el.setAttribute("aria-checked", String(current[key]));
+    }
+  }
   for (const [key, id] of Object.entries(GROUPS))
     for (const button of $(id).children)
       button.setAttribute("aria-pressed", String(button.value === current[key]));
@@ -134,20 +149,25 @@ export function initAppearance(save) {
   persist = save;
   for (const [key, id] of Object.entries(GROUPS))
     $(id).replaceChildren(...CHOICES[key].map(([value]) => choiceButton(key, value)));
+
+  const switches = [
+    ["appearance-follow", "followSystem"],
+    ["appearance-motion", "reduceMotion"],
+    ["appearance-acorn", "showAcorn"],
+    ...SWITCHES,
+  ];
+  for (const [id, key] of switches) {
+    const control = $(id);
+    if (!control) continue;
+    control.classList.add("sw");
+    control.setAttribute("role", "switch");
+    control.addEventListener("change", () => change({ [key]: control.checked }));
+  }
+
   $("appearance").addEventListener("change", () =>
     change({ appearance: $("appearance").value }),
   );
-  $("appearance-follow").addEventListener("change", () =>
-    change({ followSystem: $("appearance-follow").checked }),
-  );
-  $("appearance-motion").addEventListener("change", () =>
-    change({ reduceMotion: $("appearance-motion").checked }),
-  );
-  $("appearance-acorn").addEventListener("change", () =>
-    change({ showAcorn: $("appearance-acorn").checked }),
-  );
-  for (const [id, key] of SWITCHES)
-    $(id)?.addEventListener("change", () => change({ [key]: $(id).checked }));
+
   darkQuery?.addEventListener("change", () => {
     if (current.followSystem) applyAppearance(current);
   });

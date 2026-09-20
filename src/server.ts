@@ -652,6 +652,8 @@ async function staticFile(
     "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
+    // batch1/controls: single control factory (switches, segmented, dropdowns).
+    "/control-makers.js": ["control-makers.js", "text/javascript; charset=utf-8"],
     // phase2/settings: Settings grown up (groups, levels, search over every setting).
     "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
     "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
@@ -669,6 +671,8 @@ async function staticFile(
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
+    // batch1/controls: switch, segmented, and glass dropdown styling.
+    "/control-styles.css": ["control-styles.css", "text/css; charset=utf-8"],
     "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
     "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],

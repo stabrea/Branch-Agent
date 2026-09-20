@@ -12,6 +12,7 @@
 import { api, displayView, openConversation } from "/app.js";
 import { t } from "/i18n.js";
 import { face, trunkSpec } from "/faces.js"; // phase2/shell
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english.replace(/\{(\w+)\}/g, (w, n) => (values && n in values ? String(values[n]) : w)) : word; };
@@ -90,18 +91,16 @@ const PARTS = {
   conversations: ["trunks.part.conversations", "Choosing a Trunk to answer in any conversation"], // phase2/rooms
 };
 function switchFor(part, modes) {
-  const select = document.createElement("select");
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === modes[part];
-    select.append(option);
-  }
-  select.addEventListener("change", async () => {
-    try { await api("trunks/switch", { part, mode: select.value }); saved(); await draw(); } catch (error) { report(error); }
+  const control = dropdown({
+    id: `trunks-switch-${part}`,
+    options: POSITIONS,
+    value: modes[part],
+    onChange: async (value) => {
+      try { await api("trunks/switch", { part, mode: value }); saved(); await draw(); } catch (error) { report(error); }
+    }
   });
   const [key, english] = PARTS[part];
-  return labelled(`trunks-switch-${part}`, key, english, select);
+  return labelled(`trunks-switch-${part}`, key, english, control);
 }
 
 /* ---------- create: three fields ---------- */
@@ -156,13 +155,7 @@ function trunkRow(trunk) {
 const STYLES = [["default", "trunks.style.default", "The ordinary way"], ["react", "trunks.style.react", "Thinks out loud"], ["plan-execute", "trunks.style.plan", "Plans first"],
   ["critic", "trunks.style.critic", "Reviews without changing anything"], ["researcher", "trunks.style.researcher", "Looks things up"], ["coder", "trunks.style.coder", "Writes code"]];
 function select(options, value) {
-  const node = document.createElement("select");
-  for (const [option, key, english] of options) {
-    const entry = make("option", "", key, english);
-    entry.value = option;
-    entry.selected = option === value;
-    node.append(entry);
-  }
+  const node = dropdown({ id: "", options, value });
   return node;
 }
 function editorFields(trunk) {

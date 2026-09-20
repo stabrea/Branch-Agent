@@ -45,7 +45,8 @@ function link(control, node) {
 function attach(control, key, english) {
   if (described(control)) return;
   const label = control.closest("label");
-  const anchor = label && label.contains(control) ? label : control;
+  const segmented = control.closest(".segmented-control");
+  const anchor = segmented ?? (label && label.contains(control) ? label : control);
   const next = anchor.nextElementSibling;
   if (next?.classList.contains("kit-describe") && next.dataset.t === key) return link(control, next);
   const node = note(key, english);
