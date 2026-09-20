@@ -784,8 +784,8 @@ details.tool-step > summary:hover {
   pointer-events: auto;
 }
 .composer {
-  display: flex !important;
-  flex-wrap: nowrap !important;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: flex-end;
   gap: 4px;
   padding: 4px 6px;
