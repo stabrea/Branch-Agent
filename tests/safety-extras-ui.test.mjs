@@ -38,7 +38,7 @@ test("the cards sit in Permissions, every control is named and described, the sw
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
 
   await openPlace(page, "settings:permissions");
   const cards = ["safety-extras-card", "safety-stop-card", "safety-codes-card", "safety-chain-card", "safety-wasm-card"];

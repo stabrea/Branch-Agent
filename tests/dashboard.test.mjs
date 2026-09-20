@@ -356,7 +356,7 @@ test("the switch lives in Customize → Channels, and the dashboard's links open
   await page.goto(f.server.url + "/#open=settings:data");
   await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   /* The link waited for the sign-in, then opened Settings → Data & usage and tidied the address. */
   await page.locator('.lx-settings-link[data-page="data"][aria-current="true"]').waitFor();
   assert.equal(new URL(page.url()).hash, "");

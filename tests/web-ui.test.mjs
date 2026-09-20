@@ -45,7 +45,7 @@ async function fixture(t, provider) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
   await showEverything(page);
   return { app, page, server, errors, browser };
@@ -356,7 +356,7 @@ test("U6 the installable-app files are served and the worker is skipped inside t
   await desktopPage.goto(server.url + "/?desktop=1");
   await desktopPage.getByLabel("Session token", { exact: true }).fill(server.token);
   await desktopPage.getByRole("button", { name: "Connect", exact: true }).click();
-  await desktopPage.locator("#workspace").waitFor({ state: "visible" });
+  await desktopPage.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await desktopPage.waitForTimeout(600);
   const scope = new URL(server.url).origin + "/";
   /* Sharing an origin means the earlier page's worker is visible here too, so what proves the skip

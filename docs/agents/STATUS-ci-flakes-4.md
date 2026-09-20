@@ -148,6 +148,45 @@ loaded machine ("the test process ended with no output at all before any test re
 still unknown and is not chased here. Test 3 itself passed in the other eleven runs, at 3797 ms and
 3819 ms under three-at-once load, which is the room the new 5 s bound was meant to give it.
 
+## Run 35483029723 (cancelled by another agent's push, but one shard had already failed)
+
+- panels "with achievements on, hiding everything earns …" (Windows 1/6): **TEST.** Hiding everything
+  fires `branch-delight-noticed` and public/delight-achievements.js asks the server 1.5 s after the
+  last one, so the earning is never instant; the loop gave that debounce plus a round trip only 5 s of
+  polling. It is still the window's own asking that earns this; only the waiting is longer (60 s).
+
+## Run 35484288929 on b766c6ad: two Windows shards, both the crawling kind
+
+- flow-editor F2 (Windows 2/6): **TEST.** After pressing Run this flow, the timeline had 20 s to catch
+  up, and on a machine where this one test took 103 s the run had not finished by then. Given the 120 s
+  tests/places.mjs gives the window.
+- p2-shell-ui "the strip sits at the left edge…" (Windows 5/6): **TEST.** ci-flakes-3 gave the strip
+  15 s, then 60 s; this machine went past 60 s too, and the same test has taken 153 s in full on that
+  shard while passing. It now has the same 120 s the window gets two lines above it. Checked first for
+  a real race in `whenReady` (public/strip.js): the strip is drawn only when `body.lx-ready` and a shown
+  `#workspace` coincide, and a MutationObserver watches both. `#workspace` is static in index.html and
+  layout.js only appends to it, never replaces it, so the node the observer holds is the node that
+  later unhides — no deadlock. It really is slowness.
+- Shard times in that run were 19-26 minutes against the job's 45-minute cap, so the shards themselves
+  are not near the edge; it is single tests inside them that run long.
+
+## Run 35486709747 on f9499e4f: one shard, and the systemic cause behind half this round
+
+Both failures were on Windows 1/6 and both were the same shape — a fixture waiting for the window with
+Playwright's default 30 seconds.
+
+- local-oneclick-ui U1: `#workspace` not visible in 30 s. This is exactly what ci-flakes-2 wrote down
+  ("tests/places.mjs already gives the window 120 s because a busy Windows runner can take over 30 s to
+  load it") — but only places.mjs was given that. **89 waits for `#workspace` across 66 test files were
+  still on the default 30 s.** All 89 now get the same 120 s. That is one mechanical change, it waits
+  for the same condition, and it removes the largest single source of the failures this round and the
+  last three have been picking off one file at a time.
+- learning-loop-ui "new skills: draft one from a conversation…": the card's status "being written" is a
+  passing state, and the card's next look can already show the finished draft instead, so waiting for
+  those words alone can miss them either way. The wait now takes either — the words, or the draft being
+  there. The press is deliberately NOT made again the way `pressUntil` does elsewhere, because a second
+  press would draft a second skill and the test counts drafts. The file's other 15 s waits are 60 s.
+
 ## Where the two green runs stand
 
 Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
