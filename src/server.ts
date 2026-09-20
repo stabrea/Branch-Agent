@@ -1459,8 +1459,11 @@ async function api(
   if (takingBack && request.method === "POST")
     return { id: takingBack[1]!, revoked: app.sessionTokens.revoke(app.runtime.owner, takingBack[1]!) };
   const tracing = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
-  if (tracing && request.method === "GET")
-    return traceReport(app.store, app.traceExport.settings(), tracing[1]!);
+  if (tracing && request.method === "GET") {
+    const run = app.store.run(tracing[1]!);
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
+    return buildTraceDocument(app.store, run.id, app.version);
+  }
   if (request.method === "GET" && path === "/api/terminal") return terminalReadApi(app, request);
   // ── end mac7/smoke-fixes (B4) ─────────────────────────────────────────────────────────────────
   if (request.method === "GET" && path === "/api/health")
