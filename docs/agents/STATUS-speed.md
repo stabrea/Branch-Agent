@@ -231,9 +231,13 @@ existing bench rows do.
   `branch-speed-off` and `branch-speed-on`, the same build at `/workspace/bench/speed/build`, the
   second with `prepScript: experiments/coding-bench/fewer-rounds-on.mjs`. Verified without touching
   the card: the prep script writes `coding-fewer-rounds {"mode":"on"}` into a fresh data folder.
-- **Tasks**: `fix-range`, `rename`, `update-docs` — the three with known behaviour from window 3.
+- **Tasks**: `rename`, `update-docs`, `extract-helper` — all three are read-and-edit work across
+  several files, which is what E, B and C actually change. `fix-range` is deliberately **not** in the
+  set: with `code.run` off, as it ships, window 6 recorded a Branch row ending that task after *two*
+  model calls by telling the owner to switch scripts on. A task that gives up in two rounds measures
+  nothing about rounds.
 - **Shape**: 2 rows × 3 tasks × 2 repeats = 12 cells, round robin, 600 s deadline.
-  `/workspace/bench/speed/run.sh speed1 branch-speed-off,branch-speed-on "fix-range,rename,update-docs" 2`
+  `/workspace/bench/speed/run.sh speed1 branch-speed-off,branch-speed-on "rename,update-docs,extract-helper" 2`
 - **Before starting**: warm the model (a cold load is ~105 s and would trip the watchdog), and note
   the load average either side, as every other window does.
 - **What would falsify B**: if the model still returns one tool call a turn with the part on. That is
