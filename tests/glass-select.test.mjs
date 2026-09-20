@@ -222,6 +222,24 @@ test("a segmented control shows the description linked to its native source", as
   assert.deepEqual(f.errors, []);
 });
 
+test("a disabled segmented control shows no hover help", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const note = document.createElement("p");
+    note.id = "disabled-segment-note";
+    note.textContent = "This setting is unavailable.";
+    const control = globalThis.branchControlMakers.segmented({ id: "disabled-segment" });
+    control.querySelector("select").setAttribute("aria-describedby", note.id);
+    control.disabled = true;
+    document.getElementById("workspace").append(control, note);
+  });
+  const control = f.page.locator(".segmented-control:has(#disabled-segment)");
+  await control.hover();
+  await f.page.waitForTimeout(700);
+  assert.equal(await f.page.locator("#glass-tip").isVisible(), false);
+  assert.deepEqual(f.errors, []);
+});
+
 test("on a touch-only phone the select keeps its own picker and no hover help appears", async (t) => {
   const f = await fixture(t, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);

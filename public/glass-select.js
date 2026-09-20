@@ -212,7 +212,9 @@ function describedWords(control) {
 }
 function describedControl(node) {
   const control = node?.closest?.(".segmented-control, button, [role=button], a[href], input, select, textarea");
-  if (!control || control.closest("#glass-list, #glass-tip") || control.matches(":disabled, [aria-disabled='true']")) return null;
+  const segmentedDisabled = control?.matches(".segmented-control") && control.querySelector(".segmented-source")?.disabled;
+  if (!control || control.closest("#glass-list, #glass-tip")
+    || control.matches(":disabled, [aria-disabled='true'], [data-disabled]") || segmentedDisabled) return null;
   return describedWords(control) ? control : null;
 }
 function helpTarget(node) {
