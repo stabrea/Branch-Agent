@@ -54,7 +54,7 @@ export async function onPage(t, options = {}) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
     await page.getByRole("button", { name: /Try it without an account/ }).click();
@@ -800,7 +800,7 @@ test("G4 label chips filter Recents and the Ctrl+K box through the labels search
   await api("POST", "/api/labels", { target: "conversation", targetId: first.sessionId, label: "house" });
 
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const chips = page.locator("#rail-labels .label-chip");
   await chips.first().waitFor({ timeout: 15000 });
   assert.equal(await chips.count(), 1, "one label is in use");
@@ -834,7 +834,7 @@ test("G4 the conversation title has a label picker that puts a label on what you
   const run = (await api("POST", "/api/run", { prompt: "the loft hatch" })).body;
   await api("POST", "/api/labels", { target: "conversation", targetId: run.sessionId, label: "house" });
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#rail-list .rail-item").first().click();
   /* Opening a conversation reads it from the server first. The picker is for the conversation that
      is open, so pressing Labels before it has arrived only says "open a conversation first". */

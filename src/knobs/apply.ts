@@ -92,6 +92,11 @@ export function toolLimits(store: Reader, owner: string, launch: { toolResultCha
   };
 }
 
+/** mac7/speed: how many times one task may go back to the model before it gives the best answer it has. */
+export function maxModelRounds(store: Reader, owner: string, launch: { maxModelRounds: number }): number {
+  return readKnobs(store, owner, "limits").maxModelRounds ?? launch.maxModelRounds;
+}
+
 /** mac7/coding-next: how long a model on this computer may take to start its reply, in milliseconds. */
 export function localFirstReplyMs(store: Reader, owner: string, launch: { localFirstReplyMs: number }): number {
   const seconds = readKnobs(store, owner, "limits").localFirstReplySeconds;

@@ -17,6 +17,9 @@ export const codingParts = [
   "checklist", "path-rules", "large-output", "notebooks", "review-checks",
   // mac7/coding-next: a guard, not a tool; "when needed" and "on" both hold every task to it.
   "read-first",
+  // mac7/speed: doing more in one round. Like read-first this is mostly how the loop behaves, so
+  // "when needed" and "on" both switch the behaviour on; what differs is its one tool's tier.
+  "fewer-rounds",
 ] as const;
 export type CodingPart = (typeof codingParts)[number];
 export const CodingPartSchema = z.enum(codingParts);
@@ -42,6 +45,7 @@ export const codingLabels: Record<CodingPart, string> = {
   notebooks: "Reading Jupyter notebooks cell by cell",
   "review-checks": "Review checks kept in the project",
   "read-first": "Reading a file before changing it",
+  "fewer-rounds": "Doing more in one go, so a task takes fewer turns",
 };
 
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
@@ -58,6 +62,7 @@ export const codingTools: Record<CodingPart, readonly string[]> = {
   notebooks: ["notebook.read"],
   "review-checks": ["review.checks"],
   "read-first": [],
+  "fewer-rounds": ["files.read_many"],
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */

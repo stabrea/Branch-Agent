@@ -110,5 +110,93 @@ once the shards do. Not a fifth cause.
       60/60, coding-gap-edits 276/276, flow-editor 48/48 — 948 of 948, no failure of any kind. As in every earlier round,
       none of the CI failures reproduces here by repetition; each was instead diagnosed from the log
       and, where a product bug, reproduced by driving the very call the 3-second refresh makes.
-- [ ] merged into trunk
+- [x] build + tsc clean, then the touched files plus four more places.mjs users (calm-ui,
+      settings-grown, p2-shell-ui, panels, accounts-page — places.mjs is shared by 77 test files, so
+      the change to `openSettings` was exercised beyond the four files that needed it):
+      183 tests, 179 pass, 0 fail, 4 skipped. After the clean rebuild, flow-editor + static-assets +
+      index-structure + handbook + glass-select: 28/28.
+- [x] merged into trunk: pushed e18f559f..b837d52e (fast-forward). Checks run 35481505692.
 - [ ] two consecutive full green Checks runs on trunk
+
+## Run 35481505692 on b837d52e (green candidate 1): every shard green but two Windows ones
+
+Every fix above held — flow-editor, coding-gap, add-ons-walled and delight were all green this time.
+Two left:
+
+- mac2-desktop-ui "the cards go to their homes…" (Windows 5/6): the message fix worked (it got seven
+  lines further, to line 538), and then a press on the voice card's Save sat in Playwright's
+  "performing click action" for the whole 30 s and nothing happened. That is the THIRD time this exact
+  signature has shown up — the Settings gear in this round's never-break-ui, a select in ci-flakes-3
+  ("cause of the swallowed click not proven"), and now a Save button. The cause is still not proven. It
+  is not the product: the button keeps the one listener `switchCard` gave it and the card is never
+  drawn again (`place()` returns early once it exists). So the cure is the one a person would use —
+  press again when nothing happened. `pressUntil` in tests/places.mjs now does that for any control,
+  and the gear helper is built on it.
+- hardening-3 "3 a model on this computer that never starts answering…" (Windows 4/6, 2570 ms):
+  **TEST.** The clock check `took < 2000` had a 1 s first-reply wait, a 300 ms deliberate event-loop
+  hold and a 100 ms grace inside it, so it left only about 600 ms for everything else a run does, and a
+  crawling Windows machine used more. The waits are now 3 s and a 300 ms grace with a 500 ms hold, and
+  the bound is 5 s: the thing it guards (ci-flakes-2's bug, a retry given a whole first-reply wait
+  instead of the grace) would land at 6 s and still fails the check, so nothing it proves is weakened.
+
+## Loops after those two fixes (same worktree, 12 runs each, 3 copies at once)
+
+mac2-desktop-ui 276/276. hardening-3 193 of 194: one run's process ended at 2.88 s partway through
+test 3 with no named test failing and nothing printed — `'test failed'` against the file itself and no
+stack. That is the same non-event ci-flakes, ci-flakes-2 and ci-flakes-3 each recorded once on this
+loaded machine ("the test process ended with no output at all before any test reported"); its cause is
+still unknown and is not chased here. Test 3 itself passed in the other eleven runs, at 3797 ms and
+3819 ms under three-at-once load, which is the room the new 5 s bound was meant to give it.
+
+## Run 35483029723 (cancelled by another agent's push, but one shard had already failed)
+
+- panels "with achievements on, hiding everything earns …" (Windows 1/6): **TEST.** Hiding everything
+  fires `branch-delight-noticed` and public/delight-achievements.js asks the server 1.5 s after the
+  last one, so the earning is never instant; the loop gave that debounce plus a round trip only 5 s of
+  polling. It is still the window's own asking that earns this; only the waiting is longer (60 s).
+
+## Run 35484288929 on b766c6ad: two Windows shards, both the crawling kind
+
+- flow-editor F2 (Windows 2/6): **TEST.** After pressing Run this flow, the timeline had 20 s to catch
+  up, and on a machine where this one test took 103 s the run had not finished by then. Given the 120 s
+  tests/places.mjs gives the window.
+- p2-shell-ui "the strip sits at the left edge…" (Windows 5/6): **TEST.** ci-flakes-3 gave the strip
+  15 s, then 60 s; this machine went past 60 s too, and the same test has taken 153 s in full on that
+  shard while passing. It now has the same 120 s the window gets two lines above it. Checked first for
+  a real race in `whenReady` (public/strip.js): the strip is drawn only when `body.lx-ready` and a shown
+  `#workspace` coincide, and a MutationObserver watches both. `#workspace` is static in index.html and
+  layout.js only appends to it, never replaces it, so the node the observer holds is the node that
+  later unhides — no deadlock. It really is slowness.
+- Shard times in that run were 19-26 minutes against the job's 45-minute cap, so the shards themselves
+  are not near the edge; it is single tests inside them that run long.
+
+## Run 35486709747 on f9499e4f: one shard, and the systemic cause behind half this round
+
+Both failures were on Windows 1/6 and both were the same shape — a fixture waiting for the window with
+Playwright's default 30 seconds.
+
+- local-oneclick-ui U1: `#workspace` not visible in 30 s. This is exactly what ci-flakes-2 wrote down
+  ("tests/places.mjs already gives the window 120 s because a busy Windows runner can take over 30 s to
+  load it") — but only places.mjs was given that. **89 waits for `#workspace` across 66 test files were
+  still on the default 30 s.** All 89 now get the same 120 s. That is one mechanical change, it waits
+  for the same condition, and it removes the largest single source of the failures this round and the
+  last three have been picking off one file at a time.
+- learning-loop-ui "new skills: draft one from a conversation…": the card's status "being written" is a
+  passing state, and the card's next look can already show the finished draft instead, so waiting for
+  those words alone can miss them either way. The wait now takes either — the words, or the draft being
+  there. The press is deliberately NOT made again the way `pressUntil` does elsewhere, because a second
+  press would draft a second skill and the test counts drafts. The file's other 15 s waits are 60 s.
+
+## Run 35488311256 on da5ac2c0: one shard
+
+- phone-layout "an answer that could not be sent gives the buttons back…" (Windows 6/6,
+  `getBoundingClientRect` of null): **TEST.** `#live-ask` goes visible as soon as the card is there,
+  and the card's own parts arrive with its next draw, so the two parts the widths are taken from can
+  still be missing when they are measured. Both are now waited for, with the same selectors the
+  measurement uses.
+
+## Where the two green runs stand
+
+Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
+shard green on all three systems except Windows 2/6, which was the flow-editor F1 wait above. So one
+test stood between trunk and a green run, and it is fixed here.

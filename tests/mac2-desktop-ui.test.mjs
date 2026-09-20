@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { became, openPlace, openSettingFor, pressUntil } from "./places.mjs";
 import { createBranch, saveDesktopSettings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
@@ -457,7 +457,7 @@ async function signIn(page, server) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
 }
 
 /**
@@ -527,16 +527,20 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   assert.deepEqual(await page.locator("#screen-switch-card-mode option").evaluateAll((options) => options.map((o) => o.dataset.t)),
     ["switch.off", "switch.when-needed", "switch.on"]);
   await page.locator("#screen-switch-card-mode").selectOption("on");
-  await page.locator("#screen-switch-card button").click();
-  await page.waitForFunction(() => document.getElementById("screen-switch-card-status").textContent === "Saved.");
+  /* ci-flakes-4: a press on a Windows build machine can sit in Playwright's "performing click action"
+     and never land (see tests/places.mjs). Save is pressed again while the card has not said so. */
+  await pressUntil(page.locator("#screen-switch-card button"),
+    () => became(page, () => document.getElementById("screen-switch-card-status").textContent === "Saved."),
+    "the screen card to say it saved");
   assert.equal(readDesktopSettings(app.store, app.runtime.owner).mode, "on");
   await openAndSettle(page, () => openSettingFor(page, "#system-voice-card"));
   await page.locator("#system-voice-card-mode").selectOption("when-needed");
   // The window draws these cards again every 3 seconds: a choice not yet saved stays (ci-flakes-3).
   await page.waitForTimeout(3500);
   assert.equal(await page.locator("#system-voice-card-mode").inputValue(), "when-needed", "the choice is still theirs");
-  await page.locator("#system-voice-card button").click();
-  await page.waitForFunction(() => document.getElementById("system-voice-card-status").textContent === "Saved.");
+  await pressUntil(page.locator("#system-voice-card button"),
+    () => became(page, () => document.getElementById("system-voice-card-status").textContent === "Saved."),
+    "the voice card to say it saved");
   assert.equal(voiceSettings(app.store, app.runtime.owner).systemVoice, "when-needed");
   /* ci-flakes-4: drawing the cards again every 3 seconds used to wipe the message, so "Saved." (and a
      plain sentence saying why something could not be saved) vanished before it could be read. This is

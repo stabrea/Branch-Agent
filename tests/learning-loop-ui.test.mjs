@@ -40,7 +40,7 @@ async function fixture(t) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   return { page, errors, app };
 }
 const homes = [["learning-look-back", "library:memory"], ["learning-new-skills", "customize:skills"]];
@@ -50,7 +50,7 @@ test("each card is on the screen that owns its subject, and both switches start 
   for (const [id, home] of homes) {
     const card = page.locator("#" + id);
     await openPlace(page, home);
-    await card.waitFor({ state: "visible", timeout: 15000 });
+    await card.waitFor({ state: "visible", timeout: 60000 });
     assert.ok((await card.locator("h2").innerText()).trim().length > 0, `${id} has a title`);
     await openPlace(page, "chat");
     assert.equal(await card.isVisible(), false, `${id} shows only on ${home}`);
@@ -65,7 +65,7 @@ test("looking back: save the switch, look now, and accept the batch from the car
   await app.runtime.run({ prompt: "remind me that I water the plants on Sundays" });
   await openPlace(page, "library:memory");
   const card = page.locator("#learning-look-back");
-  await card.waitFor({ state: "visible", timeout: 15000 });
+  await card.waitFor({ state: "visible", timeout: 60000 });
   await card.locator("#look-back-switch").selectOption("when-needed");
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#learning-look-back [role=status]").filter({ hasText: "Saved" }).waitFor();
@@ -86,19 +86,25 @@ test("new skills: draft one from a conversation, see it tried, and keep it", asy
   await app.runtime.run({ prompt: "water the plants in the kitchen" });
   await openPlace(page, "customize:skills");
   const card = page.locator("#learning-new-skills");
-  await card.waitFor({ state: "visible", timeout: 15000 });
+  await card.waitFor({ state: "visible", timeout: 60000 });
   await card.locator("#new-skills-switch").selectOption("when-needed");
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#learning-new-skills [role=status]").filter({ hasText: "Saved" }).waitFor();
   await page.locator("#learn-notes").fill("keep it short");
   await page.locator("#learning-new-skills").getByRole("button", { name: "Draft a skill from it" }).click();
-  await page.locator("#learning-new-skills [role=status]").filter({ hasText: "being written" }).waitFor();
+  /* ci-flakes-4: "being written" is a passing state, and the card's next look can already show the
+     finished draft instead; either one means the writing started. The press itself is not made again,
+     because a second press would draft a second skill. */
+  await page.waitForFunction(() =>
+    /being written/.test(document.querySelector("#learning-new-skills [role=status]")?.textContent ?? "")
+    || Boolean(document.querySelector("#new-skills-list .record")),
+    undefined, { timeout: 120000 });
   /* The card looks again by itself while the draft is being written and tried. */
   const draft = page.locator("#new-skills-list .record").first();
-  await draft.waitFor({ timeout: 15000 });
+  await draft.waitFor({ timeout: 60000 });
   await app.learningLoop.idle();
   /* The trial can finish between two of the card's looks, so wait for the look that shows it. */
-  await draft.filter({ hasText: "Did at least as well" }).waitFor({ timeout: 15000 });
+  await draft.filter({ hasText: "Did at least as well" }).waitFor({ timeout: 60000 });
   assert.match(await draft.innerText(), /water-the-plants/);
   assert.match(await draft.innerText(), /Did at least as well: 1 of 1/);
   const [{ skillId }] = app.learningLoop.newSkills();
@@ -114,7 +120,7 @@ test("at 400 px nothing scrolls sideways, and every fixed word has a key with re
   await page.setViewportSize({ width: 400, height: 900 });
   for (const [id, home] of homes) {
     await openPlace(page, home);
-    await page.locator("#" + id).waitFor({ state: "visible", timeout: 15000 });
+    await page.locator("#" + id).waitFor({ state: "visible", timeout: 60000 });
     const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     assert.equal(wide, false, `${home} does not scroll sideways at 400 px`);
   }

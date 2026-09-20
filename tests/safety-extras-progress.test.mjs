@@ -60,7 +60,8 @@ test("a task that keeps giving the same answer between steps is ended in one sen
   } };
   const { app, api } = await served(t, provider);
   const plain = await api("/api/run", { prompt: "go" });
-  assert.match(plain.output, /Maximum 12 model rounds/, "off: exactly as before");
+  // mac7/speed: the limit now ends with the best answer it has and a plain sentence saying why.
+  assert.match(plain.output, /went back to the model 12 times/, "off: it still runs to the limit");
   await api("/api/safety-extras/switch", { part: "progress-judge", mode: "when-needed" });
   turn = 0;
   const judged = [];
@@ -82,7 +83,7 @@ test("the judge ends a long task only when it is sure", async (t) => {
   const { app, api } = await served(t, provider);
   await api("/api/safety-extras/switch", { part: "progress-judge", mode: "on" });
   const moving = await api("/api/run", { prompt: "go" });
-  assert.match(moving.output, /Maximum 12 model rounds/);
+  assert.match(moving.output, /went back to the model 12 times/);
   assert.deepEqual(judged, [0, 0, 0, 0], "asked at rounds 3, 6, 9 and 12, with no tools");
   turn = 0; judged.length = 0;
   verdict = '{"stuck": true, "confidence": 0.95, "reason": "it reads the same thing each round"}';
@@ -93,7 +94,7 @@ test("the judge ends a long task only when it is sure", async (t) => {
   turn = 0; judged.length = 0;
   await api("/api/safety-extras/switch", { part: "progress-judge", mode: "when-needed" });
   const unsure = await api("/api/run", { prompt: "go" });
-  assert.match(unsure.output, /Maximum 12 model rounds/);
+  assert.match(unsure.output, /went back to the model 12 times/);
   assert.deepEqual(judged, [0, 0], "when needed asks at rounds 6 and 10");
   assert.ok(app.store.events(unsure.id).some((event) => event.kind === "progress.judged" && event.data.round === 6));
 });
