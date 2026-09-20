@@ -9,6 +9,7 @@
    It also opens a conversation handed over from another device (#handoff=<id>) once signed in. */
 import { api, openConversation } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -55,8 +56,8 @@ function row(...children) {
 
 const POSITIONS = [
   ["off", "field.switch-off", "Off"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "field.switch-on", "On"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
 ];
 const PARTS = {
   "agent-protocol": ["interop.part.agentProtocol", "Taking work over the Agent Protocol (other agents and test harnesses)"],
@@ -71,32 +72,30 @@ const PARTS = {
 
 function switchRow(part, mode, status) {
   const [key, english] = PARTS[part] ?? ["", part];
-  const select = document.createElement("select");
-  for (const [value, optionKey, optionEnglish] of POSITIONS) {
-    const option = make("option", "", optionKey, optionEnglish);
-    option.value = value;
-    option.selected = value === mode;
-    select.append(option);
-  }
-  select.addEventListener("change", async () => {
-    try {
-      await api("interop/switch", { part, mode: select.value });
-      done(status);
-      /* These three change what the cards themselves show. */
-      if (["modes", "agent-market", "handoff"].includes(part)) await drawCards();
-    } catch (error) { tell(status, error); }
+  const select = segmented({
+    id: `interop-switch-${part}`,
+    options: POSITIONS,
+    value: mode,
+    onChange: async (value) => {
+      try {
+        await api("interop/switch", { part, mode: value });
+        done(status);
+        /* These three change what the cards themselves show. */
+        if (["modes", "agent-market", "handoff"].includes(part)) await drawCards();
+      } catch (error) { tell(status, error); }
+    }
   });
   return labelled(`interop-switch-${part}`, key, english, select);
 }
 
 function handoffBlock(sessions) {
   const heading = make("h3", "", "interop.handoff.title", "Carry on a conversation on another device");
-  const pick = document.createElement("select");
-  for (const session of sessions) {
-    const option = plain("option", (session.opening || session.sessionId).slice(0, 60));
-    option.value = session.sessionId;
-    pick.append(option);
-  }
+  const sessionOptions = sessions.map((session) => [session.sessionId, (session.opening || session.sessionId).slice(0, 60)]);
+  const pick = dropdown({
+    id: "interop-handoff-session",
+    options: sessionOptions.length > 0 ? sessionOptions : [["", "No sessions"]],
+    value: sessionOptions.length > 0 ? sessionOptions[0][0] : ""
+  });
   const minutes = document.createElement("input");
   minutes.type = "number"; minutes.min = "5"; minutes.max = "240"; minutes.value = "30";
   const result = make("p", "field-note");
