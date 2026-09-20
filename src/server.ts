@@ -588,10 +588,9 @@ async function staticFile(
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
     "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
-    // phase2/accounts: thinking levels per model, the service marks, the Accounts page, the agent files editor.
+    // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
     "/thinking-levels.js": ["thinking-levels.js", "text/javascript; charset=utf-8"],
     "/brand-marks.js": ["brand-marks.js", "text/javascript; charset=utf-8"],
-    "/brand-marks.css": ["brand-marks.css", "text/css; charset=utf-8"],
     "/accounts.css": ["accounts.css", "text/css; charset=utf-8"],
     "/agent-files.js": ["agent-files.js", "text/javascript; charset=utf-8"],
     "/service-marks.js": ["service-marks.js", "text/javascript; charset=utf-8"],
