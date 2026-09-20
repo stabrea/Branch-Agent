@@ -43,8 +43,13 @@ Design note (approved by the coordinator, "GO"): `docs/agents/SPEED-DESIGN.md`.
 - [x] A. Independent read-only calls in one turn run concurrently
 - [x] A2. Same-thing calls may share a run when neither would be asked about (coordinator's decision 1)
 - [x] F. The round ceiling no longer strands a task on a bare sentence, and the owner can change it
-- [ ] Measure B on a real model (Ollama on taofik-ai, after window8 finishes ~03:00-03:30 UTC)
-- [ ] Merge latest trunk, rebuild, retest, push
+- [x] G. A tool you just found can be called straight away; the names other assistants use find it;
+      a switched-off feature's tools are named but never offered
+- [x] H. A model service that refuses is explained in plain words; a coding task is told once that
+      nothing can be run here
+- [x] I. The ChatGPT route records the cached tokens the service already reports
+- [x] Measured on a real model (qwen3-14b on taofik-ai): two windows, 18 cells
+- [x] Merged latest trunk (`da5ac2c0`), clean `dist/` rebuild, retested, pushed
 
 Everything except D is behind one new coding part, **`fewer-rounds`**, which **ships off**. Its three
 states work like `read-first`'s: *off* is today exactly; *when needed* and *on* both switch the
