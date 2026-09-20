@@ -411,6 +411,13 @@ test("an answer that could not be sent gives the buttons back; No is the quiet a
   const f = await fixture(t);
   const files = [{ kind: "write", path: "a.txt" }, { kind: "write", path: "b.txt" }];
   const card = await askOnPhone(f, (body) => ({ ...body, waiting: body.waiting.map((question) => ({ ...question, source: "channel", files })) }));
+  /* ci-flakes-4: #live-ask goes visible as soon as the card is there, and its own parts arrive with the
+     card's next draw, so both the parts these widths come from are waited for. One of them was still
+     missing when it was measured on a busy Windows machine (getBoundingClientRect of null). */
+  await f.page.waitForFunction(() => {
+    const node = document.getElementById("live-ask");
+    return Boolean(node?.querySelector(":scope > div:not(.live-ask-choice)") && node.querySelector(":scope > p"));
+  }, null, { timeout: 30000 });
   const widths = await card.evaluate((node) => [node.querySelector(":scope > div:not(.live-ask-choice)"), node.querySelector(":scope > p")]
     .map((child) => Math.round(child.getBoundingClientRect().width)));
   assert.equal(widths[0], widths[1], "the files a question touches run the card's full width, not one answer's cell");
