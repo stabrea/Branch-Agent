@@ -168,6 +168,24 @@ http://127.0.0.1:8777/index.html (served from C:/Users/bishi/Code/branch-sample/
 | **Batch 3: Furniture** | 19 | 6 | CSS-only (this session) |
 | **TOTAL** | **29** | **10** | **35% complete** |
 
+## CONTINUATION SESSION (2026-09-20, Agent 4)
+
+### New Progress: 3 furniture gaps + 1 important fix
+- ✅ **DG-010 (redux)**: Removed `!important` hiding - stopped building scope chips entirely instead of just hiding them
+  - Removed chip() calls from refresh() functions
+  - Removed unused SCOPES/SCOPE_OF definitions  
+  - Removed kit-scope CSS rules (commit f5327dbb)
+- ✅ **DG-001/DG-064**: Added "Back to Branch" button with Esc kbd chip at top of Settings nav
+- ✅ **DG-002**: Converted Settings title to h1 with 22px font size
+- ✅ **DG-003**: Added version line "Branch Agent 0.18.1 · sample" at bottom of nav (commit 967950e4)
+
+### Updated Status: 13/29 Complete (45% complete)
+| Batch | Total | Done | Exact Match | Untouched |
+|-------|-------|------|------------|-----------|
+| **Batch 4: Words** | 10 | 4 | ✅ 4 | ⏸️ 6 (DG-023, 032, 050, 077, 155) |
+| **Batch 3: Furniture** | 19 | 9 | ✅ 9 | ⏸️ 10 (DG-006, DG-008, DG-011–013, DG-063–064, DG-071, DG-073, DG-075, DG-078) |
+| **TOTAL** | **29** | **13** | **✅ 13** | **⏸️ 16** |
+
 ### Remaining 19 Gaps - Priority Order
 
 **High Priority (exact sample strings available, quick wins ~1-2 hours each):**
