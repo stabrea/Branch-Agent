@@ -2662,6 +2662,7 @@
   "local.state.ollama-missing": "Ollama n'est pas installé ou pas encore lancé.",
   "local.state.ollama-running": "Ollama fonctionne (version {version}) avec {count} modèle(s) prêt(s).",
   "lockdown.label": "Verrouillage",
+  "lockdown.off": "Verrouillage inactif : les commandes suivent les règles d’autorisation ci-dessus.",
   "lockdown.on": "Verrouillage actif : commandes refusées, le reste attend votre accord.",
   "lockdown.turnOff": "Le désactiver",
   "logs.anyKind": "Tout type d'étape",

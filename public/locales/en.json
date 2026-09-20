@@ -2661,6 +2661,7 @@
   "local.state.ollama-missing": "Ollama is not installed or not started yet.",
   "local.state.ollama-running": "Ollama is running (version {version}) with {count} model(s) ready.",
   "lockdown.label": "Lockdown",
+  "lockdown.off": "Lockdown is off. Commands follow the permission rules above.",
   "lockdown.on": "Lockdown is on. Commands are refused; all else asks you.",
   "lockdown.turnOff": "Turn it off",
   "logs.anyKind": "Any kind of step",
