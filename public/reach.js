@@ -345,28 +345,32 @@ async function bundlesCard(state) {
   node.append(...switchFor("skill-bundles", state.modes, status));
   if (state.modes["skill-bundles"] !== "off") {
     const skills = ((await api("state")).skills ?? []).filter((s) => s.activeVersion !== null);
-    const pickerBox = document.createElement("div");
-    const pickerChecks = [];
+    // Each skill gets its own row with a switch: the sample's vocabulary for "this thing is on/off"
+    // is the switch (39 across Settings), not checkboxes. Picking several skills is N independent
+    // on/off choices, so it's the same question asked N times, not a new control type.
+    const skillSwitches = [];
     for (const s of skills) {
-      const check = document.createElement("input");
-      check.type = "checkbox";
-      check.value = s.id;
-      const label = document.createElement("label");
-      label.append(check, " ", plain("span", s.name));
-      pickerBox.append(label);
-      pickerChecks.push(check);
+      const sw = switchControl({
+        id: `reach-bundle-skill-${s.id}`,
+        checked: false,
+        onChange: () => {}
+      });
+      const skillRow = document.createElement("label");
+      skillRow.className = "check-row";
+      skillRow.append(sw, " ", plain("span", s.name));
+      node.append(skillRow);
+      skillSwitches.push({ id: s.id, control: sw });
     }
     const name = field(""), path = field("bundles/my-skills.branch-skills"), source = field("");
     const shown = document.createElement("div");
     const where = () => (/^https:/i.test(source.value.trim()) ? { url: source.value.trim() } : { path: source.value.trim() });
     const [write, writeHint] = button("reach-bundles-write", "reach.bundles.write", "Write the bundle", "reach.bundles.writeHint", "Writes the chosen skills into that workspace file.",
-      attempt(status, async () => { await api("reach/bundles/write", { name: name.value.trim(), path: path.value.trim(), skills: pickerChecks.filter((c) => c.checked).map((c) => c.value) }); done(status); }));
+      attempt(status, async () => { await api("reach/bundles/write", { name: name.value.trim(), path: path.value.trim(), skills: skillSwitches.filter((s) => s.control.checked).map((s) => s.id) }); done(status); }));
     const [look, lookHint] = button("reach-bundles-look", "reach.bundles.look", "Look inside", "reach.bundles.lookHint", "Installs nothing.",
       attempt(status, async () => { const b = await api("reach/bundles/preview", where()); shown.replaceChildren(plain("p", b.name), list(b.skills.map((s) => plain("li", s.name)))); }));
     const [install, installHint] = button("reach-bundles-install", "reach.git.install", "Bring it in", "reach.bundles.installHint", "Each skill starts switched off; one you already have is left alone.",
       attempt(status, async () => { await api("reach/bundles/install", where()); done(status); }));
-    node.append(...control("reach-bundles-skills", "reach.bundles.skills", "Skills to bundle", "reach.bundles.skillsHint", "Only switched-on skills can be bundled.", pickerBox),
-      ...control("reach-bundles-name", "reach.bundles.name", "Bundle name", "reach.bundles.nameHint", "Shown to whoever opens it.", name),
+    node.append(...control("reach-bundles-name", "reach.bundles.name", "Bundle name", "reach.bundles.nameHint", "Shown to whoever opens it.", name),
       ...control("reach-bundles-path", "reach.bundles.path", "Workspace file", "reach.bundles.pathHint", "Ends in .branch-skills.", path),
       row(write, writeHint),
       ...control("reach-bundles-source", "reach.bundles.source", "Bundle to bring in", "reach.bundles.sourceHint", "A workspace file or an https address.", source),
