@@ -240,6 +240,29 @@ tools and shows the model eighteen of them — that is the whole point of the th
 why its per-round payload sits between the two. **The lever this branch pulls is rounds, not
 payload**, and the payload is measured here only so nobody has to guess whether it got worse.
 
+## Which build each number came from — read this before quoting any of them
+
+Two different things are measured in this file and they must not be read as one.
+
+- **Local, scripted stand-in, current build.** Everything with a 30-place or 8-file figure:
+  `experiments/speed/`, no network, no real model. Re-runnable in minutes.
+- **The real model (qwen3-14b on taofik-ai), commit `d23cde37`.** The window was shipped to the VM
+  and built once, at `d23cde37`, and the later commits are **not** in it. So the window measures
+  A, A2, B, C, D, E1, E3, F1 and F2 — and **none** of G1 (a found tool carries its inputs), G2 (the
+  names other assistants use), G3 (a switched-off tool is not offered), H1 (a plain refusal), H2
+  (saying once that nothing can be run), E2 (a request that names a file) or I (cached tokens).
+- **The five-way plan window** (`docs/agents/CODING-GAPS-2026-09-20.md`, `mac7/gaps`) is somebody
+  else's measurement of trunk, and is what every "27 of 95 rounds" figure comes from.
+
+**So the fixes this branch now calls its headline are reasoned from the plan's own traces and are
+not themselves measured on a real model.** They are each defect fixes with a trace behind them and a
+mutation-checked test, which is the honest claim; "measured to be faster" is not.
+
+Worth buying next, and cheap: the same three tasks, `branch-speed-off` only, one repeat, on the
+**current** build — three cells, twenty to thirty minutes. `rounds.mjs` already reports
+`lookingForTools`, so comparing that one column against this window's off row isolates the
+tool-finding fixes exactly, on the same model, tasks and machine.
+
 ## The measurement on a real model — the protocol, pinned in advance
 
 Staged and ready on taofik-ai; queued behind `bench-rerun`'s window8 (which runs entirely on the
