@@ -81,7 +81,8 @@ test("long choices remain labeled selects and open the shared glass list", async
   assert.equal(await select.evaluate((node) => node.classList.contains("glass")), true);
   const expected = await select.locator("option").allInnerTexts();
   assert.ok(expected.length > 5, "the settings reset list is a long choice");
-  await select.click();
+  await select.focus();
+  await select.press("Enter");
   const list = f.page.locator("#glass-list");
   await list.waitFor({ state: "visible" });
   assert.deepEqual(await list.locator("[role=option]").allInnerTexts(), expected);
