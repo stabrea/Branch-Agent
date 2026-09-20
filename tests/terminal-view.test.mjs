@@ -44,7 +44,7 @@ test("the places, tabs, Settings pages and Models tabs match the window's own li
     for (const tab of place.tabs) assert.ok(layout.includes(`["${tab.id}", "${tab.key}", "${tab.english}"`), `${place.id}:${tab.id}`);
   }
   const pages = [...layout.matchAll(/^  \["([a-z]+)", "settings\.page\.\1", "([^"]+)"/gm)].map((match) => [match[1], match[2]]);
-  assert.deepEqual(SETTINGS_PAGES.map((page) => [page.id, page.english]), pages, "twelve pages, in the window's order");
+  assert.deepEqual(SETTINGS_PAGES.map((page) => [page.id, page.english]), pages, "Settings pages match the window's order");
   for (const tab of MODEL_TABS) assert.ok(layout.includes(`["${tab.id}", "${tab.key}", "${tab.english}"]`), `models:${tab.id}`);
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
   const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
@@ -164,7 +164,7 @@ test("each view says where it is: the page in the head, the place on the tab row
   const palette = paletteFor(table, "nord", "light", "more");
   for (const home of allHomes()) {
     const route = parseRoute(home);
-    const frame = renderScreen(model(route), { columns: 80, rows: 24 }, palette, "ansi16");
+    const frame = renderScreen(model(route), { columns: 120, rows: 24 }, palette, "ansi16");
     const head = frame.plain[0];
     if ("settings" in route) {
       const page = SETTINGS_PAGES.find((entry) => entry.id === route.settings);

@@ -102,9 +102,8 @@ test("every place opens from the sidebar in one click, and every Settings page f
   await f.page.getByRole("button", { name: "Settings", exact: true }).click();
   await f.page.locator("#settings-window").waitFor({ state: "visible" });
   const pages = f.page.locator(".lx-settings-link");
-  // phase2/accounts: Accounts became its own page after Models, so thirteen.
-  assert.equal(await pages.count(), 13, "Settings has thirteen pages");
-  for (let index = 0; index < 13; index += 1) {
+  assert.equal(await pages.count(), 14, "Settings includes Instructions & personality");
+  for (let index = 0; index < 14; index += 1) {
     await pages.nth(index).click();
     assert.equal(await pages.nth(index).getAttribute("aria-current"), "true");
     assert.equal(await f.page.locator(".lx-page:not([hidden])").count(), 1, "one page at a time");
@@ -494,7 +493,7 @@ test("with nothing connected the context pane offers one thing to do", async (t)
    glossary; Q5 focus can be seen, Escape closes what it opened, and stillness is honoured. */
 
 /** Every screen the owner can open, as [how it is opened, the element that holds it]. */
-const SETTINGS_PAGES = ["general", "assistant", "appearance", "notifications", "models", "voice", "permissions",
+const SETTINGS_PAGES = ["general", "assistant", "instructions", "appearance", "notifications", "models", "accounts", "voice", "permissions",
   "computer", "secrets", "data", "advanced", "about"];
 const SCREENS = [
   ["chat", "chat"], ["runs", "runs"], ["memory", "memory"], ["skills", "skills"], ["specialists", "specialists"],
