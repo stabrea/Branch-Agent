@@ -1618,9 +1618,9 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) {
   display: grid;
   place-items: center;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
   padding: 0;
   border: 0;
   border-radius: 50%;
