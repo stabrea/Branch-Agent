@@ -6,6 +6,16 @@ ran on e08c98e4 unless it says otherwise.
 
 Nothing here is tagged, published or merged into trunk. That is the coordinator's, after CI is green twice.
 
+**Heads.** Every gate result below was measured on **e08c98e4** (trunk `d7e7de13` plus the version bump).
+Trunk then moved to **f9499e4f**, which is merged into this branch as **f90751b7** (version still 0.19.0,
+`npm run build` and `npx tsc --noEmit` both exit 0 on it). Of everything trunk added after d7e7de13, only
+two commits touch product code: `d8da7f4e` fix(git) — path rules written without a lookahead the ChatGPT
+endpoint refuses — and `125fde48` fix(x-search) — switching it on no longer leaves the assistant with no
+tools. The rest is test and `public/*.js` flake work. Re-run on the merged tree f90751b7 (Legion):
+`wire-safe-patterns`, `git`, `personal`, `personal-connectors`, `static-assets`, `index-structure`,
+`handbook` — **54 tests, 54 pass, 0 fail**. Neither fix touches the engine kill/restart paths or the
+installer, so the chaos and install-torture rounds are not affected by them.
+
 - [x] 1. Version 0.19.0 everywhere (e08c98e4)
 - [x] 2. Release notes `docs/agents/briefs/release-notes-0.19.0.md` (verification section left as a placeholder)
 - [ ] 3. Linux gate on `branch-test-linux`: desktop tests (xvfb, one at a time), full suite, chaos 200 seeds, install-torture 200 seeds
