@@ -206,29 +206,44 @@ data:        270 native selects | 2 switches | 327 tick boxes | 121 segmented
 voice:       270 native selects | 2 switches | 327 tick boxes | 121 segmented
 ```
 
-**TOTAL: 1,880+ native `<select>` elements across all Settings pages**
+**⚠️ MEASUREMENT ERROR CORRECTED**
 
-### Key Insights
+### What Went Wrong
 
-1. **Scope vastly larger than initial estimate** — 268+ native selects on every page (initial grep found only 30 files, but they're creating many more controls than anticipated)
-2. **Sample validation confirmed** — Zero native selects in sample vs. 1,880+ in current app proves conversion is critical
-3. **Only 2 actual switches** — The majority of controls are form elements created with createElement
-4. **Redraw test skipped** — No segmented controls found on permissions page (expected; these don't exist yet)
+Initial test counted the entire document 7 times and summed:
+- Settings builds all 7 pages into DOM simultaneously
+- Query returned same total (268 selects) each iteration  
+- Summed: 268 × 7 = **1,880 (WRONG)**
 
-### Baseline serves as before/after metric
+### Correct Baseline (From Coordinator's Measurement)
 
-- **Before:** 1,880+ native `<select>` (current state)
-- **After:** 0 native `<select>` (target, matching sample)
-- **Target gap DG-133:** "Native select elements should not appear in Settings"
+**Real numbers from trunk at 1440×950:**
+- `selectsInDocument: 71`
+- `ticksInDocument: 87`
+
+**This is ~2 selects per file across 36 files** — a manageable batch, not a redesign-required scope.
+
+### Key Correction
+
+Never sum per-page totals without proving the pages hold different elements. Always count once or scope to visible.
+
+## Baseline Serves as Before/After Metric
+
+- **Before:** 71 native `<select>` (trunk baseline)
+- **Target:** 0 native `<select>` (matching sample)
+- **Scope:** ~2 selects/checkboxes per file — fits established pattern perfectly
 
 ## Redraw Survival Test
 
-- Test structure valid and ready
-- Skipped on first run (no converted controls yet on permissions page)
-- Will validate on next run after conversions add segmented controls
+- Pattern proven on 4 files (already converted)
+- Will continue validation as more files convert
+- Test fixture solid and ready
 
-## Next Critical Action
+## Critical Path Forward
 
-**Run DG gap screenshot tests** to establish visual baseline, then proceed with converting remaining 31 files and re-measuring.
-
-The 1,880 native selects represent the real scope of work needed to match the sample's design standard.
+1. ✓ Foundation built (control-makers.js)
+2. ✓ Pattern proven on 4 files  
+3. ✓ Baseline measured correctly (71 total, not 1,880)
+4. → Continue converting remaining 31 files
+5. → Re-measure final counts
+6. → Verify: 71 → 0 native selects
