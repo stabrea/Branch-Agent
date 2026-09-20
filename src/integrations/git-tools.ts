@@ -22,6 +22,9 @@ const folder = z.string().min(1).max(200).regex(/^[^\\:\0-][^\\:\0]*$/, "Use a f
 const branchName = z.string().min(1).max(100).regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/, "Use letters, digits, dots, dashes and slashes")
   .refine((value) => !value.includes(".."), "No .. in a branch name")
   .refine((value) => !value.endsWith(".lock"), "A branch name cannot end with .lock");
+const pullRequestHead = z.string().min(1).max(201).regex(/^[A-Za-z0-9._/:-]+$/, "Use a branch, or owner:branch for a fork")
+  .refine((value) => !value.includes("..") && !value.endsWith(".lock") && (value.match(/:/g)?.length ?? 0) <= 1,
+    "Use a branch, or owner:branch for a fork");
 const revisionRange = z.string().min(1).max(200).regex(/^[A-Za-z0-9._/@^~][A-Za-z0-9._/@^~-]*(\.{2,3}[A-Za-z0-9._/@^~-]+)?$/, "Use a commit, a branch, or a range such as main..mine");
 const filePath = z.string().min(1).max(500).regex(/^[^\\:\0-][^\\:\0]*$/, "Use a path inside the folder");
 const copyName = z.string().min(1).max(40).regex(/^[a-z0-9][a-z0-9._-]*$/, "Use lowercase letters, digits, dots, dashes and underscores").refine((v) => !v.includes(".."), "No .. in a name");
@@ -247,7 +250,7 @@ export function registerGitHub(registry: ToolRegistry, github: GitHubAccess, git
     name: "github.open_pull_request", permission: "github.manage",
     description: "Open a pull request on GitHub so someone can review one line of work before it joins the shared branch. Name the issue it settles and the description is written from a template that links it, so the issue closes when the work is merged.",
     parameters: z.object({
-      repo: repositoryPath, title, body: z.string().max(8000).optional(), base: branchName, head: branchName,
+      repo: repositoryPath, title, body: z.string().max(8000).optional(), base: branchName, head: pullRequestHead,
       /** The issue this settles: its web address, owner/name#12, or a Linear reference such as ENG-214. */
       issue: z.string().trim().min(1).max(500).optional(),
       /** One line per thing that changed, for the template's list. */

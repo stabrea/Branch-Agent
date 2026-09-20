@@ -128,6 +128,24 @@ test("A0300 on: a finished task's own files go to a new branch, are pushed by na
   assert.equal(commands.length, calls.length, "no Git command ran for either");
 });
 
+test("A0300 a contributor can push to their fork and open the draft against upstream", async (t) => {
+  const { app, owner } = await fixture(t);
+  savePullRequestHookSettings(app.store, owner, { mode: "when-needed" });
+  const { git, calls } = fakeGit({ "remote get-url": "https://github.com/alice/Branch-Agent.git" });
+  const d = deps(app, git);
+  const opened = await pullRequestFromChanges(d.value, {
+    name: "remove-button", title: "fix(ui): remove unused button",
+    summary: "## Why merge this\nThe unused control confuses owners.", paths: ["src/a.ts"], signal: signal(),
+    targetRepository: "stabrea/Branch-Agent", base: "mac/cross-platform",
+  });
+  assert.equal(opened.repository, "stabrea/Branch-Agent");
+  assert.deepEqual(
+    [d.opened[0].args.repo, d.opened[0].args.base, d.opened[0].args.head, d.opened[0].args.draft],
+    ["stabrea/Branch-Agent", "mac/cross-platform", "alice:branch/remove-button", true],
+  );
+  assert.ok(calls.some((args) => args.join(" ") === "push --set-upstream origin refs/heads/branch/remove-button:refs/heads/branch/remove-button"));
+});
+
 test("A0300 never sends to a shared or default branch", () => {
   for (const head of ["main", "branch/main", "branch/master", "branch/release", "branch/develop", "feature/x", "branch/a..b", "branch/x.lock"])
     assert.throws(() => assertSafeHead(head, "main", "main"), `${head} is refused`);

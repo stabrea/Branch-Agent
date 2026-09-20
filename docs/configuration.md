@@ -3683,6 +3683,28 @@ It never sends anywhere else:
   success is written as `pull_request.opened`.
 - The workspace is left on the new branch afterwards.
 
+For a contributor who pushes to a fork, the same tool accepts `targetRepository` and `base`. It
+still pushes the new `branch/<name>` only to the configured remote, then opens the draft against
+the named upstream repository with an `owner:branch/<name>` head. This lets somebody contribute
+without write access to the upstream repository; the target is checked against the network rules
+before Git changes anything.
+
+**Changing Branch Agent itself, safely.** When remote Git is switched on,
+`branch.prepare_source_change` is available for an owner's direct request such as “remove this
+button from Branch.” It accepts the official Branch-Agent repository or the owner's GitHub fork,
+clones it under the ordinary workspace as `branch-agent-source`, and creates a named worktree under
+that checkout's `.branch-worktrees`. The active project is changed to that worktree, with standing
+instructions to keep the change scoped, run focused tests and the build, inspect the diff, and open
+only a draft pull request after the owner asks. A fork receives the official repository as its
+`upstream` remote, so its draft can target the official base branch.
+
+This is bounded source development, not live self-modification: the installed program, its private
+database, session tokens and credentials are outside the worktree and are never edited. Preparing
+the worktree does not open, merge or publish anything. The existing pull-request switch remains
+off unless the owner turns it on, and the owner or repository maintainer decides whether a draft is
+merged. Repeating setup for the same change reuses the isolated copy instead of opening terminals
+or creating more copies.
+
 Integration review (mac4/bucket-18): each file goes through the same checks as the assistant's own
 file tools before it is sent: secret-looking names (`.env`, keys), anything `.branchignore` hides,
 links, folders and Branch's own saved work and keys are left out. Names are taken literally (`*` is
