@@ -164,6 +164,25 @@ test("a described control reuses its live English and French help without changi
   assert.deepEqual(f.errors, []);
 });
 
+test("a described text button moves its native title so only the glass help appears", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const button = document.createElement("button");
+    button.id = "described-button-probe";
+    button.textContent = "Check now";
+    button.title = "Checks the connection";
+    button.setAttribute("aria-description", "Checks the connection without changing it.");
+    document.getElementById("workspace").append(button);
+  });
+  const button = f.page.locator("#described-button-probe"), tip = f.page.locator("#glass-tip");
+  await button.hover();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Checks the connection without changing it.");
+  assert.equal(await button.getAttribute("title"), null, "the browser cannot show a second tooltip");
+  assert.equal(await button.getAttribute("data-native-tip"), "Checks the connection");
+  assert.deepEqual(f.errors, []);
+});
+
 test("keyboard focus shows the same help and Escape closes it", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance-language");

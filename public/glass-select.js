@@ -220,8 +220,12 @@ function helpTarget(node) {
 }
 function tipWords(control) {
   const icon = iconOnly(control);
-  if (!icon) return describedWords(control);
-  if (icon.title) { icon.dataset.tip = icon.title; icon.removeAttribute("title"); }
+  if (control.title) {
+    if (icon) control.dataset.tip = control.title;
+    else control.dataset.nativeTip = control.title;
+    control.removeAttribute("title");
+  }
+  if (!icon) return describedWords(control) || control.dataset.nativeTip || "";
   return icon.dataset.tip || icon.getAttribute("aria-label") || "";
 }
 function showTip(control) {
