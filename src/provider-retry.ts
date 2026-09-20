@@ -211,3 +211,37 @@ export async function waitForRetry(
 ): Promise<void> {
   await wait(delayMs, undefined, { signal });
 }
+
+/**
+ * mac7/speed: what a person is told when the model service refuses.
+ *
+ * `Provider HTTP 400; check endpoint, model, credential, and quota` is the right thing to write in
+ * the event log and the wrong thing to leave somebody as the whole answer to their request — which
+ * is what happened in the five-way window: one task ended on that sentence and nothing else, while
+ * the other two assistants finished the same task on the same endpoint minutes apart.
+ *
+ * Nothing here is a guess about what went wrong; each sentence says only what the status code
+ * means and where the person can look. The technical text is kept beside it in the record.
+ */
+export function providerRefusal(error: unknown): string | null {
+  // A refusal that arrives mid-stream is wrapped (`ProviderStreamError` carries the original as its
+  // cause), and that is the shape the plan's own failure took, so the wrapper is opened here. One
+  // layer only: anything deeper is not this.
+  const refusal = error instanceof ProviderHttpError ? error
+    : (error as { cause?: unknown })?.cause instanceof ProviderHttpError ? (error as { cause: ProviderHttpError }).cause
+    : null;
+  if (!refusal) return null;
+  const status = refusal.status;
+  const where = "You can check the connection in Settings, under Models.";
+  if (status === 401 || status === 403)
+    return `The model service would not accept this connection's sign-in. ${where}`;
+  if (status === 404)
+    return `The model service does not know the model this connection asks for. ${where}`;
+  if (status === 429)
+    return "The model service asked to be left alone for a while — usually a rate limit or a spent quota. Try again shortly.";
+  if (status >= 500)
+    return "The model service had a problem at its end. Nothing here is wrong; trying again usually works.";
+  if (status >= 400)
+    return `The model service refused this request (${status}). That is usually the connection's model or one of its settings rather than anything about what you asked. ${where}`;
+  return null;
+}

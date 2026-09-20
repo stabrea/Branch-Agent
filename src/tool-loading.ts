@@ -1,7 +1,7 @@
 import type { ToolDescription } from "./contracts.js";
 import { estimateTokens } from "./contracts.js";
 import { expandToolName, inferToolGroup, unrecognisedOpenUpTo, type CatalogGroup, type CatalogStats } from "./catalog.js";
-import { ToolIndex, expandQuery, indexLine, type ToolEmbedder, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
+import { ToolIndex, expandQuery, indexLine, nameUsedElsewhere, type ToolEmbedder, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
 
 /**
  * Deciding, every round, which tools travel with the request. Three tiers:
@@ -53,6 +53,20 @@ export function meaningSearchOn(
 }
 
 export interface PreloadedTool { name: string; reason: string }
+/**
+ * How many of a search's matches carry their own input schema. The first few are what the assistant
+ * is actually choosing between; naming twenty schemas would cost more than the round it saves.
+ */
+export const inputsWithSearch = 3;
+/** A tool the assistant has just found or asked for by name, ready to call. */
+export interface FoundTool {
+  name: string;
+  purpose: string;
+  /** What to do with it, in a sentence — the remembered note for it, when there is one. */
+  use: string;
+  /** Its own inputs, so it can be called in the very next step rather than looked up again. */
+  inputs?: unknown;
+}
 export interface ToolLoaderOptions {
   /** Toolboxes open from the first round; their tools are strongly preferred. */
   expanded?: readonly string[];
@@ -69,6 +83,24 @@ export interface ToolLoaderOptions {
   preload?: readonly PreloadedTool[];
   /** Tools nobody has used for a long time: not advertised unless the task asks for them. */
   demoted?: readonly string[];
+  /**
+   * Tools belonging to a feature the owner has switched **off**. The three-way switch already
+   * promises that "off" means the feature refuses in one plain sentence and its tools are not
+   * advertised — but searching still offered them, and they still won. On the plan's five-way
+   * window `troubleshoot.run` (fixing failed commands: off as it ships) came first in all three of
+   * one task's shell searches, ahead of `code.run`, which is the actual shell. Calling it would
+   * only have been refused. These are left out of searching, out of the index and out of the loaded
+   * set; asking for one by name says plainly that it is switched off.
+   */
+  hidden?: readonly string[];
+  /**
+   * Integration (mac7/speed): whether a hidden tool may be named when it is searched for or asked
+   * for by name. True for the owner's own three-way switches, where "you can switch this on in
+   * Settings" is the useful thing to say. **False under Lockdown**, which switches those same
+   * features off and is not something the person can undo from here: naming them would both give
+   * the wrong advice and say what Lockdown is there not to say. They then read as absent.
+   */
+  nameHidden?: boolean;
   /** The words of the task, used to score what is worth listing. */
   signals?: { prompt?: string; recent?: readonly string[]; project?: string };
   /** Set only when the owner has switched meaning search on; otherwise searching is by words. */
@@ -103,8 +135,13 @@ export class ToolLoader {
   private readonly counts = new Map<string, number>();
   private readonly usedAt = new Map<string, number>();
   private readonly asked = new Set<string>();
+  /** Tools that have already travelled to the model in full in this task; see `plan()`. */
+  private readonly sent = new Set<string>();
   private readonly preloaded: PreloadedTool[];
   private readonly demoted: Set<string>;
+  private readonly hidden: Set<string>;
+  /** Whether a hidden tool may be named at all; see `ToolLoaderOptions.nameHidden`. */
+  private readonly nameHidden: boolean;
   private readonly recentRounds: number;
   private readonly budgetTokens: number;
   private readonly indexLines: number;
@@ -122,6 +159,8 @@ export class ToolLoader {
     this.maxLoaded = options.maxLoaded ?? defaultMaxLoaded;
     this.signals = options.signals ?? {};
     this.demoted = new Set(options.demoted ?? []);
+    this.hidden = new Set(options.hidden ?? []);
+    this.nameHidden = options.nameHidden ?? true;
     this.index = new ToolIndex(all, options);
     if (options.embedder) this.index.embedder = options.embedder;
     this.take(all);
@@ -196,29 +235,66 @@ export class ToolLoader {
    * in the index at all, so a narrowed task can never find one it is not permitted; every match
    * stays loaded for the rest of the conversation, as far as the budget allows.
    */
-  async search(query: string, limit = 8): Promise<{ matches: { name: string; purpose: string; use: string }[]; searched: string }> {
+  async search(query: string, limit = 8): Promise<{ matches: FoundTool[]; searched: string; switchedOff?: string[] }> {
     const wanted = Math.min(Math.max(1, limit), 20);
-    const hits = this.index.embedder
-      ? await this.index.searchByMeaning(query, wanted) : this.index.search(query, wanted);
+    const found = this.index.embedder
+      ? await this.index.searchByMeaning(query, wanted + this.hidden.size) : this.index.search(query, wanted + this.hidden.size);
+    // A feature the owner switched off refuses; offering its tools as the answer to "what can do
+    // this" costs a round and teaches nothing.
+    const hits = found.filter((hit) => !this.hidden.has(hit.entry.name)).slice(0, wanted);
+    // A tool that is here but switched off is not offered — calling it would only be refused — but
+    // the assistant is told it exists, by name, so it can say which setting would allow it instead
+    // of telling the person Branch cannot do the thing at all. A fresh install has everything off;
+    // "off" must not read as "absent".
+    const offButHere = this.nameHidden
+      ? found.filter((hit) => this.hidden.has(hit.entry.name)).slice(0, wanted).map((hit) => hit.entry.name)
+      : [];
     for (const hit of hits) this.asked.add(hit.entry.name);
     this.version++;
-    return { searched: String(query).slice(0, 200), matches: hits.map((hit) => ({
-      name: hit.entry.name, purpose: hit.entry.purpose,
-      use: hit.entry.note || `Call ${hit.entry.name}; its inputs are in the tool list from your next step.`,
-    })) };
+    return { searched: String(query).slice(0, 200),
+      matches: hits.map((hit, at) => this.found(hit.entry.name, hit.entry.purpose, hit.entry.note, at < inputsWithSearch)),
+      ...(offButHere.length ? { switchedOff: offButHere } : {}) };
   }
   /** Loads named tools. A name this task may not use is unknown here, exactly like a misspelling. */
-  describe(names: readonly string[]): { loaded: { name: string; purpose: string }[]; unknown: string[] } {
-    const loaded: { name: string; purpose: string }[] = [], unknown: string[] = [];
+  describe(names: readonly string[]): { loaded: FoundTool[]; unknown: string[]; switchedOff?: string[] } {
+    const loaded: FoundTool[] = [], unknown: string[] = [], switchedOff: string[] = [];
     for (const raw of names.slice(0, 16)) {
-      const name = String(raw).trim();
-      const entry = this.index.entry(name);
-      if (!entry) { unknown.push(name); continue; }
-      this.asked.add(name);
-      loaded.push({ name, purpose: entry.purpose });
+      const asked = String(raw).trim();
+      // mac7/speed: a model that has worked with other coding assistants asks for their names.
+      // `shell.execute` was asked for by name twice in one bench task and refused both times.
+      // The real name is tried first, so nothing here can shadow a tool that actually exists.
+      const here = this.index.entry(asked) ? asked : (nameUsedElsewhere(asked) ?? asked);
+      const entry = this.index.entry(here);
+      if (!entry) { unknown.push(asked); continue; }
+      // Named outright rather than called "unknown": the owner can switch it on, and a task told
+      // "that does not exist" would go looking for something else instead of saying so.
+      if (this.hidden.has(here)) { (this.nameHidden ? switchedOff : unknown).push(this.nameHidden ? here : asked); continue; }
+      this.asked.add(here);
+      const found = this.found(here, entry.purpose, entry.note, true);
+      loaded.push(here === asked ? found
+        : { ...found, use: `${asked} is called ${here} here. ${found.use}` });
     }
     this.version++;
-    return { loaded, unknown };
+    return { loaded, unknown, ...(switchedOff.length ? { switchedOff } : {}) };
+  }
+  /**
+   * One tool as an answer to "what can do this". `inputs` is the tool's own schema, sent with the
+   * best few matches so the tool can be **called straight away**.
+   *
+   * Before this, a search said "its inputs are in the tool list from your next step", and the only
+   * way to get them was another round. Window 8 on the plan shows what that cost: 27 of Branch's 95
+   * rounds did no work on the task at all, they looked for a tool — and `fix-range` spent five of
+   * its ten rounds alternating search, search, describe, search, describe before calling anything.
+   * A round trip is the whole cost of a task, so handing back the inputs with the answer removes one
+   * every time a tool has to be found.
+   */
+  private found(name: string, purpose: string, note: string, withInputs: boolean): FoundTool {
+    const base = this.byName.get(name);
+    return {
+      name, purpose,
+      use: note || `Call ${name} now; its inputs are below.`,
+      ...(withInputs && base ? { inputs: base.parameters } : {}),
+    };
   }
   /** What this task has done counts on top of the words: asked for, opened, or used just now. */
   private bonusFor(entry: ToolEntry): number {
@@ -268,17 +344,45 @@ export class ToolLoader {
     }).sort((a, b) => b.score - a.score || a.at - b.at);
     const core = scored.filter((hit) => hit.entry.group === "core").map((hit) => hit.entry);
     const rest = scored.filter((hit) => hit.entry.group !== "core");
-    const candidates = rest.filter((hit) => hit.score > 0 && (this.asked.has(hit.entry.name)
-      || this.isOpen(hit.entry.group) || this.usedAt.has(hit.entry.name)));
+    const candidates = rest.filter((hit) => hit.score > 0 && !this.hidden.has(hit.entry.name)
+      && (this.asked.has(hit.entry.name) || this.isOpen(hit.entry.group) || this.usedAt.has(hit.entry.name)));
     // Tools in use come first and are never squeezed out by the cap; the rest fill what is left,
     // best first, and are the ones the ceiling takes back if the section is still too heavy.
     const inUse = candidates.filter((hit) => this.justUsed(hit.entry));
     const others = candidates.filter((hit) => !this.justUsed(hit.entry));
-    const wanted = [...inUse, ...others.slice(0, Math.max(0, this.maxLoaded - inUse.length))];
+    // Which tools get a place is decided on merit exactly as it always was. What is new is the
+    // line after: a tool that has already travelled in full and did not win a place this round is
+    // put back on the end rather than dropped. Before this, the first edit of a task took the last
+    // free place and pushed whichever tool scored lowest out — eighteen tools went out, eighteen
+    // came back, one of them different — and every provider holding the front of the request had to
+    // read the whole thing again from that round on. There was no shortage of room when it
+    // happened: 1,362 tokens of the 2,500 the tool section is allowed. The count is a count of
+    // guesses worth making, not a reason to take away a tool the task has already been shown.
+    // Kept tools go last, so the token budget in `fit` — the ceiling the model actually feels —
+    // takes them back first if the section really is too heavy.
+    // A tool the task asked for by name — found by searching, or pre-loaded because history or a
+    // switch says this work needs it — is not a guess, and is not made to compete for a place with
+    // one. The count is then shared among the toolboxes the guesses come from, so no single box can
+    // take every remaining place (see `shareOut`).
+    const requested = others.filter((hit) => this.asked.has(hit.entry.name));
+    const rest2 = others.filter((hit) => !this.asked.has(hit.entry.name));
+    // A toolbox the assistant opened for itself is an explicit ask too, so its tools fill the
+    // places in score order exactly as they did before. Only the boxes the *product* guessed from
+    // the words of the request share what is left, so no guess can take every place.
+    const opened = rest2.filter((hit) => this.openedGroups.has(hit.entry.group));
+    const guesses = rest2.filter((hit) => !this.openedGroups.has(hit.entry.group));
+    const room = Math.max(0, this.maxLoaded - inUse.length - requested.length);
+    const fromOpened = opened.slice(0, room);
+    const onMerit = [...requested, ...fromOpened, ...shareOut(guesses, Math.max(0, room - fromOpened.length))];
+    const chosen = new Set([...inUse, ...onMerit].map((hit) => hit.entry.name));
+    const kept = others.filter((hit) => this.sent.has(hit.entry.name) && !chosen.has(hit.entry.name));
+    const wanted = [...inUse, ...onMerit, ...kept];
     // Only tools the words of the request actually point at are worth a line; the rest are a
     // search away, and saying so once costs less than naming forty tools nobody asked about.
-    const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)).map((hit) => hit.entry);
+    const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)
+      && !this.hidden.has(hit.entry.name)).map((hit) => hit.entry);
     const plan = this.fit(core, wanted.map((hit) => hit.entry), listable, rest.length);
+    for (const entry of plan.loaded) this.sent.add(entry.name);
     this.cached = { at: this.version, plan };
     return plan;
   }
@@ -314,6 +418,38 @@ export class ToolLoader {
     return [...full, searchTool(indexed, deferred, this.index.size), describeTool(), noteTool(),
       ...(closed.length ? [opener(closed)] : [])];
   }
+}
+
+/**
+ * Shares the places among the toolboxes in play instead of letting one of them take every place.
+ *
+ * "Add a --verbose flag to the command line and document it in the README" opens two toolboxes,
+ * code and documents. The words say "document" and "README" loudly, so every one of the twelve
+ * places went to documents tools and the task was shown **none** of the twelve coding tools — not
+ * files.read, not files.edit. Opening a toolbox and then being shown nothing from it is a defect,
+ * and it costs a whole round trip: the task has to search for a tool before it can begin.
+ *
+ * So the best tool from each box is taken, then the second best from each, and so on, until the
+ * places run out. The order tools are sent in does not change (that is decided in `render`), the
+ * count does not change, and a box that wins on merit still gets more places than one that does
+ * not — it simply cannot take them all.
+ */
+function shareOut<T extends { entry: { group: string }; score: number; at: number }>(ranked: readonly T[], room: number): T[] {
+  if (ranked.length <= room) return [...ranked];
+  const queues = new Map<string, T[]>();
+  for (const hit of ranked) queues.set(hit.entry.group, [...(queues.get(hit.entry.group) ?? []), hit]);
+  const taken: T[] = [];
+  // Best box first, because `ranked` is in score order and a Map keeps the order keys arrived in.
+  while (taken.length < room) {
+    const before = taken.length;
+    for (const queue of queues.values()) {
+      if (taken.length >= room) break;
+      const next = queue.shift();
+      if (next) taken.push(next);
+    }
+    if (taken.length === before) break; // every box is empty
+  }
+  return taken.sort((a, b) => b.score - a.score || a.at - b.at);
 }
 
 const queryTerms = (signals: { prompt?: string; recent?: readonly string[]; project?: string }): string[] =>

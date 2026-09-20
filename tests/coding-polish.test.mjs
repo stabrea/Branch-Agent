@@ -173,8 +173,10 @@ test("R17-035: a mention is read through the tool gate with the task's own permi
   const narrow = context({ permissions: new Set(["memory.read"]) });
   const refused = await app.coding.roundNotes({ id: "r", sessionId: "s", prompt: "Summarise @notes/plan.md" }, narrow, 0);
   assert.match(refused.once.content, /Not included: this task may not use files.read/);
+  // mac7/speed: round 0 also carries the line saying nothing can be run here, so these two check
+  // that the *mention* was not read rather than that the round said nothing at all.
   const helper = await app.coding.roundNotes({ id: "r", sessionId: "s", prompt: "@notes/plan.md" }, context({ depth: 1 }), 0);
-  assert.equal(helper.once, undefined, "a helper's brief is not read for mentions");
+  assert.doesNotMatch(helper.once?.content ?? "", /ship on Friday/, "a helper's brief is not read for mentions");
   const later = await app.coding.roundNotes({ id: "r", sessionId: "s", prompt: "@notes/plan.md" }, context(), 1);
   assert.equal(later.once, undefined, "mentions are read once, before the first answer");
 });
