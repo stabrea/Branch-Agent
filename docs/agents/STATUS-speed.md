@@ -16,6 +16,8 @@ Design note (approved by the coordinator, "GO"): `docs/agents/SPEED-DESIGN.md`.
 - [x] B. The assistant is told it may ask for several independent things at once
 - [x] C. `files.read_many` — several files in one call, each through the same checks
 - [x] A. Independent read-only calls in one turn run concurrently
+- [x] A2. Same-thing calls may share a run when neither would be asked about (coordinator's decision 1)
+- [x] F. The round ceiling no longer strands a task on a bare sentence, and the owner can change it
 - [ ] Measure B on a real model (Ollama on taofik-ai, after window8 finishes ~03:00-03:30 UTC)
 - [ ] Merge latest trunk, rebuild, retest, push
 
@@ -158,19 +160,31 @@ always loaded and from `bash`, which does several things in one call. So the evi
 weaker than for E and C, and it is one line of about twenty tokens. The turn count before and after
 needs Ollama on taofik-ai; that measurement is queued behind window8.
 
-## Two things worth reporting rather than fixing here
+### F — the round ceiling (no switch; the coordinator called it a bug)
 
-1. **Branch can strand a task at its round ceiling exactly as Hermes did.** `conductor.maxRounds(12)`
-   throws `BudgetError("Maximum 12 model rounds reached")`, and the task ends with that sentence
-   instead of an answer. Branch used 9–10 rounds on the *simplest* bench task on the plan, so the
-   margin is one or two rounds. Seen for real in this session: two existing tests in
-   `tests/coding-next.test.mjs` failed with exactly that message while a catalog change was wrong,
-   rather than with anything that said what had gone wrong. Everything on this branch pushes the
-   round count *down*, which helps, but the ceiling itself is still a cliff. Suggested, not built: at
-   the last round, ask the model for its best answer from the work so far rather than throwing.
-2. **A group may not hold two calls about the same thing**, which is what the design note promised
-   and what is built. The measured cost: four `files.grep` calls over the same folder do **not** run
-   together (same tool, same target), while four reads of four files do. The restriction guards
-   against two calls racing for one "just this once" yes. That race in fact fails closed already
-   (the loser is asked again), so this could be relaxed for look-only calls — an owner/integrator
-   decision, not one to make quietly.
+Branch stranded a task at its round ceiling exactly as Hermes did in the plan window:
+`BudgetError("Maximum 12 model rounds reached")` and nothing else — no answer, and no hint of why it
+had gone round twelve times. Branch used 9–10 rounds on the *simplest* bench task, so the margin was
+one or two rounds. **It hid a real fault during this branch's own work:** a catalog change of mine
+was wrong, the assistant kept opening the same toolbox and never finding the tool, and two existing
+tests reported only that it had run out of rounds.
+
+Now a task that runs out asks the model once more — **with no tools at all** — for the best answer
+it can give from the work it did, and ends with that answer followed by one plain sentence: how many
+rounds it took, what it spent them on, and where the limit lives. The diagnosis is read from the
+task's own record, never guessed: "It asked for files.read 12 times, which is nearly everything it
+did — it was most likely stuck on that"; "All 11 of its tool calls failed, so nothing it tried
+actually worked". The task is still recorded as having stopped at its limit rather than finished,
+because that is what happened.
+
+The ceiling is now the owner's: `maxModelRounds` on the knobs card (Settings › Advanced), 2 to 60,
+**default unchanged at 12**, launch setting `reliability.maxModelRounds`. A planned task still gets
+four more rounds a step on top, up to 40. Event: `rounds.exhausted`.
+
+### A2 — same-thing calls (the coordinator's decision 1)
+
+Two look-only calls about the *same* thing may now share a run when **both are already allowed
+outright** and nothing would be asked — then there is no "just this once" yes for them to spend
+between them. If either would raise a question they run one after another, and the second is asked
+again, exactly as today. That makes four searches of one allowed folder run together (measured: one
+group of four) while two calls waiting on one answer still do not.

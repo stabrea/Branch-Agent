@@ -36,6 +36,11 @@ export const KnobTaskLimitsSettingsSchema = z.object({
    * be loading into memory); null keeps the launch setting (300).
    */
   localFirstReplySeconds: z.number().int().min(5).max(1800).nullable().default(null),
+  /**
+   * mac7/speed: how many times one task may go back to the model before it stops and gives the best
+   * answer it has; null keeps the launch setting (12). A planned task is given more room on top.
+   */
+  maxModelRounds: z.number().int().min(2).max(60).nullable().default(null),
 }).strict();
 
 /**

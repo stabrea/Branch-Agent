@@ -190,6 +190,7 @@ test("A: only look-only calls about different things share a group, and order is
   const rules = {
     readOnly: (name) => name.startsWith("files.read") || name === "files.grep" || name === "user.ask",
     targetOf: (call) => JSON.parse(call.arguments).path ?? "",
+    allowedOutright: (call) => JSON.parse(call.arguments).path !== "e",
     alone: ["tools.search", "user.ask"],
   };
   const call = (name, path) => ({ id: name + path, name, arguments: JSON.stringify({ path }) });
@@ -214,7 +215,7 @@ test("A: only look-only calls about different things share a group, and order is
 });
 
 test("A: no group is bigger than the limit", () => {
-  const rules = { readOnly: () => true, targetOf: (call) => call.id, alone: [] };
+  const rules = { readOnly: () => true, targetOf: (call) => call.id, allowedOutright: () => true, alone: [] };
   const many = Array.from({ length: 20 }, (_, n) => ({ id: `c${n}`, name: "files.read", arguments: "{}" }));
   const groups = parallelGroups(many, rules);
   assert.ok(groups.every((group) => group.length <= parallelLimit), "a reply cannot open more than the limit at once");
@@ -295,4 +296,138 @@ test("A: switched off, calls run one after another exactly as before", async (t)
   assert.equal(app.store.events(run.id).filter((e) => e.kind === "tools.together").length, 0,
     "nothing ran together while the part is off");
   assert.equal(app.store.events(run.id).filter((e) => e.kind === "tool.completed").length, 2);
+});
+
+test("A: same-thing calls share a run only when neither would be asked about", () => {
+  const asks = new Set(["ask-me"]);
+  const rules = {
+    readOnly: () => true,
+    targetOf: (call) => JSON.parse(call.arguments).path,
+    allowedOutright: (call) => !asks.has(JSON.parse(call.arguments).path),
+    alone: [],
+  };
+  const grep = (path, n) => ({ id: `g${n}`, name: "files.grep", arguments: JSON.stringify({ path }) });
+  // Four searches of one allowed folder: nothing would be asked, so there is no yes to spend.
+  assert.deepEqual(parallelGroups([grep("src", 1), grep("src", 2), grep("src", 3), grep("src", 4)], rules)
+    .map((group) => group.length), [4], "four searches of an allowed folder run together");
+  // The same folder, but it would raise a question: one at a time, so one yes covers one call.
+  assert.deepEqual(parallelGroups([grep("ask-me", 1), grep("ask-me", 2)], rules)
+    .map((group) => group.length), [1, 1], "two calls that would need the same yes run one at a time");
+  // A single call that would be asked about may still travel beside calls about other things.
+  assert.deepEqual(parallelGroups([grep("src", 1), grep("ask-me", 2), grep("other", 3)], rules)
+    .map((group) => group.length), [3], "one asked-about call alongside different things is fine");
+});
+
+test("A: four searches of the same allowed folder really do run together", async (t) => {
+  const { app } = await fixture(t, [
+    calls(["files.grep", { query: "export", path: "src" }], ["files.grep", { query: "const", path: "src" }],
+      ["files.grep", { query: "range", path: "src" }], ["files.grep", { query: "sum", path: "src" }]),
+    say("Found them."),
+  ]);
+  app.coding.setMode("fewer-rounds", "on");
+  const run = await app.runtime.run({ prompt: "search the project for four things" });
+  assert.equal(run.status, "completed", run.output);
+  const together = app.store.events(run.id).filter((e) => e.kind === "tools.together").map((e) => e.data);
+  assert.equal(together.length, 1, "one group");
+  assert.equal(together[0].calls.length, 4, "all four searches of the one folder ran together");
+});
+
+test("E: every toolbox a task opens puts at least one tool into that task's list", async (t) => {
+  const { app, provider } = await fixture(t, [say("Done.")]);
+  // Several requests that open more than one toolbox between them. None may leave a box empty.
+  const prompts = [
+    "Add a --verbose flag to the command line and document it in the README.",
+    "The docs describe an option that no longer exists. Update them from the code.",
+    "Chart the numbers in the spreadsheet and write the findings into the report.",
+    "Search the web for the library's changelog and update our notes and the code.",
+  ];
+  for (const prompt of prompts) {
+    const run = await app.runtime.run({ prompt });
+    const [pre] = app.store.events(run.id).filter((e) => e.kind === "catalog.preselected").map((e) => e.data);
+    const shown = provider.requests.at(-1).names;
+    for (const group of pre.guessed) {
+      const fromBox = shown.filter((name) => app.registry.groupOf(name) === group);
+      assert.ok(fromBox.length > 0,
+        `"${prompt.slice(0, 40)}…" opened the ${group} toolbox and was shown none of its tools`);
+    }
+  }
+});
+
+test("E: nothing leaves the index — every tool is still reachable in one step", async (t) => {
+  const { app } = await fixture(t, [say("Done.")]);
+  app.coding.setMode("fewer-rounds", "on");
+  const { ToolLoader } = await import("../dist/index.js");
+  const all = app.registry.descriptions(new Set(app.registry.permissions()));
+  const loader = new ToolLoader(all, { groupOf: (name) => app.registry.groupOf(name), signals: { prompt: "fix the code" } });
+  // Every registered tool can be found by its own name and is then described in full.
+  const missing = [];
+  for (const tool of all) {
+    const found = loader.describe([tool.name]);
+    if (found.unknown.length) missing.push(tool.name);
+  }
+  assert.deepEqual(missing, [], "a tool that cannot be found by name has left the index");
+  assert.equal(loader.stats().tools, all.length, "the index still holds every tool");
+});
+
+/* ---------- the round ceiling ---------- */
+
+test("the ceiling: a task that runs out of rounds gives its best answer and says what happened", async (t) => {
+  let asked = "";
+  let turn = 0;
+  const provider = { name: "scripted", async complete(request) {
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && /used every round this task is allowed/.test(last.content)) {
+      asked = String(request.tools.length);
+      return { content: "I read src/sum.js and src/range.js. The off-by-one is in range.js; I did not get to fix it.", toolCalls: [] };
+    }
+    turn += 1;
+    return { content: "", toolCalls: [{ id: `c${turn}`, name: "files.read", arguments: JSON.stringify({ path: "src/sum.js" }) }] };
+  } };
+  const { app } = await fixture(t, [], { provider });
+  const run = await app.runtime.run({ prompt: "fix the off-by-one" });
+  assert.notEqual(run.status, "completed", "the record still says it stopped at its limit");
+  assert.equal(asked, "0", "the last question is asked with no tools at all");
+  assert.match(run.output, /I read src\/sum\.js/, "the person is given the work, not just a limit");
+  assert.match(run.output, /went back to the model 12 times/, "and a plain sentence saying why it stopped");
+  assert.match(run.output, /in Settings, under Advanced/, "which says where the limit can be raised");
+  assert.doesNotMatch(run.output, /^Maximum \d+ model rounds reached$/, "never the bare old sentence");
+  // The real problem is named: it asked for the same thing every round.
+  assert.match(run.output, /It asked for files\.read 12 times/, run.output);
+  const [note] = app.store.events(run.id).filter((e) => e.kind === "rounds.exhausted").map((e) => e.data);
+  assert.equal(note.limit, 12);
+  assert.equal(note.answered, true);
+});
+
+test("the ceiling: a task whose tool calls all failed is told that, not just the limit", async (t) => {
+  let turn = 0;
+  const provider = { name: "scripted", async complete(request) {
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && /used every round this task is allowed/.test(last.content))
+      return { content: "Nothing worked.", toolCalls: [] };
+    turn += 1;
+    // A different missing file each round, so it is not "the same thing again and again".
+    return { content: "", toolCalls: [{ id: `c${turn}`, name: turn % 2 ? "files.read" : "files.list",
+      arguments: JSON.stringify({ path: `nowhere/${turn}.js` }) }] };
+  } };
+  const { app } = await fixture(t, [], { provider });
+  const run = await app.runtime.run({ prompt: "look at the files" });
+  assert.match(run.output, /tool calls failed/, run.output);
+});
+
+test("the ceiling: the owner can raise it, and the default is still 12", async (t) => {
+  let turn = 0;
+  const provider = { name: "scripted", async complete(request) {
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && /used every round this task is allowed/.test(last.content))
+      return { content: "Out of rounds.", toolCalls: [] };
+    turn += 1;
+    return { content: "", toolCalls: [{ id: `c${turn}`, name: "files.read", arguments: JSON.stringify({ path: "src/sum.js" }) }] };
+  } };
+  const { app } = await fixture(t, [], { provider });
+  assert.equal(app.runtime.reliability.maxModelRounds, 12, "the shipped figure has not moved");
+  const { saveKnobs, readKnobs } = await import("../dist/index.js");
+  saveKnobs(app.store, "local", "limits", { maxModelRounds: 20 });
+  assert.equal(readKnobs(app.store, "local", "limits").maxModelRounds, 20);
+  const run = await app.runtime.run({ prompt: "read it over and over" });
+  assert.match(run.output, /went back to the model 20 times/, run.output);
 });

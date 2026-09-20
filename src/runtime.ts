@@ -1291,7 +1291,9 @@ ${run.output.slice(0, 6000)}`;
     // back (the stall watch still runs) while an outlet filter applies to any connection this round may
     // fall back to, so filtered words never reach the page before the whole answer is filtered. ──
     const namesOf = (preset: ModelPreset | undefined): string[] => preset ? [preset.name, preset.id, preset.model, preset.provider.name] : [];
-    for (let round = 0; round < conductor.maxRounds(12); round++) {
+    // mac7/speed: the owner's figure, or the launch one (12). A planned task gets more on top.
+    const ceiling = knobs.maxModelRounds(this.store, this.owner, this.reliability);
+    for (let round = 0; round < conductor.maxRounds(ceiling); round++) {
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
       this.applySteers(run, messages, ids);
@@ -1380,7 +1382,7 @@ ${run.output.slice(0, 6000)}`;
       this.orchestration.milestone(run, round + 1);
       this.guards.afterRound(run.id); // wave mac2 (guards): ends a task that keeps repeating itself
     }
-    throw new BudgetError(conductor.maxRounds(12) === 12 ? "Maximum 12 model rounds reached" : `Maximum ${conductor.maxRounds(12)} model rounds reached`);
+    return await this.outOfRounds(run, context, messages, route, conductor.maxRounds(ceiling));
   }
   /**
    * mac7/speed: one tool call, from the journal entry to the result. This is exactly the path a
@@ -1409,10 +1411,58 @@ ${run.output.slice(0, 6000)}`;
     return parallelGroups(calls, {
       readOnly: (name) => isReadOnlyPermission(this.registry.permissionOf(name)),
       targetOf: (call) => this.registry.targetOf(call.name, safeArguments(call.arguments), context),
+      // Whether this call would raise no question at all. The same rules `gate` weighs, read again
+      // here: `checkPolicy` only reads — it writes nothing down and asks nobody — and every call
+      // still goes through the whole of `gate` afterwards. This only decides whether two calls
+      // about the same thing may share a run; when either would be asked about, they do not.
+      allowedOutright: (call) =>
+        this.checkPolicy(call.name, safeArguments(call.arguments), context,
+          argumentFingerprint(call.arguments)).decision === "allow",
       // Asking the person something, and the four tools that change what the next round is shown,
       // each need the rounds before and after them to be settled, so they never share a group.
       alone: [...aloneTools],
     });
+  }
+  /**
+   * mac7/speed: a task that has used every round it may take.
+   *
+   * It used to end on the sentence "Maximum 12 model rounds reached" and nothing else — no answer,
+   * and no hint of why it went round twelve times. That sentence hid a real fault for a whole
+   * session of this branch's own work: a catalog change meant the assistant kept opening the same
+   * toolbox and never finding the tool, and all anyone was told was that it had run out of rounds.
+   *
+   * So now the task says three things: the best answer the model can give from the work it did (one
+   * more question, with no tools of its own), what actually happened, and that the limit is the
+   * owner's to raise. The task is still recorded as having stopped at its limit rather than having
+   * finished, because that is what happened.
+   */
+  private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number): Promise<never> {
+    const trouble = this.whyItWentRound(run.id);
+    let best = "";
+    try {
+      best = (await this.aside(run, context, route, [...messages, { role: "user", content: lastWordRequest }])).trim();
+    } catch { /* a task with nothing left to spend still gets the sentences below */ }
+    this.store.event(run.id, "rounds.exhausted", { limit, answered: Boolean(best), trouble });
+    throw new BudgetError([best, roundLimitSentence(limit, trouble)].filter(Boolean).join("\n\n"));
+  }
+  /**
+   * What the rounds were spent on, in one plain clause, so the limit is never the only thing said.
+   * Read from the task's own record, never guessed.
+   */
+  private whyItWentRound(runId: string): string {
+    const events = this.store.events(runId);
+    const done = events.filter((event) => event.kind === "tool.completed").length;
+    const failed = events.filter((event) => event.kind === "tool.failed" || event.kind === "tool.stalled").length;
+    const names = events.filter((event) => event.kind === "tool.started").map((event) => String((event.data as { name?: unknown }).name ?? ""));
+    if (!names.length) return "It asked for no tools at all, so it was going round writing rather than doing.";
+    const commonest = [...new Set(names)].sort((a, b) =>
+      names.filter((name) => name === b).length - names.filter((name) => name === a).length)[0]!;
+    const repeats = names.filter((name) => name === commonest).length;
+    if (repeats >= Math.max(3, names.length - 1) && repeats > 2)
+      return `It asked for ${commonest} ${repeats} times, which is nearly everything it did — it was most likely stuck on that.`;
+    if (done === 0 && failed > 0) return `All ${failed} of its tool calls failed, so nothing it tried actually worked.`;
+    if (failed > done) return `${failed} of its ${failed + done} tool calls failed.`;
+    return `It made ${done} tool call${done === 1 ? "" : "s"}${failed ? `, and ${failed} more that failed` : ""}.`;
   }
   /** Adds a message to the working context and to the stored transcript, so nothing is lost later. */
   private add(run: Run, messages: Message[], ids: (number | null)[], message: Message | null): void {
@@ -3064,6 +3114,18 @@ const aloneTools = [expandToolName, toolSearchName, toolDescribeName, toolNoteNa
 /** A call's arguments as an object, or nothing when they are not valid JSON (the tool refuses them later). */
 function safeArguments(text: string): unknown {
   try { return JSON.parse(text); } catch { return {}; }
+}
+
+/** mac7/speed: what a task is asked for once it has used every round it may take. */
+const lastWordRequest =
+  "You have used every round this task is allowed, so you cannot ask for anything else. "
+  + "Using only what you have already found, give the person the best answer you can now: what you did, "
+  + "what you found out, and what is still left to do. Be short and plain.";
+
+/** mac7/speed: the plain sentences that follow that answer. Never shown on its own without a reason. */
+function roundLimitSentence(limit: number, trouble: string): string {
+  return `I stopped here: this task went back to the model ${limit} times, which is as many as one task may. `
+    + `${trouble} You can let a task take more rounds in Settings, under Advanced, or ask me to carry on from here.`;
 }
 
 /** hardening-3: how long a model on this computer has been waited for in this round, and whether it was tried again. */

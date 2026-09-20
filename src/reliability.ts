@@ -188,6 +188,11 @@ export const ReliabilityOptionsSchema = z.object({
    * described by one line each instead of in full, or left out and found by searching.
    */
   toolBudgetTokens: z.number().int().min(400).max(20000).default(defaultToolBudgetTokens),
+  /**
+   * mac7/speed: how many times a task may go back to the model before it has to stop and give the
+   * best answer it has. A planned task is given more room on top of this, step by step.
+   */
+  maxModelRounds: z.number().int().min(2).max(60).default(12),
 }).strict();
 export type ReliabilityOptions = z.infer<typeof ReliabilityOptionsSchema>;
 export type ReliabilityInput = z.input<typeof ReliabilityOptionsSchema>;

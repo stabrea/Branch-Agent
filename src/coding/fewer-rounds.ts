@@ -75,8 +75,14 @@ export interface CallLike { id: string; name: string; arguments: string }
 export interface GroupingRules {
   /** Whether this tool only looks at things — `isReadOnlyPermission` of its permission. */
   readOnly(name: string): boolean;
-  /** What the call would touch, in the form the rules match against. Two calls in one group never share one. */
+  /** What the call would touch, in the form the rules match against. */
   targetOf(call: CallLike): string;
+  /**
+   * Whether this call is already allowed outright — a rule, a standing yes, or the conversation's
+   * mode — so running it would raise no question at all. Two calls about the *same* thing may share
+   * a run only when both are; see below.
+   */
+  allowedOutright(call: CallLike): boolean;
   /** Tools that must run alone because they change what the next round is shown. */
   alone: readonly string[];
 }
@@ -84,14 +90,17 @@ export interface GroupingRules {
 /**
  * Splits a reply's tool calls into runs that may go at the same time.
  *
- * A call may share a run only when it **only looks at things** (so nothing it does can depend on,
- * or be undone by, what another call in the run does), it is not one of the tools that change what
- * the next round is shown, and nothing else in the run is about the same thing. Everything else is
- * a run of its own, left exactly where it was, so a read and a later change never swap places and
- * the conversation reads as it always did.
+ * A call may share a run only when it **only looks at things** — so nothing it does can depend on,
+ * or be undone by, what another call in the run does — and it is not one of the tools that change
+ * what the next round is shown. Everything else is a run of its own, left exactly where it was, so
+ * a read and a later change never swap places and the conversation reads as it always did.
  *
- * Distinct targets matter for more than tidiness: a "just this once" yes is remembered by tool and
- * target, so two calls about the same thing could race for one pass. They cannot be in one run.
+ * Two calls about the *same* thing are the delicate case. A "just this once" yes is remembered by
+ * tool and target, so two such calls could spend one yes between them. They may therefore share a
+ * run only when **both are already allowed outright** and nothing would be asked: then there is no
+ * yes to spend. If either would raise a question, they run one after another, and the second is
+ * asked again — which is exactly what happens today. That is what lets four searches of the same
+ * folder go together while two calls waiting on one answer do not.
  *
  * Nothing here decides whether a call is allowed. Every call still goes through its own journal
  * entry, its own loop guard, its own permission check, approval, wall and deadline, exactly as it
@@ -100,16 +109,19 @@ export interface GroupingRules {
 export function parallelGroups<T extends CallLike>(calls: readonly T[], rules: GroupingRules): T[][] {
   const groups: T[][] = [];
   let open: T[] = [];
-  const targets = new Set<string>();
-  const flush = (): void => { if (open.length) groups.push(open); open = []; targets.clear(); };
+  /** Each target already in the open run, and whether every call with it needed no permission. */
+  let targets = new Map<string, boolean>();
+  const flush = (): void => { if (open.length) groups.push(open); open = []; targets = new Map(); };
   for (const call of calls) {
+    if (!rules.readOnly(call.name) || rules.alone.includes(call.name)) { flush(); groups.push([call]); continue; }
     const target = rules.targetOf(call);
-    const shareable = rules.readOnly(call.name) && !rules.alone.includes(call.name)
-      && !targets.has(target) && open.length < parallelLimit;
-    if (!shareable) flush();
-    if (!rules.readOnly(call.name) || rules.alone.includes(call.name)) { groups.push([call]); continue; }
+    const allowed = rules.allowedOutright(call);
+    const before = targets.get(target);
+    const targetOk = before === undefined || (before && allowed);
+    if (!targetOk || open.length >= parallelLimit) flush();
     open.push(call);
-    targets.add(target);
+    const now = targets.get(target);
+    targets.set(target, now === undefined ? allowed : now && allowed);
   }
   flush();
   return groups;
