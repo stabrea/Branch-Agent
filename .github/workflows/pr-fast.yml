@@ -1,0 +1,84 @@
+name: PR Fast Checks
+on:
+  pull_request:
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: pr-fast-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  verify-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Classify the exact pull-request diff
+        id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/select-affected-tests.mjs --base="$BASE_SHA" --head="$HEAD_SHA" --output=selected-tests.json
+      - name: Require exhaustive success for broad or uncertain changes
+        if: steps.impact.outputs.classification == 'full-required'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          passed="$(gh api --method GET "repos/$GH_REPO/actions/workflows/checks.yml/runs" \
+            -f head_sha="$HEAD_SHA" -f per_page=100 \
+            --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
+          if [ "$passed" -gt 0 ]; then
+            echo "Exhaustive Checks already passed for $HEAD_SHA."
+            exit 0
+          fi
+          echo "::error::This diff is broad, unmapped, renamed/deleted, or above the fast-test budget."
+          echo "Run: gh workflow run checks.yml --repo $GH_REPO --ref $HEAD_REF"
+          echo "After that exact SHA passes, rerun this fast check. Labels cannot bypass it."
+          exit 1
+      - name: Install locked dependencies
+        if: steps.impact.outputs.classification == 'narrow'
+        run: npm ci
+      - name: Check documentation-only changes
+        if: steps.impact.outputs.classification == 'docs-only'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --check "$BASE_SHA" "$HEAD_SHA"
+          node scripts/check-docs.mjs
+      - name: Build
+        if: steps.impact.outputs.classification == 'narrow'
+        run: npm run build
+      - name: Install Chromium only when selected tests use it
+        if: steps.impact.outputs.classification == 'narrow' && steps.impact.outputs.browser_needed == 'true'
+        run: npx playwright install --with-deps chromium --only-shell
+      - name: Run selected non-browser tests
+        if: steps.impact.outputs.classification == 'narrow' && steps.impact.outputs.browser_needed != 'true'
+        run: node scripts/run-tests.mjs --files-from=selected-tests.json
+      - name: Run selected browser tests
+        if: steps.impact.outputs.classification == 'narrow' && steps.impact.outputs.browser_needed == 'true'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          xvfb-run -a node scripts/run-tests.mjs --files-from=selected-tests.json
+      - name: Record what green means
+        if: always()
+        env:
+          CLASSIFICATION: ${{ steps.impact.outputs.classification }}
+          PREDICTED_SECONDS: ${{ steps.impact.outputs.predicted_seconds }}
+        run: |
+          {
+            echo "### PR fast gate"
+            echo "- Classification: \`${CLASSIFICATION:-selector-failed}\`"
+            echo "- Predicted selected-test time: \`${PREDICTED_SECONDS:-unknown}s\`"
+            echo "- Execution ceiling: 5 minutes after a runner starts"
+            echo "- Hosted-runner queue time is outside this ceiling"
+          } >> "$GITHUB_STEP_SUMMARY"

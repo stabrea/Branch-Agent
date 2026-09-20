@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadWeights, parseShard, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
+import { loadWeights, parseFilesFrom, parseShard, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
 test("npm test runs the files that start the desktop app on their own, and everything else together", () => {
   const listing = {
@@ -51,6 +51,17 @@ test("--shard names one share of the whole, and anything else is refused", () =>
   assert.deepEqual(parseShard([]), { index: 0, total: 1 });
   assert.deepEqual(parseShard(["--shard=2/5"]), { index: 1, total: 5 });
   for (const bad of ["--shard=0/5", "--shard=6/5", "--shard=1/0", "--shard=x"]) assert.throws(() => parseShard([bad]));
+});
+
+test("--files-from selects an explicit discovered subset and rejects stale or duplicate entries", () => {
+  const groups = { shared: [join("tests", "a.test.mjs"), join("tests", "b.test.mjs")], desktop: [] };
+  const read = () => JSON.stringify(["tests/b.test.mjs"]);
+  assert.deepEqual(parseFilesFrom(["--files-from=selected.json"], groups, read), [join("tests", "b.test.mjs")]);
+  assert.throws(() => parseFilesFrom(["--files-from=selected.json"], groups,
+    () => JSON.stringify(["tests/missing.test.mjs"])), /not discovered/);
+  assert.throws(() => parseFilesFrom(["--files-from=selected.json"], groups,
+    () => JSON.stringify(["tests/a.test.mjs", "tests/a.test.mjs"])), /duplicate/);
+  assert.throws(() => parseFilesFrom(["--files-from=selected.json"], groups, () => "{}"), /JSON array/);
 });
 
 test("a renamed or new file still runs, and a weight for a file that is gone changes nothing", () => {
