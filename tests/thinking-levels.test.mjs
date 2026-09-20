@@ -104,6 +104,9 @@ test("K3 the /api/state models carry their levels, and the default list follows 
   assert.match(await page.locator("#models-reasoning option[value=low]").innerText(), /short think/);
   assert.match(await page.locator("#models-reasoning option[value='']").innerText(), /^Off/);
   await page.locator("#models-active").selectOption("think-gpt");
+  // The window redraws these lists every 3 seconds: a model picked here and not saved yet stays.
+  await page.waitForTimeout(3500);
+  assert.equal(await page.locator("#models-active").inputValue(), "think-gpt", "the pick is still theirs");
   assert.deepEqual(await values(page, "models-reasoning"), ["", ...all]);
   assert.equal(await page.locator("#models-reasoning option[value=medium]").innerText(), "Balanced");
   assert.equal(await page.locator("#models-reasoning-thinking-note").isHidden(), true, "nothing to explain for an effort model");

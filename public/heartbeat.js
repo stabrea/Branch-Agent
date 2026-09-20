@@ -47,8 +47,12 @@ function button(key, handler, className) {
   made.type = "button";
   made.addEventListener("click", async () => {
     made.disabled = true;
-    delete made.closest("section")?.dataset.editing;
-    try { await handler(); } catch (error) { toast(error.message); } finally { made.disabled = false; }
+    /* The card stays as it is until the save has landed: cleared first, the window's refresh could
+       redraw it from the old answer while the save was still on its way (ci-flakes-3). */
+    try {
+      await handler();
+      delete made.closest("section")?.dataset.editing;
+    } catch (error) { toast(error.message); } finally { made.disabled = false; }
   });
   return made;
 }

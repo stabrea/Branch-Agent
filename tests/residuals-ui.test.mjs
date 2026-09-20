@@ -18,8 +18,13 @@ async function fixture(t, { viewport = { width: 1440, height: 1000 }, before, pr
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true, args });
-  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport });
+  let page = null;
+  t.after(async () => {
+    /* A route still answering when the test ends failed on the closed browser (ci-flakes-3). */
+    await page?.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
+    await browser.close(); await server.close(); await app.close(); await discardTemp(root);
+  });
+  page = await browser.newPage({ viewport });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   if (before) await before(page, app);
@@ -27,6 +32,8 @@ async function fixture(t, { viewport = { width: 1440, height: 1000 }, before, pr
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   return { app, server, page, errors, browser };
 }
 
@@ -152,6 +159,8 @@ test("12. with the strip switched off, a browser that knew so never gives the st
   await post("/api/shell-look", { strip: "off" });
   await page.reload();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => localStorage.getItem("branch-strip") === "off");
   // Next time the window opens, anything that gives the strip room is written down as it happens.
   await page.addInitScript(() => {
@@ -162,6 +171,8 @@ test("12. with the strip switched off, a browser that knew so never gives the st
   });
   await page.reload();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForTimeout(500);
   assert.deepEqual(await page.evaluate(() => globalThis.__stripSeen), [], "the strip's room was never taken");
 });

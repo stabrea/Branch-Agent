@@ -146,13 +146,17 @@ test("3 a model on this computer that never starts answering is tried again once
   const complete = provider.complete.bind(provider);
   provider.complete = (request) => { asked.times++; return complete(request); };
   app.runtime.models.register({ id: "on-this-computer", name: "Local", model: "m", provider });
-  // Shortened for the test (shipped: 60 s and 300 s, grace 30 s): a 1 s first-reply wait, grace 100 ms.
+  /* Shortened for the test (shipped: 60 s and 300 s, grace 30 s): a 3 s first-reply wait, grace 300 ms.
+     ci-flakes-4: it was a 1 s wait and a 100 ms grace, which left the clock check below only about
+     600 ms for everything else the run does, and a crawling Windows machine used more than that
+     (2570 ms). The waits are longer so the room is, without changing what is being proved: a retry
+     given a whole first-reply wait instead of the grace still lands far past the bound. */
   app.runtime.reliability.modelStallMs = 300;
-  app.runtime.reliability.localFirstReplyMs = 1000;
+  app.runtime.reliability.localFirstReplyMs = 3000;
   const started = Date.now();
   /* A busy computer: the event loop is held for longer than the grace just before the wait runs out, so
      the silence is noticed late. The retry used to be skipped then (trunk d366b45f, Linux: asked once). */
-  setTimeout(() => { const until = Date.now() + 300; while (Date.now() < until); }, 900);
+  setTimeout(() => { const until = Date.now() + 500; while (Date.now() < until); }, 2900);
   const run = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
   const took = Date.now() - started;
   assert.equal(run.status, "failed");
@@ -162,8 +166,8 @@ test("3 a model on this computer that never starts answering is tried again once
   assert.ok(seen.requests >= 1, "the first request reached the model's server");
   const recoveries = app.store.events(run.id).filter((event) => event.kind === "model.stall_recovery").map((event) => event.data);
   assert.deepEqual(recoveries.map((one) => one.action), ["retry", "fail"]);
-  assert.equal(recoveries[0].waitMs, 100, "the retry waits the grace, however late the silence was noticed");
-  assert.ok(took < 2000, `the whole wait stays near the first-reply wait plus the grace, not three full waits (${took} ms)`);
+  assert.equal(recoveries[0].waitMs, 300, "the retry waits the grace, however late the silence was noticed");
+  assert.ok(took < 5000, `the whole wait stays near the first-reply wait plus the grace (3.3 s), not a second full wait (6 s): ${took} ms`);
 });
 
 test("3 the grace is a tenth of the first-reply wait, at most 30 seconds", async () => {

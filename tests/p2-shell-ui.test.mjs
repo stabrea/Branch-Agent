@@ -41,9 +41,12 @@ async function fixture(t, { width = 1440, height = 950 } = {}) {
     await page.goto(server.url);
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await page.locator("#workspace").waitFor({ state: "visible" });
+    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
     await page.locator("body.lx-ready").waitFor({ state: "attached" });
-    await page.locator("#trunk-strip .strip-brand").waitFor({ state: "visible", timeout: 15000 });
+    /* The strip is drawn once the Trunks have arrived. ci-flakes-3 gave it 15 s, then 60 s; a Windows
+       build machine went past 60 s too (run 35484288929), and the same test has taken 153 s in full on
+       that shard while passing. It now has the 120 s the window itself gets, just above. */
+    await page.locator("#trunk-strip .strip-brand").waitFor({ state: "visible", timeout: 120000 });
   };
   const refresh = () => page.evaluate(async () => (await import("/strip.js")).refresh());
   return { app, server, call, page, errors, open, refresh };
@@ -407,6 +410,8 @@ test("integration review: switched off on the server, a fresh window keeps no ga
   await f.page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await f.page.getByRole("button", { name: "Connect", exact: true }).click();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => !document.getElementById("trunk-strip"), undefined, { timeout: 15000 });
   await f.page.waitForTimeout(500);
   const left = await f.page.locator("#conversation-rail").boundingBox();
@@ -416,6 +421,7 @@ test("integration review: switched off on the server, a fresh window keeps no ga
     .observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["class"] }));
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForTimeout(2500);
   assert.equal(await f.page.evaluate(() => globalThis.__stripSeen === true), false, "and the next load never draws or reserves it, not even for a moment");
 });

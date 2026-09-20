@@ -56,10 +56,41 @@ export async function openPlace(page, view) {
   await page.locator(trigger).click();
 }
 
+/**
+ * Presses a control until what it does has happened. ci-flakes-4: on Windows build machines a click on
+ * a control Playwright has just found visible, enabled and stable sometimes sits in its "performing
+ * click action" for the whole timeout and nothing happens at all — seen on the Settings gear
+ * (never-break-ui), on a card's Save button (mac2-desktop-ui) and, before that, on a select
+ * (ci-flakes-3, "cause of the swallowed click not proven"). The cause is still not proven; it is not
+ * the product, whose button keeps the one listener it was given and is never drawn again. Pressing
+ * again when the thing has not happened is what a person does, and it costs nothing when the first
+ * press lands. `happened` waits for the thing and answers true or false; it is never given longer than
+ * the press it follows.
+ */
+export async function pressUntil(target, happened, what = "the press to take", tries = 3) {
+  for (let press = 0; press < tries; press++) {
+    await target.click({ timeout: 40000 }).catch(() => undefined);
+    if (await happened()) return;
+  }
+  throw new Error(`Waited for ${what} through ${tries} presses and it never happened`);
+}
+
+/** Waits up to 20 s for something on the page to become true, and says whether it did. */
+export const became = (page, isSo) =>
+  page.waitForFunction(isSo, null, { timeout: 20000 }).then(() => true, () => false);
+
+/** Presses the gear until the Settings window is really open. */
+async function pressUntilOpen(page) {
+  const settings = page.locator("#settings-window");
+  await pressUntil(await settingsEntry(page),
+    () => settings.waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false),
+    "the Settings window to open");
+}
+
 /** Opens the Settings window, on a page when one is named. */
 export async function openSettings(page, name) {
   await ready(page);
-  if (!(await page.locator("#settings-window").isVisible())) await (await settingsEntry(page)).click();
+  if (!(await page.locator("#settings-window").isVisible())) await pressUntilOpen(page);
   if (name) {
     /* phase2/settings: on a narrow window the pages are one choice under the search box. */
     const link = page.locator(`.lx-settings-link[data-page="${name}"]`);

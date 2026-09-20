@@ -105,9 +105,11 @@ const line = (text, open) => {
 };
 
 /** The words into the box. Provisional words are greyed until a quiet room settles them. */
+/** True while the ✕ is throwing the words away: nothing of them is written into the box any more. */
+let discarding = false;
 function write(state) {
   const field = box();
-  if (!field) return;
+  if (!field || discarding) return;
   const said = state?.words ?? "";
   if (state?.settled && said && said === settledAlready) return;
   field.value = typed ? (said ? `${typed} ${said}` : typed) : said;
@@ -181,8 +183,14 @@ ask("voice-dictate")?.addEventListener("click", () => void press());
 globalThis.branchDictation = {
   listening: () => ask("voice-dictate")?.getAttribute("aria-pressed") === "true",
   async stop(keep) {
-    if (ask("voice-dictate")?.getAttribute("aria-pressed") === "true") await press();
+    /* Closing the microphone asks one last time, and that answer arrives while this is still running:
+       its words must not land in the box the ✕ is about to put back (it showed them for a moment). */
+    discarding = !keep;
     const field = box();
+    if (!keep && field) { field.value = startedWith; typed = startedWith.trim(); }
+    try {
+      if (ask("voice-dictate")?.getAttribute("aria-pressed") === "true") await press();
+    } finally { discarding = false; }
     if (keep || !field) return;
     field.value = startedWith;
     field.classList.remove("dictating");

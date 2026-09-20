@@ -103,9 +103,21 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
     },
   });
   first.push(() => handle.stop());
-  await writeFile(join(workspace, "src/a.js"), "export const a = 1; // make it two AI!\n");
-  await writeFile(join(workspace, "src/b.js"), "// ai: numbers are small\n");
-  await writeFile(join(workspace, "src/c.js"), "export const c = 3;\n");
+  /* A folder watcher can miss what happens in the moment after it starts (a macOS build machine heard
+     none of the three writes below and waited the whole minute: CI run 35475559161). So it is given a
+     change of no interest first, and the burst is written again if nothing at all was heard. */
+  await writeFile(join(workspace, "src/warm-up.js"), "export const warm = 1;\n");
+  await new Promise((resolve) => setTimeout(resolve, 2 * settleMs));
+  const burst = async () => {
+    await writeFile(join(workspace, "src/a.js"), "export const a = 1; // make it two AI!\n");
+    await writeFile(join(workspace, "src/b.js"), "// ai: numbers are small\n");
+    await writeFile(join(workspace, "src/c.js"), "export const c = 3;\n");
+  };
+  await burst();
+  for (let tries = 0; tries < 2 && !tasks.length; tries += 1) {
+    await waitFor(() => tasks.length > 0, "the first task", 15_000).catch(() => undefined);
+    if (!tasks.length) await burst(); // nothing was heard at all, so this cannot be a second burst
+  }
   await waitFor(() => tasks.length > 0, "the first task");
   // Longer than two quiet times, so a task for the assistant's own edit would have started by now.
   await new Promise((resolve) => setTimeout(resolve, 2 * settleMs + 100));

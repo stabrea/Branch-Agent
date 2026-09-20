@@ -20,7 +20,14 @@ export const XSearchSettingsSchema = z.object({
 const settingsKey = "personal-x-search-settings";
 const xaiApi = "https://api.x.ai/v1";
 
-const handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, "An X handle is up to 15 letters, digits or underscores").transform((h) => h.replace(/^@/, ""));
+/**
+ * A `.transform()` cannot be written out as JSON Schema, and the catalog is built in one go, so one
+ * here took every tool down with it: switching this feature on left every task answering only
+ * "Transforms cannot be represented in JSON Schema", on any model. The leading @ is dropped where
+ * the handles are used instead (`withoutAt` below).
+ */
+const handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, "An X handle is up to 15 letters, digits or underscores");
+const withoutAt = (handles: readonly string[]): string[] => handles.map((one) => one.replace(/^@/, ""));
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Dates look like 2026-09-17");
 export const XSearchSchema = z.object({
   query: z.string().trim().min(1).max(1000),
@@ -38,8 +45,8 @@ export function xSearchTool(input: z.infer<typeof XSearchSchema>, today = new Da
   if (input.since && input.until && input.since > input.until) throw new Error("The start date is after the end date");
   if (input.since && input.since > today.toISOString().slice(0, 10)) throw new Error("X search only finds posts already written; the start date is in the future");
   return { type: "x_search",
-    ...(input.onlyFrom.length ? { allowed_x_handles: input.onlyFrom } : {}),
-    ...(input.notFrom.length ? { excluded_x_handles: input.notFrom } : {}),
+    ...(input.onlyFrom.length ? { allowed_x_handles: withoutAt(input.onlyFrom) } : {}),
+    ...(input.notFrom.length ? { excluded_x_handles: withoutAt(input.notFrom) } : {}),
     ...(input.since ? { from_date: input.since } : {}), ...(input.until ? { to_date: input.until } : {}) };
 }
 

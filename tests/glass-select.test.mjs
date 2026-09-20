@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -161,8 +161,14 @@ test("integration review: the list sits flush under the select and fully covers 
        scroll of its own, and any scroll closes an open list (rightly); a person's click at the same point keeps
        it open (checked 6 of 6 at 390, integration). A list opened mid-rise follows its select: the next test. */
     await f.page.locator(".lx-settings-win").evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
-    await f.page.locator("#policy-preset").click();
-    await f.page.locator("#glass-list").waitFor({ state: "visible" });
+    /* A click that lands while the window is still settling can be swallowed (Windows saw the list stay
+       shut for 30 s), so it is pressed again while it is still not open. */
+    const list = f.page.locator("#glass-list");
+    for (let tries = 0; tries < 10 && !(await list.isVisible()); tries += 1) {
+      await f.page.locator("#policy-preset").click();
+      await list.waitFor({ state: "visible", timeout: 3000 }).catch(() => undefined);
+    }
+    await list.waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over
     const seen = await f.page.evaluate(() => {
       if (document.getElementById("glass-list").hidden) return { closed: true };
@@ -236,6 +242,31 @@ test("an open list stays open when the window's refresh writes the same choices 
   await f.page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   assert.equal(await list.isVisible(), true, "the same choices written again leave the list open");
   assert.equal(await select.getAttribute("aria-expanded"), "true");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the window's refresh leaves a half-filled ceiling, half-filled connection minutes and the category choosers alone", async (t) => {
+  const f = await fixture(t);
+  /* ci-flakes-3 listed three more places where the window's refresh every 3 s wrote over what somebody
+     was in the middle of. Each is driven here by the very call that refresh makes, with no sleep. */
+  await openSettingFor(f.page, "#policy-tool-limit");
+  await f.page.locator("#policy-tool-limit").fill("42");
+  await f.page.evaluate(() => globalThis.branchApprovals.render());
+  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
+
+  /* The category rows used to be thrown away and made again every 3 s, which shut an open list under
+     the person and threw the keyboard out of it. A mark of our own survives only if the row does. */
+  await f.page.waitForFunction(() => document.querySelectorAll("#approval-categories select").length > 0);
+  await f.page.locator("#approval-categories select").first().evaluate((one) => { one.dataset.stillTheirs = "yes"; one.focus(); });
+  await f.page.evaluate(() => globalThis.branchMisc.render());
+  assert.equal(await f.page.locator("#approval-categories select").first().getAttribute("data-still-theirs"), "yes",
+    "a chooser somebody may have open is not thrown away and made again");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.tagName), "SELECT", "and the keyboard is still in it");
+
+  await openPlace(f.page, "customize:connections");
+  await f.page.locator("#mcp-keep-warm").fill("17");
+  await f.page.evaluate(() => globalThis.branchMcpWorkbench.render());
+  assert.equal(await f.page.locator("#mcp-keep-warm").inputValue(), "17", "the minutes being typed are still theirs");
   assert.deepEqual(f.errors, []);
 });
 

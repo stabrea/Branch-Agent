@@ -1048,19 +1048,30 @@ function modelLine(model) {
   const fallback = model.fellBackFrom ? ` (after ${model.fellBackFrom} was unavailable)` : "";
   return `Model: ${name} · ${model.model}${fallback}`;
 }
+/**
+ * ci-flakes-3: what each of these lists last said, so the window's refresh every 3 seconds neither
+ * rewrites a list that has not changed nor throws away the model somebody has just picked here.
+ */
+const lastList = new Map();
 function presetOptions(select, presets, firstLabel, value) {
-  const focused = document.activeElement === select;
-  select.replaceChildren(
-    ...(firstLabel ? [el("option", firstLabel)] : []),
-    ...presets.map((preset) => {
-      const option = el("option", `${preset.name} · ${preset.model}`);
-      option.value = preset.id;
-      if (preset.coolingDownUntil) option.textContent += " (resting)";
-      return option;
-    }),
-  );
-  if (firstLabel) select.options[0].value = "";
-  if (!focused) select.value = value ?? "";
+  const wanted = [
+    ...(firstLabel ? [["", firstLabel]] : []),
+    ...presets.map((preset) => [preset.id, `${preset.name} · ${preset.model}${preset.coolingDownUntil ? " (resting)" : ""}`]),
+  ];
+  const onScreen = select.value;
+  const same = JSON.stringify(wanted) === JSON.stringify([...select.options].map((option) => [option.value, option.textContent]));
+  if (!same) select.replaceChildren(...wanted.map(([id, words]) => {
+    const option = el("option", words);
+    option.value = id;
+    return option;
+  }));
+  /* Their own pick, not saved yet, stays — unless what is saved has itself changed since (another
+     conversation or project is being shown), which always wins. */
+  const before = lastList.get(select.id);
+  const theirs = onScreen && before !== undefined && (value ?? "") === before
+    && onScreen !== before && wanted.some(([id]) => id === onScreen);
+  select.value = theirs ? onScreen : value ?? "";
+  lastList.set(select.id, value ?? "");
 }
 /**
  * mac7/residuals: with a ChatGPT sign-in, a limit passes work down this order; a Codex program in it

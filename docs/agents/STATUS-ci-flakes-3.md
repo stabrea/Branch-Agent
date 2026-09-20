@@ -15,7 +15,10 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   `fs/promises` realpath, spelled out in full (`runneradmin`). Every note then looked outside the
   workspace, where the rules "have nothing to say". Not an interaction with multi-target/hardening;
   it only shows on a machine whose workspace path has a short name. Fixed with `realpathSync.native`
-  (same resolver as the promise one). Not reproducible here (8.3 names are off on this disk).
+  (same resolver as the promise one). Not reproducible here (8.3 names are off on this disk, and both
+  resolvers agree through a junction), so the proof is CI itself: both tests failed on Windows 2/6 in
+  runs 35467846040 and 35470358144 and passed there in 35472658073 with the fix. The unit test added
+  here only bites on a machine that spells its temp path two ways.
 - delight "off by default…" (Windows, macOS, Linux; 3 runs): TEST. It counted every /api/activity
   request, but the window's context pane asks for it every 5 s and the rail on a new task; on a slow
   runner that tick lands inside the test's 2.5 s. Delight itself asked nothing. The test now counts
@@ -47,7 +50,10 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
 - p2-voice-ui "dictation … throwing the words away puts the box back" (Windows): PRODUCT BUG. A
   question sent while the microphone was open could answer after ✕ had put the box back, writing the
   words (and "open") back in. Questions now belong to a press; older ones are dropped, and polling
-  stops as soon as a stop is pressed. New test holds such an answer until after ✕.
+  stops as soon as a stop is pressed. The test written for it (holding an answer with page.route until
+  after ✕) turned out to be flaky itself on macOS — the words came back although the guard is in the
+  page — so it was taken out again; the product fix stays, covered only by the original dictation test.
+  Somebody should write a guard for it that does not depend on the order Playwright answers held routes.
 - p2-voice-ui "Talk live … ships off" (Linux): TEST teardown. A route handler was still in
   `route.fetch` when the browser closed. The fixture unroutes (ignoring errors) before closing.
 - flow-editor F2 (Windows, page.goto 30 s): TEST. The page's load took over 30 s on a busy Windows
@@ -73,10 +79,93 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   the older look flashed back until the next refresh. `adoptSaved` now also skips an answer asked for
   before the window's latest change. New test holds such answers (fails before: 60 applied over 100).
 
+## After residuals merged (run 35472658073 on d7e7de13: every shard green but one)
+- mac2-desktop-ui "the cards go to their homes…" (macOS, 'off' instead of 'when-needed'): PRODUCT BUG,
+  the same family again. app.js redraws the screen-control card on every 3-second refresh, and these
+  cards redraw with it, writing the saved answer into the three choosers (Your computer's own voice,
+  screen sharing, Keychain). A choice made and not yet saved was replaced by the old one within 3 s,
+  and Save then sent the old value back and said "Saved." Now the saved answer is written in only
+  while the choice on screen is still the one this file last wrote. Reproduced: with a 3.5 s wait
+  between choosing and saving, trunk's file fails with exactly 'off' !== 'when-needed', the fix passes.
+  The test keeps that wait.
+
+## Run 35474392706 on 024f4531 (one shard red, everything else green)
+- thinking-levels K3 (Linux): PRODUCT BUG, the same family a third time. `presetOptions` in app.js
+  rebuilds the model lists on every 3-second refresh and sets them back to what is saved, so a model
+  picked in Settings › Models was swapped back within 3 s (and while the list had the keyboard, the
+  pick was dropped and nothing put back). The thinking levels then followed the old model, which is
+  what the test saw. Now the list is rewritten only when its choices really changed, and a pick that
+  is not saved yet is kept. Reproduced: with a 3.5 s wait after picking, trunk's file fails ("the pick
+  is still theirs"), the fix passes. The test keeps that wait.
+
+## Run 35475559161 on aeed473d (one shard red)
+- ai-comments A0344 "one burst of changes becomes one task…" (macOS, nothing at all within 60 s): a
+  folder watcher can miss what happens in the moment after it starts, and every one of the three
+  writes went in right after `watchAIComments` returned. The test now gives the watcher a change of no
+  interest first, and writes the burst again if nothing at all was heard (which cannot make a second
+  burst, since a heard burst starts its task in well under the 15 s it waits). Not reproducible here
+  (Windows): 15 runs, 3 at once, 90/90 before and after.
+
+## Run 35476490803 on 233a4126 (macOS and Linux all green; three Windows shards red)
+- p2-voice-ui "dictation … throwing the words away puts the box back" (Windows, and the held-answer
+  test on macOS): the REAL cause, found here. Closing the microphone asks the app one last time, and
+  that answer writes the words into the box; ✕ only puts the box back afterwards. The bar disappears
+  in the middle of that (it follows the button), so the words really were in the box for a moment —
+  the test read it exactly then. Now ✕ puts the box back first and nothing of the words is written
+  while it is throwing them away. (The "questions belong to a press" guard from earlier stays; it was
+  not the whole story.)
+- quiet-jobs-ui "the quiet-jobs cards name their homes…" (Windows, notifyGate 'off'): PRODUCT BUG of
+  the same family. The card carries a `data-editing` mark so the refresh leaves it alone while somebody
+  is filling it in, and the Save button cleared that mark BEFORE saving, so a refresh could redraw the
+  card from the old answer while the save was on its way. The mark is now cleared once the save lands.
+- glass-select "the list sits flush under the select…" (Windows, the list stayed shut for 30 s): TEST.
+  A click that lands while the Settings window is still settling can be swallowed; the test presses
+  again while the list is still not open. Cause of the swallowed click not proven.
+
+## Run 35477648939 on 0a5a1245 (macOS and Linux green; Windows 5/6 red)
+- p2-shell-ui "the strip sits at the left edge…" (Windows): TEST. The fixture gave the strip 15 s to
+  appear after sign-in, and a busy Windows machine took longer; it now has 60 s (the window itself
+  gets 120 s, as tests/places.mjs does).
+
+## Run 35478612357 on dda44fbe, the last one this session watched: FAILED, four tests, all slow-runner
+- add-ons-walled "macOS for real…" (macOS 1/2): the named address came back "refused" instead of
+  reaching the lookup. Not looked into; it reads like the runner's own DNS.
+- delight-ui "the pet lives in the corner…" (Windows 2/6, 44 s): the tip wait added here was not
+  enough on that runner, or another bubble was showing. Look again.
+- mac2-desktop-ui "the cards go to their homes…" (142 s) and never-break-ui "the Keep running card…"
+  (69 s) on Windows 5/6: both took two to five times their usual time, so that shard was crawling.
+- coding-gap-edits "a task's deadline is the caller's…" (Windows 6/6): a timing test on the same slow
+  machine.
+The shards that had been failing all day (walk-rules, accounts, rooms, panels, voice, source-hygiene,
+flow-editor, thinking-levels, quiet-jobs, glass-select, p2-shell) were green in this run.
+
+## Left for somebody: more of the same family, not failing CI today
+The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
+middle of typing or choosing, so the value saved can be the old one:
+- public/mcp-workbench.js renderConnections: "keep warm" minutes, most servers at once, when to connect.
+- public/approvals.js render: the two limits (tool calls a minute, model rounds a minute).
+- public/misc.js: the category choosers.
+Each wants the same treatment as public/os-permissions.js here (write the saved answer in only while
+what is on screen is still what the file last wrote), or the `document.activeElement` guard that
+public/panels-hide.js uses for the see-through slider.
+
 ## Progress
 - [x] fixes above: b45e1070, 1f2de612, 8e9df59b, the walk-rules spelling test, bf8073a5
 - [x] after merging trunk 2674e2ae (settings redesign): clean dist, tsc, the 14 touched files +
       phone-layout + static-assets + index-structure + handbook at 3 at once: 170/170
-- [ ] loops before/after
-- [ ] merged into trunk, pushed
-- [ ] two consecutive full green Checks runs on trunk
+- [x] loops, 3 copies of a file at once on this loaded machine, in a separate worktree
+      (C:/Users/bishi/Code/wt/ci-flakes-3-loop at 7a7c5fb5), after the fixes:
+      panels 12 runs 240/240, p2-rooms-ui 15 runs 75/75, p2-voice-ui 15 runs 90/90,
+      delight-ui 12 runs 154 pass and one run whose process died before any test reported
+      (no output at all, machine under load; the same non-event ci-flakes saw once),
+      accounts-page 15 runs 90/90, phone-layout 12 runs 192/192, walk-rules 15 runs 435/435.
+      Before the fixes, these files pass here as well (rooms 12 runs 60/60 measured): none of the
+      CI failures reproduces on this machine by repetition, which is why each one was instead
+      reproduced by making the one slow step slow (see the findings: /api/state held 3 s, the
+      finishing step held 4 s, a 3.5 s wait past a refresh, a 21 s old page).
+- [x] merged into trunk: 7a7c5fb5 (run 35472328214, cancelled by the residuals push), then the rest
+- [ ] two consecutive full green Checks runs on trunk — NOT REACHED in this session. Every run since
+      the fixes started has been closer: 35472658073 (every shard but one macOS test), 35474392706 and
+      35475559161 (one shard each), 35476490803 (macOS and Linux green, three Windows shards),
+      35477648939 (macOS and Linux green, one Windows shard). Trunk is dda44fbe and run 35478612357 is
+      the one to watch; if it is green, re-run the same commit for the second green.
