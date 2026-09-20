@@ -375,18 +375,42 @@ says why in its own comment. `src/runtime.ts` uses the new one. Only two places 
   `src/terminal-place-data.ts` contain no `store.save`/`.put`; every allowlisted name lands on a
   reading branch of `runTerminalCommand`.
 
+### Decided, not an oversight: `GET /api/runs/:id/trace` stays `look`
+
+**Do not "tighten" this to `secret-read` without reading this paragraph first.** The brief for this
+review asked for owner-only on all four new routes. Three of them are (`GET|POST /api/tokens`,
+`POST /api/tokens/<id>/revoke`, `GET /api/terminal`). The trace read is deliberately not, and the
+coordinator accepted the deviation on 2026-09-19 as argued:
+
+- The report carries **none of the task's words** — a trace id, how many steps and of what kinds,
+  whether sending is on and where to, and whether the last send arrived (`src/trace-report.ts`).
+- `GET /api/runs/:id/inspect`, classified `look` right beside it in `tests/short-lived-key-routes.mjs`,
+  already shows a read-scoped key **strictly more**: rounds, tool calls, the plan and the verdicts.
+- The trace address is **already visible** to such a key: `/api/tracing/settings` is not in
+  `ownerOnlyReads` (`src/short-lived-keys.ts`), and the endpoint's API keys are not in the report at
+  all — they live in `settings.headers` as `secret://project/NAME` references (`src/tracing-export.ts`).
+- So tightening one of a pair and not the other would be for show, not for safety. If the pair is
+  ever tightened, tighten `inspect`, `receipts`, `recording` and `tracing/settings` with it, in one
+  change, with the reason written down — not this route on its own.
+
+`branch trace` itself never needs the looser classification: it goes through the master local key
+(`attachToRunning` in `src/install/running.ts`), so nothing would break if the pair were tightened
+together later.
+
 ### Findings left open (notes, not blockers)
 
-- **`GET /api/runs/:id/trace` is classified `look`, not owner-only.** The brief asked for owner-only
-  on all four. I left it as the builder had it, deliberately: it carries no words of the task, and
-  the two things it does carry are already readable by a `look` key — `/api/runs/:id/inspect` beside
-  it shows rounds, tool calls and the plan, and `GET /api/tracing/settings` already shows the trace
-  address (it is not in `ownerOnlyReads`; the API keys live in `settings.headers` as `secret://`
-  references and are never in the report). Tightening it alone would be inconsistent with its
-  neighbours for no gain. Say the word and it becomes `secret-read` in one line.
 - **`docs/api.md` does not list the four new routes.** That file says it is written by
   `node scripts/write-api-docs.mjs` from the app's own input checks and is not to be edited by hand,
   and the new routes have no registered input check, so they are absent the way several other routes
   are. Not hand-edited. `docs/configuration.md` documents all four.
 - **`branch status`, `branch logs`, `branch approve`** still refuse beside an open Branch. The
   builder's reasoning stands; noting it so it is not lost.
+
+### Push status
+
+- [x] Review, fixes and tests done; committed on `mac7/smoke-fixes` and pushed to origin.
+- [ ] **Merge trunk in, rebuild, retest, push** — HELD. Trunk `mac/cross-platform` is frozen while
+  `ci-flakes-4` banks two consecutive green CI runs for the release gate; every push cancels its run
+  and resets the count. The candidate on `f9499e4f` (run 35486709747) failed one Windows shard, so
+  that agent has another cycle to run. The coordinator will say when trunk is open; only then does
+  this branch merge `origin/mac/cross-platform`, rebuild, re-run the targeted suites and push.

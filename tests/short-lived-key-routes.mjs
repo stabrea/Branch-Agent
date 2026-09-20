@@ -865,7 +865,11 @@ export const ROUTES = {
   "/api/runs/:id/plan": "task POST",
   "/api/runs/:id/receipts": "look",
   "/api/runs/:id/recording": "look",
-  "/api/runs/:id/trace": "look", // mac7/smoke-fixes (B4): one task's steps, for `branch trace`
+  // mac7/smoke-fixes (B4): one task's steps, for `branch trace`. "look" on purpose, not an
+  // oversight — it carries none of the task's words, and `inspect` beside it already shows a
+  // read-scoped key strictly more. Read "Decided, not an oversight" in
+  // docs/agents/STATUS-smoke-fixes.md before changing this one on its own.
+  "/api/runs/:id/trace": "look",
   "/api/runs/:id/recording/flow": "other POST",
   "/api/runs/:id/recording/page": "look",
   "/api/runs/:id/recording/path": "look",
