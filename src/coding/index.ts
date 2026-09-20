@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import type { ToolContext } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
 import { folderAllows } from "../folder-trust.js";
+import { toolLimits } from "../knobs/apply.js"; // mac7/speed
 import type { GitRun } from "../git-checkpoint.js";
 import type { LanguageServers } from "../language-server.js";
 import type { ToolRegistry } from "../registry.js";
@@ -14,7 +15,6 @@ import { LargeOutputs, registerLargeOutput } from "./large-output.js";
 import { Mentions } from "./mentions.js";
 import { registerNotebooks } from "./notebooks.js";
 import { registerReadMany } from "./read-many.js"; // mac7/speed
-import { toolLimits } from "../knobs/apply.js"; // mac7/speed
 import { PathRules, registerPathRules } from "./path-rules.js";
 import { ReviewChecks, registerReviewChecks } from "./review-checks.js";
 import { spawnProgram, type ProgramRunner } from "./runner.js";
@@ -71,9 +71,9 @@ export class Coding implements CodingHooks {
       "large-output": () => registerLargeOutput(registry, this.outputs),
       notebooks: () => registerNotebooks(registry, files),
       "review-checks": () => registerReviewChecks(registry, this.checks),
-      // mac7/speed: reading several files in one call, so a task takes fewer round trips.
-      // mac7/speed: the room is the owner's own tool-answer ceiling, so a many-file read never
-      // hands back more than the task will keep.
+      // mac7/speed: reading several files in one call, so a task takes fewer round trips. The room
+      // it is given is the owner's own tool-answer ceiling, so it never hands back more than the
+      // task will keep.
       "fewer-rounds": () => registerReadMany(registry, files,
         () => toolLimits(this.deps.runtime.store, this.deps.runtime.owner, this.deps.runtime.reliability).toolResultChars),
     };
