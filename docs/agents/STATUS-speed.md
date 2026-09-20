@@ -588,3 +588,28 @@ be corrected before the release notes quote it; the release-notes draft in this 
 - **`cannotRunInstructions` is called without the open toolboxes**, so a coding request that names
   no file (for example "fix the crash in the parser") is not told that nothing can be run, even
   though the toolboxes say it is work on the project's files. It costs a round; it does not mislead.
+
+### Tests run at integration
+
+`npm run build` and `npx tsc --noEmit` clean. Then, on this build:
+
+- `tests/speed.test.mjs` — **48 pass, 0 fail** (44 the builder's, 4 added here: the rules judging
+  every path in a many-file read, a file longer than one answer, a call that never ran not being
+  written down as work, and Lockdown naming nothing).
+- `tests/tool-loading.test.mjs tests/tool-loading-quality.test.mjs tests/catalog-diet.test.mjs
+  tests/runtime.test.mjs tests/lockdown-fix-integrator.test.mjs tests/lockdown-modes.test.mjs
+  tests/household-profile.test.mjs tests/owner-tool-guards.test.mjs tests/tool-safety.test.mjs
+  tests/multi-target.test.mjs tests/approvals.test.mjs tests/policy-outside-hold.test.mjs` —
+  **146 pass, 0 fail**.
+- `tests/server.test.mjs tests/ui.test.mjs tests/shell-ui.test.mjs tests/static-assets.test.mjs
+  tests/index-structure.test.mjs tests/handbook.test.mjs tests/coding-next.test.mjs
+  tests/coding-polish.test.mjs tests/coding-polish-holes.test.mjs tests/code-tools.test.mjs
+  tests/files-paths.test.mjs tests/chatgpt.test.mjs tests/hidden-knobs.test.mjs
+  tests/safety-extras-progress.test.mjs` — **160 pass, 0 fail** (3 skipped).
+- `tests/automation.test.mjs` alone — **5 pass, 0 fail**.
+
+Each of the four added tests was checked against the code before its fix and failed there.
+
+**Not proved here.** Fix 4 (one rate queue per limit) has no test: both per-minute limits ship at 0,
+and a test of it would be a timing test on a shared machine. It is a small, readable change and the
+existing rate tests still pass.
