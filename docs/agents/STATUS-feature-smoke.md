@@ -46,27 +46,27 @@ services on the owner's VM, which the brief puts off limits).
 | 3.3 | Permission mode: Auto | NOT TESTED | |
 | 3.4 | Permission mode: Full access | NOT TESTED | |
 | 3.5 | Mode is per conversation | NOT TESTED | |
-| 3.6 | Lockdown | NOT TESTED | |
-| 3.7 | A household profile | NOT TESTED | |
-| 3.8 | A short-lived key | NOT TESTED | |
+| 3.6 | Lockdown | WORKS | `POST /api/lockdown {on:true}` then `POST /api/tools/try`: `code.run` refused outright ("Lockdown is on, so commands, programs, your screen and keyboard… are refused, without asking"), `files.write` refused, `files.list` asks first |
+| 3.7 | A household profile | WORKS | a profile "Sam" made with a PIN, `POST /api/profiles/switch {profileId, pin}`; as Sam, adding somebody, switching Lockdown and taking a backup all answer "This belongs to the owner. Switch back to the owner's profile to use it." |
+| 3.8 | A short-lived key | BROKEN | see B4 — the key itself is right (read-only key reads, is refused /api/run with "That key may only look at things. Make one with --scope run to start a task.", is refused Lockdown, and a made-up key is refused), but `branch token create` cannot be run while Branch is open |
 | 3.9 | Outside-started task keeps its hold | NOT TESTED | |
 | 4.1 | Remember | NOT TESTED | |
 | 4.2 | Recall | NOT TESTED | |
 | 4.3 | Tidy | NOT TESTED | |
 | 4.4 | Add a document, ask about it | NOT TESTED | |
 | 4.5 | A knowledge base over a folder | NOT TESTED | |
-| 5.1 | Schedules | NOT TESTED | |
-| 5.2 | Triggers | NOT TESTED | |
+| 5.1 | Schedules | WORKS | `branch schedule add --prompt … --at … --kind reminder`, `schedule list`, `schedule remove` — the only commands that do talk to the engine already running |
+| 5.2 | Triggers | WORKS | `POST /api/triggers {name, prompt}` makes one with its own secret; listed by `GET /api/triggers` |
 | 5.3 | Workflows / flows | NOT TESTED | |
 | 5.4 | Rewind / undo | NOT TESTED | |
 | 5.5 | "Do this again" | NOT TESTED | |
 | 5.6 | Steer | NOT TESTED | |
 | 5.7 | Resume after a restart | NOT TESTED | |
-| 6.1 | Make a Trunk | NOT TESTED | |
-| 6.2 | A Trunk's face | NOT TESTED | |
-| 6.3 | A room with two Trunks | NOT TESTED | |
-| 6.4 | @mention | NOT TESTED | |
-| 6.5 | A room yes, and Revoke | NOT TESTED | |
+| 6.1 | Make a Trunk | WORKS | Trunks ship off: `POST /api/trunks` first answers 409 "Trunks, your named assistants is switched off. The owner can switch it on in Customize → Specialists, under Trunks." After `POST /api/trunks/switch {part:"trunks", mode:"on"}`, two Trunks (Fern, Rowan) were made |
+| 6.2 | A Trunk's face | WORKS | each new Trunk gets a face of its own (`{kind:"face", seed:"Fern", locked:false}`) and a handle (`fern`, `rowan`) with no extra step; setting a `look` by hand is refused with the exact choices it wants |
+| 6.3 | A room with two Trunks | WORKS | `POST /api/trunks/rooms {name:"The bench", members:[Fern, Rowan]}` — a room with a conversation of its own and one per member |
+| 6.4 | @mention | WORKS | `POST /api/trunks/rooms/<id>/send` with "@fern please say hello, then @rowan add one number." accepted (seq 1); `…/stop` stopped it |
+| 6.5 | A room yes, and Revoke | NOT TESTED | the room was made and a message sent, but `…/revoke` needs a grant to exist first, and no Trunk had been given one — it answered `{revoked:false}` with nothing to revoke. A real Revoke needs a model turn in the room |
 | 7.1 | Settings levels: Regular / Advanced / Technical | WORKS | Settings › Appearance, the "How much to show" control: Regular 2 cards / 16 controls, Advanced 11 / 54, Technical 11 / 54 with the level note changing each time |
 | 7.2 | Search finds settings | WORKS | the Search settings box: "lockdown" 11 cards → 5, "pet" → 2 and it opens Appearance, "read before" → 2 and it opens Assistant |
 | 7.3 | Accounts page | WORKS | Settings › Accounts: "Every sign-in and key Branch can use, which one answers, and what happens when one runs low" |
@@ -91,8 +91,8 @@ services on the owner's VM, which the brief puts off limits).
 | 9.6 | Secrets never echoed | NOT TESTED | |
 | 9.7 | The problem report redacts | WORKS | a canary secret was left in the workspace; `branch report --save report.zip` wrote 11 entries and the canary is in none of them |
 | 10.1 | `branch doctor` | WORKS | `branch doctor`: nine checks, all ok (saved data, workspace, device key, models, ChatGPT account, local models, channels, schedules, tasks waiting) |
-| 10.2 | A killed engine recovering | NOT TESTED | |
-| 10.3 | The daemon | NOT TESTED | |
+| 10.2 | A killed engine recovering | WORKS | `kill -9` on the engine; the port stopped answering, `branch doctor` then ran clean (the lock was released, 10 recent tasks still on record), and starting it again answered 200 with the same conversations |
+| 10.3 | The daemon | NOT TESTED | `branch daemon install` writes user-level services on the owner's VM, which the brief puts off limits; `branch daemon --help` and the install path were read instead |
 | 11.1 | Branch checks itself and reports (its claims) | NOT TESTED | |
 | 11.2 | Its claims checked against what I found | NOT TESTED | |
 
@@ -137,6 +137,33 @@ Models, Accounts, Voice, Permissions, Computer & browser, Secrets, Data & usage,
 Updates & about. `branch places` lists all thirteen. Small, but it is the sentence that tells a
 person what to expect. Repro: `node dist/cli.js help | grep settings` against
 `node dist/cli.js places | grep -c "^settings:"` (counting Models once).
+
+### B4 — every terminal command except `schedule` refuses while Branch is open
+
+With the app running (the ordinary state), each of these exits 1 and prints
+"Branch is already open and using the work saved in …, so this second Branch stopped rather than
+write to the same files":
+
+`doctor`, `status`, `logs`, `backup`, `security audit`, `activity verify`, `token`, `trace`,
+`sessions`, `memory`, `usage`, `settings`, `places`, `inbox`, `library`, `tools`, `skills`, `model`,
+`permissions`, `lockdown`, `theme`.
+
+Only `schedule` works, because `src/cli.ts:183` answers it before the workspace and the database are
+opened; `send` and `connect` are handled early for the same reason. Everything else falls through to
+`configuredApp(...)` on line 202, which takes the one-copy lock. Line 181 says of `schedule`: "These
+two talk to the engine that is already running and never start one of their own", and
+`src/cli-completion.ts` introduces the batch as "short-lived keys, schedules **over the running
+engine**, and one task's trace" — so `token` (`src/cli.ts:265`) and `trace` (line 279) were meant to
+work this way too and do not.
+
+What it costs: a person cannot check `branch doctor` while the window is open, cannot take a
+`branch backup` without quitting first, cannot read `branch memory` or open any of the
+terminal's own places beside the window, and — the sharpest one — cannot make a short-lived key for
+a script, which is the one moment a script needs one. There is no HTTP route that makes a key either
+(`/api/tokens`, `/api/keys`, `/api/session-tokens` are all 404), so with the app open the feature
+cannot be reached at all. Repro: `node dist/cli.js start` in one shell, then
+`node dist/cli.js doctor` (or `token create --scope read --minutes 10`) in another with the same
+`BRANCH_DATA_DIR`; exit 1 both times. Stop the engine and both work.
 
 ## What Branch said about itself
 
