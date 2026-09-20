@@ -302,6 +302,14 @@ argument:
 - **And the old behaviour was not honest.** `unattendedPlanAnswer()` ends "there was nobody to say
   yes while this task ran." Delivered to the person who has just written, that sentence is false.
 
+`docs/features.md:25` promises "a switch between \"just do it\" and \"show me the plan first\", with
+numbered steps in plain words and nothing that changes anything happening until you say yes". Both
+readings keep the second half; only this one keeps the first for a chat, where the person is shown
+the numbered steps and says yes. What the new test proves and what it does not: it drives
+`app.runtime.run({ source: "channel" })` directly, so it proves the *hold* — the write still stops
+and asks after the chat's "go ahead". It does not go through the router, so the narrowing to five
+read-only permissions is proved by `tests/chat-allowlist.test.mjs` (run, green), not by this test.
+
 So the two questions are two predicates, each with one reading. `nobodyToAsk` (the tests question)
 is untouched. `nobodyToAskAboutPlan` (Plan mode) is the same answer with a chat app removed, and
 says why in its own comment. `src/runtime.ts` uses the new one. Only two places call either.
