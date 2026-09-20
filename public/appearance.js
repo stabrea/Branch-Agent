@@ -3,6 +3,7 @@
    the voice buttons). Every change shows at once; Save keeps it for next time.
    The record matches PreferencesSchema in src/preferences.ts. */
 import { t } from "/i18n.js";
+import { switchControl, dropdown } from "/control-makers.js";
 
 export const defaultAppearance = {
   appearance: "forest",
@@ -73,11 +74,17 @@ export const changeAppearance = (patch) => change(patch);
 function render() {
   if (!$("appearance")) return;
   $("appearance").value = current.appearance;
-  $("appearance-follow").checked = current.followSystem;
+  if ($("appearance-follow")) $("appearance-follow").checked = current.followSystem;
   $("appearance").disabled = current.followSystem;
-  $("appearance-motion").checked = current.reduceMotion;
-  $("appearance-acorn").checked = current.showAcorn;
-  for (const [id, key] of SWITCHES) if ($(id)) $(id).checked = current[key];
+  if ($("appearance-motion")) $("appearance-motion").checked = current.reduceMotion;
+  if ($("appearance-acorn")) $("appearance-acorn").checked = current.showAcorn;
+  for (const [id, key] of SWITCHES) {
+    const el = $(id);
+    if (el && el.getAttribute("role") === "switch") {
+      el.checked = current[key];
+      el.setAttribute("aria-checked", String(current[key]));
+    }
+  }
   for (const [key, id] of Object.entries(GROUPS))
     for (const button of $(id).children)
       button.setAttribute("aria-pressed", String(button.value === current[key]));
@@ -134,20 +141,101 @@ export function initAppearance(save) {
   persist = save;
   for (const [key, id] of Object.entries(GROUPS))
     $(id).replaceChildren(...CHOICES[key].map(([value]) => choiceButton(key, value)));
+
+  // Convert appearance checkbox to switch if it exists as HTML
+  const followEl = $("appearance-follow");
+  if (followEl && followEl.tagName === "INPUT" && followEl.type === "checkbox") {
+    const wrapper = followEl.parentElement;
+    const sw = switchControl({
+      id: "appearance-follow",
+      checked: current.followSystem,
+      onChange: (checked) => change({ followSystem: checked }),
+    });
+    const label = document.createElement("label");
+    label.className = "check-row";
+    const span = document.createElement("span");
+    span.dataset.t = "appearance.followSystem";
+    span.textContent = t("appearance.followSystem");
+    label.append(sw, span);
+    wrapper?.replaceWith(label);
+  } else {
+    const sw = $("appearance-follow");
+    if (sw) sw.addEventListener("change", () =>
+      change({ followSystem: sw.checked }),
+    );
+  }
+
+  const motionEl = $("appearance-motion");
+  if (motionEl && motionEl.tagName === "INPUT" && motionEl.type === "checkbox") {
+    const wrapper = motionEl.parentElement;
+    const sw = switchControl({
+      id: "appearance-motion",
+      checked: current.reduceMotion,
+      onChange: (checked) => change({ reduceMotion: checked }),
+    });
+    const label = document.createElement("label");
+    label.className = "check-row";
+    const span = document.createElement("span");
+    span.dataset.t = "appearance.reduceMotion";
+    span.textContent = t("appearance.reduceMotion");
+    label.append(sw, span);
+    wrapper?.replaceWith(label);
+  } else {
+    const sw = $("appearance-motion");
+    if (sw) sw.addEventListener("change", () =>
+      change({ reduceMotion: sw.checked }),
+    );
+  }
+
+  const acornEl = $("appearance-acorn");
+  if (acornEl && acornEl.tagName === "INPUT" && acornEl.type === "checkbox") {
+    const wrapper = acornEl.parentElement;
+    const sw = switchControl({
+      id: "appearance-acorn",
+      checked: current.showAcorn,
+      onChange: (checked) => change({ showAcorn: checked }),
+    });
+    const label = document.createElement("label");
+    label.className = "check-row";
+    const span = document.createElement("span");
+    span.dataset.t = "appearance.showAcorn";
+    span.textContent = t("appearance.showAcorn");
+    label.append(sw, span);
+    wrapper?.replaceWith(label);
+  } else {
+    const sw = $("appearance-acorn");
+    if (sw) sw.addEventListener("change", () =>
+      change({ showAcorn: sw.checked }),
+    );
+  }
+
+  for (const [id, key] of SWITCHES) {
+    const el = $(id);
+    if (!el) continue;
+    if (el.tagName === "INPUT" && el.type === "checkbox") {
+      const wrapper = el.parentElement;
+      const sw = switchControl({
+        id,
+        checked: current[key],
+        onChange: (checked) => change({ [key]: checked }),
+      });
+      const label = document.createElement("label");
+      label.className = "check-row";
+      const span = document.createElement("span");
+      const tkey = id.replace(/-/g, ".").replace("appearance.", "appearance.");
+      span.dataset.t = tkey;
+      span.textContent = t(tkey);
+      label.append(sw, span);
+      wrapper?.replaceWith(label);
+    } else {
+      el.addEventListener("change", () => change({ [key]: el.checked }));
+    }
+  }
+
   $("appearance").addEventListener("change", () =>
     change({ appearance: $("appearance").value }),
   );
-  $("appearance-follow").addEventListener("change", () =>
-    change({ followSystem: $("appearance-follow").checked }),
-  );
-  $("appearance-motion").addEventListener("change", () =>
-    change({ reduceMotion: $("appearance-motion").checked }),
-  );
-  $("appearance-acorn").addEventListener("change", () =>
-    change({ showAcorn: $("appearance-acorn").checked }),
-  );
-  for (const [id, key] of SWITCHES)
-    $(id)?.addEventListener("change", () => change({ [key]: $(id).checked }));
+
   darkQuery?.addEventListener("change", () => {
     if (current.followSystem) applyAppearance(current);
   });
