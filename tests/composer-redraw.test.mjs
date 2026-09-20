@@ -19,14 +19,17 @@ async function fixture(t) {
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close();
+    await server.close();
+    await app.close();
     await rm(root, { recursive: true, force: true });
   });
 
   const page = await browser.newPage();
-  const url = `http://127.0.0.1:${server.port}`;
-  await page.goto(url);
-  await page.waitForLoadState("networkidle");
-  return { page, url };
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 30000 });
+  return { page };
 }
 
 test("composer text, caret, and selection survive 3-second refresh cycle", async (t) => {
