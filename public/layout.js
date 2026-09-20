@@ -443,8 +443,9 @@ function buildSettings() {
   }
 
   // DG-003: Add version line at the bottom of nav
+  // Note: Version is set dynamically in openSettings() to avoid hardcoding
   const verDiv = make("div", "lx-settings-version");
-  verDiv.textContent = "Branch Agent 0.18.1 · sample";
+  verDiv.id = "lx-settings-version";
   nav.append(verDiv);
 
   win.append(nav, body, close);
@@ -524,6 +525,11 @@ function openSettings(page) {
   if ($("workspace").hidden) return;
   $("settings-window").hidden = false;
   document.body.classList.add("lx-settings-open");
+  // DG-003: Update version line with real version (not hardcoded scaffolding)
+  if (typeof globalThis.state !== "undefined" && globalThis.state?.version) {
+    const verDiv = $("lx-settings-version");
+    if (verDiv) verDiv.textContent = `Branch Agent ${globalThis.state.version}`;
+  }
   showSettingsPage(page || settingsPage);
   $("lx-settings-search").value = "";
   searchSettings("");
