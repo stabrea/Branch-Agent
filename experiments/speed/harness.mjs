@@ -107,19 +107,35 @@ export async function measure({ steps, prompt, latencyMs = 200, options = {}, se
  * of instructions that changes throws the whole saving away.
  */
 export function prefixStability(requests) {
-  let sameTools = 0, sameSystem = 0;
+  let sameTools = 0, sameSystem = 0, dropped = 0, shared = 0;
   for (let at = 1; at < requests.length; at++) {
-    if (requests[at].tools === requests[at - 1].tools) sameTools++;
-    if (requests[at].system === requests[at - 1].system) sameSystem++;
+    const before = requests[at - 1], now = requests[at];
+    if (now.tools === before.tools) sameTools++;
+    if (now.system === before.system) sameSystem++;
+    // What a provider's cache can still use: how much of the tool section's bytes are the same
+    // bytes in the same places as last round. A tool inserted in the middle keeps everything
+    // before it; a tool taken away throws the lot from that point on.
+    shared += sharedPrefix(before.tools, now.tools) / Math.max(1, before.tools.length);
+    if (before.toolNames.some((name) => !now.toolNames.includes(name))) dropped++;
   }
   const rounds = Math.max(0, requests.length - 1);
   return {
     rounds,
     toolsUnchanged: sameTools,
     systemUnchanged: sameSystem,
+    toolsDropped: dropped,
+    sharedToolBytes: rounds ? shared / rounds : 1,
     toolsHitRate: rounds ? sameTools / rounds : 1,
     systemHitRate: rounds ? sameSystem / rounds : 1,
   };
+}
+
+/** How many leading characters two strings have in common. */
+function sharedPrefix(a, b) {
+  const limit = Math.min(a.length, b.length);
+  let at = 0;
+  while (at < limit && a.charCodeAt(at) === b.charCodeAt(at)) at++;
+  return at;
 }
 
 /** One line a person can read, for the status file and the console. */
@@ -130,5 +146,7 @@ export function line(name, result) {
     + `+ ${result.toolMs.toFixed(0)} ms tools (${share(result.toolMs)}) `
     + `+ ${result.overheadMs.toFixed(0)} ms Branch (${share(result.overheadMs)}); `
     + `tool list unchanged in ${result.prefix.toolsUnchanged}/${result.prefix.rounds} later rounds, `
+    + `a tool taken away in ${result.prefix.toolsDropped}, `
+    + `${(result.prefix.sharedToolBytes * 100).toFixed(0)}% of the tool bytes reusable, `
     + `instructions unchanged in ${result.prefix.systemUnchanged}/${result.prefix.rounds}`;
 }

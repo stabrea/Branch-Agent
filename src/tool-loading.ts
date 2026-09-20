@@ -103,6 +103,8 @@ export class ToolLoader {
   private readonly counts = new Map<string, number>();
   private readonly usedAt = new Map<string, number>();
   private readonly asked = new Set<string>();
+  /** Tools that have already travelled to the model in full in this task; see `plan()`. */
+  private readonly sent = new Set<string>();
   private readonly preloaded: PreloadedTool[];
   private readonly demoted: Set<string>;
   private readonly recentRounds: number;
@@ -274,11 +276,25 @@ export class ToolLoader {
     // best first, and are the ones the ceiling takes back if the section is still too heavy.
     const inUse = candidates.filter((hit) => this.justUsed(hit.entry));
     const others = candidates.filter((hit) => !this.justUsed(hit.entry));
-    const wanted = [...inUse, ...others.slice(0, Math.max(0, this.maxLoaded - inUse.length))];
+    // Which tools get a place is decided on merit exactly as it always was. What is new is the
+    // line after: a tool that has already travelled in full and did not win a place this round is
+    // put back on the end rather than dropped. Before this, the first edit of a task took the last
+    // free place and pushed whichever tool scored lowest out — eighteen tools went out, eighteen
+    // came back, one of them different — and every provider holding the front of the request had to
+    // read the whole thing again from that round on. There was no shortage of room when it
+    // happened: 1,362 tokens of the 2,500 the tool section is allowed. The count is a count of
+    // guesses worth making, not a reason to take away a tool the task has already been shown.
+    // Kept tools go last, so the token budget in `fit` — the ceiling the model actually feels —
+    // takes them back first if the section really is too heavy.
+    const onMerit = others.slice(0, Math.max(0, this.maxLoaded - inUse.length));
+    const chosen = new Set([...inUse, ...onMerit].map((hit) => hit.entry.name));
+    const kept = others.filter((hit) => this.sent.has(hit.entry.name) && !chosen.has(hit.entry.name));
+    const wanted = [...inUse, ...onMerit, ...kept];
     // Only tools the words of the request actually point at are worth a line; the rest are a
     // search away, and saying so once costs less than naming forty tools nobody asked about.
     const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)).map((hit) => hit.entry);
     const plan = this.fit(core, wanted.map((hit) => hit.entry), listable, rest.length);
+    for (const entry of plan.loaded) this.sent.add(entry.name);
     this.cached = { at: this.version, plan };
     return plan;
   }
