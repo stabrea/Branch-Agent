@@ -15,7 +15,7 @@ Design note (approved by the coordinator, "GO"): `docs/agents/SPEED-DESIGN.md`.
 - [x] E. A coding task starts with the tools it needs, and no one toolbox takes every place
 - [x] B. The assistant is told it may ask for several independent things at once
 - [x] C. `files.read_many` — several files in one call, each through the same checks
-- [ ] A. Independent read-only calls in one turn run concurrently
+- [x] A. Independent read-only calls in one turn run concurrently
 - [ ] Measure B on a real model (Ollama on taofik-ai, after window8 finishes ~03:00-03:30 UTC)
 - [ ] Merge latest trunk, rebuild, retest, push
 
@@ -99,3 +99,78 @@ node experiments/speed/run.mjs --json out.jsonl
   rows say what a removed turn is worth.
 
 It costs nothing and touches no network, so it can be run as often as you like.
+
+## What each item is worth, measured on this branch
+
+Every number below comes from `experiments/speed/` against this branch's `dist/`, with no network
+and no real model. Nothing here is estimated, and nothing is claimed that these runs do not show.
+
+### E — a coding task starts with the tools it needs (`catalog-probe.mjs`)
+
+Over five ordinary coding requests, how many of the six tools a coding task needs before it can
+begin (`files.read`, `grep`, `list`, `glob`, `edit`, `write`) were a search away:
+
+| | working-set places needing a search first |
+|---|---|
+| before this branch | 17 of 30 |
+| share-out alone (no switch) | 14 of 30 |
+| with `fewer-rounds` on | **1 of 30** |
+
+The worst request, "Add a --verbose flag to the command line and document it in the README", opened
+the code and the documents toolboxes and was shown **none** of the six: documents tools won all
+twelve places. Sharing the places among the guessed boxes lifts that off the floor on its own;
+pre-loading the working set fixes it.
+
+Each of those places is at least one whole round trip the task spends finding a tool instead of
+working — and a round trip is 88–94% of the clock.
+
+### A — look-only calls in one turn run together (`parallel.mjs`)
+
+One reply asking for eight files, middle of five runs each way, 200 ms pretend round trip:
+
+| | as it ships | `fewer-rounds` on |
+|---|---|---|
+| tools on the clock | 20 ms | **14 ms** |
+| tools added up | 20 ms | 85 ms (higher on purpose — eight reads contend for one disk) |
+| Branch's own code | 75 ms | 60 ms |
+| the whole turn | 506 ms | 486 ms |
+| calls run together | 0 | 8, in one group |
+
+**Said plainly: on local file reads this is worth a few percent of a turn, and no more.** A read is
+a millisecond or two, so there is little to overlap. What A really buys is the case the harness
+cannot fake cheaply — a turn holding two commands that each take two seconds costs four seconds one
+after another and two together. It is a structural change whose payoff is in proportion to how slow
+the tools are, and the honest local number is the one above.
+
+### D — nothing is taken off the tool list mid-task (`run.mjs`)
+
+The `rename` task took a tool away in 1 of 8 later rounds before, **0 after**; the count and the
+token budget are unchanged. When `files.edit` arrives the list now grows by one instead of trading
+`workspace.redo` away, so a provider holding the front of the request keeps it.
+
+### B — the line inviting the model to batch
+
+**Not measured on a real model here**, and not claimed. What is measured is what a removed turn is
+worth (the table in section 0: 33–55% of the clock across three tasks). Pi, which gets 6 rounds out
+of the same model where Branch takes 9–10, says **nothing** about batching in its own instructions
+(`dist/core/system-prompt.js` on the VM) — its short turn count comes from a tiny tool set that is
+always loaded and from `bash`, which does several things in one call. So the evidence for B is
+weaker than for E and C, and it is one line of about twenty tokens. The turn count before and after
+needs Ollama on taofik-ai; that measurement is queued behind window8.
+
+## Two things worth reporting rather than fixing here
+
+1. **Branch can strand a task at its round ceiling exactly as Hermes did.** `conductor.maxRounds(12)`
+   throws `BudgetError("Maximum 12 model rounds reached")`, and the task ends with that sentence
+   instead of an answer. Branch used 9–10 rounds on the *simplest* bench task on the plan, so the
+   margin is one or two rounds. Seen for real in this session: two existing tests in
+   `tests/coding-next.test.mjs` failed with exactly that message while a catalog change was wrong,
+   rather than with anything that said what had gone wrong. Everything on this branch pushes the
+   round count *down*, which helps, but the ceiling itself is still a cliff. Suggested, not built: at
+   the last round, ask the model for its best answer from the work so far rather than throwing.
+2. **A group may not hold two calls about the same thing**, which is what the design note promised
+   and what is built. The measured cost: four `files.grep` calls over the same folder do **not** run
+   together (same tool, same target), while four reads of four files do. The restriction guards
+   against two calls racing for one "just this once" yes. That race in fact fails closed already
+   (the loser is asked again), so this could be relaxed for look-only calls — an owner/integrator
+   decision, not one to make quietly.

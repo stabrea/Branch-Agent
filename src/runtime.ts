@@ -51,7 +51,7 @@ import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next
-import { codingPreload, batchingInstructions } from "./coding/fewer-rounds.js"; // mac7/speed
+import { codingPreload, batchingInstructions, fewerRoundsOn, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
 import { canonicalArguments } from "./loop-guard.js";
@@ -316,6 +316,8 @@ export class Runtime {
   /** R17-050: keeps a Claude connection's prompt cache warm during a pause, when the owner asked. */
   private warmCache?: KeepAlive;
   get keepAlive(): KeepAlive { return (this.warmCache ??= new KeepAlive(this.store)); }
+  /** mac7/speed: rate checks queue behind one another, so the per-minute limits stay exact. */
+  private pacing: Promise<void> = Promise.resolve();
   /** R17-S09: the task each running run's spending counts against, and every run in that task, kept while any of them runs. */
   private readonly spendRoot = new Map<string, string>();
   private readonly spendMembers = new Map<string, Set<string>>();
@@ -1358,22 +1360,59 @@ ${run.output.slice(0, 6000)}`;
         this.noteWork(run, call);
         catalog.noteUse(call.name);
         this.rememberToolWork(run.id, call.name, round + 1);
-        // mac3/never-break: each call is written to the task journal, flushed, before it runs.
-        const result = await this.journal.around({ runId: run.id, sessionId: run.sessionId, call, workspace: context.workspace, signal: context.signal,
-          permission: this.registry.permissionOf(call.name) }, () => {
-          // hardening-3: the loop guard compares the call as the tool will run it, so a changing junk key is still a repeat.
-          const prepared = this.prepareCall(call);
-          return this.guards.call(run.id, { ...call, arguments: prepared.seenText }, () => this.callTool(call, context, prepared));
-        }); // wave mac2 (guards)
-        const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
-        messages.push(message); ids.push(null);
-        this.store.message(run.sessionId, message);
-        await this.showPicture(run, messages, ids, result, route);
+      }
+      // mac7/speed: with "fewer rounds" on, calls in this reply that only look at things and are
+      // about different things go at the same time; everything else runs alone, in its own place.
+      // Results are written down in the order the model asked for them either way.
+      for (const group of this.callGroups(context, completion.toolCalls)) {
+        if (group.length > 1) this.store.event(run.id, "tools.together", { round: round + 1, calls: group.map((call) => call.name) });
+        const results = group.length === 1
+          ? [await this.oneCall(run, context, group[0]!)]
+          : await Promise.all(group.map((call) => this.oneCall(run, context, call)));
+        for (const [at, result] of results.entries()) {
+          const call = group[at]!;
+          const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
+          messages.push(message); ids.push(null);
+          this.store.message(run.sessionId, message);
+          await this.showPicture(run, messages, ids, result, route);
+        }
       }
       this.orchestration.milestone(run, round + 1);
       this.guards.afterRound(run.id); // wave mac2 (guards): ends a task that keeps repeating itself
     }
     throw new BudgetError(conductor.maxRounds(12) === 12 ? "Maximum 12 model rounds reached" : `Maximum ${conductor.maxRounds(12)} model rounds reached`);
+  }
+  /**
+   * mac7/speed: one tool call, from the journal entry to the result. This is exactly the path a
+   * call took when calls ran one after another — its own journal entry, its own loop guard, its own
+   * permission check, approval, wall and deadline — lifted out so that several of them can be
+   * waited on at once. Nothing is shared between two calls but the clock.
+   */
+  private oneCall(run: Run, context: ToolContext, call: ToolCall): Promise<unknown> {
+    // mac3/never-break: each call is written to the task journal, flushed, before it runs.
+    return this.journal.around({ runId: run.id, sessionId: run.sessionId, call, workspace: context.workspace, signal: context.signal,
+      permission: this.registry.permissionOf(call.name) }, () => {
+      // hardening-3: the loop guard compares the call as the tool will run it, so a changing junk key is still a repeat.
+      const prepared = this.prepareCall(call);
+      return this.guards.call(run.id, { ...call, arguments: prepared.seenText }, () => this.callTool(call, context, prepared));
+    }); // wave mac2 (guards)
+  }
+  /**
+   * Which of a reply's calls may go at the same time. With the "fewer rounds" part off this is one
+   * call per group, which is the loop exactly as it was. The rules themselves are in
+   * src/coding/fewer-rounds.ts; what this adds is where the answers come from — the registry's own
+   * permission for the tool, and the same `policyTarget` the rules and the approval card use, so a
+   * call about one thing is never run beside another about the same thing.
+   */
+  private callGroups(context: ToolContext, calls: readonly ToolCall[]): ToolCall[][] {
+    if (calls.length < 2 || !fewerRoundsOn(this.store, context.owner)) return calls.map((call) => [call]);
+    return parallelGroups(calls, {
+      readOnly: (name) => isReadOnlyPermission(this.registry.permissionOf(name)),
+      targetOf: (call) => this.registry.targetOf(call.name, safeArguments(call.arguments), context),
+      // Asking the person something, and the four tools that change what the next round is shown,
+      // each need the rounds before and after them to be settled, so they never share a group.
+      alone: [...aloneTools],
+    });
   }
   /** Adds a message to the working context and to the stored transcript, so nothing is lost later. */
   private add(run: Run, messages: Message[], ids: (number | null)[], message: Message | null): void {
@@ -2490,8 +2529,19 @@ ${run.output.slice(0, 6000)}`;
     await sleepFor(wait, context.signal);
     this.store.event(context.runId, "rate.resumed", { kind: "session" });
   }
+  /**
+   * mac7/speed: the limit is read and then written down, so two calls running at the same time
+   * could both find room where there was room for one. Each check waits for the one before it, which
+   * makes reading and recording a single step again and keeps the per-minute limit exact. A check
+   * that throws (the task was stopped) does not hold up the next one.
+   */
   private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
     if (!limit) return;
+    const mine = this.pacing.then(() => this.paceNow(context, kind, limit));
+    this.pacing = mine.catch(() => undefined);
+    return mine;
+  }
+  private async paceNow(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
     const key = kind + ":" + this.sessionOf(context);
     const wait = this.rates.waitMs(key, limit);
     if (wait > 0) {
@@ -3002,6 +3052,20 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
 }
 
 /** mac7/coding-next: the one line a model is told when some of its arguments were not used. */
+/**
+ * mac7/speed: tools that always run on their own, even though they only look at things.
+ *
+ * The four catalog tools change what the next round is shown, so a round with one of them in it
+ * must settle before the next begins. `user.ask` stops and waits for a person: it is nobody's idea
+ * of something to do in the background beside four file reads.
+ */
+const aloneTools = [expandToolName, toolSearchName, toolDescribeName, toolNoteName, "user.ask"] as const;
+
+/** A call's arguments as an object, or nothing when they are not valid JSON (the tool refuses them later). */
+function safeArguments(text: string): unknown {
+  try { return JSON.parse(text); } catch { return {}; }
+}
+
 /** hardening-3: how long a model on this computer has been waited for in this round, and whether it was tried again. */
 interface LocalFirstReply { started: number; retried: boolean; capMs?: number | undefined }
 /** hardening-3: a model's call as the runtime reads it once (see `Runtime.prepareCall`). */

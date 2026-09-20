@@ -54,4 +54,35 @@ export const rename = {
   ],
 };
 
-export const tasks = [fixRange, rename];
+/**
+ * The same shape again, but over a project big enough that the tools themselves take real time.
+ * On small files a tool call is a millisecond or two and running calls one after another costs
+ * nothing worth measuring; this is the row that says what running them together is worth. Its
+ * `seed` builds a 300-file project, so a grep over it is tens of milliseconds rather than one.
+ */
+export const searchProject = {
+  name: "search-project",
+  prompt: "Find where the version, the defaults, the exports and the helpers live in this project.",
+  seed: async (workspace) => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    await mkdir(join(workspace, "src"), { recursive: true });
+    for (let n = 0; n < 300; n++)
+      await writeFile(join(workspace, "src", `f${n}.js`),
+        `// file ${n}\nexport const version = "1.0.${n}";\nexport const defaults = { n: ${n} };\n`.repeat(40));
+  },
+  perCall: [
+    step([["files.grep", { query: "version", path: "src" }]]),
+    step([["files.grep", { query: "defaults", path: "src" }]]),
+    step([["files.grep", { query: "export", path: "src" }]]),
+    step([["files.grep", { query: "file", path: "src" }]]),
+    answer("Found them."),
+  ],
+  batched: [
+    step([["files.grep", { query: "version", path: "src" }], ["files.grep", { query: "defaults", path: "src" }],
+          ["files.grep", { query: "export", path: "src" }], ["files.grep", { query: "file", path: "src" }]]),
+    answer("Found them."),
+  ],
+};
+
+export const tasks = [fixRange, rename, searchProject];

@@ -291,9 +291,15 @@ export class ToolLoader {
     // one. The count is then shared among the toolboxes the guesses come from, so no single box can
     // take every remaining place (see `shareOut`).
     const requested = others.filter((hit) => this.asked.has(hit.entry.name));
-    const guesses = others.filter((hit) => !this.asked.has(hit.entry.name));
+    const rest2 = others.filter((hit) => !this.asked.has(hit.entry.name));
+    // A toolbox the assistant opened for itself is an explicit ask too, so its tools fill the
+    // places in score order exactly as they did before. Only the boxes the *product* guessed from
+    // the words of the request share what is left, so no guess can take every place.
+    const opened = rest2.filter((hit) => this.openedGroups.has(hit.entry.group));
+    const guesses = rest2.filter((hit) => !this.openedGroups.has(hit.entry.group));
     const room = Math.max(0, this.maxLoaded - inUse.length - requested.length);
-    const onMerit = [...requested, ...shareOut(guesses, room)];
+    const fromOpened = opened.slice(0, room);
+    const onMerit = [...requested, ...fromOpened, ...shareOut(guesses, Math.max(0, room - fromOpened.length))];
     const chosen = new Set([...inUse, ...onMerit].map((hit) => hit.entry.name));
     const kept = others.filter((hit) => this.sent.has(hit.entry.name) && !chosen.has(hit.entry.name));
     const wanted = [...inUse, ...onMerit, ...kept];

@@ -67,3 +67,50 @@ export const batchingNote =
 /** That line, when the part is on; nothing at all when it is off. */
 export const batchingInstructions = (store: Pick<Store, "get">, owner: string): string =>
   fewerRoundsOn(store, owner) ? batchingNote : "";
+
+/** The most calls that may run at the same time, so one reply cannot open fifty things at once. */
+export const parallelLimit = 8;
+
+export interface CallLike { id: string; name: string; arguments: string }
+export interface GroupingRules {
+  /** Whether this tool only looks at things — `isReadOnlyPermission` of its permission. */
+  readOnly(name: string): boolean;
+  /** What the call would touch, in the form the rules match against. Two calls in one group never share one. */
+  targetOf(call: CallLike): string;
+  /** Tools that must run alone because they change what the next round is shown. */
+  alone: readonly string[];
+}
+
+/**
+ * Splits a reply's tool calls into runs that may go at the same time.
+ *
+ * A call may share a run only when it **only looks at things** (so nothing it does can depend on,
+ * or be undone by, what another call in the run does), it is not one of the tools that change what
+ * the next round is shown, and nothing else in the run is about the same thing. Everything else is
+ * a run of its own, left exactly where it was, so a read and a later change never swap places and
+ * the conversation reads as it always did.
+ *
+ * Distinct targets matter for more than tidiness: a "just this once" yes is remembered by tool and
+ * target, so two calls about the same thing could race for one pass. They cannot be in one run.
+ *
+ * Nothing here decides whether a call is allowed. Every call still goes through its own journal
+ * entry, its own loop guard, its own permission check, approval, wall and deadline, exactly as it
+ * does one at a time; the only thing shared is the clock.
+ */
+export function parallelGroups<T extends CallLike>(calls: readonly T[], rules: GroupingRules): T[][] {
+  const groups: T[][] = [];
+  let open: T[] = [];
+  const targets = new Set<string>();
+  const flush = (): void => { if (open.length) groups.push(open); open = []; targets.clear(); };
+  for (const call of calls) {
+    const target = rules.targetOf(call);
+    const shareable = rules.readOnly(call.name) && !rules.alone.includes(call.name)
+      && !targets.has(target) && open.length < parallelLimit;
+    if (!shareable) flush();
+    if (!rules.readOnly(call.name) || rules.alone.includes(call.name)) { groups.push([call]); continue; }
+    open.push(call);
+    targets.add(target);
+  }
+  flush();
+  return groups;
+}

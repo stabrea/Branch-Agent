@@ -22,7 +22,8 @@ const rows = [];
 
 for (const task of tasks) {
   for (const shape of ["perCall", "batched"]) {
-    const result = await measure({ steps: task[shape], prompt: task.prompt, latencyMs });
+    const result = await measure({ steps: task[shape], prompt: task.prompt, latencyMs,
+      ...(task.seed ? { seed: task.seed } : {}), ...(task.options ? { options: task.options } : {}) });
     if (result.status !== "completed") throw new Error(`${task.name}/${shape} ended ${result.status}: ${result.output}`);
     rows.push({ task: task.name, shape, latencyMs, ...trimmed(result) });
     console.log(line(`${task.name} / ${shape}`, result));

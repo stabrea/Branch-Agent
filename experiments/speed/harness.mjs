@@ -67,7 +67,7 @@ export async function seedWorkspace(workspace) {
  * to neither the model nor a tool: catalog building, the policy checks, store writes, fitting the
  * context, the journal — everything Branch does between one thing finishing and the next starting.
  */
-export async function measure({ steps, prompt, latencyMs = 200, options = {}, seed = seedWorkspace }) {
+export async function measure({ steps, prompt, latencyMs = 200, options = {}, seed = seedWorkspace, before }) {
   const root = await mkdtemp(join(tmpdir(), "branch-speed-"));
   const workspace = join(root, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -75,6 +75,8 @@ export async function measure({ steps, prompt, latencyMs = 200, options = {}, se
   const provider = scriptedProvider(steps, latencyMs);
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider, ...options });
   try {
+    // A chance to switch something on before the clock starts (the "fewer rounds" part, say).
+    await before?.(app);
     const started = process.hrtime.bigint();
     const run = await app.runtime.run({ prompt });
     const wallMs = Number(process.hrtime.bigint() - started) / 1e6;
@@ -83,14 +85,20 @@ export async function measure({ steps, prompt, latencyMs = 200, options = {}, se
       .reduce((total, s) => total + Math.max(0, ms(s.endedAt) - ms(s.startedAt)), 0);
     const modelSpanMs = spent("model");
     const toolMs = spent("tool");
+    // How long the tools took on the clock, rather than added up: when calls run together the two
+    // differ, and the difference is exactly what running them together saved.
+    const toolWallMs = union(spans.filter((s) => s.kind === "tool" && s.endedAt));
+    const together = app.store.events(run.id).filter((e) => e.kind === "tools.together").map((e) => e.data);
     return {
       status: run.status,
       output: run.output,
       modelCalls: provider.requests.length,
       toolCalls: spans.filter((s) => s.kind === "tool").length,
-      wallMs, modelSpanMs, toolMs,
+      wallMs, modelSpanMs, toolMs, toolWallMs,
+      groupsRunTogether: together.length,
+      callsRunTogether: together.reduce((total, one) => total + one.calls.length, 0),
       modelWaitMs: provider.modelMs,
-      overheadMs: Math.max(0, wallMs - modelSpanMs - toolMs),
+      overheadMs: Math.max(0, wallMs - modelSpanMs - toolWallMs),
       latencyMs,
       prefix: prefixStability(provider.requests),
       requests: provider.requests,
@@ -130,6 +138,17 @@ export function prefixStability(requests) {
   };
 }
 
+/** How much clock a set of spans covers between them, counting an overlap once. */
+function union(spans) {
+  const ranges = spans.map((s) => [ms(s.startedAt), ms(s.endedAt)]).sort((a, b) => a[0] - b[0]);
+  let total = 0, from = -1, to = -1;
+  for (const [start, end] of ranges) {
+    if (start > to) { total += Math.max(0, to - from); from = start; to = end; }
+    else to = Math.max(to, end);
+  }
+  return total + Math.max(0, to - from);
+}
+
 /** How many leading characters two strings have in common. */
 function sharedPrefix(a, b) {
   const limit = Math.min(a.length, b.length);
@@ -143,7 +162,8 @@ export function line(name, result) {
   const share = (value) => `${((value / result.wallMs) * 100).toFixed(0)}%`;
   return `${name}: ${result.modelCalls} model calls, ${result.toolCalls} tool calls, `
     + `${result.wallMs.toFixed(0)} ms wall = ${result.modelSpanMs.toFixed(0)} ms model (${share(result.modelSpanMs)}) `
-    + `+ ${result.toolMs.toFixed(0)} ms tools (${share(result.toolMs)}) `
+    + `+ ${result.toolWallMs.toFixed(0)} ms tools on the clock of ${result.toolMs.toFixed(0)} ms added up `
+    + `(${result.callsRunTogether} calls in ${result.groupsRunTogether} groups ran together) `
     + `+ ${result.overheadMs.toFixed(0)} ms Branch (${share(result.overheadMs)}); `
     + `tool list unchanged in ${result.prefix.toolsUnchanged}/${result.prefix.rounds} later rounds, `
     + `a tool taken away in ${result.prefix.toolsDropped}, `
