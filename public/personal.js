@@ -7,6 +7,7 @@
    settings:voice          The spoken briefing, and saying yes aloud                                  */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -55,7 +56,7 @@ function row(...children) {
 /** Runs a request and reports its answer or its refusal in the card's status line. */
 const attempt = (status, work) => async () => { try { await work(); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"], ["on", "field.switch-on", "On"]];
 const PARTS = {
   "chat-files": ["personal.part.chatFiles", "Sending files into your chats"],
   "home-control": ["personal.part.home", "Looking at and controlling Home Assistant"],
@@ -70,20 +71,18 @@ const PARTS = {
 };
 
 function switchFor(part, modes, status) {
-  const select = document.createElement("select");
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === modes[part];
-    select.append(option);
-  }
-  select.addEventListener("change", attempt(status, async () => {
-    await api("personal/switch", { part, mode: select.value });
-    done(status);
-    await drawCards();
-  }));
+  const control = segmented({
+    id: `personal-switch-${part}`,
+    options: POSITIONS,
+    value: modes[part],
+    onChange: attempt(status, async () => {
+      await api("personal/switch", { part, mode: control.value });
+      done(status);
+      await drawCards();
+    })
+  });
   const [key, english] = PARTS[part];
-  return labelled(`personal-switch-${part}`, key, english, select);
+  return labelled(`personal-switch-${part}`, key, english, control);
 }
 
 function card(id, home, titleKey, title, purposeKey, purpose) {
@@ -241,13 +240,8 @@ async function tunnelCard(modes) {
     node.append(make("p", "field-note", "personal.tunnel.warning",
       "While it runs, anyone on the internet who learns the address can reach your webhook addresses. Each one still checks its own signature. Stop it when you do not need it."));
     const view = await api("personal/tunnel");
-    const program = document.createElement("select");
-    for (const name of ["cloudflared", "tailscale", "ngrok"]) {
-      const option = plain("option", name);
-      option.value = name;
-      option.selected = view.settings.program === name;
-      program.append(option);
-    }
+    const programs = [["cloudflared", "cloudflared"], ["tailscale", "tailscale"], ["ngrok", "ngrok"]];
+    const program = dropdown({ id: "personal-tunnel-program-select", options: programs, value: view.settings.program });
     const path = input(view.settings.executable);
     const address = view.status.address ?? say("personal.tunnel.none", "Not running.");
     node.append(...labelled("personal-tunnel-program", "personal.tunnel.program", "Tunnel program you installed", program),
