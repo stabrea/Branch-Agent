@@ -8,6 +8,7 @@
    customize:skills   How often each skill is used, and merging look-alikes */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -67,7 +68,7 @@ function button(id, [key, english], [hintKey, hint], handler) {
   return [node, note];
 }
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"], ["on", "field.switch-on", "On"]];
 const SWITCH_HINT = ["lmore.switch.hint", "Off refuses; only when needed offers its tools when the work calls for them; on uses it from the start."];
 
 function card(id, home, part, state, [titleKey, title], [purposeKey, purpose]) {
@@ -77,10 +78,9 @@ function card(id, home, part, state, [titleKey, title], [purposeKey, purpose]) {
   node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
-  const control = select(POSITIONS, state.modes[part]);
-  control.addEventListener("change", async () => {
-    try { await api("learning-more/switch", { part, mode: control.value }); done(status); await drawCards(); } catch (error) { tell(status, error); }
-  });
+  const control = segmented({ id: `lmore-switch-${part}`, options: POSITIONS, value: state.modes[part], onChange: async (value) => {
+    try { await api("learning-more/switch", { part, mode: value }); done(status); await drawCards(); } catch (error) { tell(status, error); }
+  } });
   node.append(...described(`lmore-switch-${part}`, ["lmore.switch.label", "Use it"], SWITCH_HINT, control));
   return { node, status, on: state.modes[part] !== "off" };
 }
