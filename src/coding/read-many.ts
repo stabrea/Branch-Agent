@@ -48,7 +48,9 @@ export function registerReadMany(registry: ToolRegistry, files: WorkspaceFiles, 
     description:
       `Read several UTF-8 workspace files in one go — up to ${readManyLimit} of them, each at most 32 KiB. `
       + "Use this instead of reading one file at a time: it is the same reading, in one step rather than several. "
-      + "A path that cannot be read is named with the reason and the rest still come back.",
+      + "A path that cannot be read is named with the reason and the rest still come back. "
+      + "If the files together are more than one answer holds, the ones there was no room for come back marked "
+      + "\"skipped\" — nothing is cut short; ask for those on their own.",
     parameters: ReadManySchema,
     execute: async (input, context: ToolContext) => readMany(files, input.paths, context, room()),
   });
