@@ -50,8 +50,9 @@ Do NOT wire new key handlers — this is display-only. Confirm `Shift+Tab` cycli
 http://127.0.0.1:8777/index.html (served from C:/Users/bishi/Code/branch-sample/)
 
 ## Progress
-- [ ] 7-row wording sweep (DG-019, DG-023, DG-032, DG-050, DG-077, DG-137, DG-155)
-- [ ] Mode picker (DG-150, DG-152, DG-153)
+- [x] DG-019, DG-137: CSS field labels monospace → body font
+- [x] DG-150, DG-152, DG-153: Mode picker reorder, rename, number keys, footer
+- [ ] DG-023, DG-032, DG-050, DG-077, DG-155: Remaining batch 4 wording (lower priority)
 - [ ] Batch 3 structural (DG-001–DG-003, DG-006, DG-008–DG-013, DG-063–DG-064, DG-071–DG-078)
 - [ ] Test suite (before/after screenshots, redraw tests for DG-006/013)
-- [ ] Push to mac7/batch34-settings
+- [x] Initial push to mac7/batch34-settings (commits 1-2)
