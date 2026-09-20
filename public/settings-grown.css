@@ -503,8 +503,8 @@
 @media (max-width: 1199.98px) {
   .sg-mirrors {
     position: sticky;
-    /* The Settings page's own top padding (28px, public/layout.css) plus one, so nothing shows above the strip. */
-    top: -29px;
+    /* Cancel the Settings body's 34px top padding, so no half row of tiles shows above the strip. */
+    top: -34px;
     z-index: 2;
     margin: 0 0 14px;
     padding: 8px 0;
