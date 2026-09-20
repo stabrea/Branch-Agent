@@ -1,0 +1,111 @@
+/* Batch 1: Control styles from control-makers.js
+   - Switch: styled checkbox input with role="switch"
+   - Segmented: button group with aria-pressed states
+   - Glass dropdown: select with glass class for glass-select.js
+*/
+
+/* ---------- Toggle switch (role="switch") ---------- */
+input[type="checkbox"][role="switch"] {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border-radius: 12px;
+  background: var(--line-2, #e0e0e0);
+  border: 1px solid var(--line-2, #e0e0e0);
+  cursor: pointer;
+  margin: 0;
+  transition: background 0.15s, border-color 0.15s;
+  vertical-align: middle;
+}
+
+input[type="checkbox"][role="switch"]::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s;
+}
+
+input[type="checkbox"][role="switch"]:checked {
+  background: var(--accent, #D8612A);
+  border-color: var(--accent, #D8612A);
+}
+
+input[type="checkbox"][role="switch"]:checked::before {
+  transform: translateX(16px);
+}
+
+input[type="checkbox"][role="switch"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input[type="checkbox"][role="switch"]:focus-visible {
+  outline: 2px solid var(--accent, #D8612A);
+  outline-offset: 2px;
+}
+
+/* ---------- Segmented control (button group) ---------- */
+.segmented-control {
+  display: inline-flex;
+  gap: 0;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--press, #f0f0f0);
+  border: 1px solid var(--line-2, #d0d0d0);
+}
+
+.segmented-control .segmented-option {
+  flex: 1;
+  min-width: 80px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2, #666);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.segmented-control .segmented-option:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.segmented-control .segmented-option[aria-pressed="true"] {
+  background: var(--surface, #fff);
+  color: var(--text, #000);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.segmented-control .segmented-option:focus-visible {
+  outline: 2px solid var(--accent, #D8612A);
+  outline-offset: -2px;
+}
+
+/* ---------- Range inputs (sliders) ---------- */
+input[type="range"] {
+  accent-color: var(--accent, #D8612A);
+}
+
+/* Webkit browsers */
+input[type="range"]::-webkit-slider-thumb {
+  accent-color: var(--accent, #D8612A);
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-thumb {
+  accent-color: var(--accent, #D8612A);
+}
