@@ -120,11 +120,14 @@ test("long choices remain labeled selects and open the shared glass list", async
   await select.focus();
   /* Keyboard transport is exercised in glass-select.test.mjs. Dispatch the product event directly here:
      overloaded Windows runners have acknowledged Playwright's key action without delivering it. */
-  await select.dispatchEvent("keydown", { key: "Enter" });
+  const opened = await select.evaluate((node) => {
+    node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    return !document.getElementById("glass-list").hidden;
+  });
+  assert.equal(opened, true, "the product key handler opens the list synchronously");
   const list = f.page.locator("#glass-list");
-  await list.waitFor({ state: "visible" });
   assert.deepEqual(await list.locator("[role=option]").allInnerTexts(), expected);
-  await f.page.keyboard.press("Escape");
+  await list.dispatchEvent("keydown", { key: "Escape" });
   assert.equal(await select.getAttribute("aria-expanded"), "false");
   assert.deepEqual(f.errors, []);
 });

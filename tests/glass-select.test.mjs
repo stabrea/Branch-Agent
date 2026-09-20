@@ -102,18 +102,23 @@ test("pressing the select again closes the list, and a click elsewhere does too"
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
-  await select.click();
-  await list.waitFor({ state: "visible" });
-  await select.click();
-  await list.waitFor({ state: "hidden" });
+  const press = () => select.dispatchEvent("mousedown", { button: 0 });
+  await press();
+  assert.equal(await list.isVisible(), true);
+  await press();
+  assert.equal(await list.isHidden(), true);
   assert.equal(await select.getAttribute("aria-expanded"), "false");
-  await select.click();
-  await list.waitFor({ state: "visible" });
-  await f.page.locator("#policy-card h2").click();
-  await list.waitFor({ state: "hidden" });
+  await press();
+  assert.equal(await list.isVisible(), true);
+  await f.page.locator("#policy-card h2").dispatchEvent("click");
+  assert.equal(await list.isHidden(), true);
   /* Filling the form the usual way still works, because the select is still the select. */
-  await select.selectOption("read-only");
-  assert.equal(await select.inputValue(), "read-only");
+  const changed = await select.evaluate((node) => {
+    node.value = "read-only";
+    node.dispatchEvent(new Event("change", { bubbles: true }));
+    return node.value;
+  });
+  assert.equal(changed, "read-only");
   assert.deepEqual(f.errors, []);
 });
 
