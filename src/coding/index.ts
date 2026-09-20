@@ -15,7 +15,6 @@ import { LargeOutputs, registerLargeOutput } from "./large-output.js";
 import { Mentions } from "./mentions.js";
 import { registerNotebooks } from "./notebooks.js";
 import { registerReadMany } from "./read-many.js"; // mac7/speed
-import { codeRunSettings } from "../code-run.js"; // mac7/speed
 import { PathRules, registerPathRules } from "./path-rules.js";
 import { ReviewChecks, registerReviewChecks } from "./review-checks.js";
 import { spawnProgram, type ProgramRunner } from "./runner.js";
@@ -115,29 +114,10 @@ export class Coding implements CodingHooks {
       const once = await this.mentions.note(run.prompt, context).catch(() => null);
       if (once) notes.once = once;
     }
-    // mac7/speed: say once, before the first round, that nothing can be run here. In the five-way
-    // window eight rounds across twelve tasks were spent calling the project's check and being told
-    // it could not run — a whole round trip each time, to learn something the task could have been
-    // told at the start. Only when it is really true, and never for a task that can run things.
-    if (round === 0 && !codeRunSettings(store, owner).enabled) {
-      const line = { role: "system" as const, content: cannotRunNote };
-      notes.once = notes.once ? { ...notes.once, content: `${notes.once.content}
-
-${cannotRunNote}` } : line;
-    }
     const parts = [this.checklists.roundNote(run.sessionId), await this.rules.roundNote(run.id)].filter((note) => note !== null);
     if (parts.length) notes.every = { role: "system", content: parts.map((note) => note.content).join("\n\n") };
     return notes;
   }
 }
-
-/**
- * mac7/speed: what a task is told at the start when this computer will not run anything for it.
- * Plain, short, and it says what to do instead rather than only what is refused.
- */
-export const cannotRunNote =
-  "Running commands, scripts and this project's tests is switched off on this computer, so do not "
-  + "try: you will only be refused. Work from the files themselves, and when your answer depends on "
-  + "something having been run, say plainly what you would have run and that it was not run.";
 
 export { codingParts, codingLabels, codingTools } from "./settings.js";

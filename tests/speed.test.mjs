@@ -739,17 +739,41 @@ test("a task is told at the start that nothing can be run here, and only when th
     "a task that can run things is not told it cannot");
 });
 
+test("the line is not sent for a request that is not about the project's files", async (t) => {
+  const { app, provider } = await fixture(t, [say("Done.")]);
+  await app.runtime.run({ prompt: "remind me to buy milk on the way home" });
+  assert.doesNotMatch(provider.requests.at(-1).system, /switched off on this computer/,
+    "an ordinary request is not told about commands it was never going to run");
+});
+
+test("the request itself is still the last thing the model is shown", async (t) => {
+  const { app, provider } = await fixture(t, [say("Done.")]);
+  const prompt = "fix the off-by-one in src/range.js";
+  await app.runtime.run({ prompt });
+  // A note after the request would make the last thing the model sees a line from Branch rather
+  // than what the person asked for, which is how this broke a sub-task test the first time.
+  const spy = { name: "spy", last: "", async complete(request) {
+    spy.last = request.messages.at(-1);
+    return { content: "Done.", toolCalls: [] };
+  } };
+  const { app: second } = await fixture(t, [], { provider: spy });
+  await second.runtime.run({ prompt });
+  assert.equal(spy.last.role, "user");
+  assert.equal(spy.last.content, prompt);
+  assert.ok(provider.requests.length > 0);
+});
+
 test("the line is said once, not every round", async (t) => {
   const { app, provider } = await fixture(t, [
     calls(["files.read", { path: "src/sum.js" }]),
     calls(["files.read", { path: "src/range.js" }]),
     say("Done."),
   ]);
-  const run = await app.runtime.run({ prompt: "read the two files" });
+  const run = await app.runtime.run({ prompt: "read src/sum.js and src/range.js" });
   assert.equal(run.status, "completed", run.output);
   assert.ok(provider.requests.length >= 3, `${provider.requests.length} rounds`);
   const said = provider.requests.map((one) => (one.system.match(/switched off on this computer/g) ?? []).length);
-  assert.deepEqual([...new Set(said)], [1], `the line was repeated: ${JSON.stringify(said)}`);
+  assert.deepEqual([...new Set(said)], [1], `it should be in the instructions once a round, never twice: ${JSON.stringify(said)}`);
 });
 
 test("a switched-off feature's tools are not offered by a search, and saying their name says why", async (t) => {

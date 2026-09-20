@@ -87,6 +87,27 @@ export const batchingNote =
 export const batchingInstructions = (store: Pick<Store, "get">, owner: string): string =>
   fewerRoundsOn(store, owner) ? batchingNote : "";
 
+/**
+ * mac7/speed: what a task is told when this computer will not run anything for it.
+ *
+ * In the five-way window eight rounds across twelve tasks were spent calling the project's check
+ * and being told it could not run — a whole exchange with the model each time, to learn something
+ * the task could have been told at the start. It says what to do instead rather than only what is
+ * refused, and it is one sentence because it is charged on every round of the task.
+ *
+ * It belongs in the instructions rather than in a note after the request: a note would make the
+ * last thing the model sees a line from Branch rather than what the person actually asked for.
+ */
+export const cannotRunNote =
+  " Running commands, scripts and this project's tests is switched off on this computer, so do not "
+  + "try: you will only be refused. Work from the files themselves, and when your answer depends on "
+  + "something having been run, say plainly what you would have run and that it was not run.";
+
+/** That sentence, for a task that is work on files and cannot run anything. */
+export const cannotRunInstructions = (
+  canRunScripts: boolean, prompt: string, open: readonly string[] = [],
+): string => (!canRunScripts && looksLikeCodingWork(prompt, open) ? cannotRunNote : "");
+
 /** The most calls that may run at the same time, so one reply cannot open fifty things at once. */
 export const parallelLimit = 8;
 
