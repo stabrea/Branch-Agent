@@ -195,8 +195,44 @@ Playwright's default 30 seconds.
   still be missing when they are measured. Both are now waited for, with the same selectors the
   measurement uses.
 
-## Where the two green runs stand
+## Where the two green runs stand: NOT REACHED in this session
 
-Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
-shard green on all three systems except Windows 2/6, which was the flow-editor F1 wait above. So one
-test stood between trunk and a green run, and it is fixed here.
+Stopped at the ~4 hours the brief allows. Every fix is on trunk: 0d2a65b7 is an ancestor of the
+current trunk, so nothing here is stranded on the branch.
+
+The runs, in order, and what each one still had:
+- 35479946361 (e18f559f, the tree this session started on): every shard green but Windows 2/6, and that
+  shard's only failure was flow-editor F1.
+- 35481505692 (b837d52e): 8 of 10 shards green. flow-editor, coding-gap-edits, add-ons-walled and
+  delight were all green, so those four fixes held. Left: the mac2 click stall and hardening-3's clock.
+- 35482764193 (bc5d5a32): cancelled by another agent's push before it could finish.
+- 35483029723 (d8da7f4e): cancelled likewise, but Windows 1/6 had already failed on the panels
+  achievement wait.
+- 35484288929 (b766c6ad): two Windows shards, flow-editor F2 and the Trunks strip, both the crawling
+  kind.
+- 35486709747 (f9499e4f): one shard, and the systemic cause — 89 waits for `#workspace` on the default
+  30 s across 66 files.
+- 35488311256 (da5ac2c0): one shard, the phone answer card measured before its parts were drawn.
+- 35489684944 (0d2a65b7): cancelled by the speed agent's merge. Its shards had not finished.
+- 35490000763 (b59804bd, speed's merge on top of everything here) was in flight at the stop.
+
+So the count never got two in a row, but it was never two different problems in a row either: each run
+since the fixes started has been down to one or two shards, and each of those was a new single test,
+not a returning one. Nothing fixed in this session came back.
+
+## For whoever picks this up
+
+1. Watch 35490000763. If it is green it is the first of the two; re-run the same commit with
+   `gh run rerun` for the second.
+2. The `#workspace` sweep (da5ac2c0) is the change most likely to have moved the needle, and it had
+   not been through a full run at the stop — it went in at da5ac2c0 and the only complete run after it
+   (35488311256) failed on something else entirely. Watch for its effect before adding more patience
+   anywhere.
+3. `pressUntil` in tests/places.mjs is the tool for the click that never lands. Do NOT use it on a
+   press that is not safe to make twice (learning-loop-ui's "Draft a skill from it" would draft two).
+4. The click stall itself is still unexplained after three sightings. If it keeps coming back,
+   somebody should find out why Playwright's `Input.dispatchMouseEvent` does not return on these
+   Windows runners rather than pressing again forever.
+5. tests/wire-safe-patterns.test.mjs gained two guards from the coordinator this session. They are
+   synchronous catalog checks with no timer, no waitFor and no browser, so they are the least likely
+   thing to suffer on a slow shard; they were green in every local run here.
