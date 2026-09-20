@@ -101,3 +101,21 @@ test("long choices remain labeled selects and open the shared glass list", async
   assert.equal(await select.getAttribute("aria-expanded"), "false");
   assert.deepEqual(f.errors, []);
 });
+
+test("a glass dropdown starts from its requested value and later keeps the current choice", async (t) => {
+  const f = await fixture(t);
+  const values = await f.page.evaluate(() => {
+    const control = globalThis.branchControlMakers.dropdown({
+      options: [["", "Use the default"], ["high", "High"]],
+      value: "high",
+    });
+    const initial = control.value;
+    control.setOptions([["", "Use the default"], ["high", "High"], ["low", "Low"]]);
+    const refreshed = control.value;
+    control.value = "low";
+    control.setOptions([["", "Use the default"], ["high", "High"], ["low", "Low"]]);
+    return { initial, refreshed, current: control.value };
+  });
+  assert.deepEqual(values, { initial: "high", refreshed: "high", current: "low" });
+  assert.deepEqual(f.errors, []);
+});
