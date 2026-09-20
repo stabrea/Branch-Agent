@@ -180,7 +180,7 @@ test("a second instance cannot interrupt an active data directory", async (t) =>
   const run = app.store.createRun("local", "active");
   await assert.rejects(
     createBranch({ workspace, dataDir }),
-    /already running/i,
+    /already open/i,
   );
   assert.equal(app.store.run(run.id).status, "running");
 });
