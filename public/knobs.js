@@ -7,6 +7,7 @@
  * by the sentence right after it, linked with aria-describedby. Every word is behind a key.
  */
 import { t, formatNumber } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let shown = null;
@@ -92,10 +93,12 @@ function option(value, key, values) {
 function control(field, value, view) {
   const id = `knobs-${field.name}`;
   if (field.kind === "switch") {
-    const select = document.createElement("select");
-    select.append(option("on", "knobs.option.on"), option("off", "knobs.option.off"));
-    select.value = value ? "on" : "off";
-    return { nodes: labelled(id, field.name, select), read: () => select.value === "on", set: (v) => { select.value = v ? "on" : "off"; } };
+    const control = dropdown({
+      id,
+      options: [["on", "knobs.option.on"], ["off", "knobs.option.off"]],
+      value: value ? "on" : "off"
+    });
+    return { nodes: labelled(id, field.name, control), read: () => control.value === "on", set: (v) => { control.value = v ? "on" : "off"; } };
   }
   if (field.kind === "number") {
     const input = document.createElement("input");
@@ -113,14 +116,14 @@ function control(field, value, view) {
 }
 
 function choice(field, id, value, view) {
-  const select = document.createElement("select");
+  const options = [];
   if (field.kind === "connection") {
-    select.append(option("", "knobs.option.same-connection"));
-    for (const one of view.connections) select.append(Object.assign(document.createElement("option"), { value: one.id, textContent: one.name }));
-  } else for (const one of field.options) select.append(option(one, `knobs.option.${one}`));
-  select.value = value ?? "";
-  const read = () => (field.kind === "connection" ? select.value || null : select.value);
-  return { nodes: labelled(id, field.name, select), read, set: (v) => { select.value = v ?? ""; } };
+    options.push(["", "knobs.option.same-connection"]);
+    for (const one of view.connections) options.push([one.id, one.name, one.name]);
+  } else for (const one of field.options) options.push([one, `knobs.option.${one}`]);
+  const control = dropdown({ id, options, value: value ?? "" });
+  const read = () => (field.kind === "connection" ? control.value || null : control.value);
+  return { nodes: labelled(id, field.name, control), read, set: (v) => { control.value = v ?? ""; } };
 }
 
 function textBox(field, id, value) {
@@ -151,19 +154,19 @@ function checks(field, id, value, view) {
 
 function efforts(field, id, value, view) {
   const rows = view.connections.map((one) => {
-    const select = document.createElement("select");
+    const rowId = `${id}-${kindSlug(one.id)}`;
     // phase2/accounts (#22): only the levels this model takes; a saved one it does not take stays shown.
     const takes = one.thinking ? one.thinking.levels : ["low", "medium", "high"];
     const levels = ["low", "medium", "high"].filter((level) => takes.includes(level) || value[one.id] === level);
-    select.append(option("", "knobs.option.effort-default"), ...levels.map((level) => option(level, `knobs.option.effort-${level}`)));
-    select.value = value[one.id] ?? "";
+    const options = [["", "knobs.option.effort-default"], ...levels.map((level) => [level, `knobs.option.effort-${level}`])];
+    const control = dropdown({ id: rowId, options, value: value[one.id] ?? "" });
+    control.setAttribute("aria-describedby", `${id}-note`);
     const label = Object.assign(document.createElement("label"), { textContent: one.name });
-    label.htmlFor = select.id = `${id}-${kindSlug(one.id)}`;
-    select.setAttribute("aria-describedby", `${id}-note`);
-    return { one, select, nodes: [label, select] };
+    label.htmlFor = rowId;
+    return { one, control, nodes: [label, control] };
   });
-  const read = () => Object.fromEntries(rows.filter((row) => row.select.value).map((row) => [row.one.id, row.select.value]));
-  const set = (v) => { for (const row of rows) row.select.value = v[row.one.id] ?? ""; };
+  const read = () => Object.fromEntries(rows.filter((row) => row.control.value).map((row) => [row.one.id, row.control.value]));
+  const set = (v) => { for (const row of rows) row.control.value = v[row.one.id] ?? ""; };
   return { nodes: [keyed("h3", `knobs.field.${field.name}`), ...rows.flatMap((row) => row.nodes), note(id, `knobs.note.${field.name}`)], read, set };
 }
 
