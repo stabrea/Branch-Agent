@@ -94,9 +94,11 @@ function keysBox(field, id, value) {
 function statusBox(field, id, value) {
   const box = document.createElement("fieldset");
   box.append(keyed("legend", "comfort.field.statusLine"));
-  const own = document.createElement("select");
-  own.append(option("always", "comfort.option.as-always"), option("mine", "comfort.option.my-choice"));
-  own.id = `${id}-mode`;
+  const own = dropdown({
+    id: `${id}-mode`,
+    options: [["always", "comfort.option.as-always"], ["mine", "comfort.option.my-choice"]],
+    value: "always"
+  });
   own.setAttribute("aria-describedby", `${id}-note`);
   const ownLabel = keyed("label", "comfort.field.statusMode");
   ownLabel.htmlFor = own.id;
@@ -122,11 +124,12 @@ function statusBox(field, id, value) {
 function control(field, value) {
   const id = `comfort-${field.name}`;
   if (field.kind === "switch" || field.kind === "select") {
-    const select = document.createElement("select");
-    const options = field.kind === "switch" ? ["on", "off"] : field.options;
-    for (const one of options) select.append(option(one, `comfort.option.${one}`));
-    const shown = field.kind === "switch" ? (value ? "on" : "off") : value;
-    select.value = shown;
+    const optionsList = field.kind === "switch" ? ["on", "off"] : field.options;
+    const select = dropdown({
+      id: id,
+      options: optionsList.map(one => [one, `comfort.option.${one}`]),
+      value: field.kind === "switch" ? (value ? "on" : "off") : value
+    });
     const read = () => (field.kind === "switch" ? select.value === "on" : select.value);
     const set = (v) => { select.value = field.kind === "switch" ? (v ? "on" : "off") : v; };
     return { nodes: labelled(id, field.name, select), read, set };

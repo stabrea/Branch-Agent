@@ -8,7 +8,7 @@
    tools. Nothing on this card installs, switches on or updates anything without a press. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
-import { switchControl, segmented } from "/control-makers.js";
+import { switchControl, segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -201,12 +201,11 @@ function filtersBlock(state) {
   }
   const name = input("addons.filters.nameHint", "For example: Take out card numbers");
   const words = input("addons.filters.wordsHint", "Words to look for, separated by commas");
-  const action = document.createElement("select");
-  for (const [value, key, english] of [["redact", "addons.filters.redact", "Take them out"], ["block", "addons.filters.block", "Stop the message"], ["note", "addons.filters.note", "Add a note"]]) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    action.append(option);
-  }
+  const action = dropdown({
+    id: "addons-filter-action",
+    options: [["redact", "addons.filters.redact", "Take them out"], ["block", "addons.filters.block", "Stop the message"], ["note", "addons.filters.note", "Add a note"]],
+    value: "redact"
+  });
   block.push(...field("addons-filter-name", "addons.filters.name", "Name", name), ...field("addons-filter-words", "addons.filters.words", "Words", words),
     ...field("addons-filter-action", "addons.filters.action", "What to do", action),
     row(button("addons.filters.add", "Add the filter", async () => {
@@ -252,12 +251,11 @@ function draftsBlock(state) {
 }
 
 function exportBlock() {
-  const target = document.createElement("select");
-  for (const [value, english] of [["claude-code", "Claude Code"], ["codex", "Codex"]]) {
-    const option = plain("option", english);
-    option.value = value;
-    target.append(option);
-  }
+  const target = dropdown({
+    id: "addons-export-tool",
+    options: [["claude-code", "Claude Code"], ["codex", "Codex"]],
+    value: "claude-code"
+  });
   const folder = input("addons.export.where", "An empty folder, in full");
   return [make("h3", "", "addons.export.title", "Branch as a plugin"),
     make("p", "subtle", "addons.export.purpose", "Writes a small plugin into a folder you choose. Add that folder in the other tool yourself; Branch never changes its settings."),

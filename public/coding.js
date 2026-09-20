@@ -3,7 +3,7 @@
    Every part has the owner's three-way switch and starts off. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
-import { segmented } from "/control-makers.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -152,8 +152,11 @@ async function checksControls(status) {
 }
 
 async function ciControls(status) {
-  const kind = document.createElement("select");
-  for (const value of ["github", "gitlab"]) { const option = plain("option", value === "github" ? "GitHub Actions" : "GitLab CI"); option.value = value; kind.append(option); }
+  const kind = dropdown({
+    id: "coding-ci-kind",
+    options: [["github", "GitHub Actions"], ["gitlab", "GitLab CI"]],
+    value: "github"
+  });
   const model = field("input"), endpoint = field("input", "", "url"), key = field("input", "ANTHROPIC_API_KEY");
   const out = plain("pre", "", "field-note");
   const write = attempt(status, async () => {

@@ -2,7 +2,7 @@
 // before the owner is asked; the deciding happens on the server (src/approval-reviewer.ts). This
 // card only shows the saved settings and sends changes back. Every word is behind a key.
 import { t } from "/i18n.js";
-import { segmented } from "/control-makers.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,12 +35,17 @@ function labelled(id, key, control) {
   return [label, control];
 }
 function options(select, pairs) {
-  select.replaceChildren(...pairs.map(([value, key, text]) => {
-    const option = key ? worded("option", key) : document.createElement("option");
-    if (!key) option.textContent = text;
-    option.value = value;
-    return option;
-  }));
+  // For dropdown factory with setOptions() method
+  if (select.setOptions) {
+    select.setOptions(pairs);
+  } else {
+    select.replaceChildren(...pairs.map(([value, key, text]) => {
+      const option = key ? worded("option", key) : document.createElement("option");
+      if (!key) option.textContent = text;
+      option.value = value;
+      return option;
+    }));
+  }
 }
 
 /** The card, drawn once beside the approval rules; `data-home` puts it on the Permissions page. */
@@ -61,7 +66,11 @@ function buildCard() {
     ],
     value: "off"
   });
-  const connection = document.createElement("select");
+  const connection = dropdown({
+    id: "approval-reviewer-connection",
+    options: [["", "reviewer.same-connection"]],
+    value: ""
+  });
   const rules = document.createElement("textarea");
   rules.rows = 4;
   rules.maxLength = 4000;
@@ -77,6 +86,7 @@ function buildCard() {
   card.append(worded("h2", "settings.card.second-look"), worded("p", "reviewer.lead"),
     ...labelled("approval-reviewer-mode", "field.reviewer-mode", mode), worded("p", "reviewer.modes", "field-note"),
     ...labelled("approval-reviewer-connection", "field.reviewer-connection", connection),
+
     ...labelled("approval-reviewer-rules", "field.reviewer-rules", rules), worded("p", "reviewer.stock-rules", "field-note"),
     ...labelled("approval-reviewer-ceiling", "field.reviewer-ceiling", ceiling),
     worded("p", "reviewer.promise", "subtle"), save, status);
