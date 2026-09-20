@@ -295,7 +295,8 @@ function poolHead(pool) {
   const head = node("div", "accounts-pool-head");
   const heading = node("h3");
   heading.append(data("span", pool.name), node("span", "", " · "), worded("span", `accounts.kind.${pool.kind}`));
-  head.append(markTile([pool.pool, pool.name], { size: 32, label: pool.name }), heading,
+  const mark = markTile([pool.pool, pool.name], { size: 32, label: pool.name });
+  head.append(...(mark ? [mark] : []), heading,
     worded("span", "accounts.count", "subtle accounts-count", { count: formatNumber(pool.accounts.length) }));
   return head;
 }
@@ -376,7 +377,8 @@ function drawLow(view) {
   const list = node("ol", "accounts-fallback");
   for (const preset of order) {
     const item = node("li");
-    item.append(markTile([preset.id, preset.name, preset.model], { size: 24 }), data("span", `${preset.name} · ${preset.model}`));
+    const mark = markTile([preset.id, preset.name, preset.model], { size: 24 });
+    item.append(...(mark ? [mark] : []), data("span", `${preset.name} · ${preset.model}`));
     list.append(item);
   }
   const change = worded("button", "accounts.low.change", "quiet-button");

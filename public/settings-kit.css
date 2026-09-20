@@ -3,9 +3,7 @@
    which the page's Content Security Policy (style-src 'self') refuses, so the chip showed as plain text. */
 
 /* ---------- public/settings-describe.js ---------- */
-/* DG-010: scope chips removed - sample does not show them.
-   The .kit-scope styles are no longer needed since the chip() function
-   was removed and these elements are never created. */
+/* Scope remains available to assistive technology, but the approved sample does not draw a chip. */
 .field-note.kit-describe {
   margin-top: 2px;
 }

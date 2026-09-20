@@ -12,7 +12,7 @@
    Nothing here changes what a setting does. */
 import { fromEnglish, language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
-import { BUCKETS, ELSEWHERE, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
+import { BUCKETS, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
 
 const $ = (id) => document.getElementById(id);
@@ -120,7 +120,7 @@ globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...
 
 /* ---------- the groups on each page ---------- */
 const hostFor = (page) => (page.startsWith("models:") ? $(`lx-models-${page.slice(7)}`) : $(`lx-page-${page}`));
-const FIXED = ".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel";
+const FIXED = ".lx-page-title, .lx-page-intro, .lx-on-this-page, .lx-subtabs, .lx-subpanel";
 /** A card of the page: by id, or (for a block with no id) by its class. */
 function cardIn(host, ref) {
   const node = document.getElementById(ref);
@@ -130,22 +130,16 @@ function cardIn(host, ref) {
 function bucketHead(page, [id, iconName, title, line]) {
   const head = make("div", "sg-head");
   head.dataset.bucket = `${page}:${id}`;
-  // DG-011: Remove icon tile and description line - sample doesn't show these
-  // const tile = make("span", "sg-tile");
-  // tile.append(icon(iconName));
   const words = make("div", "sg-head-words");
   const key = id === "other" ? "settingsGrown.bucket.other" : `settingsGrown.bucket.${page.replace(":", ".")}.${id}`;
   const heading = worded("h3", "sg-head-title", key, title);
   heading.id = `sg-bucket-${page.replace(":", "-")}-${id}`;
   words.append(heading);
-  // DG-011: Remove description line - sample doesn't show section descriptions in headers
-  // words.append(worded("p", "sg-head-line", `${key}.line`, line));
   const more = make("button", "sg-more");
   more.type = "button";
   more.hidden = true;
   more.addEventListener("click", () => chooseLevel(more.dataset.to));
   head.append(words, more);
-  // DG-011: Don't append the icon tile since it's not in the sample
   return head;
 }
 function otherHead(page) {
@@ -265,16 +259,11 @@ function dressNav() {
   for (const link of nav.querySelectorAll(".lx-settings-link")) withIcon(link, link.dataset.page);
   for (const [before, key, english] of NAV_GROUPS)
     nav.querySelector(`.lx-settings-link[data-page="${before}"]`)?.before(worded("p", "sg-nav-group", `settingsGrown.nav.${key}`, english));
-  nav.append(worded("p", "sg-nav-group", "settingsGrown.nav.elsewhere", "Elsewhere in Branch"));
-  for (const [place, iconName] of ELSEWHERE) {
-    const link = worded("button", "sg-place-link", `place.${place}`, place);
-    link.type = "button";
-    link.dataset.place = place;
-    withIcon(link, iconName);
-    link.addEventListener("click", () => globalThis.branchLayout?.go(place));
-    nav.append(link);
-  }
-  nav.append(pagePicker(nav), levelBox());
+  const version = nav.querySelector(".lx-settings-version");
+  const picker = pagePicker(nav);
+  const level = levelBox();
+  if (version) version.before(picker, level);
+  else nav.append(picker, level);
 }
 /** On a phone the list of pages is one choice, not a row that scrolls sideways. */
 function pagePicker(nav) {

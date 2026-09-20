@@ -813,10 +813,28 @@ body.lx-help .context-panel > .acorn-art {
 }
 /* DG-002: Settings title in Settings nav */
 .lx-settings-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 12px;
   font-family: var(--display);
+  font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
+}
+.lx-settings-brand {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+.lx-settings-brand img {
+  position: absolute;
+  inset: 0;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 /* DG-003: Version line at bottom of Settings nav */
 .lx-settings-version {
@@ -2198,7 +2216,7 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
 }
 .mode-item {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  grid-template-columns: 18px minmax(0, 1fr) 22px;
   align-items: start;
   gap: 10px;
   width: 100%;
@@ -2228,6 +2246,20 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
 }
 .mode-item[data-mode="full"] b {
   color: var(--bad);
+}
+.mode-key {
+  align-self: center;
+  justify-self: end;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--well);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
 }
 .mode-words b {
   display: block;

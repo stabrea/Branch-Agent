@@ -1,5 +1,5 @@
 /* Redesign phase 1: how much the assistant may do in this conversation, as one chip in the message
-   box (the approved sample's mode picker). Ask first, Plan, Auto and Full access; a choice that cannot
+   box (the approved sample's mode picker). Auto, Ask first, Plan first and No approvals; a choice that cannot
    be made right now is shown greyed with the reason, never hidden. The server decides what a task may
    really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on Ask
    first; one that existed before keeps following the owner's setting until somebody picks here. */
@@ -21,6 +21,7 @@ const PATHS = {
 /** The owner's setting, said as the mode it amounts to, for a conversation that follows it. */
 const PRESET_AS_MODE = { off: "full", "ask-before-changes": "ask", workspace: "auto" };
 const ORDER = ["auto", "ask", "plan", "full"];
+const SHORTCUTS = Object.fromEntries(ORDER.map((mode, index) => [mode, String(index + 1)]));
 let state = null;
 /* A new conversation's choice before it is sent: undefined until picked, null for "follow my setting". */
 let pending;
@@ -83,15 +84,9 @@ function choiceItem(choice, mode) {
   const words = el("span", undefined, "mode-words");
   words.append(el("b", t(`mode.${choice.mode}`)), el("small", choice.available ? t(`mode.${choice.mode}.note`) : choice.why));
 
-  // DG-152: Add number key indicators for keyboard shortcuts
-  const keyChips = el("span", undefined, "mode-keys");
-  const keyMap = { "ask": "1", "plan": "3", "full": "4" };
-  if (keyMap[choice.mode]) {
-    keyChips.textContent = keyMap[choice.mode];
-    keyChips.setAttribute("aria-label", `keyboard shortcut ${keyMap[choice.mode]}`);
-  }
-
-  item.append(icon(choice.mode), words, keyChips, mode === choice.mode ? icon("check") : el("span"));
+  const key = el("kbd", SHORTCUTS[choice.mode], "mode-key");
+  key.setAttribute("aria-label", t("mode.shortcut", { number: SHORTCUTS[choice.mode] }));
+  item.append(icon(choice.mode), words, mode === choice.mode ? icon("check") : key);
   if (!choice.available) {
     item.setAttribute("aria-disabled", "true");
     item.title = choice.why;
@@ -131,11 +126,10 @@ function paintMenu(menu = $("mode-menu")) {
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
   menu.append(el("hr"), followItem(mode));
 
-  // DG-153: Add footer explaining mode choices and keyboard shortcuts
   if (!state.locked && !state.outside && mode !== null) {
     const footer = el("div", undefined, "mode-footer");
-    const line1 = el("p", `New conversations start on ${t("mode.ask")}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
-    const line2 = el("p", `Number keys 1, 3, 4 in the message box switch modes. More choices (Just do it inside my workspace, Read only) are in Settings › Permissions.`, "mode-note");
+    const line1 = el("p", t("mode.startingNote", { start: t("mode.ask"), setting: t("mode.full") }), "mode-note");
+    const line2 = el("p", t("mode.cycleNote"), "mode-note");
     footer.append(line1, line2);
     menu.append(footer);
   }
@@ -147,11 +141,27 @@ function paintMenu(menu = $("mode-menu")) {
 /** Arrows move between the choices that can be made; Home and End go to either end. */
 function keys(event) {
   const items = [...$("mode-menu").querySelectorAll(".mode-item:not([aria-disabled='true']), .mode-confirm button")];
+  const shortcut = ORDER[Number(event.key) - 1];
+  if (shortcut) {
+    const item = items.find((node) => node.dataset.mode === shortcut);
+    if (item) { event.preventDefault(); item.click(); }
+    return;
+  }
   const at = items.indexOf(document.activeElement);
   const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
   if (to === undefined || !items.length) return;
   event.preventDefault();
   items[(to + items.length) % items.length].focus();
+}
+
+/** The sample's Shift+Tab shortcut cycles the safe modes without opening the menu. */
+function cycleMode(event) {
+  if (event.key !== "Tab" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.target !== $("prompt")) return;
+  const choices = ORDER.filter((mode) => mode !== "full" && state?.choices.find((choice) => choice.mode === mode)?.available);
+  if (!choices.length) return;
+  event.preventDefault();
+  const at = choices.indexOf(chosen());
+  void pick(choices[(at + 1) % choices.length]);
 }
 
 /* ---------- choosing ---------- */
@@ -214,6 +224,7 @@ const menuControl = popover($("mode-chip"), $("mode-menu"), {
   onClose: () => { confirming = false; },
 });
 $("mode-menu").addEventListener("keydown", keys);
+$("prompt")?.addEventListener("keydown", cycleMode);
 new MutationObserver(() => { if (!session()) pending = undefined; void refreshMode(); })
   .observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
 document.addEventListener("branch-profile", () => void refreshMode());

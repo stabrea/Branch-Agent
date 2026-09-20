@@ -405,20 +405,27 @@ function buildSettings() {
   const nav = make("nav", "lx-settings-nav");
   nav.setAttribute("aria-label", say("settings.pages", "Settings pages"));
 
-  // DG-001/DG-064: Add "Back to Branch" button with Esc chip
   const backBtn = make("button", "lx-settings-back");
   backBtn.type = "button";
-  backBtn.append(icon("back"));
-  backBtn.append(document.createTextNode("Back to Branch"));
+  backBtn.append(icon("back"), worded("span", "", "settings.back", "Back to Branch"));
   const escKbd = make("kbd");
   escKbd.textContent = "Esc";
   backBtn.append(escKbd);
   backBtn.addEventListener("click", closeSettings);
   nav.append(backBtn);
 
-  // DG-002: Settings title with larger font
-  const title = worded("h1", "lx-settings-title", "settings.title", "Settings");
-  title.style.fontSize = "22px";
+  const title = make("h1", "lx-settings-title");
+  const brand = make("span", "lx-settings-brand");
+  for (const [className, src] of [
+    ["oak-reversed", "/assets/keepoak-mark-reversed.png"],
+    ["oak-normal", "/assets/keepoak-mark.png"],
+  ]) {
+    const image = make("img", className);
+    image.src = src;
+    image.alt = "";
+    brand.append(image);
+  }
+  title.append(brand, worded("span", "", "settings.title", "Settings"));
   nav.append(title);
 
   nav.append(settingsSearch());
@@ -442,8 +449,6 @@ function buildSettings() {
     body.append(page);
   }
 
-  // DG-003: Add version line at the bottom of nav
-  // Note: Version is set dynamically in openSettings() to avoid hardcoding
   const verDiv = make("div", "lx-settings-version");
   verDiv.id = "lx-settings-version";
   nav.append(verDiv);
@@ -451,6 +456,10 @@ function buildSettings() {
   win.append(nav, body, close);
   shell.append(scrim, win);
   document.body.append(shell);
+  new MutationObserver(scheduleOnThisPage).observe(body, {
+    childList: true, subtree: true, characterData: true, attributes: true,
+    attributeFilter: ["hidden", "data-level", "data-sg-peek"],
+  });
   buildModelTabs();
   buildAppearanceBlock();
 }
@@ -525,11 +534,7 @@ function openSettings(page) {
   if ($("workspace").hidden) return;
   $("settings-window").hidden = false;
   document.body.classList.add("lx-settings-open");
-  // DG-003: Update version line with real version (not hardcoded scaffolding)
-  if (typeof globalThis.state !== "undefined" && globalThis.state?.version) {
-    const verDiv = $("lx-settings-version");
-    if (verDiv) verDiv.textContent = `Branch Agent ${globalThis.state.version}`;
-  }
+  void showSettingsVersion();
   showSettingsPage(page || settingsPage);
   $("lx-settings-search").value = "";
   searchSettings("");
@@ -540,26 +545,40 @@ function closeSettings() {
   win.hidden = true;
   document.body.classList.remove("lx-settings-open");
 }
-/** Build "On this page" navigation for visible sections. DG-006 */
+async function showSettingsVersion() {
+  try {
+    const { version } = await api("state");
+    const words = t("settings.version", { version });
+    $("lx-settings-version").textContent = words === "settings.version" ? `Branch Agent ${version}` : words;
+  } catch {
+    $("lx-settings-version").textContent = "";
+  }
+}
+let onThisPageQueued = false;
+function scheduleOnThisPage() {
+  if (onThisPageQueued || $("settings-window")?.hidden) return;
+  onThisPageQueued = true;
+  requestAnimationFrame(() => {
+    onThisPageQueued = false;
+    const page = $(`lx-page-${settingsPage}`);
+    if (page) buildOnThisPage(page);
+  });
+}
+/** Match the sample's jump list when a Settings page has at least four visible groups. */
 function buildOnThisPage(page) {
-  // Remove any existing "On this page" navigation
-  page.querySelector(".lx-on-this-page")?.remove();
-
-  // Find all section headings (h3 elements with ids)
-  const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
-    // Only include headings that are not hidden by the current level
-    const card = h.closest(".lx-page > *, .lx-subpanel > *");
+  const existing = page.querySelector(".lx-on-this-page");
+  const headings = [...page.querySelectorAll(".sg-head h3[id]")].filter((heading) => {
+    const card = heading.closest(".lx-page > *, .lx-subpanel > *");
     return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
   });
-
-  if (headings.length === 0) return; // No sections to link to
-
-  // Create the navigation
+  if (headings.length < 4) { existing?.remove(); return; }
+  const signature = headings.map((heading) => `${heading.id}:${heading.textContent}`).join("|");
+  if (existing?.dataset.sections === signature) return;
   const nav = make("nav", "lx-on-this-page");
+  nav.dataset.sections = signature;
   nav.setAttribute("aria-label", say("settings.onThisPage", "On this page"));
   const label = worded("p", "lx-on-this-page-label", "settings.onThisPage", "On this page");
   nav.append(label);
-
   const links = make("div", "lx-on-this-page-links");
   for (const heading of headings) {
     const link = make("button", "lx-on-this-page-link");
@@ -567,16 +586,15 @@ function buildOnThisPage(page) {
     link.textContent = heading.textContent;
     link.addEventListener("click", () => {
       heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.tabIndex = -1;
       heading.focus();
     });
     links.append(link);
   }
   nav.append(links);
-
-  // Insert after page intro
   const intro = page.querySelector(".lx-page-intro");
-  if (intro) intro.after(nav);
-  else page.append(nav);
+  existing?.remove();
+  if (intro) intro.after(nav); else page.prepend(nav);
 }
 
 function showSettingsPage(id) {
@@ -586,7 +604,6 @@ function showSettingsPage(id) {
     link.setAttribute("aria-current", String(link.dataset.page === id));
   $("lx-settings-body").scrollTop = 0;
 
-  // DG-006: Build "On this page" navigation
   const page = $(`lx-page-${id}`);
   if (page) buildOnThisPage(page);
 
@@ -600,7 +617,7 @@ function searchSettings(query) {
   let found = 0;
   for (const page of document.querySelectorAll(".lx-page")) {
     let hits = 0;
-    for (const card of page.querySelectorAll(".lx-subpanel > *, .lx-page > *:not(.lx-page-title):not(.lx-page-intro):not(.lx-subtabs):not(.lx-subpanel)")) {
+    for (const card of page.querySelectorAll(".lx-subpanel > *, .lx-page > *:not(.lx-page-title):not(.lx-page-intro):not(.lx-subtabs):not(.lx-subpanel):not(.lx-on-this-page)")) {
       const match = !needle || card.textContent.toLowerCase().includes(needle);
       card.classList.toggle("lx-miss", !match);
       if (match && needle) hits += 1;

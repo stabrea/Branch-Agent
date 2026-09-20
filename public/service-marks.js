@@ -45,7 +45,8 @@ function secretRow(node, secret) {
   strong.replaceWith(words);
   const meta = node.querySelector(".meta");
   if (meta) meta.textContent = meta.textContent.replace(/^\s*·\s*/, "");
-  node.prepend(markTile([secret.name], { size: 30, fallback: "key" }));
+  const mark = markTile([secret.name], { size: 30, fallback: "key" });
+  if (mark) node.prepend(mark);
 }
 
 /* Chat apps (their Set up panels, the connected list, the other services) and the model connections on
@@ -58,6 +59,7 @@ function decorate() {
     const text = target.textContent.trim();
     if (!text) continue;
     const mark = markTile([text], { size: 22, fallback: target.closest("#lx-slot-customize-channels") ? "chat" : "service" });
+    if (!mark) continue;
     mark.classList.add("inline-mark");
     const box = target.querySelector(":scope > input");
     if (box) box.after(mark); else target.prepend(mark);

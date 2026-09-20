@@ -197,6 +197,12 @@ test("the chip starts a new conversation on Ask first, and its menu asks before 
   const chip = f.page.locator("#mode-chip");
   await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
   assert.match(await chip.innerText(), /Ask first/);
+  await f.page.locator("#prompt").press("Shift+Tab");
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "plan");
+  await f.page.locator("#prompt").press("Shift+Tab");
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "auto");
+  await f.page.locator("#prompt").press("Shift+Tab");
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
   await f.page.locator("#prompt").fill("Tidy my notes");
   await f.page.locator("#send").click();
   await f.page.locator(".message.assistant").first().waitFor({ timeout: 30000 });
@@ -205,14 +211,17 @@ test("the chip starts a new conversation on Ask first, and its menu asks before 
   await chip.click();
   const menu = f.page.locator("#mode-menu");
   await menu.waitFor({ state: "visible" });
-  assert.deepEqual(await menu.locator(".mode-item b").allInnerTexts(), ["Ask first", "Plan", "Auto", "Full access", "Use my setting"]);
+  assert.deepEqual(await menu.locator(".mode-item b").allInnerTexts(), ["Auto", "Ask first", "Plan first", "No approvals", "Use my setting"]);
+  assert.deepEqual(await menu.locator(".mode-key").allInnerTexts(), ["1", "3", "4"], "the selected mode uses a check; the others show their number keys");
+  assert.match(await menu.locator(".mode-footer").innerText(), /New conversations start on Ask first/);
+  assert.match(await menu.locator(".mode-footer").innerText(), /Shift\+Tab in the message box/);
   await f.page.keyboard.press("ArrowDown");
   assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan", "arrows move between the choices");
   await menu.locator('[data-mode="full"]').click();
   await menu.locator(".mode-confirm").waitFor();
   assert.match(await menu.innerText(), /without asking you first/);
   assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "ask", "nothing changes before the warning is answered");
-  await menu.getByRole("button", { name: "Give full access" }).click();
+  await menu.getByRole("button", { name: "Allow with no approvals" }).click();
   await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.mode === "full");
   assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "full");
   await chip.click();
@@ -234,7 +243,7 @@ test("the window's refresh redrawing the Lockdown switch leaves the open menu an
   await f.page.evaluate(async () => { await window.branchOther.render(); await window.branchConversationMode.refresh(); });
   assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan", "the keyboard is still on Plan");
   await f.page.keyboard.press("ArrowDown");
-  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "auto", "and the arrows carry on from there");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "full", "and the arrows carry on in the sample's order");
   assert.deepEqual(f.errors, []);
 });
 

@@ -64,7 +64,7 @@ function auditOpenPage(where) {
     if (!heading || heading.nextElementSibling?.tagName !== "P")
       problems.push(`${where}: card ${cardName} needs an <h2> followed by one sentence saying what it is for`);
     if (!card.querySelector(":scope > .kit-scope[data-t]"))
-      problems.push(`${where}: card ${cardName} has no scope chip (public/settings-describe.js adds it; give the card an <h2>)`);
+      problems.push(`${where}: card ${cardName} has no scope text (public/settings-describe.js adds it; give the card an <h2>)`);
     for (const control of card.querySelectorAll("input:not([type=hidden]), select, textarea")) {
       if (!shown(control)) continue;
       const ids = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
@@ -76,7 +76,7 @@ function auditOpenPage(where) {
   return problems;
 }
 
-test("R17-S01/S04: every Settings control has a description, and every Settings card a purpose and a scope chip", async (t) => {
+test("R17-S01/S04: every Settings control has a description, and every Settings card a purpose and scope text", async (t) => {
   const { page, errors } = await fixture(t);
   const pages = await page.evaluate(() => [...document.querySelectorAll(".lx-page")].map((node) => node.dataset.page));
   assert.ok(pages.length >= 12, "the Settings pages moved; this test is looking in the wrong place");

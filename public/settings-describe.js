@@ -5,7 +5,7 @@
  * it means (`public/settings-descriptions.js`), linked with `aria-describedby`. A control that
  * already names its own description, or has a `.field-note` straight after it, keeps that.
  *
- * Every Settings card also gets a small chip saying how far it reaches: everything, this project
+ * Every Settings card also gets screen-reader text saying how far it reaches: everything, this project
  * only, or this computer only. A card can say so itself with `data-scope="project"`,
  * `"computer"` or `"trunk"`; otherwise the table below decides, and the rest apply to everything.
  *
@@ -109,7 +109,7 @@ function chip(card) {
   if (row?.dataset.scope === scope) return;
   if (!row) {
     row = document.createElement("p");
-    row.className = "kit-scope";
+    row.className = "kit-scope sr-only";
     const heading = card.querySelector(":scope > h2");
     const purpose = heading?.nextElementSibling?.tagName === "P" ? heading.nextElementSibling : heading;
     if (purpose) purpose.after(row); else card.prepend(row);
@@ -139,7 +139,7 @@ function refresh() {
   queueMicrotask(() => {
     queued = false;
     describeAll();
-    // DG-010: scope chips removed - sample does not show them
+    for (const card of document.querySelectorAll(CARDS)) chip(card);
   });
 }
 
@@ -169,6 +169,6 @@ if (typeof document !== "undefined") {
    */
   globalThis.branchDescribeSettingsNow = () => {
     describeAll();
-    // DG-010: scope chips removed - sample does not show them
+    for (const card of document.querySelectorAll(CARDS)) chip(card);
   };
 }

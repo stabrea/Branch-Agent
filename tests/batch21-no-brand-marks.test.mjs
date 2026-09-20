@@ -114,14 +114,9 @@ test("B3 no brand marks on Models connection tab", async () => {
 test("B4 no brand marks on channel/service cards", async () => {
   const { page, server, browser, app, root } = await fixture();
 
-  // Navigate to Customize › Channels (where service cards are)
-  await openSettings(page, "customize");
-
-  // Click Channels tab if it exists
-  const channelsTab = page.locator('.lx-page-customize [data-tab="channels"], [data-tab="channel"], a:has-text("Channel")');
-  if (await channelsTab.first().isVisible()) {
-    await channelsTab.first().click();
-  }
+  await closeSettings(page);
+  await page.evaluate(() => globalThis.branchLayout.go("customize:channels"));
+  await page.locator("#lx-slot-customize-channels").waitFor({ state: "visible" });
 
   // Count branded marks
   const marks = await page.evaluate(() => document.querySelectorAll('[data-mark]').length);

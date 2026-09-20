@@ -344,6 +344,25 @@ test("S10 Settings is a cog right after the account row, in the calm and the ful
   await cog(f.page).click();
   assert.equal(await f.page.locator("#settings-window").isVisible(), true);
   assert.equal(await cog(f.page).getAttribute("aria-expanded"), "true");
+  assert.equal(await f.page.locator(".lx-settings-back > span").innerText(), "Back to Branch");
+  assert.equal(await f.page.locator(".lx-settings-back > kbd").innerText(), "Esc");
+  assert.equal(await f.page.locator(".lx-settings-title").innerText(), "Settings");
+  assert.equal(await f.page.locator(".lx-settings-title img[src*='keepoak-mark']").count(), 2, "the title uses Branch's light and dark marks");
+  assert.equal(await f.page.locator(".sg-place-link").count(), 0, "the page list contains Settings pages, like the sample");
+  assert.equal(await f.page.evaluate(() => {
+    const level = document.querySelector(".sg-level");
+    const version = document.querySelector(".lx-settings-version");
+    return Boolean(level && version && (level.compareDocumentPosition(version) & Node.DOCUMENT_POSITION_FOLLOWING));
+  }), true, "How much to show sits above the version footer");
+  await f.page.waitForFunction(() => /^Branch Agent \d/.test(document.getElementById("lx-settings-version")?.textContent ?? ""));
+  const jump = f.page.locator("#lx-page-general .lx-on-this-page");
+  await jump.waitFor();
+  const sections = await jump.locator(".lx-on-this-page-link").allInnerTexts();
+  assert.ok(sections.length >= 4, "the page has the sample's section jump list");
+  await f.page.waitForTimeout(3200);
+  assert.deepEqual(await jump.locator(".lx-on-this-page-link").allInnerTexts(), sections, "the periodic redraw keeps the jump list");
+  await jump.locator(".lx-on-this-page-link").first().click();
+  assert.match(await f.page.evaluate(() => document.activeElement?.id ?? ""), /^sg-bucket-general-/);
   /* Cards that used to draw only when the old Settings button was pressed are there. */
   await f.page.locator("#speech-engines-card").waitFor({ state: "attached" });
   await f.page.locator("#video-programs-card").waitFor({ state: "attached" });
@@ -589,23 +608,21 @@ for (const [width, height] of [[1440, 950], [390, 844]]) {
 }
 
 /* ---------- S16: the page's own rules are kept ---------- */
-test("S16 the window loads and opens Settings with no Content Security Policy refusal, and the scope chips are dressed", async (t) => {
+test("S16 the window has no Content Security Policy refusal and keeps scope as non-visual assistive text", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
-  await f.page.locator("#projects-form > .kit-scope").waitFor();
+  await f.page.locator("#projects-form > .kit-scope").waitFor({ state: "attached" });
   await openSettings(f.page, "appearance");
   await f.page.waitForTimeout(1500);
   assert.deepEqual(f.refused, [], "the console reported a Content Security Policy refusal");
   assert.deepEqual(await f.page.evaluate(() => globalThis.__refused), [], "the page saw a Content Security Policy violation");
   await openSettings(f.page, "general");
-  const chip = await f.page.locator("#projects-form > .kit-scope").evaluate((node) => {
-    const look = getComputedStyle(node), card = node.parentElement.getBoundingClientRect(), box = node.getBoundingClientRect();
-    return { border: look.borderTopStyle, round: parseFloat(look.borderTopLeftRadius), narrower: box.width < card.width / 2, text: node.textContent.trim() };
-  });
-  assert.equal(chip.border, "solid", "the scope chip has no edge: its stylesheet did not load");
-  assert.ok(chip.round > 4, "the scope chip is not rounded");
-  assert.ok(chip.narrower, "the scope chip runs the width of the card, like plain text");
-  assert.ok(chip.text.length > 0);
+  const scope = f.page.locator("#projects-form > .kit-scope");
+  assert.match(await scope.getAttribute("class"), /\bsr-only\b/, "the approved sample does not draw scope chips");
+  const box = await scope.boundingBox();
+  assert.ok(box.width <= 1 && box.height <= 1, "the scope text is visually hidden");
+  assert.equal(await scope.getAttribute("data-scope"), "project");
+  assert.match(await scope.textContent(), /this project/i);
   assert.deepEqual(f.errors, []);
 });
 

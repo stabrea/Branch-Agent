@@ -142,19 +142,18 @@ function svg(size) {
 
 /**
  * Batch 21 (2026-09-20): Brand marks removed per DG-157.
- * Returns nothing for branded marks. For unknown services, returns only the plain key tile.
+ * Returns null for branded marks. For unknown services, returns only the plain key tile.
  * All other neutral tiles (service, chat, mail, phone, password) are also removed.
  */
 export function markTile(hints, { size = 28, fallback = "service", label = "" } = {}) {
   const list = Array.isArray(hints) ? hints : [hints];
   const slug = markFor(...list);
 
-  // Remove all branded marks: return empty
-  if (slug) return document.createDocumentFragment();
+  if (slug) return null;
 
   // For unknown services, keep only the "key" neutral tile
   const kind = neutralFor(fallback, ...list);
-  if (kind !== "key") return document.createDocumentFragment();
+  if (kind !== "key") return null;
 
   // Create the key tile for unknown services
   const tile = document.createElement("span");

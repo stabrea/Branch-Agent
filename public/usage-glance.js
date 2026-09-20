@@ -71,7 +71,7 @@ const STATE_CHIP = { measured: ["glance.measured", "ok"], estimated: ["glance.es
 /** phase2/accounts (#21, #31): the service's own mark (public/brand-marks.js), or a neutral tile. */
 function tile(row) {
   const mark = markTile([row.connection, row.connectionName], { size: 26 });
-  mark.classList.add("glance-tile");
+  mark?.classList.add("glance-tile");
   return mark;
 }
 function windowLine(window) {
@@ -105,7 +105,8 @@ function rowNode(row) {
   body.append(head);
   for (const window of row.windows) body.append(windowLine(window));
   if (row.note) body.append(el("small", row.note));
-  node.append(tile(row), body);
+  const mark = tile(row);
+  node.append(...(mark ? [mark] : []), body);
   return node;
 }
 function paintPopover() {
