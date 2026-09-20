@@ -59,6 +59,12 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `settings:data` | Usage and cost, how long things are kept, backup, snapshots, bringing things in from another assistant |
 | `settings:advanced` | Health check, diagnostics, tracing, evaluation and studies, developer tools |
 | `settings:about` | Version and updates |
+| `settings:trunks` | Directory to the real Trunks, Overview and People places |
+| `settings:channels` | Directory to the real chat apps and devices controls |
+| `settings:connections` | Directory to the real tool-server and app connections controls |
+| `settings:skills` | Directory to the real Skills, Specialists and Plugins places |
+| `settings:memory` | Directory to the real Memory, Documents and Made for you places |
+| `settings:automations` | Directory to the real Automations and Inbox places |
 
 Inside a conversation there are no homes to add to, only two surfaces with strict jobs:
 

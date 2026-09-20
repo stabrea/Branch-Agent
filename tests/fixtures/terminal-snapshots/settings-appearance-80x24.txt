@@ -1,6 +1,6 @@
  ♣ Branch Agent · Settings › Appearance                 ● Offline demonstration
   1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize
- Settings › Appearance  (4/14)
+ Settings › Appearance  (4/20)
  < Instructions & personality   Notifications >
    APPEARANCE
    Every KeepOak theme, light or dark. Changes show in this terminal and in

@@ -338,6 +338,39 @@ test("S9 every page is grouped, and a card no group names still shows under More
   assert.deepEqual(f.errors, []);
 });
 
+const SETTINGS_DIRECTORIES = {
+  trunks: [["trunks", "customize", "specialists"], ["overview", "overview", "here"], ["people", "household", "people"]],
+  channels: [["channels", "customize", "channels"]],
+  connections: [["connections", "customize", "connections"]],
+  skills: [["skills", "customize", "skills"], ["specialists", "customize", "specialists"], ["plugins", "customize", "plugins"]],
+  memory: [["memory", "library", "memory"], ["documents", "library", "documents"], ["made", "library", "made"]],
+  automations: [["scheduled", "automations", "scheduled"], ["procedures", "automations", "procedures"],
+    ["triggers", "automations", "triggers"], ["needs", "inbox", "needs"], ["history", "inbox", "history"]],
+};
+
+for (const [width, height] of [[1440, 950], [390, 844]]) {
+  test(`S9 directories at ${width}x${height} open their real Branch places`, async (t) => {
+    const f = await fixture(t, { width, height });
+    for (const [page, entries] of Object.entries(SETTINGS_DIRECTORIES)) {
+      await openSettings(f.page, page);
+      assert.equal(await f.page.locator(`#lx-page-${page} .settings-directory-card`).count(), entries.length);
+      for (const [id, place, tab] of entries) {
+        const card = f.page.locator(`#settings-directory-${page}-${id}`);
+        const open = card.getByRole("button");
+        assert.match(await open.getAttribute("aria-label"), /^Open .+/);
+        assert.equal(await open.getAttribute("aria-describedby"), `${await card.getAttribute("id")}-description`);
+        await open.click();
+        assert.equal(await f.page.locator("#settings-window").isVisible(), false);
+        assert.equal(await f.page.locator(`#${place}`).isVisible(), true, `${page}:${id} did not open ${place}`);
+        assert.equal(await f.page.locator(`.lx-panel[data-place="${place}"][data-tab="${tab}"]`).getAttribute("hidden"), null,
+          `${page}:${id} did not open ${place}:${tab}`);
+        await openSettings(f.page, page);
+      }
+    }
+    assert.deepEqual(f.errors, []);
+  });
+}
+
 test("S10 Settings is a cog right after the account row, in the calm and the full window, and draws every card", async (t) => {
   const f = await fixture(t);
   const after = () => f.page.evaluate(() => {

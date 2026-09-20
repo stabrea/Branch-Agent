@@ -240,9 +240,41 @@ const SETTINGS_PAGES = [
   ["data", "settings.page.data", "Data & usage", "What it costs, what is kept, and your safety copies."],
   ["advanced", "settings.page.advanced", "Advanced", "Tools for checking and fixing Branch."],
   ["about", "settings.page.about", "Updates & about", "Your version, and updates."],
+  ["trunks", "settings.page.trunks", "Trunks & people", "Your own assistants, the computers they use, and the people who use Branch here."],
+  ["channels", "settings.page.channels", "Chat apps & devices", "The chat apps, pages and devices that reach Branch."],
+  ["connections", "settings.page.connections", "Connections", "Tool servers Branch uses, other AI tools using Branch, and your own accounts."],
+  ["skills", "settings.page.skills", "Skills & plugins", "What your assistant can do: skills, specialists and plugins."],
+  ["memory", "settings.page.memory", "Memory & library", "What it remembers, your documents and what it has made."],
+  ["automations", "settings.page.automations", "Automations & inbox", "Work that runs by itself, and how Inbox keeps the record."],
 ];
 const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], ["defaults", "settings.models.defaults", "Defaults"],
   ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
+const SETTINGS_DIRECTORY = {
+  trunks: [
+    ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:specialists"],
+    ["overview", "place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "overview"],
+    ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
+  ],
+  channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
+  connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
+  skills: [
+    ["skills", "place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "customize:skills"],
+    ["specialists", "place.customize.specialists", "Specialists", "settingsDirectory.specialists.line", "Create and manage Trunks with their own jobs and character.", "customize:specialists"],
+    ["plugins", "place.customize.plugins", "Plugins", "settingsDirectory.plugins.line", "Install and review add-ons from other tools and people.", "customize:plugins"],
+  ],
+  memory: [
+    ["memory", "place.library.memory", "Memory", "settingsDirectory.memory.line", "Review what Branch remembers and how it learns.", "library:memory"],
+    ["documents", "place.library.documents", "Documents", "settingsDirectory.documents.line", "Manage the documents Branch may use when it answers.", "library:documents"],
+    ["made", "place.library.made", "Made for you", "settingsDirectory.made.line", "Open the pages, articles and widgets Branch made.", "library:made"],
+  ],
+  automations: [
+    ["scheduled", "place.automations.scheduled", "Scheduled", "settingsDirectory.scheduled.line", "Manage work that runs at a particular time.", "automations:scheduled"],
+    ["procedures", "place.automations.procedures", "Procedures", "settingsDirectory.procedures.line", "Manage saved ways of doing repeatable work.", "automations:procedures"],
+    ["triggers", "place.automations.triggers", "Triggers", "settingsDirectory.triggers.line", "Manage work started by an outside event.", "automations:triggers"],
+    ["needs", "place.inbox.needs", "Needs you", "settingsDirectory.needs.line", "Answer work waiting for your decision.", "inbox:needs"],
+    ["history", "place.inbox.history", "History", "settingsDirectory.history.line", "Review what ran and how it ended.", "inbox:history"],
+  ],
+};
 /* Where every existing panel now lives: [its id, the slot it moves into]. Order inside a slot follows this list. */
 const MOVES = [
   ["policy-waiting-card", "lx-slot-inbox-needs"],
@@ -455,6 +487,40 @@ function buildSettings() {
   document.body.append(shell);
   buildModelTabs();
   buildAppearanceBlock();
+}
+/** Honest Settings directories for controls that live in Branch's full places. */
+function buildSettingsDirectories() {
+  for (const [page, entries] of Object.entries(SETTINGS_DIRECTORY)) {
+    const host = $(`lx-page-${page}`);
+    if (!host) continue;
+    for (const [id, titleKey, title, lineKey, line, route] of entries)
+      host.append(settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route));
+  }
+  syncDirectoryButtons();
+  document.addEventListener("branch-language", syncDirectoryButtons);
+}
+function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) {
+  const card = make("section", "card settings-directory-card");
+  card.id = `settings-directory-${page}-${id}`;
+  card.dataset.home = `settings:${page}`;
+  const heading = worded("h2", "settings-directory-title", titleKey, title);
+  heading.id = `${card.id}-title`;
+  const description = worded("p", "settings-directory-line", lineKey, line);
+  description.id = `${card.id}-description`;
+  const words = make("div", "settings-directory-words");
+  words.append(heading, description);
+  const open = button("settings-directory-open", "settingsDirectory.open", "Open");
+  open.dataset.route = route;
+  open.setAttribute("aria-describedby", description.id);
+  open.addEventListener("click", () => displayView(route));
+  card.append(words, open);
+  return card;
+}
+function syncDirectoryButtons() {
+  for (const open of document.querySelectorAll(".settings-directory-open")) {
+    const title = open.closest(".settings-directory-card")?.querySelector("h2")?.textContent ?? "";
+    open.setAttribute("aria-label", `${say("settingsDirectory.open", "Open")} ${title}`.trim());
+  }
 }
 function settingsSearch() {
   const wrap = make("label", "lx-search");
@@ -1480,6 +1546,7 @@ function start() {
   for (const [id, spec] of Object.entries(PLACES)) buildPlace(id, spec);
   buildInboxLists();
   buildSettings();
+  buildSettingsDirectories();
   moveAll();
   buildTitleBar();
   tagPaneBlocks();

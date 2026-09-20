@@ -74,6 +74,27 @@
 .lx-subpanel > .card:not(.danger):last-child {
   border-bottom: 0;
 }
+.settings-directory-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.settings-directory-words {
+  min-width: 0;
+}
+.settings-directory-title,
+.settings-directory-line {
+  margin: 0;
+}
+.settings-directory-line {
+  margin-top: 5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.settings-directory-open {
+  flex: none;
+}
 /* Most older forms put the switch before its words. The approved row reads label first and puts
    the switch at the far edge; row-reverse changes only presentation and keeps label semantics. */
 .lx-page label:has(> input[type="checkbox"][role="switch"]),
@@ -211,29 +232,6 @@
 .lx-settings-link {
   gap: 9px;
 }
-/* The places outside Settings, listed after its pages: they look like a page link and go to the place. */
-.sg-place-link {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-2);
-  font-size: 13.5px;
-  font-weight: 500;
-  text-align: left;
-}
-.sg-place-link:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.sg-place-link .sg-icon {
-  color: var(--text-3);
-}
 .lx-settings-link .sg-icon {
   color: var(--text-3);
 }
@@ -262,7 +260,7 @@
   background: var(--surface);
 }
 .sg-nav-group + .sg-level,
-.sg-place-link + .sg-picker + .sg-level {
+.sg-picker + .sg-level {
   margin-top: 16px;
 }
 .sg-level-label {
@@ -315,7 +313,6 @@
     overflow: visible;
   }
   .lx-settings-nav .lx-settings-link,
-  .lx-settings-nav .sg-place-link,
   .lx-settings-nav .sg-nav-group,
   .sg-level-label,
   .sg-level-note {
@@ -356,6 +353,11 @@
   .lx-settings-nav .lx-search,
   .sg-picker {
     flex-basis: 100%;
+  }
+  .settings-directory-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
   }
 }
 

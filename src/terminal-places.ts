@@ -50,6 +50,12 @@ export const SETTINGS_PAGES: SettingsPage[] = [
   page("data", "Data & usage", "What it costs, what is kept, and your safety copies."),
   page("advanced", "Advanced", "Tools for checking and fixing Branch."),
   page("about", "Updates & about", "Your version, and updates."),
+  page("trunks", "Trunks & people", "Your own assistants, the computers they use, and the people who use Branch here."),
+  page("channels", "Chat apps & devices", "The chat apps, pages and devices that reach Branch."),
+  page("connections", "Connections", "Tool servers Branch uses, other AI tools using Branch, and your own accounts."),
+  page("skills", "Skills & plugins", "What your assistant can do: skills, specialists and plugins."),
+  page("memory", "Memory & library", "What it remembers, your documents and what it has made."),
+  page("automations", "Automations & inbox", "Work that runs by itself, and how Inbox keeps the record."),
 ];
 export const MODEL_TABS: Named[] = [
   tab("connection", "settings.models.connection", "Connection"), tab("defaults", "settings.models.defaults", "Defaults"),

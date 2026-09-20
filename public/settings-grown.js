@@ -12,7 +12,7 @@
    Nothing here changes what a setting does. */
 import { fromEnglish, language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
-import { BUCKETS, ELSEWHERE, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
+import { BUCKETS, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
 
 const $ = (id) => document.getElementById(id);
@@ -265,15 +265,6 @@ function dressNav() {
   for (const link of nav.querySelectorAll(".lx-settings-link")) withIcon(link, link.dataset.page);
   for (const [before, key, english] of NAV_GROUPS)
     nav.querySelector(`.lx-settings-link[data-page="${before}"]`)?.before(worded("p", "sg-nav-group", `settingsGrown.nav.${key}`, english));
-  nav.append(worded("p", "sg-nav-group", "settingsGrown.nav.elsewhere", "Elsewhere in Branch"));
-  for (const [place, iconName] of ELSEWHERE) {
-    const link = worded("button", "sg-place-link", `place.${place}`, place);
-    link.type = "button";
-    link.dataset.place = place;
-    withIcon(link, iconName);
-    link.addEventListener("click", () => globalThis.branchLayout?.go(place));
-    nav.append(link);
-  }
   nav.append(pagePicker(nav), levelBox());
   const version = $("lx-settings-version");
   if (version) nav.append(version);

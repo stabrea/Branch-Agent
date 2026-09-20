@@ -16,12 +16,12 @@
   │   Data & usage                                                                                                   │
   │   Advanced                                                                                                       │
   │   Updates & about                                                                                                │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
+  │   Trunks & people                                                                                                │
+  │   Chat apps & devices                                                                                            │
+  │   Connections                                                                                                    │
+  │   Skills & plugins                                                                                               │
+  │   Memory & library                                                                                               │
+  │   Automations & inbox                                                                                            │
   │                                                                                                                  │
   │                                                                                                                  │
   │                                                                                                                  │
