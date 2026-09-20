@@ -6,8 +6,11 @@ will notice straight away** and **What is off until you turn it on** — before 
 
 **Branch never spreads your work across your own plans.** If you have more than one personal
 subscription with the same service, Branch will not quietly hop between them when one runs out of
-room. That is what those plans' own terms forbid, so Branch keeps to the one you chose and tells you
-it has run out. It still moves between API keys, and between accounts you mark **Kept separate** —
+room. Moving your work to another of your own identical plans because the first hit its limit is the
+kind of thing the services' terms call getting round a limit, and none of them says in writing that
+it is allowed — so Branch keeps to the plan you chose and tells you it has run out, rather than
+putting your accounts at risk. It still moves between API keys, which you hold and pay for as you go,
+and between accounts you mark **Kept separate** —
 a work account beside a personal one, or somebody else in the house using their own. There is a new
 tick box on each account, `/account separate <name>` in the terminal, and a one-time notice
 explaining the change.
@@ -158,6 +161,7 @@ It keeps your conversations, settings, memory and schedules.
 
 ## How this release was checked
 
-*(To be filled in before publishing: the three-system CI runs, the Linux desktop, chaos and
+*(To be filled in before publishing from `docs/agents/STATUS-release-019.md`, which holds the counts:
+the three-system CI runs, the Linux desktop, chaos and
 install-torture counts, the macOS and Windows test counts, and the real-update test from 0.18.1 to
 0.19.0 on Linux and Windows — the first run where the fixed updater is the one doing the work.)*

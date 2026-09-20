@@ -80,7 +80,11 @@ as this run can show — worth handing to whoever keeps the flake list, since it
 
 ## 5. Windows
 
-CI covers the suite on `windows-latest` in six shares. On top of that, the packaged desktop tests are run on
+**The Windows suite has not run against this tree.** `.github/workflows/checks.yml` fires on pushes to
+`main`, `wave2/integration`, `release/**`, `mac/**`, `mac2/**`, `mac5/**`, `mac6/**` and `wave9/**`, and on
+pull requests — `mac7/**` is not in that list, and `gh run list --branch mac7/release-019` is empty. CI's
+six Windows shares will cover it the moment this lands on trunk (or through a PR), which is the
+coordinator's "green twice". What *was* run on Windows is below. On top of that, the packaged desktop tests are run on
 Legion over `ssh mac-mini-tk1 ssh legion-branch` (session 0, no visible window), not through
 `desktop-bridge.ps1`, which is the visible session. Separate worktree
 `C:/Users/bishi/Code/wt/release-019-win` at d86268fb (same code as e08c98e4), own `npm ci` and build.
@@ -98,7 +102,15 @@ each of those files passes on its own and all four pass together on the re-run.
 - **The real-update test** (`docs/agents/real-update-test.md`) needs published 0.19.0 downloads, so it can
   only be run after the tag. It is the coordinator's step, and 0.19.0 is the first release whose *previous*
   version (0.18.1) has the fixed updater, so this is the first honest run of it.
-- **CI green twice** — the coordinator's, after the merge.
+- **CI green twice** — the coordinator's, after the merge. No Checks run exists for `mac7/release-019`
+  at all (see section 5), so nothing on Windows beyond the four packaged desktop files has been run
+  against the 0.19.0 tree here.
+- **The version was re-checked on the final head** (`ec06ee62`): no `0.18.1` left in `package.json`,
+  either lock, the three plugin manifests, `build.gradle`, the iOS project or `ios-project.mjs`.
+- **Test file lists**: both the macOS and Linux suites are a superset of `docs/agents/scripts/verify.sh`
+  — they exclude only `tests/desktop*` and `tests/screen-control`, so `mac2-desktop-ui` (headless
+  Chromium), `background-screen` (a fake runner) and `posix-desktop-script` (writes scripts, runs none)
+  were included. Nothing opened a window on the owner's Mac.
 
 ## Waiting on trunk, not in the notes
 
