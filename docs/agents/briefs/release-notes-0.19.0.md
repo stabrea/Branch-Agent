@@ -60,6 +60,29 @@ line on screen saying it is still coming. And before Branch runs your project's 
 per folder — **Let Branch run this project's tests? Always for this folder / Once / No** — because
 running your tests is running a program on your computer.
 
+**Coding tasks that get to the point.** A coding task used to spend whole exchanges with the model
+just looking for a tool. Over five ordinary coding requests, 14 of the 30 times it needed one of the
+everyday file tools — read, search, list, find, change, write — that tool was not in front of it and
+had to be fetched first, which costs a whole round trip and teaches the model nothing. Two things
+change that. The first happens for everyone, with no switch: no single toolbox can take every place
+on the list any more, so a request is never shown none of the tools its work needs. (That share-out
+on its own takes the number from 17 to 14. The 17 was measured before this work, on the earlier
+build, and was not measured again on the finished one.) The second is a new switch, **Doing more in
+one go**: it puts the tools a coding task always needs in front of it from the start, tells it that
+it may ask for several independent things at once, adds a way to read several files in one step, and
+runs look-only calls at the same time. With it on, **1** of those 30 needs a search — and it is the
+tools-in-front part alone that does that. Two of the sample requests also finished in fewer steps:
+renaming something across a project went from 9 calls to 4, and fixing a range from 6 to 4. It ships
+off. All of this was measured against a stand-in for the model rather than a live one, so the number
+to trust is the work each removed exchange saves, not a promise about how fast your own task will be.
+
+**A task that runs out of room now answers.** It used to end on nothing but "Maximum 12 model rounds
+reached" — no answer, and no clue what it had spent those rounds on. It now gives the best answer it
+has from the work it did and says in plain words where the rounds went. How many rounds a task may
+take is yours to change: Settings → Advanced, **Times one task may go back to the model**, left empty
+to keep what Branch was started with (12). A tool that arrives part-way through a task no longer
+pushes another one off the list.
+
 **When something goes wrong.** Settings → Advanced now has an **Activity log** (off, when needed, on
 — off as shipped, with keys, tokens, addresses and folder names stripped as each line is written),
 optional **crash notes** kept on this computer only and never sent anywhere, and **Report a problem**,
@@ -101,10 +124,28 @@ These are the ones worth knowing about, in plain words.
   and a new check now walks every tool Branch shows a model and fails if either kind of thing comes
   back.
 - **A household profile sees only its own accounts** in the accounts list.
+- **Three found before anyone had them.** The new many-file read named no target, so your rules
+  judged it against nothing: a rule refusing file tools under a folder refused reading one file
+  there and let the many-file read of that same file through. It now names every path it would read,
+  and each one is judged. Separately, the line saying what a task is doing, and the record of what it
+  reached for, were written for a whole reply before any of it ran — even with that part switched off
+  — so a task stopped at its first step named the wrong thing; they are written beside each call now.
+  And when one round held two calls that each needed your yes, both put a question up but only one
+  could stop the task, leaving the other waiting to be answered for something no longer running: a
+  call that will be asked about now runs on its own. None of the three reached a release.
 - **Rooms and voice**: a yes given in a room ends the question without rewriting the rest of the
   conversation, a message between Trunks is read as the task that sent it rather than as you, a
   message whose task stops to ask now shows as waiting rather than failed, and the live voice view
   opens for a conversation that began before its setting was read.
+
+<!-- SLOT, do not publish as is. Two things were still landing on trunk when these notes were
+     written and need their own plain-words lines once they are green, from the branches' own status
+     files rather than from memory:
+     1. Three more tools that named no target and so were judged against nothing — knowledge.manage's
+        folder, research.run's web addresses, and channels.broadcast, where an empty list meant
+        "every linked chat" and was judged as nothing at all. This belongs beside the three above.
+     2. The brand marks coming out of Accounts, Secrets, Models and the channel cards: 48 SVGs and
+        their attribution section removed. -->
 
 ## What you will notice straight away
 
@@ -124,8 +165,9 @@ These are the ones worth knowing about, in plain words.
 
 ## What is off until you turn it on
 
-Everything new is switchable and ships off: read-before-changing, crash notes, the activity log,
-dictation, the Talk live view, achievements, the pet, your own background, the 3D look. The side
+Everything new is switchable and ships off: read-before-changing, **Doing more in one go**, crash
+notes, the activity log, dictation, the Talk live view, achievements, the pet, your own background,
+the 3D look. The side
 panel's new tabs, the ring, the mode chip and the Trunks strip are part of the window and can be
 hidden. Slate as the default and Ask first for new conversations are the two deliberate changes of
 behaviour, both described above.

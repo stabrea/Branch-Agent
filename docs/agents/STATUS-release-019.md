@@ -16,6 +16,25 @@ tools. The rest is test and `public/*.js` flake work. Re-run on the merged tree 
 `handbook` — **54 tests, 54 pass, 0 fail**. Neither fix touches the engine kill/restart paths or the
 installer, so the chaos and install-torture rounds are not affected by them.
 
+**Second re-merge (2026-09-20).** Trunk moved again to **b84c702e**, which carries the `mac7/speed`
+merge (`b59804bd`), three landed batches and a NUL-byte fix. Merged into this branch as **34d27bb5**:
+`npm ci`, an empty `dist`, `npm run build` and `npx tsc --noEmit` all clean, version still 0.19.0 with
+no `0.18.1` anywhere. Targeted re-run on it (Legion, concurrency 2): `speed`, `wire-safe-patterns`,
+`git`, `personal`, `personal-connectors`, `static-assets`, `index-structure`, `handbook`,
+`coding-next`, `walk-rules` — **179 tests, 179 pass, 0 fail**. The Linux and macOS whole-suite,
+chaos and install-torture numbers above are still the e08c98e4 ones; they have not been re-run on
+34d27bb5, and CI on trunk is what covers the rest of the suite for the speed merge.
+
+The notes now carry the speed work with the coordinator's corrected numbers (14 of 30 → 1 of 30 with
+the switch on, the 1-of-30 being the tools-in-front part alone; the share-out alone 17 → 14, with the
+17 named as a pre-branch figure never re-measured on the built branch; `rename` 9 → 4 and `fix-range`
+6 → 4; measured against a stand-in for the model). The withdrawn "lifts the worst request off the
+floor" claim is not in them. Its three integration-review security fixes are in the safety section.
+An HTML comment in the notes holds a slot for the two things still landing (three more tools that
+named no target — `knowledge.manage`, `research.run`, `channels.broadcast` — and the brand marks
+coming out of Accounts, Secrets, Models and the channel cards); their wording is deliberately not
+invented yet.
+
 - [x] 1. Version 0.19.0 everywhere (e08c98e4)
 - [x] 2. Release notes `docs/agents/briefs/release-notes-0.19.0.md` (verification section left as a placeholder)
 - [x] 3. Linux gate on `branch-test-linux`: desktop tests (xvfb, one at a time), full suite, chaos 200 seeds, install-torture 200 seeds
