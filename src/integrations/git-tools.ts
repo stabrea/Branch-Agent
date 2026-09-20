@@ -14,9 +14,16 @@ import { referenceToLink } from "./issue-tools.js";
  * `github.manage` and needs a saved token.
  */
 const folder = z.string().min(1).max(200).regex(/^[^\\:\0-][^\\:\0]*$/, "Use a folder inside your workspace").default(".");
-const branchName = z.string().min(1).max(100).regex(/^(?!-)(?!.*\.\.)(?!.*\.lock$)[A-Za-z0-9._/-]+$/, "Use letters, digits, dots, dashes and slashes");
-const revisionRange = z.string().min(1).max(200).regex(/^(?!-)[A-Za-z0-9._/@^~-]+(\.{2,3}[A-Za-z0-9._/@^~-]+)?$/, "Use a commit, a branch, or a range such as main..mine");
-const filePath = z.string().min(1).max(500).regex(/^(?!-)[^\\:\0]+$/, "Use a path inside the folder");
+// A tool's `pattern` is checked by the ChatGPT endpoint against the RE2 subset, which has no
+// lookahead. One lookahead anywhere refuses the whole request and takes every other tool in that
+// round with it: a task that merely said "git" failed in three seconds, having run nothing. These
+// say the same thing without one, the way `folder` above already does; what a lookahead expressed
+// about the whole value (no "..", no ".lock" ending) is now a check beside the pattern.
+const branchName = z.string().min(1).max(100).regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/, "Use letters, digits, dots, dashes and slashes")
+  .refine((value) => !value.includes(".."), "No .. in a branch name")
+  .refine((value) => !value.endsWith(".lock"), "A branch name cannot end with .lock");
+const revisionRange = z.string().min(1).max(200).regex(/^[A-Za-z0-9._/@^~][A-Za-z0-9._/@^~-]*(\.{2,3}[A-Za-z0-9._/@^~-]+)?$/, "Use a commit, a branch, or a range such as main..mine");
+const filePath = z.string().min(1).max(500).regex(/^[^\\:\0-][^\\:\0]*$/, "Use a path inside the folder");
 const copyName = z.string().min(1).max(40).regex(/^[a-z0-9][a-z0-9._-]*$/, "Use lowercase letters, digits, dots, dashes and underscores").refine((v) => !v.includes(".."), "No .. in a name");
 const remoteName = z.string().min(1).max(40).regex(/^[A-Za-z][A-Za-z0-9._-]*$/, "Use a remote name such as origin").default("origin");
 const title = z.string().trim().min(1).max(200);
