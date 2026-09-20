@@ -549,7 +549,7 @@ function buildOnThisPage(page) {
   const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
     // Only include headings that are not hidden by the current level
     const card = h.closest(".lx-page > *, .lx-subpanel > *");
-    return card && !card.hidden && card.dataset.sgBucket !== undefined;
+    return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
   });
 
   if (headings.length === 0) return; // No sections to link to
