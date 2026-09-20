@@ -614,26 +614,42 @@ be corrected before the release notes quote it; the release-notes draft in this 
 
 ### Tests run at integration
 
-`npm run build` and `npx tsc --noEmit` clean. Then, on this build:
+Run twice: once on the branch as the builder left it, and again after merging trunk
+(`0d2a65b7`) into it with a **deleted `dist/` and a clean rebuild**. Both times `npm run build` and
+`npx tsc --noEmit` were clean. The figures below are the second run, on the merged build.
 
-- `tests/speed.test.mjs` — **49 pass, 0 fail** (44 the builder's, 5 added here: the rules judging
-  every path in a many-file read, a file longer than one answer, a call that never ran not being
-  written down as work, Lockdown naming nothing, and a cancelled task leaving no call running).
-- `tests/tool-loading.test.mjs tests/tool-loading-quality.test.mjs tests/catalog-diet.test.mjs
-  tests/runtime.test.mjs tests/lockdown-fix-integrator.test.mjs tests/lockdown-modes.test.mjs
-  tests/household-profile.test.mjs tests/owner-tool-guards.test.mjs tests/tool-safety.test.mjs
-  tests/multi-target.test.mjs tests/approvals.test.mjs tests/policy-outside-hold.test.mjs` —
-  **146 pass, 0 fail**.
-- `tests/server.test.mjs tests/ui.test.mjs tests/shell-ui.test.mjs tests/static-assets.test.mjs
-  tests/index-structure.test.mjs tests/handbook.test.mjs tests/coding-next.test.mjs
-  tests/coding-polish.test.mjs tests/coding-polish-holes.test.mjs tests/code-tools.test.mjs
-  tests/files-paths.test.mjs tests/chatgpt.test.mjs tests/hidden-knobs.test.mjs
-  tests/safety-extras-progress.test.mjs` — **160 pass, 0 fail** (3 skipped).
-- `tests/automation.test.mjs` alone — **5 pass, 0 fail**.
+- **329 tests, 326 pass, 0 fail, 3 skipped**, in one go:
+  `tests/speed.test.mjs tests/static-assets.test.mjs tests/index-structure.test.mjs
+  tests/handbook.test.mjs tests/catalog-diet.test.mjs tests/tool-loading.test.mjs
+  tests/tool-loading-quality.test.mjs tests/runtime.test.mjs tests/lockdown-fix-integrator.test.mjs
+  tests/lockdown-modes.test.mjs tests/household-profile.test.mjs tests/owner-tool-guards.test.mjs
+  tests/tool-safety.test.mjs tests/multi-target.test.mjs tests/approvals.test.mjs
+  tests/policy-outside-hold.test.mjs tests/chatgpt.test.mjs tests/hidden-knobs.test.mjs
+  tests/safety-extras-progress.test.mjs tests/coding-next.test.mjs tests/coding-polish.test.mjs
+  tests/coding-polish-holes.test.mjs tests/code-tools.test.mjs tests/files-paths.test.mjs`
+- `tests/automation.test.mjs` on its own — **5 pass, 0 fail**.
+- `tests/server.test.mjs tests/ui.test.mjs tests/shell-ui.test.mjs` before the merge — 160 pass,
+  0 fail (3 skipped).
 
+`tests/speed.test.mjs` is 49 of those: 44 the builder's and 5 added here — the rules judging every
+path in a many-file read, a file longer than one answer, a call that never ran not being written
+down as work, Lockdown naming nothing, and a cancelled task leaving no call in a group running.
 Each of the four fix tests was checked against the code before its fix and failed there; the fifth
 (cancellation) tests a claim that already held.
 
+**Seen once and not mine.** `tests/phone-layout.test.mjs` — trunk's own suite, which this branch
+does not touch — failed at the file level when run at concurrency 2 beside `server.test.mjs` and
+`shell-ui.test.mjs`, and **passes 16 of 16 on its own** on the same build. Three suites that each
+drive a browser, run two at a time: that is the shape of the Windows CI flakes, and it belongs to
+whoever owns that suite, not here.
+
 **Not proved here.** Fix 4 (one rate queue per limit) has no test: both per-minute limits ship at 0,
-and a test of it would be a timing test on a shared machine. It is a small, readable change and the
-existing rate tests still pass.
+and a test of it would be a timing test on a machine the owner is using. It is a small, readable
+change and the existing rate tests still pass.
+
+### The numbers again, on the merged build
+
+`catalog-probe.mjs`: **14 of 30** with the part off, **1 of 30** with it on — unchanged by the
+merge. `run.mjs`: `fix-range` 6 → 4 calls (32% less wall), `rename` 9 → 4 (52%), `search-project`
+5 → 2 (49%), and a tool taken away in **0** rounds of all six rows. The one and two point
+differences from the figures earlier in this file are this machine being busier, not the code.
