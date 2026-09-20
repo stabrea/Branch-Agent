@@ -426,15 +426,16 @@ test("the release workflow refuses a Mac release only once signing is switched o
   assert.match(workflow, /npm run package:desktop -- --release/);
 });
 
-test("a version tag cannot build or publish until Checks passed for that exact commit", async () => {
+test("a version tag cannot build or publish until fail-closed CI passed for that exact commit", async () => {
   const workflow = await readFile(join(".github", "workflows", "package.yml"), "utf8");
   const job = (name) => workflow.split(/\n(?=  [a-z-]+:\n)/).find((block) => block.startsWith(`  ${name}:\n`)) ?? "";
 
   assert.match(workflow, /permissions:\n\s+actions: read\n\s+contents: read/);
   const gate = job("release-gate");
-  assert.match(gate, /actions\/workflows\/checks\.yml\/runs/);
+  assert.match(gate, /actions\/workflows\/\$workflow\/runs/);
+  assert.match(gate, /for workflow in pr-fast\.yml checks\.yml/);
   assert.match(gate, /head_sha="\$GITHUB_SHA"/);
-  assert.match(gate, /conclusion.*success/);
+  assert.match(gate, /if \[ "\$status" = completed \] && \[ "\$conclusion" = success \]/);
   assert.match(gate, /exit 1/);
   assert.match(job("android"), /needs: release-gate/);
   assert.match(job("build"), /needs: \[release-gate, android\]/);

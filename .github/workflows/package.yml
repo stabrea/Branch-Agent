@@ -12,7 +12,7 @@ on:
         type: boolean
         default: true
 # Only the job that attaches the downloads may write. The gate reads Actions history so a tag cannot
-# publish a commit whose exact Checks run is absent, still working, or red.
+# publish a commit unless that exact commit passed either the exhaustive lane or the fail-closed fast lane.
 permissions:
   actions: read
   contents: read
@@ -21,31 +21,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - name: Require successful Checks for this exact commit
+      - name: Require successful CI for this exact commit
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           for attempt in $(seq 1 100); do
-            run="$(gh api --method GET "repos/$GH_REPO/actions/workflows/checks.yml/runs" \
-              -f head_sha="$GITHUB_SHA" -f per_page=100 \
-              --jq '[.workflow_runs[] | select(.event == "push" or .event == "pull_request")] | sort_by(.created_at) | last // {}')"
-            status="$(printf '%s' "$run" | jq -r '.status // "missing"')"
-            conclusion="$(printf '%s' "$run" | jq -r '.conclusion // ""')"
-            url="$(printf '%s' "$run" | jq -r '.html_url // ""')"
-            if [ "$status" = completed ]; then
-              if [ "$conclusion" = success ]; then
-                echo "Checks passed for $GITHUB_SHA: $url"
+            waiting=""
+            evidence=""
+            for workflow in pr-fast.yml checks.yml; do
+              run="$(gh api --method GET "repos/$GH_REPO/actions/workflows/$workflow/runs" \
+                -f head_sha="$GITHUB_SHA" -f per_page=100 \
+                --jq '[.workflow_runs[] | select(.event == "push" or .event == "pull_request")] | sort_by(.created_at) | last // {}')"
+              status="$(printf '%s' "$run" | jq -r '.status // "missing"')"
+              conclusion="$(printf '%s' "$run" | jq -r '.conclusion // ""')"
+              url="$(printf '%s' "$run" | jq -r '.html_url // ""')"
+              evidence="$evidence $workflow=$status${conclusion:+/$conclusion}"
+              if [ "$status" = completed ] && [ "$conclusion" = success ]; then
+                echo "$workflow passed for $GITHUB_SHA: $url"
                 exit 0
               fi
-              echo "::error::Checks finished '$conclusion' for $GITHUB_SHA. Nothing will be built or published. $url"
+              if [ "$status" != completed ] && [ "$status" != missing ]; then waiting=1; fi
+            done
+            if [ -z "$waiting" ] && [ "$attempt" -ge 3 ]; then
+              echo "::error::No successful exact-commit CI result. Nothing will be built or published.$evidence"
               exit 1
             fi
-            echo "Checks for $GITHUB_SHA are $status; waiting ($attempt/100)."
+            echo "Exact-commit CI is not green yet; waiting ($attempt/100).$evidence"
             sleep 30
           done
-          echo "::error::No successful Checks run finished for $GITHUB_SHA within 50 minutes. Nothing will be built or published."
+          echo "::error::No successful exact-commit CI result within 50 minutes. Nothing will be built or published."
           exit 1
   # The Android app is built and signed once per release, and that one APK goes into every desktop
   # download (in phone/), so "Get Branch on your phone" can hand it to a phone. Without the signing
