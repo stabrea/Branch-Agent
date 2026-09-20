@@ -776,6 +776,57 @@ body.lx-help .context-panel > .acorn-art {
 .lx-settings-eyebrow {
   padding: 2px 10px 8px;
 }
+/* DG-001/DG-064: Back to Branch button with Esc kbd chip */
+.lx-settings-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  margin: 0 -10px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.lx-settings-back:hover {
+  background: var(--line-2);
+}
+.lx-settings-back .lx-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.lx-settings-back kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--well);
+  font-size: 11px;
+  font-family: var(--body);
+}
+/* DG-002: Settings title in Settings nav */
+.lx-settings-title {
+  margin: 0 0 12px;
+  font-family: var(--display);
+  font-weight: 700;
+  line-height: 1.2;
+}
+/* DG-003: Version line at bottom of Settings nav */
+.lx-settings-version {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 11px;
+  text-align: center;
+}
 .lx-search {
   display: flex;
   align-items: center;
