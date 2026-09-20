@@ -187,6 +187,14 @@ Playwright's default 30 seconds.
   there. The press is deliberately NOT made again the way `pressUntil` does elsewhere, because a second
   press would draft a second skill and the test counts drafts. The file's other 15 s waits are 60 s.
 
+## Run 35488311256 on da5ac2c0: one shard
+
+- phone-layout "an answer that could not be sent gives the buttons back…" (Windows 6/6,
+  `getBoundingClientRect` of null): **TEST.** `#live-ask` goes visible as soon as the card is there,
+  and the card's own parts arrive with its next draw, so the two parts the widths are taken from can
+  still be missing when they are measured. Both are now waited for, with the same selectors the
+  measurement uses.
+
 ## Where the two green runs stand
 
 Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
