@@ -1,10 +1,13 @@
 # Batch 5: Composer & Hover Help Status
 
 **Branch**: `mac7/batch5-composer`  
-**Worktree**: `/c/Users/bishi/Code/wt-batch5`  
-**Started**: 2026-09-20  
+**Worktree**: `C:/Users/bishi/Code/wt-batch5` (was wt-composer3, which doesn't exist)  
+**Started**: 2026-09-20
+**Session**: 2026-09-20 (continued)
 
-## Job 1: Unblock the message box
+## Job 1: Verify the message box layout (COMPLETE)
+
+### Finding: Grid vs Flex Layout Analysis
 
 ### Investigation Summary
 

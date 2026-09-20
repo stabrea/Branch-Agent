@@ -620,6 +620,7 @@ async function staticFile(
     "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
     "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
     "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
+    "/hover-help.js": ["hover-help.js", "text/javascript; charset=utf-8"],
     "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
     // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
