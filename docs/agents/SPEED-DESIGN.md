@@ -1,5 +1,9 @@
 # Fewer rounds: the design (mac7/speed)
 
+*Approved by the coordinator ("GO"), then changed twice on their instruction — both changes are in
+the text below, marked. What is written here is what is built; `docs/agents/STATUS-speed.md` has the
+measurements and the checkboxes.*
+
 ## What was measured first
 
 `experiments/speed/` — a scripted provider with a fixed pretend round trip, timings from the
@@ -31,11 +35,18 @@ loaded-and-findable, never held in context.
 With it on, four things:
 
 **A. Independent read-only calls in one turn run concurrently.**
-Consecutive calls in `completion.toolCalls` are grouped while *all* of these hold: the permission is
-in `isReadOnlyPermission` (anything unknown, including every MCP tool, counts as a change and runs
-alone), the call is not one of the catalog tools (`tools.search`/`expand`/`describe`/`note`, which
-change what the next round sees and must stay ordered), and its `policyTarget` is not already in the
-group. Anything else runs alone, in its original place, so a read and a later write never swap.
+Consecutive calls in `completion.toolCalls` are grouped while the permission is in
+`isReadOnlyPermission` (anything unknown, including every MCP tool, counts as a change and runs
+alone) and the call is not one of the catalog tools (`tools.search`/`expand`/`describe`/`note`,
+which change what the next round sees) or `user.ask`. Anything else runs alone, in its original
+place, so a read and a later write never swap.
+
+*Changed on the coordinator's instruction (decision 1):* two calls about the **same** thing may
+share a group **when both are already allowed outright** and nothing would be asked — there is then
+no "just this once" yes for them to spend between them. If either would raise a question they run
+one after another and the second is asked again, exactly as today. The original rule refused every
+repeat of a target; the measured cost of that was that four searches of one folder never ran
+together, while the race it guarded against already fails closed.
 
 **B. The model is told it may ask for several independent things at once.** One line in the
 instructions, present only while the switch is on.
@@ -45,11 +56,26 @@ permission `files.read`, each file going through the very same `files.read` path
 32 KiB cap, the read-before-edit note, the leak guard). It is what lets a model that still sends one
 call a turn do a turn's worth of reading in that call.
 
-**D. A tool list that stays byte-stable.** A tool that has travelled in full in this task is not
-evicted from the loaded set later (today `files.edit` coming in pushed `workspace.redo` out
-mid-task, which throws away a provider's cached prefix from that round on). The cap and the token
-budget still hold — a tool stays *in addition to* nothing; it takes its own slot back first, and the
-ceiling trims the weakest *unused* tool as it does today.
+**D. A tool list that stays byte-stable.** *Changed on the coordinator's instruction (decision 2):
+this is a bug fix, not part of the switch, and it is always on.* Which tools win a place is still
+decided on merit exactly as before; a tool that has already been sent and does not win one is now
+put back on the end instead of dropped, where the token budget takes it first if the section really
+is too heavy. The count and the budget are unchanged.
+
+**E. A coding task starts with the tools it needs** — added after the probe found the largest defect
+on the branch. Two halves. The first is **not switched** and is also a bug fix: the places were won
+outright by whichever toolbox the words of the request favoured, so a request that opened both the
+code and the documents boxes was shown **none** of the code ones. The count is now shared among the
+boxes the product *guessed*; a box the assistant opened for itself, and a tool it asked for by name,
+are requests rather than guesses and still fill places in score order. The second half is switched:
+with `fewer-rounds` on, a coding task is given `files.read`, `grep`, `list`, `glob`, `edit` and
+`write` before its first round.
+
+**F. The round ceiling** — reported to the coordinator, who asked for it on this branch. Not part of
+the switch. A task that used every round it may take ended on "Maximum 12 model rounds reached" and
+nothing else. It now asks the model once more, with no tools, for the best answer it can give from
+the work it did, and ends with that plus one plain sentence naming what the rounds went on. The
+limit itself is the owner's: `maxModelRounds`, Settings › Advanced, default unchanged at 12.
 
 ## Why it wins
 
@@ -66,13 +92,15 @@ D: one fewer full prefill per task on any provider with a prompt cache.
   (policy, hooks, Lockdown, household, outside-task hold, multi-target and folder-walk rules,
   read-before-edit), its own wall and its own span. The only thing shared is the clock.
 - **A "Once" pass stolen by the wrong call.** `ApprovalGate` keys a pass by session + tool +
-  target; a group may not hold two calls with the same target, so two members can never race for
-  one pass.
+  target. Two calls about one target may share a group only when **neither would be asked about at
+  all**, so there is no pass in play for them to race for; if either would raise a question they run
+  one at a time and the second is asked again.
 - **The rate limit overshooting.** `pace` reads then records, so concurrent callers could both see
   room. A small queue makes the read-and-record one step; the per-minute limit stays exact.
 - **A call asking for a yes.** It pauses the task exactly as today. The difference: members that
-  would have come *after* it have already run. They are read-only by construction, so nothing was
-  changed; their results are dropped and the round is asked again after the answer.
+  would have come *after* it have already run and are waited for before anything unwinds. They are
+  read-only by construction, so nothing was changed; their results are dropped and the round is
+  asked again after the answer.
 - **Transcript order.** Results are written back in the order the model asked for them, so the
   conversation and the journal read exactly as they do today.
 - **A runaway reply.** A group is capped (8), so one reply cannot open fifty things at once.
@@ -88,9 +116,12 @@ tools / Branch split, and the byte-stability of the tool list. Plus unit tests t
 asks, still refuses under Lockdown, still honours read-before-edit, and that every tool is reachable
 in all three tiers with nothing dropped from the index.
 
-## Open question for the coordinator
+## How it was settled
 
-The rule says a noticeable change ships off. That makes Branch no faster for anyone until the owner
-turns this on. If the owner wants the speed by default, **D** (a stable tool list) and **A**
-(concurrent read-only calls) are the two whose observable difference is smallest, and either could
-default on without touching what any feature does. Say which, if any.
+The rule says a noticeable change ships off, which would make Branch no faster for anyone until the
+owner turns this on. The coordinator settled it: **A, B and C ship off** behind `fewer-rounds` for
+0.19.0 — parallel execution is where "never break" is most easily lost and it has never run against
+a real model — to be proved on real models and defaulted on in the next release, with numbers in the
+notes. **D, E's first half and F are bug fixes and are always on**: a tool being pushed off a list,
+a toolbox contributing nothing to a task that opened it, and a task ending on a limit with no answer
+are all faults, not preferences.
