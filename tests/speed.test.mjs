@@ -721,3 +721,33 @@ test("a refusal that arrives mid-stream is explained too, not just one raised be
   assert.equal(providerRefusal(new ProviderStreamError(new Error("socket hang up"), 0)), null,
     "an ordinary mid-stream failure is still left alone");
 });
+
+/* ---------- saying once, up front, what cannot be done ---------- */
+
+test("a task is told at the start that nothing can be run here, and only when that is true", async (t) => {
+  const { app, provider } = await fixture(t, [say("Done.")]);
+  await app.runtime.run({ prompt: "fix the off-by-one in src/range.js" });
+  const off = provider.requests.at(-1).system;
+  assert.match(off, /Running commands, scripts and this project's tests is switched off/,
+    "as it ships, nothing can be run and the task is told so before its first round");
+  assert.match(off, /say plainly what you would have run/, "and told what to do instead");
+
+  // With the owner's scripts switch on, the line is not there: it would be untrue.
+  app.store.save("settings", "local", "code-run", { enabled: true });
+  await app.runtime.run({ prompt: "fix the off-by-one in src/range.js" });
+  assert.doesNotMatch(provider.requests.at(-1).system, /switched off on this computer/,
+    "a task that can run things is not told it cannot");
+});
+
+test("the line is said once, not every round", async (t) => {
+  const { app, provider } = await fixture(t, [
+    calls(["files.read", { path: "src/sum.js" }]),
+    calls(["files.read", { path: "src/range.js" }]),
+    say("Done."),
+  ]);
+  const run = await app.runtime.run({ prompt: "read the two files" });
+  assert.equal(run.status, "completed", run.output);
+  assert.ok(provider.requests.length >= 3, `${provider.requests.length} rounds`);
+  const said = provider.requests.map((one) => (one.system.match(/switched off on this computer/g) ?? []).length);
+  assert.deepEqual([...new Set(said)], [1], `the line was repeated: ${JSON.stringify(said)}`);
+});
