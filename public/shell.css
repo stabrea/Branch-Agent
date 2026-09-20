@@ -784,26 +784,243 @@ details.tool-step > summary:hover {
   pointer-events: auto;
 }
 .composer {
-  padding: var(--s3) var(--s3) var(--s2);
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 4px 6px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r4);
   background: var(--composer-bg);
   box-shadow: var(--shadow);
+  container-type: inline-size;
 }
 .composer textarea {
-  min-height: 56px;
-  padding: var(--s1) var(--s2);
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 200px;
+  padding: 6px 8px;
   border: none;
   background: transparent;
   box-shadow: none;
   resize: none;
+  font-size: 15px;
+  line-height: 1.4;
 }
-.composer > div {
-  display: flex;
-  flex-wrap: wrap;
+.composer-plus {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+.composer-plus:hover,
+.composer-plus[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer-plus .ico {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.composer-model-chip {
+  height: 30px;
+  padding: 0 8px;
+  flex: none;
+  border-radius: 16px;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
   align-items: center;
-  gap: var(--s2);
+  gap: 4px;
+  transition: background 0.15s, color 0.15s;
+  max-width: 200px;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-model-chip:hover,
+.composer-model-chip[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer-mode-chip {
+  height: 30px;
+  padding: 0 8px;
+  flex: none;
+  border-radius: 16px;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font-size: 12.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  max-width: 100px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-mode-chip:hover,
+.composer-mode-chip[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+@container (max-width:600px) {
+  .composer-model-chip {
+    padding: 0 6px;
+    font-size: 0;
+  }
+}
+@container (max-width:470px) {
+  .composer-mode-chip {
+    padding: 0 6px;
+    font-size: 0;
+  }
+}
+@container (max-width:330px) {
+  .composer-model-chip,
+  .composer-mode-chip {
+    display: none;
+  }
+}
+.composer-voice-icon {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-radius: 6px;
+}
+.composer-voice-icon:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer-voice-icon .ico {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.composer-talk-button {
+  flex: none;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.composer-talk-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer-send {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  border: 0;
+  background: var(--line-strong);
+  color: var(--text-3);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+}
+.composer-send:hover:not(:disabled) {
+  background: var(--copper);
+  color: var(--on-copper);
+}
+.composer-send:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.composer-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.composer-plus-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 240px;
+  max-width: 340px;
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--card-shadow, 0 10px 40px rgba(0,0,0,0.2));
+  top: 0;
+  left: 0;
+}
+.composer-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s;
+}
+.composer-menu-item:hover {
+  background: var(--hover);
+}
+.composer-menu-item input[type="checkbox"] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.composer-menu-item select {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.composer-plus-menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
 }
 #new-session {
   margin-left: auto;

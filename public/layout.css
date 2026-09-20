@@ -1362,7 +1362,7 @@ body.lx #connection[data-state="lost"] {
   #thread-labels, #lx-pane-tabs, #lx-clear, #lx-shield, #aside-toggle,
   #saved-conversations, #practice-card, #plan-controls, #model-controls,
   .welcome > p, #suggestions,
-  #composer-media, #composer-attach, #voice-record, #voice-talk,
+  #composer-media, #composer-attach, #voice-talk,
   .composer-temporary, .composer-specialist, #new-session, .lx-model-chip,
   .composer-foot, .context-stats, #session-context[data-kind="plain"], #activity, #first-run-next,
   [data-t^="first-run-next.watch"], #composer-media-file
@@ -1560,11 +1560,11 @@ body.lx #connection[data-state="lost"] {
   display: none;
 }
 :root:not([data-everything="on"]) body.lx #chat-form {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: end;
-  column-gap: 6px;
-  padding: 7px 8px 7px 8px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px 6px 8px;
   border: 1px solid var(--glass-edge);
   border-radius: 24px;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
@@ -1576,51 +1576,91 @@ body.lx #connection[data-state="lost"] {
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 3px var(--copper-tint), var(--card-shadow, var(--shadow));
 }
 :root:not([data-everything="on"]) body.lx #chat-form > #composer-attachments {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  margin: 2px 6px 6px;
-}
-:root:not([data-everything="on"]) body.lx #chat-form > .lx-plus-wrap {
-  display: block;
-  position: relative;
-  grid-column: 1;
-  grid-row: 2;
+  display: none;
 }
 :root:not([data-everything="on"]) body.lx #prompt {
-  grid-column: 2;
-  grid-row: 2;
-  field-sizing: content;
-  min-height: 40px;
+  display: block;
+  flex-grow: 1;
+  flex-shrink: 1;
+  min-height: 34px;
   max-height: 40vh;
-  padding: 8px 6px;
+  padding: 0 6px;
   overflow-y: auto;
   font-size: 15px;
-  line-height: 24px;
+  line-height: 1.5;
   outline: none;
+  border: none;
+  background: transparent;
+  resize: none;
+  margin: 0;
 }
 :root:not([data-everything="on"]) body.lx #prompt::placeholder {
   color: var(--text-3);
 }
-:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
-  grid-column: 3;
-  grid-row: 2;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 6px;
+/* Visually hidden label should not affect flex layout */
+:root:not([data-everything="on"]) body.lx #chat-form .sr-only {
   margin: 0;
-  padding: 2px 0;
+  height: 1px;
 }
 :root:not([data-everything="on"]) body.lx #followup-send {
   display: none;
 }
+/* Show voice record button in composer in calm mode */
+:root:not([data-everything="on"]) body.lx #chat-form #voice-record {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2);
+}
+:root:not([data-everything="on"]) body.lx #chat-form #voice-record:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* Show chips in composer in calm mode */
+:root:not([data-everything="on"]) body.lx #chat-form #model-chip,
+:root:not([data-everything="on"]) body.lx #chat-form #mode-chip {
+  display: inline-flex;
+  height: 34px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+}
+/* Plus button in composer in calm mode */
+:root:not([data-everything="on"]) body.lx #chat-form #composer-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2);
+}
+:root:not([data-everything="on"]) body.lx #chat-form #composer-plus:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 /* the round buttons: Send (an arrow), Stop (a square), "+" */
 :root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
   padding: 0;
   border: 0;
   border-radius: 50%;
