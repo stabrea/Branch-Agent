@@ -22,12 +22,14 @@ Close batches 3 and 4 of the sample-parity programme (29 total gaps):
 - ✅ **DG-074**: Removed filled box from empty states; changed background to transparent, no border (style.css:674-693)
 - ✅ **DG-076**: Adjusted nav group headings: margin 18px, font-size 12px, font-weight 560 (settings-grown.css:183-190)
 
-**This agent (5 gaps):**
+**This agent (1 genuinely new gap):**
+- ✅ **DG-006**: "On this page" jump links added to all Settings pages (layout.js, layout.css, en.json, fr.json)
+
+**Inherited from previous agent (4 gaps already verified):**
 - ✅ **DG-001/DG-064**: "Back to Branch" button with Esc chip added to Settings nav top-left (layout.js, layout.css)
 - ✅ **DG-002**: Settings title as h1 with 22px font size (layout.js, layout.css)
 - ✅ **DG-003**: Version line at bottom of nav showing real version (layout.js, layout.css)
 - ✅ **DG-011**: Removed bucket header icon tile and description line (settings-grown.js, settings-grown.css)
-- ✅ **DG-006**: "On this page" jump links added to all Settings pages (layout.js, layout.css, en.json, fr.json)
 
 ## Remaining Batch 4 (5 gaps) - Word changes, complex
 
@@ -309,17 +311,14 @@ git diff HEAD~2 HEAD --stat
 ### Changes Made
 
 **Files Modified:**
-- public/layout.js (DG-001/002/003/006)
-- public/layout.css (DG-001/002/003/006)
-- public/settings-grown.js (DG-011)
-- public/settings-grown.css (DG-011)
+- public/layout.js (DG-006 additions to showSettingsPage function)
+- public/layout.css (DG-006 styling)
 - public/locales/en.json (DG-006 locale strings)
 - public/locales/fr.json (DG-006 locale strings)
-- tsconfig.json (build fix)
 
-**Commits (3 total):**
-1. 90605cb1 - fix(build): add types: [node] to tsconfig.json for Buffer definitions
-2. c8f2fbfa - feat(DG-006): Add "On this page" jump links to Settings pages
+**Commits (2 total):**
+1. c8f2fbfa - feat(DG-006): Add "On this page" jump links to Settings pages
+2. d5768145 - Revert "fix(build): add types: [node]..." (reverted incorrect tsconfig change)
 
 ### Verification Notes
 
@@ -370,7 +369,8 @@ git diff HEAD~2 HEAD --stat
 - **Locale keys** - all user-facing strings use data-t keys for proper i18n
 
 ### Build Status
-- ✅ `npm run build` succeeds
-- ✅ `npx tsc --noEmit` succeeds (after tsconfig.json fix)
+- ✅ `npm run build` succeeds (after junction created, no config changes needed)
+- ✅ `npx tsc --noEmit` succeeds (tsconfig.json unchanged)
 - ✅ All commits pushed to origin/mac7/batch34-settings
+- 📝 **Note:** Build failure was local (missing node_modules junction), not a code issue
 
