@@ -2985,12 +2985,11 @@ ${run.output.slice(0, 6000)}`;
     const names = Array.isArray(asked) ? asked.map(String) : [];
     if (!names.length) return { ok: false, error: `Name the tools to load, for example {"names":["files.read"]}.` };
     const result = catalog.describe(names);
-    this.store.event(context.runId, "tools.described", { loaded: result.loaded.map((tool) => tool.name), unknown: result.unknown });
+    this.store.event(context.runId, "tools.described", { loaded: result.loaded.map((tool) => tool.name),
+      unknown: result.unknown, ...(result.switchedOff?.length ? { switchedOff: result.switchedOff } : {}) });
     this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { loaded: result.loaded.length } });
-    return { ok: true, result: { ...result, note: result.unknown.length
-      ? "A name that is not here is either misspelt or not available in this task."
-      // mac7/speed: asking for a tool by name brings its inputs with it, so the next step is the call.
-      : "Each one comes with its inputs: call the one you want now, in your next step." } };
+    // mac7/speed: asking for a tool by name brings its inputs with it, so the next step is the call.
+    return { ok: true, result: { ...result, note: describeNote(result) } };
   }
   /** Remembers one short thing about a tool. The owner can read and delete every one of these. */
   private noteTool(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
@@ -3165,6 +3164,20 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
  * must settle before the next begins. `user.ask` stops and waits for a person: it is nobody's idea
  * of something to do in the background beside four file reads.
  */
+/**
+ * mac7/speed: what to say after loading tools by name. The three cases read differently, and a model
+ * told "each one comes with its inputs" when it was handed none has been told nothing useful.
+ */
+function describeNote(result: { loaded: readonly unknown[]; unknown: readonly string[]; switchedOff?: readonly string[] }): string {
+  const off = result.switchedOff?.length
+    ? ` ${result.switchedOff.join(" and ")} ${result.switchedOff.length === 1 ? "is" : "are"} here but switched off in Settings:`
+      + " do not call them, and tell the person they can be switched on."
+    : "";
+  if (result.loaded.length) return `Each one comes with its inputs: call the one you want now, in your next step.${off}`;
+  if (result.unknown.length) return `A name that is not here is either misspelt or not available in this task.${off}`;
+  return off.trim() || "Nothing was loaded.";
+}
+
 const aloneTools = [expandToolName, toolSearchName, toolDescribeName, toolNoteName, "user.ask"] as const;
 
 /** A call's arguments as an object, or nothing when they are not valid JSON (the tool refuses them later). */
