@@ -23,7 +23,7 @@ async function fixture(t, contextOptions = {}) {
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   await fetch(new URL("/api/deployment/suggestion", server.url), { method: "POST",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ id: "updates", answer: "never" }) });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 950 }, ...contextOptions });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce", ...contextOptions });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
