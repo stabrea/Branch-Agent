@@ -94,7 +94,7 @@ your brief owns and their tests (`grep -l <module> tests/*.mjs`).
 - Docs: a short "macOS and Linux" paragraph in `docs/configuration.md` under your area's section.
   Do not edit `docs/CHECKPOINT.md`, version numbers or release notes (the baton holder does).
 - Do not push, open PRs or comment on issues. Commit on your branch with a Conventional Commit
-  message ending with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+  message that describes the change.
 - Before your final commit: `git merge --no-edit origin/wave2/integration` (after `git fetch`),
   `npm run build`, `npx tsc --noEmit`, rerun your tests on macOS **and** on `branch-test-linux`.
 

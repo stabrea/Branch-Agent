@@ -13,7 +13,7 @@ Rules (non-negotiable):
 - Keep edits to shared hot files (src/index.ts, src/server.ts, src/contracts.ts, public/app.js, public/index.html, README.md, docs/configuration.md) small and additive, in clearly separated blocks, so six branches can merge without conflicts. Put the substance in new files.
 - Do not change the version in package.json. Do not touch the updater or desktop code. Do not push. Do not open PRs or issues.
 - Documentation: one bullet in README's feature list, one short section in docs/configuration.md (routes, settings, plain-language description), and a "Batch 19 (wave 1) — <area>" paragraph appended under the newest batch in docs/CHECKPOINT.md.
-- Commit on your branch with a Conventional Commit message ending with the line: Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+- Commit on your branch with a Conventional Commit message that describes the change.
 - Final report (your last message): branch name, commit SHA, what was built in plain language (5-10 lines), files added/changed, test command and result, any dependency added with justification, anything you deliberately left out and why, and which docs/audit/todo.md item ids (Axxxx) you consider done so the theme issue can be ticked.
 
 

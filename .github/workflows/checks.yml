@@ -16,10 +16,11 @@ on:
 permissions:
   contents: read
 # One run per branch. A newer push replaces an older run rather than queueing behind it, except on
-# main, where every commit's result is worth keeping.
+# the two integration trunks where every commit may be released and therefore needs its own result.
+# Pull-request refs still cancel their older attempt when the same request receives another push.
 concurrency:
   group: checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/mac/cross-platform' }}
 # Where the time went (run 35382268151, before this change): Windows took 70.7 minutes, and 63 of
 # them were the test files running three at a time on one machine; macOS and Linux did the same in
 # about 20. So the tests are split into shares that run on separate machines at once (`--shard`,

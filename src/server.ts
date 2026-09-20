@@ -126,7 +126,8 @@ import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // 
 import { reachKey, reachParts } from "./reach/settings.js"; // r17-i integration review
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
-import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
+import { projectsApi, secretsApi } from "./owner-data-api.js";
+import { HttpError, readJsonBody as readBody } from "./server-http.js";
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 import { handlesLearnPath, learnApi, LearnHttpError } from "./learn/api.js"; // mac7/learn
@@ -273,14 +274,6 @@ import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab
 import { shareHtml, RedactionSchema } from "./conversation-share.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 const actionSchema = z
   .object({
     tool: z.string().min(1).max(100),
@@ -322,24 +315,6 @@ function send(response: ServerResponse, status: number, value: unknown): void {
     "x-content-type-options": "nosniff",
   });
   response.end(JSON.stringify(value));
-}
-async function readBody(request: IncomingMessage, maximumBytes = 65536): Promise<unknown> {
-  if (!request.headers["content-type"]?.startsWith("application/json"))
-    throw new HttpError(415, "Use application/json");
-  const tooLarge = () => new HttpError(413, `Request exceeds ${maximumBytes / 1024} KiB`);
-  if (Number(request.headers["content-length"] ?? 0) > maximumBytes) throw tooLarge();
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of request) {
-    bytes += Buffer.byteLength(chunk);
-    if (bytes > maximumBytes) throw tooLarge();
-    chunks.push(Buffer.from(chunk));
-  }
-  try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as unknown;
-  } catch {
-    throw new HttpError(400, "Invalid JSON");
-  }
 }
 async function sessionToken(dataDir: string): Promise<string> {
   const path = join(dataDir, "session-token");
@@ -2000,55 +1975,6 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (restore && request.method === "POST") {
     z.object({}).strict().parse(await readBody(request));
     return app.store.restoreMemory(owner, decodeURIComponent(restore[1]!));
-  }
-  throw new HttpError(404, "Endpoint not found");
-}
-async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  app.store.profiles.requireOwner("Projects"); // Wave 6: projects stay with the owner.
-  const owner = app.runtime.owner, projects = app.store.projects;
-  if (request.method === "GET" && path === "/api/projects") return { active: projects.active(owner), all: projects.list(owner) };
-  if (request.method === "POST" && path === "/api/projects") {
-    const body = await readBody(request) as { modelPreset?: unknown };
-    if (typeof body?.modelPreset === "string" && !app.runtime.models.presets.has(body.modelPreset))
-      throw new HttpError(400, "That model preset is not configured");
-    return projects.save(owner, body);
-  }
-  if (request.method === "POST" && path === "/api/projects/active") return projects.setActive(owner, await readBody(request));
-  const match = /^\/api\/projects\/([a-z0-9-]{1,40})\/remove$/.exec(path);
-  if (match && request.method === "POST") {
-    z.object({}).strict().parse(await readBody(request));
-    const result = projects.remove(owner, match[1]!);
-    app.store.locker.removeProject(owner, match[1]!);
-    return result;
-  }
-  throw new HttpError(404, "Endpoint not found");
-}
-/** Secret values go in and never come out; only names, dates and who used them are listed. */
-async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  app.store.profiles.requireOwner("The secrets locker"); // Wave 6: secrets stay with the owner.
-  const owner = app.runtime.owner, secrets = app.store.secrets;
-  const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
-  if (request.method === "GET" && path === "/api/secrets/audit")
-    return { uses: secrets.audit(owner), reminders: secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)) };
-  const listMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
-  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: secrets.list(owner, listMatch[1]!) }; }
-  if (request.method === "POST" && path === "/api/secrets") {
-    const body = z.object({ project: z.string(), name: z.string(), value: z.string(), expiresInDays: z.number().optional() })
-      .strict().parse(await readBody(request, 64 * 1024));
-    known(body.project);
-    return secrets.put(owner, body.project, body.name, body.value, { expiresInDays: body.expiresInDays ?? 0 });
-  }
-  const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
-  if (action && request.method === "POST") {
-    // mac7/r17-g integration review: Branch's own locker projects are never changed from the secrets card.
-    if (reservedProjectId(action[1]!)) throw new HttpError(403, "Branch keeps these secrets itself; change them where they are set up.");
-    if (action[3] === "remove") {
-      z.object({}).strict().parse(await readBody(request));
-      return { removed: secrets.remove(owner, action[1]!, action[2]!) };
-    }
-    const body = z.object({ value: z.string(), expiresInDays: z.number().optional() }).strict().parse(await readBody(request, 64 * 1024));
-    known(action[1]!);
-    return secrets.rotate(owner, action[1]!, action[2]!, body.value, { expiresInDays: body.expiresInDays ?? 0 });
   }
   throw new HttpError(404, "Endpoint not found");
 }

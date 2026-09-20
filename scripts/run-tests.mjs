@@ -77,7 +77,19 @@ function run(files, concurrency, timingsFile) {
       `--test-reporter=${pathToFileURL(join(here, "test-timings.mjs")).href}`, `--test-reporter-destination=${timingsFile}`]
     : [];
   const result = spawnSync(process.execPath, ["--test", `--test-concurrency=${concurrency}`, ...reporters, ...files], { stdio: "inherit" });
-  return result.status ?? 1;
+  return testProcessStatus(result, files);
+}
+
+/** Turn an otherwise silent worker death into a named, actionable CI failure. */
+export function testProcessStatus(result, files, report = console.error) {
+  if (typeof result.status === "number") return result.status;
+  const reason = result.error
+    ? `could not start: ${result.error.message}`
+    : result.signal
+      ? `was terminated by ${result.signal}`
+      : "ended without an exit status or signal";
+  report(`[test-runner] The test worker ${reason}. Assigned files:\n${files.map(posix).join("\n")}`);
+  return 1;
 }
 
 function mergeTimings(target, parts) {

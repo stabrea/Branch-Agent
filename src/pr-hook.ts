@@ -70,6 +70,16 @@ export interface PullRequestDeps {
   guard?: (path: string) => string | null;
 }
 export interface OpenedPullRequest { repository: string; branch: string; base: string; files: string[]; pullRequest: unknown }
+interface PullRequestInput {
+  name: string;
+  title: string;
+  summary: string;
+  paths: string[] | null;
+  signal: AbortSignal;
+  runId?: string | undefined;
+  targetRepository?: string | undefined;
+  base?: string | undefined;
+}
 
 const protectedName = /^(main|master|develop|development|trunk|production|prod|staging|gh-pages)$|^release(s)?(\/|$)|^hotfix(es)?(\/|$)/i;
 /** The one rule for where work may be sent: a fresh `branch/…` line that is not the base or the default. */
@@ -100,31 +110,36 @@ async function gitText(deps: PullRequestDeps, cwd: string, args: string[], signa
 }
 
 /** Where the work would go: the repository, the base and the remote's default branch. */
-async function destination(deps: PullRequestDeps, cwd: string, settings: PullRequestHookSettings, signal: AbortSignal) {
+async function destination(deps: PullRequestDeps, cwd: string, settings: PullRequestHookSettings, input: PullRequestInput) {
   // Every address a push goes to (a remote may have several, and a push address of its own).
-  const addresses = (await gitText(deps, cwd, ["remote", "get-url", "--push", "--all", settings.remote], signal)).split("\n").map((line) => line.trim()).filter(Boolean);
+  const addresses = (await gitText(deps, cwd, ["remote", "get-url", "--push", "--all", settings.remote], input.signal)).split("\n").map((line) => line.trim()).filter(Boolean);
   if (!addresses.length) throw new Error("The remote has no address.");
   const found = addresses.map(githubRepositoryOf);
-  const { repo, https } = found[0]!;
-  if (found.some((each) => each.repo.toLowerCase() !== repo.toLowerCase())) throw new Error("The remote sends to more than one repository, so nothing was sent.");
+  const { repo: pushRepo, https } = found[0]!;
+  if (found.some((each) => each.repo.toLowerCase() !== pushRepo.toLowerCase())) throw new Error("The remote sends to more than one repository, so nothing was sent.");
   await deps.policy.assertAllowed(https, "GitHub repository");
-  const headRef = await gitText(deps, cwd, ["symbolic-ref", "--quiet", `refs/remotes/${settings.remote}/HEAD`], signal).catch(() => "");
+  const target = input.targetRepository ? githubRepositoryOf(`https://github.com/${input.targetRepository}.git`) : null;
+  if (target) await deps.policy.assertAllowed(target.https, "pull request target repository");
+  const headRef = await gitText(deps, cwd, ["symbolic-ref", "--quiet", `refs/remotes/${settings.remote}/HEAD`], input.signal).catch(() => "");
   const defaultBranch = headRef ? headRef.replace(`refs/remotes/${settings.remote}/`, "") : null;
-  return { repo, base: settings.base ?? defaultBranch ?? "main", defaultBranch };
+  const repo = target?.repo ?? pushRepo;
+  const pushOwner = pushRepo.split("/")[0]!;
+  return { repo, pushRepo, pullHeadOwner: repo.toLowerCase() === pushRepo.toLowerCase() ? null : pushOwner,
+    base: input.base ?? settings.base ?? defaultBranch ?? "main", defaultBranch };
 }
 
 /**
  * Commits the named files on a new `branch/<name>` line, sends it, and opens a draft pull request.
  * Every refusal is thrown with a plain reason; the caller records it.
  */
-export async function pullRequestFromChanges(deps: PullRequestDeps, input: { name: string; title: string; summary: string; paths: string[] | null; signal: AbortSignal; runId?: string }): Promise<OpenedPullRequest> {
+export async function pullRequestFromChanges(deps: PullRequestDeps, input: PullRequestInput): Promise<OpenedPullRequest> {
   if (startedWithShortLivedKey() || (input.runId && runOrigin(deps.store, input.runId).shortLivedKey))
     throw new Error("A short-lived key cannot send work to GitHub. Do that in the app window.");
   const settings = pullRequestHookSettings(deps.store, deps.owner);
   if (settings.mode === "off") throw new Error("Opening pull requests from changes is switched off. Turn it on in Settings → Developer → Pull requests from changes.");
   if (!deps.registry.names().includes("github.open_pull_request")) throw new Error("Connect GitHub first: GitHub is not set up with a saved token.");
   const cwd = await deps.files.checked(".", true);
-  const where = await destination(deps, cwd, settings, input.signal);
+  const where = await destination(deps, cwd, settings, input);
   const head = `branch/${input.name}`;
   assertSafeHead(head, where.base, where.defaultBranch);
   const paths = input.paths ?? (await changedPaths(deps, cwd, input.signal));
@@ -132,7 +147,8 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: { nam
   if (!visible.length) throw new Error("There are no changed files that may be sent.");
   const opening = {
     repo: where.repo, title: input.title.slice(0, 200), body: input.summary.slice(0, 8000),
-    base: where.base, head, changes: visible.slice(0, 20), draft: true,
+    base: where.base, head: where.pullHeadOwner ? `${where.pullHeadOwner}:${head}` : head,
+    changes: visible.slice(0, 20), draft: true,
     ...issueArgument(input.summary),
   };
   const refusal = deps.preflight?.("github.open_pull_request", opening, input.runId);
@@ -247,6 +263,8 @@ export function registerPullRequestFromChanges(deps: PullRequestDeps): void {
       title: z.string().trim().min(1).max(200),
       summary: z.string().trim().min(1).max(8000),
       paths: z.array(z.string().min(1).max(500).regex(/^(?!-)[^\\:\0]+$/)).max(200).optional(),
+      targetRepository: z.string().regex(/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/).optional(),
+      base: z.string().regex(/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/).optional(),
     }).strict(),
     target: (args) => `send changes to GitHub on branch/${String((args as { name?: unknown }).name ?? "")} and open a pull request`,
     execute: async (args, context: ToolContext) => {
@@ -259,4 +277,3 @@ export function registerPullRequestFromChanges(deps: PullRequestDeps): void {
     },
   });
 }
-
