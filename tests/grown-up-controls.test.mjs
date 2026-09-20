@@ -178,10 +178,15 @@ test("the destructive danger zone keeps its warning enclosure", async (t) => {
   await openSettings(f.page, "about");
   const appearance = await f.page.locator("#danger-zone").evaluate((node) => {
     const style = getComputedStyle(node);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--bad)";
+    document.body.append(probe);
+    const bad = getComputedStyle(probe).color;
+    probe.remove();
     return {
       borderStyle: style.borderStyle,
       borderColor: style.borderColor,
-      bad: getComputedStyle(document.documentElement).getPropertyValue("--bad").trim(),
+      bad,
       radius: style.borderRadius,
     };
   });
