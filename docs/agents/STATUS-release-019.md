@@ -32,7 +32,7 @@ logs and a progress file in `/tmp/rel019/`. Worktree `~/wt/rel019` at e08c98e4, 
 | --- | --- |
 | desktop tests (xvfb, concurrency 1) | (pending — first attempt failed on the machine's `chrome-sandbox` setup, see below) |
 | full suite (concurrency 2, no desktop/screen-control) | 4295 tests, 4251 pass, 42 skipped, **2 timed out on my own 300 s cap** (2 h 43 m) — re-run without the cap, see below |
-| chaos, `BRANCH_CHAOS_SEEDS=200` | (pending) |
+| chaos, `BRANCH_CHAOS_SEEDS=200` | **PASS** — 4 tests, 4 pass, 0 fail, 1 h 47 m |
 | install-torture, `BRANCH_INSTALL_SEEDS=200` | (pending) |
 
 **Harness step, not a product fault.** The first desktop run exited after 8 seconds with
