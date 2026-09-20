@@ -71,7 +71,8 @@ const STATE_CHIP = { measured: ["glance.measured", "ok"], estimated: ["glance.es
 /** phase2/accounts (#21, #31): the service's own mark (public/brand-marks.js), or a neutral tile. */
 function tile(row) {
   const mark = markTile([row.connection, row.connectionName], { size: 26 });
-  mark.classList.add("glance-tile");
+  // After Batch 21: markTile may return empty fragments for branded marks; only add class if mark has one
+  if (mark.classList) mark.classList.add("glance-tile");
   return mark;
 }
 function windowLine(window) {

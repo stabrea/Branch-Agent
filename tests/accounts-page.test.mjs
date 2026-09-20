@@ -55,7 +55,7 @@ async function withAccounts(call) {
   return added.accounts.find((account) => account.label === "Work plan");
 }
 
-test("A1 Accounts is its own page after Models, with each service's mark and a search for long lists", async (t) => {
+test("A1 Accounts is its own page after Models, with service names and a search for long lists", async (t) => {
   const { call, page, errors, open } = await fixture(t);
   await withAccounts(call);
   await open();
@@ -63,8 +63,9 @@ test("A1 Accounts is its own page after Models, with each service's mark and a s
   await openSettings(page, "accounts");
   const links = await page.locator(".lx-settings-link").evaluateAll((nodes) => nodes.map((node) => node.dataset.page));
   assert.equal(links[links.indexOf("models") + 1], "accounts");
-  assert.equal(await page.locator('.accounts-pool[data-pool="openai-work"] .accounts-pool-head .brand-mark').getAttribute("data-mark"), "openai");
-  assert.equal(await page.locator('.accounts-pool[data-pool="cli-claude-code"] .accounts-pool-head .brand-mark').getAttribute("data-mark"), "claude");
+  // After Batch 21: no brand marks, text-only service names
+  assert.match(await page.locator('.accounts-pool[data-pool="openai-work"] .accounts-pool-head').innerText(), /OpenAI/);
+  assert.match(await page.locator('.accounts-pool[data-pool="cli-claude-code"] .accounts-pool-head').innerText(), /Claude/);
   assert.match(await page.locator(".accounts-honest").innerText(), /never spreads one person's use/);
   const search = page.getByLabel("Search accounts");
   await search.fill("work plan");
@@ -100,7 +101,7 @@ test("A2 a Trunk's key is picked from API keys only, saved on the Trunk, and put
   assert.deepEqual(errors, []);
 });
 
-test("A3 when one runs low: the fallback order with marks, and the way to change it", async (t) => {
+test("A3 when one runs low: the fallback order and the way to change it", async (t) => {
   const { call, page, errors, open } = await fixture(t);
   await withAccounts(call);
   await open();
@@ -108,7 +109,7 @@ test("A3 when one runs low: the fallback order with marks, and the way to change
   await openSettings(page, "accounts");
   const item = page.locator("#accounts-low-card .accounts-fallback li").first();
   assert.match(await item.innerText(), /Anthropic · claude-sonnet-4-5/);
-  assert.equal(await item.locator(".brand-mark").getAttribute("data-mark"), "anthropic");
+  // After Batch 21: no brand marks for known services, text-only names
   await page.locator("#accounts-low-card").getByRole("button", { name: "Change the fallback order" }).click();
   await page.locator("#lx-page-models").waitFor({ state: "visible" });
   assert.deepEqual(errors, []);
@@ -127,7 +128,7 @@ test("A4 at 390 px the page fits, and a sign-in's kept-separate box stays in sig
   assert.deepEqual(errors, []);
 });
 
-test("A5 Secrets and chat apps show marks and plain names, and a service that asks first gets a neutral tile", async (t) => {
+test("A5 Secrets and chat apps show plain names, and a service that asks first is shown without a mark", async (t) => {
   const { call, page, errors, open } = await fixture(t);
   for (const name of ["OPENAI_API_KEY", "SLACK_BOT_TOKEN", "SUPPLIER_API_KEY"]) await call("/api/secrets", { project: "default", name, value: "sample-value-123" });
   await open();
@@ -136,15 +137,16 @@ test("A5 Secrets and chat apps show marks and plain names, and a service that as
   await openai.waitFor({ timeout: 20000 });
   assert.equal(await openai.locator("strong").innerText(), "OpenAI key");
   assert.match(await openai.innerText(), /Commands use it as OPENAI_API_KEY/);
-  assert.equal(await openai.locator(".brand-mark").getAttribute("data-mark"), "openai");
+  // After Batch 21: no brand marks for any service
   const slack = page.locator("#secrets-list .secret-row", { hasText: "SLACK_BOT_TOKEN" });
-  assert.equal(await slack.locator(".brand-mark").getAttribute("data-mark"), null, "Slack asks for permission first");
-  assert.equal(await slack.locator(".brand-mark").getAttribute("data-neutral"), "chat");
+  assert.ok(await slack.isVisible(), "Slack secret is shown");
   assert.equal(await page.locator("#secrets-list .secret-row", { hasText: "SUPPLIER_API_KEY" }).locator("strong").innerText(), "Supplier API key");
   await openPlace(page, "customize:channels");
-  await page.locator("#chat-services-list summary .brand-mark").first().waitFor({ timeout: 20000 });
-  assert.equal(await page.locator("#chat-services-list summary", { hasText: "Mattermost" }).locator(".brand-mark").getAttribute("data-mark"), "mattermost");
-  assert.equal(await page.locator("#chat-services-list summary", { hasText: "Microsoft Teams" }).locator(".brand-mark").getAttribute("data-neutral"), "chat");
+  // No brand marks shown; just service names
+  const mattermost = page.locator("#chat-services-list summary", { hasText: "Mattermost" });
+  assert.ok(await mattermost.isVisible(), "Mattermost is shown without a brand mark");
+  const teams = page.locator("#chat-services-list summary", { hasText: "Microsoft Teams" });
+  assert.ok(await teams.isVisible(), "Microsoft Teams is shown");
   assert.deepEqual(errors, []);
 });
 

@@ -58,7 +58,8 @@ function decorate() {
     const text = target.textContent.trim();
     if (!text) continue;
     const mark = markTile([text], { size: 22, fallback: target.closest("#lx-slot-customize-channels") ? "chat" : "service" });
-    mark.classList.add("inline-mark");
+    // After Batch 21: markTile may return empty fragments for branded marks; only add class if mark has one
+    if (mark.classList) mark.classList.add("inline-mark");
     const box = target.querySelector(":scope > input");
     if (box) box.after(mark); else target.prepend(mark);
   }
