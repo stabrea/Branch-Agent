@@ -83,6 +83,20 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   assert.deepEqual(f.errors, []);
 });
 
+test("a segmented control reuses its own changing field note", async (t) => {
+  const f = await fixture(t);
+  await openPlace(f.page, "automations:procedures");
+  const source = f.page.locator("#prompts-mode");
+  const group = f.page.locator(".segmented-control:has(#prompts-mode)");
+  await group.waitFor();
+  const note = group.locator("xpath=following-sibling::*[1]");
+  assert.equal(await note.getAttribute("class"), "field-note");
+  assert.equal(await source.getAttribute("aria-describedby"), await note.getAttribute("id"));
+  assert.equal(await group.locator("xpath=following-sibling::*[contains(@class, 'kit-describe')]").count(), 0,
+    "the generic description does not duplicate the mode-specific note");
+  assert.deepEqual(f.errors, []);
+});
+
 test("long choices remain labeled selects and open the shared glass list", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
