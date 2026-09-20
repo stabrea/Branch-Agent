@@ -141,32 +141,34 @@ function svg(size) {
 }
 
 /**
- * A tile with the service's mark, or a neutral tile when it has none. `hints` are what the row knows
- * about itself, most specific first; `fallback` is the neutral kind when nothing matches.
+ * Batch 21 (2026-09-20): Brand marks removed per DG-157.
+ * Returns nothing for branded marks. For unknown services, returns only the plain key tile.
+ * All other neutral tiles (service, chat, mail, phone, password) are also removed.
  */
 export function markTile(hints, { size = 28, fallback = "service", label = "" } = {}) {
   const list = Array.isArray(hints) ? hints : [hints];
   const slug = markFor(...list);
+
+  // Remove all branded marks: return empty
+  if (slug) return document.createDocumentFragment();
+
+  // For unknown services, keep only the "key" neutral tile
+  const kind = neutralFor(fallback, ...list);
+  if (kind !== "key") return document.createDocumentFragment();
+
+  // Create the key tile for unknown services
   const tile = document.createElement("span");
   tile.className = "brand-mark";
   tile.style.setProperty("--mark-size", `${size}px`);
   const glyph = svg(Math.round(size * 0.62));
   const path = document.createElementNS(SVG, "path");
-  if (slug) {
-    const [title, hex, d] = MARKS[slug];
-    tile.dataset.mark = slug;
-    tile.style.setProperty("--mark-bg", `#${hex}`);
-    path.setAttribute("d", d);
-    path.setAttribute("fill", inkFor(hex));
-    tile.title = title;
-  } else {
-    const kind = neutralFor(fallback, ...list);
-    tile.dataset.neutral = kind;
-    tile.classList.add("neutral");
-    path.setAttribute("d", SYMBOLS[kind] ?? SYMBOLS.service);
-    for (const [name, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "1.8"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]])
-      path.setAttribute(name, value);
-  }
+
+  tile.dataset.neutral = kind;
+  tile.classList.add("neutral");
+  path.setAttribute("d", SYMBOLS[kind] ?? SYMBOLS.service);
+  for (const [name, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "1.8"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]])
+    path.setAttribute(name, value);
+
   glyph.append(path);
   tile.append(glyph);
   if (label) { tile.setAttribute("role", "img"); tile.setAttribute("aria-label", label); }
