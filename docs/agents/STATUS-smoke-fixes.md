@@ -244,7 +244,8 @@ Restored: 25 pass, 0 fail.
 
 ## Merge, rebuild and the whole run
 
-- [x] Merged `origin/mac/cross-platform` at `125fde48` (x-search), clean; `dist/` deleted and rebuilt
+- [x] Merged `origin/mac/cross-platform` twice, both clean: `125fde48` (x-search) and `b766c6ad`
+  (ci-flakes-4); `dist/` deleted and rebuilt
   from scratch; `npx tsc --noEmit` clean. Checked the rebuilt `dist/` really carries this work
   (`overRunningBranch` in `dist/cli.js`, `nobodyToAsk` in `dist/orchestration.js`).
 - [x] Targeted run after the merge: `plan-act`, `coding-next`, `deployment`, `orchestration`,
