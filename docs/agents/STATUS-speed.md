@@ -220,14 +220,17 @@ Turning something on that makes each round a little bigger, to remove rounds, is
 if the sums work. They do, and here they are rather than as a claim. First round of the bench's
 first task:
 
+Re-measured on the final build (the earlier figures, before the defect fixes added their two
+sentences, were 2,012 and 2,177):
+
 | | as it ships | `fewer-rounds` on |
 |---|---|---|
-| tool list | ~1,671 tokens (18 of 215 tools) | ~1,772 tokens (18 of 215) |
-| instructions | ~322 tokens | ~386 tokens |
+| tool list | ~1,718 tokens (18 of 214 tools) | ~1,742 tokens (18 of 215) |
+| instructions | ~391 tokens | ~456 tokens |
 | the request | ~19 tokens | ~19 tokens |
-| **the whole round** | **~2,012 tokens** | **~2,177 tokens** |
+| **the whole round** | **~2,128 tokens** | **~2,217 tokens** |
 
-So the part costs about **165 tokens a round, 8% more** — and the same eighteen tools travel, they
+So the part costs about **89 tokens a round, 4% more** — and the same eighteen tools travel, they
 are simply the right eighteen. Across the five probe prompts the catalog is within 2.5% either way,
 and on the worst one it is *smaller* with the part on (2,182 against 2,429). A round removed is
 worth about 3,300 tokens on the plan (Branch's measured 33,456 over ten rounds), so one round saved
