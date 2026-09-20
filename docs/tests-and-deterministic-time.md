@@ -1,5 +1,32 @@
 # Common Rules and Patterns
 
+## Two CI lanes
+
+Pull requests have one required `PR Fast Checks / verify-fast` job. Its runner execution is capped at
+five minutes. `scripts/select-affected-tests.mjs` reads the exact base-to-head diff without shell
+interpolation and chooses one of three outcomes:
+
+- `docs-only`: check whitespace and documentation references.
+- `narrow`: build once and run the reviewed, budgeted tests in `tests/test-impact.json`.
+- `full-required`: refuse a partial green result until `Checks` passes for the exact head commit.
+
+Unknown product paths, stale mappings, renames, deletions, build or workflow changes, and selected
+tests above the Linux time budget all fail closed as `full-required`. To run that lane on a trusted
+repository branch:
+
+```sh
+gh workflow run checks.yml --repo stabrea/Branch-Agent --ref <branch>
+```
+
+After it passes, rerun the fast check. There is no label bypass. The exhaustive `Checks` workflow
+still runs every test shard and package on Windows, macOS, and Linux for integration pushes, nightly,
+and on demand; release publication continues to require its exact-commit success.
+
+The five-minute ceiling starts when GitHub assigns a runner. Shared hosted-runner queue time is not
+controlled by repository code and therefore is reported separately rather than promised as part of
+the ceiling. An end-to-end five-minute service objective requires a reserved isolated runner. Never
+run fork pull-request code on a personal NAS or runner with vault, LAN, or signing-secret access.
+
 ## Testing Patterns
 
 ### Avoiding Silent Dependencies on Machine Speed

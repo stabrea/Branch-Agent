@@ -328,7 +328,13 @@ test("S9 every page is grouped, and a card no group names still shows under More
     document.body.append(card);
   });
   await f.page.locator("#lx-page-general > #someone-elses-card").waitFor({ state: "visible" });
-  await f.page.locator('#lx-page-general > .sg-head[data-bucket="general:other"] + #someone-elses-card').waitFor({ state: "visible" });
+  await f.page.waitForFunction(() => {
+    const card = document.getElementById("someone-elses-card");
+    if (card?.dataset.sgBucket !== "general:other") return false;
+    let before = card.previousElementSibling;
+    while (before && !before.classList.contains("sg-head")) before = before.previousElementSibling;
+    return before?.dataset.bucket === "general:other";
+  });
   assert.deepEqual(f.errors, []);
 });
 

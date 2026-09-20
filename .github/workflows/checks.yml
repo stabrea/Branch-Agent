@@ -6,27 +6,28 @@ name: Checks
 # push and again on the request, which on a shared runner is slow enough to fail tests that wait on
 # a clock.
 #
-# So: a push builds only the branches nobody opens a request for, and everything with a request is
-# checked by the request, which is the real gate into main.
+# So: integration pushes and a nightly rehearsal run the exhaustive three-system suite. Pull
+# requests use pr-fast.yml, which either runs a reviewed affected-test set within five minutes or
+# refuses to go green until this exhaustive workflow passes for the exact same commit.
 on:
   push:
     branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'mac5/**', 'mac6/**', 'mac7/**', 'wave9/**']
-  pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
 permissions:
   contents: read
-# One run per branch. A newer push replaces an older run rather than queueing behind it, except on
+# One run per branch. A newer manual/development run replaces an older run, except on
 # the two integration trunks where every commit may be released and therefore needs its own result.
-# Pull-request refs still cancel their older attempt when the same request receives another push.
 concurrency:
-  group: checks-${{ github.event.pull_request.number || github.ref }}
+  group: checks-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/mac/cross-platform' }}
 # Where the time went (run 35382268151, before this change): Windows took 70.7 minutes, and 63 of
 # them were the test files running three at a time on one machine; macOS and Linux did the same in
 # about 20. So the tests are split into shares that run on separate machines at once (`--shard`,
 # packed by measured time from tests/test-weights.json), and the packaging runs beside them rather
-# than after them. Nothing is skipped: every share of every system runs on every push and every pull
-# request, and `verify` is red unless all of them and every packaging job are green.
+# than after them. Nothing is skipped in this workflow: `verify` is red unless every share on every
+# system and every packaging job are green.
 jobs:
   test:
     name: test (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.total }})

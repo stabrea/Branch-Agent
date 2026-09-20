@@ -586,8 +586,6 @@ async function staticFile(
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
-    // batch2-composer: slim message bar with plus menu
-    "/composer-menu.js": ["composer-menu.js", "text/javascript; charset=utf-8"],
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
@@ -595,7 +593,6 @@ async function staticFile(
     "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
     "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
     "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
-    "/hover-help.js": ["hover-help.js", "text/javascript; charset=utf-8"],
     "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
     // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],

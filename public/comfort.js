@@ -160,7 +160,8 @@ function choiceCards(field, id, value) {
     const card = document.createElement("label");
     card.className = "choice-card";
     const radio = Object.assign(document.createElement("input"), { type: "radio", name: id, value: choice, checked: choice === value });
-    const title = keyed("b", `comfort.update.${choice}`);
+    const title = document.createElement("b");
+    title.append(keyed("span", `comfort.update.${choice}`));
     if (choice === field.recommended) title.append(" ", keyed("span", "suggest.recommended", "choice-recommended"));
     const words = document.createElement("span");
     const said = keyed("small", `comfort.update.${choice}.note`);

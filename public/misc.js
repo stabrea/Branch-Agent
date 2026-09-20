@@ -74,6 +74,10 @@ async function renderAllowed() {
  * (The same cure as public/glass-select.js and public/conversation-mode.js, ci-flakes-2.)
  */
 let categoriesDrawn = "";
+let categoryFocus = null;
+document.addEventListener("focusin", (event) => {
+  categoryFocus = event.target instanceof HTMLSelectElement && event.target.closest("#approval-categories") ? event.target : null;
+});
 const categoriesShape = (categories) =>
   JSON.stringify(categories.map((one) => [one.id, one.label, one.description, one.tools.length, one.decision ?? ""]));
 
@@ -81,10 +85,14 @@ const categoriesShape = (categories) =>
 async function renderCategories() {
   const host = $("approval-categories");
   if (!host || !sessionStorage.getItem("branch-token")) return;
+  const focused = host.contains(document.activeElement) ? document.activeElement : categoryFocus;
   let view;
   try { view = await api("approvals/categories"); } catch { return; }
   const shape = categoriesShape(view.categories);
-  if (shape === categoriesDrawn && host.childElementCount) return;
+  if (shape === categoriesDrawn && host.childElementCount) {
+    if (focused?.isConnected && document.activeElement === document.body) focused.focus();
+    return;
+  }
   categoriesDrawn = shape;
   host.replaceChildren();
   for (const category of view.categories) {
