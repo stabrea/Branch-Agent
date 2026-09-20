@@ -64,6 +64,7 @@ const PARTS = {
   notebooks: ["coding.part.notebooks", "Reading Jupyter notebooks cell by cell"],
   "review-checks": ["coding.part.checks", "Review checks kept in the project"],
   "read-first": ["coding.part.readFirst", "Reading a file before changing it"],
+  "fewer-rounds": ["coding.part.fewerRounds", "Doing more in one go, so a task takes fewer turns"],
 };
 
 function switchFor(part, modes, status) {

@@ -61,7 +61,7 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   return { page, call, errors, refused, app, url: server.url, headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } };
 }

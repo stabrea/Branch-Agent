@@ -43,7 +43,7 @@ test("the cards sit in their homes, every control says what it does, a note is k
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
   await openPlace(page, "library:documents");
@@ -76,7 +76,7 @@ test("the cards sit in their homes, every control says what it does, a note is k
     await token.fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
   }
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#reach-arena-prompt").waitFor({ state: "attached" });
   const report = await page.evaluate((ids) => ids.map((id) => {
     const card = document.getElementById(id);

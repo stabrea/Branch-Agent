@@ -120,7 +120,42 @@ const synonyms: Record<string, readonly string[]> = {
   // that, the one distinguishing word in the sentence was scoring nothing at all and the request
   // read as if the owner's device had never been mentioned.
   tablet: ["device", "phone"], phone: ["device", "tablet"], ipad: ["device", "tablet"], iphone: ["device", "phone"],
+  // mac7/speed: the words a model trained on other coding assistants reaches for. On the plan's
+  // five-way window a Branch task searched "shell.execute command workspace", then asked for
+  // `shell.execute` by name — twice — and was told it did not exist. Codex and Pi both call their
+  // shell `bash`; Branch calls it `code.run`. Nothing is renamed here; these only help a search
+  // find what is already there.
+  bash: ["shell", "command", "run", "terminal"], sh: ["shell", "command", "run"],
+  zsh: ["shell", "command", "run"], terminal: ["shell", "command", "run"],
+  execute: ["run", "command", "shell"], exec: ["run", "command", "shell"],
+  shell: ["command", "run", "terminal"],
+  grep: ["search", "find", "text"], rg: ["search", "find", "text"], ripgrep: ["search", "find", "text"],
+  glob: ["find", "files", "pattern"], cat: ["read", "file"], ls: ["list", "files", "folder"],
+  patch: ["edit", "change", "diff"], diff: ["change", "edit", "patch"],
 };
+
+/**
+ * Names other coding assistants use for a tool Branch already has. A model that has seen those
+ * assistants asks for them by name; without this it is told the name is unknown and goes round
+ * again. Nothing is renamed and nothing new is registered — this only points an old name at the
+ * tool that does the job, and only when that exact name is not a real tool here.
+ */
+export const otherNames: Record<string, string> = {
+  bash: "code.run", sh: "code.run", shell: "code.run", terminal: "code.run",
+  "shell.execute": "code.run", "shell.run": "code.run", execute_command: "code.run",
+  run_command: "code.run", run_terminal_cmd: "code.run",
+  read_file: "files.read", read: "files.read", cat: "files.read", view: "files.read",
+  write_file: "files.write", write: "files.write", create_file: "files.write",
+  edit_file: "files.edit", edit: "files.edit", str_replace: "files.edit",
+  apply_patch: "files.patch", multi_edit: "files.patch", multiedit: "files.patch",
+  grep: "files.grep", search_files: "files.grep", ripgrep: "files.grep", rg: "files.grep",
+  glob: "files.glob", find_files: "files.glob", ls: "files.list", list_files: "files.list",
+  task: "specialists.delegate", todowrite: "todos.write", webfetch: "web.fetch", websearch: "web.search",
+};
+
+/** The Branch tool an outside name means, or nothing when the name is not one we know. */
+export const nameUsedElsewhere = (name: string): string | undefined =>
+  otherNames[String(name).trim().toLowerCase()];
 
 /** The query's own words plus the everyday words that mean the same thing. */
 export function expandQuery(query: string): string[] {

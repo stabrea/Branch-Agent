@@ -92,7 +92,10 @@ test("a task's deadline is the caller's when given, so a longer --timeout really
   t.after(async () => { await app.close(); await discardTemp(root); });
   const cut = await app.runtime.run({ prompt: "hi", timeoutMs: 50 });
   assert.equal(cut.status, "cancelled", "the run's own deadline comes from timeoutMs");
-  const whole = await app.runtime.run({ prompt: "hi", timeoutMs: 5000 });
+  /* ci-flakes-4: a whole run (setup, the model's 300 ms, the record) took more than 5 s on a Windows
+     build machine that was crawling, so this arm was cancelled too. The contrast with the 50 ms arm
+     above is what proves a longer deadline really is longer, and that contrast is untouched. */
+  const whole = await app.runtime.run({ prompt: "hi", timeoutMs: 120000 });
   assert.equal(whole.status, "completed");
 });
 

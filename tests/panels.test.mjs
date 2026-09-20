@@ -561,10 +561,15 @@ test("with achievements on, hiding everything earns \"It's lonely over here\" (p
   assert.equal((await lonely()).got, undefined, "not earned yet");
   await f.look({ hidden: await f.page.evaluate(() => globalThis.branchOnscreen.ids()) });
   await f.page.locator("#panels-float-gear").waitFor();
+  /* ci-flakes-4: the window notices this by itself — hiding everything fires branch-delight-noticed,
+     and public/delight-achievements.js asks the server 1.5 s after the last one. The old loop gave that
+     5 s and a busy Windows machine ran past it. It is still the window's own asking that earns this;
+     only the waiting is longer. */
+  const earnedBy = Date.now() + 60000;
   let got = false;
-  for (let tries = 0; !got && tries < 50; tries += 1) {
+  while (!got && Date.now() < earnedBy) {
     got = Boolean((await lonely())?.got);
-    if (!got) await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!got) await new Promise((resolve) => setTimeout(resolve, 250));
   }
   assert.equal(got, true, "hiding everything is noticed and earned");
   assert.equal((await lonely()).name, "It's lonely over here");

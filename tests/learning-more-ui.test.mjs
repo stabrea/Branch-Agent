@@ -41,7 +41,7 @@ test("the cards sit in their homes, start off, open when switched on, and nothin
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await openPlace(page, "memory");
   const ids = ["lmore-blocks-card", "lmore-journey-card", "lmore-meaning-card", "lmore-lessons-card", "lmore-sessions-card", "lmore-expiry-card", "lmore-readback-card", "lmore-providers-card"];
   for (const id of ids) await page.locator(`#${id}`).waitFor();
@@ -76,7 +76,7 @@ test("the cards sit in their homes, start off, open when switched on, and nothin
   // The skills card lives under Customize.
   app.learningMore.setMode("curator", { mode: "when-needed" });
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible" }).catch(() => undefined);
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 }).catch(() => undefined);
   await openPlace(page, "customize:skills");
   await page.locator("#lmore-curator-card").waitFor();
   assert.equal(await page.locator("#lmore-curator-card").getAttribute("data-home"), "customize:skills");
