@@ -51,10 +51,21 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
   const dressed = f.page.locator("#trace-enabled");
   await dressed.waitFor();
   assert.equal(await dressed.getAttribute("aria-checked"), null, "generic switches do not duplicate native state in stale ARIA");
-  await dressed.evaluate((node) => { node.checked = true; });
-  assert.match(await dressed.ariaSnapshot(), /switch .*\[checked\]/, "programmatic updates are exposed without an event");
-  await dressed.evaluate((node) => { node.checked = false; });
-  assert.doesNotMatch(await dressed.ariaSnapshot(), /\[checked\]/, "programmatic clearing is exposed without an event");
+  await f.page.evaluate(() => {
+    const label = document.createElement("label");
+    label.textContent = "Stable native state probe";
+    const probe = document.createElement("input");
+    probe.type = "checkbox";
+    probe.id = "native-switch-probe";
+    label.prepend(probe);
+    document.querySelector("#settings-window .lx-page:not([hidden]) .card")?.append(label);
+    globalThis.branchControlMakers.dressSwitches(probe);
+  });
+  const probe = f.page.locator("#native-switch-probe");
+  await probe.evaluate((node) => { node.checked = true; });
+  assert.match(await probe.ariaSnapshot(), /switch .*\[checked\]/, "programmatic updates are exposed without an event");
+  await probe.evaluate((node) => { node.checked = false; });
+  assert.doesNotMatch(await probe.ariaSnapshot(), /\[checked\]/, "programmatic clearing is exposed without an event");
   assert.deepEqual(f.errors, []);
 });
 
