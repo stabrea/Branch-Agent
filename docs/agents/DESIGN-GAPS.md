@@ -28,9 +28,19 @@ absent with its switch **on**. Where the only difference is that a fresh install
 it is switched on, the row says so and is **not** counted as missing. Differences that come only from
 the sample having conversations in it (and the fresh app having none) are left out altogether.
 
+**The sample moved while this was being written.** On 2026-09-20, on the owner's instruction, the
+coordinator rebuilt `branch-grown-up`: **every brand logo was removed** (`src/brands.json` is now empty;
+chat-app cards, Models, Connection, Secrets and pairing are text only, while Branch's own acorn and the
+section-header icons stay), the **day/night switch became a glyph** (the moon and the sun), the **panel
+foot became one row of icons**, the Trunks rail's paragraph became an **information button**, the
+**"this one" badge went**, and the page gained `<meta charset="utf-8">`. Everything here was re-walked
+against that build. The rows that turned over are DG-052, DG-053, DG-088, DG-090, DG-094, DG-099 and
+DG-147; DG-157 to DG-165 are new. The app already declares `<meta charset="UTF-8">`, so that last change
+is not a gap.
+
 ## What was counted
 
-**156 gaps.** By screen:
+**167 gaps.** By screen:
 
 | Screen | Gaps | Ids |
 |---|---|---|
@@ -46,8 +56,9 @@ the sample having conversations in it (and the fresh app having none) are left o
 | Usage ring and popover | 5 | DG-145 – DG-149 |
 | Mode picker | 4 | DG-150 – DG-153 |
 | Terminal and phone frames | 3 | DG-154 – DG-156 |
+| What the 2026-09-20 sample changed | 11 | DG-157 – DG-167 |
 
-Settings alone is **83 of the 156**.
+Settings alone is **83 of the 167**.
 
 The three worst screens: **Settings** (every page; the controls themselves are the wrong kind), the
 **conversation screen and its composer**, and the **Trunks rail**.
@@ -79,6 +90,9 @@ The three worst screens: **Settings** (every page; the controls themselves are t
   **Trunks & people**, **Chat apps & devices**, **Connections**, **Skills & plugins**,
   **Memory & library**, **Automations & inbox**.
 - **App**: 13 — the seven in bold are not there; the app adds **Accounts**.
+- The sample also reaches **Accounts**, **What's on screen** and **Achievements** as Settings pages of
+  their own (22 in all), though this build's nav lists only the 19 above. The app has none of those three
+  as a page (DG-045, DG-164, DG-165).
 - **Kind**: missing entirely · **Size**: a feature (seven pages)
 - **Owner note** (STATUS-p2-settings.md): *"Places' settings (Customize, Library, Automations, Inbox) stay in their places; Settings reaches them through 'Elsewhere in Branch' and search (Go there), rather than duplicating them."* That covers four of the seven; Instructions & personality, Trunks & people and Connections are not covered.
 
@@ -277,9 +291,11 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **Kind**: copy · **Size**: a copy pass
 
 ### DG-033 · Appearance: no "Day or night" control on the page
-- **Sample**: a segmented `Follow this computer | Moonlight | Daylight` at the top of Theme, with the line
-  "Every theme has both. Switching keeps the theme you chose."
-- **App**: nothing on Appearance; the light/dark choice is the window's own small contrast button in the rail.
+- **Sample** (2026-09-20 build): a segmented `Follow this computer | ☾ Moonlight | ☀ Daylight` at
+  the top of Theme — a glyph before each word — with the line "Every theme has both. Switching keeps
+  the theme you chose."
+- **App**: nothing on Appearance; the light/dark choice is a small half-filled-circle contrast button in
+  the sidebar header, with no words and no moon or sun.
 - **Kind**: missing entirely · **Size**: a component
 - **Owner critique**: #39 wants the "Clear the view" eye placed right of Moonlight in that row.
 
@@ -397,8 +413,9 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **Kind**: missing entirely · **Size**: a component
 
 ### DG-052 · Secrets: the saved-secret list has no logos and no plain names (#60)
-- **Sample**: a list of rows, each with the service's real mark (Telegram, OpenAI, GitHub, a key tile for
-  an unknown one), the plain name in bold ("Telegram bot token") and "Default project · locked away" under it.
+- **Sample** (2026-09-20 build): a list of rows — the plain name in bold ("Telegram bot token") and
+  "Default project · locked away" under it. **No brand logos**: the owner had them all removed; only a
+  secret Branch cannot place keeps a plain key tile.
 - **App**: no list at the top of the page at all; the card opens on the **form** — Project, "The name your
   commands use for it (capital letters, like DEPLOY_TOKEN)" with a `DEPLOY_TOKEN` placeholder, Value, Save
   secret — and an empty-state box under it.
@@ -406,7 +423,8 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **Owner note** (STATUS-p2-accounts.md): *"Secrets keep the name commands use visible under the plain name at every level (it is what commands need); the level control can hide `.secret-raw` later."*
 
 ### DG-053 · Secrets: "Where Branch reads saved sign-ins from" is missing
-- **Sample**: five cards in a row with the real marks — **Apple Keychain** (Available · On this Mac ·
+- **Sample**: five cards in a row, now with no logos — just the name, the state and the button —
+  **Apple Keychain** (Available · On this Mac ·
   Change), **Windows Credential Manager** (Windows only · Set up), **Bitwarden** (Connected · Signed in on
   this Mac · Change), **1Password** (Not set up · Set up), **KeePassXC** (Not set up · Set up) — and the
   line "Branch never shows you or the assistant a password. It fills one item at a time, only the ones you list."
@@ -622,11 +640,12 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **App**: the chips keep their full words and the bar wraps instead.
 - **Kind**: layout · **Size**: a component
 
-### DG-088 · No model chip beside the message box until the panel is open
-- **Sample**: "GPT-5.6 Terra" with the OpenAI mark sits in the bar at all times.
-- **App**: a "Default connection" pill with a green dot; no provider mark.
-- **Kind**: icon · **Size**: a component
-- **Owner critique**: #21 ("use the real logos"), #30.
+### DG-088 · The chip beside the message box names the connection, not the model
+- **Sample** (2026-09-20 build): the model's own name — "GPT-5.6 Terra" — and a chevron, with **no
+  logo** (the owner had every brand mark removed).
+- **App**: a pill reading "Default connection" with a green dot, and no model name anywhere in the bar.
+- **Kind**: copy / icon · **Size**: a component
+- **Note**: #21 ("use the real logos") is **overruled by the 2026-09-20 sample**; see DG-157.
 
 ### DG-089 · Two dropdowns and a line float above the message box
 - **App**: "How it should work: Just do it" and "Check back with me: Before every step" and
@@ -635,8 +654,8 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **Kind**: extra in app · **Size**: a component
 
 ### DG-090 · The sidebar header is the app's name, not this computer
-- **Sample**: a computer's face tile, **Taofik's Mac**, a "this one" chip, "TK-1 · Mac computer · Needs
-  you" under it, and a pencil to change how it looks.
+- **Sample** (2026-09-20 build): a computer's face tile, **Taofik's Mac**, "TK-1 · Mac computer · Needs
+  you" under it, and a pencil to change how it looks. The "this one" badge was removed on 2026-09-20.
 - **App**: the Branch mark, "Branch Agent", a search icon and a contrast icon.
 - **Kind**: layout · **Size**: a component
 
@@ -656,10 +675,15 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **App**: "New conversation" and a separate `＋`; the choice is a "Your assistant ▾" select in the composer.
 - **Kind**: interaction · **Size**: a component
 
-### DG-094 · The sidebar footer has no theme row (#39)
-- **Sample**: "🖊 Theme · Slate", "Daylight", and the **eye** on one row above the owner row.
-- **App**: nothing; the theme is only in Settings and a contrast icon in the header.
+### DG-094 · The sidebar footer has no row of controls
+- **Sample** (2026-09-20 build): **one row of icons** above the name row — a leaf (all themes), a paw
+  (show or hide the pet), then pushed to the right the sun (switch to Moonlight), the eye (clear the view)
+  and the cog (Settings). Each keeps its title and aria-label, so the words "Theme · Slate" and
+  "Hazel is here" are still read aloud but not shown. Under it, the name row on its own, full width.
+- **App**: no such row. The gear sits on the name row itself; there is no theme control, no pet toggle, no
+  day/night switch and no eye in the footer.
 - **Kind**: missing entirely · **Size**: a component
+- **Owner critique**: #39 (the eye right of Moonlight) is settled by this row.
 
 ### DG-095 · The owner row is truncated
 - **Sample**: "TB Taofik · Owner ⌄" with the gear beside it.
@@ -685,8 +709,8 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **Owner note** (STATUS-p2-shell.md): *"Guide lightbulb (#36): **not present in the real app** (no guide, tour or compass button exists), so nothing to change; deliberately not invented."*
 
 ### DG-099 · The top bar says "Conversation", not where you are
-- **Sample**: a breadcrumb — the computer's mark, **Taofik's Mac**, a "this one" chip, `/`, the
-  conversation's name, then the assistant's face and the faces of the people in it.
+- **Sample** (2026-09-20 build): a breadcrumb — the computer's mark, **Taofik's Mac**, `/`, the
+  conversation's name, then the assistant's face and the faces of the people in it. No "this one" badge.
 - **App**: a panel icon and the word "Conversation".
 - **Kind**: copy / layout · **Size**: a component
 
@@ -800,12 +824,12 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 - **App**: the tab exists; its empty state differs.
 - **Kind**: layout · **Size**: a component
 
-### DG-118 · Pressing a tab closes the panel
-- **App**: with the panel already open, pressing `#aside-toggle` (the only control the tests use) closes it;
-  a tab click while the panel is closed does nothing.
-- **Sample**: the button toggles, each tab switches.
-- **Kind**: interaction · **Size**: one line of code
-- **Note**: seen in this walk; worth a builder confirming by hand before treating it as a bug.
+### DG-118 · The panel has no close control of its own
+- **Sample**: an × in the panel's own top-right corner closes it, as well as the button in the top bar.
+- **App**: only the top-bar button opens and closes it; there is nothing to press inside the panel.
+- **Kind**: missing entirely · **Size**: one control
+- **Note**: an earlier draft of this row claimed that pressing a tab closes the panel. That was this
+  walk's own harness toggling the panel shut before clicking, not the product. Withdrawn.
 
 ### DG-119 · The panel's sections are headings with no content in the empty state
 - **App**: "Model / Change the model / What we are doing / Running now / What is allowed right now" with
@@ -910,7 +934,9 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 ### DG-134 · "Try a celebration" wraps to two ragged rows
 - **App**: six buttons — Bronze · Silver · Gold · Diamond / Godly · SSS+ — break after four, leaving two
   on a second row.
-- **Sample**: the ranks sit on one row, or in an even grid.
+- **Sample**: six chips in an even 3 + 3 grid, each with its rank's coloured dot, and the explanation
+  ("Bronze and Silver appear small beside Search for a few seconds. Gold and above get a card and a party
+  that grows with the rank. Keeping things still shows a still card.") beside them, not under them.
 - **Kind**: layout · **Size**: one line of CSS
 
 ### DG-135 · There is no "KeepOak connected" achievement
@@ -1061,12 +1087,126 @@ Counted over the 13 Settings pages both sides have, at 1440×950 light:
 
 ---
 
+# 12b. What the 2026-09-20 sample changed
+
+Nine rows the owner's own edit of the sample opened up. They are not cosmetic: three of them change what
+a control **is**.
+
+### DG-157 · The app draws 29 brand marks the sample no longer draws
+- **Sample** (2026-09-20 build): `src/brands.json` is empty and `logo()` and `brandTile()` return nothing.
+  Chat-app cards, Models, Connection, Secrets, the password managers and the pairing buttons are **text
+  only**. Branch's own acorn and the section-header icons (key, cog, globe, phone) stay — those are
+  Branch's, not anybody else's.
+- **App**: `public/brand-marks.js` holds 29 marks in their owners' colours (1Password, Anthropic,
+  Bitwarden, Bluesky, Claude, Cloudflare, DeepSeek, Discord …) plus neutral tiles for the rest, drawn on
+  Accounts, Secrets, Models and the channel cards.
+- **Where**: Settings › Models, Secrets, Accounts and Chat apps, every size, both themes.
+- **Kind**: extra in app · **Size**: a component (one `logo()` that returns nothing), plus deciding what
+  to do with `public/assets/brands/` and the notices
+- **Owner note**: this reverses **#21** ("use the real logos of providers and services") and the mark part
+  of **#30** and **#60**. STATUS-p2-accounts.md records the work that put them in: *"Marks: Google, Meta,
+  Microsoft, Apple, Amazon, Slack, X/xAI, Cisco Webex and MiniMax get neutral tiles (terms), unlike the
+  sample, which drew several of them."* The owner has since asked for none at all.
+- **Shots**: `DG-157-sample.png` / `DG-157-app.png`
+
+### DG-158 · The chat-app card still carries a tile
+- **Sample**: the card is its name, its state chip and its button — nothing else. No logo tile, no letter
+  tile, no square.
+- **App**: the card leads with a mark or a neutral tile.
+- **Kind**: extra in app · **Size**: one line of code
+
+### DG-159 · The rail has no day/night glyph button
+- **Sample**: a 26 px button in the panel foot showing ☾ or ☀ alone, whose title says
+  "Switch to Moonlight". No word beside it.
+- **App**: a half-filled-circle contrast icon in the sidebar **header**, a different glyph in a different
+  place.
+- **Kind**: icon / ordering · **Size**: one control
+- **Note**: the sample's CSS carried `.mq-i{display:none}`, so its glyph had never been visible until this
+  build. **The app has no `mq-i` rule and no such glyph at all** — grep finds nothing in `public/*.css`
+  or `public/*.js` — so there is nothing of the app's to un-hide; the control has to be built.
+
+### DG-160 · The day/night choice in Settings has no glyph
+- **Sample**: `☾ Moonlight` and `☀ Daylight` — the glyph before the word.
+- **App**: no such control at all (DG-033); when it is built it needs the glyphs.
+- **Kind**: icon · **Size**: one line of markup
+
+### DG-161 · The pet's show/hide is not in the footer
+- **Sample**: a paw in the footer row, title "Hazel is here. Hide the pet", which shows and hides the pet
+  in one press.
+- **App**: the pet is switched in Settings › Appearance and nowhere else.
+- **Kind**: missing entirely · **Size**: one control
+
+### DG-162 · "Trunks on other computers" is a paragraph, not an information button
+- **Sample**: a small information button beside the heading — hover shows the sentence, click pops it.
+  The paragraph itself is gone.
+- **App**: `public/reach.js` draws the whole purpose line under the heading: *"Your other computers share
+  the names and titles of their Trunks, and a Trunk here can send one a message. Nothing else is shared."*
+- **Where**: Customize › Specialists. **Kind**: layout · **Size**: one control (and the same pattern
+  everywhere else once DG-007 lands)
+
+### DG-163 · The footer's words are hidden but still read aloud; the app has neither
+- **Sample**: "Theme · Slate" and "Hazel is here" stay in the markup with their titles and aria-labels so
+  nothing lost its meaning, only its footprint.
+- **App**: the controls do not exist, so neither do the labels.
+- **Kind**: missing entirely · **Size**: part of DG-094
+
+### DG-164 · Achievements has no Settings page
+- **Sample**: a page of its own (spark icon), "Little milestones, just for you. Switch them off any time."
+  — a **51 / 505 progress bar**, a **Show achievements** switch, a **Quiet: no pop-ups** switch with its
+  explanation, **Try a celebration** (six chips in a 3 + 3 grid with the explanation beside them), a
+  **Search achievements** box, **tier chips with counts** (Every tier 51/505 · Bronze 24/100 · Silver
+  23/100 · Gold 3/100 · Diamond 1/100 · Godly 0/100 · SSS+ 0/5), **kind chips with counts**
+  (All kinds · Getting started 12 · Trunks & devices 9 · Automations 6 · Looks & fun 8 ·
+  Streaks 1 · Safety 6 · Explorer 9 · Secrets 0) and a grid of cards, each with a medal tile, its
+  name, its tier in small caps, what it asks for and "● Unlocked 2026-09-03". The owner's own menu also
+  carries an **Achievements** row with the count.
+- **App**: a card inside Settings › Appearance › "Just for fun" — two tick boxes, "7 of 505 so far ·
+  rank Bronze", a **See them all** button and six wrapping celebration buttons. No page, no progress bar,
+  no search, no tier or kind chips, no counts, and nothing in the owner's menu.
+- **Kind**: missing entirely · **Size**: a feature
+- **Owner critique**: #49 and #50.
+
+### DG-165 · "What's on screen" has no Settings page
+- **Sample**: a page of its own (eye icon), "Hide any part of the window you don't use. The things that
+  keep you safe always stay."
+- **App**: a card inside Settings › Appearance.
+- **Kind**: ordering · **Size**: a component
+- **Owner critique**: #49.
+
+### DG-166 · Appearance's six row-controls are not on the app's Appearance page
+- **Sample**: below the theme gallery, six labelled rows, each with its control right-aligned and a help
+  line under it — **Season** (Auto | Spring | Summer | Autumn | Winter), **Behind the glass**
+  (The oak | The acorn | Growth rings | Plain | Your own…), **Style** (Pixel | 3D), **Contrast**
+  (Standard | High contrast), **See-through** (a slider running from **Solid** to **Glass**, both ends
+  named, "Text stays readable in every pane at this setting.") and **Conversation width**
+  (Comfortable | Wide | Full width), then **Keep things still (no sliding or spinning)** as a switch.
+- **App**: none of the first four exist anywhere (`Behind the glass`, `High contrast` and
+  `Conversation width` are in no source file; `Season` is named only in `layout.js`). See-through and the
+  width live in Appearance › "What's on screen" instead, with a monospace label, no end labels on the
+  slider and the browser's blue for the track.
+- **Kind**: missing entirely / ordering · **Size**: a component
+- **Note**: "Your own…" being one of five choices behind the glass is why DG-136's tick box is wrong:
+  the sample never asks a yes/no question about it.
+- **Shots**: `DG-166-sample.png` / `DG-166-app.png`
+
+### DG-167 · The pet tiles wrap five and three
+- **Sample**: the eight creatures (Squirrel, Owl, Hedgehog, Fox, Robin, Rabbit, Snail, Deer fawn) in one
+  row of eight.
+- **App**: the same eight, five on the first row and three on the second, each tile taller than the
+  sample's.
+- **Kind**: layout · **Size**: one line of CSS
+
+
+---
+
 # 13. Things that are already right
 
 Worth saying, so nobody spends time on them:
 
-- **No sideways scroll anywhere.** 1440, 1024 and 390, every scene walked, both sides: 0 px. #52 and #62
-  are held.
+- **No page-level sideways scroll anywhere.** 1440, 1024 and 390, every scene walked, both sides: 0 px, so
+  #52's clipped footer is held. **#62 (chips overflowing their cards) was not separately proved**: the
+  overflow sweep still flags the app's composer in 56 scenes and a strip item in 128, which is what DG-086
+  and DG-103 are about. A builder should check the chip case itself.
 - **The Add a Trunk studio** keeps the sample's shape: one dialog, one tab strip that stays, the same
   shapes, the same live preview panel. #34's Keep is honoured apart from DG-104 to DG-110.
 - **The theme gallery, the mirrors and the level control** all exist and work.
@@ -1083,29 +1223,33 @@ Worth saying, so nobody spends time on them:
 Ordered by how visible each batch is to the owner. "Cheap" means CSS and copy only; "real work" means new
 product.
 
-| # | Batch | Gaps | Rough count | Cost |
+| # | Batch | Gaps | Count | Cost |
 |---|---|---|---|---|
-| 1 | **Every switch becomes a switch; every three-way becomes `Off / When needed / On`; every choice list becomes the glass dropdown** | DG-015 to DG-018, DG-021, DG-022, DG-054, DG-106, DG-133, DG-136 | 10 rows, ~400 controls | **Cheap-ish**: one switch renderer, one segmented renderer, wire `glass-select` to the 294 selects, `accent-color` on ranges. No new product. |
-| 2 | **The message box** — one slim bar, chips that collapse to marks, the tick boxes out, Send never wraps | DG-084 to DG-089, DG-101 | 7 | **Cheap** (CSS and moving two controls), except the model chip's provider mark, which needs the marks from `brand-marks.js`. |
-| 3 | **Settings page furniture** — back link, title, version line, "On this page", one column, no scope chips, heading levels, the Esc chip | DG-001 to DG-003, DG-006, DG-008 to DG-013, DG-063, DG-064, DG-071 to DG-076, DG-078 | 19 | **Cheap**: CSS and one jump-link renderer. |
-| 4 | **Words** — jargon out, the three-way wordings, section names, achievement wording, the mode picker's names, order and footer | DG-019, DG-023, DG-032, DG-050, DG-077, DG-137, DG-150, DG-152, DG-153, DG-155 | 10 | **Cheap**: a copy pass across the locale files (en + fr). |
-| 5 | **Hover explanations** (#29) — the ⓘ control and an entry per control | DG-007 | 1 row, 356 entries | **Cheap component, long tail**: one component plus a data pass; `settings-descriptions.js` already holds 186 of them. |
-| 6 | **The rail and the sidebar** — the computer header, Conversations/Trunks tabs, Overview's row, the theme row, the owner row, the Trunks heading, faces in "Who is using Branch" | DG-090 to DG-095, DG-097, DG-102, DG-103, DG-126, DG-129 | 11 | **Mixed**: DG-095, DG-103 and DG-129 are one line each; the rest is a component. |
-| 7 | **Permissions and the mode picker as choice cards**, Lockdown back on the page and in the menu | DG-020, DG-024, DG-048, DG-049, DG-151 | 5 | **Component work**, no new product. |
-| 8 | **The usage ring and popover** (#31, a Keep) — ring to the top bar, anchor the card, provider marks, the month total, the per-window bars | DG-145 to DG-149 | 5 | **Mixed**: marks and the anchor are cheap; the per-window bars need the real numbers `usage-glance.ts` already has. |
-| 9 | **The side panel** — labels back on the tabs, "Side panel" title, the auto-open switch, the empty states | DG-114 to DG-119, DG-121 | 7 | **Cheap** apart from DG-118, which may be a real bug. |
-| 10 | **The studio's remaining gaps** — colours, Starts in, the header preview, the tab, the strip labels | DG-104 to DG-110, DG-112, DG-113 | 9 | **Mixed**: colours and labels are cheap; the KeepOak tab needs #14. |
-| 11 | **Appearance** — Day or night, the eye, the theme search, the filter chips, tile size, the Branch theme, the mirrors | DG-033 to DG-040 | 8 | **Component work**. |
-| 12 | **Places** — the Inbox's shape, tab counts, the breadcrumb, Customize's Trunks tab, the floating composer off place pages | DG-100, DG-128, DG-139 to DG-144 | 8 | **Mixed**. |
-| 13 | **The corner, the pets and the celebrations** | DG-130 to DG-134, DG-138 | 6 | **Cheap** apart from DG-138 (3D). |
-| 14 | **People and Overview** — the capability list, the table, Change look, Invite someone, and giving Overview a way in | DG-092, DG-122 to DG-125, DG-127 | 6 | **Real product work**: Overview is a whole page with no way in today. |
-| 15 | **Secrets and Accounts** — the list with marks, the password-manager row, the accounts list and Add an account | DG-045, DG-046, DG-052, DG-053 | 4 | **Real product work**, and DG-053 needs the password-manager states. |
-| 16 | **The seven missing Settings pages**, pinning, and the 96 unindexed settings | DG-004, DG-005, DG-058 to DG-062, DG-067, DG-068, DG-069, DG-079, DG-083 | 12 | **Real product work**, and the biggest of the lot. |
-| 17 | **KeepOak** (#14) — the account card, the studio tab, the achievement | DG-027, DG-104 (part), DG-135 | 3 | **Real product work**: Branch has no KeepOak account link at all. |
-| 18 | **The terminal and phone frames in the window** (#44, #53) | DG-154 to DG-156 | 3 | **Real product work**. |
-| 19 | **The rest of the conversation screen** — the breadcrumb, the top-bar search, the open-conversations strip, the guide lightbulb | DG-096, DG-098, DG-099 | 3 | **Mixed**: the strip and the guide are features. |
-| 20 | **The remaining Settings page-by-page gaps** | DG-025 to DG-031, DG-041 to DG-044, DG-047, DG-051, DG-055 to DG-057, DG-065, DG-066, DG-070, DG-080 to DG-082 | 24 | **Mixed**, mostly component work. |
+| 1 | **Every switch becomes a switch; every three-way becomes Off / When needed / On; every choice list becomes the glass dropdown** | DG-015–DG-018, DG-021–DG-022, DG-054, DG-106, DG-133, DG-136 | 10 | **Cheap-ish**: one switch renderer, one segmented renderer, wire `glass-select` to the 294 selects, `accent-color` on the ranges. No new product. |
+| 2 | **The message box** — one slim bar, chips that collapse, the tick boxes out, Send never wraps | DG-084–DG-089, DG-101 | 7 | **Cheap**: CSS, moving two controls, and naming the model instead of the connection. |
+| 3 | **Settings page furniture** — back link, title, version line, “On this page”, one column, no scope chips, heading levels | DG-001–DG-003, DG-006, DG-008–DG-013, DG-063–DG-064, DG-071–DG-076, DG-078 | 19 | **Cheap**: CSS and one jump-link renderer. |
+| 4 | **Words** — jargon out, the three-way wordings, section names, achievement wording, the mode picker’s names and footer | DG-019, DG-023, DG-032, DG-050, DG-077, DG-137, DG-150, DG-152–DG-153, DG-155 | 10 | **Cheap**: a copy pass across the locale files (en + fr). |
+| 5 | **Hover explanations** (#29) — the information control and an entry per control | DG-007, DG-162 | 2 | **Cheap component, long tail**: one component plus a data pass; `settings-descriptions.js` already holds 186 of the sentences. |
+| 6 | **The rail, the sidebar and its one-row footer** | DG-090–DG-091, DG-093–DG-095, DG-097, DG-102–DG-103, DG-111, DG-126, DG-129, DG-159, DG-161, DG-163 | 14 | **Mixed**: DG-095, DG-103 and DG-129 are one line each; the footer row and the faces are components. |
+| 7 | **Permissions and the mode picker as choice cards**, Lockdown back on the page and in the menu | DG-020, DG-024, DG-048–DG-049, DG-151 | 5 | **Component work**, no new product. |
+| 8 | **The usage ring and popover** (#31, a Keep) | DG-145–DG-149 | 5 | **Mixed**: the anchor and the month total are cheap; the per-window bars need the numbers `usage-glance.ts` already has. DG-147 now means *drop* the app’s tile, not add a logo. |
+| 9 | **The side panel** — labels back on the tabs, the “Side panel” title, its own close, the auto-open switch | DG-114–DG-121 | 8 | **Cheap** apart from DG-120 (a typeable shell), which is new product. |
+| 10 | **The studio’s remaining gaps** — colours, Starts in, the header preview, the strip labels | DG-104–DG-105, DG-107–DG-110, DG-112–DG-113 | 8 | **Mixed**: colours and labels are cheap; the KeepOak tab waits on #14. |
+| 11 | **Appearance** — day or night, the eye, the theme search, the filter chips, tile size, the Branch theme, the mirrors | DG-033–DG-040, DG-160, DG-166 | 10 | **Component work**. |
+| 12 | **Places** — the Inbox’s shape, tab counts, the breadcrumb, Customize’s Trunks tab, the floating composer off place pages | DG-100, DG-128, DG-139–DG-144 | 8 | **Mixed**. |
+| 13 | **The corner, the pets, the celebrations and the toast** | DG-014, DG-130–DG-132, DG-134, DG-138, DG-167 | 7 | **Cheap** apart from DG-138 (3D). |
+| 14 | **People and Overview** — the capability list, the table, Change look, Invite someone, and a way in to Overview | DG-092, DG-122–DG-125, DG-127 | 6 | **Real product work**: Overview is a whole page with no way in today. |
+| 15 | **Secrets and Accounts** — the list, the password-manager row, Add an account | DG-045–DG-046, DG-052–DG-053 | 4 | **Real product work**; DG-053 needs the password-manager states. |
+| 16 | **The missing Settings pages**, pinning, and the 96 unindexed settings | DG-004–DG-005, DG-058–DG-062, DG-067–DG-069, DG-079, DG-083, DG-164–DG-165 | 14 | **Real product work**, and the biggest of the lot. |
+| 17 | **KeepOak** (#14) — the account card and the achievement | DG-027, DG-135 | 2 | **Real product work**: Branch has no KeepOak account link at all. |
+| 18 | **The terminal and phone frames in the window** (#44, #53) | DG-154, DG-156 | 2 | **Real product work**. |
+| 19 | **The rest of the conversation screen** — the breadcrumb, the top-bar search, the open-conversations strip, the guide lightbulb | DG-096, DG-098–DG-099 | 3 | **Mixed**: the strip and the guide are features. |
+| 20 | **The remaining Settings page-by-page gaps** | DG-025–DG-026, DG-028–DG-031, DG-041–DG-044, DG-047, DG-051, DG-055–DG-057, DG-065–DG-066, DG-070, DG-080–DG-082 | 21 | **Mixed**, mostly component work. |
+| 21 | **Take the brand marks out** — what the owner asked for on 2026-09-20 | DG-157–DG-158 | 2 | **Cheap to do** (one `logo()` that returns nothing), but decide first what happens to `public/assets/brands/` and the notices. |
 
-**Batches 1 to 5 are almost all CSS and copy** and between them close 47 gaps — including the two the
-owner will notice first (every control being the wrong kind, and the message box). **Batches 14 to 18 are
-real product work** and should be planned, not squeezed in.
+**Batches 1 to 5 are almost all CSS and copy** and between them close 48 gaps — including the two the
+owner will notice first (every control being the wrong kind, and the message box). Batch 21 is one more
+cheap one. **Batches 14 to 18 are real product work** and should be planned, not squeezed in.
+
+Every one of the 167 gaps is in exactly one batch; the table above is generated from that list, so the
+counts and the register cannot drift apart.
