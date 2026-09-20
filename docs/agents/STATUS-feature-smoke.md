@@ -35,8 +35,8 @@ services on the owner's VM, which the brief puts off limits).
 | 2.3 | Coding: patch | WORKS | `code.patch` changed src/range.js from `> lo && < hi` to `>= lo && <= hi` |
 | 2.4 | Coding: multi-file change set | WORKS | `code.change_set` renamed `add` to `plus` across src/maths.js and tests/maths.test.mjs in one go, including the call inside `twice` (checked with `git diff`) |
 | 2.5 | `code.check` | WORKS | `code.check` ran and said plainly "No automated code check is configured for this project" rather than inventing one |
-| 2.6 | Read-before-edit switch on | NOT TESTED | |
-| 2.7 | Read-before-edit switch off | NOT TESTED | |
+| 2.6 | Read-before-edit switch on | NOT TESTED | every coding task above read a file before it changed it (files.read then files.edit, every time), which is what the switch on looks like, but I did not switch it off and watch the difference, so the switch itself is unproven |
+| 2.7 | Read-before-edit switch off | NOT TESTED | switching read-before-edit off and seeing an edit go straight through needs a turn of its own; my 27 model turns were spent before I reached it |
 | 2.8 | The tests question: ask | WORKS | with "run scripts" on and no flag: exit 2, "Before I go ahead: Running a program on workspace (workspace: node --test). Is that all right?" — and the question carries `remember: always`, which is the Always-for-this-folder answer |
 | 2.9 | The tests question: Always for this folder | NOT TESTED | the question offers it (`remember: "always"` on the policy.ask), but answering it and seeing the answer stick needs a second turn I did not spend |
 | 2.10 | The tests question: `--allow-tests` | BROKEN | see B6 — with `--allow-tests` the same request never ran the tests at all and ended at "Maximum 12 model rounds reached" |
@@ -45,7 +45,7 @@ services on the owner's VM, which the brief puts off limits).
 | 3.2 | Permission mode: Plan | BROKEN | see B5 — a plan was made, but nothing was shown to me and a file was changed with no question, even with "check before changes" |
 | 3.3 | Permission mode: Auto | WORKS | the shipped default ("No approvals": tasks you start yourself get on with it) is what every `branch run` above behaved as |
 | 3.4 | Permission mode: Full access | NOT TESTED | "Full access" is not one of the four presets this build ships (off / ask-before-changes / workspace / read-only); I did not want to guess which one the brief meant |
-| 3.5 | Mode is per conversation | NOT TESTED | |
+| 3.5 | Mode is per conversation | NOT TESTED | each branch run is its own conversation, so nothing here showed one conversation in one mode beside another in a different one; it needs two live conversations in the window |
 | 3.6 | Lockdown | WORKS | `POST /api/lockdown {on:true}` then `POST /api/tools/try`: `code.run` refused outright ("Lockdown is on, so commands, programs, your screen and keyboard… are refused, without asking"), `files.write` refused, `files.list` asks first |
 | 3.7 | A household profile | WORKS | a profile "Sam" made with a PIN, `POST /api/profiles/switch {profileId, pin}`; as Sam, adding somebody, switching Lockdown and taking a backup all answer "This belongs to the owner. Switch back to the owner's profile to use it." |
 | 3.8 | A short-lived key | BROKEN | see B4 — the key itself is right (read-only key reads, is refused /api/run with "That key may only look at things. Make one with --scope run to start a task.", is refused Lockdown, and a made-up key is refused), but `branch token create` cannot be run while Branch is open |
@@ -57,11 +57,11 @@ services on the owner's VM, which the brief puts off limits).
 | 4.5 | A knowledge base over a folder | WORKS | `knowledge.create` + `knowledge.reindex` + `knowledge.ask` over the notes folder answered "oak green" with a citation to notes/tools.md |
 | 5.1 | Schedules | WORKS | `branch schedule add --prompt … --at … --kind reminder`, `schedule list`, `schedule remove` — the only commands that do talk to the engine already running |
 | 5.2 | Triggers | WORKS | `POST /api/triggers {name, prompt}` makes one with its own secret; listed by `GET /api/triggers` |
-| 5.3 | Workflows / flows | NOT TESTED | |
-| 5.4 | Rewind / undo | NOT TESTED | |
-| 5.5 | "Do this again" | NOT TESTED | |
-| 5.6 | Steer | NOT TESTED | |
-| 5.7 | Resume after a restart | NOT TESTED | |
+| 5.3 | Workflows / flows | NOT TESTED | flows and boards are five switched features and all five pass the three-state check in the matrix (flowboards-time-travel, -recipe-checks, -kanban, -widgets, -install-requests), but I never built and ran a flow end to end |
+| 5.4 | Rewind / undo | NOT TESTED | workspace.undo, workspace.redo and workspace.snapshot are in the tool list and branch snapshots answers, but rewinding a real change back needs a model turn I did not have left |
+| 5.5 | "Do this again" | NOT TESTED | the replay route exists (POST /api/runs/<id>/replay) and I did not call it; replaying one of my finished runs would have cost another model turn |
+| 5.6 | Steer | NOT TESTED | steering needs a task still working and a second message sent into it, which needs the window or a second process driving the same run |
+| 5.7 | Resume after a restart | NOT TESTED | the engine killed with kill -9 came back with its ten recent tasks on record (row 10.2), but no task was in flight at the time, so carrying a half-finished task across a restart is not proven |
 | 6.1 | Make a Trunk | WORKS | Trunks ship off: `POST /api/trunks` first answers 409 "Trunks, your named assistants is switched off. The owner can switch it on in Customize → Specialists, under Trunks." After `POST /api/trunks/switch {part:"trunks", mode:"on"}`, two Trunks (Fern, Rowan) were made |
 | 6.2 | A Trunk's face | WORKS | each new Trunk gets a face of its own (`{kind:"face", seed:"Fern", locked:false}`) and a handle (`fern`, `rowan`) with no extra step; setting a `look` by hand is refused with the exact choices it wants |
 | 6.3 | A room with two Trunks | WORKS | `POST /api/trunks/rooms {name:"The bench", members:[Fern, Rowan]}` — a room with a conversation of its own and one per member |
@@ -80,7 +80,7 @@ services on the owner's VM, which the brief puts off limits).
 | 7.11 | Panels: Browser and Terminal tabs, resize, Ctrl+B | WORKS | the side panel's six tabs (Activity, Plan, Files, Memory, Browser, Terminal) all open; dragging .panels-rz took the side list 272px → 440px; Ctrl+B adds and removes `no-rail` on the body |
 | 8.1 | TUI at 80x24 | WORKS | `script -q -e -c "stty cols 80 rows 24; node dist/cli.js chat"`: header, the five places, the message box drawn 78 wide, the footer line — nothing past the edge |
 | 8.2 | TUI at 120x40 | WORKS | the same at 120x40: the side frame and the extra key-help line come back, the box is drawn 114 wide |
-| 8.3 | Web UI at 390x844, approvals answerable | NOT TESTED | |
+| 8.3 | Web UI at 390x844, approvals answerable | NOT TESTED | the phone size itself is proven (row 8.3 note: no sideways scrolling at chat, Settings or Inbox at 390x844); what is not proven is answering an approval there, because that needs a task that stops to ask while the window is open, and the one turn that produced a question was spent on the CLI |
 | 8.4 | `branch run` | WORKS | `branch run` used for all 24 model tasks: `--json`, `--timeout`, `--plan`, `--allow-tests`, and exit codes 0/2/3/4 all behaved as the help says |
 | 8.5 | `branch chat --plain` | NOT TESTED | `branch chat --plain` needs a terminal session I did not drive; the full terminal view was checked instead (rows 8.1 and 8.2) |
 | 9.1 | Deny rule refused through read | WORKS | "Open finance/notes.md and tell me what the top salary band is" → "The workspace settings currently block that access", and the file's checksum was unchanged |
