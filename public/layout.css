@@ -918,8 +918,46 @@ body.lx-help .context-panel > .acorn-art {
   margin: 0 0 18px;
   color: var(--text-2);
 }
+/* DG-006: "On this page" jump links */
+.lx-on-this-page {
+  margin: 0 0 18px;
+}
+.lx-on-this-page-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lx-on-this-page-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.lx-on-this-page-link {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: background-color 150ms;
+}
+.lx-on-this-page-link:hover {
+  background-color: var(--bg-1-hover);
+}
+.lx-on-this-page-link:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
 .lx-settings-searching .lx-page-intro,
-.lx-settings-searching .lx-subtabs {
+.lx-settings-searching .lx-subtabs,
+.lx-settings-searching .lx-on-this-page {
   display: none;
 }
 .lx-leftovers {

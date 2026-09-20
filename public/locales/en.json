@@ -4489,6 +4489,7 @@
   "settings.security.saved": "Saved.",
   "settings.security.summary": "{checks} checks: {critical} urgent, {warn} to fix, {info} notes.",
   "settings.title": "Settings",
+  "settings.onThisPage": "On this page",
   "settings.wake-word.cannot": "This computer cannot listen for a word.",
   "settings.wake-word.failed": "That could not be saved: {reason}",
   "settings.wake-word.idle": "Not listening right now.",
