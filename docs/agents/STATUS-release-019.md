@@ -85,8 +85,15 @@ each of those files passes on its own and all four pass together on the re-run.
 
 `mac7/speed` is unmerged, so nothing of it is described in the 0.19.0 notes. Its builder has a ready
 paragraph at the bottom of `docs/agents/STATUS-speed.md` on that branch ("Doing more in one go", which
-ships off; plus three unswitched fixes, including a task that runs out of rounds giving its best answer,
-and a new Settings → Advanced field *Times one task may go back to the model*, empty meaning 12). If an
+ships off; plus unswitched fixes, including a task that runs out of rounds giving its best answer, and a
+new Settings → Advanced field *Times one task may go back to the model*, empty meaning 12). If an
 integrator merges it into trunk before the tag, that paragraph should be folded in — keeping its two
-conditions: the numbers were measured against a stand-in for the model, not a live one, and no wall-time
-percentage is claimed.
+conditions: the numbers were measured against a stand-in for the model where they were, not a live one,
+and no wall-time percentage is claimed.
+
+Its builder has since corrected that draft (2026-09-20): **do not use the "the model only sends one tool
+call a turn" claim** — on the real plan model Branch already batches (23 of 95 rounds carried more than
+one call). The defensible story is the exchanges spent just *finding* a tool (27 of 95 rounds on the real
+model), and the unswitched fixes for it: no toolbox can take every place, a tool arriving part-way through
+no longer pushes another off, and a tool found comes with its inputs. Read the branch's own status file
+rather than this summary before writing anything.
