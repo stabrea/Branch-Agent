@@ -268,6 +268,41 @@ words the screens use, with the limits said in the same sentence.
 > task may take is yours to change, in Settings under Advanced. A tool arriving part-way through a
 > task no longer pushes another tool off the list.
 
+## Corrected by real-model data (`docs/agents/CODING-GAPS-2026-09-20.md`, `mac7/gaps`)
+
+The five-way window on the owner's plan measured 95 Branch rounds across 12 tasks. Three things in
+this file's earlier sections were wrong, and they are corrected here rather than quietly edited,
+because the wrong version was used to justify work.
+
+1. **"The model sends one tool call a turn — never two" was wrong.** That was measured against a
+   scripted provider and an old database. On the real model **23 of Branch's 95 rounds carried more
+   than one call (24%) — more often than Pi (12 of 63, 19%)**. Branch already batches.
+   **So B (the line inviting it to batch) and C (`files.read_many`) are not the win.** They aim at
+   behaviour that already happens a quarter of the time unprompted. Both are cheap, both are tested,
+   both stay; neither should be described as the reason this branch exists.
+2. **A is small on real rounds.** From the timestamps of one round's three reads: 316 ms one after
+   another against about 92 ms together — **224 ms saved against a 6,000 ms round**. Keep it, off,
+   and do not sell it. It pays when the tools in a group are slow, not on file reads.
+3. **E and D are the big ones, and both are confirmed on the real model.** E: **27 of 95 rounds —
+   28% — did no work on the task at all; they looked for a tool.** Pi spent zero of 63, Codex zero.
+   D: on `cli-flag`, round 9 re-loaded `code.run` that round 2 had already loaded, because it had
+   been pushed off the list in between — this branch's item D, one wasted round, measured on a real
+   model.
+
+**The headline of this branch is E, then the round ceiling. Not A, not B, not C.**
+
+### First head-to-head on a real model (qwen3-14b, `extract-helper`, one cell each)
+
+| | rounds | tool calls | calls a round | rounds asking for several | rounds looking for a tool | calls run together |
+|---|---|---|---|---|---|---|
+| as it ships | 8 | 8 | 1.00 | 0 | 1 | 0 |
+| `fewer-rounds` on | 8 | 11 | **1.38** | **5** | **0** | **4** |
+
+Both cells ran to the 600 s deadline, so the round count is "as many as fit", not "as many as
+needed" — on this model these tasks do not finish either way, which windows 3 and 4 already showed.
+What the pair does say, in the same number of rounds: the switched-on row did **38% more tool work**
+and spent **none** of it hunting for tools. The rest of the window is still running.
+
 ## Not done, and not proven
 
 - **Nothing on this branch has been measured on a real model yet.** Every number above comes from a
