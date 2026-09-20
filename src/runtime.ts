@@ -414,6 +414,8 @@ export class Runtime {
     readonly owner = "local",
     retryPolicy?: RetryPolicyInput,
     reliability?: ReliabilityInput,
+    /** Test-only: clock function for deterministic rate limiting. Normal production uses Date.now. */
+    private readonly clock: () => number = Date.now,
   ) {
     this.retryPolicy = parseRetryPolicy(retryPolicy);
     this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
@@ -2662,15 +2664,16 @@ ${run.output.slice(0, 6000)}`;
     // happens inside the queue, so a single chain would have made one conversation that has
     // reached its limit hold up every other conversation's calls for as long as it waited.
     const key = kind + ":" + this.sessionOf(context);
-    const mine = (this.pacing.get(key) ?? Promise.resolve()).then(() => this.paceNow(key, context, kind, limit));
+    const now = this.clock();
+    const mine = (this.pacing.get(key) ?? Promise.resolve()).then(() => this.paceNow(key, context, kind, limit, now));
     const settled = mine.catch(() => undefined);
     this.pacing.set(key, settled);
     // Nothing else joined the queue while this one ran, so the entry is not kept for ever.
     void settled.then(() => { if (this.pacing.get(key) === settled) this.pacing.delete(key); });
     return mine;
   }
-  private async paceNow(key: string, context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
-    const wait = this.rates.waitMs(key, limit);
+  private async paceNow(key: string, context: ToolContext, kind: "tool" | "round", limit: number, now: number): Promise<void> {
+    const wait = this.rates.waitMs(key, limit, now);
     if (wait > 0) {
       const what = kind === "tool" ? "tool calls" : "rounds with the model";
       this.store.event(context.runId, "rate.paused", { kind, limit, waitMs: wait,
@@ -2678,7 +2681,7 @@ ${run.output.slice(0, 6000)}`;
       await sleepFor(wait, context.signal);
       this.store.event(context.runId, "rate.resumed", { kind, limit });
     }
-    this.rates.record(key);
+    this.rates.record(key, now);
   }
   /**
    * The approval policy, checked once before a tool runs. A refused call comes back to the model as

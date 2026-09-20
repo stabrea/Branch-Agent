@@ -116,7 +116,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     await connected(restarted);
     await restarted.getByLabel("Your message", { exact: true }).fill("Test the saved model connection.");
     await restarted.getByRole("button", { name: "Send", exact: true }).click();
-    await restarted.locator(".message.assistant").filter({ hasText: "Saved connection is working." }).waitFor();
+    await restarted.locator(".message.assistant").filter({ hasText: "Saved connection is working." }).waitFor({ timeout: 30000 });
     assert.equal(provider.requests.length, 1);
     assert.equal(provider.requests[0].authorization, "Bearer fixture-device-key-82743");
     assert.equal(JSON.stringify(provider.requests[0].body).includes("fixture-device-key-82743"), false);

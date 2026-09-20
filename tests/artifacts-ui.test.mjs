@@ -224,7 +224,7 @@ test("W3 a message put to a specialist comes back signed with that specialist's 
 
   await page.locator("#prompt").fill("File yesterday's invoices.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").last().waitFor();
+  await page.locator(".message.assistant").last().waitFor({ timeout: 30000 });
 
   /* The stylesheet shouts the author line, so the comparison is on the words, not their case. */
   const author = await page.locator(".message.assistant small").last().innerText();

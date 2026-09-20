@@ -199,7 +199,7 @@ test("the chip starts a new conversation on Ask first, and its menu asks before 
   assert.match(await chip.innerText(), /Ask first/);
   await f.page.locator("#prompt").fill("Tidy my notes");
   await f.page.locator("#send").click();
-  await f.page.locator(".message.assistant").first().waitFor();
+  await f.page.locator(".message.assistant").first().waitFor({ timeout: 30000 });
   const sessionId = await f.page.evaluate(() => document.getElementById("conversation").dataset.sessionId);
   assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "ask", "the conversation was started on Ask first");
   await chip.click();

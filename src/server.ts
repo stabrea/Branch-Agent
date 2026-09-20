@@ -588,10 +588,9 @@ async function staticFile(
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
     "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
-    // phase2/accounts: thinking levels per model, the service marks, the Accounts page, the agent files editor.
+    // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
     "/thinking-levels.js": ["thinking-levels.js", "text/javascript; charset=utf-8"],
     "/brand-marks.js": ["brand-marks.js", "text/javascript; charset=utf-8"],
-    "/brand-marks.css": ["brand-marks.css", "text/css; charset=utf-8"],
     "/accounts.css": ["accounts.css", "text/css; charset=utf-8"],
     "/agent-files.js": ["agent-files.js", "text/javascript; charset=utf-8"],
     "/service-marks.js": ["service-marks.js", "text/javascript; charset=utf-8"],
@@ -1463,8 +1462,20 @@ async function api(
   if (takingBack && request.method === "POST")
     return { id: takingBack[1]!, revoked: app.sessionTokens.revoke(app.runtime.owner, takingBack[1]!) };
   const tracing = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
-  if (tracing && request.method === "GET")
-    return traceReport(app.store, app.traceExport.settings(), tracing[1]!);
+  if (tracing && request.method === "GET") {
+    const run = app.store.run(tracing[1]!);
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
+    // Two consumers, two shapes. The CLI (branch trace) reads this as TraceReport (simple format with
+    // runId, traceId, spans count, kinds array, sending status). A tracing viewer reads ?format=document
+    // to get OpenTelemetry TraceDocument (hierarchical resourceSpans). Default to TraceReport for
+    // backward compatibility; the viewer test requests format=document explicitly.
+    const url = new URL(request.url ?? "/", "http://local");
+    if (url.searchParams.get("format") === "document") {
+      return buildTraceDocument(app.store, run.id, app.version);
+    }
+    // Default: return TraceReport for the CLI
+    return (await import("./trace-report.js")).traceReport(app.store, app.traceExport.settings(), run.id);
+  }
   if (request.method === "GET" && path === "/api/terminal") return terminalReadApi(app, request);
   // ── end mac7/smoke-fixes (B4) ─────────────────────────────────────────────────────────────────
   if (request.method === "GET" && path === "/api/health")
@@ -1702,7 +1713,12 @@ async function api(
   if (request.method === "GET" && traceMatch) {
     const run = app.store.run(traceMatch[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
-    return buildTraceDocument(app.store, run.id, app.version);
+    // Two consumers, two shapes: CLI (TraceReport) by default, viewer (TraceDocument) with ?format=document
+    const url = new URL(request.url ?? "/", "http://local");
+    if (url.searchParams.get("format") === "document") {
+      return buildTraceDocument(app.store, run.id, app.version);
+    }
+    return (await import("./trace-report.js")).traceReport(app.store, app.traceExport.settings(), run.id);
   }
   // "Look inside" a task: rounds, tool calls, plan, verdicts and steering in one answer.
   const inspectMatch = /^\/api\/runs\/([a-f0-9-]{36})\/inspect$/.exec(path);

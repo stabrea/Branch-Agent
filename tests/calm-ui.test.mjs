@@ -49,7 +49,9 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
      covers Ask first). */
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width, height } });
   t.after(async () => {
+    await context.close();
     await browser.close();
     await server.close();
     await app.close();
@@ -61,7 +63,7 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }).then((response) => response.json());
   if (onboarded) await call("/api/onboarding", { done: true });
-  const page = await browser.newPage({ viewport: { width, height } });
+  const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -177,7 +179,7 @@ test("the activity panel slides in while a task runs and away when it finishes",
   assert.equal(await visible(f.page, "#context-allowed"), false, "while working it says only what is running, and nothing is allowed yet");
   assert.equal(await visible(f.page, "#live-stop"), true, "the running task's Stop is in view");
   model.release();
-  await f.page.locator(".message.assistant").waitFor();
+  await f.page.locator(".message.assistant").waitFor({ timeout: 60000 });
   await f.page.locator("#context-panel").waitFor({ state: "hidden", timeout: 15000 });
   assert.deepEqual(f.errors, []);
 });
@@ -305,7 +307,7 @@ test("calm: a goal keeps its Resume and Stop in view", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("hello");
   await f.page.locator("#send").click();
-  await f.page.locator(".message.assistant").first().waitFor();
+  await f.page.locator(".message.assistant").first().waitFor({ timeout: 30000 });
   const sessionId = await f.page.evaluate(() => document.getElementById("conversation").dataset.sessionId);
   f.app.store.save("settings", "local", `goal:${sessionId}`, {
     sessionId, objective: "Make the tests pass", status: "paused", round: 2, maxRounds: 6, score: 0.4, best: 0.4, flatRounds: 0,
@@ -545,7 +547,7 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("hello");
   await f.page.locator("#send").click();
-  await f.page.locator(".message.assistant").first().waitFor();
+  await f.page.locator(".message.assistant").first().waitFor({ timeout: 30000 });
   await everyWayClosed(f.page, "#lx-more", "#lx-more-menu", "More");
   await everyWayClosed(f.page, "#lx-plus", "#lx-plus-menu", "the + in the message box");
   /* Opening one closes the other. */

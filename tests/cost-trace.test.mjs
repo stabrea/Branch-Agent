@@ -266,7 +266,7 @@ test("a finished task becomes a trace document a tracing viewer can read", async
   assert.ok(spans.some((s) => s.name.startsWith("model ")), "each model round is a span");
   assert.ok(spans.some((s) => s.name.startsWith("tool ")), "each tool call is a span");
 
-  const overHttp = await call(`/api/runs/${run.id}/trace`);
+  const overHttp = await call(`/api/runs/${run.id}/trace?format=document`);
   assert.equal(overHttp.status, 200);
   validateTrace(overHttp.value);
   assert.deepEqual(overHttp.value, document, "the route returns the same document");

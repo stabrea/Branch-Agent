@@ -144,7 +144,7 @@ The cause is two tool schemas. `git.log` (its `path`) and `git.commit` (its `pat
 describe themselves with a **negative lookahead**:
 
 ```
-"pattern": "^(?!-)[^\: ]+$"
+"pattern": "^(?!-)[^\:]+$"
 ```
 
 They are the only two tools that use a lookahead or lookbehind in a schema anywhere. I checked all
@@ -154,7 +154,7 @@ schemas are affected; I can only find these two, so whoever fixes it should say 
 ChatGPT endpoint does — rejects the whole request, so every tool in the round goes down with them.
 The guard itself is only "the path may not start with a dash", and the same file already writes that
 guard without a lookahead for the neighbouring `folder` field
-(`"^[^\: -][^\: ]*$"`), so the equivalent `^[^-\: ][^\: ]*$` would keep the
+(`"^[^\:-][^\:]*$"`), so the equivalent `^[^-\:][^\:]*$` would keep the
 protection and drop the lookahead. I have not made that change: it is product code with a test to
 write, and the brief says to find rather than fix.
 

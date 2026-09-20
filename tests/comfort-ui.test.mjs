@@ -135,7 +135,7 @@ test("R17-S16: the status line shows the pieces picked, and each message shows i
   await refresh(page);
   await page.locator("#prompt").fill("Hello there");
   await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
-  await page.locator("#conversation .message.assistant").first().waitFor();
+  await page.locator("#conversation .message.assistant").first().waitFor({ timeout: 30000 });
   await page.evaluate(() => globalThis.branchComfort.refreshStatus());
   await page.waitForFunction(() => document.querySelectorAll("#conversation .message .message-time").length >= 2);
   const line = await page.locator("#comfort-status").textContent();

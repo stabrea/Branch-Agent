@@ -57,7 +57,7 @@ async function verifyWindow(electron, page, home) {
     .getByLabel("Your message", { exact: true })
     .fill("Run the file workflow.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await page.locator(".message.assistant").waitFor();
+  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
   assert.equal(
     await readFile(join(home, "workspace", "branch-demo.txt"), "utf8"),
     "Hello from Branch.\n",

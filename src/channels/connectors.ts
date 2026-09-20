@@ -186,6 +186,14 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
     name: "channels.broadcast", permission: "channels.send",
     description: "Send one message to several linked chats at once. Leave the list empty to reach every chat that has talked to the assistant.",
     parameters: BroadcastSchema,
+    targets: (input: any, context: any) => {
+      const to = input.to ?? [];
+      const targets = to.length ? to : router.chats(context.owner).map(({ channel, chatId }: any) => ({ channel, chatId }));
+      return targets.map(({ channel, chatId }: any) => ({
+        kind: "write" as const,
+        path: `${channel}:${chatId}`,
+      }));
+    },
     // The chats are the owner's own. Somebody else sharing this computer under their own profile
     // must not be able to write to them, whether or not they name a chat themselves.
     execute: async (input, context) => { people.requireOwner(onlyTheOwner); return broadcast(router, context.owner, input); },

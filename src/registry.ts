@@ -88,8 +88,22 @@ export class ToolRegistry {
     if (removed) { this.revision++; this.announceChange(); }
     return removed;
   }
+  /** Alias for unregister, used by tests. */
+  remove(name: string): boolean {
+    return this.unregister(name);
+  }
   names(): string[] {
     return [...this.tools.keys()];
+  }
+  /**
+   * Whether a tool says for itself what a call would touch. `files.read_many` said neither, so the
+   * owner's folder rules judged it with an empty target and let through a file the same rules
+   * refused to `files.read`. `tests/tool-targets.test.mjs` uses this to insist that every tool whose
+   * arguments can name a file, a folder, a site, an account, a device or a person says so.
+   */
+  declaresTarget(name: string): { target: boolean; targets: boolean } {
+    const tool = this.tools.get(name);
+    return { target: typeof tool?.target === "function", targets: typeof tool?.targets === "function" };
   }
   /** Every registered tool with its permission, for the capability inventory. */
   inventory(): { name: string; permission: string; description: string }[] {
