@@ -134,14 +134,17 @@ async function answer(sessionId, decision, remember, fingerprint) {
   }
 }
 
+/** Whether it really was saved: a ceiling is only "what is on screen" again once the server took it. */
 async function save(next) {
   try {
     state.policy = (await api("policy", next)).policy;
     renderPresets();
     renderRules();
     status("Saved.");
+    return true;
   } catch (e) {
     status(e.message);
+    return false;
   }
 }
 
@@ -163,9 +166,10 @@ function showSaved(id, value) {
 
 async function saveLimits() {
   const number = (id) => Math.max(0, Math.min(1000, Number($(id).value) || 0));
-  await save({ limits: { toolCallsPerMinute: number("policy-tool-limit"), modelRoundsPerMinute: number("policy-round-limit") } });
-  // Once saved, what is on screen is the saved answer again, so a refresh may write over it.
-  for (const id of limitBoxes) if ($(id)) lastWritten.set(id, $(id).value);
+  const saved = await save({ limits: { toolCallsPerMinute: number("policy-tool-limit"), modelRoundsPerMinute: number("policy-round-limit") } });
+  // Once saved, what is on screen is the saved answer again, so a refresh may write over it. A save
+  // that did not land leaves the ceiling theirs, so the refresh does not take it away as well.
+  if (saved) for (const id of limitBoxes) if ($(id)) lastWritten.set(id, $(id).value);
 }
 
 /** Called after every state refresh. */

@@ -73,14 +73,31 @@ All three run on the same refresh path as the one ci-flakes-3 proved (public/app
   was thrown out of it. The rows are now made again only when they really changed (the cure
   ci-flakes-2 used for glass-select and conversation-mode).
 
+## The `verify` job
+
+It was red in 35478612357 as well. It is only an aggregator: `needs: [test, package]`, `if: always()`,
+and its one step asserts both were successes. It has no failure of its own and goes green by itself
+once the shards do. Not a fifth cause.
+
 ## Progress
 
 - [x] read COMMON-RULES, STATUS-ci-flakes, -2, -3; pulled and read all four failing job logs of 35478612357
 - [x] product: os-permissions.js keeps a message a press put there; guard in mac2-desktop-ui
 - [x] product: mcp-workbench.js, approvals.js, misc.js — the three refresh sites ci-flakes-3 listed;
-      one guard test in tests/glass-select.test.mjs, which already owns this family
+      one guard test in tests/glass-select.test.mjs, which already owns this family. A save that did
+      not land leaves the ceiling theirs (approvals.js `save` now says whether the server took it), so
+      the refresh does not take away what a failed save left on screen.
 - [x] tests: add-ons-walled, coding-gap-edits, delight-ui, places.mjs openSettings
-- [ ] build + tsc + targeted tests
-- [ ] loops
+- [x] before/after, in a separate worktree (ci-flakes-3-loop detached at 1a0afe01, trunk's four product
+      files put back one at a time). Each new guard bites on trunk's code and passes on this branch:
+      - os-permissions: mac2-desktop-ui `'' !== 'Saved.'` ("the message stays until the next press")
+      - approvals: `'0' !== '42'` ("the ceiling being typed is still theirs")
+      - misc: "a chooser somebody may have open is not thrown away and made again"
+      - mcp-workbench: `'5' !== '17'` ("the minutes being typed are still theirs")
+- [ ] loops on this loaded machine, 3 copies of a file at once, in the separate worktree. Measured so
+      far: delight-ui 12 runs 168/168. glass-select, mac2-desktop-ui, never-break-ui and
+      coding-gap-edits still running; counts go in here when they land, not before. As in every earlier
+      round, none of the CI failures reproduces here by repetition; each was instead diagnosed from the
+      log and, where a product bug, reproduced by driving the very call the 3-second refresh makes.
 - [ ] merged into trunk
 - [ ] two consecutive full green Checks runs on trunk
