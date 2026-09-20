@@ -81,7 +81,66 @@ new refusal deleted from `dist/server.js`, all three fail (13 pass, 3 fail). Res
 
 ## B6 — `--allow-tests` and the tests that did not run
 
-- [ ] in progress
+### A correction: the flag cannot change what the task reaches for
+
+The repro says the flag turned a five-round run straight to the right tool into twelve rounds
+wandering over `mcp.dry_run`, `debug.start` and `specialists.fanout`. The flag cannot do that.
+`RunOptions.allowProjectTests` reaches exactly one consumer in the whole build —
+`codeChanges.testsPermission` → `projectTestsVerdict` (`src/index.ts`, `src/coding/project-tests.ts`).
+It never touches `openCatalog`, `rankGroups`, the learning core's pre-load or the tool budget.
+
+Proven, not argued: the new test runs the same request twice on a scripted provider, once with the
+flag and once without, and compares the tool list the model is shown round by round, the
+`catalog.preselected` event, and the round count. With the folder's question already answered they
+are identical in all three. With it unanswered, the plain run is a prefix of the flagged one — the
+flagged task does everything the plain one did, in the same order, and then carries on instead of
+stopping. It never reaches for less.
+
+What the two smoke runs differ by is the model, not the flag: the same prompt on a real model, run
+twice, and a learning core that ranks by what earlier tasks did. Note too that the run the report
+calls correct asked about **`remote.run` on a computer called "workspace"** — a tool for the owner's
+*other* computers. Neither run was on its way to running the tests locally.
+
+### What was really wrong
+
+`--allow-tests` announced itself whatever the folder held. It removes exactly one question — "Let
+Branch run this project's tests?" — and `runCheck` only ever puts that question when the owner has
+set up **no** check of their own, the folder is a Node project (`package.json` at its root), and
+running scripts is **off**. In the smoke test's workspace, "run scripts" was on, so the question
+would never have been put and the flag was already a no-op; and `code.check` there answered that no
+check was set up, which means the folder had no `package.json` either. The CLI still printed
+"[this task may run the project's tests without asking]" — a promise it could not keep.
+
+### Changed
+
+- `src/code-change.ts` — `allowTestsIdleNote()`: why the flag will change nothing here, or null.
+- `src/cli-run.ts` — `allowTestsFor` says that instead, in one plain line. The flag still works
+  exactly as before where there is a question to remove; nothing about the run changed.
+- `docs/configuration.md` — "For scripts": the line, and that the flag never changes what a task is
+  shown or how far it gets.
+
+### Tests
+
+`tests/coding-next.test.mjs`, two new:
+
+- "B6 `--allow-tests` changes nothing about which tools a task is offered, or how far it gets" —
+  the evidence above, locked in as a regression test.
+- "B6 `--allow-tests` says so plainly when this folder has no question for it to remove" — all three
+  cases (a Node project with scripts off: the ordinary line; no `package.json` and no check: the
+  plain sentence; scripts on: the plain sentence).
+
+**Mutation-checked**: with `guessed.push("remote")` added under `if (context.allowProjectTests)` in
+`dist/runtime.js` and the honest line reverted in `dist/cli-run.js`, both fail (45 pass, 2 fail).
+Restored: 47 pass, 0 fail.
+
+### Not done
+
+I did not widen `--allow-tests` to cover `code.run`, `shell.execute` or `remote.run` when the command
+happens to be `node --test`. That would let one flag loosen the general command approval, which is a
+much bigger thing than the flag says it is, and nobody has asked for it. The flag means what its
+sentence says: the tests question, and only that.
+
+- [x] B6 done.
 
 ## B4 — the terminal while the window is open
 

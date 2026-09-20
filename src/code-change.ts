@@ -220,6 +220,26 @@ export class CodeChanges {
 }
 
 /**
+ * mac7/smoke-fixes (B6): why `--allow-tests` will change nothing in this workspace, or null when it
+ * will change something. The flag removes exactly one question — "Let Branch run this project's
+ * tests?" — and that question is only ever put when the owner has set up no check of their own, the
+ * folder is a Node project, and running scripts is off. The flag used to announce itself whatever
+ * the folder held, which promised a person something it could not do.
+ */
+export async function allowTestsIdleNote(store: Store, owner: string, workspace: string): Promise<string | null> {
+  const setting = projectCheck(store, owner);
+  if (setting.enabled && setting.command)
+    return "this project has its own check set up, which runs without that question, so --allow-tests changes nothing here";
+  if (codeRunSettings(store, owner).enabled)
+    return "running scripts is switched on, so this project's tests already run without that question and --allow-tests changes nothing here";
+  const node = await stat(join(workspace, "package.json")).then((info) => info.isFile(), () => false);
+  if (!node)
+    return `there is no package.json in ${workspace} and no check is set up for this project, `
+      + "so there are no project tests to allow and --allow-tests changes nothing here";
+  return null;
+}
+
+/**
  * What the model is told when there is no check to run. "No check is set up" on its own was read by
  * a small model as "this task cannot be done" and it stopped (docs/agents/coding-bench.md); the
  * sentence now says what it can still do.
