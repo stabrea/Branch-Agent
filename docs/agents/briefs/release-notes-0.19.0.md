@@ -204,7 +204,9 @@ It keeps your conversations, settings, memory and schedules.
   locally, covering desktop, compact and phone geometry, real model selection, refresh persistence,
   menus, typing state, locales and the key-leak guard.
 - The required affected-test gate passed the final composer pull request in 2 minutes 25 seconds. A
-  broad or unknown change cannot use that lane without an exact successful exhaustive run.
+  broad or unknown change cannot use that lane without an exact successful exhaustive run. Release
+  publication accepts the same successful exact-commit evidence rather than waiting for a second,
+  duplicate 70-minute matrix.
 
 The first real update from 0.18.1 to 0.19.0 can only be exercised after these downloads exist. That
 post-publication test is therefore not claimed here.
