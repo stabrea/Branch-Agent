@@ -14,34 +14,43 @@ Each of 36 files invents its own controls with `createElement()`. This explains 
 
 Created `/public/control-makers.js` with:
 - `switchControl({id, checked, onChange})` → `<input type="checkbox" class="sw" role="switch">`
-- `segmented({id, options, value, onChange})` → button group with `aria-pressed`
-- `dropdown({id, options, value, onChange})` → `<select class="glass">`
+- `segmented({id, options, value, onChange})` → button group with `aria-pressed` + .value property
+- `dropdown({id, options, value, onChange})` → `<div role="group">` with button group (NOT native select)
 
-Plus `/public/control-styles.css` with styling for all three types.
+**Important correction (from coordinator review):**
+- Sample has ZERO native `<select>` elements on any Settings page
+- All dropdowns in sample use button groups (like appearance.js choiceButton pattern)
+- dropdown() now returns `<div class="choice-row">` with `<button class="choice">` elements
+- Styling reuses existing shell.css .choice and .choice-row classes
 
-## Proof-of-concept: add-ons.js converted ✓
+Plus `/public/control-styles.css` with styling for switches, segmented controls, and ranges.
 
-Converted `public/add-ons.js` (7 committers):
-- 3 controls: 2 switches (wallEveryPlugin, windowsWithoutWall) + 1 segmented (modes per part)
-- Behavior unchanged: same save callbacks, same values stored
-- Import: `import { switchControl, segmented } from "/control-makers.js"`
-- Build: success ✓
+## Phase 1: Foundation complete
 
-Pattern demonstration:
-```javascript
-// Old: const select = document.createElement("select"); ...
-// New: const control = segmented({id, options, value, onChange});
-```
+- [x] control-makers.js with corrected dropdown() (button groups, not select)
+- [x] control-styles.css styling
+- [x] .value property support on segmented for compatibility
+- [x] add-ons.js converted (proof of concept)
 
-## Remaining work
+## Phase 2: File conversions in progress (4/35)
 
-35 files to convert following add-ons.js pattern:
-- public/approval-reviewer.js
-- public/asks.js
-- public/app.js
-- [32+ more files with createElement("select") or createElement("input")]
+Converted:
+1. add-ons.js (proof of concept) ✓
+2. approval-reviewer.js (mode → segmented) ✓
+3. asks.js (switchFor → segmented) ✓
+4. autonomy.js (choice → dropdown) ✓
 
-Each is a straightforward refactor, no behavior change.
+Next: 31 more files following the established patterns:
+- File with choice() helper → update choice to use dropdown()
+- File with createElement("select") directly → use dropdown() or segmented()
+- File with checkboxes → use switchControl() where appropriate
+
+## Phase 3: Critical tests (NEXT PRIORITY)
+
+Before converting remaining 31 files:
+- [ ] **Redraw survival test** (NON-OPTIONAL): Open add-ons.js dropdown, wait 4+ seconds through redraw cycle, verify still open/focused
+- [ ] **Baseline measurement**: Count controls on all 7 Settings pages (before final conversions)
+- [ ] **DG gap walkthrough**: Screenshots of DG-054, DG-106, DG-133, DG-136
 
 ## Checklist
 
