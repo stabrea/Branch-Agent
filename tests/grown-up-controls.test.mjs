@@ -118,7 +118,9 @@ test("long choices remain labeled selects and open the shared glass list", async
   const expected = await select.locator("option").allInnerTexts();
   assert.ok(expected.length > 5, "the settings reset list is a long choice");
   await select.focus();
-  await select.press("Enter");
+  /* Keyboard transport is exercised in glass-select.test.mjs. Dispatch the product event directly here:
+     overloaded Windows runners have acknowledged Playwright's key action without delivering it. */
+  await select.dispatchEvent("keydown", { key: "Enter" });
   const list = f.page.locator("#glass-list");
   await list.waitFor({ state: "visible" });
   assert.deepEqual(await list.locator("[role=option]").allInnerTexts(), expected);
