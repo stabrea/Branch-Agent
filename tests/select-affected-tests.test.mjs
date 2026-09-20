@@ -116,7 +116,8 @@ test("the checked-in impact map names only tests that still exist", () => {
 
 test("panel styling and language edits have reviewed fast contracts", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
-  const options = { config: checkedIn, weights: {}, browserTest: (file) => file === "tests/panels.test.mjs" };
+  const browserTests = new Set(["tests/panels.test.mjs", "tests/grown-up-controls.test.mjs", "tests/glass-select.test.mjs"]);
+  const options = { config: checkedIn, weights: {}, browserTest: (file) => browserTests.has(file) };
   const panels = selectImpact([{ status: "M", paths: ["public/panels.css"] }], options);
   assert.equal(panels.classification, "narrow");
   assert.equal(panels.browserNeeded, true);
@@ -125,6 +126,10 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.equal(words.classification, "narrow");
   assert.equal(words.browserNeeded, false);
   assert.ok(words.tests.includes("tests/locales-contract.test.mjs"));
+  const settings = selectImpact([{ status: "M", paths: ["public/settings-grown.css"] }], options);
+  assert.equal(settings.classification, "narrow");
+  assert.equal(settings.browserNeeded, true);
+  assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs"]);
 });
 
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {
