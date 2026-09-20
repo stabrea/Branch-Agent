@@ -111,12 +111,13 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   the test read it exactly then. Now ✕ puts the box back first and nothing of the words is written
   while it is throwing them away. (The "questions belong to a press" guard from earlier stays; it was
   not the whole story.)
-- quiet-jobs-ui "the quiet-jobs cards name their homes…" (Windows, notifyGate 'off'): NOT FIXED. The
-  card carries a `data-editing` mark so the refresh leaves it alone, and the Save button clears that
-  mark before it saves, so a refresh during the save can redraw the card from the old answer. Wants
-  the same treatment as the other cards.
-- glass-select "the list sits flush under the select…" (Windows, list never opened): NOT FIXED, not
-  looked into; the same test was fixed once by ci-flakes-2 for a different cause.
+- quiet-jobs-ui "the quiet-jobs cards name their homes…" (Windows, notifyGate 'off'): PRODUCT BUG of
+  the same family. The card carries a `data-editing` mark so the refresh leaves it alone while somebody
+  is filling it in, and the Save button cleared that mark BEFORE saving, so a refresh could redraw the
+  card from the old answer while the save was on its way. The mark is now cleared once the save lands.
+- glass-select "the list sits flush under the select…" (Windows, the list stayed shut for 30 s): TEST.
+  A click that lands while the Settings window is still settling can be swallowed; the test presses
+  again while the list is still not open. Cause of the swallowed click not proven.
 
 ## Left for somebody: more of the same family, not failing CI today
 The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the

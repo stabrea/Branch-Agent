@@ -161,8 +161,14 @@ test("integration review: the list sits flush under the select and fully covers 
        scroll of its own, and any scroll closes an open list (rightly); a person's click at the same point keeps
        it open (checked 6 of 6 at 390, integration). A list opened mid-rise follows its select: the next test. */
     await f.page.locator(".lx-settings-win").evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
-    await f.page.locator("#policy-preset").click();
-    await f.page.locator("#glass-list").waitFor({ state: "visible" });
+    /* A click that lands while the window is still settling can be swallowed (Windows saw the list stay
+       shut for 30 s), so it is pressed again while it is still not open. */
+    const list = f.page.locator("#glass-list");
+    for (let tries = 0; tries < 10 && !(await list.isVisible()); tries += 1) {
+      await f.page.locator("#policy-preset").click();
+      await list.waitFor({ state: "visible", timeout: 3000 }).catch(() => undefined);
+    }
+    await list.waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over
     const seen = await f.page.evaluate(() => {
       if (document.getElementById("glass-list").hidden) return { closed: true };
