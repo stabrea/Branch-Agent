@@ -88,6 +88,11 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   assert.equal(await page.evaluate(() => document.getElementById("trunks-rail").nextElementSibling?.dataset.group), "recents");
   assert.match(await railRow.first().innerText(), /Ada/);
   assert.equal(await railRow.first().locator(".rail-badge").innerText(), "1");
+  await page.locator("#rail-toggle").click();
+  await page.locator("#rail-view-trunks").click();
+  assert.equal(await railRow.first().isVisible(), true, "the Trunks tab shows the real roster");
+  assert.equal(await page.locator('.rail-group[data-group="recents"]').isVisible(), false, "the two lists do not compete");
+  await page.keyboard.press("Escape");
 
   // A room: two Trunks, one @you raises "needs you".
   await app.trunks.create({ name: "Bo" });

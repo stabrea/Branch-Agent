@@ -113,6 +113,39 @@ test("every place opens from the sidebar in one click, and every Settings page f
   assert.deepEqual(f.errors, []);
 });
 
+test("the rail switches between conversations and real Trunks without duplicating either", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), true);
+  assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-target-name").textContent(), "This computer");
+  await f.page.locator("#rail-view-trunks").click();
+  assert.equal(await f.page.locator("#rail-view-trunks").getAttribute("aria-selected"), "true");
+  assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), false);
+  assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), true);
+  assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-rail-view")), "trunks");
+  await f.page.locator("#rail-new-trunk").click();
+  await f.page.locator("#studio").waitFor({ state: "visible" });
+  assert.equal(await f.page.locator("#studio").getByText("Trunks are switched off.").isVisible(), true);
+  await f.page.locator("#studio").getByRole("button", { name: "Close" }).click();
+  await f.page.locator("#rail-view-trunks").press("ArrowLeft");
+  assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the Trunks rail stays owner-only", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
+    detail: { profiles: { isOwner: false } },
+  })));
+  assert.equal(await f.page.locator("#rail-view-trunks").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.deepEqual(f.errors, []);
+});
+
 test("a new screen that names its home with data-home is shown there, even when added later", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {

@@ -1,7 +1,7 @@
 /* The app shell: one rail (brand, quiet actions, sections, projects, conversations,
    the owner at the foot), one reading column, one context pane, and Ctrl+K to reach
    anything. No section hides behind a drop-down. */
-import { api, displayView, openConversation, titles } from "/app.js";
+import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { t } from "/i18n.js";
 import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
@@ -87,6 +87,59 @@ function rememberOwner(id) {
   localStorage.setItem("branch-owner", id);
   for (const restore of groups) restore();
 }
+
+/* ---------- Conversations / Trunks, after the approved Grown Up shell ---------- */
+const RAIL_VIEW_KEY = "branch-rail-view";
+const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
+  document.querySelector('.rail-group[data-group="sections"]'),
+  document.querySelector('.rail-group[data-group="projects"]'),
+  document.querySelector('.rail-group[data-group="recents"]')].filter(Boolean);
+let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
+let railCanManageTrunks = true;
+function syncRailView() {
+  const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
+  for (const node of conversationRailNodes()) node.hidden = trunks;
+  if (group) group.hidden = !trunks;
+  $("rail-trunks-actions").hidden = !trunks;
+  $("rail-trunks-empty").hidden = Boolean(group);
+  $("rail-view-trunks").hidden = !railCanManageTrunks;
+  for (const tab of document.querySelectorAll(".rail-view-tab")) {
+    const chosen = tab.dataset.railView === (trunks ? "trunks" : "conversations");
+    tab.setAttribute("aria-selected", String(chosen));
+    tab.tabIndex = chosen ? 0 : -1;
+  }
+}
+function chooseRailView(next, focus = false) {
+  railView = next === "trunks" ? "trunks" : "conversations";
+  localStorage.setItem(RAIL_VIEW_KEY, railView);
+  syncRailView();
+  if (focus) $(`rail-view-${railView}`)?.focus();
+}
+for (const tab of document.querySelectorAll(".rail-view-tab")) {
+  tab.addEventListener("click", () => chooseRailView(tab.dataset.railView));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    chooseRailView(railView === "trunks" ? "conversations" : "trunks", true);
+  });
+}
+$("rail-new-trunk").addEventListener("click", () => void import("/studio.js").then((studio) => studio.openAdd("trunk")));
+new MutationObserver(syncRailView).observe($("rail-scroll"), { childList: true });
+document.addEventListener("branch-strip", (event) => {
+  railCanManageTrunks = ownerAtWindow() && event.detail?.profiles?.isOwner !== false;
+  syncRailView();
+});
+function setRailTargetText(id, value) {
+  const node = $(id);
+  if (node.textContent !== value) node.textContent = value;
+}
+document.addEventListener("branch-strip-selection", (event) => {
+  const { name, kind, status } = event.detail;
+  setRailTargetText("rail-target-name", name);
+  setRailTargetText("rail-target-kind", kind);
+  setRailTargetText("rail-target-status", status);
+});
+syncRailView();
 
 /* ---------- the two panes that fold away ---------- */
 const overlayRail = () => globalThis.innerWidth < 700; // phase2/everywhere: a tablet held upright keeps the side list docked

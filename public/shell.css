@@ -248,6 +248,63 @@ body.no-aside .context-panel {
   border-radius: 4px;
   padding: 1px 4px;
 }
+.rail-target {
+  display: grid;
+  gap: 2px;
+  margin: var(--s2) var(--s2) var(--s1);
+  padding: 0 var(--s1);
+}
+.rail-target strong {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-target small {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-view-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: var(--s2) var(--s2) var(--s3);
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--well);
+}
+.rail-view-tab {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 520;
+}
+.rail-view-tab:hover {
+  color: var(--text);
+}
+.rail-view-tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 650;
+  box-shadow: var(--card-shadow, none);
+}
+.rail-trunks-actions {
+  display: grid;
+  gap: var(--s1);
+}
+.rail-trunks-actions .rail-empty {
+  margin-top: 0;
+}
 .nav {
   position: relative;
 }

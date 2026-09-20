@@ -105,9 +105,13 @@ function selectedId() {
   return trunk ? `trunk:${trunk.id}` : "here";
 }
 function markSelected() {
-  const picked = selectedId();
+  const picked = selectedId(), { computers, trunks } = stripItems(), items = [...computers, ...trunks];
   for (const node of document.querySelectorAll("#trunk-strip .strip-item"))
     node.setAttribute("aria-current", String(node.dataset.stripId === picked));
+  const item = items.find((entry) => entry.id === picked) ?? computers[0];
+  if (item) document.dispatchEvent(new CustomEvent("branch-strip-selection", {
+    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item) },
+  }));
 }
 
 /* ---------- drawing ---------- */
