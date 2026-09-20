@@ -46,7 +46,15 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
     .map((node) => node.id)), [], "there are no bare visible checkboxes in Settings");
   await control.check();
   await f.page.waitForFunction(() => document.documentElement.dataset.motion === "reduced");
-  assert.equal(await control.getAttribute("aria-checked"), "true");
+  assert.match(await control.ariaSnapshot(), /switch .*\[checked\]/, "assistive technology reads the native checked state");
+  await openSettings(f.page, "advanced");
+  const dressed = f.page.locator("#trace-enabled");
+  await dressed.waitFor();
+  assert.equal(await dressed.getAttribute("aria-checked"), null, "generic switches do not duplicate native state in stale ARIA");
+  await dressed.evaluate((node) => { node.checked = true; });
+  assert.match(await dressed.ariaSnapshot(), /switch .*\[checked\]/, "programmatic updates are exposed without an event");
+  await dressed.evaluate((node) => { node.checked = false; });
+  assert.doesNotMatch(await dressed.ariaSnapshot(), /\[checked\]/, "programmatic clearing is exposed without an event");
   assert.deepEqual(f.errors, []);
 });
 
@@ -57,6 +65,9 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   const group = f.page.locator(".segmented-control:has(#asks-switch-intent-pipeline)");
   await group.waitFor();
   assert.equal(await source.evaluate((node) => node.tagName), "SELECT");
+  assert.equal(await source.getAttribute("data-native"), "keep");
+  assert.equal(await source.evaluate((node) => node.classList.contains("glass")), false,
+    "the clipped segmented source is never decorated as a second dropdown");
   assert.deepEqual(await group.locator(".segmented-option").allInnerTexts(), ["Off", "When needed", "On"]);
   assert.equal(await group.locator(":scope > .field-note").count(), 0, "descriptions sit below, not inside, the control");
   assert.equal(await source.inputValue(), "off");
