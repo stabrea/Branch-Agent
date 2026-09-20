@@ -926,3 +926,44 @@ test("under Lockdown a switched-off tool reads as absent, not as one to ask the 
   assert.equal(locked.switchedOff, undefined, "Lockdown names nothing");
   assert.ok(!(locked.matches ?? []).some((one) => one.name === "troubleshoot.run"), "and offers nothing");
 });
+
+test("A: cancelling a task leaves no call in a group still running", async (t) => {
+  // The brief's question: can a group outlive the task that started it? Two slow look-only calls
+  // and a read go together; the task is cancelled while they are in flight.
+  const settled = [];
+  const { app } = await fixture(t, [
+    calls(["files.slow", { path: "a" }], ["files.slow", { path: "b" }], ["files.read", { path: "src/sum.js" }]),
+    say("Done."),
+  ]);
+  const { z } = await import("zod");
+  app.registry.register({
+    name: "files.slow", permission: "files.read", group: "files",
+    description: "A file read that takes its time, for testing only.",
+    parameters: z.object({ path: z.string() }).strict(),
+    execute: async (input, context) => new Promise((resolve, reject) => {
+      const done = (how) => { settled.push(`${input.path}:${how}`); };
+      const timer = setTimeout(() => { done("finished"); resolve({ path: input.path }); }, 30000);
+      context.signal.addEventListener("abort", () => {
+        clearTimeout(timer); done("stopped"); reject(new Error("Cancelled"));
+      }, { once: true });
+    }),
+  });
+  app.coding.setMode("fewer-rounds", "on");
+  const running = app.runtime.run({ prompt: "look at a and b" });
+  // The run id is not to hand until the promise settles, so it is read from the record. The task is
+  // cancelled as soon as both slow calls are in flight.
+  const started = () => app.store.runs("local").find((one) => one.status === "running");
+  await new Promise((resolve) => {
+    const tick = setInterval(() => {
+      const live = started();
+      if (!live) return;
+      const going = app.store.events(live.id).filter((e) => e.kind === "tool.started").length;
+      if (going < 2) return;
+      clearInterval(tick); app.runtime.cancel(live.id); resolve();
+    }, 5);
+  });
+  const run = await running;
+  assert.notEqual(run.status, "completed", `the task should not have finished: ${run.output}`);
+  assert.equal(settled.length, 2, `both slow calls settled before the task unwound: ${settled.join(", ")}`);
+  assert.ok(settled.every((one) => one.endsWith(":stopped")), `nothing was left to finish later: ${settled.join(", ")}`);
+});

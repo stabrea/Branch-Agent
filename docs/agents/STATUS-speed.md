@@ -483,7 +483,7 @@ Verdict: **MERGE WITH FIXES** — seven fixes applied here, with tests, listed b
 
 | | what was wrong | where |
 |---|---|---|
-| **1** | `files.read_many` named no target, so `policyTarget` judged the whole call with an **empty** one and `targetsOf` returned nothing. A rule refusing `files.*` under a folder refused `files.read` of a file there and let `files.read_many` of the very same file straight through. Proved with a scripted run before the fix. | `src/coding/read-many.ts` — `target` and `targets` added; the rules now judge every path and the refusal names which one |
+| **1** | `files.read_many` named no target, so `policyTarget` judged the whole call with an **empty** one and `targetsOf` returned nothing. A rule refusing `files.*` under a folder refused `files.read` of a file there and let `files.read_many` of the very same file straight through. Proved with a scripted run before the fix. | `src/coding/read-many.ts` — `target` and `targets` added; the rules now judge every path and the refusal names which one. **The trade:** a path a *rule* refuses now refuses the whole call, rather than coming back named beside the others. A path that simply cannot be read — missing, a folder, outside the workspace, secret-looking — still comes back named with the rest, which is the case the builder's own test covers. Whether the owner would rather have per-path partial results under a refusing rule is their call, not one to make quietly here. |
 | **2** | The working line, the catalog's "just used" and the record of what a task reached for were written for **every call in a reply before any of it ran** — and with `fewer-rounds` **off**. A task stopped by the first call showed the *last* call as what it was doing, and tools that never ran were remembered as used. | `src/runtime.ts` — moved back beside each call |
 | **3** | Two calls in one group that both need a yes each registered their own question. Only one could stop the task; the other was left waiting to be answered for a call that was no longer running — answerable from a phone or a chat channel, and counting against the small number a conversation may have waiting, so it could push a real question out. | `src/coding/fewer-rounds.ts` — a call that would be **asked** about runs alone; `allowedOutright` became `decisionOf` |
 | **4** | `pace` queued every rate check on **one** chain for the whole computer, and the wait happens inside it, so one conversation that had reached its limit held up every other conversation's calls for as long as it waited. (Both limits ship at 0, so this bit only an owner who had set one.) | `src/runtime.ts` — one queue per limit |
@@ -501,8 +501,10 @@ Fixes 1, 2 and 3 are the ones that mattered. 2 changed behaviour **with the part
   checks, its own wall and its own span. The builder's claim that a group shares only the clock is
   **true of the code**; what was not true was the claim that only one call in a group can stop the
   task (fix 3) and that the rate limit stayed exact without cost to other conversations (fix 4).
-  Lockdown holds on both new paths (existing tests, re-run). A cancelled task cancels every member
-  through the shared signal, and `Promise.allSettled` waits for all of them before anything unwinds.
+  Lockdown holds on both new paths (existing tests, re-run). **A cancelled task really does leave
+  no call of its own still running** — tested here with two deliberately slow look-only calls in
+  one group, cancelled in flight: both received the abort and both had settled before the task
+  unwound, which is `Promise.allSettled` doing what it is there for.
 - **"Off" is off — with one correction.** It cannot be byte-identical to trunk *by construction*,
   because D, E1, G1, G2, G3, H1, H2 and I ship on for everyone; that is the coordinator's decision,
   not a defect. What is true with the switch off: nothing runs together, `files.read_many` is not
@@ -529,8 +531,9 @@ Re-run on this build by the integrator, not taken on trust:
 
 | claim in this file | re-run |
 |---|---|
-| before this branch, 17 of 30 working-set places needed a search | **17** — reproduced by neutering `shareOut` in `dist/` and re-running `catalog-probe.mjs` |
+| before this branch, 17 of 30 working-set places needed a search | **not verified** — that is a trunk figure and no trunk build was made. What *was* measured is share-out's own contribution on **this** build: **17** with `shareOut` neutered in `dist/`, **14** with it in, so the 17 → 14 step is real |
 | share-out alone, 14 of 30 | **14**, as claimed |
+
 | with `fewer-rounds` on, 1 of 30 | **1**, as claimed |
 | first round ~1,718 tokens off / ~1,742 on; worst prompt 2,429 off / 2,182 on | **1,718 / 1,742 / 2,429 / 2,182**, as claimed |
 | `fix-range` 6 to 4 calls, 33% less wall; `rename` 9 to 4, 53% less | **6 to 4, 33%; 9 to 4, 53%**, as claimed |
@@ -548,16 +551,20 @@ be corrected before the release notes quote it; the release-notes draft in this 
 ### Audit ids, one line each (VERIFIED needs a source file *and* a test that asserts the behaviour)
 
 - **E1** no toolbox takes every place — **PARTIAL**: code and test are real (`shareOut`, and the
-  test that every toolbox a task opens puts at least one tool into its list), and 17 to 14
-  reproduces; the claim that it fixes the worst request does not. Tick E1 for the mechanism, not for
-  the headline.
+  test that every toolbox a task opens puts at least one tool into its list), and the 17 to 14 step
+  reproduces on this build; the claim that it fixes the worst request does not, and the 17 itself is
+  a trunk figure nobody here re-measured. Tick E1 for the mechanism, not for the headline.
 - **E2** a request naming a file is coding work — **VERIFIED** (`looksLikeCodingWork`, two tests).
 - **E3** the coding working set preloaded — **VERIFIED** (`codingPreload`; 14 to 1 reproduced).
 - **D** no tool evicted mid-task — **PARTIAL**: behaviour verified in code, in a test and in
   `run.mjs`, but both this file and `SPEED-DESIGN.md` say "the count and the token budget are
   unchanged" and only the **budget** is: `wanted = [...inUse, ...onMerit, ...kept]` can exceed
   `maxLoaded`, and `sent` only grows, so on a long task the ceiling in `fit` does the trimming
-  instead. Correct the wording.
+  instead. That trimming is at least orderly — `fit` cuts from the end of the list and the kept
+  tools are last, so they go first and deterministically — but it means a long enough task whose
+  tool section reaches the 2,500-token ceiling will still see the front of its request change,
+  later than before rather than never. **Not measured**: no scripted task here runs long enough to
+  reach that ceiling, so how late "later" is remains unknown. Correct the wording.
 - **F1** best answer plus a plain sentence — **VERIFIED** (`outOfRounds` and `lastWord`; the test
   asserts the last question carries zero tools).
 - **F2** `maxModelRounds`, default 12 — **VERIFIED** (knobs, `reliability`, `docs/configuration.md`, test).
@@ -593,9 +600,9 @@ be corrected before the release notes quote it; the release-notes draft in this 
 
 `npm run build` and `npx tsc --noEmit` clean. Then, on this build:
 
-- `tests/speed.test.mjs` — **48 pass, 0 fail** (44 the builder's, 4 added here: the rules judging
+- `tests/speed.test.mjs` — **49 pass, 0 fail** (44 the builder's, 5 added here: the rules judging
   every path in a many-file read, a file longer than one answer, a call that never ran not being
-  written down as work, and Lockdown naming nothing).
+  written down as work, Lockdown naming nothing, and a cancelled task leaving no call running).
 - `tests/tool-loading.test.mjs tests/tool-loading-quality.test.mjs tests/catalog-diet.test.mjs
   tests/runtime.test.mjs tests/lockdown-fix-integrator.test.mjs tests/lockdown-modes.test.mjs
   tests/household-profile.test.mjs tests/owner-tool-guards.test.mjs tests/tool-safety.test.mjs
@@ -608,7 +615,8 @@ be corrected before the release notes quote it; the release-notes draft in this 
   tests/safety-extras-progress.test.mjs` — **160 pass, 0 fail** (3 skipped).
 - `tests/automation.test.mjs` alone — **5 pass, 0 fail**.
 
-Each of the four added tests was checked against the code before its fix and failed there.
+Each of the four fix tests was checked against the code before its fix and failed there; the fifth
+(cancellation) tests a claim that already held.
 
 **Not proved here.** Fix 4 (one rate queue per limit) has no test: both per-minute limits ship at 0,
 and a test of it would be a timing test on a shared machine. It is a small, readable change and the
