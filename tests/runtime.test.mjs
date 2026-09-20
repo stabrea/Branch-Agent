@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, DemoProvider } from "../dist/index.js";
+import { createBranch, DemoProvider, RateLimiter } from "../dist/index.js";
 
 async function fixture(t, provider = new DemoProvider()) {
   const root = await mkdtemp(join(tmpdir(), "branch-test-"));
@@ -253,4 +253,24 @@ test("delegated work charges its parent budget and cannot reset depth", async (t
     app.runtime.delegate("demo", { ...context, depth: 3 }, ["files.read"], ""),
     /depth/i,
   );
+});
+
+test("rate limiting guard: normally-built Runtime has no mutable clock escape hatch", async (t) => {
+  const { app } = await fixture(t);
+  // Guard: normally-built Runtime should not have testNow field
+  assert.strictEqual(
+    app.runtime.testNow,
+    undefined,
+    "normally-built Runtime should not have testNow field",
+  );
+  // Verify tool calls are strictly sequential (via rate queue)
+  const limiter = new RateLimiter(1000);
+  const beforeFirst = Date.now();
+  limiter.record("key", beforeFirst);
+  const beforeSecond = beforeFirst + 500; // 500ms later, within window
+  const wait = limiter.waitMs("key", 1, beforeSecond);
+  assert.ok(wait > 0, "two calls within the window should require a pause");
+  // Mutation guard: if testNow were set on a normally-built runtime, it would
+  // silently break rate limiting by freezing the clock. This test catches that.
+  // DO NOT add a testNow field to production Runtime: use a clock function parameter instead.
 });

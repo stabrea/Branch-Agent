@@ -279,6 +279,8 @@ export async function createBranch(options: {
    * microphone is opened, no sound is recorded and no speech program is started by the tests.
    */
   dictation?: { speech?: SpeechStreamRunner; sound?: SoundStreamRunner; present?: ProgramPresent; platform?: string };
+  /** Test-only: clock function for deterministic rate limiting. Normal production uses Date.now. */
+  clock?: () => number;
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -456,6 +458,7 @@ export async function createBranch(options: {
     options.owner ?? "local",
     retryPolicy,
     options.reliability,
+    options.clock,
   );
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
