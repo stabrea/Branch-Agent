@@ -36,19 +36,25 @@ async function fixture(t, contextOptions = {}) {
   return { app, page, errors };
 }
 
-test("every single-choice select in the page is dressed, those drawn later too, and none is taken out", async (t) => {
+test("every ordinary single-choice select is dressed while segmented sources stay native", async (t) => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const written = [...html.matchAll(/<select\b[^>]*>/g)].filter((m) => !/\bmultiple\b/.test(m[0])).length;
   assert.ok(written >= 50, `index.html has its selects (${written})`);
   const f = await fixture(t);
   const seen = await f.page.evaluate(() => {
     const all = [...document.querySelectorAll("select")].filter((select) => !select.multiple && select.size <= 1);
-    return { all: all.length, dressed: all.filter((select) => select.classList.contains("glass")).length,
-      popup: all.filter((select) => select.getAttribute("aria-haspopup") === "listbox").length };
+    const native = all.filter((select) => select.dataset.native === "keep");
+    const dressed = all.filter((select) => select.dataset.native !== "keep");
+    return { all: all.length, native: native.length,
+      nativeDressed: native.filter((select) => select.classList.contains("glass")).length,
+      dressed: dressed.filter((select) => select.classList.contains("glass")).length,
+      popup: dressed.filter((select) => select.getAttribute("aria-haspopup") === "listbox").length };
   });
   assert.ok(seen.all >= written, "every select is still there");
-  assert.equal(seen.dressed, seen.all, "and every one is dressed");
-  assert.equal(seen.popup, seen.all, "and says it opens a list");
+  assert.ok(seen.native > 0, "segmented controls keep a real native source");
+  assert.equal(seen.nativeDressed, 0, "a segmented source is not dressed as a second control");
+  assert.equal(seen.dressed, seen.all - seen.native, "every ordinary select is dressed");
+  assert.equal(seen.popup, seen.all - seen.native, "every ordinary select says it opens a list");
   assert.deepEqual(f.errors, []);
 });
 
