@@ -27,11 +27,7 @@ export function switchControl({ id, checked = false, onChange } = {}) {
   control.setAttribute("role", "switch");
   setOptionalId(control, id);
   control.checked = Boolean(checked);
-  control.setAttribute("aria-checked", String(control.checked));
-  control.addEventListener("change", () => {
-    control.setAttribute("aria-checked", String(control.checked));
-    onChange?.(control.checked);
-  });
+  control.addEventListener("change", () => onChange?.(control.checked));
   return control;
 }
 
@@ -121,6 +117,7 @@ export function segmented({ id, options = DEFAULT_POSITIONS, value = "off", onCh
   control.className = `seg segmented-control${positions.length === 3 ? " tri" : ""}`;
   const source = document.createElement("select");
   source.className = "segmented-source";
+  source.dataset.native = "keep";
   setOptionalId(source, id);
   source.append(...positions.map(optionNode));
   const sync = bindSegmentedSource(source, segmentNodes(control, positions), onChange);
@@ -160,14 +157,9 @@ export function dressSwitches(root = document) {
   for (const control of candidates) {
     control.classList.add("sw");
     control.setAttribute("role", "switch");
-    control.setAttribute("aria-checked", String(control.checked));
+    control.removeAttribute("aria-checked");
   }
 }
-
-document.addEventListener("change", (event) => {
-  if (event.target.matches?.("#settings-window input[type=checkbox].sw"))
-    event.target.setAttribute("aria-checked", String(event.target.checked));
-}, true);
 dressSwitches();
 new MutationObserver((changes) => {
   for (const change of changes) for (const node of change.addedNodes)
