@@ -320,6 +320,8 @@ export class Runtime {
   get keepAlive(): KeepAlive { return (this.warmCache ??= new KeepAlive(this.store)); }
   /** mac7/speed: rate checks on one limit queue behind one another, so that limit stays exact. */
   private readonly pacing = new Map<string, Promise<void>>();
+  /** Test-only: override the current time for deterministic rate limiting tests. */
+  testNow?: number;
   /** R17-S09: the task each running run's spending counts against, and every run in that task, kept while any of them runs. */
   private readonly spendRoot = new Map<string, string>();
   private readonly spendMembers = new Map<string, Set<string>>();
@@ -2656,21 +2658,22 @@ ${run.output.slice(0, 6000)}`;
    * makes reading and recording a single step again and keeps the per-minute limit exact. A check
    * that throws (the task was stopped) does not hold up the next one.
    */
-  private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
+  private async pace(context: ToolContext, kind: "tool" | "round", limit: number, now = Date.now()): Promise<void> {
     if (!limit) return;
     // Integration (mac7/speed): one queue per limit, not one for the whole computer. The wait
     // happens inside the queue, so a single chain would have made one conversation that has
     // reached its limit hold up every other conversation's calls for as long as it waited.
     const key = kind + ":" + this.sessionOf(context);
-    const mine = (this.pacing.get(key) ?? Promise.resolve()).then(() => this.paceNow(key, context, kind, limit));
+    const actualNow = this.testNow ?? now;
+    const mine = (this.pacing.get(key) ?? Promise.resolve()).then(() => this.paceNow(key, context, kind, limit, actualNow));
     const settled = mine.catch(() => undefined);
     this.pacing.set(key, settled);
     // Nothing else joined the queue while this one ran, so the entry is not kept for ever.
     void settled.then(() => { if (this.pacing.get(key) === settled) this.pacing.delete(key); });
     return mine;
   }
-  private async paceNow(key: string, context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
-    const wait = this.rates.waitMs(key, limit);
+  private async paceNow(key: string, context: ToolContext, kind: "tool" | "round", limit: number, now = Date.now()): Promise<void> {
+    const wait = this.rates.waitMs(key, limit, now);
     if (wait > 0) {
       const what = kind === "tool" ? "tool calls" : "rounds with the model";
       this.store.event(context.runId, "rate.paused", { kind, limit, waitMs: wait,
@@ -2678,7 +2681,7 @@ ${run.output.slice(0, 6000)}`;
       await sleepFor(wait, context.signal);
       this.store.event(context.runId, "rate.resumed", { kind, limit });
     }
-    this.rates.record(key);
+    this.rates.record(key, now);
   }
   /**
    * The approval policy, checked once before a tool runs. A refused call comes back to the model as

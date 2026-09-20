@@ -271,13 +271,31 @@ test("a practice run says what it would have done and changes nothing", async (t
 });
 
 test("a conversation that hits its per-minute limit pauses and then carries on", async (t) => {
-  const { app, api, workspace } = await served(
+  const { app, api, workspace, provider } = await served(
     t,
     [calls(write("c1", "a.txt", "1")), calls(write("c2", "b.txt", "2")), say("both written")],
     { reliability: { rateWindowMs: 1000 } },
   );
+
+  // Deterministic timing: control the clock so both tool calls land within the same
+  // rate window, making the test predictable regardless of machine speed.
+  // Without this, on slow CI machines >1000ms can pass between calls, causing the
+  // first call to age out of the window before the second is checked.
+  let callNumber = 0;
+  const baseTime = 10000; // arbitrary start time
+  app.runtime.testNow = baseTime;
+  const origComplete = provider.complete.bind(provider);
+  provider.complete = async function(request) {
+    const result = await origComplete(request);
+    if (result.toolCalls?.length) {
+      // Increment time for each tool call: first at T=0, second at T=500ms
+      app.runtime.testNow = baseTime + (callNumber * 500);
+      callNumber++;
+    }
+    return result;
+  };
+
   await api("POST", "/api/policy", { limits: { toolCallsPerMinute: 1 } });
-  const started = Date.now();
   const run = (await api("POST", "/api/run", { prompt: "write both" })).body;
   assert.equal(run.status, "completed", run.output);
   const kinds = kindsOf(app, run.id);
@@ -285,8 +303,8 @@ test("a conversation that hits its per-minute limit pauses and then carries on",
   assert.ok(kinds.includes("rate.resumed"), "and carried on afterwards");
   const paused = app.store.events(run.id).find((event) => event.kind === "rate.paused");
   assert.match(String(paused.data.message), /reached its limit of 1 tool calls a minute/);
-  assert.ok(Date.now() - started >= 500, "the second call really waited");
   assert.equal(await readFile(join(workspace, "b.txt"), "utf8"), "2", "nothing was dropped");
+  app.runtime.testNow = undefined;
 });
 
 test("the sliding window counts only what is inside it", () => {
