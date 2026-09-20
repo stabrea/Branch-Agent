@@ -318,8 +318,8 @@ export class Runtime {
   /** R17-050: keeps a Claude connection's prompt cache warm during a pause, when the owner asked. */
   private warmCache?: KeepAlive;
   get keepAlive(): KeepAlive { return (this.warmCache ??= new KeepAlive(this.store)); }
-  /** mac7/speed: rate checks queue behind one another, so the per-minute limits stay exact. */
-  private pacing: Promise<void> = Promise.resolve();
+  /** mac7/speed: rate checks on one limit queue behind one another, so that limit stays exact. */
+  private readonly pacing = new Map<string, Promise<void>>();
   /** R17-S09: the task each running run's spending counts against, and every run in that task, kept while any of them runs. */
   private readonly spendRoot = new Map<string, string>();
   private readonly spendMembers = new Map<string, Set<string>>();
@@ -1364,16 +1364,17 @@ ${run.output.slice(0, 6000)}`;
         this.add(run, messages, ids, next);
         continue;
       }
-      for (const call of completion.toolCalls) {
-        this.noteWork(run, call);
-        catalog.noteUse(call.name);
-        this.rememberToolWork(run.id, call.name, round + 1);
-      }
       // mac7/speed: with "fewer rounds" on, calls in this reply that only look at things and are
       // about different things go at the same time; everything else runs alone, in its own place.
       // Results are written down in the order the model asked for them either way.
       for (const group of this.callGroups(context, completion.toolCalls)) {
         if (group.length > 1) this.store.event(run.id, "tools.together", { round: round + 1, calls: group.map((call) => call.name) });
+        // Integration (mac7/speed): the working line, the catalog's "just used" and the record of
+        // what this task reached for are written for a call as it starts, not for the whole reply
+        // before any of it runs. Hoisting them above the loop changed what a task that stops
+        // half-way leaves behind — the live row named a call that never ran, and a tool that never
+        // ran was remembered as used — and it did so with the part switched off.
+        for (const call of group) { this.noteWork(run, call); catalog.noteUse(call.name); this.rememberToolWork(run.id, call.name, round + 1); }
         // Every call in the group is waited for before anything unwinds, so a task that stops to ask
         // leaves nothing of its own still running. The results are then written down in the order
         // the model asked for them, stopping at the first that threw — a pause or a cancellation —
@@ -1420,13 +1421,14 @@ ${run.output.slice(0, 6000)}`;
     return parallelGroups(calls, {
       readOnly: (name) => isReadOnlyPermission(this.registry.permissionOf(name)),
       targetOf: (call) => this.registry.targetOf(call.name, safeArguments(call.arguments), context),
-      // Whether this call would raise no question at all. The same rules `gate` weighs, read again
+      // What the rules say about this call as they stand. The same rules `gate` weighs, read again
       // here: `checkPolicy` only reads — it writes nothing down and asks nobody — and every call
-      // still goes through the whole of `gate` afterwards. This only decides whether two calls
-      // about the same thing may share a run; when either would be asked about, they do not.
-      allowedOutright: (call) =>
+      // still goes through the whole of `gate` afterwards. This decides only which calls may share
+      // a run: one that would put a question to the person never does, and two about the same thing
+      // share one only when neither would be asked.
+      decisionOf: (call) =>
         this.checkPolicy(call.name, safeArguments(call.arguments), context,
-          argumentFingerprint(call.arguments)).decision === "allow",
+          argumentFingerprint(call.arguments)).decision,
       // Asking the person something, and the four tools that change what the next round is shown,
       // each need the rounds before and after them to be settled, so they never share a group.
       alone: [...aloneTools],
@@ -1853,6 +1855,10 @@ ${run.output.slice(0, 6000)}`;
       demoted: learned.stale(context.owner),
       // mac7/speed: a feature the owner switched off refuses; its tools are not offered at all.
       hidden: switched.hidden,
+      // Integration (mac7/speed): Lockdown switches those same features off, and it is not the
+      // owner's Settings switch that would put them back. Under it they read as absent rather than
+      // as "here but switched off — tell the person they can switch it on", which would be wrong.
+      nameHidden: !lockdownActive(this.store, context.owner),
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
@@ -2632,12 +2638,18 @@ ${run.output.slice(0, 6000)}`;
    */
   private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
     if (!limit) return;
-    const mine = this.pacing.then(() => this.paceNow(context, kind, limit));
-    this.pacing = mine.catch(() => undefined);
+    // Integration (mac7/speed): one queue per limit, not one for the whole computer. The wait
+    // happens inside the queue, so a single chain would have made one conversation that has
+    // reached its limit hold up every other conversation's calls for as long as it waited.
+    const key = kind + ":" + this.sessionOf(context);
+    const mine = (this.pacing.get(key) ?? Promise.resolve()).then(() => this.paceNow(key, context, kind, limit));
+    const settled = mine.catch(() => undefined);
+    this.pacing.set(key, settled);
+    // Nothing else joined the queue while this one ran, so the entry is not kept for ever.
+    void settled.then(() => { if (this.pacing.get(key) === settled) this.pacing.delete(key); });
     return mine;
   }
-  private async paceNow(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
-    const key = kind + ":" + this.sessionOf(context);
+  private async paceNow(key: string, context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
     const wait = this.rates.waitMs(key, limit);
     if (wait > 0) {
       const what = kind === "tool" ? "tool calls" : "rounds with the model";

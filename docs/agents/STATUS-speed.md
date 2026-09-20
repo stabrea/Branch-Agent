@@ -470,3 +470,121 @@ one). Two are left, on purpose, and one must not be built at all.
 - **Not tried in the desktop app.** Everything here is engine-side and tested through `createBranch`;
   the Coding card's new row and the knobs field are wired the way the existing ones are but were not
   clicked in a real window.
+
+## Integration
+
+Reviewed and merged by the integrator (Claude, Legion, 2026-09-20) on `mac7/speed` itself — the
+branch was already merged with trunk at `da5ac2c0`, so no separate integrate branch was cut.
+**Nothing has been pushed to trunk**: trunk is frozen while `ci-flakes-4` banks two green runs.
+
+Verdict: **MERGE WITH FIXES** — seven fixes applied here, with tests, listed below.
+
+### What was fixed at integration
+
+| | what was wrong | where |
+|---|---|---|
+| **1** | `files.read_many` named no target, so `policyTarget` judged the whole call with an **empty** one and `targetsOf` returned nothing. A rule refusing `files.*` under a folder refused `files.read` of a file there and let `files.read_many` of the very same file straight through. Proved with a scripted run before the fix. | `src/coding/read-many.ts` — `target` and `targets` added; the rules now judge every path and the refusal names which one |
+| **2** | The working line, the catalog's "just used" and the record of what a task reached for were written for **every call in a reply before any of it ran** — and with `fewer-rounds` **off**. A task stopped by the first call showed the *last* call as what it was doing, and tools that never ran were remembered as used. | `src/runtime.ts` — moved back beside each call |
+| **3** | Two calls in one group that both need a yes each registered their own question. Only one could stop the task; the other was left waiting to be answered for a call that was no longer running — answerable from a phone or a chat channel, and counting against the small number a conversation may have waiting, so it could push a real question out. | `src/coding/fewer-rounds.ts` — a call that would be **asked** about runs alone; `allowedOutright` became `decisionOf` |
+| **4** | `pace` queued every rate check on **one** chain for the whole computer, and the wait happens inside it, so one conversation that had reached its limit held up every other conversation's calls for as long as it waited. (Both limits ship at 0, so this bit only an owner who had set one.) | `src/runtime.ts` — one queue per limit |
+| **5** | The always-on "nothing can be run here" sentence said this project's tests were off too. They are a separate yes (`code.check`, `src/coding/project-tests.ts`) and work with scripts switched off, so on a computer where the owner had allowed the tests it told the assistant not to try something it was allowed to do. | `src/coding/fewer-rounds.ts` — it now speaks only for the switch it reads |
+| **6** | Lockdown switches the same features off that the owner's switch does, so their tools landed in the hidden set and a search named them with "tell the person they can be switched on" — the wrong advice, and something Lockdown is there not to say. | `src/tool-loading.ts`, `src/runtime.ts` — `nameHidden`; under Lockdown they read as absent |
+| **7** | One file bigger than a whole answer was handed back and then cut by the 12,000-character ceiling, while the tool's own words said "nothing is cut short". | `src/coding/read-many.ts` — the answer now says the end was left out |
+
+Fixes 1, 2 and 3 are the ones that mattered. 2 changed behaviour **with the part switched off**.
+
+### What was tried and held
+
+- **Concurrency.** Nothing is hoisted: every call in a group still goes through its own
+  `journal.around` then `guards.call` then `prepareCall`, `pace` and `gate`, so its own policy,
+  hooks, Lockdown, household, outside-task hold, multi-target, folder-walk and read-before-edit
+  checks, its own wall and its own span. The builder's claim that a group shares only the clock is
+  **true of the code**; what was not true was the claim that only one call in a group can stop the
+  task (fix 3) and that the rate limit stayed exact without cost to other conversations (fix 4).
+  Lockdown holds on both new paths (existing tests, re-run). A cancelled task cancels every member
+  through the shared signal, and `Promise.allSettled` waits for all of them before anything unwinds.
+- **"Off" is off — with one correction.** It cannot be byte-identical to trunk *by construction*,
+  because D, E1, G1, G2, G3, H1, H2 and I ship on for everyone; that is the coordinator's decision,
+  not a defect. What is true with the switch off: nothing runs together, `files.read_many` is not
+  registered, and the batching line is absent (three existing tests). The one place where the **loop
+  itself** had changed with the switch off was fix 2, and it is fixed.
+- **The working-set changes, which ship on.** A task cannot be shown a tool it should not have: the
+  index is built from `registry.descriptions(context.permissions)`, so a narrowed task, a household
+  person's task and a Lockdown task only ever see what they are already permitted; `shareOut` only
+  reorders tools that have already passed that filter, and `hidden` removes tools rather than adding
+  any. "Named but not offered" therefore cannot name a tool the person is not permitted — and after
+  fix 6 it names nothing at all under Lockdown.
+- **The alias mapping never widens permission.** `describe` tries the real name first
+  (`this.index.entry(asked) ? asked : nameUsedElsewhere(asked)`), the index holds only permitted
+  tools, and loading a tool is not calling it — every call still goes through the whole of `gate`.
+  `bash` to `code.run` hands a model that asked for a shell Branch's shell, which is the point.
+- **The ceiling.** The last question really is asked with **no tools** (`permissions: new Set()`, so
+  `toolsFor` returns nothing — asserted in the existing test), goes through the same leak guard as
+  every other request, and its digest is that run's own conversation sent to the model the run was
+  already using, so nothing reaches anywhere it was not already going.
+
+### The numbers, re-run here
+
+Re-run on this build by the integrator, not taken on trust:
+
+| claim in this file | re-run |
+|---|---|
+| before this branch, 17 of 30 working-set places needed a search | **17** — reproduced by neutering `shareOut` in `dist/` and re-running `catalog-probe.mjs` |
+| share-out alone, 14 of 30 | **14**, as claimed |
+| with `fewer-rounds` on, 1 of 30 | **1**, as claimed |
+| first round ~1,718 tokens off / ~1,742 on; worst prompt 2,429 off / 2,182 on | **1,718 / 1,742 / 2,429 / 2,182**, as claimed |
+| `fix-range` 6 to 4 calls, 33% less wall; `rename` 9 to 4, 53% less | **6 to 4, 33%; 9 to 4, 53%**, as claimed |
+| D: a tool taken away in 0 rounds | **0** in all six rows of `run.mjs`, as claimed |
+
+**One claim does not reproduce.** Section E says of the worst request — "Add a --verbose flag to the
+command line and document it in the README" — that *"sharing the places among the guessed boxes
+lifts that off the floor on its own"*. It does not: on this build, with `fewer-rounds` off, that
+request is still shown **0 of the 6** working-set tools. The reason is that the six live in the
+`files` toolbox while the guesser opened `code` and `documents`, so `files` tools were never
+candidates and there was nothing for share-out to share. Share-out's real 17 to 14 comes from the
+other prompts. The **1 of 30** headline is entirely E3, the switched preload. That sentence should
+be corrected before the release notes quote it; the release-notes draft in this file leans on it too.
+
+### Audit ids, one line each (VERIFIED needs a source file *and* a test that asserts the behaviour)
+
+- **E1** no toolbox takes every place — **PARTIAL**: code and test are real (`shareOut`, and the
+  test that every toolbox a task opens puts at least one tool into its list), and 17 to 14
+  reproduces; the claim that it fixes the worst request does not. Tick E1 for the mechanism, not for
+  the headline.
+- **E2** a request naming a file is coding work — **VERIFIED** (`looksLikeCodingWork`, two tests).
+- **E3** the coding working set preloaded — **VERIFIED** (`codingPreload`; 14 to 1 reproduced).
+- **D** no tool evicted mid-task — **PARTIAL**: behaviour verified in code, in a test and in
+  `run.mjs`, but both this file and `SPEED-DESIGN.md` say "the count and the token budget are
+  unchanged" and only the **budget** is: `wanted = [...inUse, ...onMerit, ...kept]` can exceed
+  `maxLoaded`, and `sent` only grows, so on a long task the ceiling in `fit` does the trimming
+  instead. Correct the wording.
+- **F1** best answer plus a plain sentence — **VERIFIED** (`outOfRounds` and `lastWord`; the test
+  asserts the last question carries zero tools).
+- **F2** `maxModelRounds`, default 12 — **VERIFIED** (knobs, `reliability`, `docs/configuration.md`, test).
+- **G1** a found tool comes with its inputs — **VERIFIED** (`ToolLoader.found`, two tests).
+- **G2** the names other assistants use — **VERIFIED** (`otherNames`; a test proves a real tool of
+  that name is never shadowed).
+- **G3** a switched-off feature's tools named but not offered — **VERIFIED**, and narrowed at
+  integration: under Lockdown they are not named either (fix 6, new test).
+- **H1** a provider refusal in plain words — **VERIFIED** (`providerRefusal`, three tests).
+- **H2** told once that nothing can be run — **VERIFIED after fix 5**; as shipped it was PARTIAL,
+  because the sentence was untrue about the project's tests.
+- **I** cached tokens on the ChatGPT route — **VERIFIED** (`input_tokens_details.cached_tokens`; the
+  test also keeps "absent" distinct from "zero").
+- **A** look-only calls run together — **VERIFIED as built**, and this file is already honest that it
+  is worth 224 ms against a 6,000 ms round. Three of the seven integration fixes are here.
+- **B** the batching line — **VERIFIED** as one line behind the switch; this file already says it is
+  not the win.
+- **C** `files.read_many` — **VERIFIED after fix 1**; as shipped it was a real hole in the owner's
+  rules and should not have been ticked.
+
+### Left alone, on purpose
+
+- **#6, routing a several-file change to `files.patch`**, and **#8's other half, retrying a provider
+  4xx once** — both deliberately not built by the builder, and not built here either. Both are
+  ranking or policy decisions that want their own measurement and the owner's say.
+- **The live row still names one call while several run.** Unchanged; it belongs to whoever owns
+  that row.
+- **`cannotRunInstructions` is called without the open toolboxes**, so a coding request that names
+  no file (for example "fix the crash in the parser") is not told that nothing can be run, even
+  though the toolboxes say it is work on the project's files. It costs a round; it does not mislead.

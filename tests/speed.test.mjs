@@ -190,7 +190,7 @@ test("A: only look-only calls about different things share a group, and order is
   const rules = {
     readOnly: (name) => name.startsWith("files.read") || name === "files.grep" || name === "user.ask",
     targetOf: (call) => JSON.parse(call.arguments).path ?? "",
-    allowedOutright: (call) => JSON.parse(call.arguments).path !== "e",
+    decisionOf: (call) => (JSON.parse(call.arguments).path === "e" ? "ask" : "allow"),
     alone: ["tools.search", "user.ask"],
   };
   const call = (name, path) => ({ id: name + path, name, arguments: JSON.stringify({ path }) });
@@ -215,7 +215,7 @@ test("A: only look-only calls about different things share a group, and order is
 });
 
 test("A: no group is bigger than the limit", () => {
-  const rules = { readOnly: () => true, targetOf: (call) => call.id, allowedOutright: () => true, alone: [] };
+  const rules = { readOnly: () => true, targetOf: (call) => call.id, decisionOf: () => "allow", alone: [] };
   const many = Array.from({ length: 20 }, (_, n) => ({ id: `c${n}`, name: "files.read", arguments: "{}" }));
   const groups = parallelGroups(many, rules);
   assert.ok(groups.every((group) => group.length <= parallelLimit), "a reply cannot open more than the limit at once");
@@ -298,12 +298,12 @@ test("A: switched off, calls run one after another exactly as before", async (t)
   assert.equal(app.store.events(run.id).filter((e) => e.kind === "tool.completed").length, 2);
 });
 
-test("A: same-thing calls share a run only when neither would be asked about", () => {
-  const asks = new Set(["ask-me"]);
+test("A: a call that would be asked about runs on its own", () => {
+  const asks = new Set(["ask-me", "ask-too"]);
   const rules = {
     readOnly: () => true,
     targetOf: (call) => JSON.parse(call.arguments).path,
-    allowedOutright: (call) => !asks.has(JSON.parse(call.arguments).path),
+    decisionOf: (call) => (asks.has(JSON.parse(call.arguments).path) ? "ask" : "allow"),
     alone: [],
   };
   const grep = (path, n) => ({ id: `g${n}`, name: "files.grep", arguments: JSON.stringify({ path }) });
@@ -313,9 +313,14 @@ test("A: same-thing calls share a run only when neither would be asked about", (
   // The same folder, but it would raise a question: one at a time, so one yes covers one call.
   assert.deepEqual(parallelGroups([grep("ask-me", 1), grep("ask-me", 2)], rules)
     .map((group) => group.length), [1, 1], "two calls that would need the same yes run one at a time");
-  // A single call that would be asked about may still travel beside calls about other things.
+  // Integration: a call that would put a question to the person runs on its own even beside calls
+  // about other things. Two of them in one run each registered a question, only one of them could
+  // stop the task, and the other was left waiting to be answered for a call that was not running.
   assert.deepEqual(parallelGroups([grep("src", 1), grep("ask-me", 2), grep("other", 3)], rules)
-    .map((group) => group.length), [3], "one asked-about call alongside different things is fine");
+    .map((group) => group.map((one) => JSON.parse(one.arguments).path)),
+    [["src"], ["ask-me"], ["other"]], "asking runs alone, and the order never moves");
+  assert.deepEqual(parallelGroups([grep("ask-me", 1), grep("ask-too", 2)], rules)
+    .map((group) => group.length), [1, 1], "never two questions from one run");
 });
 
 test("A: four searches of the same allowed folder really do run together", async (t) => {
@@ -497,19 +502,23 @@ test("the digest shown to the last question is bounded whatever the task did", a
   assert.ok(!asked[1].content.includes("y".repeat(900)), "and no one message is carried whole");
 });
 
-test("A: a reply whose calls are all about different things asks the rules nothing extra", () => {
-  let asked = 0;
+test("A: the rules are read once for each call and never twice", () => {
+  // Integration: every call is now weighed, because one that would put a question to the person
+  // must run on its own. It is a read of the saved rules, so what matters is that it happens once
+  // a call however many times the grouping needs the answer.
+  const asked = [];
   const rules = {
     readOnly: () => true,
     targetOf: (call) => JSON.parse(call.arguments).path,
-    allowedOutright: () => { asked += 1; return true; },
+    decisionOf: (call) => { asked.push(call.id); return "allow"; },
     alone: [],
   };
   const read = (path, n) => ({ id: `r${n}`, name: "files.read", arguments: JSON.stringify({ path }) });
   parallelGroups([read("a", 1), read("b", 2), read("c", 3), read("d", 4)], rules);
-  assert.equal(asked, 0, "nothing about the same thing twice, so no extra question was asked of the rules");
+  assert.deepEqual(asked, ["r1", "r2", "r3", "r4"], "once for each call");
+  asked.length = 0;
   parallelGroups([read("a", 1), read("a", 2)], rules);
-  assert.ok(asked > 0, "and it is asked as soon as one thing comes up twice");
+  assert.deepEqual(asked, ["r1", "r2"], "the same thing twice still costs one read each, not two");
 });
 
 test("C: a many-file read never hands back more than the task will keep, and names what it left", async (t) => {
@@ -728,8 +737,12 @@ test("a task is told at the start that nothing can be run here, and only when th
   const { app, provider } = await fixture(t, [say("Done.")]);
   await app.runtime.run({ prompt: "fix the off-by-one in src/range.js" });
   const off = provider.requests.at(-1).system;
-  assert.match(off, /Running commands, scripts and this project's tests is switched off/,
+  assert.match(off, /Running commands and scripts is switched off/,
     "as it ships, nothing can be run and the task is told so before its first round");
+  // Integration: it must not say the project's tests are off. They are a separate yes
+  // (src/coding/project-tests.ts) and work with scripts switched off, so saying so told an
+  // assistant not to try something the owner had allowed.
+  assert.doesNotMatch(off, /tests/, "it speaks only for the switch it actually reads");
   assert.match(off, /say plainly what you would have run/, "and told what to do instead");
 
   // With the owner's scripts switch on, the line is not there: it would be untrue.
@@ -840,4 +853,76 @@ test("E: a request about nothing in particular is not handed coding tools", asyn
   assert.equal(looksLikeCodingWork("fix cli.mjs", []), true);
   assert.equal(looksLikeCodingWork("document the flag in README.md", []), true);
   assert.equal(looksLikeCodingWork("anything at all", ["code"]), true, "an open code box still counts");
+});
+
+/* ---------- integration review (mac7/speed): what the merge found and fixed ---------- */
+
+test("C: the owner's rules judge every path in a many-file read, not the call as a whole", async (t) => {
+  // Found at integration: `files.read_many` named no target, so `policyTarget` judged it with an
+  // empty one. A rule refusing files.* in a folder refused files.read of a file there and let
+  // files.read_many of the very same file straight through.
+  const rules = [
+    { tool: "files.*", match: "private/**", applies: "any", decision: "deny", remember: "never" },
+    { tool: "*", match: "*", applies: "any", decision: "allow", remember: "never" },
+  ];
+  const { app, workspace } = await fixture(t, [
+    calls(["files.read_many", { paths: ["private/pay.js", "src/sum.js"] }]), say("Done."),
+  ]);
+  await mkdir(join(workspace, "private"), { recursive: true });
+  await writeFile(join(workspace, "private", "pay.js"), "export const pay = 3;\n");
+  app.coding.setMode("fewer-rounds", "on");
+  app.store.save("settings", "local", "policy", { preset: "custom", rules });
+  const run = await app.runtime.run({ prompt: "read them" });
+  const denied = app.store.events(run.id).filter((e) => e.kind === "policy.denied").map((e) => e.data);
+  assert.equal(denied.length, 1, `the rule fired: ${run.output}`);
+  assert.match(String(denied[0].reason ?? ""), /private\/pay\.js/, "and it says which path it was about");
+  assert.equal(app.store.events(run.id).filter((e) => e.kind === "tool.completed").length, 0,
+    "nothing was read, so the refused file's content never reached the model");
+});
+
+test("C: a file longer than one answer is handed back and said to be shortened", async (t) => {
+  const { app, workspace } = await fixture(t, [calls(["files.read_many", { paths: ["big.js"] }]), say("Done.")]);
+  await writeFile(join(workspace, "big.js"), `export const big = "${"x".repeat(30000)}";\n`);
+  app.coding.setMode("fewer-rounds", "on");
+  const run = await app.runtime.run({ prompt: "read the big one" });
+  assert.equal(run.status, "completed", run.output);
+  const answer = app.store.messages(run.sessionId).filter((m) => m.role === "tool").at(0).content;
+  assert.match(answer, /longer than a single answer holds/, "the answer says the end was left out");
+});
+
+test("off: a call that never ran is not written down as work the task did", async (t) => {
+  // Found at integration: the working line, the catalog's "just used" and the record of what a
+  // task reached for were written for the whole reply before any of it ran — with the part off.
+  const { app } = await fixture(t, [
+    calls(["files.read", { path: "src/sum.js" }], ["files.read", { path: "src/range.js" }]), say("Done."),
+  ]);
+  app.store.save("settings", "local", "lockdown", { on: true }); // the first call stops the task
+  const run = await app.runtime.run({ prompt: "read them both" });
+  app.store.save("settings", "local", "lockdown", { on: false });
+  assert.equal(run.status, "needs_input", run.output);
+  const line = app.store.working.line(run.sessionId);
+  assert.equal(line.file, "src/sum.js", `the live row names the call that really started, not ${line.file}`);
+});
+
+test("under Lockdown a switched-off tool reads as absent, not as one to ask the owner about", async (t) => {
+  // Found at integration: Lockdown switches the same features off that the owner's own switch does,
+  // so their tools landed in the hidden set and a search then named them with "tell the person they
+  // can be switched on". Under Lockdown that is both the wrong advice and something it is there not
+  // to say. The tools stay unoffered either way; only whether they are named changes.
+  const search = async (lockdown) => {
+    const { app } = await fixture(t, [
+      calls(["tools.search", { query: "fix a failed command" }]), say("Understood."),
+    ]);
+    if (lockdown) app.store.save("settings", "local", "lockdown", { on: true });
+    const run = await app.runtime.run({ prompt: "the build command failed, sort it out" });
+    if (lockdown) app.store.save("settings", "local", "lockdown", { on: false });
+    const answers = app.store.messages(run.sessionId).filter((m) => m.role === "tool").map((m) => JSON.parse(m.content));
+    return answers.find((one) => one.result?.matches)?.result ?? {};
+  };
+  const open = await search(false);
+  assert.ok((open.switchedOff ?? []).includes("troubleshoot.run"),
+    `the owner's own switch still says what is there: ${JSON.stringify(open.switchedOff)}`);
+  const locked = await search(true);
+  assert.equal(locked.switchedOff, undefined, "Lockdown names nothing");
+  assert.ok(!(locked.matches ?? []).some((one) => one.name === "troubleshoot.run"), "and offers nothing");
 });

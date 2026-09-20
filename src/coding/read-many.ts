@@ -50,8 +50,16 @@ export function registerReadMany(registry: ToolRegistry, files: WorkspaceFiles, 
       + "Use this instead of reading one file at a time: it is the same reading, in one step rather than several. "
       + "A path that cannot be read is named with the reason and the rest still come back. "
       + "If the files together are more than one answer holds, the ones there was no room for come back marked "
-      + "\"skipped\" — nothing is cut short; ask for those on their own.",
+      + "\"skipped\" — nothing of theirs is cut short; ask for those on their own.",
     parameters: ReadManySchema,
+    // Integration (mac7/speed): the rules must see every path, not the call as a whole. Without
+    // these two lines `policyTarget` found no `path` field and judged the call with an empty
+    // target, so an owner's rule refusing `files.*` on a folder refused `files.read` of a file in
+    // it and let `files.read_many` of the very same file straight through. `target` is what the
+    // approval card and a remembered answer are keyed by; `targets` is what the rules judge one by
+    // one, and the call goes ahead only when every path is allowed.
+    target: (input) => (input.paths.length === 1 ? input.paths[0]! : `${input.paths.length} files: ${input.paths.join(", ")}`.slice(0, 300)),
+    targets: (input) => input.paths.map((path) => ({ kind: "read" as const, path })),
     execute: async (input, context: ToolContext) => readMany(files, input.paths, context, room()),
   });
 }
@@ -86,14 +94,31 @@ export async function readMany(
     }
   }
   const skipped = out.filter((one) => one.skipped).length;
+  // Integration (mac7/speed): one file can be bigger than a whole answer on its own. It is always
+  // handed back — coming away with nothing would be worse — but the end of it is then cut by the
+  // same ceiling that cuts any long result, so the answer says so rather than letting "nothing was
+  // cut short" stand when something was.
+  const tooBigAlone = used > budget;
   return {
     files: out,
     read: out.filter((one) => one.content !== undefined).length,
     refused: out.filter((one) => one.error !== undefined).length,
     skipped,
-    ...(skipped ? { note: `There was not room in one answer for ${skipped} of these. `
-      + "Nothing was cut short — ask for those on their own, or a few at a time." } : {}),
+    ...(note(skipped, tooBigAlone) ? { note: note(skipped, tooBigAlone) } : {}),
   };
+}
+
+/** What to say about the room, when there is anything to say. */
+function note(skipped: number, tooBigAlone: boolean): string {
+  const about = skipped
+    ? `There was not room in one answer for ${skipped} of these. `
+      + "Nothing of theirs was cut short — ask for those on their own, or a few at a time."
+    : "";
+  const big = tooBigAlone
+    ? "One of these is longer than a single answer holds, so the end of it was left out. "
+      + "Ask for that part of it another way if you need it."
+    : "";
+  return [about, big].filter(Boolean).join(" ");
 }
 
 /**

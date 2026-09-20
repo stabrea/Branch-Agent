@@ -97,11 +97,17 @@ export const batchingInstructions = (store: Pick<Store, "get">, owner: string): 
  *
  * It belongs in the instructions rather than in a note after the request: a note would make the
  * last thing the model sees a line from Branch rather than what the person actually asked for.
+ *
+ * Integration (mac7/speed): it used to say the project's tests were off too. They are not the same
+ * switch — `code.check` runs them through its own yes (src/coding/project-tests.ts) and works with
+ * scripts switched off — so on a computer where the owner had allowed the tests this sentence told
+ * the assistant not to try something it was allowed to do. It now says only what `code-run` really
+ * decides.
  */
 export const cannotRunNote =
-  " Running commands, scripts and this project's tests is switched off on this computer, so do not "
-  + "try: you will only be refused. Work from the files themselves, and when your answer depends on "
-  + "something having been run, say plainly what you would have run and that it was not run.";
+  " Running commands and scripts is switched off on this computer, so do not try: you will only be "
+  + "refused. Work from the files themselves, and when your answer depends on something having been "
+  + "run, say plainly what you would have run and that it was not run.";
 
 /** That sentence, for a task that is work on files and cannot run anything. */
 export const cannotRunInstructions = (
@@ -118,11 +124,11 @@ export interface GroupingRules {
   /** What the call would touch, in the form the rules match against. */
   targetOf(call: CallLike): string;
   /**
-   * Whether this call is already allowed outright — a rule, a standing yes, or the conversation's
-   * mode — so running it would raise no question at all. Two calls about the *same* thing may share
-   * a run only when both are; see below.
+   * What the rules say about this call as they stand: `"allow"` when running it would raise no
+   * question at all, `"ask"` when it would stop and put a question to the person, anything else
+   * (a refusal) when it would simply come back refused.
    */
-  allowedOutright(call: CallLike): boolean;
+  decisionOf(call: CallLike): string;
   /** Tools that must run alone because they change what the next round is shown. */
   alone: readonly string[];
 }
@@ -151,19 +157,28 @@ export function parallelGroups<T extends CallLike>(calls: readonly T[], rules: G
   let open: T[] = [];
   /** The first call in the open run about each thing; a later one about the same thing meets it. */
   let firstWith = new Map<string, T>();
-  // Asked only when a thing comes up twice, and remembered — a reply whose calls are all about
-  // different things (the ordinary case) never pays for this at all.
-  const answers = new Map<T, boolean>();
-  const allowed = (call: T): boolean => {
+  // What the rules say, asked once per call and remembered. It is a read of the saved rules and
+  // nothing else — it writes nothing down and asks nobody.
+  const answers = new Map<T, string>();
+  const decision = (call: T): string => {
     const known = answers.get(call);
     if (known !== undefined) return known;
-    const now = rules.allowedOutright(call);
+    const now = rules.decisionOf(call);
     answers.set(call, now);
     return now;
   };
+  const allowed = (call: T): boolean => decision(call) === "allow";
   const flush = (): void => { if (open.length) groups.push(open); open = []; firstWith = new Map(); };
   for (const call of calls) {
-    if (!rules.readOnly(call.name) || rules.alone.includes(call.name)) { flush(); groups.push([call]); continue; }
+    // Integration (mac7/speed): a call that would put a question to the person runs on its own.
+    // Two such calls in one run each registered their own question, the task could only be stopped
+    // by one of them, and the other was left waiting to be answered for a call that was no longer
+    // running — answerable from a phone or a chat channel, and counting against the small number of
+    // questions a conversation may have waiting, so it could push a real one out. A refusal needs no
+    // question and may still share a run; it simply comes back refused, as it does today.
+    if (!rules.readOnly(call.name) || rules.alone.includes(call.name) || decision(call) === "ask") {
+      flush(); groups.push([call]); continue;
+    }
     const target = rules.targetOf(call);
     const before = firstWith.get(target);
     // Everything already in the run about this thing was let through by this same test, so meeting

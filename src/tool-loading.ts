@@ -93,6 +93,14 @@ export interface ToolLoaderOptions {
    * set; asking for one by name says plainly that it is switched off.
    */
   hidden?: readonly string[];
+  /**
+   * Integration (mac7/speed): whether a hidden tool may be named when it is searched for or asked
+   * for by name. True for the owner's own three-way switches, where "you can switch this on in
+   * Settings" is the useful thing to say. **False under Lockdown**, which switches those same
+   * features off and is not something the person can undo from here: naming them would both give
+   * the wrong advice and say what Lockdown is there not to say. They then read as absent.
+   */
+  nameHidden?: boolean;
   /** The words of the task, used to score what is worth listing. */
   signals?: { prompt?: string; recent?: readonly string[]; project?: string };
   /** Set only when the owner has switched meaning search on; otherwise searching is by words. */
@@ -132,6 +140,8 @@ export class ToolLoader {
   private readonly preloaded: PreloadedTool[];
   private readonly demoted: Set<string>;
   private readonly hidden: Set<string>;
+  /** Whether a hidden tool may be named at all; see `ToolLoaderOptions.nameHidden`. */
+  private readonly nameHidden: boolean;
   private readonly recentRounds: number;
   private readonly budgetTokens: number;
   private readonly indexLines: number;
@@ -150,6 +160,7 @@ export class ToolLoader {
     this.signals = options.signals ?? {};
     this.demoted = new Set(options.demoted ?? []);
     this.hidden = new Set(options.hidden ?? []);
+    this.nameHidden = options.nameHidden ?? true;
     this.index = new ToolIndex(all, options);
     if (options.embedder) this.index.embedder = options.embedder;
     this.take(all);
@@ -235,8 +246,9 @@ export class ToolLoader {
     // the assistant is told it exists, by name, so it can say which setting would allow it instead
     // of telling the person Branch cannot do the thing at all. A fresh install has everything off;
     // "off" must not read as "absent".
-    const offButHere = found.filter((hit) => this.hidden.has(hit.entry.name))
-      .slice(0, wanted).map((hit) => hit.entry.name);
+    const offButHere = this.nameHidden
+      ? found.filter((hit) => this.hidden.has(hit.entry.name)).slice(0, wanted).map((hit) => hit.entry.name)
+      : [];
     for (const hit of hits) this.asked.add(hit.entry.name);
     this.version++;
     return { searched: String(query).slice(0, 200),
@@ -256,7 +268,7 @@ export class ToolLoader {
       if (!entry) { unknown.push(asked); continue; }
       // Named outright rather than called "unknown": the owner can switch it on, and a task told
       // "that does not exist" would go looking for something else instead of saying so.
-      if (this.hidden.has(here)) { switchedOff.push(here); continue; }
+      if (this.hidden.has(here)) { (this.nameHidden ? switchedOff : unknown).push(this.nameHidden ? here : asked); continue; }
       this.asked.add(here);
       const found = this.found(here, entry.purpose, entry.note, true);
       loaded.push(here === asked ? found
