@@ -964,7 +964,7 @@ details.tool-step > summary:hover {
   cursor: not-allowed;
 }
 .composer-plus-menu {
-  position: absolute;
+  position: fixed;
   z-index: 100;
   min-width: 240px;
   max-width: 340px;
@@ -973,6 +973,8 @@ details.tool-step > summary:hover {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   box-shadow: var(--card-shadow, 0 10px 40px rgba(0,0,0,0.2));
+  top: 0;
+  left: 0;
 }
 .composer-menu-item {
   display: flex;

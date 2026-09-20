@@ -5,11 +5,22 @@
 
   if (!button || !menu) return;
 
+  // Position the menu near the button
+  function positionMenu() {
+    const rect = button.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.top = (rect.bottom + 4) + "px";
+    menu.style.left = rect.left + "px";
+  }
+
   // Toggle menu visibility
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     const isOpen = button.getAttribute("aria-expanded") === "true";
     setMenuOpen(!isOpen);
+    if (!isOpen) {
+      positionMenu();
+    }
   });
 
   // Close menu when clicking outside
@@ -31,7 +42,7 @@
     button.setAttribute("aria-expanded", open ? "true" : "false");
     menu.hidden = !open;
     if (open) {
-      menu.focus();
+      positionMenu();
     }
   }
 
