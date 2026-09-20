@@ -2,7 +2,7 @@ import type { Words } from "./terminal-words.js";
 
 /**
  * The map of Branch, as the terminal shows it: the five places in the window's order with the
- * window's names, their tabs, the thirteen Settings pages, the five Models tabs and the four side-pane
+ * window's names, their tabs, the Settings pages, the five Models tabs and the four side-pane
  * tabs. Every key is the one `public/layout.js` uses, so both surfaces say the same words, and
  * `tests/terminal-places.test.mjs` checks this list against `docs/places.md` and `layout.js`.
  */
@@ -38,6 +38,7 @@ const page = (id: string, english: string, intro: string): SettingsPage =>
 export const SETTINGS_PAGES: SettingsPage[] = [
   page("general", "General", "How Branch starts and runs on this computer, your projects, and the people who use it."),
   page("assistant", "Assistant", "Who your assistant is, and how much it keeps and learns."),
+  page("instructions", "Instructions & personality", "Plain files Branch reads before it works: who it is, who you are, and how you want things done."),
   page("appearance", "Appearance", "Every KeepOak theme, light or dark. Changes show in this terminal and in the window."),
   page("notifications", "Notifications", "When Branch may interrupt you, and the days it should leave you alone."),
   page("models", "Models", "Which models your assistant uses, and how it signs in to them."),

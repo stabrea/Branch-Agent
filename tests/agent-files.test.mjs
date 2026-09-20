@@ -1,5 +1,5 @@
 /**
- * Redesign phase 2 (accounts, critique #40): the assistant's own files in Settings › Assistant, with
+ * The assistant's own files in Settings › Instructions & personality, with
  * an editor, a preview, the size limit Branch reads, and an undo of the last save. The owner's alone:
  * a household profile and a short-lived key are refused the text and every change.
  */
@@ -93,8 +93,10 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
-    await openSettings(page, "assistant");
+    await openSettings(page, "instructions");
     const card = page.locator("#agent-files");
+    assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').getAttribute("aria-current"), "true");
+    assert.equal(await card.evaluate((node) => node.closest(".lx-page")?.id), "lx-page-instructions");
     assert.equal(await card.locator(".agent-file").count(), 8);
     await card.getByRole("button", { name: "Change HEARTBEAT.md here" }).click();
     const text = card.getByLabel("What the file says");

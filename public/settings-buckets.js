@@ -23,7 +23,11 @@ export const BUCKETS = {
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",
-      [["identity-form", R], ["context-assistant", A], ["agent-files", A], ["autonomy-instructions-card", A]]],
+      [["identity-form", R], ["context-assistant", A], ["autonomy-instructions-card", A]]],
+  ],
+  instructions: [
+    ["files", "instructions", "Its files", "The plain files that shape how Branch works and talks to you.",
+      [["agent-files", R]]],
   ],
   appearance: [
     ["theme", "leaf", "Theme and lettering", "Colours, the size of the words, and the language.",
@@ -140,6 +144,7 @@ export const ICON_PATHS = {
   keyboard: "M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8",
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4",
   person: "M12 11a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0",
+  instructions: "M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6",
   leaf: "M5 19C5 10 11 5 20 4c-1 9-6 15-15 15zM5 19l7-7",
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 110 6 3 3 0 010-6z",
   bell: "M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0",

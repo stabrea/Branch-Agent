@@ -143,17 +143,15 @@ function editorParts(file, slot, reopen) {
   return parts;
 }
 
-/** Draws the card on Settings › Assistant. Shown at the Advanced and Technical levels of detail. */
+/** Draws the real file editor on Settings › Instructions & personality. */
 export async function drawAgentFiles() {
   let map;
   try { map = await api("settings-kit/files"); } catch { return; }
   document.getElementById("agent-files")?.remove();
   const section = el("section", undefined, undefined, "card agent-files");
   section.id = "agent-files";
-  section.dataset.home = "settings:assistant";
-  /* phase2/settings integration: the level itself hides this at Regular and shows it again at Advanced, so the card
-     never marks itself hidden (a hidden card stayed hidden after the level went up). */
-  section.dataset.level = "advanced";
+  section.dataset.home = "settings:instructions";
+  section.dataset.level = "regular";
   section.append(el("h2", "agent-files.title", "Your assistant's files"),
     el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do."));
   const list = el("ul", undefined, undefined, "agent-files-list");

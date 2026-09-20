@@ -94,8 +94,7 @@ test("R17-S07: settings go out as one file and come back through the same change
 
 test("R17-S05: which file does what, and changing one without leaving the window", async (t) => {
   const { app, page } = await fixture(t);
-  // phase2/accounts: the list moved to Settings › Assistant as "Your assistant's files" (public/agent-files.js).
-  await openSettings(page, "assistant");
+  await openSettings(page, "instructions");
   const card = page.locator("#agent-files");
   await card.scrollIntoViewIfNeeded();
   assert.equal(await card.locator(".agent-file").count(), 8);

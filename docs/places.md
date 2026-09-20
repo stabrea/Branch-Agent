@@ -43,6 +43,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `customize:channels` | Chat apps, the phone, pages and the browser extension that reach Branch |
 | `settings:general` | Starting with the computer, projects, labels, shared copies, people on this computer |
 | `settings:assistant` | Name, picture, working instructions, persona |
+| `settings:instructions` | The owner-written SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY and HEARTBEAT files, with a real editor and preview |
 | `settings:appearance` | Theme, light or dark, season, contrast, text size, spacing, lettering, language |
 | `settings:notifications` | When Branch may interrupt, quiet hours, days off |
 | `settings:models:connection` | Signing in to a provider, API keys, checking connections |

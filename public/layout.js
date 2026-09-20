@@ -1,7 +1,7 @@
 /* Branch Agent's window, rebuilt (wave 9 redesign, approved by the owner on 2026-09-16).
 
    Five places instead of ten pages: the conversation, Inbox, Automations, Library and Customize, and
-   Settings as a floating window of twelve short pages. Nothing is rewritten here. Every panel keeps its
+   Settings as a floating window of short pages. Nothing is rewritten here. Every panel keeps its
    id and the module that fills it, and is moved by id into the place it now belongs (see MOVES), so
    the forty-odd modules that bind to those ids keep working untouched.
 
@@ -228,6 +228,7 @@ const PLACES = {
 const SETTINGS_PAGES = [
   ["general", "settings.page.general", "General", "How Branch starts and runs on this computer, your projects, and the people who use it."],
   ["assistant", "settings.page.assistant", "Assistant", "Who your assistant is, and how much it keeps and learns."],
+  ["instructions", "settings.page.instructions", "Instructions & personality", "Plain files Branch reads before it works: who it is, who you are, and how you want things done."],
   ["appearance", "settings.page.appearance", "Appearance", "Every KeepOak theme, light or dark, with the oak in any season. Changes show behind this window as you pick."],
   ["notifications", "settings.page.notifications", "Notifications", "When Branch may interrupt you, and the days it should leave you alone."],
   ["models", "settings.page.models", "Models", "Which models your assistant uses, and how it signs in to them."],
