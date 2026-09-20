@@ -88,6 +88,10 @@ export class ToolRegistry {
     if (removed) { this.revision++; this.announceChange(); }
     return removed;
   }
+  /** Alias for unregister, used by tests. */
+  remove(name: string): boolean {
+    return this.unregister(name);
+  }
   names(): string[] {
     return [...this.tools.keys()];
   }
