@@ -19,11 +19,11 @@ const HIDDEN_WHEN_CALM = [
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
   "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
   "#saved-conversations", "#rail-find", "#cmd-open", "#context-panel",
-  "#keepoak-acorn", ".lx-model-chip",
+  "#keepoak-acorn",
 ];
 /* What the calm window always shows. phase2/settings: the account row now shows too, with the Settings cog after it (#37).
    phase2/panels: the one side-panel switch shows in the calm window too (owner critique #16). */
-const ALWAYS = ["#prompt", "#send", "#rail-new", "#lx-settings-row", "#lx-more", "#owner-menu-button", "#aside-toggle"];
+const ALWAYS = ["#prompt", "#send", "#mode-chip", ".lx-model-chip", "#rail-new", "#lx-settings-row", "#lx-more", "#owner-menu-button", "#aside-toggle"];
 
 /** A model that answers at once, or waits for `release()` when asked to sort the Downloads folder. */
 function slowModel() {
@@ -461,7 +461,7 @@ test("calm: a running task reads under its message, with a real Stop, and its co
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: the message box is one growing line with + on the left and one round button: quiet, then the accent, then Stop", async (t) => {
+test("calm: the sample-height message box has + on the left and one round button: quiet, then the accent, then Stop", async (t) => {
   const model = slowModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
@@ -476,26 +476,30 @@ test("calm: the message box is one growing line with + on the left and one round
   assert.equal(await f.page.locator("#prompt").getAttribute("placeholder"), "Ask Branch to do something…");
   assert.equal(await send.getAttribute("aria-label"), "Send");
   const shape = await send.evaluate((node) => { const b = node.getBoundingClientRect(); return { w: b.width, h: b.height, r: getComputedStyle(node).borderRadius }; });
-  assert.ok(Math.abs(shape.w - 36) < 2 && Math.abs(shape.h - 36) < 2 && shape.r === "50%", "a round button of about 36px");
+  assert.ok(Math.abs(shape.w - 34) < 2 && Math.abs(shape.h - 34) < 2 && shape.r === "50%", "the sample's round 34px button");
   assert.equal(await send.evaluate((node) => node.classList.contains("lx-empty")), true, "quiet while the box is empty");
   const quiet = await settledColour();
   /* Pressing the quiet button sends nothing and puts you in the box. */
   await send.click();
   assert.equal(await f.page.evaluate(() => document.activeElement.id), "prompt");
   await f.page.locator("#prompt").fill("one\ntwo\nthree\nfour");
-  /* Measured in one step, as it is drawn: the box grows on the input event's next frame. */
-  const grown = await f.page.waitForFunction(() => {
-    const tall = document.getElementById("chat-form").getBoundingClientRect().height;
-    return tall > 100 ? tall : null;
-  }, null, { timeout: 5000 }).then((handle) => handle.jsonValue(), () => 0);
-  assert.ok(grown > 100, `it grows with what is typed (${await height()}px)`);
+  const typedShape = await f.page.locator("#prompt").evaluate((node) => ({
+    form: document.getElementById("chat-form").getBoundingClientRect().height,
+    input: node.getBoundingClientRect().height,
+    scrolls: node.scrollHeight > node.clientHeight,
+  }));
+  assert.ok(Math.abs(typedShape.form - 48) <= 1 && Math.abs(typedShape.input - 34) <= 1,
+    `the sample stays 48px with a 34px input (${typedShape.form}px / ${typedShape.input}px)`);
+  assert.equal(typedShape.scrolls, true, "long messages scroll inside the fixed sample bar");
   await f.page.locator("#prompt").fill("Sort my Downloads folder.");
   assert.equal(await send.evaluate((node) => node.classList.contains("lx-empty")), false);
   assert.notEqual(await settledColour(), quiet, "the accent once there is something to send");
-  /* The + offers the same two ways to add something as More, and presses the real control. */
+  /* The + matches the sample: attachments, message choices, then who should answer. */
   await f.page.locator("#lx-plus").click();
   await f.page.locator("#lx-plus-menu").waitFor({ state: "visible" });
-  assert.deepEqual(await f.page.locator("#lx-plus-menu").getByRole("menuitem").allInnerTexts(), ["Attach a document…", "Add a picture or a sound…"]);
+  const plusItems = await f.page.locator("#lx-plus-menu").getByRole("menuitem").allInnerTexts();
+  assert.deepEqual(plusItems.slice(0, 4), ["Attach a document…", "Add a picture or a sound…", "Ask me questions first", "Temporary: forget this conversation afterwards"]);
+  assert.match(plusItems.at(-1), /Your assistant/);
   await f.page.keyboard.press("Escape");
   await f.page.locator("#lx-plus-menu").waitFor({ state: "hidden" });
   await send.click();
