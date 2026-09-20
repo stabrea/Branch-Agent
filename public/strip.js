@@ -204,7 +204,7 @@ export function drawStrip() {
   remember(on);
   document.body.classList.toggle("lx-strip", on);
   let nav = $("trunk-strip");
-  if (!on) { nav?.remove(); return; }
+  if (!on) { nav?.remove(); markSelected(); return; }
   if (!nav) {
     nav = make("nav", "strip");
     nav.id = "trunk-strip";

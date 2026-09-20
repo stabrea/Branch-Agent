@@ -98,6 +98,7 @@ let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "co
 let railCanManageTrunks = true;
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
+  $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
   for (const node of conversationRailNodes()) node.hidden = trunks;
   if (group) group.hidden = !trunks;
   $("rail-trunks-actions").hidden = !trunks;

@@ -120,10 +120,15 @@ test("the rail switches between conversations and real Trunks without duplicatin
   assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), true);
   assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), false);
   assert.equal(await f.page.locator("#rail-target-name").textContent(), "This computer");
+  await f.page.locator("#branch-tree").evaluate((node) => { node.hidden = false; node.textContent = "A branch"; });
+  assert.equal(await f.page.locator("#branch-tree").isVisible(), true);
   await f.page.locator("#rail-view-trunks").click();
   assert.equal(await f.page.locator("#rail-view-trunks").getAttribute("aria-selected"), "true");
   assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), false);
   assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), true);
+  assert.equal(await f.page.locator("#branch-tree").isVisible(), false, "conversation branches do not mix into Trunks");
+  await f.page.locator("#branch-tree").evaluate((node) => { node.hidden = false; });
+  assert.equal(await f.page.locator("#branch-tree").isVisible(), false, "a redraw cannot override the chosen rail view");
   assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-rail-view")), "trunks");
   await f.page.locator("#rail-new-trunk").click();
   await f.page.locator("#studio").waitFor({ state: "visible" });
@@ -131,6 +136,25 @@ test("the rail switches between conversations and real Trunks without duplicatin
   await f.page.locator("#studio").getByRole("button", { name: "Close" }).click();
   await f.page.locator("#rail-view-trunks").press("ArrowLeft");
   assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the selected Trunk stays named when its visual strip is off", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const selected = await f.page.evaluate(async () => {
+    const strip = await import("/strip.js");
+    strip.shell.roster = { modes: { trunks: "on" }, trunks: [{ id: "ada", name: "Ada", chatSessionId: "ada-chat" }] };
+    strip.shell.look.strip = "off";
+    document.getElementById("conversation").dataset.sessionId = "ada-chat";
+    strip.drawStrip();
+    document.getElementById("rail-target-name").textContent = "This computer";
+    const { setLanguage } = await import("/i18n.js");
+    await setLanguage("fr");
+    return document.getElementById("rail-target-name").textContent;
+  });
+  assert.equal(selected, "Ada");
+  assert.equal(await f.page.locator("#trunk-strip").count(), 0);
   assert.deepEqual(f.errors, []);
 });
 
