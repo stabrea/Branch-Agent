@@ -18,7 +18,7 @@ installer, so the chaos and install-torture rounds are not affected by them.
 
 - [x] 1. Version 0.19.0 everywhere (e08c98e4)
 - [x] 2. Release notes `docs/agents/briefs/release-notes-0.19.0.md` (verification section left as a placeholder)
-- [ ] 3. Linux gate on `branch-test-linux`: desktop tests (xvfb, one at a time), full suite, chaos 200 seeds, install-torture 200 seeds
+- [x] 3. Linux gate on `branch-test-linux`: desktop tests (xvfb, one at a time), full suite, chaos 200 seeds, install-torture 200 seeds
 - [x] 4. macOS: build, tsc, every non-desktop test file at concurrency 2
 - [x] 5. Windows: packaged desktop tests over `ssh legion-branch` (session 0, no visible window)
 - [x] 6. Commit and push `mac7/release-019` (not merged, not tagged)
@@ -40,10 +40,10 @@ logs and a progress file in `/tmp/rel019/`. Worktree `~/wt/rel019` at e08c98e4, 
 
 | Item | Result |
 | --- | --- |
-| desktop tests (xvfb, concurrency 1) | (pending — first attempt failed on the machine's `chrome-sandbox` setup, see below) |
+| desktop tests (xvfb, concurrency 1) | **PASS on the re-run** — 8 tests, 7 pass, 1 skip, 0 fail, 2 m 36 s (first attempt failed on the machine's `chrome-sandbox` setup, see below) |
 | full suite (concurrency 2, no desktop/screen-control) | 4295 tests, 4251 pass, 42 skipped, **2 timed out on my own 300 s cap** (2 h 43 m) — re-run without the cap, see below |
 | chaos, `BRANCH_CHAOS_SEEDS=200` | **PASS** — 4 tests, 4 pass, 0 fail, 1 h 47 m |
-| install-torture, `BRANCH_INSTALL_SEEDS=200` | (pending) |
+| install-torture, `BRANCH_INSTALL_SEEDS=200` | **PASS** — 22 tests, 22 pass, 0 fail, 3 h 07 m |
 
 **Harness step, not a product fault.** The first desktop run exited after 8 seconds with
 `Error: Process failed to launch!` on five files. A fresh `npm ci` brings a fresh Electron, whose
