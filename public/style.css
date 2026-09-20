@@ -166,7 +166,7 @@ p {
 }
 label {
   display: block;
-  font-family: var(--font-mono);
+  font-family: var(--body);
   font-size: 11px;
   color: var(--muted);
   margin: 14px 0 8px;
