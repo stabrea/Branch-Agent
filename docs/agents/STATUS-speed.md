@@ -354,6 +354,28 @@ needed" — on this model these tasks do not finish either way, which windows 3 
 What the pair does say, in the same number of rounds: the switched-on row did **38% more tool work**
 and spent **none** of it hunting for tools. The rest of the window is still running.
 
+## From the research's ranked list, deliberately not built here
+
+`docs/agents/CODING-GAPS-2026-09-20.md` ranks eleven changes. This branch has #1, #2, #4, #5, #7,
+#9, #10, the sentence half of #8, and #3 (which turned out to be a measurement bug, not a request
+one). Two are left, on purpose, and one must not be built at all.
+
+- **#6, routing a several-file change to `files.patch` / `code.change_set`** — measured worth ~3
+  rounds. On `rename`, Branch made four one-file `files.edit` calls in four rounds because the
+  search that chose the edit tool returned `files.edit` and not `files.patch`; it has the multi-file
+  tool and used it on other tasks. This is a ranking and wording change, not a new tool, and it is
+  the obvious next thing. I did not take it because it is a change to search ranking on top of four
+  others I have already made there, and it wants its own measurement rather than being folded in.
+- **#8's other half, retrying a provider 4xx once** — the plain sentence is built; the retry is not.
+  A 400 is usually the same answer twice, and `src/provider-retry.ts` deliberately retries only
+  quota and rate-limit codes. The research's case (Pi and Codex finished the same task minutes
+  apart) suggests that one was transient, but one cell is not enough to widen what a 4xx means. It
+  needs its own decision by the owner, not a quiet widening here.
+- **#11, one approval covering a batch of changes, and a scratch area where changes need no yes** —
+  **must not be built on this evidence.** The research measured `user.ask` called zero times and
+  `failedEdits` zero on every row: approvals cost no rounds at all. Both shapes carry real risk for
+  a benefit this data measures at zero.
+
 ## Not done, and not proven
 
 - **Nothing on this branch has been measured on a real model yet.** Every number above comes from a
