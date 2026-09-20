@@ -56,6 +56,17 @@ commit on the same tree) was in flight when this round began.
   time, inside the rail, the words do not flicker — on every reading rather than on two, and the
   flicker check is no longer vacuous (it used to compare "" with "" once the bubble had gone).
 
+## Found in run 35479946361 (e18f559f, the same tree as dda44fbe: one shard red)
+
+- flow-editor F1 "a second step is added, moved and taken out again" (Windows 2/6,
+  `['approval','prompt']` where `['prompt']` was wanted): **TEST.** The press that saves the flow after
+  a step is taken out was never waited for. The wait under it asked for one step on screen, which was
+  already true before the press, so the flow was read back out of the store while the save was still on
+  its way, and on a busy Windows runner that read the two steps that were still saved. The first save
+  in the same test does wait, for "Saved." in the status line; the second now does too, with the status
+  line emptied first so it waits for this save and not the one above. No product bug: `save()` in
+  public/flow-editor.js writes through the server and only then says "Saved.".
+
 ## The rest of the 3-second-refresh family, which ci-flakes-3 left for somebody
 
 All three run on the same refresh path as the one ci-flakes-3 proved (public/app.js calls
@@ -96,7 +107,7 @@ once the shards do. Not a fifth cause.
       - mcp-workbench: `'5' !== '17'` ("the minutes being typed are still theirs")
 - [x] loops on this loaded machine, 12 runs of each file with 3 copies going at once, in the separate
       worktree: delight-ui 168/168, glass-select 120/120, mac2-desktop-ui 276/276, never-break-ui
-      60/60, coding-gap-edits 276/276 — 900 of 900, no failure of any kind. As in every earlier round,
+      60/60, coding-gap-edits 276/276, flow-editor 48/48 — 948 of 948, no failure of any kind. As in every earlier round,
       none of the CI failures reproduces here by repetition; each was instead diagnosed from the log
       and, where a product bug, reproduced by driving the very call the 3-second refresh makes.
 - [ ] merged into trunk
