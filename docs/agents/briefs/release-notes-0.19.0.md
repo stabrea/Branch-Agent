@@ -19,8 +19,11 @@ approved shape: a small ring under the message box showing which connection has 
 when it refills, a glass list behind it with every connection, and a question at 95% offering to save
 what a running task has done so far. Lists of choices are glass rather than the computer's own grey
 boxes, icon-only buttons say what they do when you hover, and the window now fits a phone and a
-tablet as well as a desk screen. **Slate is the new default look.** If you have ever picked a theme —
-Forest included — yours is kept and nothing changes for you.
+tablet as well as a desk screen. The message bar now follows the Grown Up sample directly: the model
+is visible beside the mode, opens a real per-conversation picker, and the + menu reaches attachments,
+Ask first, Temporary and the assistant choice without leaving the conversation. **Slate is the new
+default look.** If you have ever picked a theme — Forest included — yours is kept and nothing changes
+for you.
 
 **How much the assistant may do, per conversation.** Beside Send there is a chip with four choices:
 **Ask first**, **Plan**, **Auto** and **Full access**. It changes that one conversation only, your
@@ -138,15 +141,6 @@ These are the ones worth knowing about, in plain words.
   message whose task stops to ask now shows as waiting rather than failed, and the live voice view
   opens for a conversation that began before its setting was read.
 
-<!-- SLOT, do not publish as is. Two things were still landing on trunk when these notes were
-     written and need their own plain-words lines once they are green, from the branches' own status
-     files rather than from memory:
-     1. Three more tools that named no target and so were judged against nothing — knowledge.manage's
-        folder, research.run's web addresses, and channels.broadcast, where an empty list meant
-        "every linked chat" and was judged as nothing at all. This belongs beside the three above.
-     2. The brand marks coming out of Accounts, Secrets, Models and the channel cards: 48 SVGs and
-        their attribution section removed. -->
-
 ## What you will notice straight away
 
 1. **New conversations start on Ask first.** Older conversations are unchanged.
@@ -202,7 +196,15 @@ It keeps your conversations, settings, memory and schedules.
 
 ## How this release was checked
 
-*(To be filled in before publishing from `docs/agents/STATUS-release-019.md`, which holds the counts:
-the three-system CI runs, the Linux desktop, chaos and
-install-torture counts, the macOS and Windows test counts, and the real-update test from 0.18.1 to
-0.19.0 on Linux and Windows — the first run where the fixed updater is the one doing the work.)*
+- Linux: the 4,295-test suite passed; 200 chaos seeds and 200 installer-torture seeds passed; the
+  desktop tests passed after applying Ubuntu's documented Chromium sandbox setup.
+- macOS: the 4,295-test suite produced one load-sensitive learning-evaluation failure, which passed
+  on its own and in three immediate repeated groups. Build and type checking passed.
+- Windows: the packaged desktop group passed 8/8. The final Grown Up composer contracts passed 45/45
+  locally, covering desktop, compact and phone geometry, real model selection, refresh persistence,
+  menus, typing state, locales and the key-leak guard.
+- The required affected-test gate passed the final composer pull request in 2 minutes 25 seconds. A
+  broad or unknown change cannot use that lane without an exact successful exhaustive run.
+
+The first real update from 0.18.1 to 0.19.0 can only be exercised after these downloads exist. That
+post-publication test is therefore not claimed here.
