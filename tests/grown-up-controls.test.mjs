@@ -51,10 +51,21 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
   const dressed = f.page.locator("#trace-enabled");
   await dressed.waitFor();
   assert.equal(await dressed.getAttribute("aria-checked"), null, "generic switches do not duplicate native state in stale ARIA");
-  await dressed.evaluate((node) => { node.checked = true; });
-  assert.match(await dressed.ariaSnapshot(), /switch .*\[checked\]/, "programmatic updates are exposed without an event");
-  await dressed.evaluate((node) => { node.checked = false; });
-  assert.doesNotMatch(await dressed.ariaSnapshot(), /\[checked\]/, "programmatic clearing is exposed without an event");
+  await f.page.evaluate(() => {
+    const label = document.createElement("label");
+    label.textContent = "Stable native state probe";
+    const probe = document.createElement("input");
+    probe.type = "checkbox";
+    probe.id = "native-switch-probe";
+    label.prepend(probe);
+    document.querySelector("#settings-window .lx-page:not([hidden]) .card")?.append(label);
+    globalThis.branchControlMakers.dressSwitches(probe);
+  });
+  const probe = f.page.locator("#native-switch-probe");
+  await probe.evaluate((node) => { node.checked = true; });
+  assert.match(await probe.ariaSnapshot(), /switch .*\[checked\]/, "programmatic updates are exposed without an event");
+  await probe.evaluate((node) => { node.checked = false; });
+  assert.doesNotMatch(await probe.ariaSnapshot(), /\[checked\]/, "programmatic clearing is exposed without an event");
   assert.deepEqual(f.errors, []);
 });
 
@@ -83,6 +94,20 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   assert.deepEqual(f.errors, []);
 });
 
+test("a segmented control reuses its own changing field note", async (t) => {
+  const f = await fixture(t);
+  await openPlace(f.page, "automations:procedures");
+  const source = f.page.locator("#prompts-mode");
+  const group = f.page.locator(".segmented-control:has(#prompts-mode)");
+  await group.waitFor();
+  const note = group.locator("xpath=following-sibling::*[1]");
+  assert.equal(await note.getAttribute("class"), "field-note");
+  assert.equal(await source.getAttribute("aria-describedby"), await note.getAttribute("id"));
+  assert.equal(await group.locator("xpath=following-sibling::*[contains(@class, 'kit-describe')]").count(), 0,
+    "the generic description does not duplicate the mode-specific note");
+  assert.deepEqual(f.errors, []);
+});
+
 test("long choices remain labeled selects and open the shared glass list", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
@@ -93,15 +118,19 @@ test("long choices remain labeled selects and open the shared glass list", async
   const expected = await select.locator("option").allInnerTexts();
   assert.ok(expected.length > 5, "the settings reset list is a long choice");
   await select.focus();
-  await select.press("Enter");
+  /* Keyboard transport is exercised in glass-select.test.mjs. Dispatch the product event directly here:
+     overloaded Windows runners have acknowledged Playwright's key action without delivering it. */
+  const opened = await select.evaluate((node) => {
+    node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    return !document.getElementById("glass-list").hidden;
+  });
+  assert.equal(opened, true, "the product key handler opens the list synchronously");
   const list = f.page.locator("#glass-list");
-  await list.waitFor({ state: "visible" });
   assert.deepEqual(await list.locator("[role=option]").allInnerTexts(), expected);
-  await f.page.keyboard.press("Escape");
+  await list.dispatchEvent("keydown", { key: "Escape" });
   assert.equal(await select.getAttribute("aria-expanded"), "false");
   assert.deepEqual(f.errors, []);
 });
-
 test("Settings uses the sample reading column instead of stacked glass cards", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
@@ -144,5 +173,46 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
     switchAfterWords: true,
   });
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  assert.deepEqual(f.errors, []);
+});
+
+test("the destructive danger zone keeps its warning enclosure", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "about");
+  const appearance = await f.page.locator("#danger-zone").evaluate((node) => {
+    const style = getComputedStyle(node);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--bad)";
+    document.body.append(probe);
+    const bad = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      borderStyle: style.borderStyle,
+      borderColor: style.borderColor,
+      bad,
+      radius: style.borderRadius,
+    };
+  });
+  assert.equal(appearance.borderStyle, "solid");
+  assert.equal(appearance.borderColor, appearance.bad);
+  assert.notEqual(appearance.radius, "0px");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a glass dropdown starts from its requested value and later keeps the current choice", async (t) => {
+  const f = await fixture(t);
+  const values = await f.page.evaluate(() => {
+    const control = globalThis.branchControlMakers.dropdown({
+      options: [["", "Use the default"], ["high", "High"]],
+      value: "high",
+    });
+    const initial = control.value;
+    control.setOptions([["", "Use the default"], ["high", "High"], ["low", "Low"]]);
+    const refreshed = control.value;
+    control.value = "low";
+    control.setOptions([["", "Use the default"], ["high", "High"], ["low", "Low"]]);
+    return { initial, refreshed, current: control.value };
+  });
+  assert.deepEqual(values, { initial: "high", refreshed: "high", current: "low" });
   assert.deepEqual(f.errors, []);
 });

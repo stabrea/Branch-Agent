@@ -41,12 +41,16 @@ function link(control, node) {
   if (!ids.includes(node.id)) control.setAttribute("aria-describedby", [...ids, node.id].join(" "));
 }
 
+function descriptionAnchor(control) {
+  const segmented = control.closest(".segmented-control");
+  const label = control.closest("label");
+  return segmented ?? (label && label.contains(control) ? label : control);
+}
+
 /** Puts one sentence under a control (or under the label it sits in), unless it has one already. */
 function attach(control, key, english) {
   if (described(control)) return;
-  const label = control.closest("label");
-  const segmented = control.closest(".segmented-control");
-  const anchor = segmented ?? (label && label.contains(control) ? label : control);
+  const anchor = descriptionAnchor(control);
   const next = anchor.nextElementSibling;
   if (next?.classList.contains("kit-describe") && next.dataset.t === key) return link(control, next);
   const node = note(key, english);
@@ -80,8 +84,7 @@ function describeAll() {
   }
   for (const control of document.querySelectorAll(`${CARDS} :is(${CONTROLS})`)) {
     if (described(control)) continue;
-    const label = control.closest("label");
-    const next = (label && label.contains(control) ? label : control).nextElementSibling;
+    const next = descriptionAnchor(control).nextElementSibling;
     if (next?.classList.contains("field-note") && next.textContent.trim()) {
       if (!next.id) next.id = `kit-describe-${++made}`;
       link(control, next);

@@ -92,7 +92,8 @@
       ],
       "tests": [
         "tests/grown-up-controls.test.mjs",
-        "tests/glass-select.test.mjs"
+        "tests/glass-select.test.mjs",
+        "tests/settings-grown.test.mjs"
       ]
     },
     {
