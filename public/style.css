@@ -672,25 +672,30 @@ label > input[type="radio"] {
 
 /* An empty screen says what it is for and offers the one thing worth doing next. */
 .empty-state {
-  display: grid;
-  justify-items: start;
-  gap: var(--s2);
-  padding: var(--s5);
-  border: 1px dashed var(--line);
-  border-radius: var(--r2);
-  background: var(--well);
-  color: var(--muted);
+  /* DG-074: Empty state is one quiet line, no filled box */
+  display: block;
+  /* removed: display: grid; */
+  /* removed: justify-items: start; */
+  gap: 0;
+  /* removed padding and border for box effect */
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-3);
   text-align: left;
 }
 .empty-state strong {
-  color: var(--text);
-  font-size: 0.98rem;
+  color: var(--text-2);
+  font-size: 0.95rem;
+  font-weight: 540;
 }
 .empty-state p {
   margin: 0;
-  max-width: 56ch;
-  font-size: 0.9rem;
-  line-height: 1.55;
+  max-width: none;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text-3);
 }
 
 /* A card's title and purpose run the full width of a two-column form, not one cell of it. */
