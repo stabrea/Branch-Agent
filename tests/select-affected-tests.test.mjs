@@ -114,6 +114,19 @@ test("the checked-in impact map names only tests that still exist", () => {
   for (const file of tests) assert.equal(existsSync(new URL(`../${file}`, import.meta.url)), true, file);
 });
 
+test("panel styling and language edits have reviewed fast contracts", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const options = { config: checkedIn, weights: {}, browserTest: (file) => file === "tests/panels.test.mjs" };
+  const panels = selectImpact([{ status: "M", paths: ["public/panels.css"] }], options);
+  assert.equal(panels.classification, "narrow");
+  assert.equal(panels.browserNeeded, true);
+  assert.ok(panels.tests.includes("tests/panels.test.mjs"));
+  const words = selectImpact([{ status: "M", paths: ["public/locales/en.json"] }], options);
+  assert.equal(words.classification, "narrow");
+  assert.equal(words.browserNeeded, false);
+  assert.ok(words.tests.includes("tests/locales-contract.test.mjs"));
+});
+
 test("the historical composer regression cannot receive a narrow green result", () => {
   const result = selectImpact([
     { status: "M", paths: ["public/app.js"] },

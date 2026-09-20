@@ -58,6 +58,22 @@
         "tests/shell-ui.test.mjs",
         "tests/tool-targets-comprehensive-guard.test.mjs"
       ]
+    },
+    {
+      "paths": [
+        "public/panels.css"
+      ],
+      "tests": [
+        "tests/panels.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/locales/*.json"
+      ],
+      "tests": [
+        "tests/locales-contract.test.mjs"
+      ]
     }
   ]
 }
