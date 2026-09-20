@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { ShellProcess } from "../integrations/shell-process.js";
 import { posixEnvironment } from "../integrations/shell-config.js";
@@ -22,9 +23,15 @@ import type { ToolRegistry } from "../registry.js";
  */
 export const aliasSchema = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/,
   "Use the short name you gave the computer in your SSH config, such as \"tower\"");
+const remoteTextPattern = /^[^\0\r\n]*$/;
+const remoteTextMessage = "Remote paths, programs and arguments cannot contain NUL or a line break";
+const remoteProgramSchema = z.string().regex(remoteTextPattern, remoteTextMessage).trim().min(1).max(80);
+const remoteArgumentSchema = z.string().max(300).regex(remoteTextPattern, remoteTextMessage);
+const remoteArgumentsSchema = z.array(remoteArgumentSchema).max(32);
+const remoteExecutionSchema = z.object({ program: remoteProgramSchema, args: remoteArgumentsSchema });
 /** The folder on that computer everything is kept inside; always given in full, from the root. */
-export const remoteRootSchema = z.string().trim().min(1).max(300).regex(/^(\/|~\/)[^\0]*$/,
-  "Give the folder in full, starting at / or ~/");
+export const remoteRootSchema = z.string().regex(remoteTextPattern, remoteTextMessage)
+  .trim().min(1).max(300).regex(/^(\/|~\/)/, "Give the folder in full, starting at / or ~/");
 
 export const RemoteComputerSchema = z.object({
   alias: aliasSchema,
@@ -35,7 +42,7 @@ export const RemoteComputerSchema = z.object({
    * The only programs that may be run on that computer. Empty means none: a remote computer starts
    * able to hold files and nothing else, and the owner adds what it may run one at a time.
    */
-  executables: z.array(z.string().trim().min(1).max(80)).max(32).default([]),
+  executables: z.array(remoteProgramSchema).max(32).default([]),
   addedAt: z.string().max(40).default(""),
 }).strict();
 export type RemoteComputer = z.infer<typeof RemoteComputerSchema>;
@@ -47,14 +54,63 @@ export interface SshRun {
   (executable: string, args: string[], signal: AbortSignal):
     Promise<{ status: string; stdout: string; stderr: string; exitCode: number | null }>;
 }
+export interface SshSuite { ssh: string; scp: string; sshKeygen: string }
+type ExecutableExists = (path: string) => Promise<boolean>;
+
+function environmentValue(source: NodeJS.ProcessEnv, wanted: string): string {
+  return Object.entries(source).find(([name]) => name.toUpperCase() === wanted)?.[1] ?? "";
+}
+
+function sshCandidates(platform: NodeJS.Platform, source: NodeJS.ProcessEnv): string[] {
+  const candidates: string[] = [];
+  const root = environmentValue(source, "SYSTEMROOT") || environmentValue(source, "WINDIR");
+  if (platform === "win32" && root) candidates.push(join(root, "System32", "OpenSSH", "ssh.exe"));
+  if (platform === "darwin") candidates.push("/usr/bin/ssh");
+  const separator = platform === "win32" ? ";" : ":";
+  for (const raw of environmentValue(source, "PATH").split(separator)) {
+    const folder = raw.trim().replace(/^"|"$/g, "");
+    if (isAbsolute(folder)) candidates.push(join(folder, sshProgram("ssh", platform)));
+  }
+  return [...new Set(candidates)];
+}
+
+/** Resolves ssh once, then requires scp and ssh-keygen beside that exact executable. */
+export async function resolveSshSuite(
+  platform: NodeJS.Platform = process.platform, source: NodeJS.ProcessEnv = process.env,
+  exists?: ExecutableExists,
+): Promise<SshSuite> {
+  const canRun = exists ?? (async (path: string) =>
+    access(path, platform === "win32" ? constants.F_OK : constants.X_OK).then(() => true, () => false));
+  let ssh = "";
+  for (const candidate of sshCandidates(platform, source)) {
+    if (await canRun(candidate)) { ssh = candidate; break; }
+  }
+  if (!ssh) throw new Error("OpenSSH was not found in the system folder or PATH.");
+  const folder = dirname(ssh);
+  const scp = join(folder, sshProgram("scp", platform));
+  const sshKeygen = join(folder, sshProgram("ssh-keygen", platform));
+  if (!(await canRun(scp))) throw new Error("The same OpenSSH folder as ssh is missing its sibling scp.");
+  if (!(await canRun(sshKeygen))) throw new Error("The same OpenSSH folder as ssh is missing its sibling ssh-keygen.");
+  return { ssh, scp, sshKeygen };
+}
+
+export function sshSuiteProgram(suite: SshSuite, name: string): string {
+  if (name === "ssh") return suite.ssh;
+  if (name === "scp") return suite.scp;
+  if (name === "ssh-keygen") return suite.sshKeygen;
+  throw new Error(`Unsupported OpenSSH program: ${name}`);
+}
 /**
  * The real one: the OpenSSH programs Windows ships with, started as ordinary child processes with
  * the same limits every other host command gets. Nothing is downloaded and no shell is involved.
  */
 export function sshRunner(timeoutMs = 60_000): SshRun {
+  let resolved: Promise<SshSuite> | undefined;
   return async (executable, args, signal) => {
+    resolved ??= resolveSshSuite();
+    const program = sshSuiteProgram(await resolved, executable);
     const result = await new ShellProcess({
-      executable: sshProgram(executable), args,
+      executable: program, args,
       cwd: tmpdir(), env: sshEnvironment(), signal, timeoutMs,
       maxOutputBytes: 65536, maxMemoryMb: 512, maxCpuSeconds: 120,
     }).run();
@@ -66,7 +122,7 @@ export const sshProgram = (name: string, platform: NodeJS.Platform = process.pla
   `${name}${platform === "win32" ? ".exe" : ""}`;
 /** The little ssh needs from this computer: where it is, and where the owner's keys are. */
 export function sshEnvironment(source: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
-  const keep = ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA"];
+  const keep = ["PATH", "SYSTEMROOT", "WINDIR", "PROGRAMDATA", "TEMP", "TMP", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA"];
   const env: NodeJS.ProcessEnv = {};
   for (const key of keep) {
     const entry = Object.entries(source).find(([name]) => name.toUpperCase() === key);
@@ -91,6 +147,18 @@ export const sshOptions = [
   "-o", "NumberOfPasswordPrompts=0",
   "-o", "ConnectTimeout=10",
 ];
+
+/** One literal argument for the POSIX shell OpenSSH uses at the far end. */
+export function quoteRemoteArg(value: string): string {
+  if (!remoteTextPattern.test(value)) throw new Error(remoteTextMessage);
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+/** OpenSSH sends a command string, not an argv array, so preserve every boundary in that string. */
+export function remoteCommand(args: string[]): string {
+  if (args.length === 0) throw new Error("A remote command needs at least one argument");
+  return args.map(quoteRemoteArg).join(" ");
+}
 
 /** The `Host` names in the owner's own SSH config, and the real name each one stands for. */
 export function parseSshConfig(text: string): Map<string, string> {
@@ -126,6 +194,7 @@ export function knownHostNames(text: string): Set<string> {
 
 /** A path on the other computer, kept inside that computer's root exactly as workspace paths are. */
 export function remotePath(root: string, path: string): string {
+  if (!remoteTextPattern.test(root) || !remoteTextPattern.test(path)) throw new Error(remoteTextMessage);
   const clean = path.replace(/\\/g, "/").trim();
   if (!clean || clean === ".") return root;
   if (clean.startsWith("/") || clean.startsWith("~") || clean.includes(":"))
@@ -188,7 +257,7 @@ export class RemoteWorkspaces {
   }
 
   private async ssh(computer: RemoteComputer, args: string[], signal: AbortSignal): Promise<string> {
-    const out = await this.run("ssh", [...sshOptions, computer.alias, "--", ...args], signal);
+    const out = await this.run("ssh", [...sshOptions, computer.alias, "--", remoteCommand(args)], signal);
     if (out.status !== "completed" || out.exitCode !== 0) throw new Error(explainSsh(computer.alias, out));
     return out.stdout;
   }
@@ -210,13 +279,23 @@ export class RemoteWorkspaces {
     return { computer: alias, path: target, text: text.slice(0, 32768) };
   }
 
-  /** Writes a file there. It goes through the OpenSSH copier, so the text never rides on a command line. */
+  /** Writes only when the local OpenSSH suite defaults scp to SFTP, never its legacy remote shell. */
   async write(alias: string, path: string, localFile: string, signal: AbortSignal): Promise<{ computer: string; path: string }> {
     const computer = this.get(alias);
     const target = remotePath(computer.root, path);
-    const out = await this.run("scp", [...sshOptions, "--", localFile, `${computer.alias}:${target}`], signal);
+    await this.requireModernScp(signal);
+    const destination = `${computer.alias}:${target}`;
+    const out = await this.run("scp", [...sshOptions, "--", localFile, destination], signal);
     if (out.status !== "completed" || out.exitCode !== 0) throw new Error(explainSsh(alias, out));
     return { computer: alias, path: target };
+  }
+
+  private async requireModernScp(signal: AbortSignal): Promise<void> {
+    const out = await this.run("ssh", ["-V"], signal).catch(() => null);
+    const text = `${out?.stdout ?? ""}\n${out?.stderr ?? ""}`;
+    const version = /OpenSSH_(?:for_Windows_)?(\d+)\.(\d+)/i.exec(text);
+    if (out?.status === "completed" && out.exitCode === 0 && Number(version?.[1] ?? 0) >= 9) return;
+    throw new Error("File copies require OpenSSH 9 or newer so scp uses SFTP instead of a remote shell.");
   }
 
   /**
@@ -225,11 +304,12 @@ export class RemoteWorkspaces {
    */
   async execute(alias: string, executable: string, args: string[], signal: AbortSignal):
     Promise<{ computer: string; program: string; output: string }> {
+    const command = remoteExecutionSchema.parse({ program: executable, args });
     const computer = this.get(alias);
-    if (!computer.executables.includes(executable))
-      throw new Error(`"${executable}" is not one of the programs ${alias} is allowed to run. The owner adds those in Settings, one at a time.`);
-    const output = await this.ssh(computer, [executable, ...args.slice(0, 32)], signal);
-    return { computer: alias, program: executable, output: output.slice(0, 32768) };
+    if (!computer.executables.includes(command.program))
+      throw new Error(`"${command.program}" is not one of the programs ${alias} is allowed to run. The owner adds those in Settings, one at a time.`);
+    const output = await this.ssh(computer, [command.program, ...command.args], signal);
+    return { computer: alias, program: command.program, output: output.slice(0, 32768) };
   }
 }
 
@@ -249,12 +329,16 @@ export function explainSsh(alias: string, out: { status: string; stderr: string 
 
 const AliasInput = { computer: aliasSchema };
 export const RemoteListSchema = z.object({}).strict();
-export const RemoteFilesSchema = z.object({ ...AliasInput, path: z.string().max(300).default(".") }).strict();
-export const RemoteReadSchema = z.object({ ...AliasInput, path: z.string().min(1).max(300) }).strict();
+export const RemoteFilesSchema = z.object({
+  ...AliasInput, path: z.string().max(300).regex(remoteTextPattern, remoteTextMessage).default("."),
+}).strict();
+export const RemoteReadSchema = z.object({
+  ...AliasInput, path: z.string().min(1).max(300).regex(remoteTextPattern, remoteTextMessage),
+}).strict();
 export const RemoteRunSchema = z.object({
   ...AliasInput,
-  program: z.string().trim().min(1).max(80),
-  args: z.array(z.string().max(300)).max(32).default([]),
+  program: remoteProgramSchema,
+  args: remoteArgumentsSchema.default([]),
 }).strict();
 
 export function registerRemoteWorkspaces(registry: ToolRegistry, remotes: RemoteWorkspaces): void {

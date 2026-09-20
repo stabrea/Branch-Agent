@@ -337,7 +337,8 @@ function fakeSsh(answers = {}) {
   const calls = [];
   const run = async (executable, args) => {
     calls.push({ executable, args });
-    const answer = answers[executable] ?? {};
+    const key = executable === "ssh" && args.length === 1 && args[0] === "-V" ? "ssh -V" : executable;
+    const answer = answers[key] ?? {};
     return { status: answer.status ?? "completed", stdout: answer.stdout ?? "",
       stderr: answer.stderr ?? "", exitCode: answer.exitCode ?? 0 };
   };
@@ -352,6 +353,47 @@ async function sshHome(root, config, knownHosts) {
   await writeFile(join(folder, "known_hosts"), knownHosts, "utf8");
   return { config: join(folder, "config"), knownHosts: join(folder, "known_hosts") };
 }
+
+test("the SSH runner binds every tool to one resolved OpenSSH suite", async (t) => {
+  const { root } = await fixture(t);
+  const { resolveSshSuite, sshSuiteProgram } = await import("../dist/remote/ssh-workspace.js");
+  const systemSuite = join(root, "Windows", "System32", "OpenSSH");
+  const laterSuite = join(root, "later-on-path");
+  const present = new Set([
+    join(systemSuite, "ssh.exe"), join(systemSuite, "scp.exe"), join(systemSuite, "ssh-keygen.exe"),
+    join(laterSuite, "ssh.exe"), join(laterSuite, "scp.exe"), join(laterSuite, "ssh-keygen.exe"),
+  ].map((path) => path.toLowerCase()));
+  const env = { SystemRoot: join(root, "Windows"), PATH: laterSuite };
+  const suite = await resolveSshSuite("win32", env, async (path) => present.has(path.toLowerCase()));
+
+  env.PATH = join(root, "older-mixed-suite");
+  assert.equal(sshSuiteProgram(suite, "ssh"), join(systemSuite, "ssh.exe"));
+  assert.equal(sshSuiteProgram(suite, "scp"), join(systemSuite, "scp.exe"));
+  assert.equal(sshSuiteProgram(suite, "ssh-keygen"), join(systemSuite, "ssh-keygen.exe"));
+});
+
+test("an SSH suite missing its sibling scp fails closed instead of mixing PATH tools", async (t) => {
+  const { root } = await fixture(t);
+  const { resolveSshSuite } = await import("../dist/remote/ssh-workspace.js");
+  const first = join(root, "first-suite"), later = join(root, "later-suite");
+  const present = new Set([
+    join(first, "ssh.exe"), join(first, "ssh-keygen.exe"),
+    join(later, "ssh.exe"), join(later, "scp.exe"), join(later, "ssh-keygen.exe"),
+  ].map((path) => path.toLowerCase()));
+  const env = { SystemRoot: join(root, "missing-system-root"), PATH: `${first};${later}` };
+
+  await assert.rejects(resolveSshSuite("win32", env, async (path) => present.has(path.toLowerCase())),
+    /same OpenSSH folder.*scp|missing.*scp/i);
+});
+
+test("the sanitized Windows SSH environment preserves ProgramData case-insensitively", async () => {
+  const { sshEnvironment } = await import("../dist/remote/ssh-workspace.js");
+  const env = sshEnvironment({ PATH: "C:\\Windows\\System32", pRoGrAmDaTa: "C:\\ProgramData",
+    UNRELATED_SECRET: "do not inherit" }, "win32");
+
+  assert.equal(env.PROGRAMDATA, "C:\\ProgramData");
+  assert.equal(env.UNRELATED_SECRET, undefined);
+});
 
 test("A0329/A2279 a computer can only be added by a name in the owner's own SSH config", async (t) => {
   const { app, root } = await fixture(t);
@@ -407,7 +449,8 @@ test("A2279 files on another computer stay inside that computer's own folder", a
   assert.equal(call.executable, "ssh");
   assert.equal(call.args.includes("tower"), true);
   assert.equal(call.args.includes("tower.lan"), false);
-  assert.deepEqual(call.args.slice(call.args.indexOf("tower")), ["tower", "--", "ls", "-1A", "--", "/srv/work/reports"]);
+  assert.deepEqual(call.args.slice(call.args.indexOf("tower")),
+    ["tower", "--", "'ls' '-1A' '--' '/srv/work/reports'"]);
 
   // Every way out of the folder is refused before anything is sent.
   assert.equal(remotePath("/srv/work", "reports/march.csv"), "/srv/work/reports/march.csv");
@@ -430,7 +473,7 @@ test("A0648 a computer may only run the programs the owner allowed, and the card
     /"rm" is not one of the programs tower is allowed to run/);
   const done = await remotes.execute("tower", "make", ["build"], AbortSignal.timeout(5000));
   assert.equal(done.output.trim(), "ok");
-  assert.deepEqual(world.last().args.slice(-3), ["--", "make", "build"]);
+  assert.deepEqual(world.last().args.slice(-2), ["--", "'make' 'build'"]);
 
   // The approval card says which computer, so a yes is never given blind. The app registers these
   // at start-up, so registering them again is refused: that is the wiring, asserted.
@@ -448,6 +491,124 @@ test("A0648 a computer may only run the programs the owner allowed, and the card
   assert.match(explainSsh("tower", { status: "completed", stderr: "Host key verification failed." }), /different key/);
   assert.match(explainSsh("tower", { status: "completed", stderr: "Permission denied (publickey)." }), /never uses a password/);
   assert.match(explainSsh("tower", { status: "timed_out", stderr: "" }), /did not answer in time/);
+});
+
+test("remote OpenSSH quotes commands while modern scp receives raw SFTP path data", async (t) => {
+  const { app, root } = await fixture(t);
+  const { RemoteWorkspaces, quoteRemoteArg, remoteCommand, remotePath } =
+    await import("../dist/remote/ssh-workspace.js");
+  const home = await sshHome(root, "Host tower\n  HostName tower.lan\n", "tower.lan ssh-ed25519 AAAA\n");
+  const world = fakeSsh({ ssh: { stdout: "ok\n" },
+    "ssh -V": { stderr: "OpenSSH_for_Windows_9.8p1, LibreSSL 3.3.6" } });
+  const remoteRoot = "/srv/team's work;$(touch nope)`id`/*";
+  const program = "tool name's;$(bad)`bad`*";
+  const relativePath = "reports/Q1 O'Brien;$(bad)`bad`[abc]*.txt";
+  const remotes = new RemoteWorkspaces(app.store, "local", world.run, home);
+  await remotes.add({ alias: "tower", root: remoteRoot, executables: [program] });
+
+  assert.equal(quoteRemoteArg("O'Brien's file"), "'O'\"'\"'Brien'\"'\"'s file'");
+  assert.equal(remoteCommand(["tool name", "O'Brien", ";", "$()", "`id`", "*.txt"]),
+    ["'tool name'", "'O'\"'\"'Brien'", "';'", "'$()'", "'`id`'", "'*.txt'"].join(" "));
+
+  await remotes.files("tower", relativePath, AbortSignal.timeout(5000));
+  const listed = world.last();
+  const listedTarget = remotePath(remoteRoot, relativePath);
+  assert.deepEqual(listed.args.slice(listed.args.indexOf("tower") + 1),
+    ["--", remoteCommand(["ls", "-1A", "--", listedTarget])],
+    "ssh must receive exactly one serialized command after the alias separator");
+  assert.match(listed.args.at(-1), /^'ls' '-1A' '--' '/);
+  assert.match(listed.args.at(-1), /'\"'\"'/, "apostrophes stay inside the quoted argument");
+
+  const commandArgs = ["ordinary space", "O'Brien", "; touch nope", "$(touch nope)", "`touch nope`", "*.txt"];
+  await remotes.execute("tower", program, commandArgs, AbortSignal.timeout(5000));
+  assert.deepEqual(world.last().args.slice(world.last().args.indexOf("tower") + 1),
+    ["--", remoteCommand([program, ...commandArgs])]);
+
+  await remotes.write("tower", relativePath, join(root, "local file.txt"), AbortSignal.timeout(5000));
+  assert.equal(world.last().executable, "scp");
+  assert.deepEqual(world.calls.at(-2), { executable: "ssh", args: ["-V"] });
+  assert.equal(world.last().args.includes("-s"), false, "-s is not treated as an SFTP capability switch");
+  assert.equal(world.last().args.at(-1), `tower:${listedTarget}`);
+  assert.notEqual(world.last().args.at(-1), `tower:${quoteRemoteArg(listedTarget)}`,
+    "SFTP path data must not contain shell-quote characters");
+});
+
+test("remote writes refuse pre-9 or unknown OpenSSH clients before scp starts", async (t) => {
+  const { app, root } = await fixture(t);
+  const { RemoteWorkspaces } = await import("../dist/remote/ssh-workspace.js");
+  const home = await sshHome(root, "Host tower\n  HostName tower.lan\n", "tower.lan ssh-ed25519 AAAA\n");
+  const setup = fakeSsh();
+  const remotes = new RemoteWorkspaces(app.store, "local", setup.run, home);
+  await remotes.add({ alias: "tower", root: "/srv/work" });
+
+  const unsupported = [
+    { stderr: "OpenSSH_8.9p1, LibreSSL 3.3.6" },
+    { stderr: "Dropbear ssh client v2025.88" },
+    { stderr: "", exitCode: 1 },
+  ];
+  for (const answer of unsupported) {
+    const world = fakeSsh({ "ssh -V": answer });
+    const guarded = new RemoteWorkspaces(app.store, "local", world.run, home);
+    await assert.rejects(guarded.write("tower", "report's final;*.txt", join(root, "local.txt"),
+      AbortSignal.timeout(5000)), /OpenSSH 9 or newer/);
+    assert.deepEqual(world.calls, [{ executable: "ssh", args: ["-V"] }],
+      "an unsupported client may be probed but must never start scp");
+  }
+});
+
+test("remote OpenSSH rejects NUL, CR and LF before spawning", async (t) => {
+  const { app, root } = await fixture(t);
+  const { RemoteComputerSchema, RemoteReadSchema, RemoteRunSchema, RemoteWorkspaces,
+    quoteRemoteArg, remoteCommand } = await import("../dist/remote/ssh-workspace.js");
+  const home = await sshHome(root, "Host tower\n  HostName tower.lan\n", "tower.lan ssh-ed25519 AAAA\n");
+  const world = fakeSsh();
+  const remotes = new RemoteWorkspaces(app.store, "local", world.run, home);
+
+  assert.throws(() => remoteCommand([]), /at least one argument/i);
+  for (const control of ["\0", "\r", "\n"]) {
+    for (const value of [`${control}bad`, `bad${control}value`, `bad${control}`]) {
+      assert.throws(() => quoteRemoteArg(value), /NUL|line break|control/i);
+      assert.throws(() => remoteCommand(["safe", value]), /NUL|line break|control/i);
+    }
+    for (const rootValue of [`${control}/srv/work`, `/srv/bad${control}root`, `/srv/work${control}`])
+      assert.equal(RemoteComputerSchema.safeParse({ alias: "tower", root: rootValue }).success, false);
+    for (const program of [`${control}program`, `bad${control}program`, `program${control}`]) {
+      assert.equal(RemoteComputerSchema.safeParse({ alias: "tower", root: "/srv/work",
+        executables: [program] }).success, false);
+      assert.equal(RemoteRunSchema.safeParse({ computer: "tower", program }).success, false);
+    }
+    for (const pathValue of [`${control}path`, `bad${control}path`, `path${control}`])
+      assert.equal(RemoteReadSchema.safeParse({ computer: "tower", path: pathValue }).success, false);
+    for (const arg of [`${control}arg`, `bad${control}arg`, `arg${control}`])
+      assert.equal(RemoteRunSchema.safeParse({ computer: "tower", program: "safe", args: [arg] }).success, false);
+    await assert.rejects(remotes.add({ alias: "tower", root: `${control}/srv/work` }), /./);
+    await assert.rejects(remotes.add({ alias: "tower", root: `/srv/work${control}` }), /./);
+    await assert.rejects(remotes.add({ alias: "tower", root: "/srv/work",
+      executables: [`${control}program`] }), /./);
+    await assert.rejects(remotes.add({ alias: "tower", root: "/srv/work",
+      executables: [`program${control}`] }), /./);
+  }
+  assert.equal(world.calls.length, 0, "invalid roots and allowed program names never start OpenSSH");
+
+  await remotes.add({ alias: "tower", root: "/srv/work", executables: ["safe"] });
+  const callsBefore = world.calls.length;
+  for (const control of ["\0", "\r", "\n"]) {
+    for (const program of [`${control}safe`, `sa${control}fe`, `safe${control}`])
+      await assert.rejects(remotes.execute("tower", program, [], AbortSignal.timeout(5000)),
+        /NUL|line break|control/i);
+    for (const pathValue of [`${control}path`, `bad${control}path`, `path${control}`])
+      await assert.rejects(remotes.read("tower", pathValue, AbortSignal.timeout(5000)),
+        /NUL|line break|control/i);
+    for (const arg of [`${control}arg`, `bad${control}arg`, `arg${control}`])
+      await assert.rejects(remotes.execute("tower", "safe", [arg], AbortSignal.timeout(5000)),
+        /NUL|line break|control/i);
+    const afterLimit = [...Array(32).fill("safe"), `bad${control}arg`];
+    await assert.rejects(remotes.execute("tower", "safe", afterLimit, AbortSignal.timeout(5000)),
+      /NUL|line break|too big|32/i);
+  }
+  await assert.rejects(remotes.execute("tower", "safe", Array(33).fill("safe"), AbortSignal.timeout(5000)),
+    /too big|32/i);
+  assert.equal(world.calls.length, callsBefore, "invalid remote text is rejected before OpenSSH is spawned");
 });
 
 // ------------------------------------------------------------ A0544 / A1582: a way back, and a line of work
