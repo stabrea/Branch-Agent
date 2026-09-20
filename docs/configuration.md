@@ -7570,7 +7570,16 @@ yours, not Branch's:
 A computer starts able to hold files and **nothing else**. You add the programs it may run one at a
 time; anything else is refused by name. Paths are kept inside that computer's own folder exactly as
 they are inside your workspace: `..`, a path starting at `/`, and a drive letter are all refused
-before anything is sent. The approval card names the computer, so a yes is never given blind.
+before anything is sent. Each remote command is sent to OpenSSH as one POSIX command string, with
+the program and every argument single-quoted separately (including spaces, apostrophes and shell
+metacharacters). Before a file copy, Branch checks the local suite with `ssh -V` and requires
+OpenSSH 9 or newer, where scp uses SFTP by default. The validated remote path is then sent raw as
+SFTP path data rather than shell text. An older, unrecognised or unreadable client is refused before
+`scp` starts, so Branch never falls back to legacy SCP's remote shell. NUL and line breaks are
+refused before OpenSSH starts. The approval card names the computer, so a yes is never given blind.
+Branch resolves `ssh` once (preferring Windows' `System32/OpenSSH` or macOS' `/usr/bin`) and uses
+only the absolute sibling `scp` and `ssh-keygen`; a missing sibling refuses the suite, so a different
+program added to `PATH` later cannot be mixed into it. The version check probes that bound `ssh`.
 
 `ssh` itself is the boundary here. Every byte goes through the child process, so nothing on a remote
 computer can be used to reach an address the web rules refuse — but equally, the web rules do not
