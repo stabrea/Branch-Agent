@@ -853,6 +853,7 @@ body.lx-help .context-panel > .acorn-art {
   color: var(--text);
   font-size: 13px;
   font-family: var(--body);
+  height: 100%;
   outline: none;
 }
 .lx-search input::placeholder {
