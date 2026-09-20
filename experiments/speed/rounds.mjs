@@ -23,11 +23,15 @@ import { DatabaseSync } from "node:sqlite";
 
 const searchers = new Set(["tools.search", "tools.expand", "tools.describe", "tools.note"]);
 
-/** One cell's numbers, or null when its database is not there. */
+/**
+ * One cell's numbers, or null when its database is not there — or is still being written, which is
+ * what a cell that is running right now looks like. A part-finished window is still worth reading.
+ */
 export function readCell(dataDir) {
   const file = join(dataDir, "branch.sqlite");
   if (!existsSync(file)) return null;
-  const db = new DatabaseSync(file, { readOnly: true });
+  let db;
+  try { db = new DatabaseSync(file, { readOnly: true }); } catch { return null; }
   try {
     const events = db.prepare("SELECT kind, data FROM events WHERE kind IN "
       + "('model.completed','tool.started','tools.together','rounds.exhausted')").all();
@@ -47,7 +51,7 @@ export function readCell(dataDir) {
       ranTogether: together.reduce((total, n) => total + n, 0),
       hitTheCeiling: events.some((row) => row.kind === "rounds.exhausted"),
     };
-  } finally { db.close(); }
+  } catch { return null; } finally { db.close(); }
 }
 
 const totals = new Map();
