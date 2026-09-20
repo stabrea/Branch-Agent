@@ -459,7 +459,10 @@ async function overRunningBranch(command: string, dataDir: string): Promise<numb
     return 0;
   }
   const args = process.argv.slice(3).filter((word) => !word.startsWith("--"));
+  // This terminal's own language, so a person on "follow the computer" reads the same words here.
+  const locale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || "";
   const query = [`command=${encodeURIComponent(command)}`, ...(process.argv.includes("--json") ? ["json=1"] : []),
+    ...(locale ? [`locale=${encodeURIComponent(locale.slice(0, 40))}`] : []),
     ...args.map((word) => `arg=${encodeURIComponent(word)}`)].join("&");
   const { lines } = await client.get<{ lines: string[] }>(`/api/terminal?${query}`);
   for (const line of lines) console.log(line);

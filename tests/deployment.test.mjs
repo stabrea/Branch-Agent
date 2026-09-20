@@ -624,6 +624,14 @@ test("B4 a short-lived key cannot make or take back another key", async (t) => {
   }
   const listing = await fetch(`${server.url}/api/tokens`, { headers: { authorization: `Bearer ${key}` } });
   assert.equal(listing.ok, false, "and it cannot read the list of keys either");
+
+  // Somebody else using this computer under their own profile is refused the keys and the terminal's
+  // places, reading included. A task's trace carries no words of its own, so it is an ordinary read,
+  // like the inspect and monitor views beside it.
+  const { offLimitsToHousehold } = await import("../dist/server.js");
+  for (const [method, path] of [["POST", "/api/tokens"], ["GET", "/api/tokens"],
+    ["POST", "/api/tokens/abc/revoke"], ["GET", "/api/terminal"]])
+    assert.ok(offLimitsToHousehold(method, path), `${method} ${path} must be the owner's alone`);
 });
 
 test("B4 a command that would write to the same saved work still refuses, and says what to do", async (t) => {

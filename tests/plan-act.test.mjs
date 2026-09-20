@@ -422,7 +422,7 @@ test("with nobody to ask, Plan mode finishes with the plan and changes nothing",
   assert.equal(await readFile(join(workspace, "summary.txt"), "utf8"), "done");
 });
 
-test("the Plan chip behaves the same way when nobody can be asked", async (t) => {
+test("the Plan chip: it shows the plan and waits, and finishes with it when nobody can be asked", async (t) => {
   const { app, api, workspace } = await served(t, ({ system, user, last }) => {
     if (/You are planning a task/.test(system)) return say(twoStepPlan);
     if (last?.role === "tool") return say("Summary written.");
@@ -434,6 +434,14 @@ test("the Plan chip behaves the same way when nobody can be asked", async (t) =>
   assert.equal((await api(`plan-act?sessionId=${first.sessionId}`)).effective.planMode, "show-plan",
     "the Plan chip is the same switch");
 
+  // Someone at the window: the plan is shown and the task waits, as it does for the switch itself.
+  const asked = await api("run", { prompt: "summarise my notes", sessionId: first.sessionId });
+  assert.equal(asked.status, "needs_input", asked.output);
+  assert.match(asked.output, /Here is my plan:\n1\. Read the notes/, "the plan, not a refusal");
+  assert.ok(kinds(app, asked.id).includes("plan.awaiting_approval"));
+  assert.ok(await missing(join(workspace, "summary.txt")));
+
+  // A script, a schedule or a trigger in the same conversation: the plan is the answer instead.
   const run = await app.runtime.run({ prompt: "summarise my notes", sessionId: first.sessionId, unattended: true });
   assert.equal(run.status, "completed");
   assert.match(run.output, /Here is my plan:/);

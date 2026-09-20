@@ -2660,9 +2660,11 @@ async function terminalReadApi(app: Branch, request: IncomingMessage): Promise<u
     throw new HttpError(400, `"${command}" changes things, so it cannot be run against the Branch that is already open.`);
   const args = url.searchParams.getAll("arg").map((word) => word.slice(0, 200)).slice(0, 8);
   const json = url.searchParams.get("json") === "1";
+  // The owner's saved language wins; "auto" follows the terminal that asked, as it would have here.
+  const locale = (url.searchParams.get("locale") ?? "").slice(0, 40);
   const lines: string[] = [];
   await runTerminalCommand(app, command, args, {
-    interactive: false, env: {}, json, write: (line) => { lines.push(line); },
+    interactive: false, env: locale ? { LANG: locale } : {}, json, write: (line) => { lines.push(line); },
   });
   return { command, lines };
 }

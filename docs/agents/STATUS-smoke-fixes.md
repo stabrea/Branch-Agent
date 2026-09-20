@@ -42,6 +42,13 @@ So there were two faults, neither of them about being headless:
   `src/coding/project-tests.ts` rather than writing a second definition: a script's `branch run`
   (`unattended`), a schedule, a trigger, a chat app, MCP, A2A. So the unattended rules in
   `docs/agents/STATUS-coding-next.md`, the tests question and Plan mode all say the same thing.
+  **One behaviour change an integrator should see:** `nobodyToAsk()` counts a chat app
+  (`source: "channel"`), so a Plan-mode task started from a chat message now finishes with its plan
+  instead of ending `needs_input` for the chat person to answer. `project-tests.ts` made that choice
+  for the tests question on the grounds that running tests is never needed to finish the work, which
+  is not the same argument here — but the outcome is strictly safer (the plan is delivered, nothing
+  is changed, the plan is kept for a later "go ahead"), and one reading beats two. Worth a second
+  opinion if the integrator disagrees.
 - **The phase-1 Plan chip agrees.** `pickConversationMode` sets `planMode: "show-plan"` on the
   conversation *and* a read-only policy, so it is belt and braces; it now takes the same
   finish-with-the-plan path, tested. The CLI `--plan` flag has neither, which is why it behaved
@@ -70,8 +77,10 @@ So there were two faults, neither of them about being headless:
 - "with nobody to ask, Plan mode finishes with the plan and changes nothing" — completed, the plan
   as the answer, no `tool.started`, no `attention.needed`, the file absent, the plan still waiting,
   and a later "go ahead" carries it out.
-- "the Plan chip behaves the same way when nobody can be asked" — through
-  `POST /api/conversation-mode {mode:"plan"}`.
+- "the Plan chip: it shows the plan and waits, and finishes with it when nobody can be asked" —
+  through `POST /api/conversation-mode {mode:"plan"}`, both ways round. The attended half also
+  proves the chip's read-only policy does not get there first: the task comes back with the plan and
+  `plan.awaiting_approval`, not a policy refusal.
 - "a plan-act choice that names neither a conversation nor the project is refused, not dropped".
 
 **Mutation-checked**: with `this.options.nobodyToAsk` forced false in `dist/orchestration.js` and the
@@ -186,10 +195,15 @@ its own words, and I would rather ship the ones the repro named than half-finish
 
 - Nothing here opens the database twice. Every new path is an HTTP request to the one Branch that
   holds it.
-- All four routes are the owner's alone at this computer. A household profile is refused
-  (`offLimitsToHousehold`), and a short-lived key is refused both the read (`ownerOnlyReads` in
-  `src/short-lived-keys.ts`) and the write, so **a key cannot make or take back a key** — no
-  self-renewal. Tested.
+- The keys and the terminal's places are the owner's alone at this computer: a household profile is
+  refused (`offLimitsToHousehold`) and a short-lived key is refused both the read (`ownerOnlyReads`
+  in `src/short-lived-keys.ts`) and the write, so **a key cannot make or take back a key** — no
+  self-renewal. Tested. `GET /api/runs/:id/trace` is an ordinary read, classified `look` like the
+  `inspect` and `monitor` views beside it: it carries a trace id, the kinds of step and their
+  counts, and none of the task's words.
+- `branch memory` and the rest read in the owner's own language: the terminal sends its own
+  `LANG`/`LC_*` with the request, so a person on "follow the computer" gets the same words from the
+  running Branch that they would have got here.
 - `GET /api/terminal` only runs the commands on an explicit list of ones that never write
   (`readOnlyTerminalCommands` in `src/terminal-cli.ts`); anything else is refused in plain words.
 
@@ -236,7 +250,8 @@ Restored: 25 pass, 0 fail.
 - [x] Targeted run after the merge: `plan-act`, `coding-next`, `deployment`, `orchestration`,
   `orchestration-2`, `conversation-mode`, `short-lived-keys`, `static-assets`, `index-structure`,
   `handbook`, `wire-safe-patterns`, `terminal-commands`, `auth-tracing-cli`, `settings-kit-review` —
-  **205 tests, 205 pass, 0 fail, 0 skipped**. Plus `terminal-cli` and `cli` run one at a time
+  **205 tests, 205 pass, 0 fail, 0 skipped** (re-run after the review fixes below: same set, same
+  result). Plus `terminal-cli` and `cli` run one at a time
   (they each start a web app on the default port, so they flake against each other under
   `--test-concurrency=2`, before this branch as well as after): **8 pass, 0 fail**.
 - [x] Pushed to `origin/mac7/smoke-fixes`. **Not merged into trunk** — the brief says an integrator
@@ -252,5 +267,8 @@ Restored: 25 pass, 0 fail.
   while Branch is open. Each needs its own route and its own words, so I left them refusing.
 - `--plan` still carries the plan out rather than showing it. That is a decision, written above, not
   an oversight: changing it would change what existing scripts do without anyone saying yes.
-- `tests/terminal-cli.test.mjs` and `tests/cli.test.mjs` both start a web app on the default port and
-  cannot run beside each other. Pre-existing; not this branch's to fix.
+- `tests/terminal-cli.test.mjs` and `tests/cli.test.mjs` both start a web app on the default port.
+  Run one at a time they pass; run with `--test-concurrency=2` beside other suites that also start a
+  server, "bare branch with no terminal still starts the web app" times out. Nothing on this branch
+  touches `branch start`, so I do not believe it is mine — but I did not run the pair on the merge
+  base to prove that, so it is a claim I have not checked.

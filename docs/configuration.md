@@ -7275,8 +7275,11 @@ work — `backup`, `restore`, `security audit`, `activity verify`, `theme`, `mod
 `permissions`, `chat`, `run` — still refuses while a Branch is open, and the refusal now names the
 commands that do work and says to close that Branch first. Routes: `GET|POST /api/tokens`,
 `POST /api/tokens/<id>/revoke`, `GET /api/runs/<id>/trace`, `GET /api/terminal?command=<name>&arg=…`.
-All four are the owner's alone at this computer: a household profile is refused, and a short-lived
-key can neither read the list of keys nor make or take one back, so no key can renew itself.
+The keys and the terminal's places are the owner's alone at this computer: a household profile is
+refused, and a short-lived key can neither read the list of keys nor make or take one back, so no key
+can renew itself. A task's trace is an ordinary read, like the `inspect` and `monitor` views beside
+it. The terminal sends its own `LANG`/`LC_*` with the request, so "follow the computer" reads the
+same words from the running Branch as it would here; a language you chose yourself always wins.
 
 - `--scope read` may look at things only: any request that is not a GET is refused, in those words.
   `--scope run` may also start a task. Neither may ever become the master key.
