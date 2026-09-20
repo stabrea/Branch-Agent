@@ -61,6 +61,16 @@ export function segmented({ id, options = null, value = "off", onChange }) {
   group.setAttribute("role", "group");
 
   const buttons = [];
+  let currentValue = value;
+
+  function updateSelection(newValue) {
+    currentValue = newValue;
+    for (const btn of buttons) {
+      const isNow = btn.value === newValue;
+      btn.setAttribute("aria-pressed", String(isNow));
+    }
+  }
+
   for (const [optValue, optKey, optEnglish] of opts) {
     const button = document.createElement("button");
     button.type = "button";
@@ -73,11 +83,7 @@ export function segmented({ id, options = null, value = "off", onChange }) {
     button.setAttribute("aria-pressed", String(isSelected));
 
     button.addEventListener("click", () => {
-      // Update all buttons' pressed state
-      for (const btn of buttons) {
-        const isNow = btn.value === optValue;
-        btn.setAttribute("aria-pressed", String(isNow));
-      }
+      updateSelection(optValue);
       onChange?.(optValue);
     });
 
@@ -101,6 +107,12 @@ export function segmented({ id, options = null, value = "off", onChange }) {
     group.append(button);
     buttons.push(button);
   }
+
+  // Add .value property for compatibility with code that expects a select-like interface
+  Object.defineProperty(group, "value", {
+    get() { return currentValue; },
+    set(newValue) { updateSelection(newValue); }
+  });
 
   return group;
 }

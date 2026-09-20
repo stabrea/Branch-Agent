@@ -2,6 +2,7 @@
 // before the owner is asked; the deciding happens on the server (src/approval-reviewer.ts). This
 // card only shows the saved settings and sends changes back. Every word is behind a key.
 import { t } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -51,8 +52,15 @@ function buildCard() {
   card.className = "card";
   card.id = "approval-reviewer-card";
   card.dataset.home = "settings:permissions";
-  const mode = document.createElement("select");
-  options(mode, ["off", "on", "when-needed"].map((value) => [value, `folder-trust.switch.${value}`]));
+  const mode = segmented({
+    id: "approval-reviewer-mode",
+    options: [
+      ["off", "folder-trust.switch.off", "Off"],
+      ["on", "folder-trust.switch.on", "On"],
+      ["when-needed", "folder-trust.switch.when-needed", "When needed"]
+    ],
+    value: "off"
+  });
   const connection = document.createElement("select");
   const rules = document.createElement("textarea");
   rules.rows = 4;
