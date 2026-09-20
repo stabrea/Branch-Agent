@@ -427,9 +427,8 @@ function drawSettings(canvas: Canvas, model: ScreenModel, area: { x: number; y: 
   const navWidth = narrow ? 0 : 24;
   const body = { x: box.x + navWidth + 3, y: box.y + (narrow ? 2 : 1), width: box.width - navWidth - 5, height: box.height - (narrow ? 2 : 2) };
   if (narrow) drawPageStrip(canvas, model, box, route.settings);
-  else SETTINGS_PAGES.forEach((page, index) => {
+  else settingsNavWindow(route.settings, box.height - 2).forEach((page, index) => {
     const on = page.id === route.settings, y = box.y + 1 + index;
-    if (y >= box.y + box.height - 1) return;
     canvas.hit(box.x + 2, y, navWidth - 1, 1, `page:${page.id}`);
     canvas.text(box.x + 2, y, fitText(`${on ? model.glyphs.pointer : " "} ${t(model, page.key, page.english)}`, navWidth - 1, model.glyphs.ellipsis),
       on ? { fg: "accentText", bg: "accentTint", bold: true } : { fg: "muted", bg: "panel" });
@@ -447,6 +446,12 @@ function drawSettings(canvas: Canvas, model: ScreenModel, area: { x: number; y: 
   const rows = model.loading ? [{ title: t(model, "terminal.loading", "Looking…"), tone: "muted" as const }] : model.rows;
   drawRows(canvas, model, rows, { x: body.x + 1, y, width: body.width - 1, height: box.y + box.height - y - 1 }, model.selected, "panel");
   return null;
+}
+function settingsNavWindow(current: string, visible: number): typeof SETTINGS_PAGES {
+  const count = Math.max(1, visible);
+  const index = Math.max(0, SETTINGS_PAGES.findIndex((page) => page.id === current));
+  const start = Math.max(0, Math.min(index - Math.floor(count / 2), SETTINGS_PAGES.length - count));
+  return SETTINGS_PAGES.slice(start, start + count);
 }
 function drawPageStrip(canvas: Canvas, model: ScreenModel, box: { x: number; y: number; width: number }, current: string): void {
   const index = SETTINGS_PAGES.findIndex((entry) => entry.id === current);
