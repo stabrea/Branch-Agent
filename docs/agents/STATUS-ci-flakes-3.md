@@ -119,6 +119,11 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   A click that lands while the Settings window is still settling can be swallowed; the test presses
   again while the list is still not open. Cause of the swallowed click not proven.
 
+## Run 35477648939 on 0a5a1245 (macOS and Linux green; Windows 5/6 red)
+- p2-shell-ui "the strip sits at the left edge…" (Windows): TEST. The fixture gave the strip 15 s to
+  appear after sign-in, and a busy Windows machine took longer; it now has 60 s (the window itself
+  gets 120 s, as tests/places.mjs does).
+
 ## Left for somebody: more of the same family, not failing CI today
 The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
 middle of typing or choosing, so the value saved can be the old one:

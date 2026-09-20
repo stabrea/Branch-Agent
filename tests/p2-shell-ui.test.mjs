@@ -41,9 +41,10 @@ async function fixture(t, { width = 1440, height = 950 } = {}) {
     await page.goto(server.url);
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await page.locator("#workspace").waitFor({ state: "visible" });
+    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
     await page.locator("body.lx-ready").waitFor({ state: "attached" });
-    await page.locator("#trunk-strip .strip-brand").waitFor({ state: "visible", timeout: 15000 });
+    // The strip is drawn once the Trunks have arrived; a busy Windows build machine took over 15 s.
+    await page.locator("#trunk-strip .strip-brand").waitFor({ state: "visible", timeout: 60000 });
   };
   const refresh = () => page.evaluate(async () => (await import("/strip.js")).refresh());
   return { app, server, call, page, errors, open, refresh };
