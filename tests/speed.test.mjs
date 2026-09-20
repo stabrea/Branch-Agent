@@ -496,3 +496,18 @@ test("the digest shown to the last question is bounded whatever the task did", a
   assert.ok(!asked[1].content.includes("#0 "), "and the oldest ones are not");
   assert.ok(!asked[1].content.includes("y".repeat(900)), "and no one message is carried whole");
 });
+
+test("A: a reply whose calls are all about different things asks the rules nothing extra", () => {
+  let asked = 0;
+  const rules = {
+    readOnly: () => true,
+    targetOf: (call) => JSON.parse(call.arguments).path,
+    allowedOutright: () => { asked += 1; return true; },
+    alone: [],
+  };
+  const read = (path, n) => ({ id: `r${n}`, name: "files.read", arguments: JSON.stringify({ path }) });
+  parallelGroups([read("a", 1), read("b", 2), read("c", 3), read("d", 4)], rules);
+  assert.equal(asked, 0, "nothing about the same thing twice, so no extra question was asked of the rules");
+  parallelGroups([read("a", 1), read("a", 2)], rules);
+  assert.ok(asked > 0, "and it is asked as soon as one thing comes up twice");
+});

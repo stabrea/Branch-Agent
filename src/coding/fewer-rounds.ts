@@ -109,19 +109,29 @@ export interface GroupingRules {
 export function parallelGroups<T extends CallLike>(calls: readonly T[], rules: GroupingRules): T[][] {
   const groups: T[][] = [];
   let open: T[] = [];
-  /** Each target already in the open run, and whether every call with it needed no permission. */
-  let targets = new Map<string, boolean>();
-  const flush = (): void => { if (open.length) groups.push(open); open = []; targets = new Map(); };
+  /** The first call in the open run about each thing; a later one about the same thing meets it. */
+  let firstWith = new Map<string, T>();
+  // Asked only when a thing comes up twice, and remembered — a reply whose calls are all about
+  // different things (the ordinary case) never pays for this at all.
+  const answers = new Map<T, boolean>();
+  const allowed = (call: T): boolean => {
+    const known = answers.get(call);
+    if (known !== undefined) return known;
+    const now = rules.allowedOutright(call);
+    answers.set(call, now);
+    return now;
+  };
+  const flush = (): void => { if (open.length) groups.push(open); open = []; firstWith = new Map(); };
   for (const call of calls) {
     if (!rules.readOnly(call.name) || rules.alone.includes(call.name)) { flush(); groups.push([call]); continue; }
     const target = rules.targetOf(call);
-    const allowed = rules.allowedOutright(call);
-    const before = targets.get(target);
-    const targetOk = before === undefined || (before && allowed);
+    const before = firstWith.get(target);
+    // Everything already in the run about this thing was let through by this same test, so meeting
+    // the first of them is enough to know none of them would raise a question.
+    const targetOk = before === undefined || (allowed(before) && allowed(call));
     if (!targetOk || open.length >= parallelLimit) flush();
     open.push(call);
-    const now = targets.get(target);
-    targets.set(target, now === undefined ? allowed : now && allowed);
+    if (!firstWith.has(target)) firstWith.set(target, call);
   }
   flush();
   return groups;
