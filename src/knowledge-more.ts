@@ -100,6 +100,10 @@ export function registerKnowledgeExtras(registry: ToolRegistry, parts: Knowledge
     parameters: z.object({
       rename: RenameSchema.optional(), merge: MergeSchema.optional(), split: SplitSchema.optional(),
     }).strict(),
+    target: (input: { rename?: unknown; merge?: unknown; split?: unknown }) => {
+      if ((input.split as any)?.folder) return (input.split as any).folder;
+      return "";
+    },
     execute: async (input, context) => manage(parts, context.owner, input),
   });
   registry.register({
