@@ -91,6 +91,11 @@ calls the script says. Timings come from the product's own spans (`run`, `model`
 
 ### What the model does per turn, from the owner's own database
 
+> **This section is wrong and is kept only so the correction has something to point at.** The real
+> model batches in 24% of its rounds — see *Corrected by real-model data*, below. What follows was
+> measured against a scripted stand-in and an old database, and it is the reason items B and C were
+> built. They are cheap and tested and they stay; they are not the win.
+
 Every `model.completed` row in the app's database (`state/branch.sqlite`, 16 rounds across 8 tasks)
 returned **0 or 1 tool calls — never two**. The provider side is not the cause: the ChatGPT plan's
 request already sets `parallel_tool_calls: true` (`src/chatgpt-provider.ts:86`) and the Responses
@@ -176,6 +181,8 @@ token budget are unchanged. When `files.edit` arrives the list now grows by one 
 `workspace.redo` away, so a provider holding the front of the request keeps it.
 
 ### B — the line inviting the model to batch
+
+**Superseded: the real model already batches (24% of rounds). See the correction below.**
 
 **Not measured on a real model here**, and not claimed. What is measured is what a removed turn is
 worth (the table in section 0: 33–55% of the clock across three tasks). Pi, which gets 6 rounds out
