@@ -13,6 +13,8 @@
 // holds that. With no --shard, every file runs here, as before.
 //
 // BRANCH_TEST_TIMINGS=<file> also writes how long each file took, which is where the weights come from.
+// `--files-from=selected-tests.json` runs an explicit selector-produced subset and refuses any path
+// that is not part of the discovered suite. It cannot be combined with sharding.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -70,6 +72,26 @@ export function parseShard(argv) {
   return { index: index - 1, total };
 }
 
+/** Read an explicit selector-produced subset and prove every entry belongs to the discovered suite. */
+export function parseFilesFrom(argv, groups, read = (file) => readFileSync(file, "utf8")) {
+  const flag = argv.find((arg) => arg.startsWith("--files-from="));
+  if (!flag) return null;
+  if (argv.some((arg) => arg.startsWith("--shard="))) throw new Error("--files-from and --shard cannot be combined");
+  const file = flag.slice("--files-from=".length);
+  const parsed = JSON.parse(read(file));
+  if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) {
+    throw new Error("--files-from must contain a JSON array of test paths");
+  }
+  const normalized = parsed.map(posix);
+  if (new Set(normalized).size !== normalized.length) throw new Error("--files-from contains a duplicate test");
+  const discovered = new Map([...groups.shared, ...groups.desktop].map((entry) => [posix(entry), entry]));
+  return normalized.map((entry) => {
+    const match = discovered.get(entry);
+    if (!match) throw new Error(`Selected test was not discovered: ${entry}`);
+    return match;
+  });
+}
+
 function run(files, concurrency, timingsFile) {
   if (!files.length) return 0;
   const reporters = timingsFile
@@ -102,12 +124,16 @@ function mergeTimings(target, parts) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { index, total } = parseShard(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const { index, total } = parseShard(argv);
   const groups = testGroups();
-  const mine = new Set(shards([...groups.shared, ...groups.desktop], total, loadWeights())[index]);
+  const explicit = parseFilesFrom(argv, groups);
+  const mine = new Set(explicit ?? shards([...groups.shared, ...groups.desktop], total, loadWeights())[index]);
   const shared = groups.shared.filter((file) => mine.has(file));
   const apps = groups.desktop.filter((file) => mine.has(file));
-  console.log(`Share ${index + 1} of ${total}: ${shared.length + apps.length} of ${groups.shared.length + groups.desktop.length} test files.`);
+  console.log(explicit
+    ? `Selected ${shared.length + apps.length} of ${groups.shared.length + groups.desktop.length} test files.`
+    : `Share ${index + 1} of ${total}: ${shared.length + apps.length} of ${groups.shared.length + groups.desktop.length} test files.`);
   const timings = process.env.BRANCH_TEST_TIMINGS;
   const parts = timings ? [`${timings}.shared`, `${timings}.desktop`] : [];
   // Both groups always run, so one red run reports every failure.

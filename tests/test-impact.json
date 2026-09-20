@@ -1,0 +1,79 @@
+{
+  "budgetSeconds": 120,
+  "unknownTestSeconds": 30,
+  "always": [
+    "tests/leak-guard.test.mjs"
+  ],
+  "ignored": [
+    "docs/**",
+    "**/*.md",
+    ".github/ISSUE_TEMPLATE/**",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "fullRequired": [
+    ".github/workflows/**",
+    "apps/**",
+    "data/**",
+    "package.json",
+    "package-lock.json",
+    "packages/**",
+    "scripts/**",
+    "src/catalog.ts",
+    "src/contracts.ts",
+    "src/desktop/**",
+    "src/index.ts",
+    "src/policy.ts",
+    "src/registry.ts",
+    "src/runtime.ts",
+    "src/server.ts",
+    "src/store.ts",
+    "src/tool-gate.ts",
+    "tests/test-impact.json",
+    "tsconfig.json"
+  ],
+  "mappings": [
+    {
+      "paths": [
+        "src/remote/ssh-workspace.ts"
+      ],
+      "tests": [
+        "tests/sandbox-remote.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/app.js",
+        "public/composer-menu.js",
+        "public/hover-help.js",
+        "public/index.html",
+        "public/layout.css",
+        "public/layout.js",
+        "public/settings-grown.css",
+        "public/shell.css"
+      ],
+      "tests": [
+        "tests/calm-ui.test.mjs",
+        "tests/shell-ui.test.mjs",
+        "tests/tool-targets-comprehensive-guard.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/panels.css"
+      ],
+      "tests": [
+        "tests/panels.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/locales/*.json"
+      ],
+      "tests": [
+        "tests/locales-contract.test.mjs"
+      ]
+    }
+  ]
+}
