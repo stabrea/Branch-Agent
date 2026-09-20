@@ -1362,7 +1362,7 @@ body.lx #connection[data-state="lost"] {
   #thread-labels, #lx-pane-tabs, #lx-clear, #lx-shield, #aside-toggle,
   #saved-conversations, #practice-card, #plan-controls, #model-controls,
   .welcome > p, #suggestions,
-  #composer-media, #composer-attach, #voice-record, #voice-talk,
+  #composer-media, #composer-attach, #voice-talk,
   .composer-temporary, .composer-specialist, #new-session, .lx-model-chip,
   .composer-foot, .context-stats, #session-context[data-kind="plain"], #activity, #first-run-next,
   [data-t^="first-run-next.watch"], #composer-media-file
@@ -1578,40 +1578,41 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) body.lx #chat-form > #composer-attachments {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #chat-form > .lx-plus-wrap {
-  display: none;
-}
 :root:not([data-everything="on"]) body.lx #prompt {
   display: block;
   flex-grow: 1;
   flex-shrink: 1;
-  height: 34px;
+  min-height: 34px;
   max-height: 40vh;
   padding: 0 6px;
   overflow-y: auto;
   font-size: 15px;
-  line-height: 34px;
+  line-height: 1.5;
   outline: none;
   border: none;
   background: transparent;
   resize: none;
+  margin: 0;
 }
 :root:not([data-everything="on"]) body.lx #prompt::placeholder {
   color: var(--text-3);
 }
-:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
-  display: none;
+/* Visually hidden label should not affect flex layout */
+:root:not([data-everything="on"]) body.lx #chat-form .sr-only {
+  margin: 0;
+  height: 1px;
 }
 :root:not([data-everything="on"]) body.lx #followup-send {
   display: none;
 }
 /* Show voice record button in composer in calm mode */
 :root:not([data-everything="on"]) body.lx #chat-form #voice-record {
-  display: inline-flex !important;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
+  margin: 0;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -1625,8 +1626,9 @@ body.lx #connection[data-state="lost"] {
 /* Show chips in composer in calm mode */
 :root:not([data-everything="on"]) body.lx #chat-form #model-chip,
 :root:not([data-everything="on"]) body.lx #chat-form #mode-chip {
-  display: inline-flex !important;
+  display: inline-flex;
   height: 34px;
+  margin: 0;
   padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1634,11 +1636,13 @@ body.lx #connection[data-state="lost"] {
 }
 /* Plus button in composer in calm mode */
 :root:not([data-everything="on"]) body.lx #chat-form #composer-plus {
-  display: grid !important;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   min-width: 34px;
   height: 34px;
+  margin: 0;
   padding: 0;
   border: 0;
   border-radius: 50%;

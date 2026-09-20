@@ -111,17 +111,38 @@ test("composer bar layout: no wrapping at 1440×950 with panel closed", async (t
     const composer = document.querySelector(".composer");
     if (!composer) return null;
     const children = Array.from(composer.children);
+    const formStyles = window.getComputedStyle(composer);
+
     return {
-      composerHeight: composer.getBoundingClientRect().height,
+      bodyClass: document.body.className,
+      dataEverything: document.documentElement.dataset.everything,
+      formHeight: composer.getBoundingClientRect().height,
+      formDisplay: formStyles.display,
+      formAlignItems: formStyles.alignItems,
+      formPadding: formStyles.padding,
+      formRowGap: formStyles.rowGap,
       distinctTopValues: new Set(
-        children.map((child) => Math.round(child.getBoundingClientRect().top))
+        children.filter(c => c.getBoundingClientRect().height > 0).map(c => Math.round(c.getBoundingClientRect().top))
       ).size,
       childCount: children.length,
-      childTops: children.map((child) => ({
-        className: child.className,
-        top: Math.round(child.getBoundingClientRect().top),
-        height: child.getBoundingClientRect().height,
-      })),
+      childTops: children.map((child) => {
+        const rect = child.getBoundingClientRect();
+        const styles = window.getComputedStyle(child);
+        return {
+          id: child.id || "?",
+          tag: child.tagName,
+          className: child.className,
+          height: Math.round(rect.height),
+          top: Math.round(rect.top),
+          display: styles.display,
+          marginTop: styles.marginTop,
+          marginBottom: styles.marginBottom,
+          paddingTop: styles.paddingTop,
+          paddingBottom: styles.paddingBottom,
+          alignSelf: styles.alignSelf,
+          html: child.outerHTML.slice(0, 100),
+        };
+      }),
     };
   });
 
@@ -129,12 +150,23 @@ test("composer bar layout: no wrapping at 1440×950 with panel closed", async (t
     throw new Error("Could not find .composer element");
   }
 
+  console.log("=== DEBUG INFO ===");
+  console.log(`Body class: ${childPositions.bodyClass}`);
+  console.log(`data-everything: ${childPositions.dataEverything}`);
+  console.log(`Form display: ${childPositions.formDisplay}`);
+  console.log(`Form align-items: ${childPositions.formAlignItems}`);
+  console.log(`Form padding: ${childPositions.formPadding}`);
+  console.log(`Form row-gap: ${childPositions.formRowGap}`);
+  console.log("=== END DEBUG ===");
+
   console.log("Composer layout at 1440×950 (panel closed):");
-  console.log(`  Height: ${childPositions.composerHeight}px`);
-  console.log(`  Children with distinct top positions: ${childPositions.distinctTopValues}`);
-  console.log("  Child details:");
+  console.log(`  Height: ${childPositions.formHeight}px`);
+  console.log(`  Children with height > 0 and distinct top positions: ${childPositions.distinctTopValues}`);
+  console.log("  Child details (height > 0 only):");
   for (const child of childPositions.childTops) {
-    console.log(`    ${child.className || "(div)"}: top=${child.top}, height=${child.height}`);
+    if (child.height > 0) {
+      console.log(`    ${child.tag}#${child.id} (${child.className}): top=${child.top}, height=${child.height}, display=${child.display}, margin=${child.marginTop}/${child.marginBottom}, padding=${child.paddingTop}/${child.paddingBottom}, alignSelf=${child.alignSelf}`);
+    }
   }
 
   // The bar should not wrap: all direct children should be on the same line
@@ -173,6 +205,7 @@ test("Send button does not wrap at 1440×950 and 1024×700", async (t) => {
       const composerRect = composer.getBoundingClientRect();
       const sendRect = send.getBoundingClientRect();
       const childTops = Array.from(composer.children)
+        .filter((child) => child.getBoundingClientRect().height > 0) // visible children only
         .map((child) => Math.round(child.getBoundingClientRect().top))
         .filter((top) => top !== sendRect.top); // other children's positions
       return {
