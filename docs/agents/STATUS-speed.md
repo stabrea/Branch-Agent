@@ -189,6 +189,32 @@ between them. If either would raise a question they run one after another, and t
 again, exactly as today. That makes four searches of one allowed folder run together (measured: one
 group of four) while two calls waiting on one answer still do not.
 
+### What the switch costs per round (`payload.mjs`)
+
+Turning something on that makes each round a little bigger, to remove rounds, is only a good trade
+if the sums work. They do, and here they are rather than as a claim. First round of the bench's
+first task:
+
+| | as it ships | `fewer-rounds` on |
+|---|---|---|
+| tool list | ~1,671 tokens (18 of 215 tools) | ~1,772 tokens (18 of 215) |
+| instructions | ~322 tokens | ~386 tokens |
+| the request | ~19 tokens | ~19 tokens |
+| **the whole round** | **~2,012 tokens** | **~2,177 tokens** |
+
+So the part costs about **165 tokens a round, 8% more** — and the same eighteen tools travel, they
+are simply the right eighteen. Across the five probe prompts the catalog is within 2.5% either way,
+and on the worst one it is *smaller* with the part on (2,182 against 2,429). A round removed is
+worth about 3,300 tokens on the plan (Branch's measured 33,456 over ten rounds), so one round saved
+pays for twenty rounds of the extra.
+
+For scale, from the coordinator's plan window on the same task: Pi 6 rounds / 10,282 input tokens,
+Codex 1 turn / 91,292, Branch 9–10 rounds / 33,456. Codex buys its single turn with nine times Pi's
+input; Pi's small payload comes from a fixed set of six tools always loaded. Branch carries 215
+tools and shows the model eighteen of them — that is the whole point of the three tiers, and it is
+why its per-round payload sits between the two. **The lever this branch pulls is rounds, not
+payload**, and the payload is measured here only so nobody has to guess whether it got worse.
+
 ## For the release notes (drafted here; `release-019` owns the file)
 
 Written to the template's rules (`docs/release-notes-template.md`): what is now possible, in the
