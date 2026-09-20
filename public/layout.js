@@ -1294,7 +1294,7 @@ let misses = 0;
 async function checkServer() {
   if (document.hidden || $("workspace").hidden) return;
   try {
-    await fetch("/api/health", { cache: "no-store" });
+    await api("health");
     misses = 0;
   } catch {
     misses += 1;

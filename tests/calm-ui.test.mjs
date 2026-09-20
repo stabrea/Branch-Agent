@@ -218,8 +218,13 @@ test("with no model, the window says so exactly once, and says nothing about its
   assert.deepEqual(sayings, ["Practice mode"], "the missing model is said once");
   assert.equal(await visible(f.page, "#connection"), false, "\"Connected\" is not said while all is well");
   /* When the window can no longer reach Branch, it says so plainly and offers a restart. */
-  await f.page.route("**/api/health", (route) => route.abort());
+  let healthAuthorization = "";
+  await f.page.route("**/api/health", (route) => {
+    healthAuthorization = route.request().headers().authorization ?? "";
+    return route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' });
+  });
   await f.page.evaluate(async () => { await globalThis.branchLayout.checkServer(); await globalThis.branchLayout.checkServer(); });
+  assert.equal(healthAuthorization, `Bearer ${f.server.token}`, "the health check uses the signed-in session");
   assert.equal(await f.page.locator("#connection").innerText(), "Branch stopped responding");
   assert.equal(await visible(f.page, "#lx-restart"), true);
   await f.page.unroute("**/api/health");
