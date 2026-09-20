@@ -160,7 +160,13 @@ test("a backup restores conversations, memory and skills into a fresh install, w
 
 test("the health check names what works and what to do about what does not", async (t) => {
   const { app, api } = await fixture(t);
+  let signed = 0;
+  const sign = app.store.receipts.sign.bind(app.store.receipts);
+  app.store.receipts.sign = async (...args) => { signed += 1; return sign(...args); };
+  assert.deepEqual(await api("/api/alive"), { ok: true, version: app.version });
+  assert.equal(signed, 0, "the frequent liveness check does not run the diagnostic receipt check");
   const report = await api("/api/health");
+  assert.equal(signed, 1, "the explicit health report still runs the diagnostic checks");
   assert.equal(report.ok, true, JSON.stringify(report.items.filter((i) => !i.ok)));
   assert.deepEqual(report.items.map((i) => i.name), ["Saved data", "Workspace folder", "Device key", "Models", "Models on this computer", "Channels", "Schedules", "Tasks waiting for you"]);
   const broken = { name: "broken", async complete() { throw new Error("connection refused"); } };

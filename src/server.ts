@@ -1451,6 +1451,7 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/terminal") return terminalReadApi(app, request);
   // ── end mac7/smoke-fixes (B4) ─────────────────────────────────────────────────────────────────
+  if (request.method === "GET" && path === "/api/alive") return { ok: true, version: app.version };
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") {

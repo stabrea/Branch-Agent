@@ -53,6 +53,7 @@ export const ROUTES = {
   "/api/adapt/switch": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
+  "/api/alive": "look",
   "/api/agents": "prefix",
   "/api/agents/": "prefix",
   "/api/agents/discover": "look",
