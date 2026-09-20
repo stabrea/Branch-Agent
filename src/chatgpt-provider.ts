@@ -113,7 +113,16 @@ const responsesEvent = z.object({
   }).passthrough().optional(),
   response: z.object({
     status: z.string().optional(),
-    usage: z.object({ input_tokens: count, output_tokens: count }).nullable().optional(),
+    // mac7/speed: what the service's own prompt cache served. Every other provider in this product
+    // reads this (src/providers.ts, src/providers/openai-responses.ts); this one did not, so a
+    // round on the plan reported no cached tokens at all — `cachedInput` was null on all 185 rounds
+    // of the five-way window, which reads as "nothing was cached" when what it meant was "nobody
+    // looked". The field arrives either way; the outer object is `.passthrough()`, so it was simply
+    // thrown away. Nothing about the request changes.
+    usage: z.object({
+      input_tokens: count, output_tokens: count,
+      input_tokens_details: z.object({ cached_tokens: count.optional() }).loose().optional(),
+    }).nullable().optional(),
     error: z.object({ message: z.string().optional() }).nullable().optional(),
     incomplete_details: z.object({ reason: z.string().optional() }).nullable().optional(),
   }).passthrough().optional(),
@@ -139,8 +148,12 @@ export class ResponsesStream {
         return;
       case "response.completed":
         this.completed = true;
-        if (event.response?.usage)
-          this.usage = { input: event.response.usage.input_tokens, output: event.response.usage.output_tokens };
+        if (event.response?.usage) {
+          const said = event.response.usage;
+          this.usage = { input: said.input_tokens, output: said.output_tokens,
+            ...(said.input_tokens_details?.cached_tokens !== undefined
+              ? { cachedInput: Math.trunc(said.input_tokens_details.cached_tokens) } : {}) };
+        }
         return;
       case "response.failed":
         throw new Error(event.response?.error?.message || "ChatGPT reported a failed response");

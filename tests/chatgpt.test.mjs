@@ -188,7 +188,9 @@ test("replies without a content-type header still parse; a 400 stays a plain pro
   useFakeBackend(bad.app, bad.auth, bad.base);
   const failed = await bad.app.runtime.run({ prompt: "hi" });
   assert.equal(failed.status, "failed");
-  assert.match(failed.output, /Provider HTTP 400/);
+  // mac7/speed: the person is told what happened in plain words; the status line stays in the record.
+  assert.match(failed.output, /The model service refused this request \(400\)/);
+  assert.match(JSON.stringify(bad.app.store.events(failed.id)), /Provider HTTP 400/, "and the technical text is still kept");
   assert.ok(!JSON.stringify([failed.output, bad.app.store.events(failed.id)]).includes("Unsupported parameter"), "raw provider text is never persisted");
 });
 

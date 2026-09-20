@@ -545,3 +545,150 @@ test("merge-queue review: pruning format copies never removes the one just taken
   assert.deepEqual(pruned, ["before-format-300.sqlite"], "still only three are kept");
   assert.deepEqual(formatCopiesToPrune(names, 3), ["before-format-100.sqlite"], "without one to keep, the oldest goes");
 });
+
+// ---------------------------------------------------------------- mac7/smoke-fixes (B4)
+
+/**
+ * The smoke test found every terminal command except `schedule` exiting 1 with "Branch is already
+ * open" while the window was up — `doctor`, `memory`, `trace`, and worst of all `token`, so a script
+ * could not be given a short-lived key at the one moment it needs one. The single-writer rule is
+ * not weakened: these go through the Branch that is running, by the same door the window uses.
+ */
+async function openBranch(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-b4-"));
+  const app = await branchIn(t, root);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  return { root, app, server, dataDir: join(root, "data") };
+}
+/** The real `branch <command>` in another process, with the same saved work the open Branch holds. */
+function branchCli(dataDir, root, args) {
+  const env = { ...process.env, BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: join(root, "workspace") };
+  delete env.FORCE_TTY;
+  return new Promise((resolve) => execFile(process.execPath, ["dist/cli.js", ...args], { env, timeout: 120_000 },
+    (error, stdout, stderr) => resolve({ code: error ? error.code ?? 1 : 0, stdout, stderr })));
+}
+
+test("B4 while Branch is open, the commands that only look work from another terminal", async (t) => {
+  const { root, app, dataDir } = await openBranch(t);
+  app.store.save("memory", "local", randomUUID(), { text: "the office plant is called Fern", source: "the owner said so" });
+
+  const doctor = await branchCli(dataDir, root, ["doctor"]);
+  assert.equal(doctor.code, 0, doctor.stderr);
+  const said = JSON.parse(doctor.stdout);
+  assert.match(said.from, /^the Branch already open at http/);
+  assert.ok(Array.isArray(said.health.items) && said.health.items.length, "the checks came back");
+
+  const memory = await branchCli(dataDir, root, ["memory"]);
+  assert.equal(memory.code, 0, memory.stderr);
+  assert.match(memory.stdout, /the office plant is called Fern/);
+
+  const usage = await branchCli(dataDir, root, ["usage", "--json"]);
+  assert.equal(usage.code, 0, usage.stderr);
+  assert.ok("currentMonthlyTokens" in JSON.parse(usage.stdout));
+});
+
+test("B4 a short-lived key can be made while Branch is open, and it really works", async (t) => {
+  const { root, server, dataDir } = await openBranch(t);
+  const made = await branchCli(dataDir, root, ["token", "create", "--scope", "read", "--minutes", "10"]);
+  assert.equal(made.code, 0, made.stderr);
+  const key = made.stdout.split("\n")[0].trim();
+  assert.match(key, /^branch_[a-f0-9]{48}$/);
+  assert.match(made.stdout, /This is the only time it is shown\. May look at things only\./);
+
+  // The key the terminal printed is a key the running Branch accepts, and only for looking.
+  const reading = await fetch(`${server.url}/api/health`, { headers: { authorization: `Bearer ${key}` } });
+  assert.equal(reading.status, 200);
+  const starting = await fetch(`${server.url}/api/run`, { method: "POST", headers: {
+    authorization: `Bearer ${key}`, origin: server.url, "content-type": "application/json" }, body: JSON.stringify({ prompt: "go" }) });
+  assert.equal(starting.ok, false, "a read key may not start a task");
+
+  const listed = await branchCli(dataDir, root, ["token", "list", "--json"]);
+  assert.equal(JSON.parse(listed.stdout).tokens.length, 1);
+  const gone = await branchCli(dataDir, root, ["token", "revoke", JSON.parse(listed.stdout).tokens[0].id]);
+  assert.match(gone.stdout, /That key stops working now\./);
+  assert.equal((await fetch(`${server.url}/api/health`, { headers: { authorization: `Bearer ${key}` } })).status, 401);
+});
+
+test("B4 a short-lived key cannot make or take back another key", async (t) => {
+  const { server } = await openBranch(t);
+  const made = await fetch(`${server.url}/api/tokens`, { method: "POST", headers: {
+    authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json" },
+    body: JSON.stringify({ scope: "run", minutes: 10 }) });
+  const key = (await made.json()).token;
+  for (const [path, body] of [["/api/tokens", { scope: "run" }], ["/api/tokens/abc/revoke", {}]]) {
+    const tried = await fetch(server.url + path, { method: "POST", headers: {
+      authorization: `Bearer ${key}`, origin: server.url, "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(tried.ok, false, path);
+    assert.match((await tried.json()).error, /A short-lived key cannot make or take back a short-lived key/);
+  }
+  const listing = await fetch(`${server.url}/api/tokens`, { headers: { authorization: `Bearer ${key}` } });
+  assert.equal(listing.ok, false, "and it cannot read the list of keys either");
+
+  // Somebody else using this computer under their own profile is refused the keys and the terminal's
+  // places, reading included. A task's trace carries no words of its own, so it is an ordinary read,
+  // like the inspect and monitor views beside it.
+  const { offLimitsToHousehold } = await import("../dist/server.js");
+  for (const [method, path] of [["POST", "/api/tokens"], ["GET", "/api/tokens"],
+    ["POST", "/api/tokens/abc/revoke"], ["GET", "/api/terminal"]])
+    assert.ok(offLimitsToHousehold(method, path), `${method} ${path} must be the owner's alone`);
+});
+
+test("B4 a command that would write to the same saved work still refuses, and says what to do", async (t) => {
+  const { root, dataDir } = await openBranch(t);
+  const refused = await branchCli(dataDir, root, ["backup", join(root, "out.json")]);
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /Branch is already open and using the work saved in /);
+  assert.match(refused.stderr, /branch doctor, branch token, branch trace, branch schedule/);
+  assert.match(refused.stderr, /needs that Branch closed first/);
+  // The terminal's own writers are refused over the running Branch too, not quietly allowed.
+  const themed = await branchCli(dataDir, root, ["theme", "dark"]);
+  assert.equal(themed.code, 1);
+  assert.match(themed.stderr, /Branch is already open/);
+});
+
+test("B4 branch trace reads one task's steps from the Branch that is open", async (t) => {
+  const { root, app, dataDir } = await openBranch(t);
+  const run = await app.runtime.run({ prompt: "say something" });
+  const traced = await branchCli(dataDir, root, ["trace", run.id]);
+  assert.equal(traced.code, 0, traced.stderr);
+  assert.match(traced.stdout, /^Trace [a-f0-9]+ — \d+ step\(s\)/);
+  assert.match(traced.stdout, /Sending traces is off, so this trace has stayed on this computer\./);
+  const missing = await branchCli(dataDir, root, ["trace", "no-such-task"]);
+  assert.equal(missing.code, 1);
+  assert.match(missing.stderr, /Nothing was recorded for the task no-such-task\./);
+});
+
+/**
+ * Integration review (B4). `GET /api/terminal` decides what it will run by the command's NAME, and
+ * the words after it are passed straight through. That is only safe while every name on the list
+ * reads and nothing else, so the list is pinned here: adding a name to it has to be a deliberate
+ * act with this test changed, not something that arrives with a new subcommand. It also proves each
+ * name really is answered — `version` used to be on the list and answer "I do not know the command".
+ */
+test("B4 the terminal door runs the commands that only look, and refuses the rest in plain words", async (t) => {
+  const { server } = await openBranch(t);
+  const { readOnlyTerminalCommands } = await import("../dist/terminal-cli.js");
+  assert.deepEqual([...readOnlyTerminalCommands].sort(), [
+    "automations", "channels", "customize", "inbox", "library", "mcp", "memory", "places",
+    "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
+  ], "the list of terminal commands a second terminal may run is pinned; changing it is deliberate");
+
+  const ask = (query) => fetch(`${server.url}/api/terminal?${query}`, { headers: { authorization: `Bearer ${server.token}` } });
+  for (const command of readOnlyTerminalCommands) {
+    const answer = await ask(`command=${command}`);
+    const body = await answer.json();
+    assert.equal(answer.status, 200, `${command}: ${JSON.stringify(body)}`);
+    const { lines } = body;
+    assert.ok(Array.isArray(lines), `${command} answers with the lines it would have printed`);
+    assert.ok(!lines.join("\n").includes("I do not know the command"), `${command} is really answered`);
+  }
+  // Nothing else gets through, whether it writes or is not a command at all, and the refusal says so.
+  for (const command of ["theme", "lockdown", "model", "run", "backup", "not-a-command"]) {
+    const refused = await ask(`command=${command}`);
+    assert.equal(refused.status, 400, command);
+    const said = (await refused.json()).error;
+    assert.match(said, /is not one of the terminal commands that only look/);
+    assert.match(said, /needs that Branch closed first/);
+  }
+});

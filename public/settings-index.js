@@ -544,6 +544,7 @@ export const SETTINGS_INDEX = [
   ["memory-meaning","library:memory","memory-tidy-card","Also match facts by meaning, not only by their words","memory-retrieval.useEmbeddings",null,"Repeats, disagreements and facts you never use",true],
   ["addons-windows-without-wall","customize:plugins","add-ons-card","Run add-on code on Windows without the wall","add-ons.windowsWithoutWall",null,"Add-ons other people wrote",true],
   ["knobs-localFirstReplySeconds","settings:advanced","knobs-retries-card","Wait for a model on this computer to start answering (seconds)","knobs.localFirstReplySeconds",null,"Trying the model service again",true],
+  ["knobs-maxModelRounds","settings:advanced","knobs-retries-card","Times one task may go back to the model","knobs.maxModelRounds",null,"Trying the model service again",true],
   ["knobs-exceptions","settings:permissions","knobs-leak-guard-card","Kinds of value that are not hidden","knobs.exceptions","#knobs-leak-guard-card fieldset","Hiding key-like values",true],
   ["shell-look-strip","settings:appearance","shell-look-card","Trunks strip","shell-look.strip",null,"The strip and faces",true],
   ["shell-look-3d","settings:appearance","shell-look-card","3D faces","shell-look.faces3d",null,"The strip and faces",true],

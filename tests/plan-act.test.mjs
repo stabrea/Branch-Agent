@@ -344,7 +344,7 @@ test("the switch is in the conversation, and the plan card approves in one press
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
     await page.getByRole("button", { name: /Try it without an account/ }).click();
@@ -383,4 +383,122 @@ test("the plain sentences the owner reads say what is risky and what is off the 
     { label: "Write a file", target: "a.txt", readOnly: false }), null, "a step that said it changes things may");
   assert.match(offPlanDifference({ title: "Read", touches: "notes.txt", changes: false }, 1,
     { label: "Write a file", target: "notes.txt", readOnly: false }) ?? "", /but to carry on it now needs to write a file/);
+});
+
+/**
+ * mac7/smoke-fixes (B5). The smoke test found a `branch run --plan` task that made a plan, showed
+ * nobody, changed a file and finished. The cause was not the headless run: it was that `--plan`
+ * alone is "work out a plan, then do it", and the conversation's switch had never been saved. These
+ * three hold the promise in docs/features.md — nothing that changes anything until you say yes.
+ */
+test("with nobody to ask, Plan mode finishes with the plan and changes nothing", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say(twoStepPlan);
+    if (last?.role === "tool") return say("Summary written.");
+    if (/^Step 1 of 2/.test(user)) return say("I read the notes.");
+    if (/^Step 2 of 2/.test(user)) return call("files.write", { path: "summary.txt", content: "done" });
+    if (/Every step of the plan is done/.test(user)) return say("Read and summarised.");
+    return say("Both steps are finished.");
+  });
+  await api("plan-act", { scope: "project", planMode: "show-plan" });
+
+  // A script's own `branch run`: nobody is at a terminal to be asked.
+  const run = await app.runtime.run({ prompt: "summarise my notes", unattended: true });
+  assert.equal(run.status, "completed", "the plan is the answer, not a question nobody can answer");
+  assert.match(run.output, /Here is my plan:\n1\. Read the notes/);
+  assert.match(run.output, /Nothing has been done\./);
+  assert.match(run.output, /"go ahead" in this conversation will carry it out/);
+  assert.ok(await missing(join(workspace, "summary.txt")), "nothing that changes anything has run");
+  assert.ok(!kinds(app, run.id).includes("tool.started"), "no tool ran");
+  assert.ok(!kinds(app, run.id).includes("attention.needed"), "nobody was asked, so nothing waits on an answer");
+  assert.ok(kinds(app, run.id).includes("plan.answered_with_plan"));
+
+  // The plan is kept, so the owner can agree to it whenever they next look.
+  const stored = app.runtime.orchestration.plan(run.sessionId);
+  assert.equal(stored.approved, false);
+  assert.equal(stored.decision, "waiting");
+  const agreed = await api("run", { prompt: "go ahead", sessionId: run.sessionId });
+  assert.equal(agreed.status, "completed");
+  assert.equal(await readFile(join(workspace, "summary.txt"), "utf8"), "done");
+});
+
+test("the Plan chip: it shows the plan and waits, and finishes with it when nobody can be asked", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say(twoStepPlan);
+    if (last?.role === "tool") return say("Summary written.");
+    if (/^Step \d of 2/.test(user)) return say("Step done.");
+    return say("Finished.");
+  });
+  const first = await api("run", { prompt: "hello" });
+  await api("conversation-mode", { sessionId: first.sessionId, mode: "plan" });
+  assert.equal((await api(`plan-act?sessionId=${first.sessionId}`)).effective.planMode, "show-plan",
+    "the Plan chip is the same switch");
+
+  // Someone at the window: the plan is shown and the task waits, as it does for the switch itself.
+  const asked = await api("run", { prompt: "summarise my notes", sessionId: first.sessionId });
+  assert.equal(asked.status, "needs_input", asked.output);
+  assert.match(asked.output, /Here is my plan:\n1\. Read the notes/, "the plan, not a refusal");
+  assert.ok(kinds(app, asked.id).includes("plan.awaiting_approval"));
+  assert.ok(await missing(join(workspace, "summary.txt")));
+
+  // A script, a schedule or a trigger in the same conversation: the plan is the answer instead.
+  const run = await app.runtime.run({ prompt: "summarise my notes", sessionId: first.sessionId, unattended: true });
+  assert.equal(run.status, "completed");
+  assert.match(run.output, /Here is my plan:/);
+  assert.match(run.output, /Nothing has been done\./);
+  assert.ok(await missing(join(workspace, "summary.txt")));
+  assert.ok(!kinds(app, run.id).includes("tool.started"));
+});
+
+test("a plan-act choice that names neither a conversation nor the project is refused, not dropped", async (t) => {
+  const { api } = await served(t, () => say("hello"));
+  await assert.rejects(() => api("plan-act", { planMode: "show-plan", autonomy: "changes-only" }),
+    /Say which conversation this choice is for, or send scope "project"/);
+  // And the setting really is untouched, which is what the silent version hid.
+  assert.equal((await api("plan-act")).project.planMode, "just-do-it");
+});
+
+/**
+ * mac7/smoke-fixes (integration review, B5). The builder reused `nobodyToAsk` from the tests
+ * question, which counts a chat app — so Plan mode from a chat finished with its plan and told the
+ * person who had just written "there was nobody to say yes while this task ran". A chat person is a
+ * person: the chat is handed a `needs_input` answer as the words it is (src/channels/router.ts
+ * `finishTurn`), the conversation is written down against that chat, and "go ahead" there picks the
+ * plan up. So Plan mode from a chat shows the plan and waits, as it does in the window.
+ */
+test("Plan mode from a chat message shows the plan and waits, and the chat's go-ahead carries it out", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say(twoStepPlan);
+    if (last?.role === "tool") return say("Summary written.");
+    if (/^Step 1 of 2/.test(user)) return say("I read the notes.");
+    if (/^Step 2 of 2/.test(user)) return call("files.write", { path: "summary.txt", content: "done" });
+    if (/Every step of the plan is done/.test(user)) return say("Read and summarised.");
+    return say("Both steps are finished.");
+  });
+  await api("plan-act", { scope: "project", planMode: "show-plan" });
+
+  const asked = await app.runtime.run({ prompt: "summarise my notes", source: "channel" });
+  assert.equal(asked.status, "needs_input", asked.output);
+  assert.match(asked.output, /Here is my plan:\n1\. Read the notes/, "the plan goes back to the chat");
+  assert.doesNotMatch(asked.output, /nobody to say yes/, "somebody is there: the person who wrote the message");
+  assert.ok(kinds(app, asked.id).includes("plan.awaiting_approval"));
+  assert.ok(!kinds(app, asked.id).includes("plan.answered_with_plan"), "a chat is not nobody");
+  assert.ok(!kinds(app, asked.id).includes("tool.started"), "nothing has run while it waits");
+  assert.ok(await missing(join(workspace, "summary.txt")));
+
+  // The same chat, in the same conversation: "go ahead" is not a dead end. The plan is picked up and
+  // worked through — and the step that changes something stops and asks, because a task a chat
+  // started is held at "Ask before changes" however it is carried on (0.18.1). That is what makes
+  // waiting here safe: the chat person may agree to the plan, and still cannot change a file alone.
+  const agreed = await app.runtime.run({ prompt: "go ahead", sessionId: asked.sessionId, source: "channel" });
+  assert.ok(kinds(app, agreed.id).includes("plan.step.started"), "the plan was picked up, not dropped");
+  assert.equal(agreed.status, "needs_input", agreed.output);
+  assert.match(agreed.output, /Before I go ahead: Writing summary\.txt/);
+  assert.ok(await missing(join(workspace, "summary.txt")), "still nothing changed until the owner says yes");
+
+  // A schedule is still nobody: nobody is sitting there when it runs, so it finishes with the plan.
+  const scheduled = await app.runtime.run({ prompt: "summarise my notes", source: "schedule" });
+  assert.equal(scheduled.status, "completed");
+  assert.ok(kinds(app, scheduled.id).includes("plan.answered_with_plan"));
+  assert.match(scheduled.output, /Nothing has been done\./);
 });

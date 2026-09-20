@@ -80,6 +80,23 @@ export interface ConductOptions {
   checks?: CompletionCheck;
   /** True for a specialist's sub-task: it never plans or reviews on its own. */
   delegated?: boolean;
+  /**
+   * mac7/smoke-fixes (B5): nobody can be asked while this task runs — a script's `branch run`, a
+   * schedule, a trigger, another AI tool. "Show me the plan first" then finishes with the plan as
+   * its answer and changes nothing, which is what the mode means. A chat app is NOT one of them: a
+   * person just typed the message, the plan is delivered to them, and their "go ahead" carries it
+   * out. The reading is `nobodyToAskAboutPlan` in src/coding/project-tests.ts, passed in.
+   */
+  nobodyToAsk?: boolean;
+}
+
+/**
+ * mac7/smoke-fixes (B5): "Show me the plan first" with nobody there to say yes. The plan is the
+ * task's answer, nothing has been done, and the plan is saved so a later "go ahead" carries it out.
+ */
+export class PlanOnlyAnswer extends Error {
+  override name = "PlanOnlyAnswer";
+  constructor(readonly answer: string) { super(answer); }
 }
 export type Aside = (messages: Message[]) => Promise<string>;
 
@@ -277,6 +294,11 @@ export class RunConductor {
     this.event("plan.awaiting_approval", { steps: plan.steps.map((s) => s.title),
       touches: plan.steps.map((s) => s.touches ?? ""), changes: plan.steps.map((s) => s.changes),
       risk: riskSentence(plan.steps), autonomy: plan.autonomy ?? "at-the-end" });
+    // mac7/smoke-fixes (B5): with nobody to ask, the plan is the answer and nothing is done.
+    if (this.options.nobodyToAsk) {
+      this.event("plan.answered_with_plan", { steps: plan.steps.map((s) => s.title) });
+      throw new PlanOnlyAnswer(unattendedPlanAnswer(plan));
+    }
     throw new NeedsInputError(planMessage(plan));
   }
   /** A plan already agreed, picked up where the owner left it; "go ahead" clears the next step. */
@@ -464,4 +486,14 @@ export function planMessage(plan: StoredPlan): string {
     `${at + 1}. ${step.title}${step.touches ? ` — ${step.touches}` : ""}${step.changes === false ? " (changes nothing)" : ""}`);
   return `Here is my plan:\n${lines.join("\n")}\n\n${riskSentence(plan.steps)}\n\n`
     + 'Say "go ahead" to start, or tell me what to change.';
+}
+
+/**
+ * mac7/smoke-fixes (B5): the same plan, as the answer of a task nobody could be asked about. It
+ * says plainly that nothing was done and that the plan is still there to be agreed to.
+ */
+export function unattendedPlanAnswer(plan: StoredPlan): string {
+  return `${planMessage(plan)}\n\nNothing has been done. This conversation is set to show the plan first, `
+    + 'and there was nobody to say yes while this task ran. The plan is saved, so "go ahead" in this '
+    + "conversation will carry it out.";
 }
