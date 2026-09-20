@@ -94,10 +94,10 @@ once the shards do. Not a fifth cause.
       - approvals: `'0' !== '42'` ("the ceiling being typed is still theirs")
       - misc: "a chooser somebody may have open is not thrown away and made again"
       - mcp-workbench: `'5' !== '17'` ("the minutes being typed are still theirs")
-- [ ] loops on this loaded machine, 3 copies of a file at once, in the separate worktree. Measured so
-      far: delight-ui 12 runs 168/168. glass-select, mac2-desktop-ui, never-break-ui and
-      coding-gap-edits still running; counts go in here when they land, not before. As in every earlier
-      round, none of the CI failures reproduces here by repetition; each was instead diagnosed from the
-      log and, where a product bug, reproduced by driving the very call the 3-second refresh makes.
+- [x] loops on this loaded machine, 12 runs of each file with 3 copies going at once, in the separate
+      worktree: delight-ui 168/168, glass-select 120/120, mac2-desktop-ui 276/276, never-break-ui
+      60/60, coding-gap-edits 276/276 — 900 of 900, no failure of any kind. As in every earlier round,
+      none of the CI failures reproduces here by repetition; each was instead diagnosed from the log
+      and, where a product bug, reproduced by driving the very call the 3-second refresh makes.
 - [ ] merged into trunk
 - [ ] two consecutive full green Checks runs on trunk

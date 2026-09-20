@@ -90,8 +90,14 @@ test("F1 a second step is added, moved and taken out again", async (t) => {
 
   await page.locator("#editor-steps .editor-step").first().getByRole("button", { name: "Take it out", exact: true }).click();
   assert.equal(await page.locator("#editor-steps .editor-step").count(), 1);
+  /* ci-flakes-4: this save was never waited for. The step count was already 1 before the press, so the
+     wait below it was always true at once and the flow was read back before the save had landed — on a
+     busy Windows runner that read the two steps that were still there ('approval', 'prompt'). The
+     status line is emptied first so that waiting for "Saved." waits for THIS save, not the one above. */
+  await page.evaluate(() => { document.getElementById("editor-status").textContent = ""; });
   await page.getByRole("button", { name: "Save this flow", exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll("#editor-steps .editor-step").length === 1);
+  await page.waitForFunction(() => /Saved\./.test(document.getElementById("editor-status")?.textContent ?? ""));
+  assert.equal(await page.locator("#editor-steps .editor-step").count(), 1);
   assert.deepEqual(app.flows.list()[0].steps.map((step) => step.kind), ["prompt"]);
   assert.deepEqual(errors, []);
 });
