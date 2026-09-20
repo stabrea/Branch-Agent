@@ -1618,7 +1618,7 @@ export * from "./registry.js";
 export * from "./catalog.js";
 // Wave 7 (tool loading): the tiers, the searchable index, and what past tasks taught.
 export * from "./tool-loading.js";
-export { parallelGroups, parallelLimit, codingWorkingSet, batchingNote } from "./coding/fewer-rounds.js"; // mac7/speed
+export { parallelGroups, parallelLimit, codingWorkingSet, batchingNote, looksLikeCodingWork } from "./coding/fewer-rounds.js"; // mac7/speed
 export { lastWordMessages } from "./runtime.js"; // mac7/speed
 export { readManyLimit, readManyShareOfRoom } from "./coding/read-many.js"; // mac7/speed
 export * from "./tool-index.js";

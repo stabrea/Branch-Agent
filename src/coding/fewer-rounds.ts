@@ -43,17 +43,33 @@ export const fewerRoundsOn = (store: Pick<Store, "get">, owner: string): boolean
   codingMode(store, owner, "fewer-rounds") !== "off";
 
 /**
- * The coding tools to load before the first round, when this is coding work. "Coding work" is the
- * toolboxes the request already opened: if neither the files nor the code box is open, the request
- * was about something else and nothing is added. Only tools the task is actually allowed and that
- * are really registered are named, so a narrowed task cannot be handed one it may not use.
+ * Something that reads like a file the person is pointing at: a name, a dot, a short extension.
+ * Deliberately narrow — a sentence ending in "…in the README." is not a match, `README.md` is.
+ */
+const namesAFile = /(^|[\s"'`([{,])[\w./-]+\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|swift|c|h|cpp|cs|php|sh|sql|json|ya?ml|toml|ini|md|txt|html|css|scss)(?![\w-])/i;
+
+/**
+ * Whether this is work on the project's files. The toolboxes the request opened say so most of the
+ * time — but not always, and the miss is expensive. On the plan's five-way window,
+ * *"Add a `--shout` flag to cli.mjs … Document the flag in README.md"* opened **only** the documents
+ * toolbox: the word "Document" won, the code box was never opened at all, and the task spent five of
+ * its twelve rounds buying back `files.read`, `files.write`, `code.run` and `code.check` one search
+ * at a time. A request that names a file is work on files whatever box the words happened to open.
+ */
+export const looksLikeCodingWork = (prompt: string, open: readonly string[]): boolean =>
+  open.includes("code") || open.includes("files") || namesAFile.test(prompt);
+
+/**
+ * The coding tools to load before the first round, when this is work on the project's files. Only
+ * tools the task is actually allowed and that are really registered are named, so a narrowed task
+ * cannot be handed one it may not use.
  */
 export function codingPreload(
   store: Pick<Store, "get">, owner: string,
-  open: readonly string[], available: readonly string[],
+  open: readonly string[], available: readonly string[], prompt = "",
 ): PreloadedTool[] {
   if (!fewerRoundsOn(store, owner)) return [];
-  if (!open.includes("code") && !open.includes("files")) return [];
+  if (!looksLikeCodingWork(prompt, open)) return [];
   const here = new Set(available);
   return codingWorkingSet.filter((name) => here.has(name)).map((name) => ({ name, reason }));
 }

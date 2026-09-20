@@ -1844,7 +1844,7 @@ ${run.output.slice(0, 6000)}`;
       // mac7/speed: with "fewer rounds" on, a coding task starts with the tools it always needs, so
       // it never spends a whole round trip searching for files.edit before it can begin.
       preload: [...advisedPreload(run.id, learned.preload(context.owner, run.prompt), tools, switched.hidden), ...switched.preload,
-        ...codingPreload(this.store, context.owner, [...guessed, ...opened], tools.map((tool) => tool.name))],
+        ...codingPreload(this.store, context.owner, [...guessed, ...opened], tools.map((tool) => tool.name), run.prompt)],
       demoted: learned.stale(context.owner),
       // mac7/speed: a feature the owner switched off refuses; its tools are not offered at all.
       hidden: switched.hidden,

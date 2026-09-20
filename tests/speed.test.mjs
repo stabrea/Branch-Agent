@@ -786,3 +786,29 @@ test("switching the feature on puts its tool back in reach", async (t) => {
   assert.ok(searched.result.matches.some((one) => one.name === "troubleshoot.run"),
     `switched on, it must be findable again: ${searched.result.matches.map((o) => o.name).join(", ")}`);
 });
+
+test("E: a request that names a file is coding work, whatever toolbox the words opened", async (t) => {
+  const { app, provider } = await fixture(t, [say("Done.")]);
+  app.coding.setMode("fewer-rounds", "on");
+  // The plan's worst task, word for word in shape: "Document" wins the guess and the code toolbox
+  // is never opened at all, so the old test — is the code or files box open — said no.
+  const prompt = "Add a --shout flag to cli.mjs, and document the flag in README.md.";
+  const run = await app.runtime.run({ prompt });
+  assert.equal(run.status, "completed", run.output);
+  const [pre] = app.store.events(run.id).filter((e) => e.kind === "catalog.preselected").map((e) => e.data);
+  const shown = provider.requests.at(-1).names;
+  for (const name of ["files.read", "files.write", "files.edit", "files.grep"])
+    assert.ok(shown.includes(name), `${name} was missing though the request names two files; guessed ${JSON.stringify(pre.guessed)}`);
+});
+
+test("E: a request about nothing in particular is not handed coding tools", async () => {
+  const { looksLikeCodingWork } = await import("../dist/index.js");
+  assert.equal(looksLikeCodingWork("what did I ask you yesterday?", []), false);
+  assert.equal(looksLikeCodingWork("remind me to buy milk", []), false);
+  assert.equal(looksLikeCodingWork("summarise the meeting for me", ["documents"]), false,
+    "a sentence about documents is not work on the project's files");
+  assert.equal(looksLikeCodingWork("tidy up the README.", []), false, "a sentence ending in a word is not a file");
+  assert.equal(looksLikeCodingWork("fix cli.mjs", []), true);
+  assert.equal(looksLikeCodingWork("document the flag in README.md", []), true);
+  assert.equal(looksLikeCodingWork("anything at all", ["code"]), true, "an open code box still counts");
+});
