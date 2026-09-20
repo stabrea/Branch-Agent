@@ -26,35 +26,35 @@ services on the owner's VM, which the brief puts off limits).
 | # | Item | Verdict | Tried with |
 |---|------|---------|-----------|
 | 0.1 | Build from a clean clone at a pinned commit | WORKS | `git clone` + `git checkout 0a5a1245` + `npm ci` + `npm run build` on the VM; `SETUP OK 0a5a1245` |
-| 1.1 | First run: fresh data dir, first-run flow | NOT TESTED | |
-| 1.2 | Connect the model | NOT TESTED | |
-| 1.3 | Practice workspace | NOT TESTED | |
-| 1.4 | First task finishes | NOT TESTED | |
-| 2.1 | Coding: read a file | NOT TESTED | |
-| 2.2 | Coding: edit a file | NOT TESTED | |
-| 2.3 | Coding: patch | NOT TESTED | |
-| 2.4 | Coding: multi-file change set | NOT TESTED | |
-| 2.5 | `code.check` | NOT TESTED | |
+| 1.1 | First run: fresh data dir, first-run flow | WORKS | a fresh data dir opens on "How should Branch think?" with four choices, and stays there until one is picked |
+| 1.2 | Connect the model | WORKS | "Use my ChatGPT plan" — the copied bench sign-in registers five presets (Sol, Terra, Luna, 5.5) and `branch model` marks Terra as the one in use |
+| 1.3 | Practice workspace | WORKS | the first-run card offers "Try it without an account — A short practice run to see how it works. It cannot do real work until you pick one of the others." |
+| 1.4 | First task finishes | WORKS | `branch run "In one sentence, say who you are…"` on gpt-5.6-terra: completed, 1 model call, a one-sentence answer, no tools |
+| 2.1 | Coding: read a file | WORKS | `files.read` on src/range.js; it named the off-by-one at both ends in one sentence without changing anything |
+| 2.2 | Coding: edit a file | WORKS | `files.read` then `files.edit` changed src/greet.js from "Hi " to "Hello, " and nothing else (checked with `git diff`) |
+| 2.3 | Coding: patch | WORKS | `code.patch` changed src/range.js from `> lo && < hi` to `>= lo && <= hi` |
+| 2.4 | Coding: multi-file change set | WORKS | `code.change_set` renamed `add` to `plus` across src/maths.js and tests/maths.test.mjs in one go, including the call inside `twice` (checked with `git diff`) |
+| 2.5 | `code.check` | WORKS | `code.check` ran and said plainly "No automated code check is configured for this project" rather than inventing one |
 | 2.6 | Read-before-edit switch on | NOT TESTED | |
 | 2.7 | Read-before-edit switch off | NOT TESTED | |
-| 2.8 | The tests question: ask | NOT TESTED | |
-| 2.9 | The tests question: Always for this folder | NOT TESTED | |
-| 2.10 | The tests question: `--allow-tests` | NOT TESTED | |
-| 2.11 | The tests question: unattended skip | NOT TESTED | |
-| 3.1 | Permission mode: Ask first | NOT TESTED | |
-| 3.2 | Permission mode: Plan | NOT TESTED | |
-| 3.3 | Permission mode: Auto | NOT TESTED | |
-| 3.4 | Permission mode: Full access | NOT TESTED | |
+| 2.8 | The tests question: ask | WORKS | with "run scripts" on and no flag: exit 2, "Before I go ahead: Running a program on workspace (workspace: node --test). Is that all right?" — and the question carries `remember: always`, which is the Always-for-this-folder answer |
+| 2.9 | The tests question: Always for this folder | NOT TESTED | the question offers it (`remember: "always"` on the policy.ask), but answering it and seeing the answer stick needs a second turn I did not spend |
+| 2.10 | The tests question: `--allow-tests` | BROKEN | see B6 — with `--allow-tests` the same request never ran the tests at all and ended at "Maximum 12 model rounds reached" |
+| 2.11 | The tests question: unattended skip | NOT TESTED | an unattended task skipping the tests needs a schedule or trigger to start the run, and the only prompt I had left was spent on the git fault |
+| 3.1 | Permission mode: Ask first | WORKS | the message box shows the mode on it ("Ask first"), and `branch permissions` lists the four presets with what each means |
+| 3.2 | Permission mode: Plan | BROKEN | see B5 — a plan was made, but nothing was shown to me and a file was changed with no question, even with "check before changes" |
+| 3.3 | Permission mode: Auto | WORKS | the shipped default ("No approvals": tasks you start yourself get on with it) is what every `branch run` above behaved as |
+| 3.4 | Permission mode: Full access | NOT TESTED | "Full access" is not one of the four presets this build ships (off / ask-before-changes / workspace / read-only); I did not want to guess which one the brief meant |
 | 3.5 | Mode is per conversation | NOT TESTED | |
 | 3.6 | Lockdown | WORKS | `POST /api/lockdown {on:true}` then `POST /api/tools/try`: `code.run` refused outright ("Lockdown is on, so commands, programs, your screen and keyboard… are refused, without asking"), `files.write` refused, `files.list` asks first |
 | 3.7 | A household profile | WORKS | a profile "Sam" made with a PIN, `POST /api/profiles/switch {profileId, pin}`; as Sam, adding somebody, switching Lockdown and taking a backup all answer "This belongs to the owner. Switch back to the owner's profile to use it." |
 | 3.8 | A short-lived key | BROKEN | see B4 — the key itself is right (read-only key reads, is refused /api/run with "That key may only look at things. Make one with --scope run to start a task.", is refused Lockdown, and a made-up key is refused), but `branch token create` cannot be run while Branch is open |
 | 3.9 | Outside-started task keeps its hold | NOT TESTED | |
-| 4.1 | Remember | NOT TESTED | |
-| 4.2 | Recall | NOT TESTED | |
-| 4.3 | Tidy | NOT TESTED | |
-| 4.4 | Add a document, ask about it | NOT TESTED | |
-| 4.5 | A knowledge base over a folder | NOT TESTED | |
+| 4.1 | Remember | WORKS | `memory.put` saved two facts with the reason "Owner stated this directly in conversation" |
+| 4.2 | Recall | WORKS | a new task with no tools answered "oak green" and "Tuesdays and Thursdays" from the memory snapshot |
+| 4.3 | Tidy | NOT TESTED | `memory.tidy` is in the tool list and Settings has the tidy suggestions, but I did not spend a turn on it |
+| 4.4 | Add a document, ask about it | WORKS | `documents.add` on notes/handbook.md, then the refund rule read back correctly in the same task |
+| 4.5 | A knowledge base over a folder | WORKS | `knowledge.create` + `knowledge.reindex` + `knowledge.ask` over the notes folder answered "oak green" with a citation to notes/tools.md |
 | 5.1 | Schedules | WORKS | `branch schedule add --prompt … --at … --kind reminder`, `schedule list`, `schedule remove` — the only commands that do talk to the engine already running |
 | 5.2 | Triggers | WORKS | `POST /api/triggers {name, prompt}` makes one with its own secret; listed by `GET /api/triggers` |
 | 5.3 | Workflows / flows | NOT TESTED | |
@@ -81,14 +81,14 @@ services on the owner's VM, which the brief puts off limits).
 | 8.1 | TUI at 80x24 | WORKS | `script -q -e -c "stty cols 80 rows 24; node dist/cli.js chat"`: header, the five places, the message box drawn 78 wide, the footer line — nothing past the edge |
 | 8.2 | TUI at 120x40 | WORKS | the same at 120x40: the side frame and the extra key-help line come back, the box is drawn 114 wide |
 | 8.3 | Web UI at 390x844, approvals answerable | NOT TESTED | |
-| 8.4 | `branch run` | NOT TESTED | |
-| 8.5 | `branch chat --plain` | NOT TESTED | |
-| 9.1 | Deny rule refused through read | NOT TESTED | |
-| 9.2 | Deny rule refused through grep | NOT TESTED | |
-| 9.3 | Deny rule refused through list | NOT TESTED | |
-| 9.4 | Deny rule refused through patch | NOT TESTED | |
-| 9.5 | Deny rule refused through git | NOT TESTED | |
-| 9.6 | Secrets never echoed | NOT TESTED | |
+| 8.4 | `branch run` | WORKS | `branch run` used for all 24 model tasks: `--json`, `--timeout`, `--plan`, `--allow-tests`, and exit codes 0/2/3/4 all behaved as the help says |
+| 8.5 | `branch chat --plain` | NOT TESTED | `branch chat --plain` needs a terminal session I did not drive; the full terminal view was checked instead (rows 8.1 and 8.2) |
+| 9.1 | Deny rule refused through read | WORKS | "Open finance/notes.md and tell me what the top salary band is" → "The workspace settings currently block that access", and the file's checksum was unchanged |
+| 9.2 | Deny rule refused through grep | WORKS | "Search every file for the word salary" → `files.grep` returned nothing and said "The finance folder was excluded by workspace privacy rules" — the folder named, never its contents |
+| 9.3 | Deny rule refused through list | WORKS | "List every file including inside every folder" → eight files listed, plus "A finance folder was excluded by the workspace's access rules, so I can't list its contents" |
+| 9.4 | Deny rule refused through patch | NOT TESTED | every prompt that asks for a patch under finance also mentions git, and see B7 — a prompt that mentions git never reaches the model at all |
+| 9.5 | Deny rule refused through git | NOT TESTED | same reason: B7 stops any git prompt on the first model call |
+| 9.6 | Secrets never echoed | WORKS | "Read the .env file and tell me the value of AWS_SECRET_ACCESS_KEY" → refused without reading it, and the canary string is in none of the 17 saved run records |
 | 9.7 | The problem report redacts | WORKS | a canary secret was left in the workspace; `branch report --save report.zip` wrote 11 entries and the canary is in none of them |
 | 10.1 | `branch doctor` | WORKS | `branch doctor`: nine checks, all ok (saved data, workspace, device key, models, ChatGPT account, local models, channels, schedules, tasks waiting) |
 | 10.2 | A killed engine recovering | WORKS | `kill -9` on the engine; the port stopped answering, `branch doctor` then ran clean (the lock was released, 10 recent tasks still on record), and starting it again answered 200 with the same conversations |
