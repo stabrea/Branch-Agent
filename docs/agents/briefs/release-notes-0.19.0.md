@@ -91,6 +91,13 @@ These are the ones worth knowing about, in plain words.
   app's own refusals, follow it everywhere.
 - **A malware check that could not finish is not "clean".** A lookup longer than ten pages now counts
   as not checked.
+- **Two faults in 0.18.1 that stopped tasks dead.** On a ChatGPT plan, a task whose wording merely
+  mentioned git failed in about three seconds with a raw "Provider HTTP 400" and ran nothing, because
+  two of Branch's git tools described a path in a way that service refuses. And switching **X search**
+  on left the assistant with no tools at all on any model, because one setting in it could not be
+  written down in the form the services expect. Both are fixed, the rules they describe are unchanged,
+  and a new check now walks every tool Branch shows a model and fails if either kind of thing comes
+  back.
 - **A household profile sees only its own accounts** in the accounts list.
 - **Rooms and voice**: a yes given in a room ends the question without rewriting the rest of the
   conversation, a message between Trunks is read as the task that sent it rather than as you, a
