@@ -40,7 +40,7 @@ async function fixture(t, width = 1440) {
     await page.goto(server.url);
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await page.locator("#workspace").waitFor({ state: "visible" });
+    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
     await page.locator("#learning-core").waitFor({ state: "attached", timeout: 15000 });
   };
   await connect();
@@ -126,7 +126,7 @@ test("L5 accepting a skill idea opens the skill editor on a draft, and Look insi
   for (let at = 0; at < 4; at += 1) last = await app.runtime.run({ prompt: `save a note about the garden ${at}` });
   const idea = page.locator("#memory-proposals .record").filter({ hasText: "could become a skill" });
   await page.reload(); // the conversation's key is kept for the tab, so this reads everything afresh
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await openPlace(page, "library:memory");
   await idea.waitFor({ timeout: 15000 });
   await idea.getByRole("button", { name: "Accept", exact: true }).click();

@@ -170,6 +170,23 @@ still unknown and is not chased here. Test 3 itself passed in the other eleven r
 - Shard times in that run were 19-26 minutes against the job's 45-minute cap, so the shards themselves
   are not near the edge; it is single tests inside them that run long.
 
+## Run 35486709747 on f9499e4f: one shard, and the systemic cause behind half this round
+
+Both failures were on Windows 1/6 and both were the same shape — a fixture waiting for the window with
+Playwright's default 30 seconds.
+
+- local-oneclick-ui U1: `#workspace` not visible in 30 s. This is exactly what ci-flakes-2 wrote down
+  ("tests/places.mjs already gives the window 120 s because a busy Windows runner can take over 30 s to
+  load it") — but only places.mjs was given that. **89 waits for `#workspace` across 66 test files were
+  still on the default 30 s.** All 89 now get the same 120 s. That is one mechanical change, it waits
+  for the same condition, and it removes the largest single source of the failures this round and the
+  last three have been picking off one file at a time.
+- learning-loop-ui "new skills: draft one from a conversation…": the card's status "being written" is a
+  passing state, and the card's next look can already show the finished draft instead, so waiting for
+  those words alone can miss them either way. The wait now takes either — the words, or the draft being
+  there. The press is deliberately NOT made again the way `pressUntil` does elsewhere, because a second
+  press would draft a second skill and the test counts drafts. The file's other 15 s waits are 60 s.
+
 ## Where the two green runs stand
 
 Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
