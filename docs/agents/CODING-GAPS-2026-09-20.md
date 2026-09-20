@@ -45,15 +45,21 @@ So the real gap is not 8 against 1. It is:
 Branch rounds are counted from `model.started` events in its own journal; Pi's from `turn_start`;
 Codex's floor from its item stream.
 
-**Branch is not slow per round.** At 6.0 s a round it is level with Codex (≤6.5) and 1.3× Pi. The
-wall-time gap against Pi factors almost exactly into two parts:
+The wall-time gap against Pi factors almost exactly into two parts:
 
 ```
 573 s / 291 s = 1.97x  =  (95 rounds / 63 rounds = 1.51x)  x  (6.0 s / 4.6 s = 1.31x)
 ```
 
-1.51 × 1.31 = 1.98. So **three quarters of the gap is round count and one quarter is the cost of a
-round.** The rest of this document is about where those 32 extra rounds go.
+1.51 × 1.31 = 1.98. Splitting the excess, 0.51 / (0.51 + 0.31) = **62%** of the gap is round count
+and **38%** is the cost of a round. (By log share, log 1.51 / log 1.97 = 61% — the same answer.) So
+about **three fifths round count, two fifths per-round cost**.
+
+**Branch's per-round cost is 1.31× Pi's and at worst level with Codex's.** The Codex figure is an
+upper bound: ≤6.5 s comes from dividing 406 s by a *floor* of 62 rounds, so if Codex really ran 80
+rounds its true cost is 5.1 s and Branch is the slower of the two. Per-round cost is the smaller of
+the two factors, but it is real and §3c says where it probably lives. The larger factor is the 32
+extra rounds, and the rest of this document is mostly about those.
 
 ---
 
@@ -182,7 +188,27 @@ r9  tools.describe -> loaded code.run          <- the same tool again
 Between r2 and r9 `code.run` was pushed off the list by tools that arrived later. This is exactly
 the defect `mac7/speed` calls item D, seen here on a real model: **one wasted round, measured.**
 
-Pi did the same task in 5 rounds; Codex in 3 commands + 1 apply.
+Pi, 5 rounds, nothing spent on finding anything:
+
+```
+r1 read cli.mjs + read README.md          (two calls, one round)
+r2 bash "ls -la && find . -maxdepth 2 -type f | sort"
+r3 edit cli.mjs
+r4 edit README.md
+r5 bash "node cli.mjs --name Ada --shout && node cli.mjs --shout --name Ada && node cli.mjs --shout"
+```
+
+Codex, 3 commands + 1 apply:
+
+```
+cmd  ls -la && rg -n "name|Hello|cli" cli.mjs README.md
+cmd  sed -n '1,120p' cli.mjs && sed -n '1,120p' README.md && git status --short
+edit update README.md, update cli.mjs          (both files, one change)
+cmd  node cli.mjs --name Ada --shout && node cli.mjs --shout --name Ada && node cli.mjs --name Ada && node cli.mjs --shout
+```
+
+**Branch 12 rounds against Pi's 5, and the five tool-finding rounds are the whole difference.**
+Both others verified the flag by running the program in every order; Branch was refused and said so.
 
 ### 2c. rename — four rounds to change four files
 
@@ -232,9 +258,44 @@ Two faults, neither about coding:
   and quota` and that string is the run's whole output. The intent list says a refusal is a plain
   sentence. This is not one.
 
-With defaults, the same task took 9 rounds and passed; four of those were tool-finding, and the
-answer ended *"I could not execute `node --test`: test execution is not permitted for this
-workspace."* Pi took 7 rounds and ended *"Verified with `node --test` — all tests pass."*
+With defaults, the same task took 9 rounds and passed:
+
+```
+r1 tools.search "read workspace file contents" + tools.search "run shell command in workspace"
+r2 tools.describe -> loaded files.read/write/edit, unknown: "shell.execute"
+r3 tools.search "execute node --test workspace command"
+r4 tools.describe -> loaded code.check, workspace.map
+r5 files.read src/cart.js + files.read src/invoice.js + workspace.map
+r6 files.read package.json
+r7 files.write src/format.js + files.edit src/cart.js + files.edit src/invoice.js
+r8 code.check -> "ran": false
+r9 final answer, ending "I could not execute `node --test`: test execution is not permitted"
+```
+
+Pi, 7 rounds:
+
+```
+r1 bash "ls src && rg -n -C 3 'formatPrice' src && find . -maxdepth 2 -type f | sort"
+r2 read src/cart.js + read src/invoice.js + read package.json
+r3 write src/format.js
+r4 edit src/cart.js
+r5 edit src/invoice.js
+r6 bash "node --test"
+r7 "Verified with `node --test` — all tests pass."
+```
+
+Codex, 2 commands + 1 apply + a check — and the apply carried all three files at once, including
+the new one:
+
+```
+cmd  pwd && rg -n -C 3 "formatPrice|module\.exports|export" src test package.json
+cmd  rg --files | rg '(^|/)(cart|invoice|format|package|.*test.*)\.(js|json)$' && sed -n '1,120p' package.json && sed -n '1,80p' src/cart.js && …
+edit update cart.js, add format.js, update invoice.js
+cmd  node --test && git diff --check && git diff -- src
+```
+
+Branch's r7 did the same three-file change in one round, so **on the change itself Branch matched
+Codex.** The four rounds it lost were r1–r4, all tool-finding.
 
 ### 2e. The control — missing-await, where Branch wins
 
@@ -377,7 +438,7 @@ against the intent list at all.
 | **A coding task starts with its six tools** (speed's item E) | up to 27 of 95 | nothing — no permission changes, every tool still goes through the same gate. It is a *presentation* change, not a policy one. |
 | **A search result is callable in the same round** | ~8 of 27 (the search→describe→use chain) | nothing — the tool was already allowed or it would not be in the index (`src/tool-loading.ts:195-196`) |
 | **Name the shell what the model calls it** (an alias `bash`/`shell` → `code.run`) | ~4 (fix-range r2–r5, extract-helper r1/r3) | nothing; an alias is not a permission |
-| **When a capability is switched off, say so once in the instructions** instead of letting the model discover it | ~8 blocked rounds, and removes the hedged answers | nothing — it tells the truth earlier, which is the intent, not against it |
+| **When a capability is switched off, say so once in the instructions** instead of letting the model discover it | ~8 blocked rounds | nothing — it tells the truth earlier, which is the intent, not against it |
 | **One approval covering a declared batch of file changes** | ~0 here | real risk, and **no measured benefit in this data** — nothing was ever asked. Do not build this on this evidence. |
 | **Plan-then-apply: the model proposes a change set, one yes applies it** | ~3 (rename) | small — it is what `code.change_set` already is. The win is routing to it, not a new approval shape. |
 | **A sandboxed scratch area where reads and dry runs need no yes** | ~0 here | reads already needed no yes. No measured benefit. |
@@ -418,17 +479,17 @@ Rounds removed are out of Branch's 95 in window8. **Measured** means counted fro
 
 | # | change | rounds removed | how that number was reached | risk | size | overlaps `mac7/speed` |
 |---|---|---|---|---|---|---|
-| 1 | A coding task starts with `files.read`, `grep`, `list`, `glob`, `edit`/`patch`, `run` already loaded — and no one toolbox takes every place | **up to 27 (28%)** | measured: all 27 find-a-tool rounds; `missing-await` and `word-wrap` had 0 because the guess was right | none — presentation, not policy; every call still gates | **yes, item E** — window8 confirms both halves: `cli-flag` guessed `["documents"]` and was the worst task |
-| 2 | A tool the product puts on the list mid-task is never pushed off again | **1 measured, more likely** | measured: `cli-flag` r9 re-loaded `code.run` after r2 already had it | none — a bug fix | **yes, item D** |
-| 3 | Ask the provider for its prompt cache (`prompt_cache_key`, review `store: false`) | 0 rounds; **~0.5–1.4 s a round, estimated** | estimated: Branch 6.0 s vs Pi 4.6 s a round, Codex 85% cached and Branch 0% on the same endpoint; upper bound 1.4 s × 95 ≈ 130 s | none — invisible to the person | no |
-| 4 | Say once, in the instructions, that tests/scripts are not allowed here — instead of letting the model find out | **8 measured** | measured: 8 `blocked` rounds, and it removes the hedged sentence from 8 answers | none — it tells the truth sooner | no |
-| 5 | A search result is callable in the round that found it | **~8, estimated** | estimated: 8 of the 27 finding-rounds were a `tools.describe` that only turned a search hit into a callable tool | none — the index only holds tools this task may already use | no |
-| 6 | Route a several-file change to `files.patch`/`code.change_set` instead of `files.edit` | **~3 measured** | measured: `rename` r6–r9, four one-file edits where one patch would do | none — same permission, same gate | no |
-| 7 | Alias the shell to the names models actually reach for (`bash`, `shell`) | **~4, estimated** | estimated: fix-range r2–r5 and extract-helper's `unknown: ["shell.execute"]` | none | no |
-| 8 | Retry a provider 4xx once, and end on a plain sentence if it fails | **0 rounds, 1 task finished** | measured: 1 of 12 `branch-sub` tasks | none — it is the intent list, not against it | no |
-| 9 | Run an independent read-only group concurrently | **0 rounds; 224 ms measured on reads** | measured from fix-range r8 timestamps | this is where "never break" is easiest to lose | **yes, item A** |
-| 10 | A `files.read_many` tool | **0** | measured: the model already sends 3–4 parallel `files.read` | none | **yes, item C** — window8 says the tool shape was not the blocker |
-| 11 | One approval covering a batch of changes; a no-yes scratch area | **0** | measured: `user.ask` called 0 times; `failedEdits` 0 on every row | real | no — **do not build on this evidence** |
+| 1 | A coding task starts with `files.read`, `grep`, `list`, `glob`, `edit`/`patch`, `run` already loaded — and no one toolbox takes every place | **up to 27 (28%)** | measured: all 27 find-a-tool rounds; `missing-await` and `word-wrap` had 0 because the guess was right | none — presentation, not policy; every call still gates | medium — a starting set plus a fix to how places are shared out | **yes, item E** — window8 confirms both halves: `cli-flag` guessed `["documents"]` and was the worst task  |
+| 2 | A tool the product puts on the list mid-task is never pushed off again | **1 measured, more likely** | measured: `cli-flag` r9 re-loaded `code.run` after r2 already had it | none — a bug fix | small — a one-line ordering fix | **yes, item D**  |
+| 3 | Ask the provider for its prompt cache (`prompt_cache_key`, review `store: false`) | 0 rounds; **~0.5–1.4 s a round, estimated** | estimated: Branch 6.0 s vs Pi 4.6 s a round, Codex 85% cached and Branch 0% on the same endpoint; upper bound 1.4 s × 95 ≈ 130 s | none — invisible to the person | small — one field in `responsesBody`, then re-measure | no  |
+| 4 | Say once, in the instructions, that tests/scripts are not allowed here — instead of letting the model find out | **8 measured** | measured: 8 `blocked` rounds. The answer stays honest either way — it is still unverified — but it becomes a plain statement instead of a report of a failed attempt | none — it tells the truth sooner | small — one sentence, built from what the run already knows | no  |
+| 5 | A search result is callable in the round that found it | **~8, estimated** | estimated: 8 of the 27 finding-rounds were a `tools.describe` that only turned a search hit into a callable tool | none — the index only holds tools this task may already use | medium — search would have to return a usable tool, not a pointer | no  |
+| 6 | Route a several-file change to `files.patch`/`code.change_set` instead of `files.edit` | **~3 measured** | measured: `rename` r6–r9, four one-file edits where one patch would do | none — same permission, same gate | small — ranking and wording, no new tool | no  |
+| 7 | Alias the shell to the names models actually reach for (`bash`, `shell`) | **~4, estimated** | estimated: fix-range r2–r5 and extract-helper's `unknown: ["shell.execute"]` | none | small — alias names in the index | no  |
+| 8 | Retry a provider 4xx once, and end on a plain sentence if it fails | **0 rounds, 1 task finished** | measured: 1 of 12 `branch-sub` tasks | none — it is the intent list, not against it | small — one rule in `provider-retry.ts` and one sentence | no  |
+| 9 | Run an independent read-only group concurrently | **0 rounds; 224 ms measured on reads** | measured from fix-range r8 timestamps | this is where "never break" is easiest to lose | medium — already built on `mac7/speed`, behind a switch | **yes, item A**  |
+| 10 | A `files.read_many` tool | **0** | measured: the model already sends 3–4 parallel `files.read` | none | small — already built on `mac7/speed` | **yes, item C** — window8 says the tool shape was not the blocker  |
+| 11 | One approval covering a batch of changes; a no-yes scratch area | **0** | measured: `user.ask` called 0 times; `failedEdits` 0 on every row | real | large — and not justified by this data | no — **do not build on this evidence**  |
 
 ### The three I would do next
 
@@ -439,18 +500,18 @@ Rounds removed are out of Branch's 95 in window8. **Measured** means counted fro
    much as the coding starter set (`cli-flag`: `guessed: ["documents"]`, 12 rounds, worst of the
    twelve).
 2. **Ask for the prompt cache** (#3). Zero risk, invisible, and it is the only thing that touches
-   the *other* quarter of the gap — the 1.31× per-round cost. Branch is the only one of the three
+   the *other* two fifths of the gap — the 1.31× per-round cost. Branch is the only one of the three
    getting no cache on the same endpoint. One line in `responsesBody`, then re-measure `cachedInput`
    in the next window.
 3. **Tell the model what is switched off, and don't let a 4xx end a task** (#4 and #8). Together
-   they remove 8 rounds and one lost task, and they fix two places where Branch breaks its own
-   rules: a hedged answer the person cannot act on, and `Provider HTTP 400; check endpoint, model,
+   they remove 8 rounds and recover one lost task, and they fix two places where Branch breaks its own
+   rules: an answer that reports a failed attempt rather than stating plainly what was not allowed, and `Provider HTTP 400; check endpoint, model,
    credential, and quota` shown as a finished task's whole output.
 
 ### What is not worth copying
 
 - **Codex's chained shell.** It is why Codex finishes in few calls, and it is also why Codex's
-  per-round cost is the worst of the three (≤6.5 s against Branch's 6.0 and Pi's 4.6), and why its
+  per-round cost is at best no better than Branch's (406 s over at least 62 rounds is ≤6.5 s, against Branch's 6.0 and Pi's 4.6), and why its
   `fix-range` run ended on a 129-line `git diff` usage dump it had to read. More importantly a
   chained command is one approval for many effects — the exact thing Branch's gate exists to
   prevent. Branch should collapse rounds by *loading the right tools*, not by handing the model a
