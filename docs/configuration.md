@@ -3698,6 +3698,11 @@ instructions to keep the change scoped, run focused tests and the build, inspect
 only a draft pull request after the owner asks. A fork receives the official repository as its
 `upstream` remote, so its draft can target the official base branch.
 
+On a fresh install the controlling integration setting is absent, so this workflow is off:
+`{ "git": { "remote": true } }` must be added before `git.push` and
+`branch.prepare_source_change` are registered. Opening the draft also requires **Settings →
+Developer → Pull requests from changes** to be switched on. These are separate gates.
+
 This is bounded source development, not live self-modification: the installed program, its private
 database, session tokens and credentials are outside the worktree and are never edited. Preparing
 the worktree does not open, merge or publish anything. The existing pull-request switch remains

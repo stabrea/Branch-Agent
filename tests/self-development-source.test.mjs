@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { offerSelfDevelopment, prepareBranchSourceChange } from "../dist/self-development.js";
 import { ToolRegistry } from "../dist/registry.js";
 import { z } from "zod";
@@ -60,6 +61,8 @@ test("the self-development tool appears only while remote Git is enabled", () =>
   assert.equal(registry.names().includes("branch.prepare_source_change"), false);
   registry.register({ name: "git.push", permission: "git.remote", description: "test", parameters: z.object({}), execute: async () => ({}) });
   assert.equal(registry.names().includes("branch.prepare_source_change"), true);
+  assert.equal(registry.targetOf("branch.prepare_source_change", { name: "remove-button" }, {}),
+    join("C:/owner/workspace", "branch-agent-source", ".branch-worktrees", "self-remove-button"));
   registry.unregister("git.push");
   assert.equal(registry.names().includes("branch.prepare_source_change"), false);
   stop();

@@ -38,7 +38,13 @@ function repositoryAddress(input: string): { repo: string; url: URL } {
   const parsed = githubRepositoryOf(input);
   if (parsed.repo.split("/")[1]?.toLowerCase() !== "branch-agent")
     throw new Error("Use the official Branch-Agent repository or your own GitHub fork of it.");
+  // Rebuild from the repository name so credentials or other URL parts supplied by a caller can
+  // never survive into the clone command. Do not replace this with input sanitising.
   return { repo: parsed.repo, url: new URL(`https://github.com/${parsed.repo}.git`) };
+}
+
+function sourceChangeFolder(workspace: string, name: string): string {
+  return join(workspace, sourceFolder, ".branch-worktrees", `self-${name}`);
 }
 
 async function ensureSource(deps: SelfDevelopmentDeps, repository: { repo: string; url: URL }, signal: AbortSignal): Promise<string> {
@@ -87,7 +93,7 @@ export async function prepareBranchSourceChange(
   const copyName = `self-${input.name}`, branch = `branch/self-${input.name}`;
   const folder = `${sourceFolder}/.branch-worktrees/${copyName}`;
   const exists = deps.exists ?? present;
-  if (!(await exists(join(deps.workspace, folder))))
+  if (!(await exists(sourceChangeFolder(deps.workspace, input.name))))
     await run(deps, source, ["worktree", "add", "-b", branch, `.branch-worktrees/${copyName}`, `${remote}/${input.base}`], signal);
   const projectId = `branch-agent-${input.name}`;
   const instructions = projectInstructions(input.name, input.base);
@@ -107,7 +113,7 @@ function registerSelfDevelopment(deps: SelfDevelopmentDeps): void {
     permission: "git.remote",
     description: "Prepare a protected, isolated source worktree for changing Branch Agent itself. Use this before requests such as removing a Branch button. It can use the official repository or the owner's GitHub fork, never edits the installed app, and does not open or merge a pull request.",
     parameters: z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict(),
-    target: (args) => `prepare an isolated Branch Agent source copy for ${String(args.name)}`,
+    target: (args) => sourceChangeFolder(deps.workspace, String(args.name)),
     execute: (input, context: ToolContext) => {
       if (startedWithShortLivedKey() || (context.source && context.source !== "owner"))
         throw new Error("Only the owner in the Branch app can prepare Branch Agent source changes.");
