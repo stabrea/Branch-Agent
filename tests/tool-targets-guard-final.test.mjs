@@ -66,49 +66,6 @@ test("every registered tool either declares targets or is on the allow-list with
 
 test("tools not on allow-list must declare targets", async (t) => {
   const app = await fixture(t);
-  const registered = app.registry.names();
-
-  const needsTargets = [];
-
-  for (const name of registered) {
-    // On allow-list? Skip
-    if (GENUINELY_TARGETLESS.hasOwnProperty(name)) continue;
-
-    // Check if it declares targets
-    let declaresTarets = false;
-    try {
-      // targetsOf returns non-null if the tool declared targets
-      const targets = app.registry.targetsOf(name, {}, {});
-      declaresTarets = targets !== null;
-    } catch (e) {
-      // Exception might mean:
-      // 1. Required parameters (tool is trying to validate arguments - not relevant here)
-      // 2. The tool doesn't have targetsOf logic
-      // We assume throws = tries to validate, which suggests the tool might have targets logic
-      // For a cleaner test, we'd need to inspect the tool definition directly
-      declaresTarets = false; // Be conservative
-    }
-
-    if (!declaresTarets) {
-      needsTargets.push(name);
-    }
-  }
-
-  // This assertion will likely fail because most tools don't declare targets
-  // That's expected - we need to build up the allow-list incrementally
-  // For now, we're just documenting what needs targets
-
-  // Print first few for manual inspection
-  if (needsTargets.length > 0 && needsTargets.length <= 20) {
-    console.log("\nTools that might need targets (manual review needed):");
-    needsTargets.forEach(t => console.log(`  - ${t}`));
-  }
-
-  // For this test to pass, either:
-  // 1. We add all found tools to allow-list, OR
-  // 2. We require each to declare targets
-  // For now, we'll require at least some of the clearly multi-resource tools to declare targets
-
   const CRITICAL_MULTI_TARGET = [
     "code.patch", "code.change_set", "files.patch",
     "documents.compare", "documents.edit",
@@ -116,6 +73,11 @@ test("tools not on allow-list must declare targets", async (t) => {
     "git.commit", "git.diff", "git.log", "git.status", "git.branch",
   ];
 
-  const violators = CRITICAL_MULTI_TARGET.filter(name => needsTargets.includes(name));
+  const missing = CRITICAL_MULTI_TARGET.filter(name => !app.registry.names().includes(name));
+  assert.deepEqual(missing, [], "critical multi-target tools not registered");
+
+  // Inspect the definitions instead of calling targetsOf with invalid empty arguments. Required
+  // schemas reject {}, which previously made correctly-declared tools look targetless on Windows CI.
+  const violators = CRITICAL_MULTI_TARGET.filter(name => !app.registry.declaresTarget(name).targets);
   assert.deepEqual(violators, [], "critical multi-target tools not declaring targets");
 });
