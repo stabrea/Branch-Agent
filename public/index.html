@@ -270,53 +270,49 @@
           <div id="plan-card" class="plan-card" hidden></div>
           <div class="composer-dock" id="composer-dock">
           <form id="chat-form" class="composer">
-            <!-- Slim bar: + button, textarea, model chip, voice, send -->
-            <button id="composer-plus" type="button" class="composer-plus" title="Attach and more" aria-label="Attach and more" aria-haspopup="menu" aria-expanded="false"
-              ><svg viewBox="0 0 24 24" aria-hidden="true" class="ico"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button
-            ><label class="sr-only" for="prompt" data-t="composer.yourMessage">Your message</label
+            <label class="sr-only" for="prompt" data-t="composer.yourMessage">Your message</label
             ><textarea
               id="prompt"
               required
               maxlength="16000"
               placeholder="Ask Branch to do something…"
               data-t-placeholder="composer.placeholder"
-              rows="1"
+              rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
             <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
-            <!-- Model and mode chips -->
-            <button id="model-chip" type="button" class="composer-model-chip" aria-haspopup="menu" aria-expanded="false" title="Change the model" aria-label="Change the model"></button>
-            <button id="mode-chip" class="composer-mode-chip" type="button" aria-haspopup="menu" aria-expanded="false"
-              aria-label="How much may it do in this conversation?" data-t-label="mode.question"></button
-            ><div id="mode-menu" class="mode-menu" role="menu" aria-label="How much may it do in this conversation?" data-t-label="mode.question" hidden></div>
-            <!-- Voice buttons -->
-            <button id="voice-record" type="button" class="composer-voice-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message" data-t-label="composer.speak"
-              ><svg viewBox="0 0 24 24" aria-hidden="true" class="ico"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
-            ><button id="voice-talk" type="button" class="composer-talk-button" title="Hold the button and speak; let go and Branch answers out loud. Press again to stop it talking.">Talk</button
-            ><button id="voice-live" type="button" class="composer-talk-button" hidden title="Talk and be answered as you go. Press again to cut in, and again to stop.">Talk live</button
-            ><button id="voice-dictate" type="button" class="composer-talk-button" hidden aria-pressed="false" title="Speak and the words appear in the box as you say them. Press again to stop. While it is on, the microphone is open. It fills the box; you press Send." data-t="action.dictate">Dictate</button
-            ><!-- Send button -->
-            <button id="send" type="submit" class="composer-send">Send</button
-            ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes" data-t="action.send-when-it-finishes">Send when it finishes</button>
-
-            <!-- Plus menu: appears when + button is clicked -->
-            <div id="composer-plus-menu" class="composer-plus-menu" role="menu" hidden>
-              <label class="composer-menu-item">
-                <input id="temporary-toggle" type="checkbox" /> Temporary
-              </label>
-              <label class="composer-menu-item">
-                <input id="ask-first-toggle" type="checkbox" /> Ask me questions first
-              </label>
-              <label class="composer-menu-item">
-                <span class="sr-only" data-t="field.who-should-answer">Who should answer</span
-                ><select id="composer-specialist" aria-label="Who should answer"><option value="" data-t="composer.assistantItself">Your assistant</option></select
-              ></label>
-              <button id="new-session" type="button" class="composer-menu-item">New conversation</button>
-              <hr />
-              <button id="composer-media" type="button" class="composer-menu-item" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
-                >Add a picture or sound</button
-              ><button id="composer-attach" type="button" class="composer-menu-item" title="Work with a document" aria-label="Attach a document" data-t-label="composer.attach"
-                >Attach a document</button>
+            <div>
+              <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
+              ><button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document" data-t-label="composer.attach"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l-6.5 6.5a3 3 0 004.2 4.2L19 11a5 5 0 00-7-7l-6.5 6.5" /></svg></button
+              ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message" data-t-label="composer.speak"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
+              ><!-- Wave 7: hold to talk, then hear the answer. Everything it does lives in public/voice-talk.js. -->
+              <button id="voice-talk" type="button" class="text-button" title="Hold the button and speak; let go and Branch answers out loud. Press again to stop it talking.">Talk</button
+              ><!-- Wave 8: the same button, live. It only appears when the connection you are using
+                   can hold a live conversation; everything it does lives in public/voice-live.js. -->
+              <button id="voice-live" type="button" class="text-button" hidden title="Talk and be answered as you go. Press again to cut in, and again to stop.">Talk live</button
+              ><!-- mac7/live-voice: speak and see the words. It only appears when the switch allows
+                   it and this computer has a streaming speech program; everything it does lives in
+                   public/dictation.js. While it is pressed the microphone is open, and the line
+                   under the box says so for exactly as long as it is. It never sends. -->
+              <button id="voice-dictate" type="button" class="text-button" hidden aria-pressed="false" title="Speak and the words appear in the box as you say them. Press again to stop. While it is on, the microphone is open. It fills the box; you press Send." data-t="action.dictate">Dictate</button
+              ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
+                ><input id="temporary-toggle" type="checkbox" /> Temporary</label
+              ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
+                ><input id="ask-first-toggle" type="checkbox" /> Ask me questions first</label
+              ><label class="check composer-specialist" title="Put this one message to a specialist instead of your assistant. The reply says which one answered."
+                ><span class="sr-only" data-t="field.who-should-answer">Who should answer</span
+                ><select id="composer-specialist" aria-label="Who should answer"><option value="" data-t="composer.assistantItself">Your assistant</option></select></label
+              ><button id="new-session" type="button" class="text-button">
+                New conversation</button
+              ><!-- Redesign phase 1: how much it may do in this conversation (public/conversation-mode.js). -->
+              <span class="mode-wrap"><button id="mode-chip" class="mode-chip" type="button" aria-haspopup="menu" aria-expanded="false"
+                aria-label="How much may it do in this conversation?" data-t-label="mode.question"></button
+                ><div id="mode-menu" class="mode-menu" role="menu" aria-label="How much may it do in this conversation?" data-t-label="mode.question" hidden></div></span
+              ><button id="send">Send ↗</button
+              ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes" data-t="action.send-when-it-finishes">Send when it finishes</button>
             </div>
           </form>
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
@@ -2197,7 +2193,5 @@
     <!-- phase2/panels: Browser and Terminal, resizable panes, See-through and What's on screen (after layout.js). -->
     <script src="/panels.js" type="module"></script>
     <script src="/panels-hide.js" type="module"></script>
-    <!-- batch2-composer: handle the plus button menu toggle -->
-    <script src="/composer-menu.js"></script>
   </body>
 </html>
