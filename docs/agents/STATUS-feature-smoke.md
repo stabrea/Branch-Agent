@@ -25,7 +25,7 @@ services on the owner's VM, which the brief puts off limits).
 
 | # | Item | Verdict | Tried with |
 |---|------|---------|-----------|
-| 0.1 | Build from a clean clone at a pinned commit | NOT TESTED | |
+| 0.1 | Build from a clean clone at a pinned commit | WORKS | `git clone` + `git checkout 0a5a1245` + `npm ci` + `npm run build` on the VM; `SETUP OK 0a5a1245` |
 | 1.1 | First run: fresh data dir, first-run flow | NOT TESTED | |
 | 1.2 | Connect the model | NOT TESTED | |
 | 1.3 | Practice workspace | NOT TESTED | |
@@ -67,19 +67,19 @@ services on the owner's VM, which the brief puts off limits).
 | 6.3 | A room with two Trunks | NOT TESTED | |
 | 6.4 | @mention | NOT TESTED | |
 | 6.5 | A room yes, and Revoke | NOT TESTED | |
-| 7.1 | Settings levels: Regular / Advanced / Technical | NOT TESTED | |
-| 7.2 | Search finds settings | NOT TESTED | |
-| 7.3 | Accounts page | NOT TESTED | |
-| 7.4 | Agent-files editor | NOT TESTED | |
-| 7.5 | Usage ring and popover | NOT TESTED | |
-| 7.6 | The 95% prompt | NOT TESTED | |
-| 7.7 | Suggestion bars | NOT TESTED | |
-| 7.8 | Glass dropdowns | NOT TESTED | |
-| 7.9 | Hide anything | NOT TESTED | |
-| 7.10 | Achievements / pets / background on, then off | NOT TESTED | |
-| 7.11 | Panels: Browser and Terminal tabs, resize, Ctrl+B | NOT TESTED | |
-| 8.1 | TUI at 80x24 | NOT TESTED | |
-| 8.2 | TUI at 120x40 | NOT TESTED | |
+| 7.1 | Settings levels: Regular / Advanced / Technical | WORKS | Settings › Appearance, the "How much to show" control: Regular 2 cards / 16 controls, Advanced 11 / 54, Technical 11 / 54 with the level note changing each time |
+| 7.2 | Search finds settings | WORKS | the Search settings box: "lockdown" 11 cards → 5, "pet" → 2 and it opens Appearance, "read before" → 2 and it opens Assistant |
+| 7.3 | Accounts page | WORKS | Settings › Accounts: "Every sign-in and key Branch can use, which one answers, and what happens when one runs low" |
+| 7.4 | Agent-files editor | WORKS | Settings › Assistant, the "Your assistant's files" card: SOUL.md and the rest, each with what it is for and whether it is read now |
+| 7.5 | Usage ring and popover | WORKS | the ring under the message box; pressing it opens #usage-pop with what each connection has left |
+| 7.6 | The 95% prompt | WORKS | forced: the window was handed a connection at 96% with tasks running, and the question appeared — "Almost out on Smoke plan… Save progress / Not now" with a five-second countdown |
+| 7.7 | Suggestion bars | WORKS | `GET /api/deployment/suggestion` answers `{"bar":null}` (nothing to suggest on a fresh install, which is right); the starter bar in the conversation is in the page |
+| 7.8 | Glass dropdowns | WORKS | pressing the Language select opens #glass-list: aria-expanded=true, a positioned panel with "English" and "Français (machine draft)" |
+| 7.9 | Hide anything | WORKS | Appearance → right-click works as Hide this → right-click the title → menu "Hide this / What's on screen…" → html[data-hide]="page-title" and the title is gone |
+| 7.10 | Achievements / pets / background on, then off | WORKS | Appearance: pet and achievements ship off; switched on, #pet-lane shows in the conversation; switched off again, it is hidden |
+| 7.11 | Panels: Browser and Terminal tabs, resize, Ctrl+B | WORKS | the side panel's six tabs (Activity, Plan, Files, Memory, Browser, Terminal) all open; dragging .panels-rz took the side list 272px → 440px; Ctrl+B adds and removes `no-rail` on the body |
+| 8.1 | TUI at 80x24 | WORKS | `script -q -e -c "stty cols 80 rows 24; node dist/cli.js chat"`: header, the five places, the message box drawn 78 wide, the footer line — nothing past the edge |
+| 8.2 | TUI at 120x40 | WORKS | the same at 120x40: the side frame and the extra key-help line come back, the box is drawn 114 wide |
 | 8.3 | Web UI at 390x844, approvals answerable | NOT TESTED | |
 | 8.4 | `branch run` | NOT TESTED | |
 | 8.5 | `branch chat --plain` | NOT TESTED | |
@@ -89,8 +89,8 @@ services on the owner's VM, which the brief puts off limits).
 | 9.4 | Deny rule refused through patch | NOT TESTED | |
 | 9.5 | Deny rule refused through git | NOT TESTED | |
 | 9.6 | Secrets never echoed | NOT TESTED | |
-| 9.7 | The problem report redacts | NOT TESTED | |
-| 10.1 | `branch doctor` | NOT TESTED | |
+| 9.7 | The problem report redacts | WORKS | a canary secret was left in the workspace; `branch report --save report.zip` wrote 11 entries and the canary is in none of them |
+| 10.1 | `branch doctor` | WORKS | `branch doctor`: nine checks, all ok (saved data, workspace, device key, models, ChatGPT account, local models, channels, schedules, tasks waiting) |
 | 10.2 | A killed engine recovering | NOT TESTED | |
 | 10.3 | The daemon | NOT TESTED | |
 | 11.1 | Branch checks itself and reports (its claims) | NOT TESTED | |
@@ -98,7 +98,45 @@ services on the owner's VM, which the brief puts off limits).
 
 ## Broken, worst first
 
-(nothing recorded yet)
+### B1 — the window's own "is Branch still there" check is refused, every few seconds
+
+`public/layout.js:1223` asks `fetch("/api/health", { cache: "no-store" })` and `public/never-break.js:25`
+asks `fetch("/gateway/health")`, and neither sends the session key. Both answer **401**. I confirmed it
+from inside the owner's own window: `/api/health` with no key → 401, `/gateway/health` → 401, and
+`/api/health` with the key → 200. Two things follow. The browser console fills with
+"Failed to load resource: the server responded with a status of 401" — eight of them in a one-minute
+walk, and they are the only console errors the app produces, so they hide anything real. And the check
+cannot do its job: `checkServer` only counts a miss when `fetch` *rejects*, and a 401 resolves, so the
+chip says "Connected" whenever the server is reachable at all — including a Branch that is up but
+refusing every request, which is exactly the state the chip exists to notice. Repro: open the window,
+watch the console, or run `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:<port>/api/health`.
+
+### B2 — the Lockdown row says the opposite of what Lockdown is doing
+
+`branch settings permissions` with Lockdown off prints:
+
+```
+Lockdown: off	Lockdown is on. Commands are refused; all else asks you.	/lockdown on
+```
+
+The title is right and the sentence beside it is the "on" sentence, always.
+`src/terminal-settings.ts:69` builds the row with `detail: words.t("lockdown.on", "Lockdown is on. …")`
+with no branch on `lock`, which the line above it has already computed. So the one row a person reads
+to find out whether commands are being refused tells them commands *are* being refused while they are
+not. A fix needs a new `lockdown.off` sentence — there is none anywhere today
+(`src/terminal-tui.ts:449` hard-codes "[Lockdown is off]" instead), so this is not a one-word change
+and I left it for the integrator. Repro: `BRANCH_DATA_DIR=… node dist/cli.js settings permissions`,
+last line.
+
+### B3 — the command list says twelve Settings pages; there are thirteen
+
+`branch help` and `branch settings --help` both say "The twelve Settings pages by name"
+(`src/terminal-parity.ts:79` and `src/commands/catalog.ts:87`), while `SETTINGS_PAGES`
+(`src/terminal-places.ts:38-52`) holds thirteen: General, Assistant, Appearance, Notifications,
+Models, Accounts, Voice, Permissions, Computer & browser, Secrets, Data & usage, Advanced,
+Updates & about. `branch places` lists all thirteen. Small, but it is the sentence that tells a
+person what to expect. Repro: `node dist/cli.js help | grep settings` against
+`node dist/cli.js places | grep -c "^settings:"` (counting Models once).
 
 ## What Branch said about itself
 
