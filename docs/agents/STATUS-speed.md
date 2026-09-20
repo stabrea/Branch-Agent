@@ -263,3 +263,27 @@ words the screens use, with the limits said in the same sentence.
 > it can from the work it did, and says in plain words what it spent the rounds on. How many rounds a
 > task may take is yours to change, in Settings under Advanced. A tool arriving part-way through a
 > task no longer pushes another tool off the list.
+
+## Not done, and not proven
+
+- **Nothing on this branch has been measured on a real model yet.** Every number above comes from a
+  scripted stand-in on this computer. That is said in the release-notes draft too. The Ollama window
+  is the next thing (protocol above).
+- **B is a guess, not a finding.** Pi, which takes 6 rounds where Branch takes 9–10 on the same task
+  and the same model, says nothing about batching in its own instructions. Its short turn count comes
+  from a small tool set that is always loaded and from `bash` doing several things in one call — which
+  is evidence for E and C, not for B. B is one line of about twenty tokens and stays on that basis.
+- **A is a structural change, not a measured speed-up.** On local file reads it is worth a few
+  percent of a turn (20 ms → 14 ms of tool time, 506 ms → 486 ms of turn). The payoff is in
+  proportion to how slow the tools are, and the harness cannot cheaply fake a two-second command.
+  Read the numbers in that spirit; the honest headline of this branch is E, then F.
+- **The live row shows one call while several run.** `runActivity` keys steps by call id, so all of
+  them are listed in the feed, but the one line at the top of a running task is the last one that
+  started. Nothing is wrong or missing; it is simply not a sentence about eight things. Worth a look
+  by whoever owns that row, not fixed here.
+- **`code.run` and a shell stay off**, so a coding task still cannot run the project's tests without
+  the owner's yes. That is the biggest single difference from Codex and Pi, it is the owner's
+  decision (coding-bench plan item 1), and nothing here changes it.
+- **Not tried in the desktop app.** Everything here is engine-side and tested through `createBranch`;
+  the Coding card's new row and the knobs field are wired the way the existing ones are but were not
+  clicked in a real window.
