@@ -302,6 +302,36 @@ existing bench rows do.
   a real result and will be reported as one. C (`files.read_many`) cuts rounds whether or not the
   model batches, and E cuts them whether or not either works, so the three are separable in the rows.
 
+### Second window: the current build, and what the unswitched fixes are worth
+
+The first window's build predates every unswitched tool-finding fix, so it could not measure them.
+The second window is the **current** build, same three tasks, same model, same machine, one repeat
+(`/workspace/bench/speed/speed2`, load 5.7–8.2 — the first window ran at 6.9–8.3).
+
+**The shipped row across the two builds. Nothing is switched on in either; the only difference is
+the fixes that are on for everybody:**
+
+| task | `d23cde37`, as it ships | current build, as it ships |
+|---|---|---|
+| extract-helper | fail, **600 s** (stopped at the deadline) | fail, **228 s** |
+| update-docs | fail, 409 s | fail, **253 s** |
+| rename | fail, 514 s | fail, **472 s** |
+| median of the three | **514 s** | **253 s** |
+
+Faster on all three, and the deadline hit disappears. Neither row finishes a task — the shipped
+path still cannot run the project's tests, which is what these tasks mostly need — but it reaches
+the end of what it can do in half the time.
+
+**And the same window's on/off pair, on the current build:** 2 of 3 finished with the part on
+against 0 of 3 as it ships (update-docs PASS 218 s against fail 253 s; rename PASS 584 s against
+fail 472 s; extract-helper stopped at the deadline with the part on, against 228 s without —
+the one cell in twelve that goes the wrong way, and it is one cell). Tool calls a round 0.90 → 1.50;
+one switched-on cell asked for more than one thing in six of its seven rounds.
+
+**How far to trust this one.** Three cells a side, one repeat. It is a sighting, not a rate. What
+makes the shipped-row comparison worth reporting anyway is that it is the *same row* on the *same
+tasks* with only the unswitched fixes between them, and all three moved the same way.
+
 ## For the release notes (drafted here; `release-019` owns the file)
 
 Written to the template's rules (`docs/release-notes-template.md`): what is now possible, in the
