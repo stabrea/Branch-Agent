@@ -1,7 +1,6 @@
 /* phase2/settings: every setting Branch has (530), where it lives and the words beside it, so Settings search
    finds a setting even while it sits behind a switch or in another place, and Technical can name where each is
-   saved. Generated from the settings audit (claude-session-files/branch/branch-grown-up/settings-inventory.json,
-   trunk 074f7e2b) by scripts in the phase-2 notes; tests/settings-grown.test.mjs checks every row still points
+   saved. Generated from the checked-in Settings audit at trunk 074f7e2b; tests/settings-grown.test.mjs checks every row still points
    at a real control. Row: [id, home, card id, English label, saved as (or null), selector when the control has no id,
    English title of its card (or null), true when only the owner may change it]. */
 export const SETTINGS_INDEX = [

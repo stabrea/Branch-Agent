@@ -104,7 +104,7 @@ decided and told them. Build all three; each ships off.
 - Every feature ships off, with an off / when-needed / on switch.
 - Only MIT/Apache code may be ported. Lawful channel parity only: no unofficial clients, no userbots.
 - Never print credentials or vault items.
-- Conventional Commits, each message ending with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- Conventional Commits with messages that describe each change.
 
 ## Recurring merge traps
 
