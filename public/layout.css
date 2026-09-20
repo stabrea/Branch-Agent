@@ -743,14 +743,14 @@ body.lx-help .context-panel > .acorn-art {
 }
 .lx-settings-win {
   position: absolute;
-  inset: clamp(12px, 5vh, 48px) clamp(12px, 6vw, 90px);
+  inset: 0;
   max-width: 1120px;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--glass-edge);
-  border-radius: 22px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
@@ -833,6 +833,7 @@ body.lx-help .context-panel > .acorn-art {
   gap: 8px;
   margin: 0 2px 10px;
   padding: 0 10px;
+  height: 32px;
   border: 1px solid var(--line-2);
   border-radius: 10px;
   color: var(--text-3);
@@ -845,13 +846,17 @@ body.lx-help .context-panel > .acorn-art {
   flex: 1;
   min-width: 0;
   margin: 0;
-  padding: 7px 0;
+  padding: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
   color: var(--text);
   font-size: 13px;
+  font-family: var(--body);
   outline: none;
+}
+.lx-search input::placeholder {
+  font-family: var(--body);
 }
 .lx-settings-link {
   display: flex;
@@ -909,9 +914,10 @@ body.lx-help .context-panel > .acorn-art {
   font-family: var(--display);
   font-stretch: 76%;
   font-weight: 740;
-  font-size: 32px;
+  font-size: 34px;
   line-height: 1;
   letter-spacing: -0.015em;
+  color: var(--accent);
 }
 .lx-page-intro {
   max-width: 60ch;
