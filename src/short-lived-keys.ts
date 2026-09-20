@@ -104,6 +104,10 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
 const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
+  // mac7/smoke-fixes (B4): the list of short-lived keys, and the terminal's own places, which hand
+  // back the owner's memory, settings and conversations as plain lines.
+  /^\/api\/tokens(\/.*)?$/,
+  /^\/api\/terminal$/,
   // phase2/delight: the owner's achievements are the owner's alone (src/delight.ts).
   /^\/api\/delight\/achievements$/,
   new RegExp(`^/api/(triggers|webhooks)(/${id})?$`),

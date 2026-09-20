@@ -29,6 +29,18 @@ const PLACE_COMMANDS = new Set(["inbox", "automations", "library", "customize", 
 export const terminalCommandNames = new Set(TERMINAL_CLI_COMMANDS.map((entry) => entry.name));
 
 /**
+ * mac7/smoke-fixes (B4): the terminal commands that only look. These are the ones a second terminal
+ * may run against the Branch already open, over `GET /api/terminal`, so the window being open no
+ * longer makes the terminal useless. Everything left out either writes (`theme`, `model use`,
+ * `lockdown`, `permissions <preset>`) or wants a terminal of its own (`resume`, `setup`), and still
+ * refuses while another Branch holds the saved work.
+ */
+export const readOnlyTerminalCommands = new Set([
+  "inbox", "automations", "library", "customize", "settings", "places", "sessions", "memory",
+  "skills", "channels", "mcp", "tools", "projects", "usage", "snapshots", "version",
+]);
+
+/**
  * The command line as Branch reads it: nothing at all opens the view in a terminal (and starts the
  * web app anywhere else, as it always has), and a name brought from Hermes or OpenClaw becomes the
  * Branch command it means.
@@ -171,6 +183,10 @@ export async function runTerminalCommand(app: Branch, command: string, args: str
   if (PLACE_COMMANDS.has(command)) return placeCommand(app, command, args, io);
   if (command === "setup") return io.interactive ? startTui(app.runtime, { app, route: "settings:models:connection" }) : printRows(io, await rowsOf(app, words, { settings: "models", sub: "connection" }), "Connect a model here, or run `branch doctor` to check everything.");
   if (command === "places") return placesCommand(io, words);
+  // mac7/smoke-fixes (integration review): `branch version` is answered before anything is opened,
+  // so this is only reached over GET /api/terminal — where leaving it out made a command on the
+  // read-only list answer "I do not know the command version".
+  if (command === "version") return io.write(versionText());
   if (command === "theme") return themeCommand(app, args, io);
   if (command === "sessions") return sessionsCommand(app, args, io);
   if (command === "resume") return resumeCommand(app, args, io);

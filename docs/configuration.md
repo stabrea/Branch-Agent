@@ -2907,7 +2907,7 @@ The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|me
 | Help | `hermes --help` | `openclaw docs` | `branch help; branch <command> --help` | existed |  |
 | Every place by name | — | — | `branch places; branch inbox \| automations \| library \| customize` | built | Every home in docs/places.md. |
 
-**For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--allow-tests`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. `--allow-tests` lets this one task run the project's tests without asking "Let Branch run this project's tests?" (see *The project's check* below), as if you had answered Once each time; nothing is saved, only the owner can use it, and Lockdown refuses it. The exit code is the contract:
+**For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--allow-tests`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. `--allow-tests` lets this one task run the project's tests without asking "Let Branch run this project's tests?" (see *The project's check* below), as if you had answered Once each time; nothing is saved, only the owner can use it, and Lockdown refuses it. When the folder has no such question to remove — you have set up your own check, running scripts is already on, or there is no `package.json` and no check at all — it says that in one line instead of claiming it changed something. The flag only removes that one question: it never changes which tools a task is shown, how they are ranked, or how many rounds it takes. The exit code is the contract:
 
 | Code | Meaning |
 | --- | --- |
@@ -3279,9 +3279,11 @@ Everything in this section is off until you turn it on, so a task behaves exactl
 
 Asking about one tool call at a time is not the same as agreeing what is going to happen. This section is the other way round: you see the whole plan in plain words, change a step if you want to, and only then does anything run.
 
-**The two modes.** `GET|POST /api/plan-act` holds `planMode` — `just-do-it` (what Branch has always done, and still the default) or `show-plan` (make a plan, show it, and wait) — and `autonomy`, which says how far a task carrying out an agreed plan may go before it checks back: `every-step`, `changes-only` (only steps that change something) or `at-the-end` (the default: not until the whole plan is done). Both live per conversation **and** per project: `POST /api/plan-act { sessionId, planMode }` sets one conversation, `POST /api/plan-act { scope: "project", planMode }` sets what every new conversation in the project starts from, and `{ sessionId, followProject: true }` puts a conversation back on the project's choice. A conversation's own choice always wins. The switch is in the conversation itself, beside the model picker, not in Settings.
+**The two modes.** `GET|POST /api/plan-act` holds `planMode` — `just-do-it` (what Branch has always done, and still the default) or `show-plan` (make a plan, show it, and wait) — and `autonomy`, which says how far a task carrying out an agreed plan may go before it checks back: `every-step`, `changes-only` (only steps that change something) or `at-the-end` (the default: not until the whole plan is done). Both live per conversation **and** per project: `POST /api/plan-act { sessionId, planMode }` sets one conversation, `POST /api/plan-act { scope: "project", planMode }` sets what every new conversation in the project starts from, and `{ sessionId, followProject: true }` puts a conversation back on the project's choice. A write that names neither a conversation nor `scope: "project"` is refused with a plain sentence and changes nothing; it used to be dropped without a word while the answer still showed the project's setting. A conversation's own choice always wins. The switch is in the conversation itself, beside the model picker, not in Settings.
 
 **What a plan says.** In `show-plan` mode the first round of the model produces two to six numbered steps in plain words. Each step carries `title` (what it will do), `touches` (the one file, website or program it uses) and `changes` (whether it changes anything; a step that does not say is taken to change something). The plan is stored with the task — run id, conversation, the prompt it was made for, the mode and the autonomy setting — and shown with one sentence naming which steps change something. Events: `plan.created` and `plan.awaiting_approval` carry the titles, what each step touches, which of them change something, and that one sentence.
+
+**With nobody to ask.** A task nobody can answer — a script's `branch run`, a schedule, a trigger, another AI tool over MCP or A2A — finishes with status `completed` and the plan as its answer, and changes nothing. The plan is saved, so saying "go ahead" in that conversation later carries it out. **A chat message is not one of those**: somebody just typed it, so the task stops at `needs_input` and the plan goes back to the chat in plain words, exactly as it does in the window, and their next "go ahead" picks it up. (A chat's task still only gets what a chat's task ever gets: five read-only permissions, *Ask before changes* however it is carried on, and never a standing yes.) `--plan` on `branch run` is not this switch: it works out a plan and then carries it out, and the sentence under `branch run --help` says so.
 
 **Agreeing it.** The task stops with status `needs_input` and the plan as its question. `POST /api/runs/:id/plan {}` agrees to it as it stands; `POST /api/runs/:id/plan { steps }` agrees to it with the wording you changed, and the changed wording is what runs; `POST /api/runs/:id/plan { decision: "reject", reason }` sends it back, and the model is asked for another plan straight away with your reason in front of it. Saying "go ahead" in the conversation also agrees to it. Nothing that changes anything runs before you have agreed. Events: `plan.approved`, `plan.rejected`, `plan.decided`. Every answer is written into the record of what the assistant was allowed to do, against the task, with the numbered plan, the autonomy setting and who answered.
 
@@ -7259,6 +7261,25 @@ branch token create --scope read --minutes 60 --name "My dashboard"
 branch token list
 branch token revoke <id>
 ```
+
+**While the app window is open (mac7/smoke-fixes, B4).** Only one Branch may write to the saved
+work at a time, so a second `branch` used to stop with "Branch is already open" — which made
+`branch token create` unreachable at exactly the moment a script needs a key. These now go through
+the Branch that is already running, by the same door and the same local key the app window uses, as
+`branch schedule` always did: `branch doctor` (the health checks; `--fix` and `--repair` still need
+the app closed), `branch trace <task id>`, `branch token create|list|revoke`, and every terminal
+place that only looks — `memory`, `usage`, `sessions`, `inbox`, `library`, `settings`, `places`,
+`tools`, `skills`, `projects`, `snapshots`, `channels`, `mcp`, `customize`, `automations`. With
+nothing running they open the saved work here exactly as before. Anything that writes to the saved
+work — `backup`, `restore`, `security audit`, `activity verify`, `theme`, `model use`, `lockdown`,
+`permissions`, `chat`, `run` — still refuses while a Branch is open, and the refusal now names the
+commands that do work and says to close that Branch first. Routes: `GET|POST /api/tokens`,
+`POST /api/tokens/<id>/revoke`, `GET /api/runs/<id>/trace`, `GET /api/terminal?command=<name>&arg=…`.
+The keys and the terminal's places are the owner's alone at this computer: a household profile is
+refused, and a short-lived key can neither read the list of keys nor make or take one back, so no key
+can renew itself. A task's trace is an ordinary read, like the `inspect` and `monitor` views beside
+it. The terminal sends its own `LANG`/`LC_*` with the request, so "follow the computer" reads the
+same words from the running Branch as it would here; a language you chose yourself always wins.
 
 - `--scope read` may look at things only: any request that is not a GET is refused, in those words.
   `--scope run` may also start a task. Neither may ever become the master key.

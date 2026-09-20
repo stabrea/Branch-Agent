@@ -5,6 +5,7 @@ import { addPolicyRule, readPolicy, savePolicy, policyPresets, type PolicyPreset
 import { readAttachment, type Attachment, attachedText } from "./terminal-commands.js";
 import { progressLine } from "./terminal.js";
 import { allowTestsRefusal } from "./coding/project-tests.js";
+import { allowTestsIdleNote } from "./code-change.js"; // mac7/smoke-fixes (B6)
 import type { ImagePart } from "./contracts.js";
 
 /**
@@ -150,7 +151,7 @@ export async function runForScripts(
   /** mac7/tests-unattended: whether a person is at a terminal to be asked; false for scripts. */
   attended = false,
 ): Promise<Run> {
-  const allowTests = flags.allowTests ? allowTestsFor(runtime, writer) : false;
+  const allowTests = flags.allowTests ? await allowTestsFor(runtime, writer) : false;
   const attachments: Attachment[] = [];
   for (const path of flags.attach) attachments.push(await readAttachment(path));
   const images = attachments.map((a) => a.image).filter((image): image is ImagePart => !!image);
@@ -180,11 +181,16 @@ export async function runForScripts(
     if (timer) clearTimeout(timer);
   }
 }
-/** `--allow-tests`, refused in plain words when it may not be used, and said out loud when it is. */
-function allowTestsFor(runtime: Runtime, writer: RunWriter): true {
+/**
+ * `--allow-tests`, refused in plain words when it may not be used, and said out loud when it is.
+ * mac7/smoke-fixes (B6): when this workspace has no question for the flag to remove, it says that
+ * instead, rather than promising something it cannot do.
+ */
+async function allowTestsFor(runtime: Runtime, writer: RunWriter): Promise<true> {
   const refusal = allowTestsRefusal(runtime.store, runtime.owner);
   if (refusal) throw new Error(refusal);
-  writer.note("[this task may run the project's tests without asking; nothing is saved]");
+  const idle = await allowTestsIdleNote(runtime.store, runtime.owner, runtime.workspace);
+  writer.note(idle ? `[${idle}]` : "[this task may run the project's tests without asking; nothing is saved]");
   return true;
 }
 /** Writes the stored events of a task that have not been written yet; answers with the new mark. */
