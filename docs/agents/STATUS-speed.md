@@ -349,17 +349,46 @@ because the wrong version was used to justify work.
 
 **The headline of this branch is E, then the round ceiling. Not A, not B, not C.**
 
-### First head-to-head on a real model (qwen3-14b, `extract-helper`, one cell each)
+### The window, finished: qwen3-14b, 3 tasks x 2 repeats x 2 rows, build `d23cde37`
 
-| | rounds | tool calls | calls a round | rounds asking for several | rounds looking for a tool | calls run together |
-|---|---|---|---|---|---|---|
-| as it ships | 8 | 8 | 1.00 | 0 | 1 | 0 |
-| `fewer-rounds` on | 8 | 11 | **1.38** | **5** | **0** | **4** |
+Same build both rows; the only difference is whether the `fewer-rounds` part is on. 600 s deadline,
+load 5.8–8.3 throughout, `/workspace/bench/speed/speed1`.
 
-Both cells ran to the 600 s deadline, so the round count is "as many as fit", not "as many as
-needed" — on this model these tasks do not finish either way, which windows 3 and 4 already showed.
-What the pair does say, in the same number of rounds: the switched-on row did **38% more tool work**
-and spent **none** of it hunting for tools. The rest of the window is still running.
+| | finished the task | median wall | cells stopped at the deadline | model calls, all cells |
+|---|---|---|---|---|
+| as it ships | **0 of 6** | 600 s | **4 of 6** | 13 |
+| `fewer-rounds` on | **3 of 6** | **346 s** | **1 of 6** | 33 |
+
+Cell by cell — **the switched-on row is faster in every pair**:
+
+| task | as it ships | `fewer-rounds` on |
+|---|---|---|
+| update-docs r1 | fail, 409 s | **PASS, 298 s** |
+| update-docs r2 | fail, 600 s (deadline) | **PASS, 225 s** |
+| rename r1 | fail, 514 s | fail, 346 s |
+| rename r2 | fail, 600 s (deadline) | **PASS, 520 s** |
+| extract-helper r1 | fail, 600 s (deadline) | fail, 600 s (deadline) |
+| extract-helper r2 | fail, 600 s (deadline) | fail, 342 s |
+
+And what the model did inside those rounds, read from each cell's own database
+(`experiments/speed/rounds.mjs`):
+
+| | tool calls a round | rounds that asked for more than one thing | calls that really ran together |
+|---|---|---|---|
+| as it ships | 0.92 | **1** | 0 |
+| `fewer-rounds` on | **1.15** | **12** | **10** |
+
+**Does the model still send one call a turn with the part on? No.** Twelve of the switched-on
+rounds asked for more than one thing, against one for the shipped row, and ten calls actually ran
+at the same time. On this model the batching line and `files.read_many` do change what the model
+asks for — which does **not** contradict the plan data saying the bigger model already batches
+unprompted; it says a smaller model needs telling and the larger one does not.
+
+**How far to trust this.** Six cells a side is small, and four of the six shipped-row cells were
+stopped at the deadline, so their round counts are "as many as fit", not "as many as needed" —
+which is itself the finding, since only one switched-on cell was stopped that way. The pass
+difference (0 of 6 against 3 of 6) is the strongest thing here and it is six cells, not sixty. What
+it does not measure at all is the unswitched tool-finding fixes, which are not in this build.
 
 ## From the research's ranked list, deliberately not built here
 
