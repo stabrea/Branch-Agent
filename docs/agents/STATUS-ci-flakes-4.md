@@ -148,6 +148,28 @@ loaded machine ("the test process ended with no output at all before any test re
 still unknown and is not chased here. Test 3 itself passed in the other eleven runs, at 3797 ms and
 3819 ms under three-at-once load, which is the room the new 5 s bound was meant to give it.
 
+## Run 35483029723 (cancelled by another agent's push, but one shard had already failed)
+
+- panels "with achievements on, hiding everything earns …" (Windows 1/6): **TEST.** Hiding everything
+  fires `branch-delight-noticed` and public/delight-achievements.js asks the server 1.5 s after the
+  last one, so the earning is never instant; the loop gave that debounce plus a round trip only 5 s of
+  polling. It is still the window's own asking that earns this; only the waiting is longer (60 s).
+
+## Run 35484288929 on b766c6ad: two Windows shards, both the crawling kind
+
+- flow-editor F2 (Windows 2/6): **TEST.** After pressing Run this flow, the timeline had 20 s to catch
+  up, and on a machine where this one test took 103 s the run had not finished by then. Given the 120 s
+  tests/places.mjs gives the window.
+- p2-shell-ui "the strip sits at the left edge…" (Windows 5/6): **TEST.** ci-flakes-3 gave the strip
+  15 s, then 60 s; this machine went past 60 s too, and the same test has taken 153 s in full on that
+  shard while passing. It now has the same 120 s the window gets two lines above it. Checked first for
+  a real race in `whenReady` (public/strip.js): the strip is drawn only when `body.lx-ready` and a shown
+  `#workspace` coincide, and a MutationObserver watches both. `#workspace` is static in index.html and
+  layout.js only appends to it, never replaces it, so the node the observer holds is the node that
+  later unhides — no deadlock. It really is slowness.
+- Shard times in that run were 19-26 minutes against the job's 45-minute cap, so the shards themselves
+  are not near the edge; it is single tests inside them that run long.
+
 ## Where the two green runs stand
 
 Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every

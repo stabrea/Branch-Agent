@@ -120,9 +120,12 @@ test("F2 the timeline under the picture says where each step has got to", async 
   assert.match(before[0], /waiting|not started yet/i, "a step that has not run says it has");
 
   await page.getByRole("button", { name: "Run this flow", exact: true }).click();
+  /* ci-flakes-4: this ran the flow and gave the timeline 20 s to catch up. On a Windows build machine
+     that was crawling (this one test took 103 s in run 35484288929) the run itself had not finished by
+     then. It now gets the 120 s tests/places.mjs gives the window; what it proves is unchanged. */
   await page.waitForFunction(() =>
     /done|completed|failed/i.test(document.querySelector("#editor-timeline .card-row")?.textContent ?? ""),
-    undefined, { timeout: 20000 });
+    undefined, { timeout: 120000 });
   const after = await page.locator("#editor-timeline .card-row").first().innerText();
   assert.match(after, /done|completed/i, "the timeline never caught up with the run");
   assert.deepEqual(errors, []);
