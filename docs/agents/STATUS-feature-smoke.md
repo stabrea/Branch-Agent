@@ -98,6 +98,71 @@ services on the owner's VM, which the brief puts off limits).
 
 ## Broken, worst first
 
+### B7 — anything to do with git fails on the ChatGPT plan, before the model is even asked
+
+`branch run "What does git status say about this project right now?"` ends in three seconds with
+**"Provider HTTP 400; check endpoint, model, credential, and quota"**, status `failed`, exit 3, on the
+first model call, having run no tool at all. The run's own record shows why it happens:
+`catalog.preselected {"guessed":["git"], …}` — the word "git" in the request makes the catalog load
+the git toolbox, and that request is then refused by the endpoint.
+
+The cause is two tool schemas. `git.log` (its `path`) and `git.commit` (its `paths` items) both
+describe themselves with a **negative lookahead**:
+
+```
+"pattern": "^(?!-)[^\: ]+$"
+```
+
+They are the only two of the build's 214 tools that use a lookahead or lookbehind in a schema
+(I checked every one). A provider that validates `pattern` against the RE2 subset — which the
+ChatGPT endpoint does — rejects the whole request, so every tool in the round goes down with them.
+The guard itself is only "the path may not start with a dash", and the same file already writes that
+guard without a lookahead for the neighbouring `folder` field
+(`"^[^\: -][^\: ]*$"`), so the equivalent `^[^-\: ][^\: ]*$` would keep the
+protection and drop the lookahead. I have not made that change: it is product code with a test to
+write, and the brief says to find rather than fix.
+
+What it costs: on the owner's own plan, Branch cannot answer a single question that mentions git.
+Three separate tasks of mine died this way before I found it, and two rows of this table (9.4 and
+9.5) could not be tested because of it. Repro, with the ChatGPT preset active:
+`node dist/cli.js run --timeout 200000 "What does git status say about this project right now?"`
+→ exit 3. The same request with the word "git" left out completes normally.
+
+### B5 — "show me the plan first" showed no plan and changed a file without asking
+
+With `plan-act` set to `{ planMode: "show-plan", autonomy: "changes-only" }` — the strictest setting
+short of every step — and the task started as `branch run --plan "Change src/greet.js so it greets in
+French."`, Branch made a three-step plan, worked through it, called `files.edit`, and finished with
+status `completed`. `src/greet.js` on disk now returns `"Bonjour " + name`. There is **no `policy.ask`
+event anywhere in the run**, and the plan never reached me: the CLI printed only the final answer, so
+the numbered steps existed only in the event record. The same thing happened on the earlier
+`--plan "Fix src/range.js…"` task, which rewrote `src/range.js`.
+
+The machinery is there and good — `plan.created` carries four steps in plain words and the files they
+touch, `plan.step.retry` re-does a step whose answer does not match — so this is not a missing
+feature, it is the check that never happens. `docs/features.md` promises "a switch between 'just do
+it' and 'show me the plan first', with numbered steps in plain words and **nothing that changes
+anything happening until you say yes**". On this build, with that switch on, something changed and
+nothing asked. Repro: save `{planMode:"show-plan",autonomy:"changes-only"}` to the `plan-act` setting,
+`branch run --plan "Change src/greet.js so it greets in French."`, then `git diff`.
+
+### B6 — `--allow-tests` made the tests *less* likely to run
+
+Same project, same request ("Run the test suite in this project with node --test and tell me whether
+it passes"), same settings, the only difference the flag:
+
+- **without `--allow-tests`**: five model rounds, straight to `remote.run`, and it stopped to ask —
+  "Before I go ahead: Running a program on workspace (workspace: node --test). Is that all right?",
+  exit 2. Correct.
+- **with `--allow-tests`**: twelve model rounds spent on `mcp.dry_run`, `debug.start` and
+  `specialists.fanout`, `node --test` never run, ending at "Maximum 12 model rounds reached",
+  exit 4 (out of budget).
+
+The flag's whole purpose is "this task may run the project's tests without asking", and the run it
+produced never ran them. Whether the cause is the flag changing the prompt or the tool ordering, the
+behaviour a person sees is that turning the permission on made the job fail. Repro: the two commands
+above with `code-run` enabled in the data folder.
+
 ### B1 — the window's own "is Branch still there" check is refused, every few seconds
 
 `public/layout.js:1223` asks `fetch("/api/health", { cache: "no-store" })` and `public/never-break.js:25`
