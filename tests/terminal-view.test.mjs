@@ -311,16 +311,17 @@ test("every place, tab and Settings page in docs/places.md opens from the termin
 
 test("Permissions explains the current Lockdown state", async (t) => {
   const { tui, settle } = await running(t);
+  const lockdownRow = () => tui.rows.find((row) => row.command?.startsWith("/lockdown "));
   await tui.command("/go settings:permissions");
   await settle();
   assert.match(frameOf(tui), /Lockdown: off/);
-  assert.match(frameOf(tui), /Lockdown is off\. Commands follow the permission rules above\./);
+  assert.equal(lockdownRow()?.detail, "Lockdown is off. Commands follow the permission rules above.");
   assert.doesNotMatch(frameOf(tui), /Lockdown is on\./);
 
   await tui.command("/lockdown on");
   await settle();
   assert.match(frameOf(tui), /Lockdown: on/);
-  assert.match(frameOf(tui), /Lockdown is on\. Commands are refused; all else asks you\./);
+  assert.equal(lockdownRow()?.detail, "Lockdown is on. Commands are refused; all else asks you.");
 });
 
 test("the theme changed in the terminal is the one saved for the window, and the side pane opens on demand", async (t) => {
