@@ -110,5 +110,16 @@ once the shards do. Not a fifth cause.
       60/60, coding-gap-edits 276/276, flow-editor 48/48 — 948 of 948, no failure of any kind. As in every earlier round,
       none of the CI failures reproduces here by repetition; each was instead diagnosed from the log
       and, where a product bug, reproduced by driving the very call the 3-second refresh makes.
-- [ ] merged into trunk
+- [x] build + tsc clean, then the touched files plus four more places.mjs users (calm-ui,
+      settings-grown, p2-shell-ui, panels, accounts-page — places.mjs is shared by 77 test files, so
+      the change to `openSettings` was exercised beyond the four files that needed it):
+      183 tests, 179 pass, 0 fail, 4 skipped. After the clean rebuild, flow-editor + static-assets +
+      index-structure + handbook + glass-select: 28/28.
+- [x] merged into trunk: pushed e18f559f..b837d52e (fast-forward). Checks run 35481505692.
 - [ ] two consecutive full green Checks runs on trunk
+
+## Where the two green runs stand
+
+Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
+shard green on all three systems except Windows 2/6, which was the flow-editor F1 wait above. So one
+test stood between trunk and a green run, and it is fixed here.
