@@ -186,32 +186,39 @@ http://127.0.0.1:8777/index.html (served from C:/Users/bishi/Code/branch-sample/
 | **Batch 3: Furniture** | 19 | 9 | ✅ 9 | ⏸️ 10 (DG-006, DG-008, DG-011–013, DG-063–064, DG-071, DG-073, DG-075, DG-078) |
 | **TOTAL** | **29** | **13** | **✅ 13** | **⏸️ 16** |
 
-### Remaining 19 Gaps - Priority Order
+### Remaining 16 Gaps - Priority Order
 
-**High Priority (exact sample strings available, quick wins ~1-2 hours each):**
-1. DG-001/064: "Back to Branch" + Esc chip (sample: line 2714)
-2. DG-003: Version line "Branch Agent 0.18.1 · sample" (sample: line 2716)
-3. DG-050: Permissions section names (needs locale key check)
+**Completed This Session:**
+- ✅ DG-001/064: "Back to Branch" + Esc chip (layout.js, layout.css)
+- ✅ DG-002: Settings title as h1 with 22px (layout.js, layout.css)  
+- ✅ DG-003: Version line footer (layout.js, layout.css)
+- ✅ DG-010 (redux): Removed `!important` properly (settings-describe.js, settings-kit.css)
+- ✅ DG-011: Removed bucket header icon tile and line (settings-grown.js, settings-grown.css)
 
-**Medium Priority (structural, ~2-3 hours each):**
-1. DG-011: Remove bucket header band - BLOCKER for DG-008, DG-032
-2. DG-002: Settings title with brand mark
-3. DG-006: "On this page" jump links (requires redraw test)
-4. DG-013: Phone dropdown instead of tab strip
+**High Priority (unblocked by DG-011):**
+- DG-008: Heading levels (depends on DG-011 - likely fixed by removing header duplication)
+- DG-032: Section duplication (depends on DG-011)
+
+**Medium Priority (structural):**
+- DG-006: "On this page" jump links (requires redraw test)
+- DG-013: Phone dropdown instead of tab strip
+- DG-050: Permissions section names (requires locale changes)
 
 **Lower Priority (complex or deferred):**
-- DG-008: Heading levels (depends on DG-011)
 - DG-023: Jargon removal (13+ strings, judgment calls)
-- DG-032: Section duplication (depends on DG-011)
 - DG-077: Achievement rewording (code restructuring)
 - DG-155: Terminal hints (scope unclear)
-- DG-063, 071, 073, 075, 078: CSS/spacing tweaks
+- DG-063, DG-071, DG-073, DG-075, DG-078: CSS/spacing tweaks
 
 ### Files Modified This Session
 ```
-public/settings-kit.css      (DG-010)
-public/settings-grown.css    (DG-009, DG-072, DG-076)
-public/style.css             (DG-074)
+public/layout.js                    (DG-001/002/003)
+public/layout.css                   (DG-001/002/003)
+public/settings-describe.js         (DG-010 proper fix)
+public/settings-kit.css             (DG-010 proper fix)
+public/settings-grown.js            (DG-011)
+public/settings-grown.css           (DG-011)
+BATCH34-STATUS.md                   (this file)
 ```
 
 ### Sample HTML Reference Points
@@ -221,11 +228,19 @@ public/style.css             (DG-074)
 - Permissions sections: Lines 5893-5935
 
 ### For Next Agent
-1. Read the sample HTML at lines 2714, 2716 to copy exact Settings nav text
-2. Check if DG-050 section names are locale keys or inline before updating
-3. Do DG-011 (bucket header removal) FIRST - it unblocks DG-008 and DG-032
-4. For DG-006 and DG-013, write redraw tests using `page.waitForFunction` pattern
-5. Leave DG-023 and DG-155 untouched unless tokens remain
+1. **DG-008 & DG-032**: Check if heading levels and duplication are now fixed after DG-011
+2. **DG-006**: "On this page" jump links - write redraw test for 3-second window rebuild
+3. **DG-013**: Phone dropdown instead of tab strip at 390px width
+4. **DG-050**: Permissions section names - verify current vs sample in locale files
+5. **DG-023**: Jargon removal (13+ strings) - defer unless ample tokens remain
+6. **DG-155**: Terminal hints - clarify scope in sample before implementation
+
+### Session Summary (2026-09-20, Agent 4)
+- **Commits**: f5327dbb (DG-010 proper), 967950e4 (DG-001/002/003), 12e9fa05 (DG-011), 1fa4168c (status)
+- **Key fix**: Removed `!important` hiding by actually stopping element construction (not just CSS hiding)
+- **Navigation**: Added complete Settings nav with back button, title, and version line
+- **Structure**: Removed bucket header visual elements (icon tile, description line)
+- **Progress**: 14/29 gaps (48%), cleared critical CSS issues, unblocked downstream work
 
 ### Commands to Verify Work
 ```bash
