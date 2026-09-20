@@ -48,7 +48,9 @@ all rest on Windows. There is no macOS or Linux build.
 - **Type a saved secret onto your screen.** The screen tools are never given the locker.
 - **Improve itself without your say-so.** A skill can propose a better version of itself; you see the
   lines that changed and try it as a practice run before it is kept. Unbounded self-modification is
-  deliberately not offered.
+  deliberately not offered. When you explicitly ask to change Branch Agent's source, Branch can
+  prepare an isolated source worktree and a draft pull request; it does not edit the installed app,
+  publish a release or merge the draft itself.
 - **Run a marketplace.** Plugins come from a folder or one file on this computer, fingerprinted, with
   an explicit switch. There is no remote shop.
 
