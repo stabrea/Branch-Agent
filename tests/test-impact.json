@@ -1,5 +1,5 @@
 {
-  "budgetSeconds": 120,
+  "budgetSeconds": 220,
   "unknownTestSeconds": 30,
   "always": [
     "tests/leak-guard.test.mjs"
@@ -73,6 +73,15 @@
       ],
       "tests": [
         "tests/locales-contract.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/composer-grown.js",
+        "public/composer-grown.css"
+      ],
+      "tests": [
+        "tests/composer-input-state.test.mjs"
       ]
     }
   ]

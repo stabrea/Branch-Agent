@@ -127,6 +127,18 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.ok(words.tests.includes("tests/locales-contract.test.mjs"));
 });
 
+test("the isolated composer module has focused browser coverage inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([{ status: "M", paths: ["public/composer-grown.js"] }], {
+    config: checkedIn,
+    weights: { "tests/leak-guard.test.mjs": 2.327 },
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+  assert.deepEqual(result.tests, ["tests/composer-input-state.test.mjs", "tests/leak-guard.test.mjs"]);
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
 test("the historical composer regression cannot receive a narrow green result", () => {
   const result = selectImpact([
     { status: "M", paths: ["public/app.js"] },

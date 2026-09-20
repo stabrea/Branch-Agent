@@ -30,7 +30,8 @@ test("a half-typed sentence, caret, selection, and focus survive two redraws", a
   const page = await fixture(t);
   const box = page.locator(".composer textarea, form.composer textarea").locator("visible=true").first();
   await box.waitFor({ state: "visible", timeout: 120_000 });
-  await box.click();
+  await box.focus();
+  assert.equal(await box.evaluate((input) => document.activeElement === input), true);
   await page.keyboard.type("Compare the three supplier quotes and flag delivery", { delay: 8 });
   const before = await page.evaluate(() => {
     const input = [...document.querySelectorAll("textarea")].find((element) => element.offsetParent !== null);
