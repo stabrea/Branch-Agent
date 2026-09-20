@@ -26,7 +26,7 @@ to `/workspace/bench/smoke-0920/app/` on the VM. They take about four minutes an
 
 A feature the owner has a three-way switch for must behave three ways:
 
-- **off** — its tools are not offered at all, and asking for one is refused in a plain sentence
+- **off** — its tools are not offered at all (what this table measures)
 - **when needed** — its tools are offered, and not loaded until the work calls for them
 - **on** — its tools are loaded from the first round
 
@@ -34,6 +34,19 @@ This table is made by writing each switch, **rebuilding the app**, and reading t
 preload list back. Rebuilding is the point: a feature registers its tools when the app is made, so a
 switch flipped on a live app proves nothing about the next start. With every switch off the app offers
 214 tools; with every switch on, 312.
+
+**What this table does and does not prove.** It measures whether the tools are offered, not the words
+of the refusal. The second half of the rule — *off must refuse in one plain sentence* — I watched on
+five features only, and each was well worded: `code.run` ("Running small scripts is switched off. The
+owner turns it on in Settings, where they also choose whether a script may reach the internet."),
+`code.rename` ("Language servers are switched off. The owner turns them on in Settings, under
+Developer."), `debug.start` ("Debugging is switched off. The owner turns it on in Settings, under
+Developer."), `process.start` (""branch" is not one of the programs allowed to be left running. The
+owner adds those in Settings.") and Trunks over HTTP (409, "Trunks, your named assistants is switched
+off. The owner can switch it on in Customize → Specialists, under Trunks."). One was not plain, and is
+B9: `troubleshoot.run` answers "Fixing failed commands is switched off. The owner can turn it on with
+the troubleshoot setting (GET or POST /a…" — an HTTP method in a sentence a person reads. The other
+sixty-three refusal sentences are NOT TESTED HERE.
 
 **69 switched features: 59 WORKS, 0 BROKEN, 10 NOT TESTED HERE.**
 
@@ -161,9 +174,8 @@ screen uses: the rules, Lockdown, Branch's own files, folder trust, and where th
 | Tool | owner | a chat app (`channel`) | a schedule | a trigger | another computer (`remote`) |
 |---|---|---|---|---|---|
 | `files.read` | ran | ran | ran | ran | ran |
-| `files.write` | ran | ran | ran | ran | ran |
-| `code.run` | refused | refused | refused | refused | refused |
-| `memory.put` | refused | refused | refused | refused | refused |
+| `files.write` | ran | **asked first** | **asked first** | **asked first** | **asked first** |
+| `code.run` | ran | **asked first** | **asked first** | **asked first** | **asked first** |
 
 **Verdict: WORKS.** Reading is free for everyone. Everything that changes something — writing a file,
 running a script — the owner's own task does without asking, and *every* outside caller is stopped and
@@ -194,6 +206,7 @@ screen for each, and a repro paragraph for each BROKEN.
 | Coding: the tests question (it asks, and offers Always for this folder) | WORKS |
 | Coding: `--allow-tests` | **BROKEN** (B6) |
 | Anything that mentions git, on the ChatGPT plan | **BROKEN** (B7) |
+| Switching on "search posts on X" | **BROKEN** (B10) — it stops every task, on any model |
 | Permission modes: the four presets, the mode shown on the message box, the shipped default | WORKS |
 | Permission mode: "show me the plan first" | **BROKEN** (B5) |
 | Lockdown, a household profile, a short-lived key's limits, an outside-started task's hold | WORKS |
@@ -213,21 +226,29 @@ screen for each, and a repro paragraph for each BROKEN.
 
 ## Broken, worst first
 
-1. **B7 — anything to do with git fails on the ChatGPT plan** before the model is even asked. Two tool
-   schemas (`git.log`, `git.commit`) use a negative lookahead the endpoint's validator rejects.
-2. **B5 — "show me the plan first" showed no plan and changed a file without asking**, even set to
+1. **B10 — switching on "search posts on X" stops every task working.** With
+   `personal-x-search` set to on — one switch, in the shipped UI — every `branch run` answers
+   "Transforms cannot be represented in JSON Schema" and does nothing. `x.search`'s schema uses a
+   `.transform()` (`src/personal/x-search.ts:23`) that cannot be written as JSON Schema, and the
+   whole catalog goes down with it: `registry.descriptions()` throws for all 312 tools, so the
+   assistant is handed none. Proven both ways on the offline provider, so it costs nothing to repro:
+   the same "Say hello." completes with the switch off and fails with it on.
+2. **B7 — anything to do with git fails on the ChatGPT plan** before the model is even asked. Two tool
+   schemas (`git.log`, `git.commit`) use a negative lookahead the endpoint's validator rejects — the
+   only two of the 311 tools that can be written out at all, with every switch on.
+3. **B5 — "show me the plan first" showed no plan and changed a file without asking**, even set to
    check before changes.
-3. **B4 — every terminal command except `schedule` refuses while Branch is open**, including
+4. **B4 — every terminal command except `schedule` refuses while Branch is open**, including
    `doctor`, `backup`, `security audit`, `memory`, `token` and `trace`; a short-lived key cannot be
    made at all while the window is open, and no HTTP route makes one.
-4. **B6 — `--allow-tests` made the tests less likely to run** than leaving it off.
-5. **B8 — a task that runs out of rounds throws away everything it found** and answers only
+5. **B6 — `--allow-tests` made the tests less likely to run** than leaving it off.
+6. **B8 — a task that runs out of rounds throws away everything it found** and answers only
    "Maximum 12 model rounds reached".
-6. **B1 — the window's own health check is sent with no key**, is answered 401 every few seconds, and
+7. **B1 — the window's own health check is sent with no key**, is answered 401 every few seconds, and
    cannot notice a Branch that is up but refusing everything.
-7. **B2 — the Lockdown row says the opposite of what Lockdown is doing** in `branch settings permissions`.
-8. **B3 — the command list says twelve Settings pages; there are thirteen.**
-9. **B9 — a tool given the wrong input answers with raw Zod JSON**, not a sentence.
+8. **B2 — the Lockdown row says the opposite of what Lockdown is doing** in `branch settings permissions`.
+9. **B3 — the command list says twelve Settings pages; there are thirteen.**
+10. **B9 — a tool given the wrong input answers with raw Zod JSON**, not a sentence.
 
 Each has its repro in `docs/agents/STATUS-feature-smoke.md`.
 

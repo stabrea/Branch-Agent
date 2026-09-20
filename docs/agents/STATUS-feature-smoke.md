@@ -98,6 +98,40 @@ services on the owner's VM, which the brief puts off limits).
 
 ## Broken, worst first
 
+### B10 — switching on "search posts on X" stops every task working, on any model
+
+`personal-x-search` is one of the owner's ordinary three-way switches and ships off. Set it to on and
+nothing works any more: every `branch run`, on any provider, answers
+
+```
+Transforms cannot be represented in JSON Schema
+```
+
+and does nothing at all. The cause is one line. `src/personal/x-search.ts:23` describes an X handle as
+
+```ts
+const handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, "…").transform((h) => h.replace(/^@/, ""));
+```
+
+and a Zod `.transform()` cannot be written out as JSON Schema. Because the catalog is built in one
+go, that one tool takes the whole catalog with it: with the switch on,
+`registry.descriptions(permissions)` throws for **all 312 tools**, both with and without the diet
+option, so the assistant is handed no tools whatsoever and the error becomes its answer.
+
+I found it by binary search — rebuilding the app and unregistering halves until one name was left —
+after the same error blocked a scan of every tool's schema. Proven both ways on the offline
+demonstration provider, so it costs nothing to reproduce and needs no account:
+
+```
+BRANCH_DATA_DIR=/tmp/a node dist/cli.js run "Say hello."   # completes
+# switch personal-x-search on in that data folder, then:
+BRANCH_DATA_DIR=/tmp/a node dist/cli.js run "Say hello."   # "Transforms cannot be represented in JSON Schema"
+```
+
+Two things make this worse than a broken feature. The switch is in the shipped UI with no warning,
+and the damage is not to X search — it is to everything. And the sentence a person is left with is a
+library's own error message, which tells them nothing about what they just switched on.
+
 ### B7 — anything to do with git fails on the ChatGPT plan, before the model is even asked
 
 `branch run "What does git status say about this project right now?"` ends in three seconds with
@@ -113,8 +147,10 @@ describe themselves with a **negative lookahead**:
 "pattern": "^(?!-)[^\: ]+$"
 ```
 
-They are the only two of the build's 214 tools that use a lookahead or lookbehind in a schema
-(I checked every one). A provider that validates `pattern` against the RE2 subset — which the
+They are the only two tools that use a lookahead or lookbehind in a schema anywhere. I checked all
+214 the build offers with every switch off, and then all 311 it offers with every switch on (every
+one but `x.search`, which cannot be written out at all — that is B10). The coordinator says three git
+schemas are affected; I can only find these two, so whoever fixes it should say which the third is. A provider that validates `pattern` against the RE2 subset — which the
 ChatGPT endpoint does — rejects the whole request, so every tool in the round goes down with them.
 The guard itself is only "the path may not start with a dash", and the same file already writes that
 guard without a lookahead for the neighbouring `folder` field
@@ -158,6 +194,8 @@ it passes"), same settings, the only difference the flag:
   `specialists.fanout`, `node --test` never run, ending at "Maximum 12 model rounds reached",
   exit 4 (out of budget).
 
+Seen once, not twice — and the failing half ended at the round ceiling, which is B8, so the two may
+be the same fault wearing different clothes. Whoever picks it up should rule that out first.
 The flag's whole purpose is "this task may run the project's tests without asking", and the run it
 produced never ran them. Whether the cause is the flag changing the prompt or the tool ordering, the
 behaviour a person sees is that turning the permission on made the job fail. Repro: the two commands
@@ -183,7 +221,12 @@ twelve rounds contained no refusals and no errors: it was all useful work, and a
 `[ { "origin": "string", "code": "too_small", "minimum": 1, "inclusive": true, "path": [ "project" ],
 "message": "Too small: expected string to ..." } ]`. The same thing comes out of the HTTP API:
 `POST /api/profiles` without a PIN, `POST /api/schedules` without `dueAt`, and
-`POST /api/tools/try` with the wrong key each answer with a block of Zod's own JSON. Two costs: it is
+`POST /api/tools/try` with the wrong key each answer with a block of Zod's own JSON. A different shape of the same fault is in a refusal sentence: `troubleshoot.run`, switched off,
+answers "Fixing failed commands is switched off. The owner can turn it on with the troubleshoot
+setting (GET or POST /a…" — an HTTP method, in a sentence the assistant relays to a person. Every
+other switched-off refusal I read was well worded; this one is not.
+
+Two costs: it is
 developer jargon in a place a person can see, against the house rule that everything a person reads
 is in plain words; and the assistant pays model rounds guessing what the shape should have been —
 `memory.put` failed twice before it got the remembering done. A sentence naming the field and what it

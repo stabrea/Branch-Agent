@@ -1018,116 +1018,128 @@
   {
    "tool": "files.write",
    "source": "channel",
-   "outcome": "ran",
-   "detail": "{\"path\":\"who.txt\",\"bytes\":5}"
+   "outcome": "asked",
+   "detail": "Before I go ahead: run files.write on who.txt. Is that all right?"
   },
   {
    "tool": "files.write",
    "source": "schedule",
-   "outcome": "ran",
-   "detail": "{\"path\":\"who.txt\",\"bytes\":5}"
+   "outcome": "asked",
+   "detail": "Before I go ahead: run files.write on who.txt. Is that all right?"
   },
   {
    "tool": "files.write",
    "source": "trigger",
-   "outcome": "ran",
-   "detail": "{\"path\":\"who.txt\",\"bytes\":5}"
+   "outcome": "asked",
+   "detail": "Before I go ahead: run files.write on who.txt. Is that all right?"
   },
   {
    "tool": "files.write",
    "source": "remote",
-   "outcome": "ran",
-   "detail": "{\"path\":\"who.txt\",\"bytes\":5}"
+   "outcome": "asked",
+   "detail": "Before I go ahead: run files.write on who.txt. Is that all right?"
   },
   {
    "tool": "code.run",
    "source": "owner",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" }, { \"code\": \"unrecognized_keys\", \"keys\": [ \"script\" ], \"path\": "
+   "outcome": "ran",
+   "detail": "{\"language\":\"javascript\",\"status\":\"completed\",\"exitCode\":0,\"output\":\"\",\"errors\":\"\",\"truncated\":false,\"durationMs\":171,\"network\":false,\"isolation\":\"sampling\",\"heldBySystem"
   },
   {
    "tool": "code.run",
    "source": "channel",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" }, { \"code\": \"unrecognized_keys\", \"keys\": [ \"script\" ], \"path\": "
+   "outcome": "asked",
+   "detail": "Before I go ahead: run code.run on a small JavaScript script. Is that all right?"
   },
   {
    "tool": "code.run",
    "source": "schedule",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" }, { \"code\": \"unrecognized_keys\", \"keys\": [ \"script\" ], \"path\": "
+   "outcome": "asked",
+   "detail": "Before I go ahead: run code.run on a small JavaScript script. Is that all right?"
   },
   {
    "tool": "code.run",
    "source": "trigger",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" }, { \"code\": \"unrecognized_keys\", \"keys\": [ \"script\" ], \"path\": "
+   "outcome": "asked",
+   "detail": "Before I go ahead: run code.run on a small JavaScript script. Is that all right?"
   },
   {
    "tool": "code.run",
    "source": "remote",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" }, { \"code\": \"unrecognized_keys\", \"keys\": [ \"script\" ], \"path\": "
-  },
-  {
-   "tool": "memory.put",
-   "source": "owner",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" } ]"
-  },
-  {
-   "tool": "memory.put",
-   "source": "channel",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" } ]"
-  },
-  {
-   "tool": "memory.put",
-   "source": "schedule",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" } ]"
-  },
-  {
-   "tool": "memory.put",
-   "source": "trigger",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" } ]"
-  },
-  {
-   "tool": "memory.put",
-   "source": "remote",
-   "outcome": "refused",
-   "detail": "[ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"source\" ], \"message\": \"Invalid input: expected string, received undefined\" } ]"
+   "outcome": "asked",
+   "detail": "Before I go ahead: run code.run on a small JavaScript script. Is that all right?"
   },
   {
    "tool": "automation.propose",
    "source": "owner",
    "outcome": "refused",
-   "detail": "Unknown tool: automation.propose"
+   "detail": "There is no tool called automation.propose."
   },
   {
    "tool": "automation.propose",
    "source": "channel",
    "outcome": "refused",
-   "detail": "Unknown tool: automation.propose"
+   "detail": "There is no tool called automation.propose."
   },
   {
    "tool": "automation.propose",
    "source": "schedule",
    "outcome": "refused",
-   "detail": "Unknown tool: automation.propose"
+   "detail": "There is no tool called automation.propose."
   },
   {
    "tool": "automation.propose",
    "source": "trigger",
    "outcome": "refused",
-   "detail": "Unknown tool: automation.propose"
+   "detail": "There is no tool called automation.propose."
   },
   {
    "tool": "automation.propose",
    "source": "remote",
    "outcome": "refused",
-   "detail": "Unknown tool: automation.propose"
+   "detail": "There is no tool called automation.propose."
+  },
+  {
+   "tool": "files.read",
+   "source": "owner",
+   "lockdown": true,
+   "outcome": "asked",
+   "detail": "Before I go ahead: run files.read on README.md. Is that all right?"
+  },
+  {
+   "tool": "files.write",
+   "source": "owner",
+   "lockdown": true,
+   "outcome": "refused",
+   "detail": "Lockdown is on, so nothing that changes anything is done by hand either. Turn Lockdown off in Settings to allow this again."
+  },
+  {
+   "tool": "code.run",
+   "source": "owner",
+   "lockdown": true,
+   "outcome": "refused",
+   "detail": "Lockdown is on, so commands, programs, your screen and keyboard, your own browser, your other devices and other computers are refused, without asking. Turn Lockdown off i"
+  },
+  {
+   "tool": "files.read",
+   "source": "channel",
+   "lockdown": true,
+   "outcome": "asked",
+   "detail": "Before I go ahead: run files.read on README.md. Is that all right?"
+  },
+  {
+   "tool": "files.write",
+   "source": "channel",
+   "lockdown": true,
+   "outcome": "refused",
+   "detail": "Lockdown is on, so nothing that changes anything is done by hand either. Turn Lockdown off in Settings to allow this again."
+  },
+  {
+   "tool": "code.run",
+   "source": "channel",
+   "lockdown": true,
+   "outcome": "refused",
+   "detail": "Lockdown is on, so commands, programs, your screen and keyboard, your own browser, your other devices and other computers are refused, without asking. Turn Lockdown off i"
   }
  ]
 }
