@@ -540,12 +540,56 @@ function closeSettings() {
   win.hidden = true;
   document.body.classList.remove("lx-settings-open");
 }
+/** Build "On this page" navigation for visible sections. DG-006 */
+function buildOnThisPage(page) {
+  // Remove any existing "On this page" navigation
+  page.querySelector(".lx-on-this-page")?.remove();
+
+  // Find all section headings (h3 elements with ids)
+  const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
+    // Only include headings that are not hidden by the current level
+    const card = h.closest(".lx-page > *, .lx-subpanel > *");
+    return card && !card.hidden && card.dataset.sgBucket !== undefined;
+  });
+
+  if (headings.length === 0) return; // No sections to link to
+
+  // Create the navigation
+  const nav = make("nav", "lx-on-this-page");
+  nav.setAttribute("aria-label", say("settings.onThisPage", "On this page"));
+  const label = worded("p", "lx-on-this-page-label", "settings.onThisPage", "On this page");
+  nav.append(label);
+
+  const links = make("div", "lx-on-this-page-links");
+  for (const heading of headings) {
+    const link = make("button", "lx-on-this-page-link");
+    link.type = "button";
+    link.textContent = heading.textContent;
+    link.addEventListener("click", () => {
+      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.focus();
+    });
+    links.append(link);
+  }
+  nav.append(links);
+
+  // Insert after page intro
+  const intro = page.querySelector(".lx-page-intro");
+  if (intro) intro.after(nav);
+  else page.append(nav);
+}
+
 function showSettingsPage(id) {
   settingsPage = id;
   for (const page of document.querySelectorAll(".lx-page")) page.hidden = page.dataset.page !== id;
   for (const link of document.querySelectorAll(".lx-settings-link"))
     link.setAttribute("aria-current", String(link.dataset.page === id));
   $("lx-settings-body").scrollTop = 0;
+
+  // DG-006: Build "On this page" navigation
+  const page = $(`lx-page-${id}`);
+  if (page) buildOnThisPage(page);
+
   if (id === "data") void globalThis.branchUsage?.render().then(() => globalThis.branchAllowed?.render());
   if (id === "appearance") drawLookControls();
 }

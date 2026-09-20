@@ -4490,6 +4490,7 @@
   "settings.security.saved": "Enregistré.",
   "settings.security.summary": "{checks} vérifications : {critical} urgentes, {warn} à corriger, {info} remarques.",
   "settings.title": "Paramètres",
+  "settings.onThisPage": "Sur cette page",
   "settings.wake-word.cannot": "Cet ordinateur ne peut pas écouter un mot.",
   "settings.wake-word.failed": "Impossible d'enregistrer : {reason}",
   "settings.wake-word.idle": "Pas à l'écoute en ce moment.",
