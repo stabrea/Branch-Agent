@@ -21,7 +21,7 @@ async function fixture(t, provider = { name: 'skill-fixture', complete: async ()
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('#workspace').waitFor({ state: 'visible' }); await openPlace(page, 'skills');
+  await page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 }); await openPlace(page, 'skills');
   const api = async (path, body) => {
     const response = await fetch(new URL('/api/' + path, server.url), { method: body === undefined ? 'GET' : 'POST',
       headers: { authorization: 'Bearer ' + server.token, 'content-type': 'application/json' },

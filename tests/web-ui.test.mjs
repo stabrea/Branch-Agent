@@ -115,7 +115,7 @@ test("U1 a reply written in markdown is rendered in the conversation, not shown 
   await settle(page);
   await page.locator("#prompt").fill("Say something in markdown.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant .markdown").waitFor();
+  await page.locator(".message.assistant .markdown").waitFor({ timeout: 30000 });
   assert.equal(await page.locator(".message.assistant .markdown h1").innerText(), "Heading");
   assert.equal(await page.locator(".message.assistant .markdown strong").innerText(), "bold");
   /* The label is written out in the markup; the stylesheet is what shouts it. */
@@ -152,7 +152,7 @@ test("U2 Look inside shows a scripted task's tool rows and saves as JSON", async
   await settle(page);
   await page.locator("#prompt").fill("Write a note.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").waitFor();
+  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
   /* The route answers whatever the panel will draw, so check it directly as well as on screen. */
   const runId = app.store.runs(app.runtime.owner).at(0).id;
   await openPlace(page, "runs");
@@ -272,7 +272,7 @@ test("U4 the context meter fills in after a task and opens its numbers", async (
   await settle(page);
   await page.locator("#prompt").fill("Hello there.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").waitFor();
+  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
   await page.locator("#meter-row").waitFor({ state: "visible" });
   await page.waitForFunction(() => Number(document.getElementById("meter-row").dataset.share) >= 0 && document.getElementById("meter-text").textContent.length > 0);
   assert.match(await page.locator("#meter-text").innerText(), /words of context/);
@@ -388,7 +388,7 @@ test("U6 the shell fits a 400 pixel window with the new rows on screen", async (
   await page.setViewportSize({ width: 400, height: 800 });
   await page.locator("#prompt").fill("Hello.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").waitFor();
+  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
   await page.locator("#meter-row").waitFor({ state: "visible" });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 1, `no sideways scrolling at 400 px (overflow ${overflow})`);

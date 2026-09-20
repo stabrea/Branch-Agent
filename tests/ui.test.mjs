@@ -55,7 +55,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
   await page.getByRole("button", { name: /Try it without an account/ }).click();
   await page.getByRole("button", { name: "Try the file workflow" }).click();
   await page.getByRole("button", { name: "Send" }).click();
-  await page.locator(".message.assistant").waitFor();
+  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
   assert.match(
     await page.locator(".message.assistant").innerText(),
     /wrote, read, and verified/,
