@@ -80,3 +80,13 @@ each of those files passes on its own and all four pass together on the re-run.
   only be run after the tag. It is the coordinator's step, and 0.19.0 is the first release whose *previous*
   version (0.18.1) has the fixed updater, so this is the first honest run of it.
 - **CI green twice** — the coordinator's, after the merge.
+
+## Waiting on trunk, not in the notes
+
+`mac7/speed` is unmerged, so nothing of it is described in the 0.19.0 notes. Its builder has a ready
+paragraph at the bottom of `docs/agents/STATUS-speed.md` on that branch ("Doing more in one go", which
+ships off; plus three unswitched fixes, including a task that runs out of rounds giving its best answer,
+and a new Settings → Advanced field *Times one task may go back to the model*, empty meaning 12). If an
+integrator merges it into trunk before the tag, that paragraph should be folded in — keeping its two
+conditions: the numbers were measured against a stand-in for the model, not a live one, and no wall-time
+percentage is claimed.
