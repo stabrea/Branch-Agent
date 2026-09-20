@@ -539,3 +539,39 @@ test("C: a many-file read never hands back more than the task will keep, and nam
   assert.equal(app.store.events(run.id).filter((e) => e.kind === "tool.result_clipped").length, 0,
     "the answer fitted, so nothing had to be cut off");
 });
+
+test("Lockdown holds on both new paths: reading many files, and calls that would run together", async (t) => {
+  // Lockdown makes every tool wait for a yes, reading included. So the right thing to prove is not
+  // that a write is refused but that nothing at all slips past: the task stops on the first call,
+  // and a group that would have run together does not run.
+  const { app, workspace } = await fixture(t, [
+    calls(["files.read", { path: "src/sum.js" }], ["files.read", { path: "src/range.js" }],
+      ["files.write", { path: "src/new.js", content: "export const x = 1;" }]),
+    say("Tried."),
+  ]);
+  app.coding.setMode("fewer-rounds", "on");
+  app.store.save("settings", "local", "lockdown", { on: true });
+  const run = await app.runtime.run({ prompt: "read them and write a file" });
+  app.store.save("settings", "local", "lockdown", { on: false });
+  assert.equal(run.status, "needs_input", `Lockdown let the task carry on: ${run.output}`);
+  assert.equal(app.store.events(run.id).filter((e) => e.kind === "tool.completed").length, 0,
+    "no tool ran while Lockdown was on");
+  const { readFile } = await import("node:fs/promises");
+  await assert.rejects(readFile(join(workspace, "src", "new.js"), "utf8"), "nothing was written");
+});
+
+test("Lockdown asks about reading many files exactly as it asks about reading one", async (t) => {
+  const asked = async (call) => {
+    const { app } = await fixture(t, [calls(call), say("Tried.")]);
+    app.coding.setMode("fewer-rounds", "on");
+    app.store.save("settings", "local", "lockdown", { on: true });
+    const run = await app.runtime.run({ prompt: "read" });
+    app.store.save("settings", "local", "lockdown", { on: false });
+    return { status: run.status, asks: app.store.events(run.id).filter((e) => e.kind === "policy.ask").length };
+  };
+  const one = await asked(["files.read", { path: "src/sum.js" }]);
+  const many = await asked(["files.read_many", { paths: ["src/sum.js", "src/range.js"] }]);
+  assert.deepEqual(many, one, "the new tool is treated exactly as the one it stands in for");
+  assert.equal(one.status, "needs_input");
+  assert.equal(one.asks, 1);
+});
