@@ -168,9 +168,23 @@ http://127.0.0.1:8777/index.html (served from C:/Users/bishi/Code/branch-sample/
 | **Batch 3: Furniture** | 19 | 6 | CSS-only (this session) |
 | **TOTAL** | **29** | **10** | **35% complete** |
 
+## CRITICAL RULE: Sample Scaffolding vs Design (2026-09-20, discovered during DG-003)
+**The sample contains stage dressing that must NOT be copied into the app:**
+- **"· sample" suffix** — marks the sample as a mock; has no meaning for end users
+- **Fictional names** like "fictional names", "nothing on your computer is touched" — test data
+- **Hardcoded version** — the sample shows 0.18.1; app must read REAL version at runtime
+
+**Decision rule: "Would a real user understand this string?"**
+- ✅ "Branch Agent 0.19.0" — yes, real version number for real app
+- ❌ "Branch Agent 0.18.1 · sample" — no, implies the app itself is a mock
+
+**Other rows checked (DG-001, DG-002, DG-011): Clean** — no scaffolding detected.
+
+**DG-003 corrected:** Now reads version from `globalThis.state.version` at runtime instead of hardcoding.
+
 ## CONTINUATION SESSION (2026-09-20, Agent 4)
 
-### New Progress: 3 furniture gaps + 1 important fix
+### New Progress: 4 furniture gaps + DG-003 corrected
 - ✅ **DG-010 (redux)**: Removed `!important` hiding - stopped building scope chips entirely instead of just hiding them
   - Removed chip() calls from refresh() functions
   - Removed unused SCOPES/SCOPE_OF definitions  
