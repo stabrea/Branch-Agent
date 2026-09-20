@@ -8,6 +8,7 @@
    tools. Nothing on this card installs, switches on or updates anything without a press. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { switchControl, segmented } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -71,34 +72,33 @@ function switches(state) {
   const nodes = [];
   for (const { part } of state.parts) {
     const [key, english] = PARTS[part] ?? ["", part];
-    const select = document.createElement("select");
-    for (const [value, optionKey, optionEnglish] of POSITIONS) {
-      const option = make("option", "", optionKey, optionEnglish);
-      option.value = value;
-      option.selected = value === state.settings.modes[part];
-      select.append(option);
-    }
-    select.addEventListener("change", async () => {
-      try { await call("/settings", { modes: { [part]: select.value } }); await draw(); } catch (error) { tell(error.message); }
+    const control = segmented({
+      id: `addons-${part}`,
+      options: POSITIONS,
+      value: state.settings.modes[part],
+      onChange: async (value) => {
+        try { await call("/settings", { modes: { [part]: value } }); await draw(); } catch (error) { tell(error.message); }
+      }
     });
-    nodes.push(...field(`addons-${part}`, key, english, select));
+    nodes.push(...field(`addons-${part}`, key, english, control));
   }
-  const wall = document.createElement("input");
-  wall.type = "checkbox";
-  wall.checked = state.settings.wallEveryPlugin;
-  wall.addEventListener("change", async () => {
-    try { await call("/settings", { wallEveryPlugin: wall.checked }); tell(say("addons.saved", "Saved.")); } catch (error) { tell(error.message); }
+  const wall = switchControl({
+    id: "addons-wall",
+    checked: state.settings.wallEveryPlugin,
+    onChange: async (checked) => {
+      try { await call("/settings", { wallEveryPlugin: checked }); tell(say("addons.saved", "Saved.")); } catch (error) { tell(error.message); }
+    }
   });
   const label = document.createElement("label");
   label.append(wall, make("span", "", "addons.wallEvery", "Also run plugin files I put in the plugins folder myself in their own walled program"));
   nodes.push(label);
   if (state.windows) {
-    const weak = document.createElement("input");
-    weak.type = "checkbox";
-    weak.id = "addons-windows-without-wall"; // phase2/settings: so Settings search can point at it
-    weak.checked = state.settings.windowsWithoutWall;
-    weak.addEventListener("change", async () => {
-      try { await call("/settings", { windowsWithoutWall: weak.checked }); tell(say("addons.saved", "Saved.")); } catch (error) { tell(error.message); }
+    const weak = switchControl({
+      id: "addons-windows-without-wall",
+      checked: state.settings.windowsWithoutWall,
+      onChange: async (checked) => {
+        try { await call("/settings", { windowsWithoutWall: checked }); tell(say("addons.saved", "Saved.")); } catch (error) { tell(error.message); }
+      }
     });
     const weakLabel = document.createElement("label");
     weakLabel.append(weak, make("span", "", "addons.windowsWithoutWall", "Run add-on code on Windows without the wall (Windows cannot keep it from your files and the internet)"));
