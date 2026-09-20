@@ -1329,7 +1329,6 @@ function buildCalmComposer() {
   };
   new MutationObserver(busy).observe(send, { attributes: true, attributeFilter: ["disabled"] });
   busy();
-  form.prepend(buildPlus());
   $("composer-dock").append(buildStarters());
 }
 /** Stop presses the working card's own Stop, once the task it belongs to is known. */
@@ -1337,39 +1336,6 @@ async function stopRunning(stop) {
   stop.disabled = true;
   for (let tries = 0; tries < 20 && !$("live-stop"); tries += 1) await new Promise((done) => setTimeout(done, 150));
   $("live-stop")?.click();
-}
-/** "+" on the left of the box: the same two ways to add something as in More, pressing the real controls. */
-function buildPlus() {
-  const wrap = make("div", "lx-plus-wrap");
-  const plus = make("button", "lx-plus");
-  plus.type = "button";
-  plus.id = "lx-plus";
-  plus.setAttribute("aria-label", say("composer.add", "Add a document, a picture or a sound"));
-  plus.title = plus.getAttribute("aria-label");
-  plus.setAttribute("aria-haspopup", "menu");
-  plus.setAttribute("aria-expanded", "false");
-  plus.append(icon("plus"));
-  const menu = make("div", "lx-pop lx-plus-menu");
-  menu.id = "lx-plus-menu";
-  menu.hidden = true;
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", plus.getAttribute("aria-label"));
-  let pop = null;
-  const close = () => pop?.close();
-  for (const [target, key, english] of [["composer-attach", "more.attach", "Attach a document…"], ["composer-media", "more.picture", "Add a picture or a sound…"]]) {
-    const row = button("lx-more-item", key, english);
-    row.setAttribute("role", "menuitem");
-    row.dataset.target = target;
-    row.addEventListener("click", () => { close(); $(target)?.click(); });
-    menu.append(row);
-  }
-  pop = popover(plus, menu, {
-    onOpen: () => { for (const row of menu.querySelectorAll(".lx-more-item")) row.disabled = Boolean($(row.dataset.target)?.disabled); },
-    afterOpen: () => moreItems(menu)[0]?.focus(),
-  });
-  menu.addEventListener("keydown", (event) => moveInMore(event, menu, close));
-  wrap.append(plus, menu);
-  return wrap;
 }
 /** Three plain starting points under the empty box. Each only fills the box; nothing is sent. */
 function buildStarters() {

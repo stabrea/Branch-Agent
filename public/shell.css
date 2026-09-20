@@ -784,16 +784,16 @@ details.tool-step > summary:hover {
   pointer-events: auto;
 }
 .composer {
-  display: flex;
+  display: flex !important;
+  flex-wrap: nowrap !important;
   align-items: flex-end;
-  gap: 6px;
-  padding: 6px;
+  gap: 4px;
+  padding: 4px 6px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r4);
   background: var(--composer-bg);
   box-shadow: var(--shadow);
   container-type: inline-size;
-  flex-wrap: nowrap;
 }
 .composer textarea {
   flex: 1;
@@ -850,6 +850,10 @@ details.tool-step > summary:hover {
   align-items: center;
   gap: 4px;
   transition: background 0.15s, color 0.15s;
+  max-width: 200px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .composer-model-chip:hover,
 .composer-model-chip[aria-expanded="true"] {
@@ -871,6 +875,10 @@ details.tool-step > summary:hover {
   gap: 4px;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
+  max-width: 100px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .composer-mode-chip:hover,
 .composer-mode-chip[aria-expanded="true"] {

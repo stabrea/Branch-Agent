@@ -47,13 +47,13 @@ test("composer text, caret, and selection survive 3-second refresh cycle", async
   // Set a non-collapsed selection (select middle part of typed text)
   const selectionStart = 10; // "Build me a"
   const selectionEnd = 18; // "Build me a todo "
-  await prompt.evaluate(
-    (el, start, end) => {
+  await page.evaluate(
+    ({ start, end }) => {
+      const el = document.querySelector("#prompt");
       el.selectionStart = start;
       el.selectionEnd = end;
     },
-    selectionStart,
-    selectionEnd
+    { start: selectionStart, end: selectionEnd }
   );
 
   // Wait for the 3-second refresh to fire (plus a small buffer)
