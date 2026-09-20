@@ -3,6 +3,7 @@
    Every part has the owner's three-way switch and starts off. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -68,15 +69,13 @@ const PARTS = {
 };
 
 function switchFor(part, modes, status) {
-  const select = document.createElement("select");
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === modes[part];
-    select.append(option);
-  }
-  select.addEventListener("change", async () => {
-    try { await api("coding/switch", { part, mode: select.value }); done(status); await drawCard(); } catch (error) { tell(status, error); }
+  const select = segmented({
+    id: `coding-switch-${part}`,
+    options: POSITIONS,
+    value: modes[part],
+    onChange: async (mode) => {
+      try { await api("coding/switch", { part, mode }); done(status); await drawCard(); } catch (error) { tell(status, error); }
+    }
   });
   const [key, english] = PARTS[part];
   return labelled(`coding-switch-${part}`, key, english, select);

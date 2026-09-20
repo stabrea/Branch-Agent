@@ -14,6 +14,7 @@
  * the last.
  */
 import { t, formatDate } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let view = null;
