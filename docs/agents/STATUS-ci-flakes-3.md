@@ -15,7 +15,10 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   `fs/promises` realpath, spelled out in full (`runneradmin`). Every note then looked outside the
   workspace, where the rules "have nothing to say". Not an interaction with multi-target/hardening;
   it only shows on a machine whose workspace path has a short name. Fixed with `realpathSync.native`
-  (same resolver as the promise one). Not reproducible here (8.3 names are off on this disk).
+  (same resolver as the promise one). Not reproducible here (8.3 names are off on this disk, and both
+  resolvers agree through a junction), so the proof is CI itself: both tests failed on Windows 2/6 in
+  runs 35467846040 and 35470358144 and passed there in 35472658073 with the fix. The unit test added
+  here only bites on a machine that spells its temp path two ways.
 - delight "off by default…" (Windows, macOS, Linux; 3 runs): TEST. It counted every /api/activity
   request, but the window's context pane asks for it every 5 s and the rail on a new task; on a slow
   runner that tick lands inside the test's 2.5 s. Delight itself asked nothing. The test now counts
@@ -149,4 +152,8 @@ public/panels-hide.js uses for the see-through slider.
       reproduced by making the one slow step slow (see the findings: /api/state held 3 s, the
       finishing step held 4 s, a 3.5 s wait past a refresh, a 21 s old page).
 - [x] merged into trunk: 7a7c5fb5 (run 35472328214, cancelled by the residuals push), then the rest
-- [ ] two consecutive full green Checks runs on trunk
+- [ ] two consecutive full green Checks runs on trunk — NOT REACHED in this session. Every run since
+      the fixes started has been closer: 35472658073 (every shard but one macOS test), 35474392706 and
+      35475559161 (one shard each), 35476490803 (macOS and Linux green, three Windows shards),
+      35477648939 (macOS and Linux green, one Windows shard). Trunk is dda44fbe and run 35478612357 is
+      the one to watch; if it is green, re-run the same commit for the second green.
