@@ -1368,11 +1368,14 @@ ${run.output.slice(0, 6000)}`;
       // Results are written down in the order the model asked for them either way.
       for (const group of this.callGroups(context, completion.toolCalls)) {
         if (group.length > 1) this.store.event(run.id, "tools.together", { round: round + 1, calls: group.map((call) => call.name) });
-        const results = group.length === 1
-          ? [await this.oneCall(run, context, group[0]!)]
-          : await Promise.all(group.map((call) => this.oneCall(run, context, call)));
-        for (const [at, result] of results.entries()) {
-          const call = group[at]!;
+        // Every call in the group is waited for before anything unwinds, so a task that stops to ask
+        // leaves nothing of its own still running. The results are then written down in the order
+        // the model asked for them, stopping at the first that threw — a pause or a cancellation —
+        // exactly as the loop did when a call that threw ended the round where it stood.
+        const settled = await Promise.allSettled(group.map((call) => this.oneCall(run, context, call)));
+        for (const [at, outcome] of settled.entries()) {
+          if (outcome.status === "rejected") throw outcome.reason;
+          const call = group[at]!, result = outcome.value;
           const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
           messages.push(message); ids.push(null);
           this.store.message(run.sessionId, message);

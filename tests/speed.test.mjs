@@ -431,3 +431,25 @@ test("the ceiling: the owner can raise it, and the default is still 12", async (
   const run = await app.runtime.run({ prompt: "read it over and over" });
   assert.match(run.output, /went back to the model 20 times/, run.output);
 });
+
+test("A: a call that pauses the task leaves none of its group still running", async (t) => {
+  // A group of three reads; the middle one needs a yes, so the task stops there. The two that
+  // could run still ran (they only looked at things), the first is written down, and the task is
+  // waiting on the question rather than on anything of its own still going.
+  const { app, workspace } = await fixture(t, [
+    calls(["files.read", { path: "src/sum.js" }], ["files.read", { path: "ask.txt" }],
+      ["files.read", { path: "src/range.js" }]),
+    say("Done."),
+  ]);
+  app.coding.setMode("fewer-rounds", "on");
+  await writeFile(join(workspace, "ask.txt"), "private\n");
+  const { addPolicyRule } = await import("../dist/policy.js");
+  addPolicyRule(app.store, "local", { tool: "files.read", match: "ask.txt", decision: "ask", remember: "always" });
+  const run = await app.runtime.run({ prompt: "read the three files" });
+  assert.equal(run.status, "needs_input", run.output);
+  assert.match(run.output, /ask\.txt/, "it is waiting on the file it must ask about");
+  // Nothing is left half-written: every call that got as far as a result has a receipt.
+  const started = app.store.events(run.id).filter((e) => e.kind === "tool.started").length;
+  const finished = app.store.events(run.id).filter((e) => e.kind === "tool.completed" || e.kind === "tool.failed").length;
+  assert.ok(finished >= started - 1, `${started} started, ${finished} finished — a call was left in the air`);
+});

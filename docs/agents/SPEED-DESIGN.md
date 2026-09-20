@@ -76,8 +76,10 @@ D: one fewer full prefill per task on any provider with a prompt cache.
 - **Transcript order.** Results are written back in the order the model asked for them, so the
   conversation and the journal read exactly as they do today.
 - **A runaway reply.** A group is capped (8), so one reply cannot open fifty things at once.
-- **Never break.** Failures stay per call (`Promise.allSettled`); one member failing cannot cancel
-  its siblings, and a cancelled task still cancels all of them through the shared signal.
+- **Never break.** Every call in a group is waited for before anything unwinds (`Promise.allSettled`),
+  so a task that stops to ask a question leaves nothing of its own still running. The results are
+  then written down in order, stopping at the first that threw — exactly where the loop stopped when
+  calls ran one at a time. A cancelled task still cancels all of them through the shared signal.
 
 ## Proof
 
