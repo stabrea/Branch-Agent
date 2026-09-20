@@ -106,30 +106,60 @@ export function segmented({ id, options = null, value = "off", onChange }) {
 }
 
 /**
- * A dropdown (choice list with many options).
- * Returns: <select class="glass" id={id}>...</select>
+ * A dropdown choice control (like appearance.js choiceButton pattern).
+ * Returns: <div role="group" id={id}><button class="choice" value={v1}>...</button>...</div>
  *
- * Emitted with class="glass" so glass-select.js decorates it at module load.
- * No native select without the glass class should exist in this codebase.
+ * Follows the sample's button-group pattern, not a native select.
+ * Each button has aria-pressed to show selection state and click handlers.
+ * Call this "dropdown" but it renders as segmented buttons (same as segmented for many-option case).
  */
 export function dropdown({ id, options, value = "", onChange }) {
-  const select = document.createElement("select");
-  select.id = id;
-  select.className = "glass";
+  const group = document.createElement("div");
+  group.className = "choice-row";
+  group.id = id;
+  group.setAttribute("role", "group");
 
+  const buttons = [];
   for (const [optValue, optKey, optEnglish] of options) {
-    const option = document.createElement("option");
-    option.value = optValue;
-    option.textContent = say(optKey, optEnglish);
-    option.selected = optValue === value;
-    select.append(option);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "choice";
+    button.value = optValue;
+    button.textContent = say(optKey, optEnglish);
+
+    const isSelected = optValue === value;
+    button.setAttribute("aria-pressed", String(isSelected));
+
+    button.addEventListener("click", () => {
+      // Update all buttons' pressed state
+      for (const btn of buttons) {
+        const isNow = btn.value === optValue;
+        btn.setAttribute("aria-pressed", String(isNow));
+      }
+      onChange?.(optValue);
+    });
+
+    button.addEventListener("keydown", (e) => {
+      const idx = buttons.indexOf(button);
+      let next = null;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        next = buttons[(idx + 1) % buttons.length];
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        next = buttons[(idx - 1 + buttons.length) % buttons.length];
+      }
+      if (next) {
+        next.focus();
+        next.click();
+      }
+    });
+
+    group.append(button);
+    buttons.push(button);
   }
 
-  select.addEventListener("change", (e) => {
-    onChange?.(e.target.value);
-  });
-
-  return select;
+  return group;
 }
 
 // Export for testing and debugging
