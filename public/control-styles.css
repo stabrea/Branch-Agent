@@ -26,7 +26,7 @@ input[type="checkbox"][role="switch"]::after {
   height: 18px;
   border-radius: 50%;
   background: var(--surface);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  box-shadow: var(--control-thumb-shadow);
   transition: transform 0.18s;
 }
 
@@ -90,7 +90,7 @@ input[type="checkbox"][role="switch"]:disabled {
 
 .segmented-option[aria-pressed="true"] {
   background: var(--surface);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
+  box-shadow: var(--control-selected-shadow);
   color: var(--text);
   font-weight: 600;
 }
