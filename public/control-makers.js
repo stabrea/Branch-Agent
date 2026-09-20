@@ -131,45 +131,72 @@ export function dropdown({ id, options, value = "", onChange }) {
   group.id = id;
   group.setAttribute("role", "group");
 
-  const buttons = [];
-  for (const [optValue, optKey, optEnglish] of options) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "choice";
-    button.value = optValue;
-    button.textContent = say(optKey, optEnglish);
+  let currentValue = value;
+  let buttons = [];
 
-    const isSelected = optValue === value;
-    button.setAttribute("aria-pressed", String(isSelected));
+  function setOptions(newOptions) {
+    group.replaceChildren();
+    buttons = [];
 
-    button.addEventListener("click", () => {
-      // Update all buttons' pressed state
-      for (const btn of buttons) {
-        const isNow = btn.value === optValue;
-        btn.setAttribute("aria-pressed", String(isNow));
-      }
-      onChange?.(optValue);
-    });
+    for (const [optValue, optKey, optEnglish] of newOptions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice";
+      button.value = optValue;
+      button.textContent = say(optKey, optEnglish);
 
-    button.addEventListener("keydown", (e) => {
-      const idx = buttons.indexOf(button);
-      let next = null;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        e.preventDefault();
-        next = buttons[(idx + 1) % buttons.length];
-      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        e.preventDefault();
-        next = buttons[(idx - 1 + buttons.length) % buttons.length];
-      }
-      if (next) {
-        next.focus();
-        next.click();
-      }
-    });
+      const isSelected = optValue === currentValue;
+      button.setAttribute("aria-pressed", String(isSelected));
 
-    group.append(button);
-    buttons.push(button);
+      button.addEventListener("click", () => {
+        currentValue = optValue;
+        for (const btn of buttons) {
+          const isNow = btn.value === optValue;
+          btn.setAttribute("aria-pressed", String(isNow));
+        }
+        onChange?.(optValue);
+      });
+
+      button.addEventListener("keydown", (e) => {
+        const idx = buttons.indexOf(button);
+        let next = null;
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+          e.preventDefault();
+          next = buttons[(idx + 1) % buttons.length];
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+          e.preventDefault();
+          next = buttons[(idx - 1 + buttons.length) % buttons.length];
+        }
+        if (next) {
+          next.focus();
+          next.click();
+        }
+      });
+
+      group.append(button);
+      buttons.push(button);
+    }
+
+    // If current value no longer exists, fall back to first option
+    if (buttons.length > 0 && !buttons.find((btn) => btn.value === currentValue)) {
+      currentValue = buttons[0].value;
+      buttons[0].setAttribute("aria-pressed", "true");
+    }
   }
+
+  // Initialize with provided options
+  setOptions(options);
+
+  // Add .value property for compatibility
+  Object.defineProperty(group, "value", {
+    get() { return currentValue; },
+    set(newValue) {
+      const btn = buttons.find((b) => b.value === newValue);
+      if (btn) btn.click();
+    }
+  });
+
+  group.setOptions = setOptions;
 
   return group;
 }
