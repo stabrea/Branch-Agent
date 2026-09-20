@@ -7,6 +7,31 @@ Goal: the same coding work in fewer model round trips, with every feature still 
 rule weakened. On a hosted model wall time is roughly (number of model calls) x (round trip), so the
 number of turns is the lever.
 
+## Everything on this branch, and whether it is switched
+
+Read this table first; the sections below are the evidence for each row.
+
+| | what it does | switch | proved by |
+|---|---|---|---|
+| **E1** | No one toolbox can take every place. A request that opened the code and documents boxes was shown **none** of the code ones | **none — a defect** | 17→14 of 30 working-set places needing a search; test, mutation-checked |
+| **E2** | A request that names a file is coding work, whatever box the words opened (the plan's worst task opened only `documents`) | **none — a defect** | the plan's own trace; unit test |
+| **E3** | A coding task starts with `files.read/grep/list/glob/edit/write` loaded | `fewer-rounds` | 14→**1** of 30 places needing a search |
+| **D** | A tool arriving mid-task no longer pushes another off the list | **none — a defect** | 1→0 rounds losing a tool locally; on the plan, `cli-flag` loaded `code.run` twice |
+| **F1** | Running out of rounds gives the best answer it has plus a plain sentence naming what the rounds went on | **none — a defect** | tests incl. a long task, mutation-checked |
+| **F2** | The round ceiling is the owner's: `maxModelRounds`, Settings › Advanced, default still 12 | **none — new setting** | test |
+| **G1** | A tool you just found comes with its inputs, so the next step is the call, not another round asking | **none — a defect** | the plan spent 27 of 95 rounds finding tools |
+| **G2** | `bash`, `shell.execute`, `read_file` and the rest find the Branch tool that does the job | **none** | the plan's model asked for `shell.execute` by name twice and was refused |
+| **G3** | A switched-off feature's tools are not offered by a search — which is what the three-way switch already promised | **none — a defect** | `troubleshoot.run` (off) beat `code.run` in all three of one task's shell searches |
+| **H1** | A model service that refuses is explained in plain words, not `Provider HTTP 400; check endpoint…` | **none — a defect** | one task lost to it on the plan; tests |
+| **H2** | A coding task is told once, up front, that running commands is off | **none — a defect** | 8 of 95 rounds spent discovering it |
+| **I** | The ChatGPT route records the cached tokens the service already reports | **none — a defect** | `cachedInput` was null on all 185 plan rounds because nobody read the field |
+| **A** | Look-only calls in one turn run together | `fewer-rounds` | 224 ms against a 6,000 ms round — real, small |
+| **B** | One line inviting the model to batch | `fewer-rounds` | **not the win**: Branch already batches 24% of rounds |
+| **C** | `files.read_many` | `fewer-rounds` | **not the win**, same reason; it does fit what the task will keep |
+
+`fewer-rounds` is one new coding part, off / when needed / on, and it **ships off**. Everything
+marked "a defect" is on for everyone, which is how the coordinator decided each one.
+
 Design note (approved by the coordinator, "GO"): `docs/agents/SPEED-DESIGN.md`.
 
 - [x] 0. Where the time actually goes — measured before changing anything (below)
