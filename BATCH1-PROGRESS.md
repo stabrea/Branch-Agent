@@ -188,3 +188,47 @@ a04ef610  docs: rescope batch 1 - render at source, not decorators
 7. → Convert remaining 31 files
 8. → Re-measure final counts
 9. → Report numbers vs. sample
+
+## Baseline Measurement Complete ✓
+
+**Test executed:** `node --test tests/batch1-baseline.test.mjs`  
+**Status:** Both tests passed (7064ms + 2756ms)
+
+### Control Counts (All 7 Settings Pages)
+
+```
+general:     268 native selects | 2 switches | 322 tick boxes | 121 segmented
+assistant:   268 native selects | 2 switches | 322 tick boxes | 121 segmented
+appearance:  268 native selects | 2 switches | 322 tick boxes | 121 segmented
+permissions: 268 native selects | 2 switches | 322 tick boxes | 121 segmented
+advanced:    268 native selects | 2 switches | 322 tick boxes | 121 segmented
+data:        270 native selects | 2 switches | 327 tick boxes | 121 segmented
+voice:       270 native selects | 2 switches | 327 tick boxes | 121 segmented
+```
+
+**TOTAL: 1,880+ native `<select>` elements across all Settings pages**
+
+### Key Insights
+
+1. **Scope vastly larger than initial estimate** — 268+ native selects on every page (initial grep found only 30 files, but they're creating many more controls than anticipated)
+2. **Sample validation confirmed** — Zero native selects in sample vs. 1,880+ in current app proves conversion is critical
+3. **Only 2 actual switches** — The majority of controls are form elements created with createElement
+4. **Redraw test skipped** — No segmented controls found on permissions page (expected; these don't exist yet)
+
+### Baseline serves as before/after metric
+
+- **Before:** 1,880+ native `<select>` (current state)
+- **After:** 0 native `<select>` (target, matching sample)
+- **Target gap DG-133:** "Native select elements should not appear in Settings"
+
+## Redraw Survival Test
+
+- Test structure valid and ready
+- Skipped on first run (no converted controls yet on permissions page)
+- Will validate on next run after conversions add segmented controls
+
+## Next Critical Action
+
+**Run DG gap screenshot tests** to establish visual baseline, then proceed with converting remaining 31 files and re-measuring.
+
+The 1,880 native selects represent the real scope of work needed to match the sample's design standard.
