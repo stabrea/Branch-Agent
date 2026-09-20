@@ -2963,7 +2963,14 @@ ${run.output.slice(0, 6000)}`;
       // call itself. Window 8 on the plan spent 27 of 95 rounds finding tools, much of it on the
       // extra round this sentence used to ask for.
       ? "The first few come with their inputs: call the one you want now, in your next step. Do not search again for these."
-      : "Nothing here does that. Say so plainly rather than guessing at a tool name." } };
+      : "Nothing here does that. Say so plainly rather than guessing at a tool name."
+      // mac7/speed: a tool that exists but is switched off is named, never offered. Telling the
+      // person which setting would allow it is the difference between "Branch cannot" and "Branch
+      // can, once you say so" — and on a fresh install nearly everything is off.
+      , ...(found.switchedOff?.length
+        ? { switchedOff: found.switchedOff,
+            aboutThose: "These would do it but are switched off in Settings. Do not call them; tell the person they exist and can be switched on." }
+        : {}) } };
   }
   /** Loads tools by exact name. An unknown name and one this task may not use read the same. */
   private describeTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {

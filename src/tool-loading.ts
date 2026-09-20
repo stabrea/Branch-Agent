@@ -224,17 +224,24 @@ export class ToolLoader {
    * in the index at all, so a narrowed task can never find one it is not permitted; every match
    * stays loaded for the rest of the conversation, as far as the budget allows.
    */
-  async search(query: string, limit = 8): Promise<{ matches: FoundTool[]; searched: string }> {
+  async search(query: string, limit = 8): Promise<{ matches: FoundTool[]; searched: string; switchedOff?: string[] }> {
     const wanted = Math.min(Math.max(1, limit), 20);
     const found = this.index.embedder
       ? await this.index.searchByMeaning(query, wanted + this.hidden.size) : this.index.search(query, wanted + this.hidden.size);
     // A feature the owner switched off refuses; offering its tools as the answer to "what can do
     // this" costs a round and teaches nothing.
     const hits = found.filter((hit) => !this.hidden.has(hit.entry.name)).slice(0, wanted);
+    // A tool that is here but switched off is not offered — calling it would only be refused — but
+    // the assistant is told it exists, by name, so it can say which setting would allow it instead
+    // of telling the person Branch cannot do the thing at all. A fresh install has everything off;
+    // "off" must not read as "absent".
+    const offButHere = found.filter((hit) => this.hidden.has(hit.entry.name))
+      .slice(0, wanted).map((hit) => hit.entry.name);
     for (const hit of hits) this.asked.add(hit.entry.name);
     this.version++;
     return { searched: String(query).slice(0, 200),
-      matches: hits.map((hit, at) => this.found(hit.entry.name, hit.entry.purpose, hit.entry.note, at < inputsWithSearch)) };
+      matches: hits.map((hit, at) => this.found(hit.entry.name, hit.entry.purpose, hit.entry.note, at < inputsWithSearch)),
+      ...(offButHere.length ? { switchedOff: offButHere } : {}) };
   }
   /** Loads named tools. A name this task may not use is unknown here, exactly like a misspelling. */
   describe(names: readonly string[]): { loaded: FoundTool[]; unknown: string[]; switchedOff?: string[] } {

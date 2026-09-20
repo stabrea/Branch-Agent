@@ -767,7 +767,12 @@ test("a switched-off feature's tools are not offered by a search, and saying the
   const names = searched.result.matches.map((one) => one.name);
   assert.ok(!names.includes("troubleshoot.run"), `a switched-off tool was offered: ${names.join(", ")}`);
   assert.ok(names.includes("code.run"), `the real shell should be there: ${names.join(", ")}`);
-  const described = answers.find((one) => one.result?.switchedOff || one.result?.loaded);
+  // Not offered, but not hidden either: "off" must not read as "Branch cannot do this at all".
+  assert.ok(searched.result.switchedOff?.includes("troubleshoot.run"),
+    `the assistant should know it exists and is off: ${JSON.stringify(searched.result.switchedOff)}`);
+  assert.match(searched.result.aboutThose, /switched off in Settings/);
+  assert.match(searched.result.aboutThose, /Do not call them/, "and is told not to try");
+  const described = answers.find((one) => one.result?.loaded !== undefined);
   assert.deepEqual(described.result.switchedOff, ["troubleshoot.run"],
     "asking for it by name says it is switched off rather than that it does not exist");
   assert.deepEqual(described.result.loaded, []);
