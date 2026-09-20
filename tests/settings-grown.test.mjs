@@ -424,6 +424,9 @@ function sweep() {
   const chips = document.querySelectorAll("#lx-settings-body :is(.chip, .pill, .badge, .status-pill, .lx-count, [class*='chip'], [class*='pill'], [class*='badge'], .sg-more, .kit-scope)");
   for (const chip of chips) {
     if (!chip.checkVisibility()) continue;
+    // A visually hidden chip is 1px and clipped: it is read aloud, never drawn, and cannot
+    // overflow anything a person sees. `checkVisibility()` still calls it visible.
+    if (chip.classList.contains("sr-only")) continue;
     const card = chip.closest(".lx-page > *, .lx-subpanel > *");
     if (!card) continue;
     const a = chip.getBoundingClientRect(), b = card.getBoundingClientRect();
@@ -598,14 +601,18 @@ test("S16 the window loads and opens Settings with no Content Security Policy re
   assert.deepEqual(f.refused, [], "the console reported a Content Security Policy refusal");
   assert.deepEqual(await f.page.evaluate(() => globalThis.__refused), [], "the page saw a Content Security Policy violation");
   await openSettings(f.page, "general");
+  /* DG-010: the sample shows no scope chip, so the chip is now `sr-only` -- read aloud, never drawn.
+     It can no longer stand in for "the stylesheet loaded", so a note that IS still styled does. */
   const chip = await f.page.locator("#projects-form > .kit-scope").evaluate((node) => {
-    const look = getComputedStyle(node), card = node.parentElement.getBoundingClientRect(), box = node.getBoundingClientRect();
-    return { border: look.borderTopStyle, round: parseFloat(look.borderTopLeftRadius), narrower: box.width < card.width / 2, text: node.textContent.trim() };
+    const look = getComputedStyle(node), box = node.getBoundingClientRect();
+    return { hidden: box.width <= 1 && box.height <= 1, clipped: look.position === "absolute", text: node.textContent.trim() };
   });
-  assert.equal(chip.border, "solid", "the scope chip has no edge: its stylesheet did not load");
-  assert.ok(chip.round > 4, "the scope chip is not rounded");
-  assert.ok(chip.narrower, "the scope chip runs the width of the card, like plain text");
-  assert.ok(chip.text.length > 0);
+  assert.ok(chip.hidden, "the scope chip is drawn: it should be read aloud and never seen");
+  assert.ok(chip.clipped, "the scope chip is not clipped away");
+  assert.ok(chip.text.length > 0, "the scope chip says nothing, so a screen reader announces nothing");
+  const note = await f.page.locator("#lx-settings-body .field-note").first()
+    .evaluate((node) => getComputedStyle(node).fontSize);
+  assert.ok(parseFloat(note) > 0 && parseFloat(note) < 16, `a field note is ${note}: settings-kit.css did not load`);
   assert.deepEqual(f.errors, []);
 });
 

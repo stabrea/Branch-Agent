@@ -151,13 +151,13 @@ function buildCard(spec, reports, settings, save) {
   const card = el("section", undefined, "card");
   card.id = spec.id;
   card.dataset.home = spec.home;
-  // DG-032: context-assistant heading duplicates the bucket heading "Who your assistant is"
-  // Only append heading if it's not context-assistant (which gets its heading from the bucket)
-  if (spec.id !== "context-assistant") {
-    const heading = el("h2", spec.title[1]);
-    heading.dataset.t = spec.title[0];
-    card.append(heading);
-  }
+  // DG-032: on the Assistant page this card's title repeats the bucket heading above it, which the
+  // sample does not show twice. The heading still belongs to the card -- it is what gives the page
+  // its structure and what a screen reader announces -- so it is hidden, not removed.
+  const heading = el("h2", spec.title[1]);
+  heading.dataset.t = spec.title[0];
+  if (spec.id === "context-assistant") heading.className = "sr-only";
+  card.append(heading);
   const purpose = el("p", spec.purpose[1]);
   purpose.dataset.t = spec.purpose[0];
   card.append(purpose);

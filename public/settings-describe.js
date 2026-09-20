@@ -109,7 +109,7 @@ function chip(card) {
   if (row?.dataset.scope === scope) return;
   if (!row) {
     row = document.createElement("p");
-    row.className = "kit-scope";
+    row.className = "kit-scope sr-only";
     const heading = card.querySelector(":scope > h2");
     const purpose = heading?.nextElementSibling?.tagName === "P" ? heading.nextElementSibling : heading;
     if (purpose) purpose.after(row); else card.prepend(row);
@@ -117,6 +117,15 @@ function chip(card) {
   row.dataset.scope = scope;
   row.dataset.t = key;
   row.textContent = say(key, english);
+}
+
+/**
+ * DG-010: the sample shows no scope chip, so the chip is `sr-only` -- invisible on screen, still
+ * read aloud. The sample is a visual mock and can say nothing about text that is never seen, and
+ * "how far this setting reaches" is real information a screen-reader user would otherwise lose.
+ */
+function chipAll() {
+  for (const card of document.querySelectorAll(CARDS)) chip(card);
 }
 
 /* The chip's look lives in public/settings-kit.css: an inline <style> is refused by the page's Content Security Policy. */
@@ -139,7 +148,7 @@ function refresh() {
   queueMicrotask(() => {
     queued = false;
     describeAll();
-    // DG-010: scope chips removed - sample does not show them
+    chipAll();
   });
 }
 
@@ -169,6 +178,6 @@ if (typeof document !== "undefined") {
    */
   globalThis.branchDescribeSettingsNow = () => {
     describeAll();
-    // DG-010: scope chips removed - sample does not show them
+    chipAll();
   };
 }
