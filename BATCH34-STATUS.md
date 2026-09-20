@@ -193,7 +193,7 @@ http://127.0.0.1:8777/index.html (served from C:/Users/bishi/Code/branch-sample/
 - ✅ **DG-002**: Converted Settings title to h1 with 22px font size
 - ✅ **DG-003**: Added version line "Branch Agent 0.18.1 · sample" at bottom of nav (commit 967950e4)
 
-### Updated Status: 13/29 Complete (45% complete)
+### Updated Status: 14/29 Complete (48% complete - after DG-003 scaffolding fix)
 | Batch | Total | Done | Exact Match | Untouched |
 |-------|-------|------|------------|-----------|
 | **Batch 4: Words** | 10 | 4 | ✅ 4 | ⏸️ 6 (DG-023, 032, 050, 077, 155) |
@@ -209,9 +209,9 @@ http://127.0.0.1:8777/index.html (served from C:/Users/bishi/Code/branch-sample/
 - ✅ DG-010 (redux): Removed `!important` properly (settings-describe.js, settings-kit.css)
 - ✅ DG-011: Removed bucket header icon tile and line (settings-grown.js, settings-grown.css)
 
-**High Priority (unblocked by DG-011):**
-- DG-008: Heading levels (depends on DG-011 - likely fixed by removing header duplication)
-- DG-032: Section duplication (depends on DG-011)
+**High Priority (unblocked by DG-011, needs verification):**
+- ⚠️ **DG-008**: Heading levels (sg-head h3 still renders, verification needed)
+- ⚠️ **DG-032**: Section duplication (sg-head h3 heading still renders, needs verification or full header removal)
 
 **Medium Priority (structural):**
 - DG-006: "On this page" jump links (requires redraw test)
@@ -242,19 +242,34 @@ BATCH34-STATUS.md                   (this file)
 - Permissions sections: Lines 5893-5935
 
 ### For Next Agent
-1. **DG-008 & DG-032**: Check if heading levels and duplication are now fixed after DG-011
+1. **DG-008 & DG-032 VERIFICATION**: DG-011 removed visual styling (tile, line) but h3 bucket heading still renders
+   - Check if duplication/hierarchy issues are now acceptable or if heading needs complete removal
+   - If still needed: consider hiding sg-head-title with CSS or stop rendering it entirely
 2. **DG-006**: "On this page" jump links - write redraw test for 3-second window rebuild
 3. **DG-013**: Phone dropdown instead of tab strip at 390px width
 4. **DG-050**: Permissions section names - verify current vs sample in locale files
 5. **DG-023**: Jargon removal (13+ strings) - defer unless ample tokens remain
 6. **DG-155**: Terminal hints - clarify scope in sample before implementation
 
-### Session Summary (2026-09-20, Agent 4)
-- **Commits**: f5327dbb (DG-010 proper), 967950e4 (DG-001/002/003), 12e9fa05 (DG-011), 1fa4168c (status)
-- **Key fix**: Removed `!important` hiding by actually stopping element construction (not just CSS hiding)
-- **Navigation**: Added complete Settings nav with back button, title, and version line
-- **Structure**: Removed bucket header visual elements (icon tile, description line)
-- **Progress**: 14/29 gaps (48%), cleared critical CSS issues, unblocked downstream work
+### Session Summary (2026-09-20, Agent 4 - Final)
+**Commits (5 total):**
+1. f5327dbb - fix(DG-010): Removed `!important` properly
+2. 967950e4 - feat(DG-001/002/003): Added Settings nav items
+3. 12e9fa05 - feat(DG-011): Removed bucket header visuals
+4. 0b2039c2 - docs: First status update (14/29)
+5. 6aca1224 - fix(DG-003): Removed scaffolding, read real version
+
+**Key Accomplishments:**
+- ✅ Removed `!important` hiding by actually stopping element construction (not CSS hiding)
+- ✅ Added complete Settings nav: back button + Esc kbd, h1 title (22px), version line
+- ✅ Removed bucket header visual elements (icon tile + description line)
+- ✅ Removed scaffolding from DG-003 (hardcoded version, "· sample" text)
+- ✅ Documented critical rule: Copy design decisions, never stage dressing
+
+**Progress: 14/29 gaps (48%) - Ready for next agent**
+- Critical CSS issues resolved
+- DG-011 unblocks DG-008/032 (verification needed)
+- Remaining 15 gaps scoped and prioritized
 
 ### Commands to Verify Work
 ```bash
