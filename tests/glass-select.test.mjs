@@ -1,6 +1,6 @@
-/* Redesign phase 1: every select opens a glass list, and every icon-only button has glass hover help.
-   The native select stays the source of truth, so its label, its value and its change event are the
-   ones everything else already uses. Headless only. */
+/* Redesign phase 1: every select opens a glass list, and owner-facing controls reuse their accessible
+   descriptions as glass hover help. The native select stays the source of truth, so its label, value and
+   change event are the ones everything else already uses. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
@@ -132,6 +132,52 @@ test("an icon-only button explains itself in glass on hover, once, and never sho
   await f.page.locator("#lx-more").hover();
   await f.page.waitForTimeout(700);
   assert.equal(await tip.isVisible(), false);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a described control reuses its live English and French help without changing its accessibility link", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  const control = f.page.locator("#policy-preset"), tip = f.page.locator("#glass-tip");
+  const description = async () => control.evaluate((node) => (node.getAttribute("aria-describedby") || "")
+    .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(" "));
+  const linked = await control.getAttribute("aria-describedby");
+  const english = await description();
+  assert.ok(english, "the real setting has explanatory words");
+
+  await control.hover();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), english, "hover help reuses the accessible sentence");
+  assert.equal(await control.getAttribute("aria-describedby"), linked, "the existing accessibility link is unchanged");
+  await f.page.mouse.down();
+  await f.page.mouse.up();
+  await tip.waitFor({ state: "hidden" });
+
+  await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  const french = await description();
+  assert.ok(french && french !== english, "the source sentence changed with the language");
+  await f.page.mouse.move(10, 10);
+  await control.hover();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), french, "the tooltip reads the current sentence instead of copying one");
+  assert.equal(await control.getAttribute("aria-describedby"), linked);
+  assert.deepEqual(f.errors, []);
+});
+
+test("keyboard focus shows the same help and Escape closes it", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#appearance-language");
+  const control = f.page.locator("#appearance-language"), tip = f.page.locator("#glass-tip");
+  await control.focus();
+  await f.page.keyboard.press("Shift+Tab");
+  await f.page.keyboard.press("Tab");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "appearance-language");
+  assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
+  assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
+    .some((id) => document.getElementById(id)?.textContent?.trim())), "the linked help has words");
+  await tip.waitFor({ state: "visible" });
+  await f.page.keyboard.press("Escape");
+  await tip.waitFor({ state: "hidden" });
   assert.deepEqual(f.errors, []);
 });
 
