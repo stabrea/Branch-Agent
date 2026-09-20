@@ -188,3 +188,27 @@ outright** and nothing would be asked — then there is no "just this once" yes 
 between them. If either would raise a question they run one after another, and the second is asked
 again, exactly as today. That makes four searches of one allowed folder run together (measured: one
 group of four) while two calls waiting on one answer still do not.
+
+## For the release notes (drafted here; `release-019` owns the file)
+
+Written to the template's rules (`docs/release-notes-template.md`): what is now possible, in the
+words the screens use, with the limits said in the same sentence.
+
+> **Coding tasks that get to the point.** A coding task used to spend whole exchanges with the model
+> just finding a tool: over five ordinary coding requests, 17 of the 30 times it needed one of
+> `files.read`, `files.grep`, `files.list`, `files.glob`, `files.edit` or `files.write`, that tool was
+> not in front of it and had to be searched for first. One request — "add a --verbose flag and
+> document it in the README" — was shown none of the six, because the documents toolbox had taken
+> every place. Two changes: no single toolbox can take every place any more, which happens for
+> everyone; and a new switch, **Doing more in one go**, puts the tools a coding task always needs in
+> front of it from the start, lets it ask for several independent things at once, adds a way to read
+> several files in one step, and runs the look-only ones at the same time. With it on, 1 of those 30
+> places needs a search. It ships off, and it has been measured against a stand-in for the model
+> rather than on a live one, so the number to trust is how much work each exchange saves, not a
+> promise about any particular task.
+>
+> **Fixed.** A task that ran out of rounds used to end on nothing but "Maximum 12 model rounds
+> reached" — no answer, and no clue why it had gone round twelve times. It now gives the best answer
+> it can from the work it did, and says in plain words what it spent the rounds on. How many rounds a
+> task may take is yours to change, in Settings under Advanced. A tool arriving part-way through a
+> task no longer pushes another tool off the list.
