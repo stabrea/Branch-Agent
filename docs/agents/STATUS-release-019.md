@@ -41,7 +41,7 @@ logs and a progress file in `/tmp/rel019/`. Worktree `~/wt/rel019` at e08c98e4, 
 | Item | Result |
 | --- | --- |
 | desktop tests (xvfb, concurrency 1) | **PASS on the re-run** — 8 tests, 7 pass, 1 skip, 0 fail, 2 m 36 s (first attempt failed on the machine's `chrome-sandbox` setup, see below) |
-| full suite (concurrency 2, no desktop/screen-control) | 4295 tests, 4251 pass, 42 skipped, **2 timed out on my own 300 s cap** (2 h 43 m) — re-run without the cap, see below |
+| full suite (concurrency 2, no desktop/screen-control) | **PASS** — 4295 tests, 42 skipped, 0 product failures (2 h 43 m); the only 2 non-passes were my own 300 s per-test cap and both pass without it, see below |
 | chaos, `BRANCH_CHAOS_SEEDS=200` | **PASS** — 4 tests, 4 pass, 0 fail, 1 h 47 m |
 | install-torture, `BRANCH_INSTALL_SEEDS=200` | **PASS** — 22 tests, 22 pass, 0 fail, 3 h 07 m |
 
@@ -50,6 +50,15 @@ logs and a progress file in `/tmp/rel019/`. Worktree `~/wt/rel019` at e08c98e4, 
 `chrome-sandbox` is not root-owned, which Ubuntu 24.04 requires — the same `sudo chown root … && sudo chmod
 4755 …` step `docs/configuration.md` tells a person to run. The 0.18.1 round hit exactly this and re-ran.
 Applied here, and the desktop files are re-run afterwards.
+
+### The two that hit my 300 s cap
+
+`tests/auth-tracing-cli.test.mjs` → *C1 every command Branch knows has help of its own, and asking never
+does the work*, and `tests/settings-grown.test.mjs` → *S4 Settings search finds every one of the 530
+settings, at any level*, both ended on `test timed out after 300000ms`. The cap was mine: CI's own Linux
+run (`xvfb-run -a npm test --shard=…`, `scripts/run-tests.mjs`) sets no `--test-timeout`, so nothing there
+stops them. Re-run on the same machine and commit with no cap: **46 tests, 46 pass, 0 fail** — C1 took
+3 m 02 s and S4 5 m 24 s on this 2-processor box (29 s and 54 s on the Mac). Machine speed, not the product.
 
 ## 4. macOS (TK-1, Node 26.5)
 
