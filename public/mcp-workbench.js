@@ -40,7 +40,6 @@ async function renderPreflight() {
   }
 }
 
-/** How long a connection to somebody else's server stays open, and how each one is faring. */
 /**
  * ci-flakes-4: this card is drawn again by the window's refresh every 3 seconds. What somebody is in
  * the middle of typing or choosing must survive that, so the saved answer is written in only while what
@@ -58,6 +57,7 @@ function showSaved(id, value) {
 /** Once an answer is saved it is the one on screen, so the next refresh may write over it again. */
 const savedByHand = (id) => { if ($(id)) lastWritten.set(id, $(id).value); };
 
+/** How long a connection to somebody else's server stays open, and how each one is faring. */
 async function renderConnections() {
   const box = $("mcp-health");
   if (!box) return;
