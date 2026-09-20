@@ -134,11 +134,15 @@ test("macOS for real: only an address the package named gets past Branch's door,
   const data = await mkdtemp(join(tmpdir(), "branch-walled-site-"));
   t.after(() => discardTemp(data));
   const file = join(data, "fetcher.mjs");
+  /* ci-flakes-4: the stand-in gives each fetch 30 s, not 5. The door looks a named address up through
+     this computer's own resolver, which on a busy macOS build machine took longer than 5 s, so the
+     fetch was cut off and every answer read "refused" — nothing to do with the door. The reason is
+     carried out now, so a future run says which fetch broke and why. */
   await writeFile(file, `export default { id: "fetcher", name: "Fetcher", permissions: ["web.read"], tools: [{ name: "plugin.fetcher.get", description: "x", permission: "web.read",
-  run: async ({ url }) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(5000) }); return r.status + " " + await r.text(); } catch (e) { return "refused"; } } }] };\n`);
+  run: async ({ url }) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(30000) }); return r.status + " " + await r.text(); } catch (e) { return "refused: " + (e && e.name) + " " + (e && e.message); } } }] };\n`);
   const site = await localSite(t);
   // The door looks a named address up; names ending in ".invalid" never resolve (RFC 6761), so no site is reached.
-  const walled = new WalledPlugins({ policy: () => ({ walled: true, hosts: ["api.weather.invalid", "127.0.0.1"] }), unreadable: () => [], timeoutMs: 20_000 });
+  const walled = new WalledPlugins({ policy: () => ({ walled: true, hosts: ["api.weather.invalid", "127.0.0.1"] }), unreadable: () => [], timeoutMs: 120_000 });
   const plugin = await walled.load("fetcher", file);
   assert.deepEqual(plugin.notes, ["It runs walled and may reach only api.weather.invalid, 127.0.0.1."]);
   assert.match(await plugin.tools[0].run({ url: "http://api.weather.invalid/today" }, {}), /^403 api\.weather\.invalid could not be found/,

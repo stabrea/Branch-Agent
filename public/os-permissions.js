@@ -42,7 +42,22 @@ function card(id, home, name, ...controls) {
   section.dataset.home = home;
   return section;
 }
-const status = (id, text) => { $(`${id}-status`).textContent = text; };
+/**
+ * ci-flakes-4: these cards are drawn again every 3 seconds, and drawing them used to wipe every card's
+ * message. A person who pressed Save saw "Saved." — or the plain sentence saying why it could not be
+ * saved — disappear within 3 seconds, often before they had read it. A message a press put there now
+ * stays until the next press; only a message the drawing itself wrote is cleared when it draws again.
+ */
+const fromPress = new Set();
+function status(id, text, pressed = false) {
+  const line = $(`${id}-status`);
+  if (!line) return;
+  line.textContent = text;
+  if (pressed && text) fromPress.add(id);
+  else fromPress.delete(id);
+}
+/** What a press said is left alone; anything the last drawing said is cleared before this one speaks. */
+const clearSaidWhileDrawing = (id) => { if (!fromPress.has(id)) status(id, ""); };
 
 /* ---------- the owner's three-way switch ---------- */
 
@@ -62,9 +77,9 @@ function switchCard(id, home, name, save) {
     try {
       await save($(`${id}-mode`).value);
       choiceSaved(`${id}-mode`);
-      status(id, t("keychain.status.saved"));
+      status(id, t("keychain.status.saved"), true);
     } catch (e) {
-      status(id, e.message);
+      status(id, e.message, true);
     }
   });
   return section;
@@ -106,7 +121,7 @@ function explainKey(platform, capability, session) {
 
 /** Opens one System Settings page, only because the owner pressed the button, through the app's own opener. */
 async function openSystemSettings(link, where) {
-  const say = (text) => status("os-permissions-card", text);
+  const say = (text) => status("os-permissions-card", text, true);
   if (typeof link !== "string" || !link.startsWith(macSettingsPrefix)) return say(t("permissions.status.cannot-open"));
   try {
     if (globalThis.branchDesktop?.openExternal) await globalThis.branchDesktop.openExternal(link);
@@ -188,20 +203,20 @@ function addEntry() {
   const value = (name) => $(`keychain-${name}`).value.trim();
   const entry = { name: value("name"), service: value("service"), note: value("note") };
   if (value("account")) entry.account = value("account");
-  if (!entry.name || !entry.service) return status("keychain-card", t("keychain.status.missing"));
+  if (!entry.name || !entry.service) return status("keychain-card", t("keychain.status.missing"), true);
   keychain.entries = [...keychain.entries.filter((one) => one.name !== entry.name), entry];
   for (const name of keychainFields) $(`keychain-${name}`).value = "";
   showKeychain();
-  status("keychain-card", t("keychain.status.added"));
+  status("keychain-card", t("keychain.status.added"), true);
 }
 
 async function saveKeychain(next) {
   try {
     keychain = await api("keychain/settings", next);
     showKeychain();
-    status("keychain-card", t(keychain.enabled ? "keychain.status.saved" : "keychain.status.off"));
+    status("keychain-card", t(keychain.enabled ? "keychain.status.saved" : "keychain.status.off"), true);
   } catch (e) {
-    status("keychain-card", e.message);
+    status("keychain-card", e.message, true);
   }
 }
 
@@ -231,7 +246,7 @@ function place() {
 
 async function render() {
   if (!place()) return;
-  for (const id of ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"]) status(id, "");
+  for (const id of ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"]) clearSaidWhileDrawing(id);
   await renderPermissions().catch((e) => status("os-permissions-card", e.message));
   await renderKeychain().catch((e) => status("keychain-card", e.message));
   await renderSwitches().catch((e) => status("screen-switch-card", e.message));

@@ -41,13 +41,30 @@ async function renderPreflight() {
 }
 
 /** How long a connection to somebody else's server stays open, and how each one is faring. */
+/**
+ * ci-flakes-4: this card is drawn again by the window's refresh every 3 seconds. What somebody is in
+ * the middle of typing or choosing must survive that, so the saved answer is written in only while what
+ * is on screen is still what this file last wrote. Otherwise their minutes were replaced within three
+ * seconds and Save sent the old number back. (The same guard as public/os-permissions.js.)
+ */
+const lastWritten = new Map();
+function showSaved(id, value) {
+  const box = $(id);
+  if (!box) return;
+  if (lastWritten.has(id) && box.value !== lastWritten.get(id)) return; // their own unsaved answer
+  box.value = value;
+  lastWritten.set(id, box.value);
+}
+/** Once an answer is saved it is the one on screen, so the next refresh may write over it again. */
+const savedByHand = (id) => { if ($(id)) lastWritten.set(id, $(id).value); };
+
 async function renderConnections() {
   const box = $("mcp-health");
   if (!box) return;
   const state = await api("mcp/connections");
-  $("mcp-keep-warm").value = String(state.settings.keepWarmMinutes);
-  $("mcp-max-servers").value = String(state.settings.maxConcurrentServers);
-  if ($("mcp-connect-when")) $("mcp-connect-when").value = state.settings.connect;
+  showSaved("mcp-keep-warm", String(state.settings.keepWarmMinutes));
+  showSaved("mcp-max-servers", String(state.settings.maxConcurrentServers));
+  if ($("mcp-connect-when")) showSaved("mcp-connect-when", state.settings.connect);
   box.replaceChildren();
   if (!state.servers.length) {
     box.append(el("p", "Nothing to show. No server you set up in the connections file has been started in this launch.", "subtle"));
@@ -67,6 +84,7 @@ async function saveConnections() {
       maxConcurrentServers: Number($("mcp-max-servers").value),
       ...($("mcp-connect-when") ? { connect: $("mcp-connect-when").value } : {}),
     });
+    for (const id of ["mcp-keep-warm", "mcp-max-servers", "mcp-connect-when"]) savedByHand(id);
     $("mcp-try-status").textContent = "Saved.";
     await renderConnections();
   } catch (error) {

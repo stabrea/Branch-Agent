@@ -145,17 +145,35 @@ async function save(next) {
   }
 }
 
-function saveLimits() {
+const limitBoxes = ["policy-tool-limit", "policy-round-limit"];
+/**
+ * ci-flakes-4: this card is drawn again by the window's refresh every 3 seconds. A ceiling somebody is
+ * in the middle of typing must survive that, so the saved number is written in only while what is on
+ * screen is still what this file last wrote. Otherwise it was replaced within three seconds and Save
+ * sent the old ceiling back. (The same guard as public/os-permissions.js.)
+ */
+const lastWritten = new Map();
+function showSaved(id, value) {
+  const box = $(id);
+  if (!box) return;
+  if (lastWritten.has(id) && box.value !== lastWritten.get(id)) return; // their own untyped-over answer
+  box.value = value;
+  lastWritten.set(id, box.value);
+}
+
+async function saveLimits() {
   const number = (id) => Math.max(0, Math.min(1000, Number($(id).value) || 0));
-  return save({ limits: { toolCallsPerMinute: number("policy-tool-limit"), modelRoundsPerMinute: number("policy-round-limit") } });
+  await save({ limits: { toolCallsPerMinute: number("policy-tool-limit"), modelRoundsPerMinute: number("policy-round-limit") } });
+  // Once saved, what is on screen is the saved answer again, so a refresh may write over it.
+  for (const id of limitBoxes) if ($(id)) lastWritten.set(id, $(id).value);
 }
 
 /** Called after every state refresh. */
 async function render() {
   try {
     state = await api("policy");
-    $("policy-tool-limit").value = state.policy.limits.toolCallsPerMinute ?? 0;
-    $("policy-round-limit").value = state.policy.limits.modelRoundsPerMinute ?? 0;
+    showSaved("policy-tool-limit", String(state.policy.limits.toolCallsPerMinute ?? 0));
+    showSaved("policy-round-limit", String(state.policy.limits.modelRoundsPerMinute ?? 0));
     renderPresets();
     renderRules();
     renderWaiting();
