@@ -139,6 +139,15 @@ Two left:
   the bound is 5 s: the thing it guards (ci-flakes-2's bug, a retry given a whole first-reply wait
   instead of the grace) would land at 6 s and still fails the check, so nothing it proves is weakened.
 
+## Loops after those two fixes (same worktree, 12 runs each, 3 copies at once)
+
+mac2-desktop-ui 276/276. hardening-3 193 of 194: one run's process ended at 2.88 s partway through
+test 3 with no named test failing and nothing printed — `'test failed'` against the file itself and no
+stack. That is the same non-event ci-flakes, ci-flakes-2 and ci-flakes-3 each recorded once on this
+loaded machine ("the test process ended with no output at all before any test reported"); its cause is
+still unknown and is not chased here. Test 3 itself passed in the other eleven runs, at 3797 ms and
+3819 ms under three-at-once load, which is the room the new 5 s bound was meant to give it.
+
 ## Where the two green runs stand
 
 Run 35479946361 (e18f559f, the same tree as dda44fbe) finished while this round was working: every
