@@ -606,3 +606,75 @@ test("the ChatGPT route records the cached tokens the service reports", async ()
   } } }));
   assert.equal(cold.result().usage.cachedInput, 0);
 });
+
+/* ---------- finding a tool should cost one round, not three ---------- */
+
+test("a tool found by searching comes with its inputs, so the next step can be the call", async (t) => {
+  const { app } = await fixture(t, [
+    calls(["tools.search", { query: "run a shell command in the workspace" }]),
+    say("Found it."),
+  ]);
+  const run = await app.runtime.run({ prompt: "run the tests" });
+  assert.equal(run.status, "completed", run.output);
+  const [done] = app.store.events(run.id).filter((e) => e.kind === "tool.completed")
+    .map((e) => e.data).filter((d) => d.name === "tools.search");
+  // The event records only a count; the model's own answer carries the matches. Read it from the
+  // conversation, which is what the model actually saw.
+  const answer = app.store.messages(run.sessionId).filter((m) => m.role === "tool").map((m) => JSON.parse(m.content))
+    .find((one) => one.result?.matches);
+  assert.ok(answer, "the search answered");
+  const withInputs = answer.result.matches.filter((one) => one.inputs !== undefined);
+  assert.ok(withInputs.length >= 1 && withInputs.length <= 3,
+    `${withInputs.length} matches carried their inputs; the best few should, not all twenty`);
+  for (const match of withInputs) {
+    assert.equal(typeof match.inputs, "object", `${match.name} carried no usable inputs`);
+    assert.match(match.use, /call it now|Call .* now|^[A-Z]/, `${match.name} says what to do with it`);
+  }
+  assert.match(answer.result.note, /call the one you want now/);
+  assert.doesNotMatch(JSON.stringify(answer.result), /from your next step; their inputs are in the tool list/);
+  assert.ok(done);
+});
+
+test("a tool asked for by name comes with its inputs too", async (t) => {
+  const { app } = await fixture(t, [
+    calls(["tools.describe", { names: ["code.run", "not.a.tool"] }]),
+    say("Loaded."),
+  ]);
+  const run = await app.runtime.run({ prompt: "get ready to run something" });
+  assert.equal(run.status, "completed", run.output);
+  const answer = app.store.messages(run.sessionId).filter((m) => m.role === "tool").map((m) => JSON.parse(m.content))
+    .find((one) => one.result?.loaded);
+  assert.ok(answer, "describe answered");
+  const [first] = answer.result.loaded;
+  assert.equal(first.name, "code.run");
+  assert.equal(typeof first.inputs, "object", "the tool it asked for by name carries its inputs");
+  assert.deepEqual(answer.result.unknown, ["not.a.tool"], "a name that is not a tool still reads as unknown");
+});
+
+test("a tool asked for by the name another assistant uses is found, and says what it is called here", async (t) => {
+  const { app } = await fixture(t, [
+    calls(["tools.describe", { names: ["shell.execute", "bash", "read_file", "genuinely.not.a.tool"] }]),
+    say("Loaded."),
+  ]);
+  const run = await app.runtime.run({ prompt: "get ready" });
+  assert.equal(run.status, "completed", run.output);
+  const answer = app.store.messages(run.sessionId).filter((m) => m.role === "tool").map((m) => JSON.parse(m.content))
+    .find((one) => one.result?.loaded);
+  const by = Object.fromEntries(answer.result.loaded.map((one) => [one.name, one]));
+  assert.ok(by["code.run"], `shell.execute and bash should both reach code.run: ${JSON.stringify(answer.result)}`);
+  assert.match(by["code.run"].use, /is called code\.run here/, "and it says so, so the next call uses the right name");
+  assert.ok(by["files.read"], "read_file reaches files.read");
+  assert.deepEqual(answer.result.unknown, ["genuinely.not.a.tool"], "a name that is nothing still reads as unknown");
+  assert.ok(by["code.run"].inputs, "and it comes with its inputs, so the next step is the call");
+});
+
+test("an outside name never shadows a real tool of that name", async () => {
+  const { nameUsedElsewhere } = await import("../dist/index.js");
+  // "read" and "write" are names other assistants use; Branch has no tools called that, so they
+  // are free to point somewhere. If one ever becomes a real tool name, the real one must win —
+  // which is what the lookup order in describe() does, and this is the reminder of why.
+  assert.equal(nameUsedElsewhere("bash"), "code.run");
+  assert.equal(nameUsedElsewhere("SHELL.EXECUTE"), "code.run", "the name is matched however it is typed");
+  assert.equal(nameUsedElsewhere("code.run"), undefined, "a real Branch name is not in the table at all");
+  assert.equal(nameUsedElsewhere("files.read"), undefined);
+});

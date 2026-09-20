@@ -2941,7 +2941,10 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(context.runId, "tools.searched", { query: query.slice(0, 120), found: found.matches.map((m) => m.name) });
     this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { found: found.matches.length } });
     return { ok: true, result: { ...found, note: found.matches.length
-      ? "These are yours to use from your next step; their inputs are in the tool list."
+      // mac7/speed: the inputs of the best matches come back with them, so the next step can be the
+      // call itself. Window 8 on the plan spent 27 of 95 rounds finding tools, much of it on the
+      // extra round this sentence used to ask for.
+      ? "The first few come with their inputs: call the one you want now, in your next step. Do not search again for these."
       : "Nothing here does that. Say so plainly rather than guessing at a tool name." } };
   }
   /** Loads tools by exact name. An unknown name and one this task may not use read the same. */
@@ -2956,7 +2959,8 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { loaded: result.loaded.length } });
     return { ok: true, result: { ...result, note: result.unknown.length
       ? "A name that is not here is either misspelt or not available in this task."
-      : "Use them from your next step; their inputs are in the tool list." } };
+      // mac7/speed: asking for a tool by name brings its inputs with it, so the next step is the call.
+      : "Each one comes with its inputs: call the one you want now, in your next step." } };
   }
   /** Remembers one short thing about a tool. The owner can read and delete every one of these. */
   private noteTool(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {

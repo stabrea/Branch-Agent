@@ -1,7 +1,7 @@
 import type { ToolDescription } from "./contracts.js";
 import { estimateTokens } from "./contracts.js";
 import { expandToolName, inferToolGroup, unrecognisedOpenUpTo, type CatalogGroup, type CatalogStats } from "./catalog.js";
-import { ToolIndex, expandQuery, indexLine, type ToolEmbedder, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
+import { ToolIndex, expandQuery, indexLine, nameUsedElsewhere, type ToolEmbedder, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
 
 /**
  * Deciding, every round, which tools travel with the request. Three tiers:
@@ -53,6 +53,20 @@ export function meaningSearchOn(
 }
 
 export interface PreloadedTool { name: string; reason: string }
+/**
+ * How many of a search's matches carry their own input schema. The first few are what the assistant
+ * is actually choosing between; naming twenty schemas would cost more than the round it saves.
+ */
+export const inputsWithSearch = 3;
+/** A tool the assistant has just found or asked for by name, ready to call. */
+export interface FoundTool {
+  name: string;
+  purpose: string;
+  /** What to do with it, in a sentence — the remembered note for it, when there is one. */
+  use: string;
+  /** Its own inputs, so it can be called in the very next step rather than looked up again. */
+  inputs?: unknown;
+}
 export interface ToolLoaderOptions {
   /** Toolboxes open from the first round; their tools are strongly preferred. */
   expanded?: readonly string[];
@@ -198,29 +212,52 @@ export class ToolLoader {
    * in the index at all, so a narrowed task can never find one it is not permitted; every match
    * stays loaded for the rest of the conversation, as far as the budget allows.
    */
-  async search(query: string, limit = 8): Promise<{ matches: { name: string; purpose: string; use: string }[]; searched: string }> {
+  async search(query: string, limit = 8): Promise<{ matches: FoundTool[]; searched: string }> {
     const wanted = Math.min(Math.max(1, limit), 20);
     const hits = this.index.embedder
       ? await this.index.searchByMeaning(query, wanted) : this.index.search(query, wanted);
     for (const hit of hits) this.asked.add(hit.entry.name);
     this.version++;
-    return { searched: String(query).slice(0, 200), matches: hits.map((hit) => ({
-      name: hit.entry.name, purpose: hit.entry.purpose,
-      use: hit.entry.note || `Call ${hit.entry.name}; its inputs are in the tool list from your next step.`,
-    })) };
+    return { searched: String(query).slice(0, 200),
+      matches: hits.map((hit, at) => this.found(hit.entry.name, hit.entry.purpose, hit.entry.note, at < inputsWithSearch)) };
   }
   /** Loads named tools. A name this task may not use is unknown here, exactly like a misspelling. */
-  describe(names: readonly string[]): { loaded: { name: string; purpose: string }[]; unknown: string[] } {
-    const loaded: { name: string; purpose: string }[] = [], unknown: string[] = [];
+  describe(names: readonly string[]): { loaded: FoundTool[]; unknown: string[] } {
+    const loaded: FoundTool[] = [], unknown: string[] = [];
     for (const raw of names.slice(0, 16)) {
-      const name = String(raw).trim();
-      const entry = this.index.entry(name);
-      if (!entry) { unknown.push(name); continue; }
-      this.asked.add(name);
-      loaded.push({ name, purpose: entry.purpose });
+      const asked = String(raw).trim();
+      // mac7/speed: a model that has worked with other coding assistants asks for their names.
+      // `shell.execute` was asked for by name twice in one bench task and refused both times.
+      // The real name is tried first, so nothing here can shadow a tool that actually exists.
+      const here = this.index.entry(asked) ? asked : (nameUsedElsewhere(asked) ?? asked);
+      const entry = this.index.entry(here);
+      if (!entry) { unknown.push(asked); continue; }
+      this.asked.add(here);
+      const found = this.found(here, entry.purpose, entry.note, true);
+      loaded.push(here === asked ? found
+        : { ...found, use: `${asked} is called ${here} here. ${found.use}` });
     }
     this.version++;
     return { loaded, unknown };
+  }
+  /**
+   * One tool as an answer to "what can do this". `inputs` is the tool's own schema, sent with the
+   * best few matches so the tool can be **called straight away**.
+   *
+   * Before this, a search said "its inputs are in the tool list from your next step", and the only
+   * way to get them was another round. Window 8 on the plan shows what that cost: 27 of Branch's 95
+   * rounds did no work on the task at all, they looked for a tool — and `fix-range` spent five of
+   * its ten rounds alternating search, search, describe, search, describe before calling anything.
+   * A round trip is the whole cost of a task, so handing back the inputs with the answer removes one
+   * every time a tool has to be found.
+   */
+  private found(name: string, purpose: string, note: string, withInputs: boolean): FoundTool {
+    const base = this.byName.get(name);
+    return {
+      name, purpose,
+      use: note || `Call ${name} now; its inputs are below.`,
+      ...(withInputs && base ? { inputs: base.parameters } : {}),
+    };
   }
   /** What this task has done counts on top of the words: asked for, opened, or used just now. */
   private bonusFor(entry: ToolEntry): number {
