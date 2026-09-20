@@ -575,3 +575,34 @@ test("Lockdown asks about reading many files exactly as it asks about reading on
   assert.equal(one.status, "needs_input");
   assert.equal(one.asks, 1);
 });
+
+/* ---------- what the service's own prompt cache served ---------- */
+
+test("the ChatGPT route records the cached tokens the service reports", async () => {
+  const { ResponsesStream } = await import("../dist/index.js");
+  // What the endpoint actually sends back. Every other provider in this product reads
+  // input_tokens_details.cached_tokens; this one dropped it, so a whole five-way window recorded
+  // "no cache" when what it meant was "nobody looked".
+  const withCache = new ResponsesStream(() => {});
+  withCache.consume(JSON.stringify({ type: "response.output_text.delta", delta: "hi" }));
+  withCache.consume(JSON.stringify({ type: "response.completed", response: { usage: {
+    input_tokens: 91292, output_tokens: 669, input_tokens_details: { cached_tokens: 77312 },
+  } } }));
+  assert.deepEqual(withCache.result().usage, { input: 91292, output: 669, cachedInput: 77312 });
+
+  // A service that says nothing about caching still parses, and says nothing rather than zero:
+  // "we do not know" and "nothing was cached" are different facts and must not be confused.
+  const without = new ResponsesStream(() => {});
+  without.consume(JSON.stringify({ type: "response.completed", response: { usage: {
+    input_tokens: 100, output_tokens: 10,
+  } } }));
+  assert.deepEqual(without.result().usage, { input: 100, output: 10 });
+  assert.equal("cachedInput" in without.result().usage, false, "absent, not zero");
+
+  // Nothing cached this round is a real zero and is recorded as one.
+  const cold = new ResponsesStream(() => {});
+  cold.consume(JSON.stringify({ type: "response.completed", response: { usage: {
+    input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 0 },
+  } } }));
+  assert.equal(cold.result().usage.cachedInput, 0);
+});
