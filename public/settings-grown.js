@@ -275,6 +275,8 @@ function dressNav() {
     nav.append(link);
   }
   nav.append(pagePicker(nav), levelBox());
+  const version = $("lx-settings-version");
+  if (version) nav.append(version);
 }
 /** On a phone the list of pages is one choice, not a row that scrolls sideways. */
 function pagePicker(nav) {
