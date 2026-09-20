@@ -15,6 +15,7 @@ import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
 import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
 import { popover } from "/popover.js";
+import { installGrownComposer } from "/composer-grown.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -1485,6 +1486,7 @@ function start() {
   buildOwnerMenu();
   buildModelChip();
   buildCalm();
+  installGrownComposer();
   wireKeys();
   extendPalette();
   globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer };
