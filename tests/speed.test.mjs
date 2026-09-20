@@ -678,3 +678,46 @@ test("an outside name never shadows a real tool of that name", async () => {
   assert.equal(nameUsedElsewhere("code.run"), undefined, "a real Branch name is not in the table at all");
   assert.equal(nameUsedElsewhere("files.read"), undefined);
 });
+
+/* ---------- a task never ends on a raw provider error ---------- */
+
+test("a model service that refuses is explained in plain words, with what the task got done", async (t) => {
+  const { ProviderHttpError } = await import("../dist/index.js");
+  let turn = 0;
+  const provider = { name: "scripted", async complete() {
+    turn += 1;
+    if (turn === 1) return { content: "", toolCalls: [{ id: "c1", name: "files.read", arguments: JSON.stringify({ path: "src/sum.js" }) }] };
+    throw new ProviderHttpError(400);
+  } };
+  const { app } = await fixture(t, [], { provider });
+  const run = await app.runtime.run({ prompt: "read it and tell me about it" });
+  assert.notEqual(run.status, "completed");
+  assert.doesNotMatch(run.output, /^Provider HTTP/, "the person is not left with the status line as the whole answer");
+  assert.match(run.output, /The model service refused this request \(400\)/);
+  assert.match(run.output, /Settings, under Models/, "and is told where to look");
+  assert.match(run.output, /tool call/, "and what the task did manage before it stopped");
+  // The technical text is still in the record, where it belongs.
+  const [noted] = app.store.events(run.id).filter((e) => e.kind === "provider.refused").map((e) => e.data);
+  assert.match(noted.error, /Provider HTTP 400/);
+});
+
+test("each kind of refusal says the right thing, and anything else is left alone", async () => {
+  const { providerRefusal, ProviderHttpError } = await import("../dist/index.js");
+  assert.match(providerRefusal(new ProviderHttpError(401)), /would not accept this connection's sign-in/);
+  assert.match(providerRefusal(new ProviderHttpError(404)), /does not know the model/);
+  assert.match(providerRefusal(new ProviderHttpError(429)), /left alone for a while/);
+  assert.match(providerRefusal(new ProviderHttpError(503)), /problem at its end/);
+  assert.match(providerRefusal(new ProviderHttpError(422)), /refused this request \(422\)/);
+  assert.equal(providerRefusal(new Error("something else")), null, "an ordinary failure is not dressed up");
+  assert.equal(providerRefusal(new ProviderHttpError(302)), null, "and neither is anything that is not a refusal");
+});
+
+test("a refusal that arrives mid-stream is explained too, not just one raised before it", async () => {
+  const { providerRefusal, ProviderHttpError, ProviderStreamError } = await import("../dist/index.js");
+  // The plan's own lost task failed this way: the status came back while the reply was streaming,
+  // so the refusal reached the task wrapped. Unwrapped, it reads the same as any other.
+  const wrapped = new ProviderStreamError(new ProviderHttpError(400), 0);
+  assert.match(providerRefusal(wrapped), /refused this request \(400\)/);
+  assert.equal(providerRefusal(new ProviderStreamError(new Error("socket hang up"), 0)), null,
+    "an ordinary mid-stream failure is still left alone");
+});

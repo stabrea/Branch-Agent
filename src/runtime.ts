@@ -96,6 +96,7 @@ import {
   parseRetryPolicy,
   planRetry,
   waitForRetry,
+  providerRefusal,
   type RetryPolicy,
   type RetryPolicyInput,
 } from "./provider-retry.js";
@@ -967,7 +968,11 @@ ${run.output.slice(0, 6000)}`;
       output = place && this.coding ? await this.coding.inPlace(place.scope, () => work({ ...context, workspace: place.workspace })) : await work(context);
     } catch (error) {
       status = this.failureStatus(context, error);
-      output = errorText(error);
+      // mac7/speed: a task that stops must still say something a person can act on. A model service
+      // that refuses ended a task on "Provider HTTP 400; check endpoint, model, credential, and
+      // quota" and nothing else — one whole task lost to that sentence in the five-way window. The
+      // technical text stays in the events and the log, where it belongs.
+      output = this.plainEnding(run, error);
       if (error instanceof NeedsInputError) {
         this.store.event(run.id, "attention.needed", { question: error.question });
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
@@ -1440,7 +1445,7 @@ ${run.output.slice(0, 6000)}`;
    * finished, because that is what happened.
    */
   private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number): Promise<never> {
-    const trouble = this.whyItWentRound(run.id);
+    const trouble = this.whatItDid(run.id);
     let best = "";
     try {
       best = (await this.lastWord(run, context, route, messages)).trim();
@@ -1468,10 +1473,21 @@ ${run.output.slice(0, 6000)}`;
     return (await this.complete(run, lastWordMessages(run.prompt, messages), scoped, preset, null)).content;
   }
   /**
+   * mac7/speed: how a stopped task reads to the person who asked for it. A model service refusing
+   * is not something they did, and "Provider HTTP 400" is not a sentence — but it is exactly right
+   * in the event log, which is why this only changes the task's own last words.
+   */
+  private plainEnding(run: Run, error: unknown): string {
+    const plain = providerRefusal(error);
+    if (!plain) return errorText(error);
+    this.store.event(run.id, "provider.refused", { error: errorText(error) });
+    return `${plain} ${this.whatItDid(run.id)}`;
+  }
+  /**
    * What the rounds were spent on, in one plain clause, so the limit is never the only thing said.
    * Read from the task's own record, never guessed.
    */
-  private whyItWentRound(runId: string): string {
+  private whatItDid(runId: string): string {
     const events = this.store.events(runId);
     const done = events.filter((event) => event.kind === "tool.completed").length;
     const failed = events.filter((event) => event.kind === "tool.failed" || event.kind === "tool.stalled").length;
