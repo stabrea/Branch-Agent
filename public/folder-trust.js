@@ -3,6 +3,7 @@
 // whether the folder is trusted. The deciding happens on the server (src/folder-trust.ts); this
 // file only shows what it says and sends the answer back. Every word is behind a key.
 import { t, formatNumber } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,14 +50,12 @@ const kinds = [
 function switchRow(id, labelKey, mode, save) {
   const label = worded("label", labelKey);
   label.htmlFor = id;
-  const select = document.createElement("select");
-  select.id = id;
-  for (const value of ["off", "on", "when-needed"]) {
-    const option = worded("option", `folder-trust.switch.${value}`);
-    option.value = value;
-    select.append(option);
-  }
-  select.value = mode;
+  const select = segmented({
+    id: id,
+    options: [["off", "folder-trust.switch.off"], ["on", "folder-trust.switch.on"], ["when-needed", "folder-trust.switch.when-needed"]],
+    value: mode,
+    onChange: () => {} // onChange will be overridden by button click
+  });
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
