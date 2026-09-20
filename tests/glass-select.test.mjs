@@ -181,6 +181,28 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
+test("a segmented control shows the description linked to its native source", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const note = document.createElement("p");
+    note.id = "hover-segment-note";
+    note.textContent = "Choose how often Branch may do this.";
+    const control = globalThis.branchControlMakers.segmented({ id: "hover-segment" });
+    control.querySelector("select").setAttribute("aria-describedby", note.id);
+    document.getElementById("workspace").append(control, note);
+  });
+  const source = f.page.locator("#hover-segment");
+  const control = f.page.locator(".segmented-control:has(#hover-segment)");
+  const words = await source.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
+    .map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(" "));
+  assert.ok(words, "the native source has real explanatory words");
+  await control.hover();
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), words);
+  assert.deepEqual(f.errors, []);
+});
+
 test("on a touch-only phone the select keeps its own picker and no hover help appears", async (t) => {
   const f = await fixture(t, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);

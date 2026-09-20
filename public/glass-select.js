@@ -205,6 +205,7 @@ function iconOnly(node) {
   return button.getAttribute("aria-label") || button.title || button.dataset.tip ? button : null;
 }
 function describedWords(control) {
+  if (control.matches(".segmented-control")) control = control.querySelector(".segmented-source") ?? control;
   const ids = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
   const words = ids.map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(" ");
   return words || control.getAttribute("aria-description") || "";
