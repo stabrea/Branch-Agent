@@ -3,6 +3,7 @@
 // reaching the internet. The deciding happens on the server (src/sandbox.ts, src/sandbox-wall.ts);
 // this card only shows the owner's choice and sends it back. Every word is behind a key.
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const modes = ["off", "when-needed", "on"];
@@ -33,15 +34,16 @@ function worded(tag, key, className) {
 function choice(id, labelKey, values, prefix, current) {
   const label = worded("label", labelKey);
   label.htmlFor = id;
-  const select = document.createElement("select");
-  select.id = id;
-  for (const value of values) {
-    const option = worded("option", `${prefix}.${value}`);
-    option.value = value;
-    select.append(option);
+  // Handle three-way switch vs multi-option dropdown
+  if (JSON.stringify(values) === JSON.stringify(["off", "when-needed", "on"])) {
+    const options = values.map((v) => [v, `${prefix}.${v}`]);
+    const control = segmented({ id, options, value: current });
+    return [label, control];
+  } else {
+    const options = values.map((v) => [v, `${prefix}.${v}`]);
+    const control = dropdown({ id, options, value: current });
+    return [label, control];
   }
-  select.value = current;
-  return [label, select];
 }
 
 function lines(id, labelKey, text) {
