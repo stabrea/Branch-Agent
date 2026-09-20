@@ -344,7 +344,7 @@ test("the switch is in the conversation, and the plan card approves in one press
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
     await page.getByRole("button", { name: /Try it without an account/ }).click();

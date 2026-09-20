@@ -35,7 +35,7 @@ async function fixture(t) {
   await page.goto(server.url, { timeout: 120000 }); // a busy Windows build machine once took over 30 s (tests/places.mjs waits 120 s too)
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
     await page.getByRole("button", { name: /Try it without an account/ }).click();
@@ -110,7 +110,7 @@ test("F2 the timeline under the picture says where each step has got to", async 
       { name: "Ask again", kind: "prompt", prompt: "say goodbye", retries: 0, timeoutMs: 120000 }] });
   /* The page keeps its key for this browser session, so a reload comes back connected. */
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await openPlace(page, "procedures");
   await page.locator("#editor-flow").selectOption({ label: "Two things" });
   await page.locator("#editor-timeline .card-row").first().waitFor();
@@ -120,9 +120,12 @@ test("F2 the timeline under the picture says where each step has got to", async 
   assert.match(before[0], /waiting|not started yet/i, "a step that has not run says it has");
 
   await page.getByRole("button", { name: "Run this flow", exact: true }).click();
+  /* ci-flakes-4: this ran the flow and gave the timeline 20 s to catch up. On a Windows build machine
+     that was crawling (this one test took 103 s in run 35484288929) the run itself had not finished by
+     then. It now gets the 120 s tests/places.mjs gives the window; what it proves is unchanged. */
   await page.waitForFunction(() =>
     /done|completed|failed/i.test(document.querySelector("#editor-timeline .card-row")?.textContent ?? ""),
-    undefined, { timeout: 20000 });
+    undefined, { timeout: 120000 });
   const after = await page.locator("#editor-timeline .card-row").first().innerText();
   assert.match(after, /done|completed/i, "the timeline never caught up with the run");
   assert.deepEqual(errors, []);

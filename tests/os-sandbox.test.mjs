@@ -791,7 +791,7 @@ test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and s
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const card = page.locator("#os-sandbox-card");
   await card.waitFor({ state: "attached" });
   assert.equal(await card.getAttribute("data-home"), "settings:computer");
