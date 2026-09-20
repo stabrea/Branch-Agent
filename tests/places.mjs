@@ -57,22 +57,30 @@ export async function openPlace(page, view) {
 }
 
 /**
- * Presses a control until what it does has happened. ci-flakes-4: on Windows build machines a click on
- * a control Playwright has just found visible, enabled and stable sometimes sits in its "performing
- * click action" for the whole timeout and nothing happens at all — seen on the Settings gear
- * (never-break-ui), on a card's Save button (mac2-desktop-ui) and, before that, on a select
- * (ci-flakes-3, "cause of the swallowed click not proven"). The cause is still not proven; it is not
- * the product, whose button keeps the one listener it was given and is never drawn again. Pressing
- * again when the thing has not happened is what a person does, and it costs nothing when the first
- * press lands. `happened` waits for the thing and answers true or false; it is never given longer than
- * the press it follows.
+ * Activates one control and waits for its effect. Some shared runners have left Playwright's mouse
+ * dispatch waiting even though the control is visible, enabled and stable. Repeating the same click
+ * hid that transport failure. We now report it, check whether the first click landed, then use the
+ * control's keyboard activation once. That still exercises the browser's real button semantics and
+ * cannot double-toggle a click whose effect already appeared.
  */
-export async function pressUntil(target, happened, what = "the press to take", tries = 3) {
-  for (let press = 0; press < tries; press++) {
-    await target.click({ timeout: 40000 }).catch(() => undefined);
-    if (await happened()) return;
+export async function pressUntil(target, happened, what = "the press to take") {
+  let mouseFailure = "the mouse click completed but its effect did not appear";
+  try {
+    await target.click({ timeout: 20000 });
+  } catch (error) {
+    mouseFailure = `the mouse click failed: ${error instanceof Error ? error.message : String(error)}`;
   }
-  throw new Error(`Waited for ${what} through ${tries} presses and it never happened`);
+  if (await happened()) return;
+  console.warn(`[ui-test] ${mouseFailure}; trying Enter for ${what}`);
+  let keyboardFailure = "Enter completed but its effect did not appear";
+  try {
+    await target.focus({ timeout: 10000 });
+    await target.press("Enter", { timeout: 10000 });
+  } catch (error) {
+    keyboardFailure = `Enter failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (await happened()) return;
+  throw new Error(`Waited for ${what}: ${mouseFailure}; ${keyboardFailure}`);
 }
 
 /** Waits up to 20 s for something on the page to become true, and says whether it did. */

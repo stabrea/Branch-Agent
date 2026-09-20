@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadWeights, parseShard, shards, testGroups } from "../scripts/run-tests.mjs";
+import { loadWeights, parseShard, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
 test("npm test runs the files that start the desktop app on their own, and everything else together", () => {
   const listing = {
@@ -78,4 +78,13 @@ test("the build machines run every share, 1 to N, on every system, so no share o
     assert.deepEqual(shares.map((share) => share.shard).sort((a, b) => a - b), Array.from({ length: total }, (_, i) => i + 1), `${os}: shares 1..${total}`);
   }
   assert.deepEqual(workflow.jobs.verify.needs, ["test", "package"], "verify waits for every share and every package");
+});
+
+test("a test worker killed without an exit code names its signal and assigned files", () => {
+  const messages = [];
+  assert.equal(testProcessStatus({ status: null, signal: "SIGKILL" }, [join("tests", "slow.test.mjs")],
+    (message) => messages.push(message)), 1);
+  assert.match(messages[0], /terminated by SIGKILL/);
+  assert.match(messages[0], /tests\/slow\.test\.mjs/);
+  assert.equal(testProcessStatus({ status: 7, signal: null }, [], () => assert.fail("ordinary exits are silent")), 7);
 });
