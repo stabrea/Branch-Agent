@@ -1443,10 +1443,29 @@ ${run.output.slice(0, 6000)}`;
     const trouble = this.whyItWentRound(run.id);
     let best = "";
     try {
-      best = (await this.aside(run, context, route, [...messages, { role: "user", content: lastWordRequest }])).trim();
-    } catch { /* a task with nothing left to spend still gets the sentences below */ }
+      best = (await this.lastWord(run, context, route, messages)).trim();
+    } catch { /* a task that cannot even be asked still gets the sentences below */ }
     this.store.event(run.id, "rounds.exhausted", { limit, answered: Boolean(best), trouble });
     throw new BudgetError([best, roundLimitSentence(limit, trouble)].filter(Boolean).join("\n\n"));
+  }
+  /**
+   * The one last question, asked with no tools.
+   *
+   * Deliberately **not** `aside`: that charges the whole prompt against the task's own budget, and
+   * the task that most needs this sentence is a long one whose transcript is far bigger than the
+   * small budget a side question gets. It would have come back empty for exactly the tasks the fix
+   * exists for, and quietly. So this sends a short digest of the work instead of the whole
+   * conversation, and spends from a small budget of its own: one bounded question at the end of a
+   * task that has already stopped, rather than nothing at all.
+   */
+  private async lastWord(run: Run, context: ToolContext, route: ModelRoute, messages: readonly Message[]): Promise<string> {
+    const scoped: ToolContext = {
+      ...context, permissions: new Set(),
+      budget: new Budget({ maxSteps: 2, maxTokens: lastWordTokens }),
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
+    };
+    const preset = route.candidates[route.index]!;
+    return (await this.complete(run, lastWordMessages(run.prompt, messages), scoped, preset, null)).content;
   }
   /**
    * What the rounds were spent on, in one plain clause, so the limit is never the only thing said.
@@ -3117,6 +3136,34 @@ const aloneTools = [expandToolName, toolSearchName, toolDescribeName, toolNoteNa
 /** A call's arguments as an object, or nothing when they are not valid JSON (the tool refuses them later). */
 function safeArguments(text: string): unknown {
   try { return JSON.parse(text); } catch { return {}; }
+}
+
+/** mac7/speed: the room the one last question gets, its own, so a long task still gets an answer. */
+const lastWordTokens = 16000;
+/** How many of the last messages are shown to it, and how much of each. */
+const lastWordMessageCount = 10, lastWordCharsEach = 800;
+
+/**
+ * The short digest of a task's work that the last question is asked about: what was wanted, then
+ * the end of what happened. Bounded on purpose — about 2,000 tokens whatever the task did — so the
+ * question can always be afforded.
+ */
+export function lastWordMessages(prompt: string, messages: readonly Message[]): Message[] {
+  const said = (message: Message): string =>
+    message.role === "tool" ? "a tool answered" : message.role === "assistant" ? "you said" : "you were told";
+  const recent = messages.filter((message) => message.role !== "system").slice(-lastWordMessageCount)
+    .map((message) => `${said(message)}: ${(message.content ?? "").slice(0, lastWordCharsEach)}`)
+    .join("\n\n");
+  return [
+    { role: "system", content: lastWordRequest },
+    { role: "user", content: digest(prompt, recent) },
+  ];
+}
+
+/** What the task was asked for, then the end of what happened, in the order a person would say it. */
+function digest(prompt: string, recent: string): string {
+  return ["What you were asked to do:", prompt.slice(0, 2000), "",
+    "The last of what happened:", recent || "(nothing)"].join("\n");
 }
 
 /** mac7/speed: what a task is asked for once it has used every round it may take. */

@@ -376,7 +376,7 @@ test("the ceiling: a task that runs out of rounds gives its best answer and says
   let turn = 0;
   const provider = { name: "scripted", async complete(request) {
     const last = request.messages.at(-1);
-    if (last?.role === "user" && /used every round this task is allowed/.test(last.content)) {
+    if (last?.role === "user" && /^What you were asked to do:/.test(last.content)) {
       asked = String(request.tools.length);
       return { content: "I read src/sum.js and src/range.js. The off-by-one is in range.js; I did not get to fix it.", toolCalls: [] };
     }
@@ -402,7 +402,7 @@ test("the ceiling: a task whose tool calls all failed is told that, not just the
   let turn = 0;
   const provider = { name: "scripted", async complete(request) {
     const last = request.messages.at(-1);
-    if (last?.role === "user" && /used every round this task is allowed/.test(last.content))
+    if (last?.role === "user" && /^What you were asked to do:/.test(last.content))
       return { content: "Nothing worked.", toolCalls: [] };
     turn += 1;
     // A different missing file each round, so it is not "the same thing again and again".
@@ -418,7 +418,7 @@ test("the ceiling: the owner can raise it, and the default is still 12", async (
   let turn = 0;
   const provider = { name: "scripted", async complete(request) {
     const last = request.messages.at(-1);
-    if (last?.role === "user" && /used every round this task is allowed/.test(last.content))
+    if (last?.role === "user" && /^What you were asked to do:/.test(last.content))
       return { content: "Out of rounds.", toolCalls: [] };
     turn += 1;
     return { content: "", toolCalls: [{ id: `c${turn}`, name: "files.read", arguments: JSON.stringify({ path: "src/sum.js" }) }] };
@@ -452,4 +452,47 @@ test("A: a call that pauses the task leaves none of its group still running", as
   const started = app.store.events(run.id).filter((e) => e.kind === "tool.started").length;
   const finished = app.store.events(run.id).filter((e) => e.kind === "tool.completed" || e.kind === "tool.failed").length;
   assert.ok(finished >= started - 1, `${started} started, ${finished} finished — a call was left in the air`);
+});
+
+test("the ceiling: a long task still gets its answer, not silence", async (t) => {
+  // The task that most needs this sentence is a long one. Asking the model with the whole
+  // transcript would be charged against the task's own budget and come back empty for exactly
+  // those tasks, quietly. The last question is asked about a short digest instead.
+  const huge = "x".repeat(40000);
+  let sentToLastWord = null;
+  let turn = 0;
+  const provider = { name: "scripted", async complete(request) {
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && /^What you were asked to do:/.test(last.content)) {
+      sentToLastWord = request.messages.map((m) => m.content).join("").length;
+      return { content: "I looked through a lot of output and found nothing conclusive.", toolCalls: [] };
+    }
+    turn += 1;
+    return { content: "", toolCalls: [{ id: `c${turn}`, name: "files.read", arguments: JSON.stringify({ path: "src/sum.js" }) }] };
+  } };
+  const { app, workspace } = await fixture(t, [], { provider });
+  await writeFile(join(workspace, "src", "sum.js"), huge);
+  const run = await app.runtime.run({ prompt: "read it and tell me what is in it" });
+  assert.match(run.output, /found nothing conclusive/, `no answer came back: ${run.output.slice(0, 200)}`);
+  assert.ok(sentToLastWord !== null, "the last question was actually asked");
+  assert.ok(sentToLastWord < 20000, `the last question carried ${sentToLastWord} characters; it is meant to be a digest`);
+  const [note] = app.store.events(run.id).filter((e) => e.kind === "rounds.exhausted").map((e) => e.data);
+  assert.equal(note.answered, true);
+});
+
+test("the digest shown to the last question is bounded whatever the task did", async () => {
+  const { lastWordMessages } = await import("../dist/index.js");
+  const messages = Array.from({ length: 60 }, (_, n) => ({ role: n % 2 ? "tool" : "assistant", content: `#${n} ` + "y".repeat(5000) }));
+  const asked = lastWordMessages("z".repeat(9000), messages);
+  assert.equal(asked.length, 2);
+  assert.equal(asked[0].role, "system");
+  const size = asked.map((m) => m.content).join("").length;
+  assert.ok(size < 14000, `the digest was ${size} characters; it is meant to stay small`);
+  assert.match(asked[1].content, /The last of what happened:/);
+  assert.match(asked[1].content, /a tool answered:/);
+  assert.match(asked[1].content, /you said:/);
+  // Only the end of the conversation, and only the start of each message.
+  assert.ok(asked[1].content.includes("#59 "), "the last message is in it");
+  assert.ok(!asked[1].content.includes("#0 "), "and the oldest ones are not");
+  assert.ok(!asked[1].content.includes("y".repeat(900)), "and no one message is carried whole");
 });
