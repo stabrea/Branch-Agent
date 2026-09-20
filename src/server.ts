@@ -2616,6 +2616,11 @@ function planActApi(app: Branch, request: IncomingMessage, body: unknown): unkno
   if (asked?.followProject && sessionId) clearSessionPlanAct(app.store, owner, sessionId);
   else if (asked && asked.scope === "project") saveProjectPlanAct(app.store, owner, projectId, choice);
   else if (asked && sessionId) saveSessionPlanAct(app.store, owner, sessionId, projectId, choice);
+  // mac7/smoke-fixes (B5): a choice for one conversation with no conversation named used to be
+  // dropped without a word, and the answer still showed the project's setting as if it had stuck.
+  else if (asked)
+    throw new HttpError(400, 'Say which conversation this choice is for, or send scope "project" to change '
+      + "what every conversation in this project starts from. Nothing was changed.");
   const effective = sessionPlanAct(app.store, owner, sessionId, projectId);
   return { projectId, project: projectPlanAct(app.store, owner, projectId), effective,
     words: { planMode: planModeWords, autonomy: autonomyWords },

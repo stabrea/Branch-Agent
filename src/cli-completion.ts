@@ -11,6 +11,12 @@ export type CompletionShell = (typeof completionShells)[number];
 const allowTestsHelp = "--allow-tests lets this one task run the project's tests without asking, as if you answered Once each time. "
   + "Nothing is saved, only the owner can use it, and Lockdown refuses it. Without it, a task with nobody to ask skips the tests and carries on.";
 
+/** mac7/smoke-fixes (B5): what `--plan` does, and what it does not do, in `branch run --help`. */
+const planHelp = "--plan works out a numbered plan before the task starts and then carries it out. "
+  + "To be shown the plan and asked before anything changes, set the conversation to \"Show me the plan first\" "
+  + "(the Plan chip in the window, or Settings). A task with nobody to ask then finishes with the plan as its answer "
+  + "and changes nothing.";
+
 /**
  * Every subcommand, with the options that belong to it. Also drives `branch help`. `notes` are extra
  * lines `branch <command> --help` prints under the options, for an option that needs a sentence.
@@ -19,7 +25,7 @@ export const cliCommands: { name: string; summary: string; options: string[]; no
   { name: "start", summary: "Run the local web app", options: [] },
   { name: "chat", summary: "Talk to the assistant in this terminal", options: ["--plain", "--attach", "--session", "--watch"] },
   { name: "run", summary: "Carry out one task and print the result", options: ["--json", "--attach", "--plan", "--verify", "--dry-run", "--allow-tests", "--preset", "--save-preset", "--budget", "--timeout", "--session", "--resume", "--fork"],
-    notes: [allowTestsHelp] },
+    notes: [planHelp, allowTestsHelp] },
   { name: "headless", summary: "Run a scripted job with no window at all, one request per line", options: ["--script", "--stop-early", "--json", "--budget", "--timeout", "--session", "--preset", "--allow-tests"],
     notes: [allowTestsHelp] },
   { name: "status", summary: "Tasks working now, questions waiting, and a health summary", options: ["--json"] },

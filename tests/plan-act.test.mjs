@@ -384,3 +384,68 @@ test("the plain sentences the owner reads say what is risky and what is off the 
   assert.match(offPlanDifference({ title: "Read", touches: "notes.txt", changes: false }, 1,
     { label: "Write a file", target: "notes.txt", readOnly: false }) ?? "", /but to carry on it now needs to write a file/);
 });
+
+/**
+ * mac7/smoke-fixes (B5). The smoke test found a `branch run --plan` task that made a plan, showed
+ * nobody, changed a file and finished. The cause was not the headless run: it was that `--plan`
+ * alone is "work out a plan, then do it", and the conversation's switch had never been saved. These
+ * three hold the promise in docs/features.md — nothing that changes anything until you say yes.
+ */
+test("with nobody to ask, Plan mode finishes with the plan and changes nothing", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say(twoStepPlan);
+    if (last?.role === "tool") return say("Summary written.");
+    if (/^Step 1 of 2/.test(user)) return say("I read the notes.");
+    if (/^Step 2 of 2/.test(user)) return call("files.write", { path: "summary.txt", content: "done" });
+    if (/Every step of the plan is done/.test(user)) return say("Read and summarised.");
+    return say("Both steps are finished.");
+  });
+  await api("plan-act", { scope: "project", planMode: "show-plan" });
+
+  // A script's own `branch run`: nobody is at a terminal to be asked.
+  const run = await app.runtime.run({ prompt: "summarise my notes", unattended: true });
+  assert.equal(run.status, "completed", "the plan is the answer, not a question nobody can answer");
+  assert.match(run.output, /Here is my plan:\n1\. Read the notes/);
+  assert.match(run.output, /Nothing has been done\./);
+  assert.match(run.output, /"go ahead" in this conversation will carry it out/);
+  assert.ok(await missing(join(workspace, "summary.txt")), "nothing that changes anything has run");
+  assert.ok(!kinds(app, run.id).includes("tool.started"), "no tool ran");
+  assert.ok(!kinds(app, run.id).includes("attention.needed"), "nobody was asked, so nothing waits on an answer");
+  assert.ok(kinds(app, run.id).includes("plan.answered_with_plan"));
+
+  // The plan is kept, so the owner can agree to it whenever they next look.
+  const stored = app.runtime.orchestration.plan(run.sessionId);
+  assert.equal(stored.approved, false);
+  assert.equal(stored.decision, "waiting");
+  const agreed = await api("run", { prompt: "go ahead", sessionId: run.sessionId });
+  assert.equal(agreed.status, "completed");
+  assert.equal(await readFile(join(workspace, "summary.txt"), "utf8"), "done");
+});
+
+test("the Plan chip behaves the same way when nobody can be asked", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say(twoStepPlan);
+    if (last?.role === "tool") return say("Summary written.");
+    if (/^Step \d of 2/.test(user)) return say("Step done.");
+    return say("Finished.");
+  });
+  const first = await api("run", { prompt: "hello" });
+  await api("conversation-mode", { sessionId: first.sessionId, mode: "plan" });
+  assert.equal((await api(`plan-act?sessionId=${first.sessionId}`)).effective.planMode, "show-plan",
+    "the Plan chip is the same switch");
+
+  const run = await app.runtime.run({ prompt: "summarise my notes", sessionId: first.sessionId, unattended: true });
+  assert.equal(run.status, "completed");
+  assert.match(run.output, /Here is my plan:/);
+  assert.match(run.output, /Nothing has been done\./);
+  assert.ok(await missing(join(workspace, "summary.txt")));
+  assert.ok(!kinds(app, run.id).includes("tool.started"));
+});
+
+test("a plan-act choice that names neither a conversation nor the project is refused, not dropped", async (t) => {
+  const { api } = await served(t, () => say("hello"));
+  await assert.rejects(() => api("plan-act", { planMode: "show-plan", autonomy: "changes-only" }),
+    /Say which conversation this choice is for, or send scope "project"/);
+  // And the setting really is untouched, which is what the silent version hid.
+  assert.equal((await api("plan-act")).project.planMode, "just-do-it");
+});
