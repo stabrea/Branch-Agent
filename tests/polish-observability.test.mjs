@@ -434,7 +434,7 @@ test("D1 comparing two tasks shows both sets of figures and the difference betwe
   for (const prompt of ["apples", "pears"]) {
     await page.locator("#prompt").fill(prompt);
     await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
-    await page.waitForFunction((word) => document.getElementById("conversation").textContent.includes(word), prompt, { timeout: 20000 });
+    await page.waitForFunction((answer) => document.getElementById("conversation").textContent.includes(answer), `The answer for ${prompt}.`, { timeout: 20000 });
     await page.locator("#new-session").click();
   }
   await openPlace(page, "runs");
