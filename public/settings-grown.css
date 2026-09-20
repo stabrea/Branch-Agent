@@ -74,6 +74,14 @@
 .lx-subpanel > .card:not(.danger):last-child {
   border-bottom: 0;
 }
+/* Destructive uninstall controls keep the warning enclosure from the full window. */
+.lx-page > .card.danger-zone {
+  margin: 0 0 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--bad);
+  border-radius: 16px;
+  background: var(--well);
+}
 /* Most older forms put the switch before its words. The approved row reads label first and puts
    the switch at the far edge; row-reverse changes only presentation and keeps label semantics. */
 .lx-page label:has(> input[type="checkbox"][role="switch"]),

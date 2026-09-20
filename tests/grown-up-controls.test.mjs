@@ -230,3 +230,25 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(f.errors, []);
 });
+test("the destructive danger zone keeps its warning enclosure", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "about");
+  const appearance = await f.page.locator("#danger-zone").evaluate((node) => {
+    const style = getComputedStyle(node);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--bad)";
+    document.body.append(probe);
+    const bad = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      borderStyle: style.borderStyle,
+      borderColor: style.borderColor,
+      bad,
+      radius: style.borderRadius,
+    };
+  });
+  assert.equal(appearance.borderStyle, "solid");
+  assert.equal(appearance.borderColor, appearance.bad);
+  assert.notEqual(appearance.radius, "0px");
+  assert.deepEqual(f.errors, []);
+});
