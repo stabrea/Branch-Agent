@@ -23,7 +23,7 @@ import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 import { clientFor, connect, conversations, messagesOf, since, transcriptLines, type Client } from "./cli-attach.js";
 // mac7/smoke-fixes (B4): the terminal beside a Branch that is already open.
 import { attachToRunning } from "./install/running.js";
-import { traceLines, type TraceReport } from "./trace-report.js";
+import { traceLines, traceReport, type TraceReport } from "./trace-report.js";
 import { scopeDescriptions } from "./session-tokens.js";
 import { errorText, type Run } from "./contracts.js";
 import { watchFolder } from "./watch.js";
@@ -453,9 +453,7 @@ async function overRunningBranch(command: string, dataDir: string): Promise<numb
     return 0;
   }
   if (command === "trace") {
-    const runId = process.argv[3];
-    if (!runId) throw new Error("Name a task: branch trace <task id>");
-    const report = await client.get<TraceReport>(`/api/runs/${encodeURIComponent(runId)}/trace`);
+    const report = await client.get<TraceReport>(`/api/runs/${traceRunId()}/trace`);
     if (process.argv.includes("--json")) console.log(JSON.stringify(report, null, 2));
     else for (const line of traceLines(report)) console.log(line);
     return 0;
@@ -473,27 +471,16 @@ async function overRunningBranch(command: string, dataDir: string): Promise<numb
  * went anywhere. Printing it is the join between what happened here and what a viewer shows.
  */
 function traceCommand(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const report = traceReport(app.store, app.traceExport.settings(), traceRunId());
+  if (process.argv.includes("--json")) return void console.log(JSON.stringify(report, null, 2));
+  for (const line of traceLines(report)) console.log(line);
+}
+/** The task named after `branch trace`, refused in the same words whatever shape it is. */
+function traceRunId(): string {
   const runId = process.argv[3];
   if (!runId) throw new Error("Name a task: branch trace <task id>");
-  const spans = app.store.spans.forRun(runId);
-  if (!spans.length) throw new Error(`Nothing was recorded for the task ${runId}.`);
-  const root = spans.find((span) => !span.parentSpanId) ?? spans[0]!;
-  const settings = app.traceExport.settings();
-  const sent = app.store.events(runId).filter((event) => event.kind === "trace.sent" || event.kind === "trace.send_failed");
-  const report = {
-    runId, traceId: root.traceId, spans: spans.length,
-    kinds: [...new Set(spans.map((span) => span.kind))],
-    sending: settings.enabled ? { to: settings.destination, endpoint: settings.endpoint } : null,
-    lastSend: sent.at(-1) ? { kind: sent.at(-1)!.kind, at: sent.at(-1)!.createdAt } : null,
-  };
-  if (process.argv.includes("--json")) return void console.log(JSON.stringify(report, null, 2));
-  console.log(`Trace ${report.traceId} — ${report.spans} step(s): ${report.kinds.join(", ")}`);
-  console.log(settings.enabled
-    ? `Sending is on, to ${settings.destination} at ${settings.endpoint}.`
-    : "Sending traces is off, so this trace has stayed on this computer.");
-  console.log(report.lastSend
-    ? `Last send: ${report.lastSend.kind === "trace.sent" ? "arrived" : "did not arrive"} at ${report.lastSend.at}.`
-    : "This task's steps have not been sent anywhere.");
+  if (!/^[a-f0-9-]{36}$/.test(runId)) throw new Error(`Nothing was recorded for the task ${runId}.`);
+  return runId;
 }
 /**
  * `branch schedule add|list|remove` against the engine already running in the background. It goes

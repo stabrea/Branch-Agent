@@ -1455,10 +1455,10 @@ async function api(
     const made = app.sessionTokens.create(app.runtime.owner, await readBody(request));
     return { token: made.token, entry: made.entry, scopeNote: scopeDescriptions[made.entry.scope] };
   }
-  const takingBack = /^\/api\/tokens\/([a-f0-9]{1,64})\/revoke$/.exec(path);
+  const takingBack = /^\/api\/tokens\/([^\/]{1,64})\/revoke$/.exec(path);
   if (takingBack && request.method === "POST")
     return { id: takingBack[1]!, revoked: app.sessionTokens.revoke(app.runtime.owner, takingBack[1]!) };
-  const tracing = /^\/api\/runs\/([A-Za-z0-9_-]{1,64})\/trace$/.exec(path);
+  const tracing = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (tracing && request.method === "GET")
     return traceReport(app.store, app.traceExport.settings(), tracing[1]!);
   if (request.method === "GET" && path === "/api/terminal") return terminalReadApi(app, request);
@@ -4040,7 +4040,7 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // conversation starts with (and the model services behind it), and which commands are offered
   // are the owner's; `/preset` and `/default` already refused a "run" key, their routes did not.
   // mac7/smoke-fixes (B4): a key can never make or take back another key. No self-renewal.
-  if (path === "/api/tokens" || /^\/api\/tokens\//.test(path))
+  if (path === "/api/tokens" || path.startsWith("/api/tokens/"))
     return "A short-lived key cannot make or take back a short-lived key. Do that at this computer.";
   if (path === "/api/policy" || path === "/api/models" || path === "/api/commands/settings")
     return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";

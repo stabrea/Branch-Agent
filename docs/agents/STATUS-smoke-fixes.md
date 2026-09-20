@@ -200,6 +200,8 @@ its own words, and I would rather ship the ones the repro named than half-finish
 - `src/terminal-cli.ts` — `readOnlyTerminalCommands`.
 - `src/server.ts` — the four routes, and `terminalReadApi`.
 - `src/short-lived-keys.ts` — `/api/tokens` and `/api/terminal` added to the owner-only reads.
+- `tests/short-lived-key-routes.mjs` — the four new routes classified (the guard in
+  `tests/short-lived-keys.test.mjs` refuses to let a route ship unclassified).
 - `src/cli.ts` — `overRunningBranch`; `tokenCommand` now takes a `TokenAccess` so the same words are
   printed whether the keys come from this copy or from the running one.
 - `src/store.ts` — the "already open" sentence says what works and what to do.
@@ -225,3 +227,30 @@ only the "already open" sentence put back to its old wording, the fifth fails (2
 Restored: 25 pass, 0 fail.
 
 - [x] B4 done.
+
+## Merge, rebuild and the whole run
+
+- [x] Merged `origin/mac/cross-platform` at `125fde48` (x-search), clean; `dist/` deleted and rebuilt
+  from scratch; `npx tsc --noEmit` clean. Checked the rebuilt `dist/` really carries this work
+  (`overRunningBranch` in `dist/cli.js`, `nobodyToAsk` in `dist/orchestration.js`).
+- [x] Targeted run after the merge: `plan-act`, `coding-next`, `deployment`, `orchestration`,
+  `orchestration-2`, `conversation-mode`, `short-lived-keys`, `static-assets`, `index-structure`,
+  `handbook`, `wire-safe-patterns`, `terminal-commands`, `auth-tracing-cli`, `settings-kit-review` —
+  **205 tests, 205 pass, 0 fail, 0 skipped**. Plus `terminal-cli` and `cli` run one at a time
+  (they each start a web app on the default port, so they flake against each other under
+  `--test-concurrency=2`, before this branch as well as after): **8 pass, 0 fail**.
+- [x] Pushed to `origin/mac7/smoke-fixes`. **Not merged into trunk** — the brief says an integrator
+  reviews after me.
+
+## Not done / not proven
+
+- No benchmark run, no real-model run: everything here is proved on scripted providers and on the
+  real `node dist/cli.js` in a child process. The B6 correction rests on reading every use of
+  `allowProjectTests` in the build plus the scripted comparison; I did not re-run the smoke test's
+  two real-model tasks to watch them diverge again.
+- `branch status`, `branch logs` and `branch approve` only read, and could join the list that works
+  while Branch is open. Each needs its own route and its own words, so I left them refusing.
+- `--plan` still carries the plan out rather than showing it. That is a decision, written above, not
+  an oversight: changing it would change what existing scripts do without anyone saying yes.
+- `tests/terminal-cli.test.mjs` and `tests/cli.test.mjs` both start a web app on the default port and
+  cannot run beside each other. Pre-existing; not this branch's to fix.

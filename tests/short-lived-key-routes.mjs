@@ -865,6 +865,7 @@ export const ROUTES = {
   "/api/runs/:id/plan": "task POST",
   "/api/runs/:id/receipts": "look",
   "/api/runs/:id/recording": "look",
+  "/api/runs/:id/trace": "look", // mac7/smoke-fixes (B4): one task's steps, for `branch trace`
   "/api/runs/:id/recording/flow": "other POST",
   "/api/runs/:id/recording/page": "look",
   "/api/runs/:id/recording/path": "look",
@@ -975,6 +976,13 @@ export const ROUTES = {
   "/api/tools/meaning-search": "task POST",
   "/api/tools/notes/:id": "other DELETE",
   "/api/tools/try": "task POST",
+  // mac7/smoke-fixes (B4): the terminal beside an open window. Making, listing and taking back a
+  // key are the owner's alone at this computer, so a key can never renew itself; the terminal's
+  // own places hand back the owner's memory, settings and conversations as plain lines.
+  "/api/terminal": "secret-read",
+  "/api/tokens": "secret-read",
+  "/api/tokens/": "prefix",
+  "/api/tokens/sample/revoke": "owner POST",
   "/api/trace/settings": "owner POST",
   "/api/tracing": "prefix",
   "/api/tracing/settings": "owner POST",
