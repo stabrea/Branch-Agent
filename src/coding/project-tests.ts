@@ -51,6 +51,29 @@ export function nobodyToAsk(context: Pick<ToolContext, "unattended" | "source">)
 }
 
 /**
+ * mac7/smoke-fixes (integration review): the same question asked for "Show me the plan first", where
+ * a chat app is NOT nobody.
+ *
+ * They are two questions, not one. The tests question asks "may this task run the project's tests
+ * with no one asked?" — a chat is skipped there because running tests is never needed to finish the
+ * work. Plan mode asks "is there a person who will read this plan and can say yes?" — and somebody
+ * just typed the message that started this task. The chat surface can do both halves: a task that
+ * stops with `needs_input` and no waiting approval has its answer delivered to the chat as the words
+ * it is (`finishTurn` in src/channels/router.ts), the chat is written down against the conversation,
+ * so the next message lands in it, and "go ahead" there picks the plan up like any other.
+ *
+ * Waiting is not the unsafe side either: a chat's task gets five read-only permissions and nothing
+ * else (`chatSafePermissions`), a task started from outside is held at *Ask before changes* however
+ * it is carried on (docs/configuration.md, since 0.18.1), and it may never give a standing yes. And
+ * finishing instead would tell the person who just wrote "there was nobody to say yes while this
+ * task ran", which is not true of them.
+ */
+export function nobodyToAskAboutPlan(context: Pick<ToolContext, "unattended" | "source">): boolean {
+  if ((context.source ?? "owner") === "channel") return false;
+  return nobodyToAsk(context);
+}
+
+/**
  * mac7/tests-unattended: why `--allow-tests` cannot be used now, or null when it can. The owner's
  * alone: never under Lockdown, never while the app is switched to somebody else's profile, never
  * for work asked for with a short-lived key.

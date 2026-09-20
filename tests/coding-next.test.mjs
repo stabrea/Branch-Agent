@@ -850,3 +850,82 @@ test("the real branch run --allow-tests runs them once for that task; under Lock
   assert.notEqual(locked.code, 0);
   assert.match(locked.stderr, /--allow-tests cannot be used while Lockdown is on/);
 });
+
+// ------------------------------------------------------------------ mac7/smoke-fixes (B6)
+
+/**
+ * The smoke test found `--allow-tests` "making the tests less likely to run": five rounds straight
+ * to a command without it, twelve rounds wandering with it. The flag cannot do that —
+ * `allowProjectTests` reaches exactly one place, the tests question — and these two hold that down.
+ * What the flag really got wrong was announcing itself in a folder where it can do nothing.
+ */
+test("B6 --allow-tests changes nothing about which tools a task is offered, or how far it gets", async (t) => {
+  const steps = [call("files.read", { path: "package.json" }), call("code.check", {}), say("done")];
+  const { readPolicy } = await import("../dist/policy.js");
+  const prompt = "Run the test suite in this project with node --test and say whether it passes";
+  const rounds = (app, run) => app.store.events(run.id).filter((event) => event.kind === "catalog.size").length;
+  const offered = (app) => app.runtime.provider.requests.map((request) => (request.tools ?? []).map((tool) => tool.name).join(","));
+  const preselected = (app, run) => app.store.events(run.id).filter((event) => event.kind === "catalog.preselected")
+    .map((event) => JSON.stringify({ guessed: event.data.guessed, tools: event.data.tools }));
+
+  // With the question already answered for this folder, the flag has nothing left to do: both runs
+  // must be the same task, tool for tool and round for round.
+  const settled = async (allow) => {
+    const made = await testsFixture(t, steps);
+    const first = await made.app.runtime.run({ prompt: "warm up" });
+    made.app.runtime.approve(first.sessionId, "allow", "always");
+    assert.ok(readPolicy(made.app.store, "local").rules.some((rule) => rule.tool === "code.tests"));
+    made.app.runtime.provider.requests.length = 0;
+    const run = await made.app.runtime.run({ prompt, ...(allow ? { allowProjectTests: true } : {}) });
+    return { ...made, run };
+  };
+  const plainSettled = await settled(false), flagSettled = await settled(true);
+  assert.deepEqual(offered(flagSettled.app), offered(plainSettled.app), "the same tools are shown, round for round");
+  assert.deepEqual(preselected(flagSettled.app, flagSettled.run), preselected(plainSettled.app, plainSettled.run),
+    "the same toolboxes are pre-loaded");
+  assert.equal(rounds(flagSettled.app, flagSettled.run), rounds(plainSettled.app, plainSettled.run),
+    "and the task takes the same number of rounds");
+  assert.equal(ranTests(flagSettled.app, flagSettled.run), true);
+  assert.equal(ranTests(plainSettled.app, plainSettled.run), true);
+
+  // Unanswered, the only difference is the question: the flagged run does everything the plain one
+  // did, in the same order, and then carries on instead of stopping. It never reaches for less.
+  const plain = await testsFixture(t, steps);
+  const flagged = await testsFixture(t, steps);
+  const a = await plain.app.runtime.run({ prompt });
+  const b = await flagged.app.runtime.run({ prompt, allowProjectTests: true });
+  assert.deepEqual(offered(flagged.app).slice(0, offered(plain.app).length), offered(plain.app),
+    "the flag must not change which tools the model is shown");
+  assert.deepEqual(preselected(flagged.app, b), preselected(plain.app, a), "nor the pre-loaded toolboxes");
+  assert.ok(rounds(flagged.app, b) >= rounds(plain.app, a), "and it never makes the task get less far");
+  assert.equal(asked(plain.app, a).length, 1);
+  assert.equal(ranTests(plain.app, a), false, "without it, the task stops on the question");
+  assert.equal(asked(flagged.app, b).length, 0);
+  assert.equal(ranTests(flagged.app, b), true, "with it, the question is not put and the tests run");
+});
+
+test("B6 --allow-tests says so plainly when this folder has no question for it to remove", async (t) => {
+  const { runForScripts, parseRunArgs } = await import("../dist/cli-run.js");
+  const notes = [];
+  const writer = { line() {}, note(text) { notes.push(text); } };
+
+  // A Node project with the script switch off: the flag does remove a question here.
+  const node = await testsFixture(t, [call("code.check", {}), say("done")]);
+  await runForScripts(node.app.runtime, parseRunArgs(["--allow-tests", "fix", "it"]), writer);
+  assert.deepEqual(notes, ["[this task may run the project's tests without asking; nothing is saved]"]);
+
+  // A folder with no package.json and no check set up: there is nothing to allow, and it says so.
+  notes.length = 0;
+  const bare = await fixture(t, { provider: scripted([say("done")]) });
+  await runForScripts(bare.app.runtime, parseRunArgs(["--allow-tests", "fix", "it"]), writer);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /there is no package\.json in .* and no check is set up for this project/);
+  assert.match(notes[0], /--allow-tests changes nothing here/);
+
+  // Running scripts on: the tests already run without the question, so the flag changes nothing.
+  notes.length = 0;
+  const { saveCodeRunSettings } = await import("../dist/code-run.js");
+  await saveCodeRunSettings(node.app.store, "local", { enabled: true });
+  await runForScripts(node.app.runtime, parseRunArgs(["--allow-tests", "fix", "it"]), writer);
+  assert.match(notes[0], /running scripts is switched on/);
+});

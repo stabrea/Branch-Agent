@@ -50,7 +50,7 @@ import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
-import { projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next
+import { nobodyToAskAboutPlan, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
 import { codingPreload, batchingInstructions, cannotRunInstructions, fewerRoundsOn, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
 import { codeRunSettings } from "./code-run.js"; // mac7/speed
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
@@ -124,7 +124,7 @@ import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 import * as savings from "./model-savings/hook.js";
 import { KeepAlive } from "./model-savings/keep-alive.js";
 // --- end R17-E ---
-import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { Orchestration, PlanOnlyAnswer, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand, saveSessionPlanAct } from "./plan-act.js";
 import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode, type ConversationModeRecord } from "./conversation-mode.js"; // redesign phase 1
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
@@ -1288,8 +1288,15 @@ ${run.output.slice(0, 6000)}`;
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: context.trunkKeys ? trunkCandidates(plan.candidates) : plan.candidates };
     // A plan-execute specialist plans its own sub-task, which an ordinary delegated run never does.
     const planned = shape.plan ? { plan: true, delegated: false } : {};
-    const conductor = this.orchestration.conductor(run, { ...conduct, ...planned, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
-    this.add(run, messages, ids, await conductor.start());
+    // mac7/smoke-fixes (B5): nobody can be asked about the plan. A chat app is a person who can
+    // answer, so it is not one of them (nobodyToAskAboutPlan in src/coding/project-tests.ts).
+    const conductor = this.orchestration.conductor(run,
+      { ...conduct, ...planned, nobodyToAsk: nobodyToAskAboutPlan(context), ...(checks ? { checks } : {}) },
+      (aside) => this.aside(run, context, route, aside));
+    const opening = await this.openConductor(run, conductor);
+    // mac7/smoke-fixes (B5): "Show me the plan first" with nobody to ask finishes with the plan.
+    if (typeof opening === "string") return opening;
+    this.add(run, messages, ids, opening);
     let checkFailures = 0;
     let emptyReplies = 0; // mac7/coding-gap: replies that were all thinking and no action
     let knownTools = this.registry.version;
@@ -1504,6 +1511,19 @@ ${run.output.slice(0, 6000)}`;
     if (done === 0 && failed > 0) return `All ${failed} of its tool calls failed, so nothing it tried actually worked.`;
     if (failed > done) return `${failed} of its ${failed + done} tool calls failed.`;
     return `It made ${done} tool call${done === 1 ? "" : "s"}${failed ? `, and ${failed} more that failed` : ""}.`;
+  }
+  /**
+   * mac7/smoke-fixes (B5): the conductor's first message, or — when "Show me the plan first" met a
+   * task nobody could be asked about — the plan itself, as the answer this task finishes with.
+   */
+  private async openConductor(run: Run, conductor: ReturnType<Orchestration["conductor"]>): Promise<Message | null | string> {
+    try {
+      return await conductor.start();
+    } catch (error) {
+      if (!(error instanceof PlanOnlyAnswer)) throw error;
+      this.store.message(run.sessionId, { role: "assistant", content: error.answer });
+      return error.answer;
+    }
   }
   /** Adds a message to the working context and to the stored transcript, so nothing is lost later. */
   private add(run: Run, messages: Message[], ids: (number | null)[], message: Message | null): void {
