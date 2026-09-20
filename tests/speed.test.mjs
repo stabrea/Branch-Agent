@@ -751,3 +751,38 @@ test("the line is said once, not every round", async (t) => {
   const said = provider.requests.map((one) => (one.system.match(/switched off on this computer/g) ?? []).length);
   assert.deepEqual([...new Set(said)], [1], `the line was repeated: ${JSON.stringify(said)}`);
 });
+
+test("a switched-off feature's tools are not offered by a search, and saying their name says why", async (t) => {
+  const { app } = await fixture(t, [
+    calls(["tools.search", { query: "run a shell command in the workspace" }]),
+    calls(["tools.describe", { names: ["troubleshoot.run"] }]),
+    say("Understood."),
+  ]);
+  // "Fixing failed commands" ships off, so troubleshoot.run would only refuse. On the plan it came
+  // first in all three of one task's shell searches, ahead of code.run, which is the actual shell.
+  const run = await app.runtime.run({ prompt: "run the tests" });
+  assert.equal(run.status, "completed", run.output);
+  const answers = app.store.messages(run.sessionId).filter((m) => m.role === "tool").map((m) => JSON.parse(m.content));
+  const searched = answers.find((one) => one.result?.matches);
+  const names = searched.result.matches.map((one) => one.name);
+  assert.ok(!names.includes("troubleshoot.run"), `a switched-off tool was offered: ${names.join(", ")}`);
+  assert.ok(names.includes("code.run"), `the real shell should be there: ${names.join(", ")}`);
+  const described = answers.find((one) => one.result?.switchedOff || one.result?.loaded);
+  assert.deepEqual(described.result.switchedOff, ["troubleshoot.run"],
+    "asking for it by name says it is switched off rather than that it does not exist");
+  assert.deepEqual(described.result.loaded, []);
+});
+
+test("switching the feature on puts its tool back in reach", async (t) => {
+  const { app } = await fixture(t, [
+    calls(["tools.search", { query: "fix a command that failed and try it again" }]),
+    say("Found it."),
+  ]);
+  app.store.save("settings", "local", "troubleshoot", { mode: "when-needed" });
+  const run = await app.runtime.run({ prompt: "sort out the failing command" });
+  assert.equal(run.status, "completed", run.output);
+  const searched = app.store.messages(run.sessionId).filter((m) => m.role === "tool")
+    .map((m) => JSON.parse(m.content)).find((one) => one.result?.matches);
+  assert.ok(searched.result.matches.some((one) => one.name === "troubleshoot.run"),
+    `switched on, it must be findable again: ${searched.result.matches.map((o) => o.name).join(", ")}`);
+});

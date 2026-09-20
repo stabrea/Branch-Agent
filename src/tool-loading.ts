@@ -83,6 +83,16 @@ export interface ToolLoaderOptions {
   preload?: readonly PreloadedTool[];
   /** Tools nobody has used for a long time: not advertised unless the task asks for them. */
   demoted?: readonly string[];
+  /**
+   * Tools belonging to a feature the owner has switched **off**. The three-way switch already
+   * promises that "off" means the feature refuses in one plain sentence and its tools are not
+   * advertised — but searching still offered them, and they still won. On the plan's five-way
+   * window `troubleshoot.run` (fixing failed commands: off as it ships) came first in all three of
+   * one task's shell searches, ahead of `code.run`, which is the actual shell. Calling it would
+   * only have been refused. These are left out of searching, out of the index and out of the loaded
+   * set; asking for one by name says plainly that it is switched off.
+   */
+  hidden?: readonly string[];
   /** The words of the task, used to score what is worth listing. */
   signals?: { prompt?: string; recent?: readonly string[]; project?: string };
   /** Set only when the owner has switched meaning search on; otherwise searching is by words. */
@@ -121,6 +131,7 @@ export class ToolLoader {
   private readonly sent = new Set<string>();
   private readonly preloaded: PreloadedTool[];
   private readonly demoted: Set<string>;
+  private readonly hidden: Set<string>;
   private readonly recentRounds: number;
   private readonly budgetTokens: number;
   private readonly indexLines: number;
@@ -138,6 +149,7 @@ export class ToolLoader {
     this.maxLoaded = options.maxLoaded ?? defaultMaxLoaded;
     this.signals = options.signals ?? {};
     this.demoted = new Set(options.demoted ?? []);
+    this.hidden = new Set(options.hidden ?? []);
     this.index = new ToolIndex(all, options);
     if (options.embedder) this.index.embedder = options.embedder;
     this.take(all);
@@ -214,16 +226,19 @@ export class ToolLoader {
    */
   async search(query: string, limit = 8): Promise<{ matches: FoundTool[]; searched: string }> {
     const wanted = Math.min(Math.max(1, limit), 20);
-    const hits = this.index.embedder
-      ? await this.index.searchByMeaning(query, wanted) : this.index.search(query, wanted);
+    const found = this.index.embedder
+      ? await this.index.searchByMeaning(query, wanted + this.hidden.size) : this.index.search(query, wanted + this.hidden.size);
+    // A feature the owner switched off refuses; offering its tools as the answer to "what can do
+    // this" costs a round and teaches nothing.
+    const hits = found.filter((hit) => !this.hidden.has(hit.entry.name)).slice(0, wanted);
     for (const hit of hits) this.asked.add(hit.entry.name);
     this.version++;
     return { searched: String(query).slice(0, 200),
       matches: hits.map((hit, at) => this.found(hit.entry.name, hit.entry.purpose, hit.entry.note, at < inputsWithSearch)) };
   }
   /** Loads named tools. A name this task may not use is unknown here, exactly like a misspelling. */
-  describe(names: readonly string[]): { loaded: FoundTool[]; unknown: string[] } {
-    const loaded: FoundTool[] = [], unknown: string[] = [];
+  describe(names: readonly string[]): { loaded: FoundTool[]; unknown: string[]; switchedOff?: string[] } {
+    const loaded: FoundTool[] = [], unknown: string[] = [], switchedOff: string[] = [];
     for (const raw of names.slice(0, 16)) {
       const asked = String(raw).trim();
       // mac7/speed: a model that has worked with other coding assistants asks for their names.
@@ -232,13 +247,16 @@ export class ToolLoader {
       const here = this.index.entry(asked) ? asked : (nameUsedElsewhere(asked) ?? asked);
       const entry = this.index.entry(here);
       if (!entry) { unknown.push(asked); continue; }
+      // Named outright rather than called "unknown": the owner can switch it on, and a task told
+      // "that does not exist" would go looking for something else instead of saying so.
+      if (this.hidden.has(here)) { switchedOff.push(here); continue; }
       this.asked.add(here);
       const found = this.found(here, entry.purpose, entry.note, true);
       loaded.push(here === asked ? found
         : { ...found, use: `${asked} is called ${here} here. ${found.use}` });
     }
     this.version++;
-    return { loaded, unknown };
+    return { loaded, unknown, ...(switchedOff.length ? { switchedOff } : {}) };
   }
   /**
    * One tool as an answer to "what can do this". `inputs` is the tool's own schema, sent with the
@@ -307,8 +325,8 @@ export class ToolLoader {
     }).sort((a, b) => b.score - a.score || a.at - b.at);
     const core = scored.filter((hit) => hit.entry.group === "core").map((hit) => hit.entry);
     const rest = scored.filter((hit) => hit.entry.group !== "core");
-    const candidates = rest.filter((hit) => hit.score > 0 && (this.asked.has(hit.entry.name)
-      || this.isOpen(hit.entry.group) || this.usedAt.has(hit.entry.name)));
+    const candidates = rest.filter((hit) => hit.score > 0 && !this.hidden.has(hit.entry.name)
+      && (this.asked.has(hit.entry.name) || this.isOpen(hit.entry.group) || this.usedAt.has(hit.entry.name)));
     // Tools in use come first and are never squeezed out by the cap; the rest fill what is left,
     // best first, and are the ones the ceiling takes back if the section is still too heavy.
     const inUse = candidates.filter((hit) => this.justUsed(hit.entry));
@@ -342,7 +360,8 @@ export class ToolLoader {
     const wanted = [...inUse, ...onMerit, ...kept];
     // Only tools the words of the request actually point at are worth a line; the rest are a
     // search away, and saying so once costs less than naming forty tools nobody asked about.
-    const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)).map((hit) => hit.entry);
+    const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)
+      && !this.hidden.has(hit.entry.name)).map((hit) => hit.entry);
     const plan = this.fit(core, wanted.map((hit) => hit.entry), listable, rest.length);
     for (const entry of plan.loaded) this.sent.add(entry.name);
     this.cached = { at: this.version, plan };
