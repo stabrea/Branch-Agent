@@ -151,11 +151,16 @@ function buildCard(spec, reports, settings, save) {
   const card = el("section", undefined, "card");
   card.id = spec.id;
   card.dataset.home = spec.home;
-  const heading = el("h2", spec.title[1]);
-  heading.dataset.t = spec.title[0];
+  // DG-032: context-assistant heading duplicates the bucket heading "Who your assistant is"
+  // Only append heading if it's not context-assistant (which gets its heading from the bucket)
+  if (spec.id !== "context-assistant") {
+    const heading = el("h2", spec.title[1]);
+    heading.dataset.t = spec.title[0];
+    card.append(heading);
+  }
   const purpose = el("p", spec.purpose[1]);
   purpose.dataset.t = spec.purpose[0];
-  card.append(heading, purpose);
+  card.append(purpose);
   const chosen = {};
   for (const key of spec.files) {
     chosen[key] = settings.files?.[key] ?? "off";

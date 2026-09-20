@@ -139,7 +139,7 @@ function refresh() {
   queueMicrotask(() => {
     queued = false;
     describeAll();
-    for (const card of document.querySelectorAll(CARDS)) chip(card);
+    // DG-010: scope chips removed - sample does not show them
   });
 }
 
@@ -169,6 +169,6 @@ if (typeof document !== "undefined") {
    */
   globalThis.branchDescribeSettingsNow = () => {
     describeAll();
-    for (const card of document.querySelectorAll(CARDS)) chip(card);
+    // DG-010: scope chips removed - sample does not show them
   };
 }

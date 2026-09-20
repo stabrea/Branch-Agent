@@ -404,7 +404,24 @@ function buildSettings() {
   win.setAttribute("aria-label", say("settings.title", "Settings"));
   const nav = make("nav", "lx-settings-nav");
   nav.setAttribute("aria-label", say("settings.pages", "Settings pages"));
-  nav.append(worded("p", "lx-eyebrow lx-settings-eyebrow", "settings.title", "Settings"), settingsSearch());
+
+  // DG-001/DG-064: Add "Back to Branch" button with Esc chip
+  const backBtn = make("button", "lx-settings-back");
+  backBtn.type = "button";
+  backBtn.append(icon("back"));
+  backBtn.append(document.createTextNode("Back to Branch"));
+  const escKbd = make("kbd");
+  escKbd.textContent = "Esc";
+  backBtn.append(escKbd);
+  backBtn.addEventListener("click", closeSettings);
+  nav.append(backBtn);
+
+  // DG-002: Settings title with larger font
+  const title = worded("h1", "lx-settings-title", "settings.title", "Settings");
+  title.style.fontSize = "22px";
+  nav.append(title);
+
+  nav.append(settingsSearch());
   const body = make("div", "lx-settings-body");
   body.id = "lx-settings-body";
   const close = make("button", "lx-icon-button lx-settings-close");
@@ -424,6 +441,13 @@ function buildSettings() {
     page.append(worded("h2", "lx-page-title", key, english), make("p", "lx-page-intro", intro));
     body.append(page);
   }
+
+  // DG-003: Add version line at the bottom of nav
+  // Note: Version is set dynamically in openSettings() to avoid hardcoding
+  const verDiv = make("div", "lx-settings-version");
+  verDiv.id = "lx-settings-version";
+  nav.append(verDiv);
+
   win.append(nav, body, close);
   shell.append(scrim, win);
   document.body.append(shell);
@@ -501,6 +525,11 @@ function openSettings(page) {
   if ($("workspace").hidden) return;
   $("settings-window").hidden = false;
   document.body.classList.add("lx-settings-open");
+  // DG-003: Update version line with real version (not hardcoded scaffolding)
+  if (typeof globalThis.state !== "undefined" && globalThis.state?.version) {
+    const verDiv = $("lx-settings-version");
+    if (verDiv) verDiv.textContent = `Branch Agent ${globalThis.state.version}`;
+  }
   showSettingsPage(page || settingsPage);
   $("lx-settings-search").value = "";
   searchSettings("");
@@ -511,12 +540,56 @@ function closeSettings() {
   win.hidden = true;
   document.body.classList.remove("lx-settings-open");
 }
+/** Build "On this page" navigation for visible sections. DG-006 */
+function buildOnThisPage(page) {
+  // Remove any existing "On this page" navigation
+  page.querySelector(".lx-on-this-page")?.remove();
+
+  // Find all section headings (h3 elements with ids)
+  const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
+    // Only include headings that are not hidden by the current level
+    const card = h.closest(".lx-page > *, .lx-subpanel > *");
+    return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
+  });
+
+  if (headings.length === 0) return; // No sections to link to
+
+  // Create the navigation
+  const nav = make("nav", "lx-on-this-page");
+  nav.setAttribute("aria-label", say("settings.onThisPage", "On this page"));
+  const label = worded("p", "lx-on-this-page-label", "settings.onThisPage", "On this page");
+  nav.append(label);
+
+  const links = make("div", "lx-on-this-page-links");
+  for (const heading of headings) {
+    const link = make("button", "lx-on-this-page-link");
+    link.type = "button";
+    link.textContent = heading.textContent;
+    link.addEventListener("click", () => {
+      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.focus();
+    });
+    links.append(link);
+  }
+  nav.append(links);
+
+  // Insert after page intro
+  const intro = page.querySelector(".lx-page-intro");
+  if (intro) intro.after(nav);
+  else page.append(nav);
+}
+
 function showSettingsPage(id) {
   settingsPage = id;
   for (const page of document.querySelectorAll(".lx-page")) page.hidden = page.dataset.page !== id;
   for (const link of document.querySelectorAll(".lx-settings-link"))
     link.setAttribute("aria-current", String(link.dataset.page === id));
   $("lx-settings-body").scrollTop = 0;
+
+  // DG-006: Build "On this page" navigation
+  const page = $(`lx-page-${id}`);
+  if (page) buildOnThisPage(page);
+
   if (id === "data") void globalThis.branchUsage?.render().then(() => globalThis.branchAllowed?.render());
   if (id === "appearance") drawLookControls();
 }

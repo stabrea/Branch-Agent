@@ -16,18 +16,24 @@
 .lx-page-intro {
   max-width: 72ch;
 }
+/* DG-072: Card text held to about 70 characters */
+.card > p,
+.card > .field-note {
+  max-width: 70ch;
+}
 /* A long path or address in a card wraps inside it instead of pushing the page sideways (#62). */
 .lx-page > *,
 .lx-subpanel > * {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-/* Two columns of cards on a wide screen; each group's heading spans both. */
+/* One column of cards on all screen widths (DG-009); group headings span all. */
 @media (min-width: 1200px) {
   .lx-page:not(#lx-page-models),
   .lx-subpanel {
-    column-count: 2;
-    column-gap: 18px;
+    /* DG-009: One full-width column instead of two columns */
+    /* column-count: 2; */ /* removed - sample shows one column */
+    /* column-gap: 18px; */ /* removed */
   }
   .lx-page > *,
   .lx-subpanel > * {
@@ -45,11 +51,12 @@
 }
 
 /* ---------- a group's heading ---------- */
+/* DG-011: Bucket header - no icon tile, simplified layout */
 .sg-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px 12px;
+  gap: 12px;
   margin: 22px 0 12px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
@@ -65,20 +72,12 @@
 .sg-head.lx-miss {
   display: none;
 }
+/* DG-011: Icon tile removed from bucket headers */
 .sg-tile {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--copper-edge);
-  border-radius: 11px;
-  background: var(--copper-tint);
-  color: var(--copper-text);
+  display: none;
 }
 .sg-tile .sg-icon {
-  width: 20px;
-  height: 20px;
+  display: none;
 }
 .sg-head-words {
   display: grid;
@@ -91,26 +90,27 @@
   font-weight: 680;
   line-height: 1.2;
 }
+/* DG-011: Description line removed from bucket headers */
 .sg-head-line {
-  margin: 0;
-  color: var(--text-2);
-  font-size: 13px;
+  display: none;
 }
 .sg-more {
   flex: none;
   margin-left: auto;
-  padding: 5px 10px;
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: var(--copper-text);
+  color: var(--accent);
   font-size: 12.5px;
   font-weight: 560;
   white-space: nowrap;
+  text-decoration: underline;
 }
 .sg-more:hover {
-  background: var(--hover);
+  background: transparent;
+  opacity: 0.8;
 }
 .sg-icon {
   width: 16px;
@@ -181,12 +181,13 @@
   color: var(--copper-text);
 }
 .sg-nav-group {
-  margin: 12px 0 2px;
+  /* DG-076: Make nav group headings smaller and quieter */
+  margin: 18px 0 2px;
   padding: 0 10px;
   color: var(--text-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: 0.1em;
 }
 .sg-picker {
   display: none;
@@ -196,7 +197,7 @@
   gap: 6px;
   margin-top: auto;
   padding: 12px 10px 4px;
-  border-top: 1px solid var(--line);
+  border: 1px solid var(--line);
 }
 .sg-nav-group + .sg-level,
 .sg-place-link + .sg-picker + .sg-level {

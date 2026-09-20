@@ -3,23 +3,9 @@
    which the page's Content Security Policy (style-src 'self') refuses, so the chip showed as plain text. */
 
 /* ---------- public/settings-describe.js ---------- */
-.card > p.kit-scope {
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 0 var(--s2, 8px);
-  padding: 1px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 0.75rem;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.card > p.kit-scope[data-scope="project"],
-.card > p.kit-scope[data-scope="trunk"] {
-  border-color: var(--accent-edge, var(--line));
-  color: var(--text);
-}
+/* DG-010: scope chips removed - sample does not show them.
+   The .kit-scope styles are no longer needed since the chip() function
+   was removed and these elements are never created. */
 .field-note.kit-describe {
   margin-top: 2px;
 }
