@@ -56,10 +56,25 @@ export async function openPlace(page, view) {
   await page.locator(trigger).click();
 }
 
+/**
+ * Presses the gear until Settings is open. ci-flakes-4: on a Windows build machine that was crawling
+ * (one test in that shard took 153 s), a click on a visible, stable gear sat in "performing click
+ * action" for the whole 30 s and the window never opened. The press is given longer, and is made again
+ * while the window is still shut — the same cure ci-flakes-3 used for a swallowed click on a select.
+ */
+async function pressUntilOpen(page) {
+  const settings = page.locator("#settings-window");
+  for (let press = 0; press < 3; press++) {
+    await (await settingsEntry(page)).click({ timeout: 40000 }).catch(() => undefined);
+    if (await settings.waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false)) return;
+  }
+  await settings.waitFor({ state: "visible", timeout: 20000 });
+}
+
 /** Opens the Settings window, on a page when one is named. */
 export async function openSettings(page, name) {
   await ready(page);
-  if (!(await page.locator("#settings-window").isVisible())) await (await settingsEntry(page)).click();
+  if (!(await page.locator("#settings-window").isVisible())) await pressUntilOpen(page);
   if (name) {
     /* phase2/settings: on a narrow window the pages are one choice under the search box. */
     const link = page.locator(`.lx-settings-link[data-page="${name}"]`);

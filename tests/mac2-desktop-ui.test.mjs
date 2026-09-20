@@ -538,6 +538,12 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   await page.locator("#system-voice-card button").click();
   await page.waitForFunction(() => document.getElementById("system-voice-card-status").textContent === "Saved.");
   assert.equal(voiceSettings(app.store, app.runtime.owner).systemVoice, "when-needed");
+  /* ci-flakes-4: drawing the cards again every 3 seconds used to wipe the message, so "Saved." (and a
+     plain sentence saying why something could not be saved) vanished before it could be read. This is
+     the very call the window's refresh makes. */
+  await page.evaluate(() => globalThis.branchOsPermissions.render());
+  assert.equal(await page.locator("#system-voice-card-status").textContent(), "Saved.",
+    "the message stays until the next press, not three seconds");
 
   // At 400 px nothing goes sideways.
   await page.setViewportSize({ width: 400, height: 800 });

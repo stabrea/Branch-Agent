@@ -67,12 +67,25 @@ async function renderAllowed() {
   view.append(card);
 }
 
+/**
+ * ci-flakes-4: these rows are drawn again by the window's refresh every 3 seconds, and drawing them
+ * threw every chooser away and made a new one. An open list shut under the person within three seconds,
+ * and the keyboard was thrown out of it. The rows are now made again only when they really changed.
+ * (The same cure as public/glass-select.js and public/conversation-mode.js, ci-flakes-2.)
+ */
+let categoriesDrawn = "";
+const categoriesShape = (categories) =>
+  JSON.stringify(categories.map((one) => [one.id, one.label, one.description, one.tools.length, one.decision ?? ""]));
+
 /** Approval settings, a kind of thing at a time: one choice covers every tool of that kind. */
 async function renderCategories() {
   const host = $("approval-categories");
   if (!host || !sessionStorage.getItem("branch-token")) return;
   let view;
   try { view = await api("approvals/categories"); } catch { return; }
+  const shape = categoriesShape(view.categories);
+  if (shape === categoriesDrawn && host.childElementCount) return;
+  categoriesDrawn = shape;
   host.replaceChildren();
   for (const category of view.categories) {
     if (!category.tools.length) continue;
@@ -90,6 +103,8 @@ async function renderCategories() {
       if (!choice.value) return;
       try {
         await api("approvals/categories", { [category.id]: choice.value });
+        category.decision = choice.value;
+        categoriesDrawn = categoriesShape(view.categories);
         say(`Saved: ${category.label.toLowerCase()} — ${choice.selectedOptions[0].textContent.toLowerCase()}.`);
         void window.branchApprovals?.render();
       } catch (e) { say("That could not be saved: " + e.message); }

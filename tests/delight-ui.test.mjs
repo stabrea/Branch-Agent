@@ -133,23 +133,38 @@ test("the pet lives in the corner, works while a task works, and says one thing 
   await switchOn(f.page, "delight-pet-on");
   await f.page.locator("#pet").waitFor();
   assert.match(await f.page.locator("#pet").getAttribute("aria-label"), /Hazel the squirrel/);
+  /* ci-flakes-4: the bubble is up only for the words' reading time (3 s for these), so the watching is
+     set up in the page before the task starts and reads it every 100 ms from the moment the words
+     appear. Measuring over Playwright round trips read a bubble that had already had its time on a busy
+     Windows machine (boundingBox was null). Everything it proved is still proved, on every reading
+     rather than on two. On a slow machine the page is over 20 s old by now, so a tip (one at a time,
+     up to 8 s) may be showing when the task starts; the pet says it is working once the tip has had its time. */
+  const watching = f.page.evaluate(() => new Promise((resolve) => {
+    let began = 0, most = 0;
+    const words = new Set(), cutOff = [];
+    const read = () => {
+      const bubble = document.getElementById("pet-say"), rail = document.getElementById("conversation-rail");
+      most = Math.max(most, document.querySelectorAll(".pet-say:not([hidden])").length);
+      if (bubble && !bubble.hidden && rail) {
+        if (!began && bubble.textContent === "Working on it…") began = Date.now();
+        if (began) {
+          words.add(bubble.textContent);
+          const box = bubble.getBoundingClientRect(), edge = rail.getBoundingClientRect();
+          if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5) cutOff.push([box.left - edge.left, box.right - edge.right]);
+        }
+      }
+      if (began && Date.now() - began >= 1200) done();
+    };
+    const done = () => { clearInterval(timer); resolve({ began: began > 0, most, words: [...words], cutOff }); };
+    const timer = setInterval(read, 100);
+    setTimeout(done, 40000);
+  }));
   void f.call("/api/run", { prompt: "Sort my Downloads folder." }).catch(() => undefined);
-  await f.page.locator("#pet-say:not([hidden])").waitFor({ timeout: 15000 });
-  /* On a slow machine the page is over 20 s old by now, so a tip (one at a time, up to 8 s) may be
-     showing when the task starts; the pet says it is working once the tip has had its time. */
-  await f.page.waitForFunction(() => document.getElementById("pet-say")?.textContent === "Working on it…", null, { timeout: 20000 });
-  assert.equal(await f.page.locator("#pet-say").innerText(), "Working on it…");
-  let most = 0;
-  for (let i = 0; i < 8; i++) {
-    most = Math.max(most, await f.page.locator(".pet-say:not([hidden])").count());
-    await f.page.waitForTimeout(150);
-  }
-  assert.equal(most, 1, "never two bubbles");
-  const bubble = await f.page.locator("#pet-say").boundingBox(), rail = await f.page.locator("#conversation-rail").boundingBox();
-  assert.ok(bubble.x >= rail.x && bubble.x + bubble.width <= rail.x + rail.width + 0.5, "the bubble is never cut off by the rail's edge");
-  const text = await f.page.locator("#pet-say").innerText();
-  await f.page.waitForTimeout(1200);
-  assert.equal(await f.page.locator("#pet-say").innerText(), text, "the words do not flicker while they are shown");
+  const watched = await watching;
+  assert.equal(watched.began, true, "the pet says 'Working on it…' while a task works");
+  assert.equal(watched.most, 1, "never two bubbles");
+  assert.deepEqual(watched.words, ["Working on it…"], "the words do not flicker while they are shown");
+  assert.deepEqual(watched.cutOff, [], "the bubble is never cut off by the rail's edge");
   f.model.release();
   await f.page.waitForFunction(() => document.getElementById("pet-say")?.textContent !== "Working on it…", null, { timeout: 15000 });
   assert.deepEqual(f.errors, []);
