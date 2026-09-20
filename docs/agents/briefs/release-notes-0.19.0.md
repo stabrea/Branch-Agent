@@ -10,10 +10,9 @@ room. Moving your work to another of your own identical plans because the first 
 kind of thing the services' terms call getting round a limit, and none of them says in writing that
 it is allowed — so Branch keeps to the plan you chose and tells you it has run out, rather than
 putting your accounts at risk. It still moves between API keys, which you hold and pay for as you go,
-and between accounts you mark **Kept separate** —
-a work account beside a personal one, or somebody else in the house using their own. There is a new
-tick box on each account, `/account separate <name>` in the terminal, and a one-time notice
-explaining the change.
+and between accounts you mark **Kept separate** — a work account beside a personal one, or somebody
+else in the house using their own. There is a new tick box on each account, `/account separate
+<name>` in the terminal, and a one-time notice explaining the change.
 
 **A window built around one question.** The calm window from 0.18.1 is now the whole design, in the
 approved shape: a small ring under the message box showing which connection has the least left and
