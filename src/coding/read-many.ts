@@ -58,6 +58,14 @@ export function registerReadMany(registry: ToolRegistry, files: WorkspaceFiles, 
     // it and let `files.read_many` of the very same file straight through. `target` is what the
     // approval card and a remembered answer are keyed by; `targets` is what the rules judge one by
     // one, and the call goes ahead only when every path is allowed.
+    //
+    // **One refused path refuses the whole call, and that is on purpose — do not "fix" it back.**
+    // Decided by the coordinator, 2026-09-20. It would be friendlier to read the allowed files and
+    // hand the refused one back named beside them, the way a file that simply cannot be read comes
+    // back (missing, a folder, outside the workspace, secret-looking — those still do). But a
+    // partial answer under a *rule* quietly tells the model which refused paths exist, which is the
+    // one thing the rule was there to prevent. The owner deciding on every path beats the
+    // convenience, and the refusal names the path, so the model can ask again without it.
     target: (input) => (input.paths.length === 1 ? input.paths[0]! : `${input.paths.length} files: ${input.paths.join(", ")}`.slice(0, 300)),
     targets: (input) => input.paths.map((path) => ({ kind: "read" as const, path })),
     execute: async (input, context: ToolContext) => readMany(files, input.paths, context, room()),

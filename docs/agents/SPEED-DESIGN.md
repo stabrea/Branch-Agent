@@ -60,7 +60,9 @@ call a turn do a turn's worth of reading in that call.
 this is a bug fix, not part of the switch, and it is always on.* Which tools win a place is still
 decided on merit exactly as before; a tool that has already been sent and does not win one is now
 put back on the end instead of dropped, where the token budget takes it first if the section really
-is too heavy. The count and the budget are unchanged.
+is too heavy. *Corrected at integration: the **budget** is unchanged; the count is not. The loaded
+list can be longer than `maxLoaded`, and on a long enough task the token ceiling does the trimming
+instead — kept tools first, and in order, but it does trim.*
 
 **E. A coding task starts with the tools it needs** — added after the probe found the largest defect
 on the branch. Two halves. The first is **not switched** and is also a bug fix: the places were won

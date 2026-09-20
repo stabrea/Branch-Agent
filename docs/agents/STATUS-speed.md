@@ -16,7 +16,7 @@ Read this table first; the sections below are the evidence for each row.
 | **E1** | No one toolbox can take every place. A request that opened the code and documents boxes was shown **none** of the code ones | **none — a defect** | 17→14 of 30 working-set places needing a search; test, mutation-checked |
 | **E2** | A request that names a file is coding work, whatever box the words opened (the plan's worst task opened only `documents`) | **none — a defect** | the plan's own trace; unit test |
 | **E3** | A coding task starts with `files.read/grep/list/glob/edit/write` loaded | `fewer-rounds` | 14→**1** of 30 places needing a search |
-| **D** | A tool arriving mid-task no longer pushes another off the list | **none — a defect** | 1→0 rounds losing a tool locally; on the plan, `cli-flag` loaded `code.run` twice |
+| **D** | A tool arriving mid-task no longer pushes another off the list | **none — a defect** | 1→0 rounds losing a tool locally; on the plan, `cli-flag` loaded `code.run` twice. The token budget, not a count, is what can still take one back — see §D |
 | **F1** | Running out of rounds gives the best answer it has plus a plain sentence naming what the rounds went on | **none — a defect** | tests incl. a long task, mutation-checked |
 | **F2** | The round ceiling is the owner's: `maxModelRounds`, Settings › Advanced, default still 12 | **none — new setting** | test |
 | **G1** | A tool you just found comes with its inputs, so the next step is the call, not another round asking | **none — a defect** | the plan spent 27 of 95 rounds finding tools |
@@ -147,16 +147,23 @@ and no real model. Nothing here is estimated, and nothing is claimed that these 
 Over five ordinary coding requests, how many of the six tools a coding task needs before it can
 begin (`files.read`, `grep`, `list`, `glob`, `edit`, `write`) were a search away:
 
-| | working-set places needing a search first |
-|---|---|
-| before this branch | 17 of 30 |
-| share-out alone (no switch) | 14 of 30 |
-| with `fewer-rounds` on | **1 of 30** |
+*Corrected at integration. Every figure in this table was re-run on the final build; the earlier
+version of it claimed something the runs do not show, and that is said here rather than edited away.*
+
+| | working-set places needing a search first | re-run on this build? |
+|---|---|---|
+| before this branch | 17 of 30 | **no** — a trunk figure; no trunk build was made, so nobody here re-measured it |
+| share-out alone (no switch) | **14 of 30** | yes. Neutering `shareOut` in `dist/` on **this** build gives 17 and putting it back gives 14, so the 17 → 14 step is real even though the trunk 17 is not re-measured |
+| with `fewer-rounds` on | **1 of 30** | yes |
 
 The worst request, "Add a --verbose flag to the command line and document it in the README", opened
 the code and the documents toolboxes and was shown **none** of the six: documents tools won all
-twelve places. Sharing the places among the guessed boxes lifts that off the floor on its own;
-pre-loading the working set fixes it.
+twelve places. **Sharing the places among the guessed boxes does not lift that request off the
+floor** — an earlier version of this section said it did, and it does not. With `fewer-rounds` off
+that request is still shown 0 of the 6 on the final build, because the six live in the `files`
+toolbox while the guesser opened `code` and `documents`: `files` tools were never candidates, so
+there was nothing for share-out to share. Share-out's real 17 → 14 comes from the other requests.
+**The 1 of 30 is entirely the switched pre-load.**
 
 Each of those places is at least one whole round trip the task spends finding a tool instead of
 working — and a round trip is 88–94% of the clock.
@@ -181,9 +188,18 @@ the tools are, and the honest local number is the one above.
 
 ### D — nothing is taken off the tool list mid-task (`run.mjs`)
 
-The `rename` task took a tool away in 1 of 8 later rounds before, **0 after**; the count and the
-token budget are unchanged. When `files.edit` arrives the list now grows by one instead of trading
-`workspace.redo` away, so a provider holding the front of the request keeps it.
+The `rename` task took a tool away in 1 of 8 later rounds before, **0 after** (re-run at
+integration: 0 in all six rows of `run.mjs`). When `files.edit` arrives the list now grows by one
+instead of trading `workspace.redo` away, so a provider holding the front of the request keeps it.
+
+**What is unchanged is the token budget, not a count.** An earlier version of this section said both
+were, and that is wrong: `wanted = [...inUse, ...onMerit, ...kept]` can be longer than `maxLoaded`,
+and the set of tools already sent only grows, so on a long enough task the ceiling in `fit` is what
+holds the section down. That trimming is orderly — `fit` cuts from the end of the list and the kept
+tools are last, so they go first, deterministically — but it means a task whose tool section reaches
+the 2,500-token ceiling will still see the front of its request change: later than before rather
+than never. **Not measured**: no scripted task here runs long enough to reach that ceiling, so how
+late "later" is remains unknown.
 
 ### B — the line inviting the model to batch
 
@@ -343,17 +359,17 @@ Written to the template's rules (`docs/release-notes-template.md`): what is now 
 words the screens use, with the limits said in the same sentence.
 
 > **Coding tasks that get to the point.** A coding task used to spend whole exchanges with the model
-> just finding a tool: over five ordinary coding requests, 17 of the 30 times it needed one of
-> `files.read`, `files.grep`, `files.list`, `files.glob`, `files.edit` or `files.write`, that tool was
-> not in front of it and had to be searched for first. One request — "add a --verbose flag and
-> document it in the README" — was shown none of the six, because the documents toolbox had taken
-> every place. Two changes: no single toolbox can take every place any more, which happens for
-> everyone; and a new switch, **Doing more in one go**, puts the tools a coding task always needs in
-> front of it from the start, lets it ask for several independent things at once, adds a way to read
-> several files in one step, and runs the look-only ones at the same time. With it on, 1 of those 30
-> places needs a search. It ships off, and it has been measured against a stand-in for the model
-> rather than on a live one, so the number to trust is how much work each exchange saves, not a
-> promise about any particular task.
+> just finding a tool: over five ordinary coding requests, 14 of the 30 times it needed one of
+> `files.read`, `files.grep`, `files.list`, `files.glob`, `files.edit` or `files.write`, that tool
+> was not in front of it and had to be searched for first. Two changes: no single toolbox can take
+> every place any more, which happens for everyone and takes that 14 down from 17; and a new switch,
+> **Doing more in one go**, puts the tools a coding task always needs in front of it from the start,
+> lets it ask for several independent things at once, adds a way to read several files in one step,
+> and runs the look-only ones at the same time. With it on, **1** of those 30 places needs a search
+> — and that last step is what the switch is for; sharing the places out does not do it on its own.
+> It ships off, and it has been measured against a stand-in for the model rather than on a live one,
+> so the number to trust is how much work each exchange saves, not a promise about any particular
+> task.
 >
 > **Fixed.** A task that ran out of rounds used to end on nothing but "Maximum 12 model rounds
 > reached" — no answer, and no clue why it had gone round twelve times. It now gives the best answer
@@ -483,7 +499,7 @@ Verdict: **MERGE WITH FIXES** — seven fixes applied here, with tests, listed b
 
 | | what was wrong | where |
 |---|---|---|
-| **1** | `files.read_many` named no target, so `policyTarget` judged the whole call with an **empty** one and `targetsOf` returned nothing. A rule refusing `files.*` under a folder refused `files.read` of a file there and let `files.read_many` of the very same file straight through. Proved with a scripted run before the fix. | `src/coding/read-many.ts` — `target` and `targets` added; the rules now judge every path and the refusal names which one. **The trade:** a path a *rule* refuses now refuses the whole call, rather than coming back named beside the others. A path that simply cannot be read — missing, a folder, outside the workspace, secret-looking — still comes back named with the rest, which is the case the builder's own test covers. Whether the owner would rather have per-path partial results under a refusing rule is their call, not one to make quietly here. |
+| **1** | `files.read_many` named no target, so `policyTarget` judged the whole call with an **empty** one and `targetsOf` returned nothing. A rule refusing `files.*` under a folder refused `files.read` of a file there and let `files.read_many` of the very same file straight through. Proved with a scripted run before the fix. | `src/coding/read-many.ts` — `target` and `targets` added; the rules now judge every path and the refusal names which one. **The trade:** a path a *rule* refuses now refuses the whole call, rather than coming back named beside the others. A path that simply cannot be read — missing, a folder, outside the workspace, secret-looking — still comes back named with the rest, which is the case the builder's own test covers. **Ruled on by the coordinator, 2026-09-20: keep it.** A partial answer under a refusing rule would quietly tell the model which refused paths exist, and the owner deciding on every path beats the convenience; the refusal names the path, so the model can ask again without it. The reason is written into the code so nobody undoes it. |
 | **2** | The working line, the catalog's "just used" and the record of what a task reached for were written for **every call in a reply before any of it ran** — and with `fewer-rounds` **off**. A task stopped by the first call showed the *last* call as what it was doing, and tools that never ran were remembered as used. | `src/runtime.ts` — moved back beside each call |
 | **3** | Two calls in one group that both need a yes each registered their own question. Only one could stop the task; the other was left waiting to be answered for a call that was no longer running — answerable from a phone or a chat channel, and counting against the small number a conversation may have waiting, so it could push a real question out. | `src/coding/fewer-rounds.ts` — a call that would be **asked** about runs alone; `allowedOutright` became `decisionOf` |
 | **4** | `pace` queued every rate check on **one** chain for the whole computer, and the wait happens inside it, so one conversation that had reached its limit held up every other conversation's calls for as long as it waited. (Both limits ship at 0, so this bit only an owner who had set one.) | `src/runtime.ts` — one queue per limit |
