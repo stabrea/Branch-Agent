@@ -286,7 +286,14 @@ export class ToolLoader {
     // guesses worth making, not a reason to take away a tool the task has already been shown.
     // Kept tools go last, so the token budget in `fit` — the ceiling the model actually feels —
     // takes them back first if the section really is too heavy.
-    const onMerit = others.slice(0, Math.max(0, this.maxLoaded - inUse.length));
+    // A tool the task asked for by name — found by searching, or pre-loaded because history or a
+    // switch says this work needs it — is not a guess, and is not made to compete for a place with
+    // one. The count is then shared among the toolboxes the guesses come from, so no single box can
+    // take every remaining place (see `shareOut`).
+    const requested = others.filter((hit) => this.asked.has(hit.entry.name));
+    const guesses = others.filter((hit) => !this.asked.has(hit.entry.name));
+    const room = Math.max(0, this.maxLoaded - inUse.length - requested.length);
+    const onMerit = [...requested, ...shareOut(guesses, room)];
     const chosen = new Set([...inUse, ...onMerit].map((hit) => hit.entry.name));
     const kept = others.filter((hit) => this.sent.has(hit.entry.name) && !chosen.has(hit.entry.name));
     const wanted = [...inUse, ...onMerit, ...kept];
@@ -330,6 +337,38 @@ export class ToolLoader {
     return [...full, searchTool(indexed, deferred, this.index.size), describeTool(), noteTool(),
       ...(closed.length ? [opener(closed)] : [])];
   }
+}
+
+/**
+ * Shares the places among the toolboxes in play instead of letting one of them take every place.
+ *
+ * "Add a --verbose flag to the command line and document it in the README" opens two toolboxes,
+ * code and documents. The words say "document" and "README" loudly, so every one of the twelve
+ * places went to documents tools and the task was shown **none** of the twelve coding tools — not
+ * files.read, not files.edit. Opening a toolbox and then being shown nothing from it is a defect,
+ * and it costs a whole round trip: the task has to search for a tool before it can begin.
+ *
+ * So the best tool from each box is taken, then the second best from each, and so on, until the
+ * places run out. The order tools are sent in does not change (that is decided in `render`), the
+ * count does not change, and a box that wins on merit still gets more places than one that does
+ * not — it simply cannot take them all.
+ */
+function shareOut<T extends { entry: { group: string }; score: number; at: number }>(ranked: readonly T[], room: number): T[] {
+  if (ranked.length <= room) return [...ranked];
+  const queues = new Map<string, T[]>();
+  for (const hit of ranked) queues.set(hit.entry.group, [...(queues.get(hit.entry.group) ?? []), hit]);
+  const taken: T[] = [];
+  // Best box first, because `ranked` is in score order and a Map keeps the order keys arrived in.
+  while (taken.length < room) {
+    const before = taken.length;
+    for (const queue of queues.values()) {
+      if (taken.length >= room) break;
+      const next = queue.shift();
+      if (next) taken.push(next);
+    }
+    if (taken.length === before) break; // every box is empty
+  }
+  return taken.sort((a, b) => b.score - a.score || a.at - b.at);
 }
 
 const queryTerms = (signals: { prompt?: string; recent?: readonly string[]; project?: string }): string[] =>

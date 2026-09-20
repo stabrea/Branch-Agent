@@ -13,6 +13,7 @@ import { registerInit } from "./init.js";
 import { LargeOutputs, registerLargeOutput } from "./large-output.js";
 import { Mentions } from "./mentions.js";
 import { registerNotebooks } from "./notebooks.js";
+import { registerReadMany } from "./read-many.js"; // mac7/speed
 import { PathRules, registerPathRules } from "./path-rules.js";
 import { ReviewChecks, registerReviewChecks } from "./review-checks.js";
 import { spawnProgram, type ProgramRunner } from "./runner.js";
@@ -69,6 +70,8 @@ export class Coding implements CodingHooks {
       "large-output": () => registerLargeOutput(registry, this.outputs),
       notebooks: () => registerNotebooks(registry, files),
       "review-checks": () => registerReviewChecks(registry, this.checks),
+      // mac7/speed: reading several files in one call, so a task takes fewer round trips.
+      "fewer-rounds": () => registerReadMany(registry, files),
     };
     for (const part of codingParts) this.sync(part);
     registry.afterTool = (name, args, result, context) => this.edits.after(name, args, result, context);

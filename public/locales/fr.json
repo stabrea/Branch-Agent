@@ -1045,6 +1045,7 @@
   "coding.part.checklist": "Une liste de contrôle par tâche, modifiable pendant qu'elle travaille",
   "coding.part.checks": "Des vérifications de relecture gardées dans le projet",
   "coding.part.readFirst": "Lire un fichier avant de le modifier",
+  "coding.part.fewerRounds": "En faire plus d’un coup, pour que la tâche prenne moins de tours",
   "coding.part.ci": "Faire tourner Branch dans GitHub Actions ou GitLab CI",
   "coding.part.format": "Mettre en forme un fichier et y chercher les erreurs après chaque modification",
   "coding.part.init": "Écrire le fichier d'instructions du projet (/init)",

@@ -1,0 +1,18 @@
+import { mkdtemp, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createBranch, ToolLoader } from "../../dist/index.js";
+import { seedWorkspace } from "./harness.mjs";
+const root = await mkdtemp(join(tmpdir(), "branch-scores-"));
+const workspace = join(root, "workspace");
+await mkdir(workspace, { recursive: true });
+await seedWorkspace(workspace);
+const provider = { name: "s", async complete() { return { content: "ok", toolCalls: [] }; } };
+const app = await createBranch({ workspace, dataDir: join(root, "data"), provider });
+const tools = app.registry.descriptions(new Set(app.registry.permissions()));
+const prompt = "Add a --verbose flag to the command line and document it in the README.";
+const loader = new ToolLoader(tools, { expanded: ["core", "code", "documents"], groupOf: (n) => app.registry.groupOf(n), signals: { prompt } });
+const shown = loader.descriptions().map((t) => t.name);
+console.log("shown:", shown.join(" "));
+console.log("\ngroup of each shown:", shown.map((n) => `${n}=${app.registry.groupOf(n)}`).join(" "));
+await app.close();

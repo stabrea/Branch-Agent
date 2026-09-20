@@ -7,12 +7,23 @@ Goal: the same coding work in fewer model round trips, with every feature still 
 rule weakened. On a hosted model wall time is roughly (number of model calls) x (round trip), so the
 number of turns is the lever.
 
+Design note (approved by the coordinator, "GO"): `docs/agents/SPEED-DESIGN.md`.
+
 - [x] 0. Where the time actually goes — measured before changing anything (below)
 - [x] 0b. A local timing harness so the next session can re-measure in minutes (`experiments/speed/`)
-- [ ] 1. Parallel tool calls in one turn
-- [ ] 2. Fatter turns (the model is told it may batch; a read-many shortcut)
-- [ ] 3. A tool list that stays byte-stable round to round, so prompt caches hit
-- [ ] 4. Merge latest trunk, rebuild, retest, push
+- [x] D. A tool arriving mid-task no longer pushes another off the list — **no switch, a bug fix**
+- [x] E. A coding task starts with the tools it needs, and no one toolbox takes every place
+- [x] B. The assistant is told it may ask for several independent things at once
+- [x] C. `files.read_many` — several files in one call, each through the same checks
+- [ ] A. Independent read-only calls in one turn run concurrently
+- [ ] Measure B on a real model (Ollama on taofik-ai, after window8 finishes ~03:00-03:30 UTC)
+- [ ] Merge latest trunk, rebuild, retest, push
+
+Everything except D is behind one new coding part, **`fewer-rounds`**, which **ships off**. Its three
+states work like `read-first`'s: *off* is today exactly; *when needed* and *on* both switch the
+behaviour on, and what they choose between is whether `files.read_many` is described in full from the
+first round (*on*) or is a line in the index until the work calls for it (*when needed*). Nothing is
+removed, no default moves, and every tool stays reachable in one step in every state.
 
 ## 0. Where the time goes — the breakdown, measured
 
