@@ -10,13 +10,15 @@ import { codingMode } from "./settings.js";
  * waiting for the model, and packing the same tool calls into fewer rounds cut one task from 1,958
  * ms to 928 ms. So this part is about rounds, not about making anything in Branch run faster.
  *
- * Three things, all switched together by the `fewer-rounds` coding part, which ships off:
+ * Four things, all switched together by the `fewer-rounds` coding part, which ships off:
  *
  *   - the tools a coding task always reaches for are loaded from the first round, so it never
  *     spends a round trip searching for `files.edit` before it can start;
  *   - the assistant is told, in one line, that it may ask for several independent things at once;
  *   - `files.read_many` reads several files in one call (registered by the part's own switch, so
- *     "when needed" leaves it a line in the index and "on" loads it from the first round).
+ *     "when needed" leaves it a line in the index and "on" loads it from the first round);
+ *   - calls in one reply that only look at things run at the same time rather than one after
+ *     another (`parallelGroups`, below).
  *
  * Like `read-first`, the behaviour is the same in "when needed" and "on" — there is no useful
  * middle setting for how a loop behaves. What the two modes really choose is the tier its tool
@@ -24,9 +26,10 @@ import { codingMode } from "./settings.js";
  */
 
 /**
- * What a coding task reaches for, in the order it usually does. Measured before this existed: over
- * five ordinary coding requests, 41 of 60 of these were a search away rather than described, and
- * one request ("Add a --verbose flag … and document it in the README") was shown **none** of them.
+ * What a coding task reaches for, in the order it usually does. Measured over five ordinary coding
+ * requests (`experiments/speed/catalog-probe.mjs`): 14 of these 30 places were a search away rather
+ * than described in full, and one request ("Add a --verbose flag … and document it in the README")
+ * was shown **none** of the six. With this list loaded it is 1 of 30.
  */
 export const codingWorkingSet = [
   "files.read", "files.grep", "files.list", "files.glob", "files.edit", "files.write",
