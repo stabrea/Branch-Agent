@@ -11,6 +11,7 @@
    settings:models:second    Model arena */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -43,14 +44,7 @@ function field(value = "", type = "text") {
   return node;
 }
 function choice(options, value) {
-  const select = document.createElement("select");
-  for (const [option, key, english] of options) {
-    const item = key ? make("option", "", key, english) : plain("option", english);
-    item.value = option;
-    item.selected = option === value;
-    select.append(item);
-  }
-  return select;
+  return dropdown({ id: "", options, value });
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 const done = (node, key = "reach.saved", english = "Saved.") => { node.dataset.t = key; node.textContent = say(key, english); };
@@ -349,19 +343,27 @@ async function bundlesCard(state) {
   node.append(...switchFor("skill-bundles", state.modes, status));
   if (state.modes["skill-bundles"] !== "off") {
     const skills = ((await api("state")).skills ?? []).filter((s) => s.activeVersion !== null);
-    const picker = document.createElement("select");
-    picker.multiple = true;
-    for (const s of skills) { const o = plain("option", s.name); o.value = s.id; picker.append(o); }
+    const pickerBox = document.createElement("div");
+    const pickerChecks = [];
+    for (const s of skills) {
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.value = s.id;
+      const label = document.createElement("label");
+      label.append(check, " ", plain("span", s.name));
+      pickerBox.append(label);
+      pickerChecks.push(check);
+    }
     const name = field(""), path = field("bundles/my-skills.branch-skills"), source = field("");
     const shown = document.createElement("div");
     const where = () => (/^https:/i.test(source.value.trim()) ? { url: source.value.trim() } : { path: source.value.trim() });
     const [write, writeHint] = button("reach-bundles-write", "reach.bundles.write", "Write the bundle", "reach.bundles.writeHint", "Writes the chosen skills into that workspace file.",
-      attempt(status, async () => { await api("reach/bundles/write", { name: name.value.trim(), path: path.value.trim(), skills: [...picker.selectedOptions].map((o) => o.value) }); done(status); }));
+      attempt(status, async () => { await api("reach/bundles/write", { name: name.value.trim(), path: path.value.trim(), skills: pickerChecks.filter((c) => c.checked).map((c) => c.value) }); done(status); }));
     const [look, lookHint] = button("reach-bundles-look", "reach.bundles.look", "Look inside", "reach.bundles.lookHint", "Installs nothing.",
       attempt(status, async () => { const b = await api("reach/bundles/preview", where()); shown.replaceChildren(plain("p", b.name), list(b.skills.map((s) => plain("li", s.name)))); }));
     const [install, installHint] = button("reach-bundles-install", "reach.git.install", "Bring it in", "reach.bundles.installHint", "Each skill starts switched off; one you already have is left alone.",
       attempt(status, async () => { await api("reach/bundles/install", where()); done(status); }));
-    node.append(...control("reach-bundles-skills", "reach.bundles.skills", "Skills to bundle", "reach.bundles.skillsHint", "Only switched-on skills can be bundled.", picker),
+    node.append(...control("reach-bundles-skills", "reach.bundles.skills", "Skills to bundle", "reach.bundles.skillsHint", "Only switched-on skills can be bundled.", pickerBox),
       ...control("reach-bundles-name", "reach.bundles.name", "Bundle name", "reach.bundles.nameHint", "Shown to whoever opens it.", name),
       ...control("reach-bundles-path", "reach.bundles.path", "Workspace file", "reach.bundles.pathHint", "Ends in .branch-skills.", path),
       row(write, writeHint),
