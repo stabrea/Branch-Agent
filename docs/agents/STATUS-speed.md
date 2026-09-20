@@ -215,6 +215,31 @@ tools and shows the model eighteen of them — that is the whole point of the th
 why its per-round payload sits between the two. **The lever this branch pulls is rounds, not
 payload**, and the payload is measured here only so nobody has to guess whether it got worse.
 
+## The measurement on a real model — the protocol, pinned in advance
+
+Staged and ready on taofik-ai; queued behind `bench-rerun`'s window8 (which runs entirely on the
+ChatGPT plan, so the card is free — the wait is only so its wall-time cells are not measured against
+a busy machine).
+
+**The metric is turn count, not wall time.** qwen3-14b takes 40–110 s a round on that shared card, so
+wall time there is dominated by load and cold starts; window4's notes say as much. What can be
+measured cleanly is `modelCalls` a task, with the part off and on, which is exactly what B, C and E
+claim to move. Wall time is reported only as context, with the load average beside it, as the
+existing bench rows do.
+
+- **Rows** (VM only, in this branch's own copy — `before/` and the window8 files are untouched):
+  `branch-speed-off` and `branch-speed-on`, the same build at `/workspace/bench/speed/build`, the
+  second with `prepScript: experiments/coding-bench/fewer-rounds-on.mjs`. Verified without touching
+  the card: the prep script writes `coding-fewer-rounds {"mode":"on"}` into a fresh data folder.
+- **Tasks**: `fix-range`, `rename`, `update-docs` — the three with known behaviour from window 3.
+- **Shape**: 2 rows × 3 tasks × 2 repeats = 12 cells, round robin, 600 s deadline.
+  `/workspace/bench/speed/run.sh speed1 branch-speed-off,branch-speed-on "fix-range,rename,update-docs" 2`
+- **Before starting**: warm the model (a cold load is ~105 s and would trip the watchdog), and note
+  the load average either side, as every other window does.
+- **What would falsify B**: if the model still returns one tool call a turn with the part on. That is
+  a real result and will be reported as one. C (`files.read_many`) cuts rounds whether or not the
+  model batches, and E cuts them whether or not either works, so the three are separable in the rows.
+
 ## For the release notes (drafted here; `release-019` owns the file)
 
 Written to the template's rules (`docs/release-notes-template.md`): what is now possible, in the
