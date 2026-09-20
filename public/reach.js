@@ -11,7 +11,7 @@
    settings:models:second    Model arena */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
-import { dropdown } from "/control-makers.js";
+import { dropdown, switchControl } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -175,10 +175,11 @@ async function backgroundCard(state) {
 /* ---------- settings:computer — USB devices ---------- */
 function usbRule(rule, status) {
   const line = plain("li", `${rule.label} (${rule.vendorId}:${rule.productId}${rule.serial ? ` ${rule.serial}` : ""})`);
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox";
-  toggle.checked = rule.enabled;
-  toggle.addEventListener("change", act(status, () => api("reach/usb/enable", { id: rule.id, on: toggle.checked })));
+  const toggle = switchControl({
+    id: `reach-usb-on-${rule.id}`,
+    checked: rule.enabled,
+    onChange: (checked) => act(status, () => api("reach/usb/enable", { id: rule.id, on: checked }))()
+  });
   const [remove, removeHint] = button(`reach-usb-remove-${rule.id}`, "reach.usb.remove", "Remove", "reach.usb.removeHint", "Forgets this device.",
     act(status, () => api("reach/usb/remove", { id: rule.id })));
   line.append(" ", ...control(`reach-usb-on-${rule.id}`, "reach.usb.on", "On", "reach.usb.onHint", "Starts the task when this device is plugged in.", toggle), remove, removeHint);
@@ -284,10 +285,11 @@ async function chatsCard(state) {
   if (state.modes["platform-pause"] !== "off") {
     const paused = new Set(state.platforms.paused);
     for (const channel of state.channels) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = paused.has(channel);
-      box.addEventListener("change", act(status, () => api("reach/platforms/pause", { channel, paused: box.checked })));
+      const box = switchControl({
+        id: `reach-pause-${channel}`.replace(/[^\w-]/g, "_"),
+        checked: paused.has(channel),
+        onChange: (checked) => act(status, () => api("reach/platforms/pause", { channel, paused: checked }))()
+      });
       const [label, element, hint] = control(`reach-pause-${channel}`.replace(/[^\w-]/g, "_"), "reach.chats.paused", "Paused", "reach.chats.pausedHint", "Its messages are let go without an answer.", box);
       node.append(row(plain("span", channel), label, element), hint);
     }
