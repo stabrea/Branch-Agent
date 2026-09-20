@@ -273,3 +273,112 @@ Restored: 25 pass, 0 fail.
   server, "bare branch with no terminal still starts the web app" times out. Nothing on this branch
   touches `branch start`, so I do not believe it is mine — but I did not run the pair on the merge
   base to prove that, so it is a claim I have not checked.
+
+## Integration (adversarial review, 2026-09-19)
+
+Reviewed on the branch itself in `C:/Users/bishi/Code/wt/smoke-fixes` (head at review start `610b845e`),
+against trunk `mac/cross-platform` at `b766c6ad`. **Not pushed to trunk**: trunk is frozen while
+`ci-flakes-4` banks two green CI runs. The fixes below are committed on `mac7/smoke-fixes`.
+
+### The chat-app behaviour change: reversed, with the loop proved
+
+The builder reused `nobodyToAsk()`, which counts a chat app, and flagged it for a second opinion.
+The second opinion is that a chat person is a person, and the evidence is in the code, not the
+argument:
+
+- **The chat surface can show a plan.** `finishTurn` (`src/channels/router.ts:811`) sends a
+  `needs_input` run's own output back to the chat as the words it is, whenever no approval is
+  waiting — which is exactly the Plan-mode case (`NeedsInputError(planMessage(plan))` raises no
+  approval).
+- **The chat surface can take a yes.** `finishTurn` writes `channel-session:<channel>:<chatId>`
+  against the conversation, so the next chat message lands in it, and `RunConductor.start()` picks a
+  waiting plan up on any affirmative — it never looks at the source.
+- **Waiting is not the unsafe side.** A chat's task gets five read-only permissions
+  (`chatSafePermissions`) and nothing else; a task started from outside is held at *Ask before
+  changes* however it is carried on (docs/configuration.md, since 0.18.1); it may never give a
+  standing yes; and `chatMayApprove` is off unless the owner switched that line on. The new test
+  drives this: the chat's "go ahead" picks the plan up, works through it, and the step that writes a
+  file **still stops and asks**, with the file untouched.
+- **And the old behaviour was not honest.** `unattendedPlanAnswer()` ends "there was nobody to say
+  yes while this task ran." Delivered to the person who has just written, that sentence is false.
+
+So the two questions are two predicates, each with one reading. `nobodyToAsk` (the tests question)
+is untouched. `nobodyToAskAboutPlan` (Plan mode) is the same answer with a chat app removed, and
+says why in its own comment. `src/runtime.ts` uses the new one. Only two places call either.
+
+### Fixed on top of the builder's work
+
+1. **Plan mode from a chat waits again** — `nobodyToAskAboutPlan` in `src/coding/project-tests.ts`,
+   used by `src/runtime.ts`; the `ConductOptions.nobodyToAsk` comment and the
+   "With nobody to ask" paragraph in `docs/configuration.md` now say a chat message is not one of
+   them. Test: "Plan mode from a chat message shows the plan and waits, and the chat's go-ahead
+   carries it out" (`tests/plan-act.test.mjs`). **Mutation-checked**: with the chat line deleted from
+   `dist/coding/project-tests.js` (the builder's behaviour back) only that test fails, 16 pass 1
+   fail; restored 17 pass.
+2. **`GET /api/terminal?command=version` answered "I do not know the command version"** — `version`
+   was on `readOnlyTerminalCommands` but `runTerminalCommand` never handled it (`branch version` is
+   answered in `src/cli.ts` before anything opens, so it was never reached from a terminal).
+   One line in `src/terminal-cli.ts`.
+3. **The `/api/terminal` refusal said the wrong thing for a name that is not a command** — "changes
+   things" was told to a typo as well as to `theme`. It now says the name is not one of the commands
+   that only look, lists the ones that are, and says to close that Branch first.
+4. **`POST /api/plan-act {}` with no choice at all was refused** by the builder's new 400 — an empty
+   POST is a read, not a dropped choice. The refusal now fires only when a `planMode`, an `autonomy`
+   or `followProject` was actually sent. (The window always sends a `scope`, so no caller ever
+   depended on the old silence: `public/plan-act.js:110-115` sets `scope = sessionId ? wanted :
+   "project"`, and `tests/mac2-desktop-ui.test.mjs:680` sends `scope: "project"`.)
+5. **The `/api/terminal` allowlist is now pinned by a test** — the gate is on the command NAME only
+   and the words after it pass straight through, so the set is asserted exactly, every name on it is
+   driven and proved to answer, and six names off it (`theme`, `lockdown`, `model`, `run`, `backup`,
+   a typo) are proved refused in plain words. `tests/deployment.test.mjs`.
+
+### Verdicts on the builder's claims
+
+- **B4 — VERIFIED.** `src/cli.ts` `overRunningBranch`, the four routes in `src/server.ts`,
+  `src/trace-report.ts`, and five tests driving the real `node dist/cli.js` against a held-open
+  Branch. Mutation: `overRunningBranch` forced null → 3 of 5 fail (23 pass, 3 fail); the
+  `/api/tokens` self-renewal refusal commented out → the key test fails (25 pass, 1 fail).
+- **B5 — VERIFIED**, with the chat reading corrected above. Mutation: the `nobodyToAsk` branch in
+  `dist/orchestration.js` forced false → 3 fail (14 pass, 3 fail).
+- **B6 — VERIFIED.** Mutation: `guessed.push("remote")` under `context.allowProjectTests` in
+  `dist/runtime.js` → the tool-list test fails; `allowTestsIdleNote` forced to return null →
+  the plain-line test fails. 46 pass, 1 fail each time.
+
+### Checked and found sound (no change needed)
+
+- **The new routes.** `GET|POST /api/tokens` and `POST /api/tokens/<id>/revoke` are refused to a
+  short-lived key by name in `offLimitsToShortLivedKeys` (writes) and by `ownerOnlyReads` (the list),
+  so **no key can mint or list keys**; `GET /api/terminal` is in `ownerOnlyReads` too. Household
+  profiles are refused all three, because `offLimitsToHousehold` refuses whatever a key is refused
+  and `householdMaySend` covers only `/api/voice/*` — asserted in the builder's own test. Chat
+  sources never arrive over HTTP at all (`windowCaller`).
+- **The CLI's door is not widened.** `overRunningBranch` goes through `attachToRunning(dataDir)`,
+  which reads the running instance's saved local key off disk and proves the server with
+  `GET /api/state` before anything else. An unauthenticated local caller has no more reach than
+  `branch schedule` already gave it; every new path is an ordinary authenticated request.
+- **The single-writer rule holds.** Proved by test, not by reading: `branch backup` and
+  `branch theme dark` both still exit 1 beside an open Branch, and the refusal now names
+  `branch doctor, branch token, branch trace, branch schedule` and says to close it first.
+- **`--plan` plus a saved Plan mode does the safe thing.** `wantsPlan()` is true either way and
+  `needsApproval()` reads the saved mode, so `--plan` with "Show me the plan first" saved stops and
+  shows the plan (attended) or finishes with it (nobody to ask). `--plan` alone still plans and
+  carries out, and `branch run --help` now says so in one sentence.
+- **Nothing on the read-only terminal list writes.** `src/terminal-settings.ts` and
+  `src/terminal-place-data.ts` contain no `store.save`/`.put`; every allowlisted name lands on a
+  reading branch of `runTerminalCommand`.
+
+### Findings left open (notes, not blockers)
+
+- **`GET /api/runs/:id/trace` is classified `look`, not owner-only.** The brief asked for owner-only
+  on all four. I left it as the builder had it, deliberately: it carries no words of the task, and
+  the two things it does carry are already readable by a `look` key — `/api/runs/:id/inspect` beside
+  it shows rounds, tool calls and the plan, and `GET /api/tracing/settings` already shows the trace
+  address (it is not in `ownerOnlyReads`; the API keys live in `settings.headers` as `secret://`
+  references and are never in the report). Tightening it alone would be inconsistent with its
+  neighbours for no gain. Say the word and it becomes `secret-read` in one line.
+- **`docs/api.md` does not list the four new routes.** That file says it is written by
+  `node scripts/write-api-docs.mjs` from the app's own input checks and is not to be edited by hand,
+  and the new routes have no registered input check, so they are absent the way several other routes
+  are. Not hand-edited. `docs/configuration.md` documents all four.
+- **`branch status`, `branch logs`, `branch approve`** still refuse beside an open Branch. The
+  builder's reasoning stands; noting it so it is not lost.

@@ -457,3 +457,48 @@ test("a plan-act choice that names neither a conversation nor the project is ref
   // And the setting really is untouched, which is what the silent version hid.
   assert.equal((await api("plan-act")).project.planMode, "just-do-it");
 });
+
+/**
+ * mac7/smoke-fixes (integration review, B5). The builder reused `nobodyToAsk` from the tests
+ * question, which counts a chat app — so Plan mode from a chat finished with its plan and told the
+ * person who had just written "there was nobody to say yes while this task ran". A chat person is a
+ * person: the chat is handed a `needs_input` answer as the words it is (src/channels/router.ts
+ * `finishTurn`), the conversation is written down against that chat, and "go ahead" there picks the
+ * plan up. So Plan mode from a chat shows the plan and waits, as it does in the window.
+ */
+test("Plan mode from a chat message shows the plan and waits, and the chat's go-ahead carries it out", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say(twoStepPlan);
+    if (last?.role === "tool") return say("Summary written.");
+    if (/^Step 1 of 2/.test(user)) return say("I read the notes.");
+    if (/^Step 2 of 2/.test(user)) return call("files.write", { path: "summary.txt", content: "done" });
+    if (/Every step of the plan is done/.test(user)) return say("Read and summarised.");
+    return say("Both steps are finished.");
+  });
+  await api("plan-act", { scope: "project", planMode: "show-plan" });
+
+  const asked = await app.runtime.run({ prompt: "summarise my notes", source: "channel" });
+  assert.equal(asked.status, "needs_input", asked.output);
+  assert.match(asked.output, /Here is my plan:\n1\. Read the notes/, "the plan goes back to the chat");
+  assert.doesNotMatch(asked.output, /nobody to say yes/, "somebody is there: the person who wrote the message");
+  assert.ok(kinds(app, asked.id).includes("plan.awaiting_approval"));
+  assert.ok(!kinds(app, asked.id).includes("plan.answered_with_plan"), "a chat is not nobody");
+  assert.ok(!kinds(app, asked.id).includes("tool.started"), "nothing has run while it waits");
+  assert.ok(await missing(join(workspace, "summary.txt")));
+
+  // The same chat, in the same conversation: "go ahead" is not a dead end. The plan is picked up and
+  // worked through — and the step that changes something stops and asks, because a task a chat
+  // started is held at "Ask before changes" however it is carried on (0.18.1). That is what makes
+  // waiting here safe: the chat person may agree to the plan, and still cannot change a file alone.
+  const agreed = await app.runtime.run({ prompt: "go ahead", sessionId: asked.sessionId, source: "channel" });
+  assert.ok(kinds(app, agreed.id).includes("plan.step.started"), "the plan was picked up, not dropped");
+  assert.equal(agreed.status, "needs_input", agreed.output);
+  assert.match(agreed.output, /Before I go ahead: Writing summary\.txt/);
+  assert.ok(await missing(join(workspace, "summary.txt")), "still nothing changed until the owner says yes");
+
+  // A schedule is still nobody: nobody is sitting there when it runs, so it finishes with the plan.
+  const scheduled = await app.runtime.run({ prompt: "summarise my notes", source: "schedule" });
+  assert.equal(scheduled.status, "completed");
+  assert.ok(kinds(app, scheduled.id).includes("plan.answered_with_plan"));
+  assert.match(scheduled.output, /Nothing has been done\./);
+});

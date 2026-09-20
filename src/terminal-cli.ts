@@ -183,6 +183,10 @@ export async function runTerminalCommand(app: Branch, command: string, args: str
   if (PLACE_COMMANDS.has(command)) return placeCommand(app, command, args, io);
   if (command === "setup") return io.interactive ? startTui(app.runtime, { app, route: "settings:models:connection" }) : printRows(io, await rowsOf(app, words, { settings: "models", sub: "connection" }), "Connect a model here, or run `branch doctor` to check everything.");
   if (command === "places") return placesCommand(io, words);
+  // mac7/smoke-fixes (integration review): `branch version` is answered before anything is opened,
+  // so this is only reached over GET /api/terminal — where leaving it out made a command on the
+  // read-only list answer "I do not know the command version".
+  if (command === "version") return io.write(versionText());
   if (command === "theme") return themeCommand(app, args, io);
   if (command === "sessions") return sessionsCommand(app, args, io);
   if (command === "resume") return resumeCommand(app, args, io);

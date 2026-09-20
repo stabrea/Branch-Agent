@@ -82,9 +82,10 @@ export interface ConductOptions {
   delegated?: boolean;
   /**
    * mac7/smoke-fixes (B5): nobody can be asked while this task runs — a script's `branch run`, a
-   * schedule, a trigger, a chat app, another AI tool. "Show me the plan first" then finishes with
-   * the plan as its answer and changes nothing, which is what the mode means. The one reading of
-   * "nobody to ask" is `nobodyToAsk` in src/coding/project-tests.ts; this is that answer, passed in.
+   * schedule, a trigger, another AI tool. "Show me the plan first" then finishes with the plan as
+   * its answer and changes nothing, which is what the mode means. A chat app is NOT one of them: a
+   * person just typed the message, the plan is delivered to them, and their "go ahead" carries it
+   * out. The reading is `nobodyToAskAboutPlan` in src/coding/project-tests.ts, passed in.
    */
   nobodyToAsk?: boolean;
 }

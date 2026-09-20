@@ -658,3 +658,37 @@ test("B4 branch trace reads one task's steps from the Branch that is open", asyn
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /Nothing was recorded for the task no-such-task\./);
 });
+
+/**
+ * Integration review (B4). `GET /api/terminal` decides what it will run by the command's NAME, and
+ * the words after it are passed straight through. That is only safe while every name on the list
+ * reads and nothing else, so the list is pinned here: adding a name to it has to be a deliberate
+ * act with this test changed, not something that arrives with a new subcommand. It also proves each
+ * name really is answered — `version` used to be on the list and answer "I do not know the command".
+ */
+test("B4 the terminal door runs the commands that only look, and refuses the rest in plain words", async (t) => {
+  const { server } = await openBranch(t);
+  const { readOnlyTerminalCommands } = await import("../dist/terminal-cli.js");
+  assert.deepEqual([...readOnlyTerminalCommands].sort(), [
+    "automations", "channels", "customize", "inbox", "library", "mcp", "memory", "places",
+    "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
+  ], "the list of terminal commands a second terminal may run is pinned; changing it is deliberate");
+
+  const ask = (query) => fetch(`${server.url}/api/terminal?${query}`, { headers: { authorization: `Bearer ${server.token}` } });
+  for (const command of readOnlyTerminalCommands) {
+    const answer = await ask(`command=${command}`);
+    const body = await answer.json();
+    assert.equal(answer.status, 200, `${command}: ${JSON.stringify(body)}`);
+    const { lines } = body;
+    assert.ok(Array.isArray(lines), `${command} answers with the lines it would have printed`);
+    assert.ok(!lines.join("\n").includes("I do not know the command"), `${command} is really answered`);
+  }
+  // Nothing else gets through, whether it writes or is not a command at all, and the refusal says so.
+  for (const command of ["theme", "lockdown", "model", "run", "backup", "not-a-command"]) {
+    const refused = await ask(`command=${command}`);
+    assert.equal(refused.status, 400, command);
+    const said = (await refused.json()).error;
+    assert.match(said, /is not one of the terminal commands that only look/);
+    assert.match(said, /needs that Branch closed first/);
+  }
+});

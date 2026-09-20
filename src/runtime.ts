@@ -50,7 +50,7 @@ import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
-import { nobodyToAsk, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
+import { nobodyToAskAboutPlan, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
 import { canonicalArguments } from "./loop-guard.js";
@@ -1279,9 +1279,10 @@ ${run.output.slice(0, 6000)}`;
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: context.trunkKeys ? trunkCandidates(plan.candidates) : plan.candidates };
     // A plan-execute specialist plans its own sub-task, which an ordinary delegated run never does.
     const planned = shape.plan ? { plan: true, delegated: false } : {};
-    // mac7/smoke-fixes (B5): one reading of "nobody can be asked", shared with the tests question.
+    // mac7/smoke-fixes (B5): nobody can be asked about the plan. A chat app is a person who can
+    // answer, so it is not one of them (nobodyToAskAboutPlan in src/coding/project-tests.ts).
     const conductor = this.orchestration.conductor(run,
-      { ...conduct, ...planned, nobodyToAsk: nobodyToAsk(context), ...(checks ? { checks } : {}) },
+      { ...conduct, ...planned, nobodyToAsk: nobodyToAskAboutPlan(context), ...(checks ? { checks } : {}) },
       (aside) => this.aside(run, context, route, aside));
     const opening = await this.openConductor(run, conductor);
     // mac7/smoke-fixes (B5): "Show me the plan first" with nobody to ask finishes with the plan.

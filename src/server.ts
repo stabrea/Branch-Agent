@@ -2640,7 +2640,9 @@ function planActApi(app: Branch, request: IncomingMessage, body: unknown): unkno
   else if (asked && sessionId) saveSessionPlanAct(app.store, owner, sessionId, projectId, choice);
   // mac7/smoke-fixes (B5): a choice for one conversation with no conversation named used to be
   // dropped without a word, and the answer still showed the project's setting as if it had stuck.
-  else if (asked)
+  // Integration review: a POST that asks for nothing at all is a read, not a dropped choice, so it
+  // is answered rather than told to name a conversation it never had one for.
+  else if (asked && (Object.keys(choice).length > 0 || asked.followProject))
     throw new HttpError(400, 'Say which conversation this choice is for, or send scope "project" to change '
       + "what every conversation in this project starts from. Nothing was changed.");
   const effective = sessionPlanAct(app.store, owner, sessionId, projectId);
@@ -2656,8 +2658,12 @@ function planActApi(app: Branch, request: IncomingMessage, body: unknown): unkno
 async function terminalReadApi(app: Branch, request: IncomingMessage): Promise<unknown> {
   const url = new URL(request.url ?? "/", "http://local");
   const command = (url.searchParams.get("command") ?? "").trim();
+  // Integration review: the old sentence said every name here "changes things", which is wrong for a
+  // name that is not a command at all. It now says what this door is for and names what fits through.
   if (!readOnlyTerminalCommands.has(command))
-    throw new HttpError(400, `"${command}" changes things, so it cannot be run against the Branch that is already open.`);
+    throw new HttpError(400, `"${command}" is not one of the terminal commands that only look, so it cannot be run `
+      + `against the Branch that is already open. These can: ${[...readOnlyTerminalCommands].sort().join(", ")}. `
+      + "Anything else needs that Branch closed first.");
   const args = url.searchParams.getAll("arg").map((word) => word.slice(0, 200)).slice(0, 8);
   const json = url.searchParams.get("json") === "1";
   // The owner's saved language wins; "auto" follows the terminal that asked, as it would have here.
