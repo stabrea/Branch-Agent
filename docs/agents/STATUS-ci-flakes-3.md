@@ -127,6 +127,18 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   appear after sign-in, and a busy Windows machine took longer; it now has 60 s (the window itself
   gets 120 s, as tests/places.mjs does).
 
+## Run 35478612357 on dda44fbe, the last one this session watched: FAILED, four tests, all slow-runner
+- add-ons-walled "macOS for real…" (macOS 1/2): the named address came back "refused" instead of
+  reaching the lookup. Not looked into; it reads like the runner's own DNS.
+- delight-ui "the pet lives in the corner…" (Windows 2/6, 44 s): the tip wait added here was not
+  enough on that runner, or another bubble was showing. Look again.
+- mac2-desktop-ui "the cards go to their homes…" (142 s) and never-break-ui "the Keep running card…"
+  (69 s) on Windows 5/6: both took two to five times their usual time, so that shard was crawling.
+- coding-gap-edits "a task's deadline is the caller's…" (Windows 6/6): a timing test on the same slow
+  machine.
+The shards that had been failing all day (walk-rules, accounts, rooms, panels, voice, source-hygiene,
+flow-editor, thinking-levels, quiet-jobs, glass-select, p2-shell) were green in this run.
+
 ## Left for somebody: more of the same family, not failing CI today
 The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
 middle of typing or choosing, so the value saved can be the old one:
