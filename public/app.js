@@ -546,6 +546,11 @@ async function refresh() {
   const active = state.activeModel ?? { provider: state.provider, presetName: state.provider, model: "" };
   const demo = active.provider === "offline-demo-fixture";
   $("provider").textContent = demo ? "Offline demonstration" : `${active.presetName} · ${active.model}`;
+  /* Update composer model chip with the active model name (batch2-composer) */
+  const modelChip = $("model-chip");
+  if (modelChip) {
+    modelChip.textContent = demo ? "Offline" : `${active.presetName}${active.model ? " · " + active.model : ""}`;
+  }
   const look = JSON.stringify(state.preferences);
   if (savedAppearance !== look) {
     savedAppearance = look;
