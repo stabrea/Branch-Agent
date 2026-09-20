@@ -51,11 +51,12 @@
 }
 
 /* ---------- a group's heading ---------- */
+/* DG-011: Bucket header - no icon tile, simplified layout */
 .sg-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px 12px;
+  gap: 12px;
   margin: 22px 0 12px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
@@ -71,20 +72,12 @@
 .sg-head.lx-miss {
   display: none;
 }
+/* DG-011: Icon tile removed from bucket headers */
 .sg-tile {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--copper-edge);
-  border-radius: 11px;
-  background: var(--copper-tint);
-  color: var(--copper-text);
+  display: none;
 }
 .sg-tile .sg-icon {
-  width: 20px;
-  height: 20px;
+  display: none;
 }
 .sg-head-words {
   display: grid;
@@ -97,10 +90,9 @@
   font-weight: 680;
   line-height: 1.2;
 }
+/* DG-011: Description line removed from bucket headers */
 .sg-head-line {
-  margin: 0;
-  color: var(--text-2);
-  font-size: 13px;
+  display: none;
 }
 .sg-more {
   flex: none;
