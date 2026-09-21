@@ -15,16 +15,27 @@ import ts from "typescript";
  */
 const dir = import.meta.dirname;
 
-/** Line numbers of `startServer(...)` calls in `source` whose options do not visibly name a port. */
+/**
+ * Line numbers of `startServer(...)` calls in `source` whose options do not say `port: 0` in so many
+ * words. A fixed port (`port: 3210`, `port: 8080`) collides just the same, and a value held in a
+ * variable (`{ port }`) cannot be read from here, so both count.
+ */
 function portless(source, name = "test.mjs") {
   const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const found = [];
-  const names = (options) => options.properties.some((property) =>
-    (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) && property.name.getText(file) === "port");
+  const keyIsPort = (name) => (ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === "port";
+  const isZero = (property) => ts.isPropertyAssignment(property) && keyIsPort(property.name)
+    && ts.isNumericLiteral(property.initializer) && Number(property.initializer.text) === 0;
+  /* The last word on `port` wins: a spread after it may bring a port of its own. */
+  const names = (options) => {
+    const last = options.properties.findLastIndex((property) => isZero(property) || ts.isSpreadAssignment(property)
+      || (!ts.isSpreadAssignment(property) && property.name && keyIsPort(property.name)));
+    return last >= 0 && isZero(options.properties[last]);
+  };
   const visit = (node) => {
     if (ts.isCallExpression(node) && node.expression.getText(file) === "startServer") {
       const options = node.arguments[1];
-      // Options built elsewhere cannot be read from here, so they count as not naming a port.
+      // Options built elsewhere cannot be read from here, so they count as not saying `port: 0`.
       if (!options || !ts.isObjectLiteralExpression(options) || !names(options))
         found.push(file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1);
     }
@@ -43,13 +54,20 @@ test("the guard finds a portless call whatever its options hold, and accepts one
     "const s = await startServer(app, options);",
     "const s = await startServer(app, { ...options });",
     "const s = await startServer(app, { dataDir, note: 'port: 0' });",
+    "const s = await startServer(app, { dataDir, port: 3210 });",
+    "const s = await startServer(app, { dataDir, port: 8080, quit: () => { quits++; } });",
+    "const port = 0; const s = await startServer(app, { dataDir, port });",
+    "const s = await startServer(app, { dataDir, port: free });",
+    "const s = await startServer(app, { port: 0, ...options });",
+    "const s = await startServer(app, { port: 0, dataDir, port: 3210 });",
   ];
   for (const source of caught) assert.deepEqual(portless(source), [1], `missed: ${source}`);
   const allowed = [
     "const s = await startServer(app, { dataDir, port: 0 });",
     "const s = await startServer(app, { dataDir, quit: () => { quits++; }, port: 0 });",
     "const s = await startServer(app, {\n  dataDir: join(root, 'data'),\n  onReady() { ready = true; },\n  port: 0,\n});",
-    "const port = 0; const s = await startServer(app, { dataDir, port });",
+    "const s = await startServer(app, { dataDir, \"port\": 0 });",
+    "const s = await startServer(app, { ...options, port: 0 });",
     "// startServer(app, { dataDir });\nconst text = 'startServer(app)';",
   ];
   for (const source of allowed) assert.deepEqual(portless(source), [], `wrongly caught: ${source}`);

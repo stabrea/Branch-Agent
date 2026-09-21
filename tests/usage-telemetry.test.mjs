@@ -32,7 +32,7 @@ async function served(t, steps = [say("done")], serverOptions = {}) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted(steps),
     web: { allowPrivateAddresses: true },
   });
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, ...serverOptions });
+  const server = await startServer(app, { dataDir: join(root, "data"), ...serverOptions, port: 0 });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {

@@ -67,7 +67,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
 
 async function served(t, steps, options = {}) {
   const { app, root, workspace, provider } = await fixture(t, steps, options);
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, ...(options.server ?? {}) });
+  const server = await startServer(app, { dataDir: join(root, "data"), ...(options.server ?? {}), port: 0 });
   t.after(() => server.close());
   const api = async (method, path, body, headers = {}) => {
     const response = await fetch(server.url + path, {
