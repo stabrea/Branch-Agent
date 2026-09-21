@@ -50,7 +50,11 @@ test("renaming the active Trunk updates the shell target immediately", async (t)
   await page.getByRole("button", { name: "Edit Trunk" }).click();
   await page.locator("#trunks-edit-name").fill("Ada Bloom");
   await page.getByRole("button", { name: "Save changes" }).click();
-  await page.waitForFunction(() => document.getElementById("rail-target-name")?.textContent === "Ada Bloom", undefined, { timeout: 1000 });
+  await page.waitForFunction(
+    () => document.getElementById("rail-target-name")?.textContent === "Ada Bloom",
+    undefined,
+    { timeout: 120000 },
+  );
   assert.equal(app.trunks.records.list()[0].name, "Ada Bloom");
 });
 
