@@ -111,6 +111,9 @@ import { builtInSpeech } from "./speech-engines.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { liveRefusal } from "./live-refusal.js"; // phase2/rooms
 import { registerModelSwitch } from "./model-switch.js";
+import { registerSettingsTools } from "./settings-kit/tools.js";
+import { registerHelpSearch } from "./help-search.js";
+import { settingsKitWriters } from "./settings-kit/writers.js";
 import { GitTools } from "./integrations/git.js";
 import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
 import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
@@ -1215,7 +1218,7 @@ export async function createBranch(options: {
   // household-followups: with the owner's PIN set, the window comes back on the profile it was left
   // on, once everything above has started as the owner.
   store.profiles.resumeWhereLeft();
-  return {
+  const branch = {
     store,
     registry,
     /** R17-S-C: the proxy and certificates in force (src/comfort/network.ts). */
@@ -1540,6 +1543,10 @@ export async function createBranch(options: {
       }
     })()),
   };
+  // Changing Branch's own settings by asking, saved through the same writers as the window's (src/settings-kit/tools.ts).
+  registerSettingsTools(registry, store, () => settingsKitWriters(branch));
+  registerHelpSearch(registry); // what Branch knows about itself, from its own handbook
+  return branch;
 }
 /** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */
 async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Runtime, recipe: string, runId: string): Promise<void> {
