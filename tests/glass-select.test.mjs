@@ -205,6 +205,7 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
   assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
     .some((id) => document.getElementById(id)?.textContent?.trim())), "the linked help has words");
+  await f.page.evaluate(() => document.dispatchEvent(new Event("scroll", { bubbles: true })));
   await tip.waitFor({ state: "visible" });
   await f.page.keyboard.press("Escape");
   await tip.waitFor({ state: "hidden" });

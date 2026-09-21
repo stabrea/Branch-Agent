@@ -298,7 +298,10 @@ document.addEventListener("keyup", (event) => {
 document.addEventListener("branch-language", () => {
   if (tipFor && !tip.hidden) showTip(tipFor);
 });
-addEventListener("scroll", hideTip, true);
+addEventListener("scroll", () => {
+  if (tipFor && !tip.hidden) showTip(tipFor);
+  else hideTip();
+}, true);
 
 dressSelects();
 /* Lists drawn later by the page's own modules are dressed as they arrive. */
