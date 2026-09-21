@@ -139,7 +139,7 @@ function modelSelect(id, choices, blank) {
   const options = [];
   if (blank) options.push(["", "prompts.compare.none", "Nobody else"]);
   for (const choice of choices) {
-    options.push([choice.id, choice.name, choice.name]);
+    options.push([choice.id, "", choice.name]);
   }
   return dropdown({ id, options, value: blank ? "" : (choices.length > 0 ? choices[0].id : "") });
 }
