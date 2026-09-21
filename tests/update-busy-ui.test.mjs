@@ -97,3 +97,41 @@ test("the question follows a language change with its number intact", async (t) 
   assert.match(await page.locator("#updates-busy-text").textContent(), /^2 tâches sont en cours\./);
   assert.equal(await page.locator("#updates-wait").textContent(), "Les attendre");
 });
+
+test("when the count cannot be had, nothing installs until the owner says so", async (t) => {
+  const { page, errors } = await openApp(t);
+  await page.route("**/api/comfort/update-plan", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "busy" }) }));
+  await page.locator("#updates-install").click();
+  await page.locator("#updates-busy").waitFor({ state: "visible" });
+  assert.match(await page.locator("#updates-busy-text").textContent(), /could not tell whether any task is working/);
+  await page.locator("#updates-wait").click();
+  await page.waitForFunction(() => /Still cannot tell/.test(document.getElementById("updates-busy-text").textContent));
+  await page.waitForTimeout(3500);
+  assert.equal(await installs(page), 0, "an unknown count is never taken as none");
+  await page.locator("#updates-now").click();
+  await page.waitForFunction(() => globalThis.__installs === 1);
+  assert.deepEqual(errors, []);
+});
+
+test("slow answers while waiting, and a double press, still install exactly once", async (t) => {
+  const { app, page } = await openApp(t);
+  const one = app.store.createRun(app.runtime.owner, "a job");
+  // Every count takes longer than the 3 s between looks: with looks that overlapped, two "none" answers installed twice.
+  await page.route("**/api/comfort/update-plan", async (route) => { await new Promise((r) => setTimeout(r, 4000)); await route.continue(); });
+  await page.locator("#updates-install").click();
+  await page.locator("#updates-busy").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator("#updates-wait").click();
+  await page.waitForTimeout(1000);
+  app.store.finish(one.id, "completed", "done");
+  await page.waitForFunction(() => globalThis.__installs >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(9000);
+  assert.equal(await installs(page), 1, "one install, however the answers overlapped");
+
+  // Two presses of Update before the first count has come back.
+  await page.evaluate(() => { globalThis.__installs = 0; });
+  await page.locator("#updates-install").click();
+  await page.locator("#updates-install").click();
+  await page.waitForFunction(() => globalThis.__installs >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(5000);
+  assert.equal(await installs(page), 1, "a double press starts one update");
+});

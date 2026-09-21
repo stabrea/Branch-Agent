@@ -1043,20 +1043,28 @@ $("updates-check").addEventListener("click", async () => {
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
 /* ---------- tasks working when Update is pressed ---------- */
-let busyWait = null;
-/** How many tasks are working now; none when that cannot be asked, so the update is never held up by a question. */
-const busyTasks = () => api("comfort/update-plan", {}).then((plan) => Number(plan.busyTasks) || 0, () => 0);
+let busyTimer = null, waitingForTasks = false, installing = false;
+/** How many tasks are working now, or null when that could not be found out (never taken as none). */
+const busyTasks = () => api("comfort/update-plan", {}).then((plan) => {
+  const count = Number(plan.busyTasks);
+  return Number.isInteger(count) && count >= 0 ? count : null;
+}, () => null);
 function endBusyChoice() {
-  clearInterval(busyWait);
-  busyWait = null;
+  waitingForTasks = false;
+  clearTimeout(busyTimer);
+  busyTimer = null;
   $("updates-busy").hidden = true;
 }
+/** Starts the update once, however many presses or answers arrive at the same moment. */
 async function installNow() {
+  if (installing) return;
+  installing = true;
   endBusyChoice();
   try {
     window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
     showUpdateStatus(await window.branchDesktop.installUpdate());
   } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
+  finally { installing = false; }
 }
 /* The sentence carries a number, so it is written again on a language change rather than marked with a key. */
 let busySaid = null;
@@ -1064,22 +1072,33 @@ function sayBusy(key, count) {
   busySaid = { key, count };
   $("updates-busy-text").textContent = t(key, { count });
 }
+const busyKey = (count, waiting) => count === null ? (waiting ? "updates.busy.waiting-unknown" : "updates.busy.unknown")
+  : count === 1 ? (waiting ? "updates.busy.waiting-one" : "updates.busy.one") : (waiting ? "updates.busy.waiting-many" : "updates.busy.many");
 document.addEventListener("branch-language", () => { if (busySaid && !$("updates-busy").hidden) sayBusy(busySaid.key, busySaid.count); });
+let countingForUpdate = false;
 $("updates-install").addEventListener("click", async () => {
-  const count = await busyTasks();
-  if (!count) return installNow();
-  // Nothing closes under a working task without the owner's say: wait for it, or update now and have it offered back.
-  sayBusy(count === 1 ? "updates.busy.one" : "updates.busy.many", count);
+  // A second press while the first is still counting, installing or asking is the same press.
+  if (installing || countingForUpdate || !$("updates-busy").hidden) return;
+  countingForUpdate = true;
+  const count = await busyTasks().finally(() => { countingForUpdate = false; });
+  if (count === 0) return installNow();
+  // Nothing closes under a working task without the owner's say, and not knowing counts as maybe:
+  // wait for them, or update now and have them offered back.
+  sayBusy(busyKey(count, false), count ?? 0);
   $("updates-busy").hidden = false;
 });
 $("updates-wait").addEventListener("click", () => {
-  clearInterval(busyWait);
+  clearTimeout(busyTimer);
+  waitingForTasks = true;
+  // One question at a time: the next look is only arranged once this one has an answer.
   const check = async () => {
+    if (!waitingForTasks) return;
     const count = await busyTasks();
-    if (!count) return installNow();
-    sayBusy(count === 1 ? "updates.busy.waiting-one" : "updates.busy.waiting-many", count);
+    if (!waitingForTasks) return;
+    if (count === 0) return installNow();
+    sayBusy(busyKey(count, true), count ?? 0);
+    busyTimer = setTimeout(() => void check(), 3000);
   };
-  busyWait = setInterval(() => void check(), 3000);
   void check();
 });
 $("updates-now").addEventListener("click", () => void installNow());
