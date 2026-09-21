@@ -83,6 +83,12 @@ const categoriesShape = (categories) =>
   JSON.stringify(categories.map((one) => [one.id, one.label, one.description, one.tools.length, one.decision ?? ""]));
 
 /** Approval settings, a kind of thing at a time: one choice covers every tool of that kind. */
+/** A kind's name or sentence in the chosen language; the server's English when there is no translation yet. */
+function kindWords(category, part) {
+  const key = `toolKinds.kind.${category.id}.${part}`;
+  const words = t(key);
+  return words === key ? category[part] : words;
+}
 async function renderCategories() {
   const host = $("approval-categories");
   if (!host || !sessionStorage.getItem("branch-token")) return;
@@ -102,10 +108,10 @@ async function renderCategories() {
     /* The kind's name is the dropdown's name: without it a screen reader announced six identical
        "combo box, Leave as it is" with nothing to tell them apart. (What the choice does is linked
        by public/settings-describe.js, from its "#approval-categories select" row.) */
-    const name = el("strong", category.label);
+    const name = el("strong", kindWords(category, "label"));
     name.id = `approval-category-${category.id}-name`;
     row.append(name, el("p", t(category.tools.length === 1 ? "toolKinds.aboutOne" : "toolKinds.aboutMany",
-      { about: category.description, count: category.tools.length }), "subtle"));
+      { about: kindWords(category, "description"), count: category.tools.length }), "subtle"));
     const choice = el("select");
     choice.setAttribute("aria-labelledby", name.id);
     for (const [value, key] of [["", "toolKinds.leave"], ["allow", "toolKinds.allow"], ["ask", "toolKinds.ask"], ["deny", "toolKinds.deny"]]) {
@@ -120,7 +126,7 @@ async function renderCategories() {
         await api("approvals/categories", { [category.id]: choice.value });
         category.decision = choice.value;
         categoriesDrawn = categoriesShape(view.categories);
-        say(t("toolKinds.saved", { kind: category.label.toLowerCase(), choice: choice.selectedOptions[0].textContent.toLowerCase() }));
+        say(t("toolKinds.saved", { kind: kindWords(category, "label").toLowerCase(), choice: choice.selectedOptions[0].textContent.toLowerCase() }));
         void window.branchApprovals?.render();
       } catch (e) { say(t("toolKinds.notSaved", { message: e.message })); }
     });
@@ -206,3 +212,5 @@ async function render() {
 }
 window.branchAllowed = { render: renderAllowed };
 window.branchMisc = { render, askBeforeStarting };
+/* The kinds are only redrawn when they change; a change of language must redraw them in the new words. */
+document.addEventListener("branch-language", () => { categoriesDrawn = ""; void renderCategories(); });
