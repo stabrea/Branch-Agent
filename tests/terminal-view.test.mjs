@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,8 @@ import { Tui } from "../dist/terminal-tui.js";
 import { routeMouse } from "../dist/terminal-keys.js";
 import { paletteItems } from "../dist/terminal-palette.js";
 import { PLACE_ROWS } from "../dist/terminal-place-data.js";
+import { offeredOn } from "../dist/devices/capabilities.js";
+import { saveEmbedSettings } from "../dist/embeds.js";
 
 const DOCS = new URL("../docs/places.md", import.meta.url);
 const LAYOUT = new URL("../public/layout.js", import.meta.url);
@@ -338,6 +340,31 @@ test("the Trunks Settings row opens the live Trunks roster, not specialist recor
     "the real named Trunk appears from the live roster");
   assert.ok(tui.rows.some((row) => row.title === "Specialist only" && row.detail?.startsWith("Specialists ·")),
     "saved specialist templates remain visible but are not presented as Trunks");
+});
+
+test("terminal Channels and Connections include devices, page bridges, and app accounts", async (t) => {
+  const { app } = await running(t);
+  app.devices.setMode({ mode: "on" });
+  const pair = generateKeyPairSync("ed25519");
+  const publicKey = pair.publicKey.export({ format: "der", type: "spki" }).toString("base64");
+  const offer = app.devices.book.invite();
+  const request = app.devices.book.redeem({ offer: offer.id, code: offer.code, name: "Kitchen Mac",
+    platform: "darwin", publicKey, offers: offeredOn("darwin") });
+  app.devices.book.decide(request.requestId, true);
+  saveEmbedSettings(app.store, app.runtime.owner, { widget: true, extension: true,
+    widgetSites: ["https://notes.example.com"] });
+  await app.personal.setMode("google", { mode: "when-needed" });
+  app.personal.signIns.google.save({ clientId: "branch-terminal-test" });
+
+  const channels = await PLACE_ROWS["customize:channels"](app, loadWords("en"));
+  assert.ok(channels.some((row) => row.title === "Kitchen Mac" && /Mac computer/.test(row.detail)),
+    "the paired device is visible at the destination advertised by Settings");
+  assert.ok(channels.some((row) => row.title === "Reaching Branch from other pages" && /notes\.example\.com/.test(row.detail)),
+    "the configured widget and extension are visible there too");
+
+  const connections = await PLACE_ROWS["customize:connections"](app, loadWords("en"));
+  assert.ok(connections.some((row) => /^Google/.test(row.title) && /Not signed in yet/.test(row.detail)),
+    "an app account does not disappear merely because no MCP server exists");
 });
 
 test("every place, tab and Settings page in docs/places.md opens from the terminal, by command and by key", async (t) => {

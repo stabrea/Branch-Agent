@@ -5,6 +5,7 @@ import { assistantIdentity } from "./identity.js";
 import { trunksFor } from "./trunks/index.js";
 import type { Words } from "./terminal-words.js";
 import { learnMode } from "./learn/settings.js"; // mac7/learn
+import { embedSettings } from "./embeds.js";
 
 /**
  * What each place and tab holds, read from the same stores the window's screens read. Every row is
@@ -13,7 +14,7 @@ import { learnMode } from "./learn/settings.js"; // mac7/learn
  */
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 export type PlaceApp = Pick<Branch, "store" | "runtime" | "triggers" | "webhooks" | "hooks" | "documents" | "artifacts"
-  | "plugins" | "mcpConnections" | "channels" | "runQueue" | "version">;
+  | "plugins" | "mcpConnections" | "channels" | "runQueue" | "version" | "devices" | "personal">;
 export interface Row {
   title: string;
   detail?: string;
@@ -145,10 +146,47 @@ async function plugins(app: PlaceApp, words: Words): Promise<Row[]> {
 }
 function channels(app: PlaceApp, words: Words): Row[] {
   const summary = app.channels.summary();
-  return [...summary.channels.map((channel) => ({
+  const chats = summary.channels.map((channel) => ({
     title: `${channel.id}`, detail: `${channel.kind} · ${String((channel.health as { state?: string }).state ?? "")}`,
     tone: (channel.health as { state?: string }).state === "connected" ? "ok" as const : "warn" as const,
-  })), channelSetupRow(words)]; // mac7/connect
+  }));
+  if (!app.store.profiles.isOwner()) return [...chats, channelSetupRow(words)];
+  const devices = app.devices.book.devices().map((device) => ({
+    title: device.name,
+    detail: `${words.t(`devices.platform.${device.platform}`, device.platform)} · ${app.devices.hub.connected(device.id)
+      ? words.t("devices.device.connected", "Connected now") : words.t("devices.device.never", "Not connected yet")}`,
+    tone: app.devices.hub.connected(device.id) ? "ok" as const : "muted" as const,
+  }));
+  const embeds = embedSettings(app.store, app.runtime.owner);
+  const pageRows = embeds.widget || embeds.extension || embeds.widgetSites.length ? [{
+    title: words.t("embeds.title", "Reaching Branch from other pages"),
+    detail: clip([embeds.widget ? words.t("field.let-a-page-of-mine", "Small ask box") : "",
+      embeds.extension ? words.t("field.let-the-browser-extension-send", "Browser extension") : "",
+      ...embeds.widgetSites].filter(Boolean).join(" · "), 140),
+  }] : [];
+  return [...chats, ...devices, ...pageRows, channelSetupRow(words)]; // mac7/connect
+}
+
+async function connectionRows(app: PlaceApp, words: Words): Promise<Row[]> {
+  const mcp = app.mcpConnections.health().map((server) => ({
+    title: server.id, detail: `${server.state}${server.lastError ? " · " + clip(server.lastError, 60) : ""}`,
+    tone: server.lastError ? "bad" as const : undefined,
+  }));
+  if (!app.store.profiles.isOwner()) return mcp;
+  const modes = app.personal.modes();
+  const accounts = await Promise.all(Object.entries(app.personal.signIns).map(async ([service, signIn]) => {
+    const settings = signIn.settings(), status = await signIn.status();
+    if (modes[service as keyof typeof modes] === "off" && !settings.clientId && !status.signedIn) return null;
+    const name = words.t(`personal.${service}.name`, service);
+    return { title: name, detail: words.t(status.signedIn ? "personal.signin.yes" : "personal.signin.no",
+      status.signedIn ? "Signed in." : "Not signed in yet."), tone: status.signedIn ? "ok" as const : "muted" as const };
+  }));
+  const local = [
+    ["x-search", "personal.x.title", "Searching posts on X"],
+    ["home-control", "personal.home.title", "Your Home Assistant"],
+  ].filter(([part]) => modes[part as keyof typeof modes] !== "off")
+    .map(([, key, english]) => ({ title: words.t(key!, english!), detail: words.t("terminal.state.on", "on"), tone: "muted" as const }));
+  return [...mcp, ...accounts.filter((row): row is NonNullable<typeof row> => row !== null), ...local];
 }
 /** mac7/connect: the one command that sets up a chat app, shown where the chat apps are. */
 function channelSetupRow(words: Words): Row {
@@ -188,10 +226,7 @@ export const PLACE_ROWS: Record<string, RowReader> = {
   })),
   "customize:specialists": specialistRows,
   "customize:plugins": plugins,
-  "customize:connections": (app) => app.mcpConnections.health().map((server) => ({
-    title: server.id, detail: `${server.state}${server.lastError ? " · " + clip(server.lastError, 60) : ""}`,
-    tone: server.lastError ? "bad" as const : undefined,
-  })),
+  "customize:connections": connectionRows,
   "customize:channels": channels,
 };
 
