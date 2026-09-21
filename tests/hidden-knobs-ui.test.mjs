@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, readKnobs } from "../dist/index.js";
+import { saveKnobs } from "../dist/knobs/settings.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettingFor, pressUntil } from "./places.mjs";
 
@@ -131,6 +132,21 @@ test("a language redraw cannot replace an unsaved launch-file list", async (t) =
   await sites.fill(draft);
   await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
   assert.equal(await sites.inputValue(), draft);
+});
+
+test("a focused clean control stays clean across redraws and accepts the next server value", async (t) => {
+  const { app, page } = await openApp(t);
+  await openSettingFor(page, "#knobs-limits-card");
+  const steps = page.locator("#knobs-maxSteps");
+  await steps.focus();
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
+  assert.equal(await steps.getAttribute("data-knob-dirty"), null);
+  assert.equal(await steps.inputValue(), "60");
+  await steps.evaluate((control) => control.blur());
+  saveKnobs(app.store, "local", "limits", { maxSteps: 25 });
+  await page.evaluate(() => globalThis.branchKnobs.refresh());
+  await page.waitForFunction(() => document.getElementById("knobs-maxSteps")?.value === "25");
+  assert.equal(await steps.inputValue(), "25");
 });
 
 test("a refresh that started before Save cannot redraw over the saved value or receipt", async (t) => {

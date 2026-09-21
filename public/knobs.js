@@ -324,7 +324,8 @@ function controlDrafts() {
     selection: active && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : null,
     values: [...document.querySelectorAll(knobControlSelector)]
       .filter((node) => node === active || node.dataset.knobDirty === "true")
-      .map((node) => [node.id, { value: node.value, checked: node.type === "checkbox" ? node.checked : null }]),
+      .map((node) => [node.id, { value: node.value, checked: node.type === "checkbox" ? node.checked : null,
+        dirty: node.dataset.knobDirty === "true" }]),
   };
 }
 function restoreControlDrafts(drafts) {
@@ -333,7 +334,7 @@ function restoreControlDrafts(drafts) {
     if (!node) continue;
     node.value = saved.value;
     if (saved.checked !== null) node.checked = saved.checked;
-    node.dataset.knobDirty = "true";
+    if (saved.dirty) node.dataset.knobDirty = "true"; else delete node.dataset.knobDirty;
   }
   const active = $(drafts.active);
   if (!active) return;
