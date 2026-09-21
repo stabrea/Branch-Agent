@@ -304,11 +304,23 @@ test("the terminal computer overview excludes Trunk conversations", async (t) =>
   const trunk = app.trunks.create({ name: "Ada" });
   const ownerRun = app.store.createRun(app.runtime.owner, "Owner task");
   app.store.finish(ownerRun.id, "completed", "done");
-  const trunkRun = app.store.createRun(app.runtime.owner, "Private Trunk task", trunk.chatSessionId);
+  const retiredRun = app.store.createRun(app.runtime.owner, "Retired Trunk task", trunk.chatSessionId);
+  app.store.finish(retiredRun.id, "completed", "done");
+  const current = app.trunks.retireChat(trunk.id);
+  const trunkRun = app.store.createRun(app.runtime.owner, "Current Trunk task", current.chatSessionId);
   app.store.finish(trunkRun.id, "completed", "done");
   const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
   assert.ok(rows.some((row) => row.title === "Owner task"), "this computer's work remains visible");
-  assert.ok(rows.every((row) => row.title !== "Private Trunk task"), "a Trunk's work stays in that Trunk");
+  assert.ok(rows.every((row) => !/Trunk task/.test(row.title)), "current and retired Trunk work stays in that Trunk");
+});
+
+test("the terminal People page shows a household profile only itself", async (t) => {
+  const { app } = await running(t);
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.create({ name: "Alex", pin: "1357" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const rows = await PLACE_ROWS["household:people"](app, loadWords("en"));
+  assert.deepEqual(rows.map((row) => row.title), ["Sam"]);
 });
 
 test("every place, tab and Settings page in docs/places.md opens from the terminal, by command and by key", async (t) => {
