@@ -11,6 +11,7 @@ import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let shown = null;
+let writeVersion = 0;
 
 async function api(body, path = "knobs") {
   const response = await fetch("/api/" + path, {
@@ -176,11 +177,18 @@ function actions(spec, controls, status) {
   const row = document.createElement("div");
   row.className = "identity-actions";
   const send = async (values, done) => {
+    const version = ++writeVersion;
     const outside = spec.fields.filter((field) => field.outside);
     const inside = Object.fromEntries(Object.entries(values).filter(([name]) => !outside.some((field) => field.name === name)));
     const extra = Object.fromEntries(outside.map((field) => [field.name, values[field.name]]));
-    try { shown = { ...shown, view: await api({ card: spec.card, values: inside, ...extra }) }; status.textContent = t(done); status.dataset.t = done; }
-    catch (error) { status.textContent = error.message; delete status.dataset.t; }
+    try {
+      const view = await api({ card: spec.card, values: inside, ...extra });
+      if (version !== writeVersion) return;
+      shown = { ...shown, view }; status.textContent = t(done); status.dataset.t = done;
+    } catch (error) {
+      if (version !== writeVersion) return;
+      status.textContent = error.message; delete status.dataset.t;
+    }
   };
   const save = keyed("button", "knobs.action.save");
   save.type = "button";
@@ -258,10 +266,15 @@ function launchCard(file) {
   const save = keyed("button", "knobs.action.save-for-next-start");
   save.type = "button";
   save.addEventListener("click", async () => {
+    const version = ++writeVersion;
     try {
       await api(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs/launch-file");
+      if (version !== writeVersion) return;
       status.textContent = t("knobs.launch.saved"); status.dataset.t = "knobs.launch.saved";
-    } catch (error) { status.textContent = error.message; delete status.dataset.t; }
+    } catch (error) {
+      if (version !== writeVersion) return;
+      status.textContent = error.message; delete status.dataset.t;
+    }
   });
   card.append(save, status);
   return card;
@@ -271,20 +284,48 @@ function place(card) {
   const existing = $(card.id);
   if (existing) existing.replaceWith(card); else document.body.append(card);
 }
-function draw() {
+function controlDrafts() {
+  const active = document.activeElement;
+  return {
+    active: active?.id ?? "",
+    selection: active && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : null,
+    values: [...document.querySelectorAll('input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]')]
+      .map((node) => [node.id, { value: node.value, checked: node.type === "checkbox" ? node.checked : null }]),
+  };
+}
+function restoreControlDrafts(drafts) {
+  for (const [id, saved] of drafts.values) {
+    const node = $(id);
+    if (!node) continue;
+    node.value = saved.value;
+    if (saved.checked !== null) node.checked = saved.checked;
+  }
+  const active = $(drafts.active);
+  if (!active) return;
+  active.focus({ preventScroll: true });
+  if (drafts.selection?.every(Number.isInteger) && typeof active.setSelectionRange === "function")
+    active.setSelectionRange(...drafts.selection);
+}
+const editingKnob = () => document.activeElement?.matches?.(
+  'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]');
+function draw(preserveDrafts = false) {
   if (!shown) return;
+  const drafts = preserveDrafts ? controlDrafts() : null;
   for (const spec of CARDS) place(buildCard(spec, shown.view));
   if (shown.file) place(launchCard(shown.file));
+  if (drafts) restoreControlDrafts(drafts);
 }
 const allCardsAreDrawn = () => CARDS.every((spec) => $(`knobs-${spec.id}-card`)) && $("knobs-launch-file-card");
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
+  const version = writeVersion;
   try {
     const [view, file] = await Promise.all([api(), api(undefined, "knobs/launch-file")]);
+    if (version !== writeVersion) return;
     const next = { view, file };
     if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
     shown = next;
-    draw();
+    draw(editingKnob());
   } catch { /* signed out or offline: the next look tries again */ }
 }
 async function afterSignIn(tries = 20) {
@@ -295,7 +336,7 @@ async function afterSignIn(tries = 20) {
 
 if (typeof document !== "undefined") {
   void refresh();
-  document.addEventListener("branch-language", draw);
+  document.addEventListener("branch-language", () => draw(true));
   const signedIn = $("workspace");
   if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) void afterSignIn(); }).observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
   window.branchKnobs = { refresh };

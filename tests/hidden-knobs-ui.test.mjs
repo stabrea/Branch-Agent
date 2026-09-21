@@ -120,6 +120,34 @@ test("an unchanged refresh cannot replace a knob value while it is being typed",
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
 });
 
+test("a refresh that started before Save cannot redraw over the saved value or receipt", async (t) => {
+  const { page } = await openApp(t);
+  await openSettingFor(page, "#knobs-limits-card");
+  let captured, release;
+  const responseCaptured = new Promise((resolve) => { captured = resolve; });
+  const released = new Promise((resolve) => { release = resolve; });
+  let held = false;
+  await page.route("**/api/knobs", async (route) => {
+    if (route.request().method() !== "GET" || held) return route.continue();
+    held = true;
+    const response = await route.fetch();
+    captured();
+    await released;
+    await route.fulfill({ response });
+  });
+  const refreshing = page.evaluate(() => globalThis.branchKnobs.refresh());
+  await responseCaptured;
+  await page.locator("#knobs-maxSteps").fill("25");
+  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true })
+    .evaluate((button) => button.click());
+  const receipt = page.locator("#knobs-limits-card [role=status]").filter({ hasText: "Saved" });
+  await receipt.waitFor({ state: "visible", timeout: 20000 });
+  release();
+  await refreshing;
+  assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
+  assert.equal(await receipt.isVisible(), true, "the stale response did not erase the save receipt");
+});
+
 test("at 400 px the knob cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["knobs-leak-guard-card", "knobs-commands-card", "knobs-reasoning-card"]) {
