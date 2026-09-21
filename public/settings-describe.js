@@ -13,6 +13,7 @@
  */
 import { t } from "/i18n.js";
 import { descriptions, switchDescription } from "/settings-descriptions.js";
+import { trackPopover } from "/popover.js";
 
 const CARDS = ".lx-page .card";
 const CONTROLS = "input:not([type=hidden]), select, textarea";
@@ -51,10 +52,10 @@ function descriptionAnchor(control) {
 function attach(control, key, english) {
   if (described(control)) return;
   const anchor = descriptionAnchor(control);
-  const next = anchor.nextElementSibling;
+  const next = nextAfter(anchor);
   if (next?.classList.contains("kit-describe") && next.dataset.t === key) return link(control, next);
   const node = note(key, english);
-  anchor.after(node);
+  endOf(anchor).after(node);
   link(control, node);
 }
 
@@ -65,10 +66,10 @@ function attachGroup(selector, key, english) {
   if (!holder?.closest(CARDS)) return;
   const controls = [...holder.querySelectorAll(inner)].filter((control) => !described(control));
   if (!controls.length) return;
-  let node = holder.nextElementSibling;
+  let node = nextAfter(holder);
   if (!(node?.classList.contains("kit-describe") && node.dataset.t === key)) {
     node = note(key, english);
-    holder.after(node);
+    endOf(holder).after(node);
   }
   for (const control of controls) link(control, node);
 }
@@ -84,7 +85,7 @@ function describeAll() {
   }
   for (const control of document.querySelectorAll(`${CARDS} :is(${CONTROLS})`)) {
     if (described(control)) continue;
-    const next = descriptionAnchor(control).nextElementSibling;
+    const next = nextAfter(descriptionAnchor(control));
     if (next?.classList.contains("field-note") && next.textContent.trim()) {
       if (!next.id) next.id = `kit-describe-${++made}`;
       link(control, next);
@@ -134,6 +135,145 @@ function chipAll() {
 
 /* The chip's look lives in public/settings-kit.css: an inline <style> is refused by the page's Content Security Policy. */
 
+/* ---------- the "i" beside a setting's name ---------- */
+
+/**
+ * The sample puts a small "i" after every setting's name. Pressing it shows the name, what the setting
+ * does (the same sentence as the note under it) and when you would change it.
+ *
+ * The "i" sits straight after the <label>, never inside it: a button inside a label becomes part of
+ * the control's name, so "Start Branch when I sign in to Windows" would be read aloud, and found by
+ * tests, as "... About Start Branch ...". A control with no named label, or no sentence, gets no "i".
+ *
+ * Its name is "About this setting", and the label is its description (aria-describedby), so a screen
+ * reader hears which setting it belongs to. It is not named "About <the setting>": a name that holds
+ * the setting's words is found by a loose `getByLabel("Preset")` beside the real control, and it goes
+ * stale when a card rewrites its label (the sign-in switch names this computer's system). A
+ * description that points at the label cannot go stale.
+ */
+const ABOUT = ["settings-kit.info.about-this", "About this setting"];
+let labelled = 0;
+const WHEN = {
+  "phone-switch": ["settings-kit.info.when.phone", "Switch it on when you want to use Branch from your phone."],
+  "wake-word-mode": ["settings-kit.info.when.wake", "When you want to start talking without touching anything."],
+  "dictation-mode": ["settings-kit.info.when.dictation", "When you would rather speak than type."],
+  "retention-enabled": ["settings-kit.info.when.retention", "When conversations are taking up too much room."],
+};
+const WHEN_SHIPPED = ["settings-kit.info.when.shipped", "If the way it ships doesn't suit you. You can always change it back."];
+
+const isInfo = (node) => !!node?.classList.contains("kit-info");
+/** The element after `node`, stepping over an "i". */
+const nextAfter = (node) => (isInfo(node.nextElementSibling) ? node.nextElementSibling.nextElementSibling : node.nextElementSibling);
+/** Where something added after `node` goes: after its "i" when it has one. */
+const endOf = (node) => (isInfo(node.nextElementSibling) ? node.nextElementSibling : node);
+
+/** A label's own words, without the words of any control inside it. */
+function nameOf(label) {
+  const copy = label.cloneNode(true);
+  for (const inner of copy.querySelectorAll("input, select, textarea, button")) inner.remove();
+  return copy.textContent.replace(/\s+/g, " ").trim();
+}
+
+/** The words the control's described-by list points at. */
+function sentenceOf(control) {
+  const ids = (control?.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+  return ids.map((id) => document.getElementById(id)?.textContent.trim()).filter(Boolean).join(" ");
+}
+
+/** Points the "i" at its label, giving the label an id when it has none. */
+function describeBy(button, label) {
+  if (!label.id) label.id = `kit-info-label-${++labelled}`;
+  if (button.getAttribute("aria-describedby") !== label.id) button.setAttribute("aria-describedby", label.id);
+}
+
+function addInfo(control) {
+  const label = [...(control.labels ?? [])].find((node) => nameOf(node));
+  if (!label || isInfo(label.nextElementSibling) || !sentenceOf(control)) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "kit-info";
+  button.textContent = "i";
+  button.setAttribute("aria-haspopup", "dialog");
+  button.setAttribute("aria-expanded", "false");
+  button.setAttribute("aria-label", say(...ABOUT));
+  describeBy(button, label);
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleInfo(button);
+  });
+  label.after(button);
+  label.classList.add("kit-info-named");
+}
+
+/**
+ * Gives every named, described control its "i", drops any "i" whose label has gone, and re-points an
+ * "i" whose label a card replaced with a new one.
+ */
+function infoAll() {
+  for (const button of document.querySelectorAll(`${CARDS} .kit-info`)) {
+    const label = button.previousElementSibling;
+    if (label?.tagName === "LABEL") describeBy(button, label);
+    else button.remove();
+  }
+  for (const control of document.querySelectorAll(`${CARDS} :is(${CONTROLS})`)) addInfo(control);
+}
+
+let pane = null;
+let shown = null;
+
+function line(tag, words, className = "") {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = words;
+  return node;
+}
+
+/** Below the "i" when there is room, above it when there is not; never off the side of the window. */
+function place(button) {
+  const box = button.getBoundingClientRect();
+  pane.style.left = `${Math.max(8, Math.min(box.left, innerWidth - pane.offsetWidth - 8))}px`;
+  if (innerHeight - box.bottom >= pane.offsetHeight + 12 || innerHeight - box.bottom >= box.top) {
+    pane.style.top = `${box.bottom + 6}px`;
+    pane.style.bottom = "";
+  } else {
+    pane.style.top = "";
+    pane.style.bottom = `${innerHeight - box.top + 6}px`;
+  }
+}
+
+function toggleInfo(button) {
+  if (shown?.button === button) { shown.entry.close(); return; }
+  const label = button.previousElementSibling;
+  const control = label?.control;
+  if (!control) return;
+  if (!pane) {
+    pane = document.createElement("div");
+    pane.className = "kit-info-pop";
+    pane.setAttribute("role", "dialog");
+    pane.hidden = true;
+    document.body.append(pane);
+  }
+  const name = line("p", nameOf(label), "kit-info-name");
+  name.id = "kit-info-pop-name";
+  pane.setAttribute("aria-label", say(...ABOUT));
+  pane.setAttribute("aria-describedby", name.id);
+  pane.replaceChildren(
+    name,
+    line("b", say("settings-kit.info.what", "What this does")),
+    line("p", sentenceOf(control)),
+    line("b", say("settings-kit.info.when", "When you'd change it")),
+    line("p", say(...(WHEN[control.id] ?? WHEN_SHIPPED))));
+  pane.hidden = false;
+  place(button);
+  button.setAttribute("aria-expanded", "true");
+  const entry = trackPopover(button, pane, () => {
+    pane.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    if (shown?.button === button) shown = null;
+  });
+  shown = { button, entry };
+}
+
 let queued = false;
 /**
  * Describes and chips everything, once per batch of changes to the page.
@@ -153,6 +293,7 @@ function refresh() {
     queued = false;
     describeAll();
     chipAll();
+    infoAll();
   });
 }
 
@@ -171,7 +312,10 @@ if (typeof document !== "undefined") {
   document.addEventListener("branch-language", () => {
     for (const node of document.querySelectorAll(".kit-describe[data-t], .kit-scope[data-t]"))
       node.textContent = say(node.dataset.t, node.textContent);
+    for (const button of document.querySelectorAll(".kit-info")) button.setAttribute("aria-label", say(...ABOUT));
   });
+  /* The explanation is placed against the "i"; once the page scrolls under it, it would point at nothing. */
+  document.addEventListener("scroll", (event) => { if (shown && !pane?.contains(event.target)) shown.entry.close(); }, true);
   globalThis.branchDescribeSettings = () => refresh();
   /**
    * Integration review (mac7/wake-pins): the same, at once. A card that throws its controls away and
@@ -183,5 +327,6 @@ if (typeof document !== "undefined") {
   globalThis.branchDescribeSettingsNow = () => {
     describeAll();
     chipAll();
+    infoAll();
   };
 }
