@@ -276,11 +276,14 @@ function draw() {
   for (const spec of CARDS) place(buildCard(spec, shown.view));
   if (shown.file) place(launchCard(shown.file));
 }
+const allCardsAreDrawn = () => CARDS.every((spec) => $(`knobs-${spec.id}-card`)) && $("knobs-launch-file-card");
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
   try {
     const [view, file] = await Promise.all([api(), api(undefined, "knobs/launch-file")]);
-    shown = { view, file };
+    const next = { view, file };
+    if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
+    shown = next;
     draw();
   } catch { /* signed out or offline: the next look tries again */ }
 }
