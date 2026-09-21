@@ -246,6 +246,28 @@ test("an ordinary conversation assigned to a Trunk updates the shell target", as
   assert.deepEqual(f.errors, []);
 });
 
+test("the Trunks rail recovers after profile loading fails or the owner returns", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const targets = await f.page.evaluate(() => {
+    const selectAda = () => document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
+      name: "Ada", kind: "Trunk", status: "Online",
+    } }));
+    document.addEventListener("branch-strip-reselect", selectAda);
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: null } }));
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: { isOwner: true } } }));
+    const afterRetry = document.getElementById("rail-target-name").textContent;
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: true } }));
+    selectAda();
+    const beforeRefresh = document.getElementById("rail-target-name").textContent;
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: { isOwner: true } } }));
+    return { afterRetry, beforeRefresh, afterRefresh: document.getElementById("rail-target-name").textContent };
+  });
+  assert.deepEqual(targets, { afterRetry: "Ada", beforeRefresh: "This computer", afterRefresh: "Ada" });
+  assert.deepEqual(f.errors, []);
+});
+
 test("a new screen that names its home with data-home is shown there, even when added later", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {

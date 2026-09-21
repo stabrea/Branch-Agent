@@ -421,6 +421,7 @@ whenReady(() => {
   });
   document.addEventListener("branch-language", () => { drawStrip(); document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell })); });
   document.addEventListener("branch-place", markSelected);
+  document.addEventListener("branch-strip-reselect", markSelected);
   if ($("conversation")) new MutationObserver(markSelected).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
   new MutationObserver(() => repaintPatterns()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
 });

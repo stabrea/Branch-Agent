@@ -23,6 +23,16 @@ import { startServer, offLimitsToHousehold } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 import { settingKeys } from "../scripts/check-docs.mjs";
 
+test("every Settings page introduction has English and French words", async () => {
+  const en = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  for (const page of ["trunks", "channels", "connections", "skills", "memory", "automations"]) {
+    const key = `settings.window.${page}.intro`;
+    assert.ok(en[key], `${key} has English words`);
+    assert.ok(fr[key] && fr[key] !== en[key], `${key} has real French words`);
+  }
+});
+
 const ROOT = join(import.meta.dirname, "..");
 const INVENTORY = JSON.parse(await readFile(join(ROOT, "tests", "fixtures", "settings-inventory.json"), "utf8")).settings;
 const { SETTINGS_INDEX } = await import("../public/settings-index.js");
