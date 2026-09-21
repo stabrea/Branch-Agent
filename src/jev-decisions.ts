@@ -76,7 +76,7 @@ const yesAnswer = z.object({ noul: z.number().min(0).max(1), yes: z.boolean().op
 const pickAnswer = z.object({ choice: z.string(), confidence: z.number().min(0).max(1).optional(),
   probabilities: probabilityMap }).passthrough();
 const scoreAnswer = z.object({ score: z.number(), confidence: z.number().min(0).max(1).optional(),
-  probabilities: probabilityMap, label: z.string().optional(), value: z.number().optional() }).passthrough();
+  probabilities: probabilityMap, label: z.string().optional() }).passthrough();
 
 const gateFor = (confidence: number, minimum: number): "ready" | "review" =>
   confidence >= minimum ? "ready" : "review";
@@ -143,7 +143,7 @@ export class JevDecisions {
       throw new Error("JEV returned a score outside the offered range, so no decision was made.");
     if (answer.label && !input.labels.includes(answer.label))
       throw new Error("JEV returned a label that was not offered, so no decision was made.");
-    return { ...commonResult, score: answer.value ?? answer.score, label: answer.label ?? "",
+    return { ...commonResult, score: answer.score, label: answer.label ?? "",
       probabilities: answer.probabilities, confidence, gate: gateFor(confidence, minimum) };
   }
 }

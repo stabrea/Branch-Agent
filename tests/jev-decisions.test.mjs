@@ -129,6 +129,20 @@ test("a provider cannot return a choice or score outside the declared decision",
   saveJevSettings(score.store, owner, { ...jevSettings(score.store, owner), mode: "on" });
   await assert.rejects(() => score.decisions.decide({ kind: "score", question: "How risky?",
     state: "Routine change", labels: ["low", "high"] }), /score outside the offered range/i);
+
+  const injectedValue = fixture(t, { type: "score", score: 1, value: 99, confidence: 0.99,
+    probabilities: { 0: 0.01, 1: 0.99 }, label: "high" });
+  saveJevSettings(injectedValue.store, owner, { ...jevSettings(injectedValue.store, owner), mode: "on" });
+  const result = await injectedValue.decisions.decide({ kind: "score", question: "How risky?",
+    state: "Routine change", labels: ["low", "high"] });
+  assert.equal(result.score, 1, "label mode uses JEV's bounded score, not an undeclared value field");
+
+  const fractional = fixture(t, { type: "score", score: 0.5, confidence: 0.99,
+    probabilities: { 0: 0.5, 1: 0.5 }, label: "high" });
+  saveJevSettings(fractional.store, owner, { ...jevSettings(fractional.store, owner), mode: "on" });
+  assert.equal((await fractional.decisions.decide({ kind: "score", question: "How risky?",
+    state: "Routine change", labels: ["low", "high"] })).score, 0.5,
+  "JEV scores are expected values and may legitimately fall between ordinal levels");
 });
 
 test("score labels are bounded and ordered before a process can start", () => {
