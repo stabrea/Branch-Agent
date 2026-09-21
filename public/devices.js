@@ -267,7 +267,7 @@ function picker(view) {
   }
   wrap.hidden = false;
   const select = $("composer-device");
-  const deviceOptions = [["", "devices.picker.any"], ...view.devices.map((device) => [device.id, device.name])];
+  const deviceOptions = [["", "devices.picker.any"], ...view.devices.map((device) => [device.id, "", device.name])];
   select.setOptions?.(deviceOptions);
   select.value = picked ?? "";
 }
