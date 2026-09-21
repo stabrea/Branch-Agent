@@ -211,7 +211,8 @@ function describedWords(control) {
   return words || control.getAttribute("aria-description") || "";
 }
 function describedControl(node) {
-  let control = node?.closest?.(".segmented-control, button, [role=button], a[href], input, select, textarea");
+  const labelled = node?.closest?.("label")?.control;
+  let control = (labelled ?? node)?.closest?.(".segmented-control, button, [role=button], a[href], input, select, textarea");
   if (control?.matches(".segmented-source")) control = control.closest(".segmented-control") ?? control;
   const segmentedDisabled = control?.matches(".segmented-control") && control.querySelector(".segmented-source")?.disabled;
   if (!control || control.closest("#glass-list, #glass-tip")
@@ -278,7 +279,7 @@ document.addEventListener("pointerover", (event) => {
 });
 function focusHelp(target) {
   const control = helpTarget(target);
-  if (control && (keyboardMode || control.matches(":focus-visible"))) { now(control); return true; }
+  if (control && keyboardMode) { now(control); return true; }
   return false;
 }
 document.addEventListener("focusin", (event) => {

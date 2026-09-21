@@ -211,6 +211,40 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
+test("a mouse-focused text field keeps delayed help while keyboard focus is immediate", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const input = document.createElement("input");
+    input.id = "modality-help-probe";
+    input.setAttribute("aria-description", "Words for the modality probe.");
+    document.getElementById("workspace").prepend(input);
+  });
+  const input = f.page.locator("#modality-help-probe"), tip = f.page.locator("#glass-tip");
+  await input.click();
+  await f.page.waitForTimeout(500);
+  assert.equal(await tip.isVisible(), false, "click focus is not mistaken for keyboard navigation");
+  await f.page.keyboard.press("Shift+Tab");
+  await f.page.keyboard.press("Tab");
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Words for the modality probe.");
+  assert.deepEqual(f.errors, []);
+});
+
+test("hover help covers the text of a wrapping control label", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const label = document.createElement("label");
+    label.id = "wrapping-help-label";
+    label.innerHTML = '<input type="checkbox" aria-description="Help across the whole label."> Label words';
+    document.getElementById("workspace").prepend(label);
+    label.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+  });
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Help across the whole label.");
+  assert.deepEqual(f.errors, []);
+});
+
 test("a segmented control shows the description linked to its native source", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
