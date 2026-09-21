@@ -12,6 +12,7 @@ import {
 import { Store } from "../store.js";
 import { databaseName } from "./layout.js";
 import { quitRunning, runningNow, type QuitDeps } from "./quit.js";
+import { restartService } from "./service-return.js";
 
 /**
  * `branch rollback` — going back to the version before the last update, and being told plainly when
@@ -34,6 +35,8 @@ export interface RollbackCliDeps {
   quit?: QuitDeps;
   /** Starts the version that was put back; left out when nothing should be started. */
   launch?: (target: string, executableName: string) => void;
+  /** Starts a background service again (it was one before the undo), through its own manager. */
+  restartService?: () => Promise<void>;
   /** Only for the torture tests: stops the swap after this many moves. */
   stopAfter?: number;
   budgetMs?: number;
@@ -107,7 +110,8 @@ export async function rollbackCommand(input: RollbackCliInput): Promise<number> 
 
 async function runRollback(entry: ActivationEntry, journal: ActivationJournal, input: RollbackCliInput): Promise<RollbackReport> {
   const deps = input.deps ?? {};
-  const wasRunning = (await runningNow(input.dataDir, deps.quit?.alive)) !== null;
+  const was = await runningNow(input.dataDir, deps.quit?.alive);
+  const wasRunning = was !== null;
   return performRollback(entry, {
     journal, by: `${process.pid}@${process.platform}`,
     observe: observer(input),
@@ -120,6 +124,8 @@ async function runRollback(entry: ActivationEntry, journal: ActivationJournal, i
     ...(deps.stopAfter === undefined ? {} : { stopAfter: deps.stopAfter }),
     restart: async () => {
       if (!wasRunning) return;
+      // A background service comes back as the service, not as a window it never had.
+      if (was.mode === "daemon") return (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
       (deps.launch ?? launcher)(entry.target, entry.executableName);
     },
   });
