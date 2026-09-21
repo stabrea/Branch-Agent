@@ -10,7 +10,24 @@
  * The contestant is not a field here on purpose: it is the one thing the board varies, and the
  * refusal exists to catch anything *else* that moved.
  */
-import { combinedBasis } from "../../dist/evaluation-honesty.js";
+import { combinedBasis, scorerDigest } from "../../dist/evaluation-honesty.js";
+
+/** Fingerprints the programs that decide pass/fail, including shared marking helpers when supplied. */
+export function programScorerDigest(tasks, markingSource = "") {
+  const scorers = tasks.map((task) => ({
+    id: task.id,
+    kind: "program",
+    readOnly: !!task.readOnly,
+    restoreVerify: !!task.restoreVerify,
+    checkSource: Function.prototype.toString.call(task.check),
+  }));
+  if (markingSource) scorers.push({ id: "task-module", kind: "program-source", checkSource: markingSource });
+  return scorerDigest({
+    scorers,
+    judgeModel: null,
+    benchmarkJudge: "the harness runs a program; no model marks anything",
+  });
+}
 
 export function conditionsOf(rows) {
   const one = (pick, name) => {
