@@ -1365,6 +1365,15 @@
               <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
               <button id="updates-install" type="button" hidden data-t="action.update-and-restart">Update and restart</button>
             </div>
+            <!-- Tasks working when Update is pressed: wait for them, or update now and they are offered back after. -->
+            <div id="updates-busy" class="updates-busy" hidden>
+              <p id="updates-busy-text" role="status"></p>
+              <div class="identity-actions">
+                <button id="updates-wait" type="button" data-t="updates.busy.wait">Wait for them</button>
+                <button id="updates-now" type="button" class="quiet" data-t="updates.busy.now">Update now</button>
+                <button id="updates-busy-cancel" type="button" class="quiet" data-t="updates.busy.cancel">Not now</button>
+              </div>
+            </div>
             <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
           <form id="projects-form" class="card">
