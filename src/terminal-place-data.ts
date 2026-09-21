@@ -2,6 +2,7 @@ import type { createBranch } from "./index.js";
 import { readPolicy, policyPresets } from "./policy.js";
 import { lockdownState } from "./lockdown.js";
 import { assistantIdentity } from "./identity.js";
+import { trunksFor } from "./trunks/index.js";
 import type { Words } from "./terminal-words.js";
 import { learnMode } from "./learn/settings.js"; // mac7/learn
 
@@ -78,7 +79,8 @@ function taskRows(app: PlaceApp, since: number): Row[] {
     }));
 }
 function overviewRows(app: PlaceApp, words: Words): Row[] {
-  const runs = app.store.runs(app.runtime.owner).slice(0, 12);
+  const trunkChats = new Set((trunksFor(app.runtime)?.records.list() ?? []).map((trunk) => trunk.chatSessionId));
+  const runs = app.store.runs(app.runtime.owner).filter((run) => !trunkChats.has(run.sessionId)).slice(0, 12);
   if (!runs.length) return [{ title: words.t("ov.calm", "Nothing waiting"),
     detail: words.t("ov.now.none", "Nothing is running right now."), tone: "ok" }];
   return runs.map((run) => ({ title: clip(run.prompt), detail: `${run.status.replace(/_/g, " ")} · ${day(run.updatedAt)}`,
