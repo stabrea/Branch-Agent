@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { estimateTokens } from "./contracts.js";
 import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
 import { lockdownOverrides } from "./lockdown.js"; // mac7/lockdown-fix
@@ -168,6 +169,22 @@ export function toolLoading(store: Reader, owner: string): ToolLoading {
   const parsed = ToolLoadingSchema.safeParse(store.get("settings", owner, toolLoadingKey)?.data ?? {});
   return parsed.success ? parsed.data.mode : "deferred";
 }
+/**
+ * Tool loading off is honoured only when what it forces fits: at most a quarter of the model's room
+ * (the context window the owner's settings give it), so the conversation always keeps the rest. When
+ * it does not fit, that task runs as with Tool loading on and says so (`tools.eager_too_big`); it is
+ * never trimmed while claiming everything is loaded, and never allowed to overflow a small model.
+ */
+export const eagerShareOfRoom = 0.25;
+/** What Tool loading off would cost now, and whether it fits: for Settings to show before anyone switches it. */
+export function eagerCost(store: Reader & Pick<Store, "save">, owner: string, tools: readonly { name: string }[], room: number) {
+  const forced = new Set(switchedToolTiers(store, owner, tools.map((tool) => tool.name), "eager").forced);
+  return { mode: toolLoading(store, owner), tools: forced.size, ...eagerFit(estimateTokens(tools.filter((tool) => forced.has(tool.name))), room) };
+}
+export function eagerFit(forcedTokens: number, room: number): { fits: boolean; tokens: number; room: number; limit: number } {
+  const limit = Math.floor(room * eagerShareOfRoom);
+  return { fits: forcedTokens <= limit, tokens: forcedTokens, room, limit };
+}
 /** The one rule: "on" always loads; "when needed" loads up front only when Tool loading is off (eager). */
 export const loadsEagerly = (mode: FeatureMode, loading: ToolLoading): boolean =>
   mode === "on" || (mode === "when-needed" && loading === "eager");
@@ -177,11 +194,10 @@ export const loadsEagerly = (mode: FeatureMode, loading: ToolLoading): boolean =
  * advertise ("off"), and, with Tool loading off, the ones that must travel in full whatever the
  * section's ceiling (`forced`). "When needed" with Tool loading on adds nothing: the ordinary tiering.
  */
-export function switchedToolTiers(store: Reader, owner: string, available: readonly string[]): {
+export function switchedToolTiers(store: Reader, owner: string, available: readonly string[], loading: ToolLoading = toolLoading(store, owner)): {
   preload: { name: string; reason: string }[]; hidden: string[]; forced: string[];
 } {
   const present = new Set(available);
-  const loading = toolLoading(store, owner);
   const preload: { name: string; reason: string }[] = [];
   const hidden: string[] = [];
   for (const feature of toolFeatures) {

@@ -390,7 +390,7 @@ export class ToolLoader {
       && !this.hidden.has(hit.entry.name)).map((hit) => hit.entry);
     // A forced tool is carried like a core one: the ceiling below trims around it, never it.
     const forced = wanted.filter((hit) => this.forced.has(hit.entry.name)).map((hit) => hit.entry);
-    const plan = this.fit([...core, ...forced], wanted.filter((hit) => !this.forced.has(hit.entry.name)).map((hit) => hit.entry), listable, rest.length);
+    const plan = this.fit(core, forced, wanted.filter((hit) => !this.forced.has(hit.entry.name)).map((hit) => hit.entry), listable, rest.length);
     for (const entry of plan.loaded) this.sent.add(entry.name);
     this.cached = { at: this.version, plan };
     return plan;
@@ -400,20 +400,23 @@ export class ToolLoader {
    * the index first, and only when nothing but the core is left is the index itself trimmed; each
    * step is strictly smaller than the one before, so this always terminates under the budget.
    */
-  private fit(core: ToolEntry[], wanted: ToolEntry[], listable: ToolEntry[], total: number): Plan {
+  private fit(core: ToolEntry[], forced: ToolEntry[], wanted: ToolEntry[], listable: ToolEntry[], total: number): Plan {
+    // Forced tools (Tool loading off) travel in full like the core ones and are never trimmed; they
+    // are loaded, so they are neither listed in the index nor counted among those left undescribed.
+    const kept = [...core, ...forced];
     let loaded = [...wanted];
     let lines = this.indexLines;
     for (let step = 0; step <= wanted.length + this.indexLines; step++) {
-      const shown = new Set(loaded.map((entry) => entry.name));
+      const shown = new Set([...forced, ...loaded].map((entry) => entry.name));
       const indexed = listable.filter((entry) => !shown.has(entry.name)).slice(0, lines);
-      const deferred = total - loaded.length - indexed.length;
-      const descriptions = this.render([...core, ...loaded], indexed, deferred);
+      const deferred = total - forced.length - loaded.length - indexed.length;
+      const descriptions = this.render([...kept, ...loaded], indexed, deferred);
       if (estimateTokens(descriptions) < this.budgetTokens || (!loaded.length && !lines))
-        return { loaded: [...core, ...loaded], indexed, deferred, descriptions };
+        return { loaded: [...kept, ...loaded], indexed, deferred, descriptions };
       if (loaded.length) loaded = loaded.slice(0, -1);
       else lines = Math.max(0, lines - 4);
     }
-    return { loaded: core, indexed: [], deferred: total, descriptions: this.render(core, [], total) };
+    return { loaded: kept, indexed: [], deferred: total - forced.length, descriptions: this.render(kept, [], total - forced.length) };
   }
   /** The tool list as the model receives it: full tools, then the index, then the toolbox opener. */
   private render(loaded: readonly ToolEntry[], indexed: readonly ToolEntry[], deferred: number): ToolDescription[] {

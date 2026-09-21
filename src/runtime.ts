@@ -131,7 +131,7 @@ import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } fr
 import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
-import { switchedToolTiers } from "./feature-switches.js";
+import { eagerFit, switchedToolTiers } from "./feature-switches.js";
 import { troubleshootInTask } from "./troubleshoot.js"; // w911 (A0374) hook: the debugging loop.
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
@@ -1865,7 +1865,18 @@ ${run.output.slice(0, 6000)}`;
       .filter((group) => available.includes(group));
     const learned = this.store.toolUsage, notes = learned.noteMap(context.owner);
     // mac2/desktop-ui: the owner's three-way switches — "on" loads a feature's tools, "off" hides them.
-    const switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name));
+    let switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name));
+    // Owner item 17: Tool loading off only when what it forces fits the model's room; otherwise this
+    // task runs as with it on, and the reason is written on the task for the owner to see.
+    if (switched.forced.length) {
+      const forced = new Set(switched.forced);
+      const fit = eagerFit(estimateTokens(tools.filter((tool) => forced.has(tool.name))), knobs.contextWindow(this.store, this.owner, contextLimit));
+      if (!fit.fits) {
+        this.store.event(run.id, "tools.eager_too_big", { ...fit, tools: forced.size,
+          note: `Loading everything switched on up front would take about ${fit.tokens} tokens, more than the ${fit.limit} this model's room allows for tools, so this task loads them when needed.` });
+        switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name), "deferred");
+      }
+    }
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
       // mac2/fly-core-2: with the learning core "on", its top tools join this pre-load (src/fly-core/apply.ts).

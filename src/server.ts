@@ -219,7 +219,9 @@ import { readCredentialSettings, saveCredentialSettings } from "./credential-cli
 // mac7/vault-autofill (R17-068): the owner's book of saved sign-ins Branch may fill into a page.
 import { readVaultAutofillSettings, saveVaultAutofillSettings } from "./vault-autofill.js";
 import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
-import { optionalFields } from "./feature-switches.js";
+import { eagerCost, optionalFields, ToolLoadingSchema, toolLoadingKey } from "./feature-switches.js";
+import * as knobs from "./knobs/apply.js";
+import { contextLimit } from "./runtime.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
@@ -1219,6 +1221,13 @@ async function api(
   // Wave 7: the two coder switches in Settings → Developer, kept in one small block.
   if (path.startsWith("/api/developer/")) return developerApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
+  // Owner item 17: the one Tool loading switch, and what switching it off would cost for this model.
+  if (path === "/api/tool-loading") {
+    const owner = app.runtime.owner;
+    if (request.method === "POST") app.store.save("settings", owner, toolLoadingKey, ToolLoadingSchema.parse(await readBody(request)));
+    else if (request.method !== "GET") throw new HttpError(405, "Use GET or POST");
+    return eagerCost(app.store, owner, app.registry.descriptions(new Set(app.registry.permissions())), knobs.contextWindow(app.store, owner, contextLimit));
+  }
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
