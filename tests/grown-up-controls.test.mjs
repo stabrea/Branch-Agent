@@ -159,6 +159,18 @@ test("a glass dropdown starts from its requested value and later keeps the curre
   assert.deepEqual(f.errors, []);
 });
 
+test("a user-provided dropdown label is never mistaken for a locale key", async (t) => {
+  const f = await fixture(t);
+  const label = await f.page.evaluate(async () => {
+    const control = globalThis.branchControlMakers.dropdown({ options: [["saved", "", "action.save"]], value: "saved" });
+    document.getElementById("workspace").prepend(control);
+    await (await import("/i18n.js")).setLanguage("fr");
+    return control.options[0].textContent;
+  });
+  assert.equal(label, "action.save");
+  assert.deepEqual(f.errors, []);
+});
+
 test("the knowledge fallback keeps its literal label when the language changes", async (t) => {
   const f = await fixture(t);
   f.app.knowledgeBases.create("local", { name: "Guide", sources: [] });

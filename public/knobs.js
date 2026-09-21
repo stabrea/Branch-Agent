@@ -119,7 +119,7 @@ function choice(field, id, value, view) {
   const options = [];
   if (field.kind === "connection") {
     options.push(["", "knobs.option.same-connection"]);
-    for (const one of view.connections) options.push([one.id, one.name, one.name]);
+    for (const one of view.connections) options.push([one.id, "", one.name]);
   } else for (const one of field.options) options.push([one, `knobs.option.${one}`]);
   const control = dropdown({ id, options, value: value ?? "" });
   const read = () => (field.kind === "connection" ? control.value || null : control.value);
