@@ -11,6 +11,7 @@ import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let shown = null;
+let writeVersion = 0;
 
 async function api(body, path = "knobs") {
   const response = await fetch("/api/" + path, {
@@ -176,11 +177,18 @@ function actions(spec, controls, status) {
   const row = document.createElement("div");
   row.className = "identity-actions";
   const send = async (values, done) => {
+    const version = ++writeVersion;
     const outside = spec.fields.filter((field) => field.outside);
     const inside = Object.fromEntries(Object.entries(values).filter(([name]) => !outside.some((field) => field.name === name)));
     const extra = Object.fromEntries(outside.map((field) => [field.name, values[field.name]]));
-    try { shown = { ...shown, view: await api({ card: spec.card, values: inside, ...extra }) }; status.textContent = t(done); status.dataset.t = done; }
-    catch (error) { status.textContent = error.message; delete status.dataset.t; }
+    try {
+      const view = await api({ card: spec.card, values: inside, ...extra });
+      if (version !== writeVersion) return;
+      shown = { ...shown, view }; status.textContent = t(done); status.dataset.t = done;
+    } catch (error) {
+      if (version !== writeVersion) return;
+      status.textContent = error.message; delete status.dataset.t;
+    }
   };
   const save = keyed("button", "knobs.action.save");
   save.type = "button";
@@ -258,10 +266,15 @@ function launchCard(file) {
   const save = keyed("button", "knobs.action.save-for-next-start");
   save.type = "button";
   save.addEventListener("click", async () => {
+    const version = ++writeVersion;
     try {
       await api(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs/launch-file");
+      if (version !== writeVersion) return;
       status.textContent = t("knobs.launch.saved"); status.dataset.t = "knobs.launch.saved";
-    } catch (error) { status.textContent = error.message; delete status.dataset.t; }
+    } catch (error) {
+      if (version !== writeVersion) return;
+      status.textContent = error.message; delete status.dataset.t;
+    }
   });
   card.append(save, status);
   return card;
@@ -293,6 +306,8 @@ function restoreControlDrafts(drafts) {
   if (drafts.selection?.every(Number.isInteger) && typeof active.setSelectionRange === "function")
     active.setSelectionRange(...drafts.selection);
 }
+const editingKnob = () => document.activeElement?.matches?.(
+  'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]');
 function draw(preserveDrafts = false) {
   if (!shown) return;
   const drafts = preserveDrafts ? controlDrafts() : null;
@@ -303,12 +318,14 @@ function draw(preserveDrafts = false) {
 const allCardsAreDrawn = () => CARDS.every((spec) => $(`knobs-${spec.id}-card`)) && $("knobs-launch-file-card");
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
+  const version = writeVersion;
   try {
     const [view, file] = await Promise.all([api(), api(undefined, "knobs/launch-file")]);
+    if (version !== writeVersion) return;
     const next = { view, file };
     if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
     shown = next;
-    draw();
+    draw(editingKnob());
   } catch { /* signed out or offline: the next look tries again */ }
 }
 async function afterSignIn(tries = 20) {
