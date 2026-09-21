@@ -1241,7 +1241,7 @@
   "commands.prompts": "your saved prompts and procedures; with a name, one of them in the message box",
   "commands.queue": "the messages waiting in this conversation; reword, move or take one out",
   "commands.sessions": "earlier conversations; with a number, carry one on",
-  "commands.settings": "the twelve Settings pages, by name",
+  "commands.settings": "the Settings pages, by name",
   "commands.skills": "skills installed here",
   "commands.status": "what is working right now, and with which model",
   "commands.stop": "stop what is working now",
