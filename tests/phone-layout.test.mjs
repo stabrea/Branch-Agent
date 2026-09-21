@@ -9,6 +9,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { pressUntil } from "./places.mjs";
 
 /** A model that writes a file when asked for a note: a question under "ask before changes". */
 const asking = {
@@ -47,12 +48,14 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   page.on("pageerror", (error) => errors.push(error.message));
   const signIn = async () => {
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+    const workspace = page.locator("#workspace");
+    await pressUntil(page.getByRole("button", { name: "Connect", exact: true }),
+      () => workspace.waitFor({ state: "visible", timeout: 120000 }).then(() => true, () => false),
+      "the phone window to connect");
   };
-  await page.goto(server.url, { timeout: 120000 });
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
-  await page.locator("#ew-places").waitFor({ state: "attached" });
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
+  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  await page.locator("#ew-places").waitFor({ state: "attached", timeout: 120000 });
   if (connect) await signIn();
   return { page, call, errors, app, signIn, browser, url: server.url, connected: connect };
 }
@@ -389,11 +392,17 @@ async function askOnPhone(f, edit = (body) => body) {
 test("a quick double tap on a phone's big answer sends one answer, not two", async (t) => {
   const f = await fixture(t);
   const card = await askOnPhone(f);
-  let sent = 0;
-  await f.page.route("**/api/policy/approve", async (route) => {
-    sent += 1;
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await route.continue();
+  await f.page.evaluate(() => {
+    const original = window.fetch.bind(window);
+    window.__branchApprovalRequests = 0;
+    window.fetch = async (...args) => {
+      const target = typeof args[0] === "string" ? args[0] : args[0]?.url ?? "";
+      if (target.endsWith("/api/policy/approve")) {
+        window.__branchApprovalRequests += 1;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return original(...args);
+    };
   });
   /* Three presses in the same instant (a thumb's double tap, then a slip onto No), so a slow machine cannot
      let the first answer come back before the others land. */
@@ -404,7 +413,7 @@ test("a quick double tap on a phone's big answer sends one answer, not two", asy
     no.click();
   });
   await f.page.waitForFunction(() => /Noted/.test(document.getElementById("live-ask")?.textContent ?? ""), null, { timeout: 20000 });
-  assert.equal(sent, 1, "one answer left the phone");
+  assert.equal(await f.page.evaluate(() => window.__branchApprovalRequests), 1, "one answer left the phone");
   assert.deepEqual(f.errors, []);
 });
 
