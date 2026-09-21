@@ -184,6 +184,23 @@ test("a hidden active Trunk stays named in the rail", async (t) => {
 test("the Trunks rail stays owner-only", async (t) => {
   const f = await fixture(t);
   await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  await f.page.locator("#rail-view-trunks").click();
+  await f.page.evaluate(() => {
+    const group = document.createElement("section");
+    group.id = "trunks-rail";
+    group.textContent = "Private Trunk name and latest words";
+    document.getElementById("rail-scroll").append(group);
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: { isOwner: true } } }));
+  });
+  assert.equal(await f.page.locator("#trunks-rail").isVisible(), true);
+  const synchronous = await f.page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+    return { group: document.getElementById("trunks-rail").hidden,
+      tab: document.getElementById("rail-view-trunks").hidden,
+      conversations: document.getElementById("rail-view-conversations").getAttribute("aria-selected") };
+  });
+  assert.deepEqual(synchronous, { group: true, tab: true, conversations: "true" },
+    "owner-only names and actions disappear in the profile event itself");
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
     detail: { profiles: { isOwner: false } },
   })));
