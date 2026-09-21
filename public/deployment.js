@@ -73,8 +73,8 @@ if (card) {
     pick("phone-invite").hidden = !state.remote.enabled;
     const points = pick("restore-points");
     points.textContent = state.restorePoints.length
-      ? `Safety copies kept: ${state.restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ")}.`
-      : "No safety copy has been taken yet. One is taken automatically before each update.";
+      ? t("deployment.restorePoints.kept", { list: state.restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ") })
+      : t("deployment.restorePoints.none");
     const unhealthy = state.firstStart && !state.firstStart.healthy && state.firstStart.previousVersion;
     pick("restore-offer").hidden = !(unhealthy && state.restorePoints.length);
     if (unhealthy && state.restorePoints.length)
@@ -124,7 +124,7 @@ if (card) {
       const newest = points.points[0];
       if (!newest) throw new Error("There is no safety copy to put back.");
       // Putting a copy back writes over the conversations, memory and skills that are here now.
-      const sure = confirm(`This replaces everything saved here with the copy from ${newest.savedAt.slice(0, 10)} (version ${newest.version}). Anything added since then is lost. Put it back?`);
+      const sure = confirm(t("deployment.confirm.restore", { date: newest.savedAt.slice(0, 10), version: newest.version }));
       if (!sure) { say("restore-offer-note", "Left as it is. Nothing was changed."); return; }
       const result = await call("/restore-point", { name: newest.name });
       say("restore-offer-note", `Put back ${result.rows} saved items from ${newest.version}. Close and open Branch to see them.`);

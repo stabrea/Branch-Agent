@@ -79,7 +79,7 @@ export async function openLabelPicker(button, sessionId, afterChange) {
   if (!sessionId) { globalThis.toast?.("Open a conversation first, then you can label it."); return; }
   picker = el("div", undefined, "label-picker");
   picker.setAttribute("role", "dialog");
-  picker.setAttribute("aria-label", "Labels for this conversation");
+  picker.setAttribute("aria-label", t("labels.picker.title")); picker.dataset.tLabel = "labels.picker.title";
   const draw = async () => {
     const [catalog, mine] = await Promise.all([
       conversationLabels(),
@@ -117,7 +117,7 @@ export async function openLabelPicker(button, sessionId, afterChange) {
     });
     const chips = el("div", undefined, "label-chips");
     chips.append(...rows);
-    picker.replaceChildren(el("p", "Labels for this conversation", "label-picker-head"), chips, field, add);
+    picker.replaceChildren(el("p", t("labels.picker.title"), "label-picker-head"), chips, field, add);
   };
   await draw();
   button.insertAdjacentElement("afterend", picker);

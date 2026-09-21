@@ -50,7 +50,7 @@ async function compareDocuments() {
 /** Every tidying check at once, with the counts behind them. Nothing is changed. */
 async function tidyEverything(stage) {
   const out = $("memory-tidy-all-result");
-  out.textContent = stage ? "Turning what it found into suggestions…" : "Looking…";
+  out.textContent = stage ? t("docs.status.suggesting") : t("docs.status.looking");
   try {
     const report = stage ? await api("memory/tidy/all", { stage: true }) : await api("memory/tidy/all");
     out.replaceChildren();

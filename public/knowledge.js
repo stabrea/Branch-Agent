@@ -4,6 +4,7 @@
  * provides the empty card.
  */
 import { dropdown } from "/control-makers.js";
+import { t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 let view = null;
@@ -39,11 +40,11 @@ export async function loadKnowledge() {
 function render() {
   if (!view) return;
   $("knowledge-meaning").textContent = view.meaningSearch
-    ? `Your knowledge bases are matched by wording and by meaning${view.onThisComputer ? ", read by a model on this computer so nothing leaves it" : ` (read by ${view.model})`}.`
-    : "Your knowledge bases are matched by the words in them. Connect a model that can compare writing by meaning to also match by meaning.";
+    ? (view.onThisComputer ? t("knowledge.meaning.local") : t("knowledge.meaning.model", { model: view.model }))
+    : t("knowledge.meaning.off");
   $("knowledge-vectors-in").value = view.vectorStore?.vectorsIn ?? "database";
   $("knowledge-vectors-file").value = view.vectorStore?.vectorsFile ?? "";
-  $("knowledge-vectors-status").textContent = view.backendNote || `Your vectors are kept in ${view.backend}.`;
+  $("knowledge-vectors-status").textContent = view.backendNote || t("knowledge.vectors.keptIn", { backend: view.backend });
   const list = $("knowledge-list");
   list.replaceChildren();
   if (!view.collections.length) {
@@ -152,7 +153,7 @@ function wire() {
     const answer = await request("/api/knowledge/vectors", {
       body: { vectorsIn: $("knowledge-vectors-in").value, vectorsFile: $("knowledge-vectors-file").value.trim() },
     });
-    $("knowledge-vectors-status").textContent = answer.note || `Your vectors are kept in ${answer.backend}.`;
+    $("knowledge-vectors-status").textContent = answer.note || t("knowledge.vectors.keptIn", { backend: answer.backend });
   }));
   document.querySelector('.nav[data-view="documents"]')
     ?.addEventListener("click", () => { loadKnowledge().catch((error) => say(error.message)); });

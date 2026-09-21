@@ -41,7 +41,7 @@ function renderPresets() {
   const localDescription = chosen ? t(`policy.preset.${chosen.id}.description`) : "";
   $("policy-description").textContent = chosen
     ? (localDescription.startsWith("policy.preset.") ? chosen.description : localDescription)
-    : "Your own rules are in force. Pick a starting point above to replace them.";
+    : t("approvals.policy.ownRules");
 }
 
 /** One line per rule, so the owner can see exactly what is allowed, asked about or refused. */

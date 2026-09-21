@@ -83,7 +83,8 @@ function labelsSection(labels, helpers) {
   for (const [value, label] of [["conversation", "a conversation"], ["procedure", "a saved procedure"], ["document", "a document"]])
     target.appendChild(new Option(label, value));
   const id = el("input"); id.placeholder = t("collab.field.number"); id.dataset.tPlaceholder = "collab.field.number"; id.maxLength = 200; id.setAttribute("aria-label", t("collab.field.numberLabel")); id.dataset.tLabel = "collab.field.numberLabel";
-  const label = el("input"); label.placeholder = "Label"; label.maxLength = 40; label.setAttribute("aria-label", "The label to add");
+  const label = el("input"); label.placeholder = t("collab.label.placeholder"); label.dataset.tPlaceholder = "collab.label.placeholder"; label.maxLength = 40;
+  label.setAttribute("aria-label", t("collab.label.aria")); label.dataset.tLabel = "collab.label.aria";
   const adding = el("div", undefined, "collab-row");
   adding.append(el("span", "Add a label to"), target, id, label,
     smallButton(helpers, "Add", async () => {
@@ -160,14 +161,14 @@ function daysOffSection(calendar, helpers) {
   country.value = settings.country ?? "";
   /* Wave 8: every control says what it is, so the row reads the same to the eye and to a
      screen reader, and the tick box sits beside its words instead of on a line of its own. */
-  country.setAttribute("aria-label", "Which country's holidays to follow");
+  country.setAttribute("aria-label", t("collab.quiet.country")); country.dataset.tLabel = "collab.quiet.country";
   const quiet = el("input"); quiet.type = "checkbox"; quiet.checked = Boolean(settings.quietHours?.enabled);
   const from = el("input"); from.type = "time"; from.value = settings.quietHours?.from ?? "21:00";
-  from.setAttribute("aria-label", "Hold messages from");
+  from.setAttribute("aria-label", t("collab.quiet.from")); from.dataset.tLabel = "collab.quiet.from";
   const to = el("input"); to.type = "time"; to.value = settings.quietHours?.to ?? "07:00";
-  to.setAttribute("aria-label", "Hold messages until");
+  to.setAttribute("aria-label", t("collab.quiet.until")); to.dataset.tLabel = "collab.quiet.until";
   const quietLabel = el("label", undefined, "check");
-  quietLabel.append(quiet, document.createTextNode(" Hold messages overnight"));
+  quietLabel.append(quiet, document.createTextNode(` ${t("collab.quiet.overnight")}`));
   const row = el("div", undefined, "collab-row");
   row.append(el("span", "Holidays for"), country, quietLabel, el("span", "between"), from, el("span", "and"), to);
   wrap.appendChild(row);

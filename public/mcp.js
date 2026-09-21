@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // Settings → Sharing with other AI tools: the switch, the list of tools that may be shared,
 // and the ready-to-paste settings the other tool needs.
 const $ = (id) => document.getElementById(id);
@@ -94,7 +95,7 @@ async function copyText(text, button) {
     await navigator.clipboard.writeText(text);
     button.textContent = "Copied";
   } catch {
-    button.textContent = "Press Ctrl+C to copy";
+    button.textContent = t("mcp.copyHint");
   }
   setTimeout(() => { button.textContent = original; }, 2500);
 }

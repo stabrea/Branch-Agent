@@ -86,7 +86,7 @@ async function saveConnections() {
       ...($("mcp-connect-when") ? { connect: $("mcp-connect-when").value } : {}),
     });
     for (const id of ["mcp-keep-warm", "mcp-max-servers", "mcp-connect-when"]) savedByHand(id);
-    $("mcp-try-status").textContent = "Saved.";
+    $("mcp-try-status").textContent = t("mcpWorkbench.status.saved");
     await renderConnections();
   } catch (error) {
     $("mcp-try-status").textContent = error.message;
@@ -163,7 +163,7 @@ async function callTool() {
       server: serverFromForm(),
       call: { name: $("mcp-try-tool").value, arguments: argumentsFromForm() },
     });
-    status.textContent = `Answered in ${result.called.milliseconds} milliseconds. Written down in Activity.`;
+    status.textContent = t("mcpWorkbench.status.answered", { ms: result.called.milliseconds });
     $("mcp-try-result").textContent = JSON.stringify(result.called.result, null, 2);
     $("mcp-try-result").hidden = false;
   } catch (error) {

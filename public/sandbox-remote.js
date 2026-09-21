@@ -39,7 +39,7 @@ async function showSandboxes() {
     const row = document.createElement("div");
     row.className = "card-row";
     const title = document.createElement("h4");
-    title.textContent = backend.available ? `Runs ${backend.runs}` : `Not on this computer: runs ${backend.runs}`;
+    title.textContent = backend.available ? t("sandboxRemote.runs", { what: backend.runs }) : t("sandboxRemote.notHere", { what: backend.runs });
     row.append(title, line(backend.protects, "subtle"));
     if (!backend.available) row.append(line(backend.reason, "subtle"));
     where.append(row);
@@ -158,7 +158,7 @@ async function saveRetention() {
 }
 
 async function prune() {
-  if (!window.confirm("Delete the conversations on this list? A saved copy is handed back first.")) return;
+  if (!window.confirm(t("sandboxRemote.confirm.delete"))) return;
   try {
     const done = await api("retention/prune", { approve: true });
     say("retention-status", `${done.removed.length} conversation(s) deleted; ${done.exported.length} saved copy/copies handed back.`);

@@ -181,7 +181,7 @@ export function drawChart(source) {
   toggle.setAttribute("aria-expanded", "false");
   toggle.addEventListener("click", () => {
     table.hidden = !table.hidden;
-    toggle.textContent = table.hidden ? "Show the numbers" : "Show the chart only";
+    toggle.textContent = table.hidden ? t("charts.action.showNumbers") : t("charts.action.chartOnly");
     toggle.setAttribute("aria-expanded", String(!table.hidden));
   });
   const save = el("button", "Save as a picture", "quiet");

@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // Automations panel: inbound triggers ("when something happens elsewhere") and
 // outbound webhooks ("let another app know"). app.js imports this and passes the
 // current state plus its own small helpers, so nothing here depends on globals.
@@ -117,7 +118,7 @@ function triggerItem(trigger, helpers) {
     writeLog(log, entries.map((e) => `${e.createdAt} — ${e.status}${e.runId ? ` (task ${e.runId})` : ""}`), "Nothing has come in yet.");
   }));
   controls.appendChild(smallButton(helpers, "Remove", async () => {
-    if (!window.confirm(`Remove "${trigger.name}"? The other app will stop being able to start tasks.`)) return;
+    if (!window.confirm(t("automations.confirm.removeTrigger", { name: trigger.name }))) return;
     await api(`triggers/${trigger.id}/remove`, {});
     toast("Removed.");
     await refresh();
@@ -180,7 +181,7 @@ function webhookItem(webhook, helpers) {
       await refresh();
     }));
   controls.appendChild(smallButton(helpers, "Remove", async () => {
-    if (!window.confirm(`Remove "${webhook.name}"? That app will stop being told about anything.`)) return;
+    if (!window.confirm(t("automations.confirm.removeWebhook", { name: webhook.name }))) return;
     await api(`webhooks/${webhook.id}/remove`, {});
     toast("Removed.");
     await refresh();

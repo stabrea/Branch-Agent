@@ -87,13 +87,16 @@ async function renderTree(sessionId) {
 /** Writes this branch's last answer back into the conversation it came off, as one note. */
 function carryBack(sessionId) {
   const button = el("button", t("other.action.carryBack"), "rail-row");
+  button.dataset.t = "other.action.carryBack";
   button.type = "button";
   button.addEventListener("click", async () => {
     button.disabled = true;
     try {
       await api(`sessions/${sessionId}/merge-note`, {});
+      button.dataset.t = "other.status.carriedBack";
       button.textContent = t("other.status.carriedBack");
     } catch (error) {
+      button.dataset.t = "other.status.didNotWork";
       button.textContent = t("other.status.didNotWork");
       say(error.message);
     }

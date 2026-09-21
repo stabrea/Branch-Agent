@@ -24,7 +24,7 @@ async function saveBundle() {
   status.textContent = t("diagnostics.status.writing");
   try {
     const bundle = await api("diagnostics/bundle", {});
-    status.textContent = `Saved to ${bundle.folder} — ${bundle.files.length} files covering ${bundle.events} recent events. Read them before sharing.`;
+    status.textContent = t("diagnostics.status.saved", { folder: bundle.folder, files: bundle.files.length, events: bundle.events });
   } catch (e) {
     status.textContent = t("diagnostics.status.writeFailed", { message: e.message });
   }
@@ -36,7 +36,7 @@ let touched = false;
 async function saveTrace() {
   const status = $("trace-status");
   touched = true;
-  status.textContent = "Saving…";
+  status.textContent = t("diagnostics.status.saving");
   try {
     const value = await api("trace/settings", {
       enabled: $("trace-enabled").checked,
@@ -44,8 +44,8 @@ async function saveTrace() {
     });
     $("trace-folder").value = value.folder ?? "";
     status.textContent = value.enabled
-      ? `On. Each finished task is written to ${value.folder}.`
-      : "Off. No trace files are written.";
+      ? t("diagnostics.trace.on", { folder: value.folder })
+      : t("diagnostics.trace.off");
   } catch (e) {
     status.textContent = e.message;
   }
@@ -59,8 +59,8 @@ async function render() {
     $("trace-enabled").checked = value.enabled;
     $("trace-folder").value = value.folder ?? "";
     $("trace-status").textContent = value.enabled
-      ? `On. Each finished task is written to ${value.folder}.`
-      : "Off. No trace files are written.";
+      ? t("diagnostics.trace.on", { folder: value.folder })
+      : t("diagnostics.trace.off");
   } catch {
     /* The card still explains itself when the settings cannot be read. */
   }

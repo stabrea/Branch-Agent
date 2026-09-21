@@ -50,8 +50,8 @@ async function loadLog() {
     fillComponents(data.components);
     const list = $("activity-log-lines");
     list.replaceChildren(...data.lines.map(lineItem));
-    status.textContent = data.lines.length ? `${data.lines.length} lines, newest first.`
-      : data.settings.mode === "off" ? "The activity log is off. Turn it on above to start keeping one." : "Nothing matches yet.";
+    status.textContent = data.lines.length ? t("activityLog.status.lines", { count: data.lines.length })
+      : data.settings.mode === "off" ? t("activityLog.status.off") : t("activityLog.status.noMatch");
   } catch (e) { status.textContent = e.message; }
 }
 function fillComponents(names) {
@@ -75,11 +75,11 @@ async function saveLogSettings() {
   try {
     const saved = await api("diagnostics/log/settings", { mode: $("activity-log-mode").value, keepDays: Number($("activity-log-days").value) || 14,
       crashCapture: $("activity-log-crashes").value === "on" ? "on" : "off" });
-    status.textContent = saved.mode === "off" ? "Saved. The activity log is off." : "Saved. The activity log is on this computer only.";
+    status.textContent = saved.mode === "off" ? t("activityLog.status.savedOff") : t("activityLog.status.savedLocal");
   } catch (e) { status.textContent = e.message; }
 }
 async function clearLog() {
-  if (!confirm("Clear the activity log? Every line and crash note goes; this cannot be undone.")) return;
+  if (!confirm(t("activityLog.confirm.clear"))) return;
   try { await api("diagnostics/log/clear", {}); await loadLog(); } catch (e) { $("activity-log-status").textContent = e.message; }
 }
 
@@ -88,12 +88,12 @@ let items = [];
 const removed = new Set();
 async function gather() {
   const status = $("problem-report-status");
-  status.textContent = "Gathering… nothing is being sent.";
+  status.textContent = t("activityLog.status.gathering");
   removed.clear();
   try {
     items = (await api("diagnostics/report", {})).items;
     renderItems();
-    status.textContent = `${items.length} parts. Read each one; press Remove on anything you would rather not share.`;
+    status.textContent = t("activityLog.status.parts", { count: items.length });
     $("problem-report-actions").hidden = false;
   } catch (e) { status.textContent = t("activityLog.status.reportFailed", { message: e.message }); }
 }
@@ -103,7 +103,7 @@ function renderItems() {
     box.className = "report-item";
     if (removed.has(item.id)) box.classList.add("removed");
     const summary = document.createElement("summary");
-    summary.textContent = removed.has(item.id) ? `${item.title} (removed)` : item.title;
+    summary.textContent = removed.has(item.id) ? t("activityLog.item.removed", { title: item.title }) : item.title;
     const why = document.createElement("p");
     why.className = "subtle";
     why.textContent = item.why;
@@ -111,7 +111,7 @@ function renderItems() {
     text.textContent = item.text;
     const toggle = document.createElement("button");
     toggle.type = "button";
-    toggle.textContent = removed.has(item.id) ? "Put back" : "Remove";
+    toggle.textContent = removed.has(item.id) ? t("activityLog.action.putBack") : t("activityLog.action.remove");
     toggle.addEventListener("click", () => { removed.has(item.id) ? removed.delete(item.id) : removed.add(item.id); renderItems(); });
     box.append(summary, why, toggle, text);
     return box;
@@ -128,7 +128,7 @@ async function saveZip() {
     link.download = saved.name;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 10000);
-    status.textContent = `Saved as ${saved.name} (a copy is also in ${saved.path}). Nothing was sent.`;
+    status.textContent = t("activityLog.status.savedZip", { name: saved.name, path: saved.path });
   } catch (e) { status.textContent = t("activityLog.status.zipFailed", { message: e.message }); }
 }
 async function openIssue() {
@@ -137,7 +137,7 @@ async function openIssue() {
     const { url } = await api("diagnostics/report/issue", chosen());
     if (window.branchDesktop && window.branchDesktop.openExternal) await window.branchDesktop.openExternal(url);
     else window.open(url, "_blank", "noopener");
-    status.textContent = "GitHub's issue form is open in your browser with a title and description filled in. Save the zip and attach it there; nothing is sent until you press Submit.";
+    status.textContent = t("activityLog.status.issueOpen");
   } catch (e) { status.textContent = t("activityLog.status.issueFailed", { message: e.message }); }
 }
 

@@ -2,6 +2,7 @@
  * Pictures and sound in the page: what you attach to a message, what the assistant has made, and
  * the few settings behind them. Kept in its own file; the page only provides the empty places.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 /** The same caps the runtime holds to, so nothing is sent that would only be refused. */
 const limits = { pictures: 4, pictureBytes: 5 * 1024 * 1024, soundBytes: 25 * 1024 * 1024, videoBytes: 32 * 1024 * 1024 };
@@ -57,7 +58,7 @@ function renderAttachments() {
     chip.append(el("span", item.name));
     const remove = el("button", "×");
     remove.type = "button";
-    remove.title = `Take ${item.name} off this message`;
+    remove.title = t("media.remove.title", { name: item.name });
     remove.addEventListener("click", () => {
       attached = attached.filter((other) => other !== item);
       renderAttachments();
@@ -239,12 +240,12 @@ function wireSettings() {
   if (!form) return;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    $("media-status").textContent = "Saving…";
+    $("media-status").textContent = t("media.status.saving");
     try {
       await request("/api/media/settings", {
         body: { imageModel: $("media-image-model").value.trim(), folder: $("media-folder").value.trim() || "media", imagePrices: {} },
       });
-      $("media-status").textContent = "Saved.";
+      $("media-status").textContent = t("media.status.saved");
     } catch (error) {
       $("media-status").textContent = error.message;
     }

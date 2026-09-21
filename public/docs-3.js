@@ -65,7 +65,7 @@ async function showMap() {
   const collection = $("docs3-map-collection").value.trim(), entity = $("docs3-map-entity").value.trim();
   const out = $("docs3-map-result");
   if (!collection || !entity) { out.textContent = t("docs.status.whichBaseAndName"); return; }
-  out.textContent = "Looking…";
+  out.textContent = t("docs.status.looking");
   try {
     const answer = await api("knowledge/graph", { collection, entity, depth: 1 });
     out.replaceChildren();
@@ -118,7 +118,7 @@ function label(x, y, text, strong = false) {
 /** The limits check: it only ever writes suggestions into the Memory screen. */
 async function checkLimits() {
   const out = $("docs3-limits-result");
-  out.textContent = "Looking…";
+  out.textContent = t("docs.status.looking");
   try {
     const answer = await api("knowledge/retention/check", {});
     if (!answer.proposals.length) { out.textContent = t("docs.status.nothingOverLimits"); return; }

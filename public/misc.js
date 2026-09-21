@@ -3,6 +3,7 @@
  * added to the bottom of the Usage screen; deciding approvals a kind of thing at a time rather
  * than a tool at a time; and the practice workspace, where nothing is real.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 const say = (message) => (globalThis.toast ? globalThis.toast(message) : console.warn(message));
 function el(tag, text, className) {
@@ -134,11 +135,12 @@ async function renderPractice() {
   const settingUp = $("first-run") ? !$("first-run").hidden : false;
   card.hidden = !(state.active || settingUp);
   host.textContent = state.active
-    ? "You are in the practice workspace. Nothing here is real, so anything you ask Branch to change is safe to change."
+    ? t("misc.practice.inside")
     : state.exists
-      ? "Your practice workspace is still there, with everything you left in it."
-      : "Not switched on. Branch is working in your own folder.";
-  button.textContent = state.active ? "Use my real folder" : "Try the practice workspace";
+      ? t("misc.practice.kept")
+      : t("misc.practice.off");
+  button.dataset.t = state.active ? "misc.practice.useReal" : "misc.practice.try";
+  button.textContent = t(button.dataset.t);
   button.onclick = async () => {
     try {
       await api("practice", { practice: !state.active });
