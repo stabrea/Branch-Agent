@@ -22,7 +22,6 @@ import java.security.Security;
 import java.security.Signature;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -259,7 +258,7 @@ final class BranchNode {
             String status = answer.optString("status", "");
             if (status.equals("approved") && !answer.optString("deviceId", "").isEmpty()) {
                 record.put("hub", origin).put("nodeId", answer.getString("deviceId")).put("never", new JSONArray(kept))
-                    .put("pairedAt", Instant.now().toString());
+                    .put("pairedAt", BranchClock.now());
                 save(record);
                 return answer.getString("deviceId");
             }

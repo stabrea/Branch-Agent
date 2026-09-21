@@ -20,7 +20,6 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
-import java.time.Instant;
 import org.json.JSONObject;
 
 /**
@@ -80,7 +79,7 @@ public class BranchPhonePlugin extends Plugin {
                     return;
                 }
                 JSONObject session = new JSONObject().put("origin", origin).put("token", json.getString("token"))
-                    .put("pairedAt", Instant.now().toString());
+                    .put("pairedAt", BranchClock.now());
                 if (json.has("deviceId")) session.put("deviceId", json.getString("deviceId")).put("deviceKey", json.getString("deviceKey"));
                 vault.save(session);
                 call.resolve(result("paired", true));
