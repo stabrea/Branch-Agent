@@ -68,6 +68,11 @@ function roomSummary(room: ReturnType<Trunks["rooms"]["get"]>) {
     at: room.updatedAt };
 }
 
+function householdRoomView(view: ReturnType<Trunks["rooms"]["view"]>) {
+  const { context: _context, memberSessions: _memberSessions, ...shared } = view;
+  return { ...shared, owner: false, waiting: [], allowed: [] };
+}
+
 function overview(trunks: Trunks, person: TrunksHttpDeps["person"]) {
   const modes = trunks.modes();
   if (person) {
@@ -137,7 +142,7 @@ async function roomRoute(deps: TrunksHttpDeps, id: string, action: string | unde
   rooms.requireAccess(id, deps.person?.id ?? null);
   if (!action && !post) {
     const view = rooms.view(id);
-    return deps.person ? { ...view, owner: false, waiting: [], allowed: [] } : { ...view, owner: true };
+    return deps.person ? householdRoomView(view) : { ...view, owner: true };
   }
   if (action === "send" && post) return rooms.send(id, await deps.readBody(), deps.person);
   if (action === "artifacts" && post) return { artifact: rooms.addArtifact(id, await deps.readBody(), deps.person) };

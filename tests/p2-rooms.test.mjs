@@ -437,3 +437,19 @@ test("a private room admits named people and Trunks, and removal closes its hist
   assert.equal(removedConversation.status, 400);
   assert.doesNotMatch(JSON.stringify(removedConversation.body), /Private bench|private oak plan|Ann|Ben/);
 });
+
+test("a household room view omits owner-only carried context and internal member sessions", async (t) => {
+  const { app, call } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = app.trunks.rooms.create({ name: "Shared", members: [ann.id, ben.id], people: [sam.id] },
+    { context: "OWNER ONLY: before this room existed" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const response = await call(`/api/trunks/rooms/${room.id}`);
+  assert.equal(response.status, 200);
+  assert.equal("context" in response.body, false);
+  assert.equal("memberSessions" in response.body, false);
+  assert.doesNotMatch(JSON.stringify(response.body), /OWNER ONLY/);
+});
