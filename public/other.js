@@ -5,6 +5,7 @@
  * are reading came off another one — or has others off it — the shape is drawn as a short list, and
  * a branch's last answer can be carried back into the conversation it came from as a note.
  */
+import { t } from "./i18n.js";
 import { openConversation } from "/app.js";
 
 const $ = (id) => document.getElementById(id);
@@ -85,15 +86,15 @@ async function renderTree(sessionId) {
 
 /** Writes this branch's last answer back into the conversation it came off, as one note. */
 function carryBack(sessionId) {
-  const button = el("button", "Carry this branch's answer back", "rail-row");
+  const button = el("button", t("other.action.carryBack"), "rail-row");
   button.type = "button";
   button.addEventListener("click", async () => {
     button.disabled = true;
     try {
       await api(`sessions/${sessionId}/merge-note`, {});
-      button.textContent = "Carried back as a note";
+      button.textContent = t("other.status.carriedBack");
     } catch (error) {
-      button.textContent = "That did not work";
+      button.textContent = t("other.status.didNotWork");
       say(error.message);
     }
   });

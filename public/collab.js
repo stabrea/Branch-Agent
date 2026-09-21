@@ -82,7 +82,7 @@ function labelsSection(labels, helpers) {
   const target = el("select");
   for (const [value, label] of [["conversation", "a conversation"], ["procedure", "a saved procedure"], ["document", "a document"]])
     target.appendChild(new Option(label, value));
-  const id = el("input"); id.placeholder = "Its number"; id.maxLength = 200; id.setAttribute("aria-label", "The number of the thing to label");
+  const id = el("input"); id.placeholder = t("collab.field.number"); id.dataset.tPlaceholder = "collab.field.number"; id.maxLength = 200; id.setAttribute("aria-label", t("collab.field.numberLabel")); id.dataset.tLabel = "collab.field.numberLabel";
   const label = el("input"); label.placeholder = "Label"; label.maxLength = 40; label.setAttribute("aria-label", "The label to add");
   const adding = el("div", undefined, "collab-row");
   adding.append(el("span", "Add a label to"), target, id, label,
@@ -239,8 +239,8 @@ function peopleSection(profile, helpers) {
     return wrap;
   }
   wrap.appendChild(ownerPinCard(profile, helpers));
-  const name = el("input"); name.placeholder = "Their name"; name.maxLength = 40; name.setAttribute("aria-label", "Their name");
-  const newPin = el("input"); newPin.type = "password"; newPin.inputMode = "numeric"; newPin.placeholder = "Four to eight digits"; newPin.setAttribute("aria-label", "Their PIN, four to eight digits");
+  const name = el("input"); name.placeholder = t("household.add.name"); name.dataset.tPlaceholder = "household.add.name"; name.maxLength = 40; name.setAttribute("aria-label", t("household.add.name")); name.dataset.tLabel = "household.add.name";
+  const newPin = el("input"); newPin.type = "password"; newPin.inputMode = "numeric"; newPin.placeholder = t("collab.field.pin"); newPin.dataset.tPlaceholder = "collab.field.pin"; newPin.setAttribute("aria-label", t("collab.field.pinLabel")); newPin.dataset.tLabel = "collab.field.pinLabel";
   const adding = el("div", undefined, "collab-row");
   adding.append(name, newPin, smallButton(helpers, "Add them", async () => {
     await api("/api/profiles", { name: name.value, pin: newPin.value });

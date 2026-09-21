@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * Settings → Diagnostics: the promise that nothing is sent anywhere, a folder the owner can save
  * and pass on by hand, and the switch for writing trace files a tracing viewer can open.
@@ -20,12 +21,12 @@ async function api(path, body) {
 
 async function saveBundle() {
   const status = $("diagnostics-status");
-  status.textContent = "Writing the folder…";
+  status.textContent = t("diagnostics.status.writing");
   try {
     const bundle = await api("diagnostics/bundle", {});
     status.textContent = `Saved to ${bundle.folder} — ${bundle.files.length} files covering ${bundle.events} recent events. Read them before sharing.`;
   } catch (e) {
-    status.textContent = "The folder could not be written: " + e.message;
+    status.textContent = t("diagnostics.status.writeFailed", { message: e.message });
   }
 }
 

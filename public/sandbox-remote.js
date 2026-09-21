@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // Settings → Approvals: where scripts run, what can reach out, how much one person may ask for, and
 // how long conversations are kept. Plus the Remote computers card. Everything here reads a module
 // that already decided; nothing on these screens decides anything itself.
@@ -96,7 +97,7 @@ async function showRemotes() {
       : "It may hold files and run nothing at all.";
     const drop = document.createElement("button");
     drop.type = "button";
-    drop.textContent = "Take this computer off";
+    drop.textContent = t("sandboxRemote.action.remove");
     drop.addEventListener("click", () => void removeRemote(computer.alias));
     row.append(title, line(`${computer.alias}, working in ${computer.root}. ${programs}`, "subtle"), drop);
     where.append(row);

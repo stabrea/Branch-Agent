@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * A small markdown renderer that builds DOM nodes, never HTML strings, so nothing a model or a
  * document contains can become markup. Headings, lists, tables, quotes, links, inline code and
@@ -84,7 +85,7 @@ export function plainCodeBlock(code, language) {
       await navigator.clipboard.writeText(code);
       copy.textContent = "Copied";
     } catch {
-      copy.textContent = "Could not copy";
+      copy.textContent = t("markdown.status.copyFailed");
     }
     setTimeout(() => { copy.textContent = "Copy"; }, 2000);
   });

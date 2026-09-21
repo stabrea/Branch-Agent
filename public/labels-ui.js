@@ -4,6 +4,7 @@
  * are reading. Every chip filters through the `labels` parameter the conversation search already
  * takes, so nothing new decides what matches.
  */
+import { t } from "./i18n.js";
 import { trackPopover } from "/popover.js";
 
 const el = (tag, text, className) => {
@@ -102,7 +103,7 @@ export async function openLabelPicker(button, sessionId, afterChange) {
     const field = el("input");
     field.type = "text";
     field.maxLength = 40;
-    field.placeholder = "New label";
+    field.placeholder = t("labels.field.new");
     field.className = "label-new";
     const add = el("button", "Add", "label-add");
     add.type = "button";

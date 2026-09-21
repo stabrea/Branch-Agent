@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * mac7/diagnostics: Settings › Advanced › Activity log, Settings › Updates & about › Report a
  * problem, and the window's own errors written to the log. Nothing here sends anything outside
@@ -94,7 +95,7 @@ async function gather() {
     renderItems();
     status.textContent = `${items.length} parts. Read each one; press Remove on anything you would rather not share.`;
     $("problem-report-actions").hidden = false;
-  } catch (e) { status.textContent = "The report could not be gathered: " + e.message; }
+  } catch (e) { status.textContent = t("activityLog.status.reportFailed", { message: e.message }); }
 }
 function renderItems() {
   $("problem-report-items").replaceChildren(...items.map((item) => {
@@ -128,7 +129,7 @@ async function saveZip() {
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 10000);
     status.textContent = `Saved as ${saved.name} (a copy is also in ${saved.path}). Nothing was sent.`;
-  } catch (e) { status.textContent = "The zip could not be saved: " + e.message; }
+  } catch (e) { status.textContent = t("activityLog.status.zipFailed", { message: e.message }); }
 }
 async function openIssue() {
   const status = $("problem-report-status");
@@ -137,7 +138,7 @@ async function openIssue() {
     if (window.branchDesktop && window.branchDesktop.openExternal) await window.branchDesktop.openExternal(url);
     else window.open(url, "_blank", "noopener");
     status.textContent = "GitHub's issue form is open in your browser with a title and description filled in. Save the zip and attach it there; nothing is sent until you press Submit.";
-  } catch (e) { status.textContent = "The issue form could not be opened: " + e.message; }
+  } catch (e) { status.textContent = t("activityLog.status.issueFailed", { message: e.message }); }
 }
 
 $("activity-log-show")?.addEventListener("click", loadLog);

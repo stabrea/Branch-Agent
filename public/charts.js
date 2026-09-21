@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * A chart drawn in the page, from a fenced `chart` block in a reply or from a picture the data
  * tools already made. Bars, a line or a pie; the number under the pointer is written out, the same
@@ -192,7 +193,7 @@ export function drawChart(source) {
       link.href = png;
       link.download = `${chart.title.replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "chart"}.png`;
       link.click();
-      reading.textContent = "Saved as a picture.";
+      reading.textContent = t("charts.status.savedPicture");
     } catch (error) { reading.textContent = error.message; }
   });
   row.append(toggle, save);

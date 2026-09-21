@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // Settings → Sharing with other AI tools, second half: what Branch is holding back from a
 // connected tool and why, how long connections to other people's servers stay open, and a bench
 // for trying a server out before keeping it.
@@ -105,7 +106,7 @@ let offered = [];
 
 async function tryServer() {
   const status = $("mcp-try-status");
-  status.textContent = "Asking that server what it offers…";
+  status.textContent = t("mcpWorkbench.status.asking");
   try {
     const result = await api("mcp/try", { server: serverFromForm() });
     offered = result.tools;
@@ -156,7 +157,7 @@ function argumentsFromForm() {
 
 async function callTool() {
   const status = $("mcp-try-status");
-  status.textContent = "Running that tool…";
+  status.textContent = t("mcpWorkbench.status.running");
   try {
     const result = await api("mcp/try", {
       server: serverFromForm(),
