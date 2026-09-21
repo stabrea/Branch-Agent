@@ -17,6 +17,7 @@ import { narrowed, Runner } from "./runner.js";
 import { autonomyMode, autonomyParts, autonomyTools, saveAutonomyMode, type AutonomyMode, type AutonomyPart } from "./settings.js";
 import { suggest, type Suggestion } from "./suggestions.js";
 import { registerAutonomyTools } from "./tools.js";
+import { effectiveMode, toolLoading } from "../feature-switches.js";
 
 /**
  * Bucket R17-B: it suggests, and runs things on its own. `createBranch` makes one of these; the server
@@ -137,7 +138,9 @@ export class Autonomy {
   /** What a task is told about standing orders and instructions, by the runtime hook. */
   instructionsFor(context: { agent?: string | undefined; source?: string | undefined }): string {
     const parts: string[] = [];
-    const orders = this.mode("orders"), rules = this.mode("instructions");
+    // Owner item 17: with Tool loading off, "when needed" carries the full text here too.
+    const loading = toolLoading(this.store, this.owner);
+    const orders = effectiveMode(this.mode("orders"), loading), rules = effectiveMode(this.mode("instructions"), loading);
     if (rules !== "off") parts.push(this.instructions.forTask(context.agent, rules === "on"));
     if (orders !== "off" && (context.source ?? "owner") === "owner" && !context.agent) parts.push(this.orders.summary(orders === "on"));
     const text = parts.filter(Boolean).join("\n");

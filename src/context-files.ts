@@ -58,6 +58,7 @@ import type { ToolRegistry } from "./registry.js";
 import { folderAllows } from "./folder-trust.js";
 import { expandImports, importReader } from "./coding/imports.js"; // mac7/r17-d
 import { codingOn } from "./coding/settings.js"; // mac7/r17-d
+import { effectiveMode, toolLoading } from "./feature-switches.js";
 
 /** How much of one file is ever carried, and how much of the prompt all of them may take together. */
 export const perFileBytes = 8000;
@@ -122,6 +123,11 @@ const settingsKey = "context-files";
 export function contextFileSettings(store: Store, owner: string): ContextFileSettings {
   const saved = ContextFileSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
   return saved.success ? saved.data : ContextFileSettingsSchema.parse({});
+}
+/** The switches as a task reads them: with Tool loading off, a file set to "when needed" is carried in full. */
+function carriedSettings(store: Store, owner: string): ContextFileSettings {
+  const settings = contextFileSettings(store, owner), loading = toolLoading(store, owner);
+  return { ...settings, files: Object.fromEntries(Object.entries(settings.files).map(([key, value]) => [key, value === undefined ? value : effectiveMode(value, loading)])) as ContextFileSettings["files"] };
 }
 export function saveContextFileSettings(store: Store, owner: string, input: unknown): ContextFileSettings {
   const asked = ContextFileSettingsSchema.parse(input ?? {});
@@ -323,7 +329,7 @@ function prompt(carried: string[], announced: string[]): string {
 
 /** The whole block, for the owner's settings screen: what is on, what was found, what will not fit. */
 export function contextFileStatus(store: Store, owner: string, workspace: string): SlotReport[] {
-  return assembleContext(foldersFor(store, owner, workspace), contextFileSettings(store, owner)).reports;
+  return assembleContext(foldersFor(store, owner, workspace), carriedSettings(store, owner)).reports;
 }
 const foldersFor = (store: Store, owner: string, workspace: string): Folders => ({
   workspace, owner: store.folder,
@@ -385,7 +391,7 @@ const nothingOn: AssembledContext ={ text: "", reports: [], bytes: 0, replacesPe
 
 /** Puts the owner's files in front of the model, and writes down what was carried. */
 export function contextFileInstructions(store: Store, context: ToolContext): AssembledContext {
-  const settings = contextFileSettings(store, context.owner);
+  const settings = carriedSettings(store, context.owner);
   if (!Object.values(settings.files).some((value) => value !== "off")) return nothingOn;
   const built = assembleContext(foldersFor(store, context.owner, context.workspace), settings);
   store.event(context.runId, "context.files", {

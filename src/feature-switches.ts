@@ -184,6 +184,13 @@ export function eagerFit(forcedTokens: number, room: number): { fits: boolean; t
   const limit = Math.floor(room * eagerShareOfRoom);
   return { fits: forcedTokens <= limit, tokens: forcedTokens, room, limit };
 }
+/**
+ * Text that "when needed" keeps to a pointer (context files, standing instructions and orders, memory
+ * blocks, lessons) is carried in full when Tool loading is off, the same as tools: the owner's switch
+ * reads as "on" for it. Anything off stays off.
+ */
+export const effectiveMode = <M extends string>(mode: M, loading: ToolLoading): M | "on" =>
+  mode === "when-needed" && loading === "eager" ? "on" : mode;
 /** The one rule: "on" always loads; "when needed" loads up front only when Tool loading is off (eager). */
 export const loadsEagerly = (mode: FeatureMode, loading: ToolLoading): boolean =>
   mode === "on" || (mode === "when-needed" && loading === "eager");
