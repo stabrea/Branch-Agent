@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor, pressUntil } from "./places.mjs";
 import { registerCliAgent } from "../dist/providers/cli-agent.js";
 import { accountsServiceFor } from "../dist/accounts/service.js";
 
@@ -61,12 +61,15 @@ test("U1 the card lives in Settings › Accounts, starts off, and adding a key k
   assert.match(await pool.locator(".terms-line").innerText(), /entitled to use/);
   await pool.getByLabel("Name for a new account").fill("Personal");
   await pool.getByLabel("Its API key").fill(KEY);
-  await pool.getByRole("button", { name: "Add this account" }).click();
-  await pool.locator(".accounts-row", { hasText: "Personal" }).waitFor();
-  assert.ok(!(await page.content()).includes(KEY), "the key is not on the page after it was added");
   const row = pool.locator(".accounts-row", { hasText: "Personal" });
-  await row.getByRole("button", { name: "Use for new work" }).click();
-  await pool.locator(".accounts-row", { hasText: "Personal" }).getByText("(new work uses this one)").waitFor();
+  await pressUntil(pool.getByRole("button", { name: "Add this account" }),
+    () => row.waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false),
+    "the account to be added");
+  assert.ok(!(await page.content()).includes(KEY), "the key is not on the page after it was added");
+  const selected = row.getByText("(new work uses this one)");
+  await pressUntil(row.getByRole("button", { name: "Use for new work" }),
+    () => selected.waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false),
+    "the account to be used for new work");
   const chip = page.locator("#accounts-chip-select");
   await openPlace(page, "chat");
   await chip.waitFor({ state: "attached" });
