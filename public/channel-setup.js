@@ -286,7 +286,7 @@ function modeRow() {
 }
 
 function picker() {
-  const options = state.list.channels.map((channel) => [channel.id, channel.name, channel.name]);
+  const options = state.list.channels.map((channel) => [channel.id, "", channel.name]);
   const select = dropdown({
     id: "channel-setup-app",
     options,
