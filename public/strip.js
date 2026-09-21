@@ -98,11 +98,12 @@ function kindWords(item) {
 
 /* ---------- which face is picked ---------- */
 function currentSession() { return $("conversation")?.dataset.sessionId || ""; }
+let assignedTrunk = "";
 function selectedId() {
   const overview = !$("overview")?.hidden;
   if (overview) return shell.target;
   const session = currentSession();
-  const trunk = session && shell.roster?.trunks.find((entry) => entry.chatSessionId === session);
+  const trunk = session && shell.roster?.trunks.find((entry) => entry.chatSessionId === session || entry.id === assignedTrunk);
   return trunk ? `trunk:${trunk.id}` : "here";
 }
 function markSelected() {
@@ -414,6 +415,10 @@ whenReady(() => {
   void refresh();
   setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
   document.addEventListener("branch-profile", () => void refresh());
+  document.addEventListener("branch-rooms-changed", (event) => {
+    assignedTrunk = String(event.detail?.trunkId ?? "");
+    markSelected();
+  });
   document.addEventListener("branch-language", () => { drawStrip(); document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell })); });
   document.addEventListener("branch-place", markSelected);
   if ($("conversation")) new MutationObserver(markSelected).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });

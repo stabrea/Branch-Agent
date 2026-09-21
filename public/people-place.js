@@ -44,6 +44,7 @@ const ownerSpec = () => personSpec({ name: say("household.owner", "The owner") }
 async function switchTo(profileId, pin) {
   await api("profiles/switch", { profileId, ...(pin ? { pin } : {}) });
   closePopovers();
+  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: profileId === null } }));
   await refresh();
   document.dispatchEvent(new CustomEvent("branch-profile-switched"));
   toast(profileId ? say("household.switched", "Switched.") : say("household.back", "Back to the owner."));

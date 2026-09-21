@@ -95,8 +95,8 @@ const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
   document.querySelector('.rail-group[data-group="projects"]'),
   document.querySelector('.rail-group[data-group="recents"]')].filter(Boolean);
 let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
-let railCanManageTrunks = true;
-let railProfileOwner = ownerAtWindow();
+let railCanManageTrunks = false;
+let railProfileOwner = null;
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
   $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
@@ -122,19 +122,25 @@ for (const tab of document.querySelectorAll(".rail-view-tab")) {
   tab.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
-    chooseRailView(railView === "trunks" ? "conversations" : "trunks", true);
+    const available = [...document.querySelectorAll(".rail-view-tab")].filter((choice) => !choice.hidden);
+    if (available.length < 2) return available[0]?.focus();
+    const at = available.indexOf(event.currentTarget), by = event.key === "ArrowRight" ? 1 : -1;
+    const next = available[(at + by + available.length) % available.length];
+    chooseRailView(next.dataset.railView, true);
   });
 }
 $("rail-new-trunk").addEventListener("click", () => void import("/studio.js").then((studio) => studio.openAdd("trunk")));
 new MutationObserver(syncRailView).observe($("rail-scroll"), { childList: true });
 document.addEventListener("branch-strip", (event) => {
-  railCanManageTrunks = railProfileOwner && ownerAtWindow() && event.detail?.profiles?.isOwner !== false;
+  const confirmedOwner = event.detail?.profiles?.isOwner === true;
+  if (railProfileOwner === null) railProfileOwner = confirmedOwner;
+  railCanManageTrunks = railProfileOwner === true && ownerAtWindow() && confirmedOwner;
   syncRailView();
 });
 document.addEventListener("branch-profile", (event) => {
   railProfileOwner = event.detail?.owner !== false;
-  if (railProfileOwner) return;
   railCanManageTrunks = false;
+  if (railProfileOwner) return syncRailView();
   setRailTargetFallback();
   syncRailView();
 });
@@ -155,6 +161,7 @@ function setRailTargetFallback() {
   }
 }
 document.addEventListener("branch-strip-selection", (event) => {
+  if (railProfileOwner !== true || !railCanManageTrunks || !ownerAtWindow()) return setRailTargetFallback();
   const { name, kind, status } = event.detail;
   setRailTargetText("rail-target-name", name);
   setRailTargetText("rail-target-kind", kind);

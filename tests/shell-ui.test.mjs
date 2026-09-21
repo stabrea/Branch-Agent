@@ -212,9 +212,37 @@ test("the Trunks rail stays owner-only", async (t) => {
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
     detail: { profiles: { isOwner: true } },
   })));
+  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
+    name: "Stale private Ada", kind: "Private Trunk", status: "Working",
+  } })));
   assert.equal(await f.page.locator("#rail-view-trunks").isVisible(), false);
   assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), false);
   assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.equal(await f.page.locator("#rail-target-name").textContent(), "This computer",
+    "a late owner-side selection cannot restore a private name");
+  await f.page.locator("#rail-view-conversations").focus();
+  await f.page.keyboard.press("ArrowRight");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "rail-view-conversations",
+    "arrow navigation contains only visible choices");
+  assert.deepEqual(f.errors, []);
+});
+
+test("an ordinary conversation assigned to a Trunk updates the shell target", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const target = await f.page.evaluate(async () => {
+    const strip = await import("/strip.js");
+    strip.shell.roster = { modes: { trunks: "on" }, trunks: [
+      { id: "assigned-ada", name: "Ada", handle: "ada", chatSessionId: "ada-own-chat" },
+    ] };
+    document.getElementById("conversation").dataset.sessionId = "ordinary-chat";
+    strip.drawStrip();
+    document.dispatchEvent(new CustomEvent("branch-rooms-changed", { detail: {
+      kind: "trunk", trunkId: "assigned-ada",
+    } }));
+    return document.getElementById("rail-target-name").textContent;
+  });
+  assert.equal(target, "Ada");
   assert.deepEqual(f.errors, []);
 });
 

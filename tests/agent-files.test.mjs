@@ -133,6 +133,13 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
+  await openSettings(page, "appearance");
+  assert.equal(await page.locator("#lx-page-appearance .lx-page-intro").innerText(),
+    "Every KeepOak theme, light or dark, with the oak in any season. Changes show behind this window as you pick.");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await page.locator("#lx-page-appearance .lx-page-intro").innerText(),
+    "Tous les thèmes KeepOak, clairs ou sombres, avec le chêne à chaque saison. Les changements s’affichent derrière cette fenêtre au fil de vos choix.");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   await openSettings(page, "instructions");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   assert.equal(await page.locator("#lx-page-instructions .lx-page-intro").innerText(),
@@ -163,6 +170,15 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
     pageHidden: true,
     generalCurrent: "true",
   });
+
+  const guardedRoute = await page.evaluate(() => {
+    globalThis.branchLayout.go("settings:instructions");
+    return {
+      instructionsHidden: document.getElementById("lx-page-instructions").hidden,
+      generalCurrent: document.querySelector('.lx-settings-link[data-page="general"]').getAttribute("aria-current"),
+    };
+  });
+  assert.deepEqual(guardedRoute, { instructionsHidden: true, generalCurrent: "true" });
 
   await page.evaluate(() => {
     document.documentElement.dataset.household = "off";
