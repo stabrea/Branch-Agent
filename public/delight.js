@@ -290,6 +290,9 @@ function noticeFlags() {
   if (root.dataset.motion === "reduced") flag("still");
   if (root.dataset.everything === "on") flag("everything");
   if ($("appearance-follow")?.checked) flag("follow-system");
+  const hidden = new Set((root.dataset.hide ?? "").split(" ").filter(Boolean));
+  const hideable = globalThis.branchOnscreen?.ids?.() ?? [];
+  if (hideable.length && hideable.every((id) => hidden.has(id))) flag("lonely");
 }
 document.addEventListener("change", (event) => { if (event.target?.id === "appearance-follow" && event.target.checked) flag("follow-system"); });
 new MutationObserver(() => { noticeLook(); noticeFlags(); })
