@@ -46,7 +46,16 @@ export interface RoomEvent {
   byKey?: { keyId?: string; sessionId?: string };
 }
 export interface RoomMember { id: string; handle: string; name: string }
-export interface RoomTask { memberId: string; round: number; discussion: number; seen: number; prompt: string }
+export interface RoomTask {
+  memberId: string;
+  round: number;
+  discussion: number;
+  seen: number;
+  prompt: string;
+  /** Authority of the person or short-lived key that opened this discussion. Omitted for the owner. */
+  personId?: string;
+  byKey?: RoomEvent["byKey"];
+}
 export type RoomDecision =
   | { status: "idle" }
   | { status: "task"; task: RoomTask }
@@ -166,7 +175,9 @@ export function nextRoomTurn(roomName: string, members: readonly RoomMember[], e
       const seen = watermark(events, member.id);
       if (!history.some((e) => e.seq > seen && e.seq <= seenThrough)) continue;
       const prompt = roomPrompt(roomName, member, members, history.filter((e) => e.seq <= seenThrough), seen, context);
-      return { status: "task", task: { memberId: member.id, round, discussion: d, seen: seenThrough, prompt } };
+      return { status: "task", task: { memberId: member.id, round, discussion: d, seen: seenThrough, prompt,
+        ...(discussion.personId ? { personId: discussion.personId } : {}),
+        ...(discussion.byKey ? { byKey: discussion.byKey } : {}) } };
     }
     if (!spoken.some((e) => e.round === round)) return { status: "settled", reason: "silent_round", discussion: d };
     if (round === maxRounds - 1) return { status: "bounded", reason: "max_rounds", discussion: d };

@@ -38,7 +38,8 @@ export const RoomEditSchema = z.object({
   order: z.number().int().min(0).max(10000).optional(),
 }).strict();
 const RoomArtifactSchema = z.object({
-  name: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(120)
+    .regex(/^[^\u0000-\u001f\u007f]+$/, "Artifact name cannot contain control characters"),
   content: z.string().max(12_000),
 }).strict();
 const maxKeptEvents = 300;
@@ -289,16 +290,14 @@ export class TrunkRooms {
     const sessionId = room.memberSessions[task.memberId];
     if (!member || !sessionId) { this.append(room.id, { kind: "failed", text: "This Trunk is gone", memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
     let run: Run;
-    // phase2/rooms: a turn answering a short-lived key's message is that key's work.
-    const discussion = room.events.find((event) => event.seq === task.discussion);
-    const byKey = discussion?.byKey;
-    const prompt = task.prompt + this.artifactContext(room, discussion?.personId ?? null);
+    // phase2/rooms: the planner carries the sender; authority never falls back through a capped log.
+    const prompt = task.prompt + this.artifactContext(room, task.personId ?? null);
     const start = () => this.deps.runtime.run({ prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
-    const asSender = () => discussion?.personId
-      ? asPerson({ profileId: discussion.personId, keyId: `room:${room.id}` }, start)
+    const asSender = () => task.personId
+      ? asPerson({ profileId: task.personId, keyId: `room:${room.id}` }, start)
       : start();
     try {
-      run = await (byKey ? underShortLivedKey(asSender, byKey) : asSender());
+      run = await (task.byKey ? underShortLivedKey(asSender, task.byKey) : asSender());
     } catch (error) {
       if (this.closing) return;
       this.append(room.id, { kind: "failed", text: error instanceof Error ? error.message : String(error), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen });

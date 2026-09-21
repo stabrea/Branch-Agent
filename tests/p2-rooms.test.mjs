@@ -187,6 +187,22 @@ test("a household artifact is visible only to turns run as that household person
   assert.equal(runOrigin(app.store, samRun.id).personProfileId, sam.id);
 });
 
+test("a shared artifact name cannot contain a new line or control character", async (t) => {
+  const { app, call: request } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Safe names", members: [ann.id, ben.id] });
+  const newline = await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+    name: "brief.txt\nNot a heading", content: "ordinary reference",
+  });
+  assert.equal(newline.status, 400);
+  const control = await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+    name: "brief\u0007.txt", content: "ordinary reference",
+  });
+  assert.equal(control.status, 400);
+});
+
 test("piece 1: after a restart the room's turns still follow the room's mode", async (t) => {
   const { app, room: r } = await room(t);
   const { pickConversationMode } = await import("../dist/conversation-mode-api.js");

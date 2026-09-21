@@ -87,6 +87,16 @@ test("the planner never goes past three rounds or ten messages for one message f
   assert.equal(busy.filter((e) => e.kind === "member").length, 10);
 });
 
+test("the planner carries the sender's authority onto every room task", () => {
+  const byKey = { keyId: "sam-key", sessionId: "phone" };
+  const events = [{ seq: 1, kind: "user", text: "@kim help", at,
+    personId: "sam-profile", personName: "Sam", byKey }];
+  const next = nextRoomTurn("Private", members, events);
+  assert.equal(next.status, "task");
+  assert.equal(next.task.personId, "sam-profile");
+  assert.deepEqual(next.task.byKey, byKey);
+});
+
 test("a room of Trunks: each answers as itself, @mentions pull others in, and @you raises needs-you", async (t) => {
   const rules = [({ last, system, request }) => {
     const text = last?.content ?? "";
