@@ -401,6 +401,36 @@ test("calm: Restart asks the desktop app to start Branch again, and a browser lo
   assert.equal(await f.page.evaluate(() => globalThis.stillHere), undefined, "the browser loaded the page again");
 });
 
+test("calm: a health request that never answers times out and reveals Restart", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.evaluate(async () => {
+    const originalFetch = globalThis.fetch;
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.fetch = (input, init = {}) => {
+      if (!String(input).includes("/api/health")) return originalFetch(input, init);
+      return new Promise((resolve, reject) => {
+        const stop = () => reject(new DOMException("The operation was aborted.", "AbortError"));
+        if (init.signal?.aborted) stop();
+        else init.signal?.addEventListener("abort", stop, { once: true });
+      });
+    };
+    globalThis.setTimeout = (run, milliseconds, ...args) =>
+      originalSetTimeout(run, milliseconds === 8000 ? 0 : milliseconds, ...args);
+    try {
+      const checks = (async () => {
+        await globalThis.branchLayout.checkServer();
+        await globalThis.branchLayout.checkServer();
+      })();
+      await Promise.race([checks, new Promise((resolve) => originalSetTimeout(resolve, 50))]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+  assert.equal(await f.page.locator("#lx-restart").isVisible(), true, "two timed-out probes mark Branch as unavailable");
+  assert.deepEqual(f.errors, []);
+});
+
 test("the desktop restart channel answers only its own window's page, and relaunches once", async () => {
   const { registerRestartIpc, restartChannel } = await import("../dist/desktop/restart-ipc.js");
   const handlers = new Map(), closed = [];
