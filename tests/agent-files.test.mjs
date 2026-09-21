@@ -141,16 +141,28 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
   assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
 
-  await page.evaluate(() => {
+  const householdView = await page.evaluate((privateValue) => {
     document.documentElement.dataset.household = "on";
     document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+    const instructions = document.querySelector('.lx-settings-link[data-page="instructions"]');
+    const instructionsPage = document.getElementById("lx-page-instructions");
+    return {
+      editorCount: document.querySelectorAll("#agent-files").length,
+      privateTextVisible: document.body.innerText.includes(privateValue),
+      instructionsHidden: instructions.hidden || getComputedStyle(instructions).display === "none",
+      optionDisabled: document.querySelector('#sg-page-pick option[value="instructions"]').disabled,
+      pageHidden: instructionsPage.hidden || getComputedStyle(instructionsPage).display === "none",
+      generalCurrent: document.querySelector('.lx-settings-link[data-page="general"]').getAttribute("aria-current"),
+    };
+  }, privateText);
+  assert.deepEqual(householdView, {
+    editorCount: 0,
+    privateTextVisible: false,
+    instructionsHidden: true,
+    optionDisabled: true,
+    pageHidden: true,
+    generalCurrent: "true",
   });
-  assert.equal(await page.locator("#agent-files").count(), 0);
-  assert.equal((await page.locator("body").innerText()).includes(privateText), false);
-  assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').isHidden(), true);
-  assert.equal(await page.locator('#sg-page-pick option[value="instructions"]').evaluate((node) => node.disabled), true);
-  assert.equal(await page.locator("#lx-page-instructions").isHidden(), true);
-  assert.equal(await page.locator('.lx-settings-link[data-page="general"]').getAttribute("aria-current"), "true");
 
   await page.evaluate(() => {
     document.documentElement.dataset.household = "off";
