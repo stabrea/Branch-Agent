@@ -97,7 +97,7 @@ const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
 let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
 let railCanManageTrunks = false;
 let railProfileOwner = null;
-let railProfileGeneration = 0;
+let railProfileGeneration = Number(document.documentElement.dataset.profileGeneration || 0);
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
   $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
@@ -143,7 +143,8 @@ document.addEventListener("branch-strip", (event) => {
   if (railCanManageTrunks) document.dispatchEvent(new CustomEvent("branch-strip-reselect"));
 });
 document.addEventListener("branch-profile", (event) => {
-  railProfileGeneration += 1;
+  const generation = Number(event.detail?.profileGeneration);
+  railProfileGeneration = Number.isSafeInteger(generation) ? generation : railProfileGeneration + 1;
   railProfileOwner = event.detail?.owner !== false;
   railCanManageTrunks = false;
   if (railProfileOwner) return syncRailView();

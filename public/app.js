@@ -86,8 +86,10 @@ export function ownerAtWindow() {
 }
 export function noteWindowProfile(owner) {
   if (ownerAtWindow() === owner) return;
+  const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
   document.documentElement.dataset.household = owner ? "off" : "on";
-  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner } }));
+  document.documentElement.dataset.profileGeneration = String(generation);
+  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner, profileGeneration: generation } }));
 }
 function noteProfile(profile) {
   noteWindowProfile(!profile || profile.isOwner !== false);

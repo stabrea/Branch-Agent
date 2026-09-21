@@ -416,10 +416,15 @@ function whenReady(work) {
 }
 reserveRoom();
 whenReady(() => {
+  profileGeneration = Number(document.documentElement.dataset.profileGeneration || profileGeneration);
   wireGestures();
   void refresh();
   setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
-  document.addEventListener("branch-profile", () => { profileGeneration += 1; void refresh(); });
+  document.addEventListener("branch-profile", (event) => {
+    const generation = Number(event.detail?.profileGeneration);
+    profileGeneration = Number.isSafeInteger(generation) ? generation : profileGeneration + 1;
+    void refresh();
+  });
   document.addEventListener("branch-rooms-changed", (event) => {
     assignedTrunk = String(event.detail?.trunkId ?? "");
     markSelected();
