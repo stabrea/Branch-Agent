@@ -148,9 +148,10 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
   assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
 
+  const person = (await call("POST", "/api/profiles", { name: "Sam", pin: "2468" })).body;
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: person.id, pin: "2468" })).status, 200);
+  await page.waitForFunction(() => document.documentElement.dataset.household === "on");
   const householdView = await page.evaluate((privateValue) => {
-    document.documentElement.dataset.household = "on";
-    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
     const instructions = document.querySelector('.lx-settings-link[data-page="instructions"]');
     const instructionsPage = document.getElementById("lx-page-instructions");
     return {
@@ -180,10 +181,8 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   });
   assert.deepEqual(guardedRoute, { instructionsHidden: true, generalCurrent: "true" });
 
-  await page.evaluate(() => {
-    document.documentElement.dataset.household = "off";
-    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: true } }));
-  });
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: null })).status, 200);
+  await page.waitForFunction(() => document.documentElement.dataset.household === "off");
   await page.locator("#agent-files").waitFor({ state: "attached" });
   assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').isVisible(), true);
   assert.equal(await page.locator('#sg-page-pick option[value="instructions"]').evaluate((node) => node.disabled), false);
