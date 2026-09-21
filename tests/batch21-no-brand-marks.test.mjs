@@ -15,7 +15,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 import { discardTemp } from "./temp-dir.mjs";
-import { openSettings, showEveryCard, showEverything, pressUntil } from "./places.mjs";
+import { openPlace, openSettings, showEveryCard, showEverything, pressUntil } from "./places.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "batch21-brands-"));
@@ -111,8 +111,10 @@ test("B3 no brand marks on Models connection tab", async (t) => {
 test("B4 no brand marks on channel/service cards", async (t) => {
   const { page } = await fixture(t);
 
-  // The redesign moved these cards to Settings › Chat apps & devices.
-  await openSettings(page, "channels");
+  // Newer builds give these cards their own page; older builds keep them under Customize.
+  const channelsPage = page.locator('.lx-settings-link[data-page="channels"]');
+  if (await channelsPage.count()) await openSettings(page, "channels");
+  else await openPlace(page, "customize:channels");
   await showEveryCard(page);
 
   // Count branded marks
