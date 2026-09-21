@@ -4202,11 +4202,12 @@ installs or switches anything on. The Skills screen shows all of the above, and 
 
 ## How Branch runs on this computer: installing, starting and reaching it from a phone
 
-**Installing.** The release carries two files: `Branch-Agent-windows-x64.zip` and `Install Branch
-Agent.cmd`. The script unpacks the zip with the `tar.exe` that ships with Windows (PowerShell's
-`Expand-Archive` is the fallback) and then runs `dist/install/install-cli.js` *from inside the
-unpacked app*, using the runtime the download already carries. Nothing has to be installed first and
-nothing is downloaded by the installer itself. It copies the app to
+**Installing.** The release carries three Windows files: `Branch-Agent-windows-x64.zip`, its
+`.sha256`, and `Install Branch Agent.cmd`. The script copies the archive and checksum into a new
+private staging folder, uses the system PowerShell to verify the exact checksum and reject absolute,
+parent-traversal, alternate-stream and link entries, then extracts it. It runs
+`dist/install/install-cli.js` *from inside the unpacked app*, using the runtime the download already
+carries. Nothing has to be installed first and nothing is downloaded by the installer itself. It copies the app to
 `%LOCALAPPDATA%\Programs\Branch Agent`, keeps whatever was there in `…\Branch Agent.previous`,
 writes a Start menu shortcut and (unless `--no-desktop-shortcut`) a desktop one through
 `WScript.Shell`, writes `Uninstall Branch Agent.cmd` next to the app, and registers it under
@@ -4255,7 +4256,7 @@ check, restart, update and remove Branch with one script.
 
 | | macOS and Linux | Windows |
 |---|---|---|
-| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
+| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip and its `.sha256` |
 | Where it goes | Mac: `~/Applications/Branch Agent.app`, or `/Applications` with `--applications`. Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` and the icon in `~/.local/share/icons/hicolor` | `%LOCALAPPDATA%\Programs\Branch Agent` |
 | The `branch` command | `~/.local/bin/branch` | not written yet |
 | Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |

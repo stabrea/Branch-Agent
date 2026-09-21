@@ -10,7 +10,7 @@ npm run desktop
 npm run package:desktop
 ```
 
-The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it. Keep the whole folder together. The Windows build is unsigned and does not install shortcuts, a startup service or automatic updates; the macOS build is signed with the project's own certificate once the owner turns signing on, which is what keeps its permissions across updates (see below). Those distribution capabilities remain on the feature inventory.
+The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it and keep the whole folder together. `npm run package:desktop -- --release` also makes the zip, its checksum and `Install Branch Agent.cmd`. The installer requires all three files together, verifies and preflights a private copy, then adds shortcuts and the uninstall entry. Installed copies can update from the app. Windows releases remain unsigned until a trusted publisher certificate is configured; the macOS build is signed with the project's own certificate once the owner turns signing on, which is what keeps its permissions across updates (see below).
 
 Electron is a development dependency because it supplies the native window, platform tray and bundled runtime. Electron Packager creates the distributable directory. Fontsource packages supply locally bundled typefaces; each font's license accompanies it. The package includes only runtime files, public assets, production dependencies, package metadata and notices.
 
