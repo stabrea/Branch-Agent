@@ -50,7 +50,9 @@ test("a fold since the last measure is honoured: the meter drops to what is stor
   app.store.event(run.id, "context.budget", { limit: 100000, system: 100, catalog: 50, messages: 90000, reserve: 1000 });
   assert.ok(tokenReport(app.runtime, run.sessionId).conversation >= 89900, "before the fold, the larger measure stands");
   app.store.event(run.id, "context.compacted", { estimatedBefore: 90000, estimatedAfter: 800 });
-  assert.ok(tokenReport(app.runtime, run.sessionId).conversation < 5000, "after it, the stored conversation is what counts");
+  const folded = tokenReport(app.runtime, run.sessionId);
+  assert.ok(folded.conversation < 5000, "after it, the stored conversation is what counts");
+  assert.equal(folded.measured, "stored messages", "and it says so");
 });
 
 test("a household person's conversation is measured under their own tasks, and nobody else can read it", async (t) => {
@@ -64,4 +66,42 @@ test("a household person's conversation is measured under their own tasks, and n
   const { status, body } = await get(`/api/sessions/${run.sessionId}/context`);
   assert.equal(status, 200);
   assert.equal(body.measured, "last task", "Sam's own task was found under Sam's scope");
+});
+
+test("a household person's conversation is measured with their own model choice, not the owner's", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-meter-model-"));
+  const provider = reply("ok");
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets: [
+    { id: "default", name: "Everyday", provider, model: "everyday-model" },
+    { id: "careful", name: "Careful thinking", provider, model: "careful-model" },
+  ] });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt: "Sam's question.", permissions: [] });
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const sams = profileScope(person.id);
+  app.store.reassignSession(run.sessionId, sams);
+  app.runtime.models.configureSession(sams, run.sessionId, { preset: "careful" });
+  assert.equal(tokenReport(app.runtime, run.sessionId, sams).model, "careful-model", "Sam chose the careful model for this conversation");
+  assert.equal(tokenReport(app.runtime, run.sessionId).model, "everyday-model", "under the owner's name the choice is not visible, as before");
+});
+
+test("one failed refresh keeps the meter's last reading instead of showing it empty", async (t) => {
+  const { chromium } = await import("playwright");
+  const root = await mkdtemp(join(tmpdir(), "branch-meter-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: reply("A fairly ordinary answer. ".repeat(40)) });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt: "Plan the garden beds. ".repeat(30), permissions: [] });
+  const page = await browser.newPage();
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
+  await page.waitForFunction(() => /[1-9]/.test(document.getElementById("meter-text")?.textContent ?? ""), null, { timeout: 20000 });
+  const before = await page.locator("#meter-text").textContent();
+  await page.route("**/api/sessions/*/context", (route) => route.fulfill({ status: 503, body: JSON.stringify({ error: "busy" }) }));
+  await page.evaluate(() => globalThis.branchTokenMeter.refresh());
+  assert.equal(await page.locator("#meter-text").textContent(), before, "a failed refresh changes nothing on the meter");
 });

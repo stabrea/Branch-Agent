@@ -88,10 +88,11 @@ export async function refreshMeter() {
     return;
   }
   try {
-    const [state, next] = await Promise.all([api("state"), api(`sessions/${here}/context`).catch(() => null)]);
+    // Either request failing keeps the last good reading (the catch below), never an empty meter.
+    const [state, next] = await Promise.all([api("state"), api(`sessions/${here}/context`)]);
     // The room the next request is measured against; the workspace's figure until a task has measured it.
     const budget = Number(next?.limit ?? 0) || Number(state.models?.contextWindow ?? state.contextWindow ?? 0) || DEFAULT_BUDGET;
-    const used = next ? Math.max(0, next.instructions + next.tools + next.conversation) : 0;
+    const used = Math.max(0, next.instructions + next.tools + next.conversation);
     stats = { ...totals(state, here), budget, used };
     paint();
     if (!$("meter-popover").hidden) paintPopover();

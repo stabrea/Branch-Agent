@@ -45,15 +45,16 @@ export function tokenReport(runtime: Runtime, sessionId: string, owner = runtime
   const stored = estimateTokens(rows.map((row) => textOnly(row.message)));
   const last = lastBudget(runtime, sessionId, owner);
   const budget = last?.budget ?? null;
-  const choice = runtime.models.plan(runtime.owner, sessionId).choice;
+  // The conversation's own model and prices: a household profile's choices, not the owner's.
+  const choice = runtime.models.plan(owner, sessionId).choice;
   const conversation = !last || last.folded ? stored : Math.max(n(budget!.messages) - n(budget!.system), stored);
   const instructions = n(budget?.system), tools = n(budget?.catalog), limit = n(budget?.limit) || 20000;
   const input = instructions + tools + Math.max(0, conversation);
-  const { overrides } = pricingSettings(runtime.store, runtime.owner);
+  const { overrides } = pricingSettings(runtime.store, owner);
   return {
     instructions, tools, conversation: Math.max(0, conversation), answerRoom: n(budget?.reserve), limit,
     left: limit - input, summary: summary ? estimateTokens(summary) : 0, messages: rows.length,
-    measured: budget ? "last task" : "stored messages", model: choice.model,
+    measured: last && !last.folded ? "last task" : "stored messages", model: choice.model,
     cost: formatCost(estimateCost(choice.model, { input, output: 0 }, overrides)),
   };
 }
