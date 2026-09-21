@@ -274,6 +274,11 @@ test("a household person sees this computer and the people, and nothing of the o
   assert.ok(markerAtEvent.eventGeneration > 0);
   assert.equal(markerAtEvent.eventGeneration, markerAtEvent.markerGeneration,
     "the event and document carry one canonical profile generation");
+  await f.page.locator("#rail-view-trunks").waitFor({ state: "visible" });
+  await f.page.locator("#rail-view-trunks").click();
+  await f.page.locator("#rail-trunks-actions").waitFor({ state: "visible" });
+  assert.equal(await f.page.locator("#rail-trunks-actions").getAttribute("hidden"), null,
+    "returning from the startup household profile restores the owner's Trunks without a reload");
   const repeatedOwner = await f.page.evaluate(async () => {
     const { noteWindowProfile } = await import("/app.js");
     let eventGeneration = null;
