@@ -116,10 +116,10 @@ function controls(view) {
   const file = document.createElement("input");
   file.type = "file";
   file.accept = ".zip,.branchskill";
-  const skillOptions = view.skills.map((entry) => [entry.id, entry.name]);
+  const skillOptions = view.skills.map((entry) => [entry.id, "", entry.name]);
   const skill = dropdown({
     id: "skill-installs-skill",
-    options: skillOptions.length > 0 ? skillOptions : [["", "No skills"]],
+    options: skillOptions.length > 0 ? skillOptions : [["", "", "No skills"]],
     value: skillOptions.length > 0 ? skillOptions[0][0] : ""
   });
   return [...labelled("skill-installs-file", "skillInstalls.field.file", "An Agent Skills folder (.zip) or a Branch package", file),
