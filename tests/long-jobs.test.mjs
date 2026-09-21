@@ -62,6 +62,15 @@ async function gone(pid, what) {
   for (let attempt = 0; attempt < 300 && alive(pid); attempt++) await delay(10);
   assert.equal(alive(pid), false, `${what} (pid ${pid}) survived`);
 }
+async function waitForShellOutput(shells, id, sessionId, pattern, within = 8000) {
+  const deadline = Date.now() + within;
+  while (Date.now() < deadline) {
+    const output = shells.read(id, 2000, sessionId).output;
+    if (pattern.test(output)) return output;
+    await delay(20);
+  }
+  assert.match(shells.read(id, 2000, sessionId).output, pattern, "the kept-open program became ready");
+}
 
 /* ---- A0390: a conversation that survives a restart ---- */
 
@@ -178,6 +187,7 @@ test("one kept-open command line serves two separate tasks, and is listed, read 
   const opened = await shells.start({ program: "keeper", args: [], cwd: ".", name: "kept open" }, firstTask);
   assert.equal(opened.status, "open");
   assert.ok(opened.pid, "it really started a program");
+  await waitForShellOutput(shells, opened.id, sessionId, /^ready in /m);
   const one = await shells.send({ id: opened.id, input: "one", waitMs: 8000 }, firstTask);
   assert.match(one.output, /^1 one pid=/m, "the first command answered");
 
