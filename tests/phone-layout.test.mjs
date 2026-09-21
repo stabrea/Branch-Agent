@@ -219,7 +219,7 @@ async function firstPaint(f, saved) {
   if (saved) await context.addInitScript((id) => localStorage.setItem("branch-palette", id), saved);
   const page = await context.newPage();
   await page.route(/\.js(\?|$)/, (route) => (new URL(route.request().url()).pathname === "/look-early.js" ? route.continue() : route.abort()));
-  await page.goto(f.url);
+  await page.goto(f.url, { timeout: 120000, waitUntil: "domcontentloaded" });
   /* A style sheet's rules cannot be read until it has arrived (Windows once threw "Cannot access rules"
      here); wait for every one, naming any that never can be. */
   const unreadable = () => page.evaluate(() => [...document.styleSheets].filter((sheet) => {

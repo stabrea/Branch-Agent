@@ -12,6 +12,7 @@ import { segmented, dropdown } from "/control-makers.js";
 const $ = (id) => document.getElementById(id);
 let shown = null;
 let writeVersion = 0;
+let writesInFlight = 0;
 
 async function api(body, path = "knobs") {
   const response = await fetch("/api/" + path, {
@@ -178,6 +179,7 @@ function actions(spec, controls, status) {
   row.className = "identity-actions";
   const send = async (values, done) => {
     const version = ++writeVersion;
+    writesInFlight += 1;
     const outside = spec.fields.filter((field) => field.outside);
     const inside = Object.fromEntries(Object.entries(values).filter(([name]) => !outside.some((field) => field.name === name)));
     const extra = Object.fromEntries(outside.map((field) => [field.name, values[field.name]]));
@@ -188,6 +190,9 @@ function actions(spec, controls, status) {
     } catch (error) {
       if (version !== writeVersion) return;
       status.textContent = error.message; delete status.dataset.t;
+    } finally {
+      writesInFlight -= 1;
+      if (version === writeVersion) writeVersion += 1;
     }
   };
   const save = keyed("button", "knobs.action.save");
@@ -321,7 +326,7 @@ async function refresh() {
   const version = writeVersion;
   try {
     const [view, file] = await Promise.all([api(), api(undefined, "knobs/launch-file")]);
-    if (version !== writeVersion) return;
+    if (version !== writeVersion || writesInFlight) return;
     const next = { view, file };
     if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
     shown = next;
