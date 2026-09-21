@@ -148,6 +148,7 @@ function trunkRow(trunk) {
     button("trunks.remove", "Remove", async () => {
       if (!confirm(say("trunks.remove.confirm", "Remove {name}? Its conversations stay in your history.", { name: trunk.name }))) return;
       await api(`trunks/${trunk.id}/remove`, {});
+      await refreshStrip();
       await draw();
     }));
   return item;

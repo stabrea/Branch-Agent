@@ -8,7 +8,7 @@
    The window wears the 44 KeepOak themes as glass over a pixel oak: theme-catalogue.js holds each
    theme's finished colours, theme-bridge.js hands them to Branch's own token names, grove.js paints the oak.
    public/app.js calls go() from displayView, so every existing way of opening a page still lands. */
-import { api, displayView, openConversation, titles } from "/app.js";
+import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
@@ -473,7 +473,7 @@ function buildSettings() {
     page.dataset.page = id;
     page.hidden = true;
     page.append(worded("h2", "lx-page-title", key, english),
-      worded("p", "lx-page-intro", `terminal.settings.${id}.intro`, intro));
+      worded("p", "lx-page-intro", `settings.window.${id}.intro`, intro));
     body.append(page);
   }
 
@@ -657,6 +657,7 @@ function buildOnThisPage(page) {
 }
 
 function showSettingsPage(id) {
+  if (id === "instructions" && !ownerAtWindow()) id = "general";
   settingsPage = id;
   for (const page of document.querySelectorAll(".lx-page")) page.hidden = page.dataset.page !== id;
   for (const link of document.querySelectorAll(".lx-settings-link"))
@@ -1577,7 +1578,7 @@ function start() {
   installGrownComposer();
   wireKeys();
   extendPalette();
-  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer };
+  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer, showOwnerSettings };
   applyLook();
   const open = [...document.querySelectorAll("#workspace > .view")].find((node) => !node.hidden)?.id || "chat";
   go(open === "settings" ? "chat" : open);

@@ -101,17 +101,40 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   assert.deepEqual(await group.locator(".segmented-option").allInnerTexts(), ["Off", "When needed", "On"]);
   assert.equal(await group.locator(":scope > .field-note").count(), 0, "descriptions sit below, not inside, the control");
   assert.equal(await source.inputValue(), "off");
+  const originalSource = await source.elementHandle();
   await group.locator('[data-v="when-needed"]').click();
-  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "asks-switch-intent-pipeline",
-    "a pointer choice leaves the native source ready for keyboard input");
   for (let i = 0; i < 100 && f.app.asks.modes()["intent-pipeline"] !== "when-needed"; i += 1)
     await f.page.waitForTimeout(50);
   assert.equal(f.app.asks.modes()["intent-pipeline"], "when-needed");
+  await f.page.waitForFunction((node) => !node.isConnected, originalSource);
   const redrawn = f.page.locator(".segmented-control:has(#asks-switch-intent-pipeline)");
   await redrawn.waitFor();
   assert.equal(await f.page.locator("#asks-switch-intent-pipeline").inputValue(), "when-needed");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "asks-switch-intent-pipeline",
+    "a pointer choice restores focus after an asynchronous redraw, ready for keyboard input");
   assert.equal(await redrawn.locator('[data-v="when-needed"]').getAttribute("aria-pressed"), "true");
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(f.errors, []);
+});
+
+test("externally wired segmented redraws restore focus to the replacement", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const mount = document.createElement("div");
+    mount.id = "external-segment-mount";
+    const make = () => globalThis.branchControlMakers.dropdown({ id: "external-segment", options: [
+      ["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"],
+      ["on", "field.switch-on", "On"],
+    ] });
+    const control = make();
+    control.addEventListener("change", () => setTimeout(() => control.replaceWith(make()), 20));
+    mount.append(control);
+    document.getElementById("workspace").append(mount);
+  });
+  const original = await f.page.locator("#external-segment").elementHandle();
+  await f.page.locator("#external-segment-mount [data-v=on]").click();
+  await f.page.waitForFunction((node) => !node.isConnected, original);
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "external-segment");
   assert.deepEqual(f.errors, []);
 });
 
