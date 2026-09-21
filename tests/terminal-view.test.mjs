@@ -179,6 +179,17 @@ test("each view says where it is: the page in the head, the place on the tab row
   }
 });
 
+test("every Settings page stays visible and clickable in a 120 by 24 terminal", async () => {
+  const table = await loadThemeCatalogue();
+  const palette = paletteFor(table, "forest", "dark");
+  for (const page of SETTINGS_PAGES) {
+    const frame = renderScreen(model({ settings: page.id, sub: page.id === "models" ? "connection" : "" }),
+      { columns: 120, rows: 24 }, palette, "none");
+    assert.ok(frame.plain.some((line) => line.includes(`› ${page.english}`)), `${page.english} has a visible current-page marker`);
+    assert.ok(frame.hits.some((hit) => hit.action === `page:${page.id}`), `${page.english} can be selected with the mouse`);
+  }
+});
+
 test("French is drawn in French, and ASCII is drawn when the terminal cannot show more", async () => {
   const table = await loadThemeCatalogue();
   const palette = paletteFor(table, "forest", "dark");

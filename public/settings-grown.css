@@ -60,8 +60,8 @@
 }
 /* The sample is one quiet reading column. Its sections sit on the page instead of inside
    stacked glass boxes, while dangerous and interactive specialist surfaces keep their borders. */
-.lx-page > .card:not(.danger),
-.lx-subpanel > .card:not(.danger) {
+.lx-page > .card:not(.danger-zone),
+.lx-subpanel > .card:not(.danger-zone) {
   margin: 0;
   padding: 18px 0 22px;
   border: 0;
@@ -70,8 +70,8 @@
   background: transparent;
   box-shadow: none;
 }
-.lx-page > .card:not(.danger):last-child,
-.lx-subpanel > .card:not(.danger):last-child {
+.lx-page > .card:not(.danger-zone):last-child,
+.lx-subpanel > .card:not(.danger-zone):last-child {
   border-bottom: 0;
 }
 .settings-directory-card {
@@ -94,6 +94,14 @@
 }
 .settings-directory-open {
   flex: none;
+}
+/* Destructive uninstall controls keep the warning enclosure from the full window. */
+.lx-page > .card.danger-zone {
+  margin: 0 0 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--bad);
+  border-radius: 16px;
+  background: var(--well);
 }
 /* Most older forms put the switch before its words. The approved row reads label first and puts
    the switch at the far edge; row-reverse changes only presentation and keeps label semantics. */

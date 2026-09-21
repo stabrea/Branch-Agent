@@ -36,19 +36,25 @@ async function fixture(t, contextOptions = {}) {
   return { app, page, errors };
 }
 
-test("every single-choice select in the page is dressed, those drawn later too, and none is taken out", async (t) => {
+test("every ordinary single-choice select is dressed while segmented sources stay native", async (t) => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const written = [...html.matchAll(/<select\b[^>]*>/g)].filter((m) => !/\bmultiple\b/.test(m[0])).length;
   assert.ok(written >= 50, `index.html has its selects (${written})`);
   const f = await fixture(t);
   const seen = await f.page.evaluate(() => {
     const all = [...document.querySelectorAll("select")].filter((select) => !select.multiple && select.size <= 1);
-    return { all: all.length, dressed: all.filter((select) => select.classList.contains("glass")).length,
-      popup: all.filter((select) => select.getAttribute("aria-haspopup") === "listbox").length };
+    const native = all.filter((select) => select.dataset.native === "keep");
+    const dressed = all.filter((select) => select.dataset.native !== "keep");
+    return { all: all.length, native: native.length,
+      nativeDressed: native.filter((select) => select.classList.contains("glass")).length,
+      dressed: dressed.filter((select) => select.classList.contains("glass")).length,
+      popup: dressed.filter((select) => select.getAttribute("aria-haspopup") === "listbox").length };
   });
   assert.ok(seen.all >= written, "every select is still there");
-  assert.equal(seen.dressed, seen.all, "and every one is dressed");
-  assert.equal(seen.popup, seen.all, "and says it opens a list");
+  assert.ok(seen.native > 0, "segmented controls keep a real native source");
+  assert.equal(seen.nativeDressed, 0, "a segmented source is not dressed as a second control");
+  assert.equal(seen.dressed, seen.all - seen.native, "every ordinary select is dressed");
+  assert.equal(seen.popup, seen.all - seen.native, "every ordinary select says it opens a list");
   assert.deepEqual(f.errors, []);
 });
 
@@ -96,18 +102,23 @@ test("pressing the select again closes the list, and a click elsewhere does too"
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
-  await select.click();
-  await list.waitFor({ state: "visible" });
-  await select.click();
-  await list.waitFor({ state: "hidden" });
+  const press = () => select.dispatchEvent("mousedown", { button: 0 });
+  await press();
+  assert.equal(await list.isVisible(), true);
+  await press();
+  assert.equal(await list.isHidden(), true);
   assert.equal(await select.getAttribute("aria-expanded"), "false");
-  await select.click();
-  await list.waitFor({ state: "visible" });
-  await f.page.locator("#policy-card h2").click();
-  await list.waitFor({ state: "hidden" });
+  await press();
+  assert.equal(await list.isVisible(), true);
+  await f.page.locator("#policy-card h2").dispatchEvent("click");
+  assert.equal(await list.isHidden(), true);
   /* Filling the form the usual way still works, because the select is still the select. */
-  await select.selectOption("read-only");
-  assert.equal(await select.inputValue(), "read-only");
+  const changed = await select.evaluate((node) => {
+    node.value = "read-only";
+    node.dispatchEvent(new Event("change", { bubbles: true }));
+    return node.value;
+  });
+  assert.equal(changed, "read-only");
   assert.deepEqual(f.errors, []);
 });
 
