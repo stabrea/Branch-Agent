@@ -413,10 +413,15 @@ async function drawRoom() {
   if (!roomView || session() !== here || !inRoom()) return;
   const box = $("conversation");
   box.dataset.room = roomView.id;
+  const revision = roomRevision(roomView);
+  if (box.dataset.roomRevision === revision) { schedule(roomView.speaking); return; }
+  const draft = artifactDraft();
   const nodes = roomView.events.map(eventNode).filter(Boolean);
   if (!nodes.length) nodes.push(el("p", "rooms-line", say("rooms.empty", "Say something to the room. Only those you @mention answer; nobody mentioned means everyone.")));
   const grown = box.dataset.roomSeen !== `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
   box.replaceChildren(...nodes, ...artifactCard(roomView), ...allowedCard(roomView), ...asks(roomView), ...talking(roomView));
+  restoreArtifactDraft(draft);
+  box.dataset.roomRevision = revision;
   box.dataset.roomSeen = `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
   // Only something new brings the newest line into view, so reading back up is never interrupted.
   if (grown) ($("chat") ?? box).scrollIntoView({ block: "end" }); // its end keeps room for the message box
@@ -429,11 +434,41 @@ async function drawRoom() {
   paintHero();
   schedule(roomView.speaking);
 }
+function roomRevision(view) {
+  return JSON.stringify({
+    id: view.id, updatedAt: view.updatedAt, seq: view.seq, speaking: view.speaking,
+    waiting: view.waiting, allowed: view.allowed,
+    people: view.people?.map(({ id, name }) => [id, name]),
+    roster: view.roster?.map(({ id, name, handle }) => [id, name, handle]),
+    artifacts: view.artifacts?.map(({ id }) => id),
+    language: document.documentElement.lang,
+  });
+}
+function artifactDraft() {
+  const name = document.querySelector(".rooms-artifact-name");
+  const content = document.querySelector(".rooms-artifact-content");
+  const active = document.activeElement === name ? "name" : document.activeElement === content ? "content" : null;
+  const focused = active === "name" ? name : active === "content" ? content : null;
+  return { name: name?.value ?? "", content: content?.value ?? "", active,
+    start: focused?.selectionStart ?? null, end: focused?.selectionEnd ?? null };
+}
+function restoreArtifactDraft(draft) {
+  if (!draft) return;
+  const name = document.querySelector(".rooms-artifact-name");
+  const content = document.querySelector(".rooms-artifact-content");
+  if (name) name.value = draft.name;
+  if (content) content.value = draft.content;
+  const focused = draft.active === "name" ? name : draft.active === "content" ? content : null;
+  if (!focused) return;
+  focused.focus();
+  if (draft.start !== null && draft.end !== null) focused.setSelectionRange(draft.start, draft.end);
+}
 function leaveRoom() {
   clearTimeout(pollTimer);
   pollTimer = null;
   roomView = null;
   delete $("conversation")?.dataset.room;
+  delete $("conversation")?.dataset.roomRevision;
   const prompt = $("prompt");
   if (prompt?.dataset.roomsPlaceholder !== undefined) {
     prompt.placeholder = prompt.dataset.roomsPlaceholder;
@@ -479,6 +514,8 @@ function artifactCard(view) {
   content.placeholder = say("rooms.artifactContent", "Text to share only with this room");
   card.append(name, content, press("rooms-add-artifact", say("rooms.artifactAdd", "Share"), () => attempt(async () => {
     await api(`trunks/rooms/${view.id}/artifacts`, { name: name.value.trim(), content: content.value });
+    name.value = "";
+    content.value = "";
     await drawRoom();
   })));
   return [card];

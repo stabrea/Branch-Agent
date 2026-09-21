@@ -153,6 +153,40 @@ test("an artifact shared after a Trunk has spoken reaches its next turn", async 
   assert.ok(later.some((content) => content.includes("Shared artifact brief.txt:") && content.includes("late private oak plan")));
 });
 
+test("a household artifact is visible only to turns run as that household person", async (t) => {
+  const { app, call: request, provider } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = app.trunks.rooms.create({ name: "Private artifact", members: [ann.id, ben.id], people: [sam.id] });
+
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  assert.equal((await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+    name: "sam-private.txt", content: "SAM-ONLY-REFERENCE",
+  })).status, 200);
+
+  app.store.profiles.switch({ profileId: null });
+  const beforeOwner = provider.requests.length;
+  app.trunks.rooms.send(room.id, { text: "@ann answer the owner" });
+  await app.trunks.rooms.settled(room.id);
+  const ownerRequests = provider.requests.slice(beforeOwner);
+  assert.equal(JSON.stringify(ownerRequests).includes("SAM-ONLY-REFERENCE"), false,
+    "a household artifact must not enter an owner-authorized turn");
+
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const beforeSam = provider.requests.length;
+  assert.equal((await request(`/api/trunks/rooms/${room.id}/send`, { text: "@ann use my private artifact" })).status, 200);
+  await app.trunks.rooms.settled(room.id);
+  const samRequests = provider.requests.slice(beforeSam);
+  assert.equal(JSON.stringify(samRequests).includes("SAM-ONLY-REFERENCE"), true,
+    "the household person's restricted turn receives their artifact");
+  const samRun = app.store.runs(app.runtime.owner)
+    .find((entry) => entry.sessionId === room.memberSessions[ann.id] && entry.prompt.includes("use my private artifact"));
+  assert.ok(samRun, "Ann answered Sam's artifact request");
+  assert.equal(runOrigin(app.store, samRun.id).personProfileId, sam.id);
+});
+
 test("piece 1: after a restart the room's turns still follow the room's mode", async (t) => {
   const { app, room: r } = await room(t);
   const { pickConversationMode } = await import("../dist/conversation-mode-api.js");

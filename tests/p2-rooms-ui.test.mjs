@@ -176,6 +176,8 @@ test("a private room shows its people and shared artifacts in the conversation",
   await card.locator(".rooms-artifact-content").fill("only this room");
   await card.getByRole("button", { name: "Share", exact: true }).click();
   await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("only this room"));
+  assert.equal(await card.locator(".rooms-artifact-name").inputValue(), "", "sharing clears the artifact name");
+  assert.equal(await card.locator(".rooms-artifact-content").inputValue(), "", "sharing clears the artifact content");
   assert.deepEqual(f.errors, []);
 });
 
@@ -185,8 +187,15 @@ test("an idle open room refreshes when another participant shares an artifact", 
   await f.page.evaluate(async () => globalThis.branchRooms.refresh());
   assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
   await f.page.waitForFunction(() => document.getElementById("conversation")?.dataset.room);
+  const name = f.page.locator(".rooms-artifact-name"), content = f.page.locator(".rooms-artifact-content");
+  await name.fill("unfinished.txt");
+  await content.fill("still writing this");
+  await content.focus();
   await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "from-sam.txt", content: "shared while idle" });
   await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("shared while idle"), null, { timeout: 5000 });
+  assert.equal(await name.inputValue(), "unfinished.txt", "a live update keeps the local artifact name draft");
+  assert.equal(await content.inputValue(), "still writing this", "a live update keeps the local artifact content draft");
+  assert.equal(await content.evaluate((node) => document.activeElement === node), true, "a live update keeps the typing focus");
   assert.deepEqual(f.errors, []);
 });
 
