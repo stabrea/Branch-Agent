@@ -14,9 +14,10 @@ import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
-import { openSettings, showEveryCard, closeSettings, showEverything } from "./places.mjs";
+import { discardTemp } from "./temp-dir.mjs";
+import { openSettings, showEveryCard, showEverything, pressUntil } from "./places.mjs";
 
-async function fixture() {
+async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "batch21-brands-"));
   const app = await createBranch({
     workspace: join(root, "workspace"),
@@ -25,17 +26,25 @@ async function fixture() {
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
+  t.after(async () => {
+    await browser.close().catch(() => undefined);
+    await server.close().catch(() => undefined);
+    await app.close().catch(() => undefined);
+    await discardTemp(root);
+  });
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
-  await page.goto(server.url);
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  const workspace = page.locator("#workspace");
+  await pressUntil(page.getByRole("button", { name: "Connect", exact: true }),
+    () => workspace.waitFor({ state: "visible", timeout: 120000 }).then(() => true, () => false),
+    "the branding test window to connect");
   await showEverything(page);
-  return { page, server, browser, app, root };
+  return { page };
 }
 
-test("B1 no brand marks on Accounts page", async () => {
-  const { page, server, browser, app, root } = await fixture();
+test("B1 no brand marks on Accounts page", async (t) => {
+  const { page } = await fixture(t);
 
   // Open Accounts page
   await openSettings(page, "accounts");
@@ -52,14 +61,10 @@ test("B1 no brand marks on Accounts page", async () => {
   assert.equal(marks, 0, "Accounts page should have zero branded marks");
   assert.equal(otherNeutral, 0, "Accounts page should have zero non-key neutral tiles");
 
-  await closeSettings(page);
-  await browser.close();
-  await server.close();
-  await app.close();
 });
 
-test("B2 no brand marks on Secrets page", async () => {
-  const { page, server, browser, app, root } = await fixture();
+test("B2 no brand marks on Secrets page", async (t) => {
+  const { page } = await fixture(t);
 
   // Open Secrets page
   await openSettings(page, "secrets");
@@ -76,14 +81,10 @@ test("B2 no brand marks on Secrets page", async () => {
   assert.equal(marks, 0, "Secrets page should have zero branded marks");
   // Note: Secrets may have key tiles for unknown services, which is correct
 
-  await closeSettings(page);
-  await browser.close();
-  await server.close();
-  await app.close();
 });
 
-test("B3 no brand marks on Models connection tab", async () => {
-  const { page, server, browser, app, root } = await fixture();
+test("B3 no brand marks on Models connection tab", async (t) => {
+  const { page } = await fixture(t);
 
   // Open Models page
   await openSettings(page, "models");
@@ -105,23 +106,14 @@ test("B3 no brand marks on Models connection tab", async () => {
   console.log(`Models › Connection: ${marks} branded marks, ${otherNeutral} non-key neutral`);
   assert.equal(marks, 0, "Models › Connection should have zero branded marks");
 
-  await closeSettings(page);
-  await browser.close();
-  await server.close();
-  await app.close();
 });
 
-test("B4 no brand marks on channel/service cards", async () => {
-  const { page, server, browser, app, root } = await fixture();
+test("B4 no brand marks on channel/service cards", async (t) => {
+  const { page } = await fixture(t);
 
-  // Navigate to Customize › Channels (where service cards are)
-  await openSettings(page, "customize");
-
-  // Click Channels tab if it exists
-  const channelsTab = page.locator('.lx-page-customize [data-tab="channels"], [data-tab="channel"], a:has-text("Channel")');
-  if (await channelsTab.first().isVisible()) {
-    await channelsTab.first().click();
-  }
+  // The redesign moved these cards to Settings › Chat apps & devices.
+  await openSettings(page, "channels");
+  await showEveryCard(page);
 
   // Count branded marks
   const marks = await page.evaluate(() => document.querySelectorAll('[data-mark]').length);
@@ -133,8 +125,4 @@ test("B4 no brand marks on channel/service cards", async () => {
   console.log(`Channels/Services: ${marks} branded marks, ${otherNeutral} non-key neutral`);
   assert.equal(marks, 0, "Channel cards should have zero branded marks");
 
-  await closeSettings(page);
-  await browser.close();
-  await server.close();
-  await app.close();
 });
