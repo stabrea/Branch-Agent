@@ -47,7 +47,7 @@ import { contextFileInstructions } from "./context-files.js";
 import type { CodingHooks, RoundNotes } from "./coding/hooks.js"; // mac7/r17-d
 import { steerMessage, steerNote } from "./steer.js";
 import { supportsImages } from "./providers.js";
-import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
+import { alwaysSkillInstructions, pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { nobodyToAskAboutPlan, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
@@ -1701,7 +1701,7 @@ ${run.output.slice(0, 6000)}`;
           // this out by being refused.
           cannotRunInstructions(codeRunSettings(this.store, context.owner).enabled, run.prompt) +
           steerNote +
-          identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context) +
+          identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context) + alwaysSkillInstructions(this.store, context) +
           autonomyPrompt(this, context), // r17-b: standing orders and "from now on" instructions (src/autonomy/hooks.ts)
       },
     ];

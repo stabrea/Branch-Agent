@@ -1170,7 +1170,32 @@ form("models-form", async () => {
   });
   await refresh();
 });
+/* Owner item 17: skills whose full instructions go into every task. Read once, then kept in step here. */
+let alwaysSkillIds = null;
+function alwaysFollowSwitch(skillId) {
+  const label = el("label", undefined, "check skill-always");
+  const box = el("input");
+  box.type = "checkbox";
+  box.setAttribute("role", "switch");
+  box.checked = Boolean(alwaysSkillIds?.has(skillId));
+  box.addEventListener("change", async () => {
+    try { alwaysSkillIds = new Set((await api("skills/always", { id: skillId, always: box.checked })).ids); }
+    catch (error) { box.checked = !box.checked; toast(error.message); }
+  });
+  const words = el("span", t("skills.always.label"));
+  words.dataset.t = "skills.always.label";
+  label.append(box, " ", words);
+  const hint = el("p", t("skills.always.hint"), "meta");
+  hint.dataset.t = "skills.always.hint";
+  const holder = el("div");
+  holder.append(label, hint);
+  return holder;
+}
 function renderSkills() {
+  if (alwaysSkillIds === null) {
+    alwaysSkillIds = new Set();
+    void api("skills/always").then((value) => { alwaysSkillIds = new Set(value.ids); renderSkills(); }, () => undefined);
+  }
   if (document.activeElement !== $("skill-policy")) $("skill-policy").value = state.skillPolicy || "block";
   const names = new Map((state.skills || []).map((s) => [s.id, s.name]));
   list("set-aside-list", state.setAside || [], (x) => {
@@ -1186,7 +1211,7 @@ function renderSkills() {
     const open = button("Open skill", () => skillOperation(async () => {
       selectSkill(await api("skills/" + value.id));
     }));
-    open.disabled = skillBusy; node.append(open); return node;
+    open.disabled = skillBusy; node.append(alwaysFollowSwitch(value.id), open); return node;
   }, ["No skills yet.", "A skill is a page of instructions your assistant can follow. Write one below, or open a file someone sent you."]);
 }
 function selectSkill(value) {

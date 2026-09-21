@@ -4693,6 +4693,8 @@
   "skillInstalls.records": "Ce qui s'est passé",
   "skillInstalls.removal": "Retrait",
   "skillInstalls.removed": "Retirée.",
+  "skills.always.hint": "Ses instructions accompagnent chaque tâche, au lieu d'être lues seulement quand l'assistant le décide.",
+  "skills.always.label": "Toujours suivre",
   "skills.card.might-have-helped-lately": "Aurait pu aider récemment",
   "skills.card.newer-versions": "Versions plus récentes",
   "skills.card.plugins": "Extensions",

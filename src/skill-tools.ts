@@ -19,6 +19,53 @@ export function pinnedSkillInstructions(store: Store, context: ToolContext): str
   store.event(context.runId, "skills.pinned", { id: entry.id, version: entry.version, name: entry.name });
   return `\nPinned skill "${entry.name}" (v${entry.version}) applies to this whole conversation. Its instructions:\n${document.document}\n`;
 }
+/**
+ * Owner item 17: skills the owner marked **Always follow** have their full instructions in every task,
+ * not only a line in the list the assistant may or may not open (their example: a skill saying
+ * "always submit the quiz" that an agent ignored). Only skills this task may read and the owner's
+ * rules still allow are included, within a size limit; they never grant a permission.
+ */
+export const alwaysSkillsKey = "skills-always";
+const AlwaysSchema = z.object({ ids: z.array(z.string().uuid()).max(20).default([]) }).strict();
+const alwaysChars = 16000;
+export function alwaysSkills(store: Store, owner: string): string[] {
+  const parsed = AlwaysSchema.safeParse(store.get("settings", owner, alwaysSkillsKey)?.data ?? {});
+  return parsed.success ? parsed.data.ids : [];
+}
+export function setAlwaysSkill(store: Store, owner: string, input: unknown): { ids: string[] } {
+  const { id, always } = z.object({ id: z.string().uuid(), always: z.boolean() }).strict().parse(input);
+  if (always && !store.skills.catalog(owner).some((skill) => skill.id === id)) throw new Error("There is no skill with that id.");
+  const ids = alwaysSkills(store, owner).filter((one) => one !== id);
+  if (always) {
+    if (ids.length >= 20) throw new Error("At most 20 skills can be always followed.");
+    ids.push(id);
+  }
+  store.save("settings", owner, alwaysSkillsKey, { ids });
+  return { ids };
+}
+export function alwaysSkillInstructions(store: Store, context: ToolContext): string {
+  const wanted = alwaysSkills(store, context.owner);
+  if (!wanted.length || !context.permissions.has("skills.read")) return "";
+  const allowed = store.governanceFor(context.owner).filterCatalog(store.skills.catalog(context.owner), context.runId);
+  const sessionId = context.runId ? store.run(context.runId)?.sessionId : undefined;
+  const pinned = sessionId ? (store.get("settings", context.owner, pinnedSkillKey(sessionId))?.data as { skillId?: string } | undefined)?.skillId : undefined;
+  const parts: string[] = [], included: string[] = [], tooLong: string[] = [];
+  let used = 0;
+  for (const id of wanted) {
+    const entry = allowed.find((skill) => skill.id === id);
+    if (!entry || entry.id === pinned) continue; // not allowed here, or already in full as the pinned skill
+    const text = store.skills.read(context.owner, entry.id, { version: entry.version }).document;
+    if (used + text.length > alwaysChars) { tooLong.push(`"${entry.name}" (id ${entry.id}, v${entry.version})`); continue; }
+    used += text.length;
+    included.push(entry.id);
+    parts.push(`Skill "${entry.name}" (v${entry.version}):\n${text}`);
+  }
+  if (!parts.length && !tooLong.length) return "";
+  store.event(context.runId, "skills.always", { ids: included, tooLong: tooLong.length });
+  return "\nThe owner asked that the skills below be followed in every task, whatever the task: treat them as the owner's own standing instructions. " +
+    "They never grant a permission and never override the owner's rules or safety.\n" + parts.join("\n\n") +
+    (tooLong.length ? `\nAlso always follow ${tooLong.join(", ")}: too long to include here, so read it with skills.read before you start.` : "") + "\n";
+}
 export function skillInstructions(store: Store, context: ToolContext): string {
   const allowed = context.permissions.has("skills.read") ? store.governanceFor(context.owner).filterCatalog(store.skills.catalog(context.owner), context.runId) : [];
   // mac2/fly-core-2: with the learning core "on", the skills that worked in similar tasks are listed first.

@@ -4692,6 +4692,8 @@
   "skillInstalls.records": "What happened",
   "skillInstalls.removal": "Removal",
   "skillInstalls.removed": "Removed.",
+  "skills.always.hint": "Its instructions go into every task, instead of only when the assistant decides to read it.",
+  "skills.always.label": "Always follow",
   "skills.card.might-have-helped-lately": "Might have helped lately",
   "skills.card.newer-versions": "Newer versions",
   "skills.card.plugins": "Plugins",
