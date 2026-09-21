@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
+import type { ToolContext } from "../contracts.js";
+import { ownerWorkOnly } from "./owner-only.js";
 import { requireAsk } from "./settings.js";
 
 /**
@@ -110,28 +112,29 @@ export class Forecasts {
 }
 
 export function registerForecasts(registry: ToolRegistry, store: Store, owner: string, forecasts: Forecasts): void {
-  const guard = () => requireAsk(store, owner, "forecasts");
+  // The owner's own records: the owner, in work the owner started, and nobody else (owner-only.ts).
+  const guard = (context: ToolContext) => { ownerWorkOnly(store, context, "Your forecasts"); requireAsk(store, owner, "forecasts"); };
   registry.register({
     name: "forecast.add", permission: "forecasts.write",
     description: "Write down a forecast: a question, the probability (0 to 1) that it comes true, and optionally the date it will be known.",
     parameters: ForecastSchema,
     target: (input: ForecastInput) => `a forecast: ${input.question.slice(0, 80)}`,
-    execute: async (input) => { guard(); return forecasts.add(input); },
+    execute: async (input, context: ToolContext) => { guard(context); return forecasts.add(input); },
   });
   registry.register({
     name: "forecast.resolve", permission: "forecasts.write",
     description: "Record whether a forecast came true, by its id. A forecast is answered once and then scored as it stands.",
     parameters: ResolveSchema,
     target: (input: z.infer<typeof ResolveSchema>) => `the forecast ${input.id}`,
-    execute: async (input) => { guard(); return forecasts.resolve(input); },
+    execute: async (input, context: ToolContext) => { guard(context); return forecasts.resolve(input); },
   });
   registry.register({
     name: "forecast.score", permission: "forecasts.read",
     description: "How well the forecasts have turned out: the Brier score and a calibration table over the answered ones, and the open ones still waiting.",
     parameters: z.object({ which: z.enum(["open", "resolved", "all"]).default("open") }).strict(),
     target: () => "your forecasts",
-    execute: async (input: { which: "open" | "resolved" | "all" }) => {
-      guard();
+    execute: async (input: { which: "open" | "resolved" | "all" }, context: ToolContext) => {
+      guard(context);
       return { ...forecasts.score(), forecasts: forecasts.list(input.which).slice(0, 50) };
     },
   });

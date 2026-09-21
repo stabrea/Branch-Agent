@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
+import type { ToolContext } from "../contracts.js";
+import { ownerWorkOnly } from "./owner-only.js";
 import { requireAsk } from "./settings.js";
 
 /**
@@ -149,26 +151,27 @@ const AddSchema = z.object({ prospects: z.array(ProspectSchema).min(1).max(500),
 type AddInput = z.infer<typeof AddSchema>;
 
 export function registerLeads(registry: ToolRegistry, store: Store, owner: string, leads: Leads): void {
-  const guard = () => requireAsk(store, owner, "leads");
+  // The owner's own records: the owner, in work the owner started, and nobody else (owner-only.ts).
+  const guard = (context: ToolContext) => { ownerWorkOnly(store, context, "Your prospect list"); requireAsk(store, owner, "leads"); };
   registry.register({
     name: "leads.add", permission: "leads.write",
     description: "Add prospects: each is filled out from its own fields (domain, tidy company, seniority), scored against the owner's words, and duplicates are dropped and named.",
     parameters: AddSchema,
     target: (input: AddInput) => `${input.prospects.length} prospects`,
-    execute: async (input: AddInput) => { guard(); return leads.add(input.prospects, input.criteria); },
+    execute: async (input: AddInput, context: ToolContext) => { guard(context); return leads.add(input.prospects, input.criteria); },
   });
   registry.register({
     name: "leads.export", permission: "leads.read",
     description: "The kept prospects, best score first, as CSV with the words each score came from. Duplicates are already out.",
     parameters: z.object({}).strict(),
     target: () => "your prospect list",
-    execute: async () => { guard(); return leads.export(); },
+    execute: async (_input: unknown, context: ToolContext) => { guard(context); return leads.export(); },
   });
   registry.register({
     name: "leads.clear", permission: "leads.write",
     description: "Empty the prospect list.",
     parameters: z.object({}).strict(),
     target: () => "your prospect list",
-    execute: async () => { guard(); return { removed: leads.clear() }; },
+    execute: async (_input: unknown, context: ToolContext) => { guard(context); return { removed: leads.clear() }; },
   });
 }
