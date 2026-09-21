@@ -97,6 +97,29 @@ test("each knob card is in its home, every control has its own sentence, and sav
   assert.deepEqual(JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins, ["https://example.com", "https://docs.example.org"]);
 });
 
+test("an unchanged refresh cannot replace a knob value while it is being typed", async (t) => {
+  const { page } = await openApp(t);
+  await openSettingFor(page, "#knobs-limits-card");
+  let captured, release;
+  const responseCaptured = new Promise((resolve) => { captured = resolve; });
+  const released = new Promise((resolve) => { release = resolve; });
+  let held = false;
+  await page.route("**/api/knobs", async (route) => {
+    if (route.request().method() !== "GET" || held) return route.continue();
+    held = true;
+    const response = await route.fetch();
+    captured();
+    await released;
+    await route.fulfill({ response });
+  });
+  const refreshing = page.evaluate(() => globalThis.branchKnobs.refresh());
+  await responseCaptured;
+  await page.locator("#knobs-maxSteps").fill("25");
+  release();
+  await refreshing;
+  assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
+});
+
 test("at 400 px the knob cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["knobs-leak-guard-card", "knobs-commands-card", "knobs-reasoning-card"]) {

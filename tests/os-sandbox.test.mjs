@@ -370,10 +370,11 @@ test("W14 a denial is told apart from an ordinary failure", posixWall, () => {
 
 /* ------------------------------------------------------------------ the door */
 
-async function fakeSite(t) {
+async function fakeSite(t, { delayMs = 0 } = {}) {
   const seen = [];
-  const server = createServer((request, response) => {
+  const server = createServer(async (request, response) => {
     seen.push({ method: request.method, url: request.url, authorization: request.headers.authorization });
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
     response.writeHead(200, { "content-type": "application/json", "x-echo": request.headers.authorization ?? "" });
     response.end(JSON.stringify({ echo: request.headers.authorization ?? "", leaked: "aws_secret_access_key=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN" }));
   });
@@ -395,11 +396,14 @@ async function door(t, options) {
   return { proxy, address, raw, socks };
 }
 function rawSend(port, text) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const socket = connect(port, "127.0.0.1", () => socket.write(text));
-    let got = ""; socket.on("data", (chunk) => { got += chunk; }); socket.on("close", () => resolve(got));
-    socket.on("error", () => resolve(got));
-    setTimeout(() => socket.end(), 500);
+    let got = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => { got += chunk; });
+    socket.once("close", () => resolve(got));
+    socket.once("error", reject);
+    socket.setTimeout(5_000, () => socket.destroy(new Error("proxy response timed out")));
   });
 }
 /** A SOCKS5 client: greeting, user name and password, connect, then a plain request. Resolves with every reply. */
@@ -438,7 +442,7 @@ test("W15 the door asks about new sites, keeps to reading in limited mode, and f
 });
 
 test("W16 a stand-in becomes the real key only for its own site, and the answer comes back clean", async (t) => {
-  const site = await fakeSite(t);
+  const site = await fakeSite(t, { delayMs: 600 });
   const keys = [{ name: "TOKEN", placeholder: `branch_${"a".repeat(32)}`, value: "real-value-1234", site: "api.example.test" }];
   const routed = [];
   const { proxy, raw } = await door(t, { network: "per-site", decide: () => "allow", keys,
