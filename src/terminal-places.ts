@@ -6,7 +6,7 @@ import type { Words } from "./terminal-words.js";
  * tabs. Every key is the one `public/layout.js` uses, so both surfaces say the same words, and
  * `tests/terminal-places.test.mjs` checks this list against `docs/places.md` and `layout.js`.
  */
-export type PlaceId = "chat" | "inbox" | "automations" | "library" | "customize";
+export type PlaceId = "chat" | "inbox" | "automations" | "library" | "customize" | "overview" | "household";
 export interface Named { id: string; key: string; english: string }
 export interface Place extends Named { intro: [string, string]; tabs: Named[] }
 export interface SettingsPage extends Named { intro: [string, string] }
@@ -32,6 +32,15 @@ export const PLACES: Place[] = [
       tab("plugins", "place.customize.plugins", "Plugins"), tab("connections", "place.customize.connections", "Connections"),
       tab("channels", "place.customize.channels", "Channels")] },
 ];
+export const STRIP_PLACES: Place[] = [
+  { id: "overview", key: "place.overview", english: "Overview",
+    intro: ["place.overview.intro", "What a computer or a Trunk is doing, in one screen."],
+    tabs: [tab("here", "place.overview.here", "Overview")] },
+  { id: "household", key: "place.household", english: "People",
+    intro: ["place.household.intro", "Everyone who uses Branch here, and what each may do."],
+    tabs: [tab("people", "place.household.people", "People")] },
+];
+const ALL_PLACES = [...PLACES, ...STRIP_PLACES];
 
 const page = (id: string, english: string, intro: string): SettingsPage =>
   ({ id, key: `settings.page.${id}`, english, intro: [`terminal.settings.${id}.intro`, intro] });
@@ -72,14 +81,14 @@ export type Route = { place: PlaceId; tab: string } | { settings: string; sub: s
 /** Every home the terminal can open, written as `docs/places.md` writes them. */
 export function allHomes(): string[] {
   const homes = ["chat"];
-  for (const place of PLACES) for (const entry of place.tabs) homes.push(`${place.id}:${entry.id}`);
+  for (const place of ALL_PLACES) for (const entry of place.tabs) homes.push(`${place.id}:${entry.id}`);
   for (const entry of SETTINGS_PAGES) {
     if (entry.id === "models") for (const sub of MODEL_TABS) homes.push(`settings:models:${sub.id}`);
     else homes.push(`settings:${entry.id}`);
   }
   return homes;
 }
-export const placeById = (id: string): Place | undefined => PLACES.find((place) => place.id === id);
+export const placeById = (id: string): Place | undefined => ALL_PLACES.find((place) => place.id === id);
 export const firstTab = (id: PlaceId): string => placeById(id)?.tabs[0]?.id ?? "";
 
 const squash = (text: string): string => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
@@ -97,13 +106,13 @@ export function parseRoute(text: string, words?: Words): Route | null {
   const [head, ...rest] = parts.length === 1 ? splitWords(parts[0]!, words) : parts;
   const settingsWord = [squash("settings"), squash(words?.t("settings.title", "Settings") ?? "settings")];
   if (settingsWord.includes(head!)) return settingsRoute(rest, words);
-  const place = PLACES.find((entry) => names(entry, words, head!));
+  const place = ALL_PLACES.find((entry) => names(entry, words, head!));
   if (place) {
     const wanted = rest.join(" ");
     const chosen = place.tabs.find((entry) => names(entry, words, wanted));
     return { place: place.id as PlaceId, tab: chosen?.id ?? place.tabs[0]?.id ?? "" };
   }
-  for (const entry of PLACES) {
+  for (const entry of ALL_PLACES) {
     const chosen = entry.tabs.find((candidate) => names(candidate, words, parts.join(" ")));
     if (chosen) return { place: entry.id as PlaceId, tab: chosen.id };
   }
@@ -114,7 +123,7 @@ function splitWords(typed: string, words?: Words): string[] {
   const settings = squash(words?.t("settings.title", "Settings") ?? "settings");
   for (const lead of new Set(["settings", settings]))
     if (typed.startsWith(lead + " ")) return [lead, typed.slice(lead.length + 1)];
-  const place = PLACES.find((entry) => [entry.id, squash(entry.english)].some((name) => typed.startsWith(name + " ")));
+  const place = ALL_PLACES.find((entry) => [entry.id, squash(entry.english)].some((name) => typed.startsWith(name + " ")));
   return place ? [place.id, typed.slice(typed.indexOf(" ") + 1)] : [typed];
 }
 function settingsRoute(parts: string[], words?: Words): Route | null {

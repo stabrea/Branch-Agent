@@ -41,6 +41,8 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `customize:plugins` | Plugins |
 | `customize:connections` | MCP in both directions: servers the assistant uses, other AI tools using Branch |
 | `customize:channels` | Chat apps, the phone, pages and the browser extension that reach Branch |
+| `overview:here` | What this computer is working on, what needs attention and what finished lately |
+| `household:people` | The owner and everyone who uses Branch on this computer |
 | `settings:general` | Starting with the computer, projects, labels, shared copies, people on this computer |
 | `settings:assistant` | Name, picture, working instructions, persona |
 | `settings:instructions` | The owner-written SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY and HEARTBEAT files, with a real editor and preview |
