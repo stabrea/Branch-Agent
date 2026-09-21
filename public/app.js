@@ -1042,12 +1042,48 @@ async function renderUpdates() {
 $("updates-check").addEventListener("click", async () => {
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
-$("updates-install").addEventListener("click", async () => {
+/* ---------- tasks working when Update is pressed ---------- */
+let busyWait = null;
+/** How many tasks are working now; none when that cannot be asked, so the update is never held up by a question. */
+const busyTasks = () => api("comfort/update-plan", {}).then((plan) => Number(plan.busyTasks) || 0, () => 0);
+function endBusyChoice() {
+  clearInterval(busyWait);
+  busyWait = null;
+  $("updates-busy").hidden = true;
+}
+async function installNow() {
+  endBusyChoice();
   try {
     window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
     showUpdateStatus(await window.branchDesktop.installUpdate());
   } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
+}
+/* The sentence carries a number, so it is written again on a language change rather than marked with a key. */
+let busySaid = null;
+function sayBusy(key, count) {
+  busySaid = { key, count };
+  $("updates-busy-text").textContent = t(key, { count });
+}
+document.addEventListener("branch-language", () => { if (busySaid && !$("updates-busy").hidden) sayBusy(busySaid.key, busySaid.count); });
+$("updates-install").addEventListener("click", async () => {
+  const count = await busyTasks();
+  if (!count) return installNow();
+  // Nothing closes under a working task without the owner's say: wait for it, or update now and have it offered back.
+  sayBusy(count === 1 ? "updates.busy.one" : "updates.busy.many", count);
+  $("updates-busy").hidden = false;
 });
+$("updates-wait").addEventListener("click", () => {
+  clearInterval(busyWait);
+  const check = async () => {
+    const count = await busyTasks();
+    if (!count) return installNow();
+    sayBusy(count === 1 ? "updates.busy.waiting-one" : "updates.busy.waiting-many", count);
+  };
+  busyWait = setInterval(() => void check(), 3000);
+  void check();
+});
+$("updates-now").addEventListener("click", () => void installNow());
+$("updates-busy-cancel").addEventListener("click", () => endBusyChoice());
 function modelLine(model) {
   if (!model) return "Model: not recorded";
   const name = model.presetName || model.presetId;
