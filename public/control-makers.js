@@ -154,8 +154,11 @@ export function dropdown({ id, options = [], value = "", onChange } = {}) {
 
 export function dressSwitches(root = document) {
   const candidates = [];
-  if (root instanceof Element && root.matches("#settings-window input[type=checkbox]")) candidates.push(root);
-  candidates.push(...root.querySelectorAll?.("#settings-window input[type=checkbox]:not(.sw)") ?? []);
+  if (root instanceof Element) {
+    if (root.matches("#settings-window input[type=checkbox]")) candidates.push(root);
+    candidates.push(...[...root.querySelectorAll?.("input[type=checkbox]:not(.sw)") ?? []]
+      .filter((control) => control.closest("#settings-window")));
+  } else candidates.push(...root.querySelectorAll?.("#settings-window input[type=checkbox]:not(.sw)") ?? []);
   for (const control of candidates) {
     control.classList.add("sw");
     control.setAttribute("role", "switch");
