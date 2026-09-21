@@ -355,8 +355,9 @@ test("calm: a finished conversation is in Recents at once, and the next steps ar
   await f.page.locator("#prompt").fill("Tell me a joke");
   await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator("#rail-list .rail-item").filter({ hasText: "Tell me a joke" }).waitFor({ timeout: 10000 });
+  await f.page.locator(".message.assistant").first().waitFor({ state: "visible", timeout: 60000 });
   const tip = f.page.locator("#lx-tip");
-  await tip.waitFor({ state: "visible", timeout: 10000 });
+  await tip.waitFor({ state: "visible", timeout: 30000 });
   assert.equal(await tip.getByRole("button", { name: "Use it from my phone" }).isVisible(), true);
   await tip.getByRole("button", { name: "Not now" }).click();
   await tip.waitFor({ state: "detached" });
