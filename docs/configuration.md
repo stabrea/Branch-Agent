@@ -2255,6 +2255,33 @@ through `match` (`"npm *"`) covers plain commands only. A `*` in any rule now al
 **macOS and Linux.** Both work the same on every system. A program's folder is read whether it is
 written with `/` or `\`.
 
+## Optional JEV decision support
+
+Branch can ask an owner-installed [JEV](https://github.com/okooo5km/jev) program one bounded
+`yes`, `pick`, or `score` question through the `decisions.judge` tool. This is an optional external
+Apache-2.0 project; Branch does not bundle it, depend on it at startup, or claim affiliation with it.
+The setting is under **For developers → JEV decision support** and ships **Off**. **When needed**
+makes the tool available to the model, while **On** also puts it in the model's initial tool list.
+Neither mode lets a JEV answer execute an action by itself.
+
+`GET|POST /api/jev { mode, command, args, provider, model, timeoutMs, retries, minConfidence }`
+is owner-only. A household profile and a short-lived key cannot read or change it. Branch has no JEV
+credential field: configure the provider in JEV itself with `jev auth set`. The bounded state is sent
+to JEV over standard input (`-s -`) rather than in the process arguments, and Branch starts the
+program with the same stripped environment used for other local CLI agents. A malformed response,
+timeout, failed process, or unavailable program is an error, never an inferred answer.
+
+JEV's native Windows support is not currently documented upstream. To use a JEV installation inside
+WSL, set the program to `wsl.exe` and put `--exec` and `jev` on separate argument lines. Provider may
+be `auto` (JEV's configured default), `typesafe`, or `openrouter`. A result below the configured
+minimum confidence is returned with `gate: "review"`; one at or above it returns `gate: "ready"`.
+Those labels describe decision confidence only. They do not override Branch permissions, approvals,
+folder trust, Lockdown, or the tool gate.
+
+JEV is not used for routing, learning promotion, approvals, or autonomous policy decisions. Promotion
+to any of those roles requires a fixed, labelled, held-out evaluation with accuracy, calibration,
+latency, cost, retries, provider and model recorded as described in `docs/experiments.md`.
+
 ## Teams, linked chats, registries and evaluation
 
 `POST /api/teams { name, purpose, members: [{ specialistId, role, brief }] }` creates a team with a room; `POST /api/teams/:id/run { prompt }` fans the task out to every member and appends answers to the room (`GET /api/teams/:id/room`). `POST /api/channels/link { channel, chatId, sessionId }` makes a chat continue an existing conversation. `POST /api/registry/browse { url }` and `POST /api/registry/install { url, skillId }` work with a `branch-skill-registry` JSON index; installed skills stay disabled until activated. `POST /api/evaluation` (empty body for the standard suite) or `branch eval` records accuracy, latency and cost; energy is reported unavailable.

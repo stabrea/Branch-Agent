@@ -62,6 +62,7 @@ export const ROUTES = {
   "/api/agents/remote": "owner POST",
   "/api/agents/remote/remove": "owner POST",
   "/api/approval-reviewer": "owner POST",
+  "/api/jev": "secret-read",
   "/api/approvals/categories": "owner POST",
   "/api/artifacts": "look",
   "/api/artifacts/file": "look",

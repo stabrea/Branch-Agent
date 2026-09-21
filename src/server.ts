@@ -578,6 +578,7 @@ async function staticFile(
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (tool-safety): the card for the second look before an approval.
     "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
+    "/jev-decisions.js": ["jev-decisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (os-sandbox): the card for the wall around programs.
     "/os-sandbox.js": ["os-sandbox.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
@@ -1079,6 +1080,13 @@ async function api(
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Optional JEV decisions are the owner's: even reading this card names a local program and provider.
+  if (path === "/api/jev") {
+    app.store.profiles.requireOwner("JEV decision support");
+    if (request.method === "GET") return app.decisions.settings();
+    if (request.method === "POST") return app.decisions.configure(await readBody(request, 16 * 1024));
+    throw new HttpError(405, "Use GET or POST here.");
+  }
   // ── R17-S-A (understandable settings): presets, putting settings back, one settings file, and the files you write. ──
   if (handlesSettingsKitPath(path))
     return settingsKitApi({
