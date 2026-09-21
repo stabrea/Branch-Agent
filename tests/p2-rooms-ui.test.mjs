@@ -179,6 +179,17 @@ test("a private room shows its people and shared artifacts in the conversation",
   assert.deepEqual(f.errors, []);
 });
 
+test("an idle open room refreshes when another participant shares an artifact", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const room = (await f.call("/api/trunks/rooms", { name: "Live bench", members: [f.scout.id, f.ledger.id] })).room;
+  await f.page.evaluate(async () => globalThis.branchRooms.refresh());
+  assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
+  await f.page.waitForFunction(() => document.getElementById("conversation")?.dataset.room);
+  await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "from-sam.txt", content: "shared while idle" });
+  await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("shared while idle"), null, { timeout: 5000 });
+  assert.deepEqual(f.errors, []);
+});
+
 test("the owner can revoke a person's access to an existing room", async (t) => {
   const f = await fixture(t, ["conversations", "rooms"]);
   const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });

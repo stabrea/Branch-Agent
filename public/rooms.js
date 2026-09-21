@@ -440,12 +440,16 @@ function leaveRoom() {
     delete prompt.dataset.roomsPlaceholder;
   }
 }
-/** While the room is talking it is read again every second or so; it stops when the room is quiet. */
-function schedule(speaking, soon = false) {
+/** An open room is read again every second or so, including while it is quiet, so another person's
+ * message or shared artifact appears without this person having to reload or send something. */
+function schedule(_speaking, soon = false) {
   clearTimeout(pollTimer);
-  if (!speaking && !soon) return;
   const here = session();
-  pollTimer = setTimeout(() => { if (session() === here && inRoom() && !document.hidden) void drawRoom(); }, 1200);
+  pollTimer = setTimeout(() => {
+    if (session() !== here || !inRoom()) return;
+    if (document.hidden) { schedule(false); return; }
+    void drawRoom();
+  }, soon ? 100 : 1200);
 }
 function talking(view) {
   if (!view.speaking) return [];
