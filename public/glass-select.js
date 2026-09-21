@@ -150,6 +150,7 @@ panel.addEventListener("click", (event) => pick(event.target.closest(".glass-opt
 /* Integration review: pressing a greyed choice leaves the keyboard where it was, so the arrows carry on from there. */
 panel.addEventListener("mousedown", (event) => event.preventDefault());
 panel.addEventListener("mousemove", (event) => {
+  if (event.movementX === 0 && event.movementY === 0) return;
   const node = event.target.closest(".glass-option:not([aria-disabled='true'])");
   if (node && document.activeElement !== node) node.focus({ preventScroll: true });
 });
@@ -298,7 +299,10 @@ document.addEventListener("keyup", (event) => {
 document.addEventListener("branch-language", () => {
   if (tipFor && !tip.hidden) showTip(tipFor);
 });
-addEventListener("scroll", hideTip, true);
+addEventListener("scroll", () => {
+  if (tipFor && !tip.hidden) showTip(tipFor);
+  else hideTip();
+}, true);
 
 dressSelects();
 /* Lists drawn later by the page's own modules are dressed as they arrive. */
