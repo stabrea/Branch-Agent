@@ -130,6 +130,11 @@ document.addEventListener("branch-strip", (event) => {
   railCanManageTrunks = ownerAtWindow() && event.detail?.profiles?.isOwner !== false;
   syncRailView();
 });
+document.addEventListener("branch-profile", (event) => {
+  if (event.detail?.owner !== false) return;
+  railCanManageTrunks = false;
+  syncRailView();
+});
 function setRailTargetText(id, value) {
   const node = $(id);
   if (node.textContent !== value) node.textContent = value;

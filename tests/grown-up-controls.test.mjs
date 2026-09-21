@@ -75,6 +75,16 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
   const inserted = f.page.locator("#inserted-card-switch");
   await f.page.waitForFunction(() => document.getElementById("inserted-card-switch")?.classList.contains("sw"));
   assert.equal(await inserted.getAttribute("role"), "switch", "a checkbox inserted with its whole card is dressed");
+  const order = await f.page.evaluate(() => {
+    const label = document.createElement("label");
+    label.innerHTML = '<input id="switch-order-input" type="checkbox"><span id="switch-order-description">Description</span>'
+      + '<strong id="switch-order-warning">Makes Branch less careful</strong>';
+    document.querySelector("#settings-window .lx-page:not([hidden]) .card").append(label);
+    globalThis.branchControlMakers.dressSwitches(label);
+    const left = (selector) => document.querySelector(selector).getBoundingClientRect().left;
+    return [left("#switch-order-description"), left("#switch-order-warning"), left("#switch-order-input")];
+  });
+  assert.ok(order[0] < order[1] && order[1] < order[2], "description, warning and switch keep their reading order");
   assert.deepEqual(f.errors, []);
 });
 
