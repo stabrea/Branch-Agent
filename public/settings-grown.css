@@ -224,6 +224,11 @@
 .lx-settings-link {
   gap: 9px;
 }
+/* Owner instructions must fail closed while another household profile is active. */
+:root[data-household="on"] .lx-settings-link[data-page="instructions"],
+:root[data-household="on"] #lx-page-instructions {
+  display: none !important;
+}
 /* The places outside Settings, listed after its pages: they look like a page link and go to the place. */
 .sg-place-link {
   display: flex;
