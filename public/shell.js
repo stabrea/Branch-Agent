@@ -133,11 +133,24 @@ document.addEventListener("branch-strip", (event) => {
 document.addEventListener("branch-profile", (event) => {
   if (event.detail?.owner !== false) return;
   railCanManageTrunks = false;
+  setRailTargetFallback();
   syncRailView();
 });
 function setRailTargetText(id, value) {
   const node = $(id);
+  node.removeAttribute("data-t");
   if (node.textContent !== value) node.textContent = value;
+}
+function setRailTargetFallback() {
+  for (const [id, key] of [
+    ["rail-target-name", "strip.here"],
+    ["rail-target-kind", "strip.kind.here"],
+    ["rail-target-status", "strip.status.online"],
+  ]) {
+    const node = $(id);
+    node.dataset.t = key;
+    node.textContent = t(key);
+  }
 }
 document.addEventListener("branch-strip-selection", (event) => {
   const { name, kind, status } = event.detail;

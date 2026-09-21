@@ -40,7 +40,8 @@ export const STRIP_PLACES: Place[] = [
     intro: ["place.household.intro", "Everyone who uses Branch here, and what each may do."],
     tabs: [tab("people", "place.household.people", "People")] },
 ];
-const ALL_PLACES = [...PLACES, ...STRIP_PLACES];
+/** Every place the terminal can open, including the two homes shown in the window's strip. */
+export const ALL_PLACES = [...PLACES, ...STRIP_PLACES];
 
 const page = (id: string, english: string, intro: string): SettingsPage =>
   ({ id, key: `settings.page.${id}`, english, intro: [`terminal.settings.${id}.intro`, intro] });

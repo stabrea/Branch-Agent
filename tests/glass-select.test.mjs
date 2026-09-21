@@ -187,7 +187,7 @@ test("a described text button moves its native title so only the glass help appe
     document.getElementById("workspace").append(button);
   });
   const button = f.page.locator("#described-button-probe"), tip = f.page.locator("#glass-tip");
-  await button.hover();
+  await button.dispatchEvent("pointerover", { pointerType: "mouse" });
   await tip.waitFor({ state: "visible" });
   assert.equal(await tip.innerText(), "Checks the connection without changing it.");
   assert.equal(await button.getAttribute("title"), null, "the browser cannot show a second tooltip");
