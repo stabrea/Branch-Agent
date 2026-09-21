@@ -92,6 +92,8 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   assert.equal(await group.locator(":scope > .field-note").count(), 0, "descriptions sit below, not inside, the control");
   assert.equal(await source.inputValue(), "off");
   await group.locator('[data-v="when-needed"]').click();
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "asks-switch-intent-pipeline",
+    "a pointer choice leaves the native source ready for keyboard input");
   for (let i = 0; i < 100 && f.app.asks.modes()["intent-pipeline"] !== "when-needed"; i += 1)
     await f.page.waitForTimeout(50);
   assert.equal(f.app.asks.modes()["intent-pipeline"], "when-needed");
