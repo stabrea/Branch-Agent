@@ -214,7 +214,12 @@ test(`an update cut off at each named moment changes nothing and says why (${upd
         repo: "x/y", currentVersion: "1.0.0", installDir: install, executableName: "branch-agent",
         assetName: "app.tgz", scratchDir: join(root, "scratch"), platform: "linux", packaged: true,
         fetch: fakeRelease(Buffer.from(`release-${seed}`), moment.fetch ?? {}),
-        extract: async (_archive, into) => { await mkdir(join(into, "unpacked"), { recursive: true }); await writeFile(join(into, "unpacked", "branch-agent"), "the new version"); },
+        extract: async (_archive, into) => {
+          const unpacked = join(into, "unpacked");
+          await mkdir(join(unpacked, "resources", "app"), { recursive: true });
+          await writeFile(join(unpacked, "branch-agent"), "the new version");
+          await writeFile(join(unpacked, "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
+        },
         canary: moment.canary ?? (async () => { order.push("canary"); }),
         backup: moment.backup ?? (async () => { order.push("backup"); }),
       });
@@ -654,7 +659,12 @@ test(`\`branch update --yes\` on data from a newer Branch refuses without touchi
         fetch: releaseFor(Buffer.from(`release-${seed}`)),
         scratchDir: join(root, "scratch"),
         running: async () => null,
-        extract: async (_file, into) => { await mkdir(join(into, "Branch-Agent-linux-x64"), { recursive: true }); await writeFile(join(into, "Branch-Agent-linux-x64", "branch-agent"), "new"); },
+        extract: async (_file, into) => {
+          const unpacked = join(into, "Branch-Agent-linux-x64");
+          await mkdir(join(unpacked, "resources", "app"), { recursive: true });
+          await writeFile(join(unpacked, "branch-agent"), "new");
+          await writeFile(join(unpacked, "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
+        },
         quit: async () => ({ stopped: true, wasRunning: false, pid: null, message: "" }),
         runScript: () => { throw new Error(`seed ${seed}: the files were swapped although the saved work could not be read`); },
       },

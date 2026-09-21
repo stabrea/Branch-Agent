@@ -25,7 +25,7 @@ function groups(tag) {
 }
 
 export const releaseFiles = (tag) => groups(tag).flat();
-const remoteName = (name) => name.replace(/[^A-Za-z0-9._-]/g, ".");
+export const remoteName = (name) => name.replace(/[^A-Za-z0-9._-]/g, ".");
 
 async function defaultGh(args, { allowFailure = false } = {}) {
   try {

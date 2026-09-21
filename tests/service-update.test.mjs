@@ -503,7 +503,8 @@ test("the release workflow never replaces a download that is already attached (b
   assert.match(script, /return present === 0/, "a complete attached group is kept rather than uploaded again");
   assert.match(script, /replace\(\/\[\^A-Za-z0-9\._-\]\/g, "\."\)/,
     "the exact GitHub rewrite is used for installer names containing spaces");
-  assert.match(script, /--draft=false.*--latest/, "only the final complete inventory becomes the latest release");
+  assert.match(script, /"--draft=false", "--prerelease=false"/, "the final complete inventory is published as stable");
+  assert.doesNotMatch(script, /"--latest"/, "rerunning an older stable release cannot move Latest backwards");
 });
 
 test("on macOS and Linux the update folder must belong to this person and is closed to others", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {
