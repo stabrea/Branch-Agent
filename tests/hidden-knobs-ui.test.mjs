@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, readKnobs } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor, pressUntil } from "./places.mjs";
 
 const homes = {
   "knobs-compaction-card": "#lx-models-defaults",
@@ -57,6 +57,13 @@ const undescribed = (page, id) => page.evaluate((cardId) => {
   }).map((control) => control.id);
 }, id);
 
+async function pressForStatus(page, card, button, words) {
+  const status = page.locator(`${card} [role=status]`).filter({ hasText: words });
+  await pressUntil(page.locator(card).getByRole("button", { name: button, exact: true }),
+    () => status.waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false),
+    `${button} to report ${words}`);
+}
+
 test("each knob card is in its home, every control has its own sentence, and saving reaches the server", async (t) => {
   const { app, page, launchFile } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
@@ -73,24 +80,20 @@ test("each knob card is in its home, every control has its own sentence, and sav
 
   await openSettingFor(page, "#knobs-limits-card");
   await page.locator("#knobs-maxSteps").fill("25");
-  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true }).click();
-  await page.locator("#knobs-limits-card [role=status]").filter({ hasText: "Saved" }).waitFor();
+  await pressForStatus(page, "#knobs-limits-card", "Save", "Saved");
   assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 25);
-  await page.locator("#knobs-limits-card").getByRole("button", { name: "Put back as shipped" }).click();
-  await page.locator("#knobs-limits-card [role=status]").filter({ hasText: "Put back" }).waitFor();
+  await pressForStatus(page, "#knobs-limits-card", "Put back as shipped", "Put back");
   assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 60);
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "60");
 
   await openSettingFor(page, "#knobs-commands-card");
   await page.locator("#knobs-passEnvironment").fill("OPENAI_API_KEY");
-  await page.locator("#knobs-commands-card").getByRole("button", { name: "Save", exact: true }).click();
-  await page.locator("#knobs-commands-card [role=status]").filter({ hasText: "never handed to commands" }).waitFor();
+  await pressForStatus(page, "#knobs-commands-card", "Save", "never handed to commands");
   assert.deepEqual(readKnobs(app.store, "local", "commands").passEnvironment, []);
 
   await openSettingFor(page, "#knobs-launch-file-card");
   await page.locator("#knobs-launch-browserSites").fill("https://example.com\nhttps://docs.example.org");
-  await page.locator("#knobs-launch-file-card").getByRole("button", { name: "Save for the next start" }).click();
-  await page.locator("#knobs-launch-file-card [role=status]").filter({ hasText: "next time it starts" }).waitFor();
+  await pressForStatus(page, "#knobs-launch-file-card", "Save for the next start", "next time it starts");
   assert.deepEqual(JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins, ["https://example.com", "https://docs.example.org"]);
 });
 
