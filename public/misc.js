@@ -181,7 +181,9 @@ async function askBeforeStarting(prompt) {
 
 /** Everything on this file's screens. Safe to call again at any time. */
 async function render() {
+  const focusedCategory = categoryFocus?.isConnected ? categoryFocus : null;
   await Promise.allSettled([renderCategories(), renderPractice(), renderAskFirst()]);
+  if (focusedCategory?.isConnected && document.activeElement === document.body) focusedCategory.focus();
 }
 window.branchAllowed = { render: renderAllowed };
 window.branchMisc = { render, askBeforeStarting };
