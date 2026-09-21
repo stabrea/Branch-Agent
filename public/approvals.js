@@ -155,12 +155,18 @@ const limitBoxes = ["policy-tool-limit", "policy-round-limit"];
  * the first refresh racing the first keystroke, before this module has written an initial value.
  */
 const dirtyLimits = new Set();
+const shownLimits = new Map(limitBoxes.map((id) => [id, $(id)?.value ?? ""]));
 for (const id of limitBoxes) $(id)?.addEventListener("input", () => dirtyLimits.add(id));
 function showSaved(id, value) {
   const box = $(id);
   if (!box) return;
-  if (dirtyLimits.has(id)) return;
+  if (dirtyLimits.has(id) || document.activeElement === box) return;
+  if (shownLimits.has(id) && box.value !== shownLimits.get(id)) {
+    dirtyLimits.add(id);
+    return;
+  }
   box.value = value;
+  shownLimits.set(id, value);
 }
 
 async function saveLimits() {
@@ -168,7 +174,10 @@ async function saveLimits() {
   const saved = await save({ limits: { toolCallsPerMinute: number("policy-tool-limit"), modelRoundsPerMinute: number("policy-round-limit") } });
   // Once saved, what is on screen is the saved answer again, so a refresh may write over it. A save
   // that did not land leaves the ceiling theirs, so the refresh does not take it away as well.
-  if (saved) for (const id of limitBoxes) dirtyLimits.delete(id);
+  if (saved) for (const id of limitBoxes) {
+    dirtyLimits.delete(id);
+    shownLimits.set(id, $(id)?.value ?? "");
+  }
 }
 
 /** Called after every state refresh. */
