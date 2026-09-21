@@ -82,7 +82,7 @@ function card(entry) {
  */
 function pipelinePicker(entry) {
   const row = el("label", undefined, "check-row");
-  const options = [["default", "the usual way"], ...(pipelines.pipelines ?? []).map((named) => [named.name, named.name, named.name])];
+  const options = [["default", "the usual way"], ...(pipelines.pipelines ?? []).map((named) => [named.name, "", named.name])];
   const pick = dropdown({ id: "", options, value: pipelines.byCollection?.[entry.id] ?? "default" });
   pick.addEventListener("change", () => act(pick, async () => {
     const byCollection = { ...(pipelines.byCollection ?? {}) };

@@ -76,7 +76,7 @@ function select(id, key, values, current) {
   return { nodes: labelled(id, key, box), box };
 }
 function connectionChoices(none = "savings.option.same-connection") {
-  return [["", none], ...view.connections.map((one) => [one.id, one.name, one.name])];
+  return [["", none], ...view.connections.map((one) => [one.id, "", one.name])];
 }
 function connectionSelect(id, key, current, none) {
   const box = dropdown({ id, options: connectionChoices(none), value: current ?? "" });
