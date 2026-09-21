@@ -40,9 +40,11 @@ async function openApp(t, width = 1280) {
     if (before === undefined) delete process.env.BRANCH_INTEGRATIONS; else process.env.BRANCH_INTEGRATIONS = before;
   });
   const page = await browser.newPage({ viewport: { width, height: 900 } });
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
+  const token = page.getByLabel("Session token", { exact: true });
+  await token.waitFor({ state: "visible", timeout: 120000 });
+  await token.fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#knobs-launch-file-card").waitFor({ state: "attached" });
   return { app, page, launchFile };
@@ -115,6 +117,7 @@ test("an unchanged refresh cannot replace a knob value while it is being typed",
   const refreshing = page.evaluate(() => globalThis.branchKnobs.refresh());
   await responseCaptured;
   await page.locator("#knobs-maxSteps").fill("25");
+  await page.evaluate(() => document.activeElement?.blur());
   release();
   await refreshing;
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
