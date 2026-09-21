@@ -77,6 +77,24 @@ function taskRows(app: PlaceApp, since: number): Row[] {
       sessionId: run.sessionId,
     }));
 }
+function overviewRows(app: PlaceApp, words: Words): Row[] {
+  const runs = app.store.runs(app.runtime.owner).slice(0, 12);
+  if (!runs.length) return [{ title: words.t("ov.calm", "Nothing waiting"),
+    detail: words.t("ov.now.none", "Nothing is running right now."), tone: "ok" }];
+  return runs.map((run) => ({ title: clip(run.prompt), detail: `${run.status.replace(/_/g, " ")} · ${day(run.updatedAt)}`,
+    tone: run.status === "running" ? "ok" : run.status === "failed" ? "bad" : run.status === "needs_input" ? "warn" : "muted",
+    sessionId: run.sessionId }));
+}
+function peopleRows(app: PlaceApp, words: Words): Row[] {
+  const profiles = app.store.profiles.list();
+  return [{ title: words.t("household.owner", "The owner"), detail: words.t("household.role.owner", "Owner"), tone: "ok" },
+    ...profiles.map((profile) => {
+      const grant = app.runtime.roles.get(profile.id);
+      const role = words.t(`household.role.${grant.role}`, grant.role === "child" ? "Child" : "Adult");
+      const used = profile.lastUsedAt ? day(profile.lastUsedAt) : words.t("household.never", "Has not used Branch yet");
+      return { title: profile.name, detail: `${role} · ${used}` };
+    })];
+}
 const recordRows = (app: PlaceApp, table: "schedules" | "procedures" | "specialists", name: string[]): Row[] =>
   app.store.list(table, app.runtime.owner).map((record) => {
     const data = record.data as Record<string, unknown>;
@@ -119,6 +137,8 @@ function channelSetupRow(words: Words): Row {
 
 /** Every tab's rows, by its home. */
 export const PLACE_ROWS: Record<string, RowReader> = {
+  "overview:here": overviewRows,
+  "household:people": peopleRows,
   "inbox:needs": needsYou,
   "inbox:finished": (app) => taskRows(app, Date.now() - WEEK),
   "inbox:history": (app) => taskRows(app, 0),

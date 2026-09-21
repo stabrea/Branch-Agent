@@ -1,5 +1,5 @@
 import { Canvas, fitText, textWidth, type CellStyle, type Hit, type Paint } from "./terminal-canvas.js";
-import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, type Route } from "./terminal-places.js";
+import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, placeById, type Route } from "./terminal-places.js";
 import type { Row } from "./terminal-place-data.js";
 import type { Glyphs } from "./terminal-style.js";
 import type { TerminalPalette } from "./terminal-theme.js";
@@ -112,7 +112,7 @@ export function pageTitle(model: ScreenModel): string {
     const sub = route.settings === "models" ? MODEL_TABS.find((entry) => entry.id === route.sub) : undefined;
     return [t(model, "settings.title", "Settings"), t(model, page.key, page.english), ...(sub ? [t(model, sub.key, sub.english)] : [])].join(crumb);
   }
-  const place = PLACES.find((entry) => entry.id === route.place)!;
+  const place = placeById(route.place)!;
   const tab = place.tabs.find((entry) => entry.id === route.tab);
   if (route.place === "chat" && model.title) return `${t(model, place.key, place.english)}${crumb}${model.title}`; // phase2/everywhere
   return tab ? `${t(model, place.key, place.english)}${crumb}${t(model, tab.key, tab.english)}` : t(model, place.key, place.english);
@@ -348,7 +348,7 @@ function drawPane(canvas: Canvas, model: ScreenModel, box: { x: number; y: numbe
 /* ---------- a place ---------- */
 function drawPlace(canvas: Canvas, model: ScreenModel, area: { x: number; y: number; width: number; height: number },
   route: { place: string; tab: string }): Frame["cursor"] {
-  const place = PLACES.find((entry) => entry.id === route.place)!;
+  const place = placeById(route.place)!;
   const x = area.x + 2, width = area.width - 4;
   canvas.text(x, area.y + 1, t(model, place.key, place.english).toUpperCase(), { fg: "text", bold: true });
   const intro = wrapColumns(t(model, place.intro[0], place.intro[1]), width).slice(0, 2);

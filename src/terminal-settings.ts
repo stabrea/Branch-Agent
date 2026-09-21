@@ -59,8 +59,8 @@ function directoryRows(words: Words, page: string): Row[] | null {
   const pages: Record<string, Row[]> = {
     trunks: [
       row("settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "/go customize specialists"),
-      row("place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "/go chat"),
-      row("place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "/go settings general"),
+      row("place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "/go overview here"),
+      row("place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "/go household people"),
     ],
     channels: [row("settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "/go customize channels")],
     connections: [row("settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "/go customize connections")],
