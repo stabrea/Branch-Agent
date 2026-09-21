@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 
 import { conditionsVersion, machineIdentity } from "../../dist/evaluation-honesty.js";
 import { contestants as allContestants } from "./contestants.mjs";
-import { programScorerDigest } from "./board-conditions.mjs";
+import { programScorerDigest, scorerSourceGraph } from "./board-conditions.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argOf = (name, fallback) => {
@@ -37,8 +37,8 @@ const argOf = (name, fallback) => {
 // bench in ../coding-bench/tasks.mjs). Everything else about the runner is shared, so both boards
 // are measured the same way.
 const tasksetUrl = new URL(argOf("taskset", "./tasks.mjs"), import.meta.url);
-const tasksetSource = readFileSync(tasksetUrl, "utf8");
 const { filesUnder, tasks: allTasks } = await import(tasksetUrl.href);
+const scorerSource = scorerSourceGraph([new URL(import.meta.url), tasksetUrl], new URL("../../", import.meta.url));
 
 const settings = {
   model: argOf("model", "qwen3-4b-64k"),
@@ -82,7 +82,7 @@ const conditions = {
   appVersion: `scoreboard-harness ${JSON.parse(readFileSync(join(here, "../../package.json"), "utf8")).version}`,
   machine: machineIdentity(),
   taskSetHash: digest(JSON.stringify(tasks.map((task) => [task.id, task.prompt, task.seed]))),
-  scorerDigest: programScorerDigest(tasks, tasksetSource),
+  scorerDigest: programScorerDigest(tasks, scorerSource),
   costBasis: "reported",
 };
 

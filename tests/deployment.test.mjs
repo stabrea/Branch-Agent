@@ -93,6 +93,7 @@ test("the installer script and the Uninstall entry say what they will do", () =>
   assert.match(script, /copy \/b "%ZIP%" "%ARCHIVE%"/, "checks and extracts a private staged copy");
   assert.match(script, /System32\\WindowsPowerShell\\v1\.0\\powershell\.exe/, "uses the system PowerShell, never PATH");
   assert.match(script, /Get-FileHash/, "verifies the staged archive before extraction");
+  assert.match(script, /\$actual -ne \$match\.Groups\[1\]\.Value/, "PowerShell accepts the lowercase digest published by Branch");
   assert.match(script, /OpenRead/, "preflights every archive entry before extraction");
   assert.match(script, /ExternalAttributes/, "refuses archive links instead of following them");
   assert.match(script, /Expand-Archive/, "extracts only after verification and preflight");
@@ -724,8 +725,8 @@ test("B4 the terminal door runs the commands that only look, and refuses the res
   const { server } = await openBranch(t);
   const { readOnlyTerminalCommands } = await import("../dist/terminal-cli.js");
   assert.deepEqual([...readOnlyTerminalCommands].sort(), [
-    "automations", "channels", "customize", "inbox", "library", "mcp", "memory", "places",
-    "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
+    "automations", "channels", "customize", "household", "inbox", "library", "mcp", "memory",
+    "overview", "places", "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
   ], "the list of terminal commands a second terminal may run is pinned; changing it is deliberate");
 
   const ask = (query) => fetch(`${server.url}/api/terminal?${query}`, { headers: { authorization: `Bearer ${server.token}` } });

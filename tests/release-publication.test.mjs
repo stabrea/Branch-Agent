@@ -50,14 +50,15 @@ function github(initial = null, failUpload = false) {
   return { gh, calls, release: () => release };
 }
 
-test("a complete tag publishes the reviewed notes as the latest non-draft release", async (t) => {
+test("a complete stable tag publishes the reviewed notes without overriding GitHub's release order", async (t) => {
   const input = await fixture(t), fake = github();
   await publishRelease({ ...input, repo: "owner/repo", gh: fake.gh });
   assert.equal(fake.release().isDraft, false);
-  assert.equal(fake.release().isLatest, true);
+  assert.equal(fake.release().isLatest, false);
   assert.match(fake.release().notesFile, /release-notes-1\.2\.3\.md$/);
   assert.equal(fake.release().assets.length, releaseFiles(input.tag).length);
   assert.ok(!fake.calls.flat().includes("Downloads for v1.2.3."));
+  assert.ok(!fake.calls.flat().includes("--latest"), "rerunning an older tag cannot move it above a newer release");
 });
 
 test("a prerelease tag publishes as a prerelease and never becomes latest", async (t) => {

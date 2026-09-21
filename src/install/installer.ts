@@ -168,7 +168,7 @@ export function bootstrapperScript(options: { assetName: string; executableName:
     "$match=[regex]::Match($line,'\\A([0-9a-fA-F]{64})  ([^\\r\\n]+)\\z')",
     "if(-not $match.Success -or $match.Groups[2].Value -cne $expectedName){throw 'The checksum file is not valid.'}",
     "$actual=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash",
-    "if($actual -cne $match.Groups[1].Value){throw 'The download did not match the published checksum.'}",
+    "if($actual -ne $match.Groups[1].Value){throw 'The download did not match the published checksum.'}",
     "Add-Type -AssemblyName System.IO.Compression.FileSystem",
     "$zip=[IO.Compression.ZipFile]::OpenRead($archive)",
     "try{foreach($item in $zip.Entries){$name=$item.FullName.Replace([char]92,'/');"

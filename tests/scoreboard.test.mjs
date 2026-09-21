@@ -16,7 +16,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { comparisonRefusal, spreadOf, spreadsSeparate } from "../dist/evaluation-honesty.js";
-import { conditionsOf, programScorerDigest } from "../experiments/scoreboard/board-conditions.mjs";
+import { conditionsOf, programScorerDigest, scorerSourceGraph } from "../experiments/scoreboard/board-conditions.mjs";
 import { taskById, tasks } from "../experiments/scoreboard/tasks.mjs";
 
 const seeds = join(dirname(fileURLToPath(import.meta.url)), "../experiments/scoreboard/seeds");
@@ -75,6 +75,18 @@ test("the scorer fingerprint changes when a task's marking program changes", () 
   assert.notEqual(programScorerDigest([original], "const threshold = 1"),
     programScorerDigest([original], "const threshold = 0"));
   assert.equal(programScorerDigest([original]), programScorerDigest([{ ...original }]));
+});
+
+test("the scorer fingerprint source includes imported marking helpers and shared runner logic", () => {
+  const root = new URL("../", import.meta.url);
+  const source = scorerSourceGraph([
+    new URL("../experiments/scoreboard/run-scoreboard.mjs", import.meta.url),
+    new URL("../experiments/coding-bench/tasks.mjs", import.meta.url),
+  ], root);
+  assert.match(source, /experiments\/coding-bench\/tasks\.mjs/);
+  assert.match(source, /experiments\/scoreboard\/tasks\.mjs/);
+  assert.match(source, /function filesUnder/);
+  assert.match(source, /experiments\/scoreboard\/run-scoreboard\.mjs/);
 });
 
 /** A folder seeded as the runner seeds one, so a check can be run against it. */
