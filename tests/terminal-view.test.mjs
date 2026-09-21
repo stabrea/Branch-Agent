@@ -20,6 +20,7 @@ import { LineEditor, takeMouse } from "../dist/terminal-input.js";
 import { Tui } from "../dist/terminal-tui.js";
 import { routeMouse } from "../dist/terminal-keys.js";
 import { paletteItems } from "../dist/terminal-palette.js";
+import { PLACE_ROWS } from "../dist/terminal-place-data.js";
 
 const DOCS = new URL("../docs/places.md", import.meta.url);
 const LAYOUT = new URL("../public/layout.js", import.meta.url);
@@ -296,6 +297,19 @@ async function running(t, env = {}) {
   return { app, tui, input, raw: () => raw, settle, text: () => stripAnsi(raw) };
 }
 const frameOf = (tui) => renderScreen(tui.model(), tui.size(), tui.palette, "none").plain.join("\n");
+
+test("the terminal computer overview excludes Trunk conversations", async (t) => {
+  const { app } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  const trunk = app.trunks.create({ name: "Ada" });
+  const ownerRun = app.store.createRun(app.runtime.owner, "Owner task");
+  app.store.finish(ownerRun.id, "completed", "done");
+  const trunkRun = app.store.createRun(app.runtime.owner, "Private Trunk task", trunk.chatSessionId);
+  app.store.finish(trunkRun.id, "completed", "done");
+  const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.ok(rows.some((row) => row.title === "Owner task"), "this computer's work remains visible");
+  assert.ok(rows.every((row) => row.title !== "Private Trunk task"), "a Trunk's work stays in that Trunk");
+});
 
 test("every place, tab and Settings page in docs/places.md opens from the terminal, by command and by key", async (t) => {
   const { tui, input, settle } = await running(t);
