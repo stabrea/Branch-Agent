@@ -84,7 +84,7 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("automations", ["cron"], "[tab]", "schedules, procedures and triggers", [...W, "terminal", "dashboard"], "look", was("terminal")),
   entry("library", [], "[tab]", "memory, documents and what it made", [...W, "terminal", "dashboard"], "look", was("terminal")),
   entry("customize", ["tools"], "[tab]", "skills, specialists, plugins, connections and channels", [...W, "terminal", "dashboard"], "look", was("terminal")),
-  entry("settings", ["config"], "[page]", "the twelve Settings pages, by name", [...W, "terminal", "dashboard"], "look", was("terminal")),
+  entry("settings", ["config"], "[page]", "the Settings pages, by name", [...W, "terminal", "dashboard"], "look", was("terminal")),
   entry("theme", ["skin"], "[name|light|dark|follow|list]", "the theme, shared with the window", [...W, "terminal"], "look", was("terminal")),
   entry("default", [], "<id>", "the model every new conversation starts with", [...W, "terminal"], "owner", { ...was("terminal"), route: { method: "POST", path: "/api/models" } }),
   entry("switch", [], "<mouse|sidePane|oak> [on|off|when-needed]", "the terminal's own switches, which all start off", ["terminal"], "owner", was("terminal")),

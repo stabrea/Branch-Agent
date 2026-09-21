@@ -1242,7 +1242,7 @@
   "commands.prompts": "vos requêtes et procédures enregistrées ; avec un nom, l'une d'elles dans la zone de message",
   "commands.queue": "les messages qui attendent dans cette conversation ; reformuler, déplacer ou en retirer un",
   "commands.sessions": "conversations précédentes ; avec un numéro, en reprendre une",
-  "commands.settings": "les douze pages des paramètres, par leur nom",
+  "commands.settings": "les pages des paramètres, par leur nom",
   "commands.skills": "les compétences installées ici",
   "commands.status": "ce qui est en cours en ce moment, et avec quel modèle",
   "commands.stop": "arrêter ce qui est en cours",
