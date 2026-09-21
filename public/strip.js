@@ -66,6 +66,8 @@ export const trunksOn = () => !!shell.roster && shell.roster.modes?.trunks !== "
 export const visibleTrunks = () => (trunksOn() ? shell.roster.trunks.filter((trunk) => !trunk.hidden) : []);
 export const findTrunk = (id) => shell.roster?.trunks.find((trunk) => trunk.id === id) ?? null;
 export const findDevice = (id) => shell.devices?.devices.find((device) => device.id === id) ?? null;
+const trunkItem = (trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
+  spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 });
 /** Something is waiting for the owner's yes: the Inbox counts it. */
 const needsYou = () => Number($("lx-inbox-badge")?.textContent || 0) > 0 && !$("lx-inbox-badge")?.hidden;
 
@@ -79,8 +81,7 @@ export function stripItems() {
   // A computer or phone asking to join shows at once, its ring turning until it is let in (critique #46).
   const asking = (shell.devices?.requests ?? []).filter((request) => request.status === "waiting").map((request) => ({ id: `asking:${request.id}`,
     kind: "asking", name: request.name, request, spec: computerSpec({ id: request.id, name: request.name, platform: request.platform }), status: "pairing" }));
-  const trunks = visibleTrunks().map((trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
-    spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 }));
+  const trunks = visibleTrunks().map(trunkItem);
   return { computers: [here, ...devices, ...asking], trunks };
 }
 function statusWords(item) {
@@ -97,17 +98,23 @@ function kindWords(item) {
 
 /* ---------- which face is picked ---------- */
 function currentSession() { return $("conversation")?.dataset.sessionId || ""; }
+let assignedTrunk = "";
 function selectedId() {
   const overview = !$("overview")?.hidden;
   if (overview) return shell.target;
   const session = currentSession();
-  const trunk = session && shell.roster?.trunks.find((entry) => entry.chatSessionId === session);
+  const trunk = session && shell.roster?.trunks.find((entry) => entry.chatSessionId === session || entry.id === assignedTrunk);
   return trunk ? `trunk:${trunk.id}` : "here";
 }
 function markSelected() {
-  const picked = selectedId();
+  const picked = selectedId(), { computers, trunks } = stripItems(), items = [...computers, ...trunks];
   for (const node of document.querySelectorAll("#trunk-strip .strip-item"))
     node.setAttribute("aria-current", String(node.dataset.stripId === picked));
+  const selectedTrunk = picked.startsWith("trunk:") ? findTrunk(picked.slice("trunk:".length)) : null;
+  const item = items.find((entry) => entry.id === picked) ?? (selectedTrunk ? trunkItem(selectedTrunk) : computers[0]);
+  if (item) document.dispatchEvent(new CustomEvent("branch-strip-selection", {
+    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item) },
+  }));
 }
 
 /* ---------- drawing ---------- */
@@ -200,7 +207,7 @@ export function drawStrip() {
   remember(on);
   document.body.classList.toggle("lx-strip", on);
   let nav = $("trunk-strip");
-  if (!on) { nav?.remove(); return; }
+  if (!on) { nav?.remove(); markSelected(); return; }
   if (!nav) {
     nav = make("nav", "strip");
     nav.id = "trunk-strip";
@@ -408,6 +415,10 @@ whenReady(() => {
   void refresh();
   setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
   document.addEventListener("branch-profile", () => void refresh());
+  document.addEventListener("branch-rooms-changed", (event) => {
+    assignedTrunk = String(event.detail?.trunkId ?? "");
+    markSelected();
+  });
   document.addEventListener("branch-language", () => { drawStrip(); document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell })); });
   document.addEventListener("branch-place", markSelected);
   if ($("conversation")) new MutationObserver(markSelected).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });

@@ -6,6 +6,7 @@
    can also be saved as an Agent Skills folder for another agent. The switch ships off. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -32,7 +33,7 @@ function labelled(id, key, english, control) {
   label.htmlFor = id;
   return [label, control];
 }
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"], ["on", "field.switch-on", "On"]];
 const report = (words) => { const node = $("skill-installs-status"); if (node) node.textContent = words; };
 
 async function fileBody() {
@@ -100,15 +101,13 @@ function records(list) {
   return box;
 }
 function switchRow(mode) {
-  const select = document.createElement("select");
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === mode;
-    select.append(option);
-  }
-  select.addEventListener("change", async () => {
-    try { await api("skill-installs/settings", { mode: select.value }); await draw(); } catch (error) { report(error.message); }
+  const select = segmented({
+    id: "skill-installs-mode",
+    options: POSITIONS,
+    value: mode,
+    onChange: async (value) => {
+      try { await api("skill-installs/settings", { mode: value }); await draw(); } catch (error) { report(error.message); }
+    }
   });
   return [...labelled("skill-installs-mode", "skillInstalls.field.switch", "Install record", select),
     make("p", "field-note", "skillInstalls.note.switch", "Off: this card shows only this switch. On, or only when it is needed: install and remove here, and keep the steps each time.")];
@@ -117,12 +116,12 @@ function controls(view) {
   const file = document.createElement("input");
   file.type = "file";
   file.accept = ".zip,.branchskill";
-  const skill = document.createElement("select");
-  for (const entry of view.skills) {
-    const option = text("option", entry.name);
-    option.value = entry.id;
-    skill.append(option);
-  }
+  const skillOptions = view.skills.map((entry) => [entry.id, "", entry.name]);
+  const skill = dropdown({
+    id: "skill-installs-skill",
+    options: skillOptions.length > 0 ? skillOptions : [["", "", "No skills"]],
+    value: skillOptions.length > 0 ? skillOptions[0][0] : ""
+  });
   return [...labelled("skill-installs-file", "skillInstalls.field.file", "An Agent Skills folder (.zip) or a Branch package", file),
     button("skillInstalls.action.look", "Look inside", true, look),
     button("skillInstalls.action.install", "Install it", false, install),

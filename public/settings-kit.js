@@ -13,6 +13,7 @@
  */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const say = (key, english, values) => {
   const words = t(key, values);
@@ -155,12 +156,12 @@ function presetCard(overview) {
   const section = card("settings-kit-presets", "settings:general",
     ["settings-kit.card.presets", "Start from a preset"],
     ["settings-kit.card.presets-purpose", "Set many switches at once for the way you want to work. You see every change first and choose which to make."]);
-  const select = document.createElement("select");
-  for (const preset of overview.presets) {
-    const option = el("option", preset.t, preset.name);
-    option.value = preset.id;
-    select.append(option);
-  }
+  const presetOptions = overview.presets.map((preset) => [preset.id, preset.t, preset.name]);
+  const select = dropdown({
+    id: "kit-preset",
+    options: presetOptions.length > 0 ? presetOptions : [["", "No presets"]],
+    value: presetOptions.length > 0 ? presetOptions[0][0] : ""
+  });
   const about = el("p", undefined, undefined, "subtle");
   const describe = () => {
     const preset = overview.presets.find((entry) => entry.id === select.value);
@@ -179,10 +180,12 @@ function resetCard(overview) {
   const section = card("settings-kit-reset", "settings:general",
     ["settings-kit.card.reset", "Put settings back"],
     ["settings-kit.card.reset-purpose", "Put one setting, or all of them, back to how they were when Branch was new. Your conversations, files, keys and connections are not touched."]);
-  const select = document.createElement("select");
-  const all = el("option", "settings-kit.everything", "Everything on this list");
-  all.value = "";
-  select.append(all, ...overview.settings.map((spec) => { const option = el("option", spec.t, spec.name); option.value = spec.key; return option; }));
+  const resetOptions = [["", "settings-kit.everything", "Everything on this list"], ...overview.settings.map((spec) => [spec.key, spec.t, spec.name])];
+  const select = dropdown({
+    id: "kit-reset-what",
+    options: resetOptions,
+    value: ""
+  });
   const { holder, status } = planArea();
   const plan = () => (select.value ? { source: "reset", key: select.value } : { source: "reset" });
   section.append(...field("kit-reset-what", select, ["settings-kit.field.reset", "What to put back"],

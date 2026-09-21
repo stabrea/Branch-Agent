@@ -4,6 +4,7 @@
    description (aria-describedby), and no colour is written here. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const HOME = "settings:permissions";
 const $ = (id) => document.getElementById(id);
@@ -89,19 +90,17 @@ function switchesCard(state) {
   const { node, status } = card("safety-extras-card", "safety.extras.title", "Safety extras",
     "safety.extras.purpose", "Extra checks and limits. Each one starts off.");
   for (const [part, [key, english, hintKey, hint]] of Object.entries(PARTS)) {
-    const select = document.createElement("select");
-    for (const [value, optionKey, optionEnglish] of POSITIONS) {
-      const option = make("option", "", optionKey, optionEnglish);
-      option.value = value;
-      option.selected = value === state.modes[part];
-      select.append(option);
-    }
-    select.addEventListener("change", async () => {
-      const code = part === "code-approvals" ? typedCode() : {};
-      try { await api("safety-extras/switch", { part, mode: select.value, ...code }); done(status); }
-      catch (error) { select.value = state.modes[part]; tell(status, error); }
+    const control = segmented({
+      id: `safety-switch-${part}`,
+      options: POSITIONS,
+      value: state.modes[part],
+      onChange: async (value) => {
+        const code = part === "code-approvals" ? typedCode() : {};
+        try { await api("safety-extras/switch", { part, mode: value, ...code }); done(status); }
+        catch (error) { control.value = state.modes[part]; tell(status, error); }
+      }
     });
-    node.append(...described(`safety-switch-${part}`, key, english, hintKey, hint, select));
+    node.append(...described(`safety-switch-${part}`, key, english, hintKey, hint, control));
   }
   const command = input();
   const result = make("p", "subtle");
