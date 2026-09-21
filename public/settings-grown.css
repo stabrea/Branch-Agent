@@ -250,6 +250,29 @@
 :root[data-household="on"] #lx-page-instructions {
   display: none !important;
 }
+/* The places outside Settings, listed after its pages: they look like a page link and go to the place. */
+.sg-place-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+}
+.sg-place-link:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sg-place-link .sg-icon {
+  color: var(--text-3);
+}
 .lx-settings-link .sg-icon {
   color: var(--text-3);
 }
