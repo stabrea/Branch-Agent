@@ -90,10 +90,10 @@ function switchRow(part, mode, status) {
 
 function handoffBlock(sessions) {
   const heading = make("h3", "", "interop.handoff.title", "Carry on a conversation on another device");
-  const sessionOptions = sessions.map((session) => [session.sessionId, (session.opening || session.sessionId).slice(0, 60)]);
+  const sessionOptions = sessions.map((session) => [session.sessionId, "", (session.opening || session.sessionId).slice(0, 60)]);
   const pick = dropdown({
     id: "interop-handoff-session",
-    options: sessionOptions.length > 0 ? sessionOptions : [["", "No sessions"]],
+    options: sessionOptions.length > 0 ? sessionOptions : [["", "", "No sessions"]],
     value: sessionOptions.length > 0 ? sessionOptions[0][0] : ""
   });
   const minutes = document.createElement("input");
