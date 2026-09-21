@@ -268,7 +268,11 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   /* The category rows used to be thrown away and made again every 3 s, which shut an open list under
      the person and threw the keyboard out of it. A mark of our own survives only if the row does. */
   await f.page.waitForFunction(() => document.querySelectorAll("#approval-categories select").length > 0);
-  await f.page.locator("#approval-categories select").first().evaluate((one) => { one.dataset.stillTheirs = "yes"; one.focus(); });
+  const category = f.page.locator("#approval-categories select").first();
+  await category.waitFor({ state: "visible" });
+  await category.evaluate((one) => { one.dataset.stillTheirs = "yes"; });
+  await category.focus();
+  assert.equal(await f.page.evaluate(() => document.activeElement?.tagName), "SELECT", "the chooser starts with the keyboard");
   await f.page.evaluate(() => globalThis.branchMisc.render());
   assert.equal(await f.page.locator("#approval-categories select").first().getAttribute("data-still-theirs"), "yes",
     "a chooser somebody may have open is not thrown away and made again");
