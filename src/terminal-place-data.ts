@@ -83,7 +83,11 @@ function overviewRows(app: PlaceApp, words: Words): Row[] {
   const owner = app.store.profiles.isOwner(), scope = app.store.profiles.scope();
   const trunkChats = new Set((owner ? trunksFor(app.runtime)?.records.list() ?? [] : [])
     .flatMap((trunk) => [trunk.chatSessionId, ...trunk.retiredChats]));
-  const runs = app.store.runs(scope).filter((run) => !trunkChats.has(run.sessionId)).slice(0, 12);
+  const visible = app.store.runs(scope).filter((run) => !trunkChats.has(run.sessionId));
+  const active = visible.filter((run) => run.status === "running" || run.status === "needs_input");
+  const recent = visible.filter((run) => run.status !== "running" && run.status !== "needs_input")
+    .slice(0, Math.max(0, 12 - active.length));
+  const runs = [...active, ...recent];
   if (!runs.length) return [{ title: words.t("ov.calm", "Nothing waiting"),
     detail: words.t("ov.now.none", "Nothing is running right now."), tone: "ok" }];
   return runs.map((run) => ({ title: clip(run.prompt), detail: `${run.status.replace(/_/g, " ")} · ${day(run.updatedAt)}`,
