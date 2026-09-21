@@ -97,6 +97,7 @@ const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
 let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
 let railCanManageTrunks = false;
 let railProfileOwner = null;
+let railProfileGeneration = Number(document.documentElement.dataset.profileGeneration || 0);
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
   $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
@@ -132,14 +133,18 @@ for (const tab of document.querySelectorAll(".rail-view-tab")) {
 $("rail-new-trunk").addEventListener("click", () => void import("/studio.js").then((studio) => studio.openAdd("trunk")));
 new MutationObserver(syncRailView).observe($("rail-scroll"), { childList: true });
 document.addEventListener("branch-strip", (event) => {
+  const generation = Number(event.detail?.profileGeneration ?? railProfileGeneration);
+  if (generation !== railProfileGeneration) return;
   const profiles = event.detail?.profiles;
   const confirmedOwner = event.detail?.profiles?.isOwner === true;
-  if (profiles && railProfileOwner !== false) railProfileOwner = confirmedOwner;
+  if (profiles) railProfileOwner = confirmedOwner;
   railCanManageTrunks = railProfileOwner === true && ownerAtWindow() && confirmedOwner;
   syncRailView();
   if (railCanManageTrunks) document.dispatchEvent(new CustomEvent("branch-strip-reselect"));
 });
 document.addEventListener("branch-profile", (event) => {
+  const generation = Number(event.detail?.profileGeneration);
+  railProfileGeneration = Number.isSafeInteger(generation) ? generation : railProfileGeneration + 1;
   railProfileOwner = event.detail?.owner !== false;
   railCanManageTrunks = false;
   if (railProfileOwner) return syncRailView();

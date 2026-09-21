@@ -7,7 +7,7 @@
    person is signed in (src/people/). There is no "online" dot, because Branch does not know who is
    present; it says when each person last used Branch. Faces are drawn from each name. The owner's
    actions go through the owner's routes; a household person sees their own card and the way back. */
-import { api, displayView, toast } from "/app.js";
+import { api, displayView, noteWindowProfile, toast } from "/app.js";
 import { formatDate } from "/i18n.js";
 import { face, personSpec } from "/faces.js";
 import { closePopovers, trackPopover } from "/popover.js";
@@ -44,7 +44,7 @@ const ownerSpec = () => personSpec({ name: say("household.owner", "The owner") }
 async function switchTo(profileId, pin) {
   await api("profiles/switch", { profileId, ...(pin ? { pin } : {}) });
   closePopovers();
-  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: profileId === null } }));
+  noteWindowProfile(profileId === null, { force: true });
   await refresh();
   document.dispatchEvent(new CustomEvent("branch-profile-switched"));
   toast(profileId ? say("household.switched", "Switched.") : say("household.back", "Back to the owner."));
