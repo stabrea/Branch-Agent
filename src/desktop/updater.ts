@@ -41,6 +41,11 @@ export interface UpdaterOptions {
    */
   stopDaemon?: () => Promise<number | null>;
   /**
+   * Asks the running Branch to finish what it is doing before it is closed for the swap (no new work,
+   * a short wait, the rest marked so the next version offers it back). Never stops the update.
+   */
+  drain?: () => Promise<unknown>;
+  /**
    * mac3/never-break: tries the unpacked version on a copy of the owner's data before anything is
    * swapped. Throws a plain sentence when the new version did not pass; the update then stops.
    */
@@ -140,6 +145,10 @@ export class Updater {
       const stagedDir = await this.unpack(archive);
       await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
       await this.safetyCopy();
+      if (this.options.drain) {
+        this.set("unpacking", "Letting Branch finish what it is doing before the update…", null, release);
+        await this.options.drain().catch(() => undefined);
+      }
       const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };

@@ -80,6 +80,7 @@ async function updateSetup(t, { mode = "daemon" } = {}) {
     snapshot: async () => join(root, "snapshot"),
     quit: async () => { events.push("quit"); return { stopped: true, wasRunning: true, pid: 4242, message: "" }; },
     runScript: (...args) => { events.push(["script", ...args]); return 0; },
+    drain: async () => { events.push("drain"); },
     restartService: async () => { events.push("restart"); },
     rollback: async () => { events.push("rollback"); return 0; },
   };
@@ -97,6 +98,7 @@ test("a Branch working in the background comes back by itself on the new version
   const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: quick([{ pid: 5151, mode: "daemon" }]) } });
   assert.equal(code, 0, s.lines.join("\n"));
   assert.ok(s.events.includes("restart"), "the service was started again through its manager");
+  assert.ok(s.events.indexOf("drain") >= 0 && s.events.indexOf("drain") < s.events.indexOf("quit"), "it let Branch finish its work before closing it");
   assert.ok(!s.events.includes("rollback"));
   assert.match(s.lines.at(-1), /working in the background again, on version 2\.0\.0/);
   assert.ok(!s.lines.some((line) => /start it again with `branch start`/.test(line)), "the owner is no longer told to do it themselves");

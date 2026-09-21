@@ -27,6 +27,35 @@ async function carriesMasterKey(request: IncomingMessage, dataDir: string): Prom
   return Boolean(saved) && supplied.length === saved!.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(saved!));
 }
 
+/** Only a program on this computer, not through the phone door, holding this data folder's own key. */
+export async function localWithMasterKey(request: IncomingMessage, input: { dataDir: string; viaRemote?: boolean }): Promise<boolean> {
+  const local = loopback.has(request.socket?.localAddress ?? "") && loopback.has(request.socket?.remoteAddress ?? "");
+  return !input.viaRemote && local && (await carriesMasterKey(request, input.dataDir));
+}
+
+/**
+ * Before an update: asks the running Branch to take no new work and give what it is doing up to
+ * `budgetMs` to finish (src/runtime.ts `drain`). Answers how that went, or null when there was no
+ * Branch to ask or it could not be asked; an update goes ahead either way, and what it cuts off is
+ * offered back by the version that comes up next.
+ */
+export const drainPath = "/api/never-break/drain";
+export interface DrainReport { finished: number; stillRunning: number }
+export async function drainRunning(dataDir: string, budgetMs = 30000, deps: QuitDeps = {}): Promise<DrainReport | null> {
+  const note = await runningNow(dataDir, deps.alive ?? stillAlive);
+  if (!note) return null;
+  try {
+    if (new URL(note.url).hostname !== "127.0.0.1") return null;
+    const token = await savedToken(dataDir);
+    if (!token) return null;
+    const response = await (deps.fetch ?? globalThis.fetch)(`${note.url}${drainPath}`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ budgetMs }), signal: AbortSignal.timeout(budgetMs + 10000),
+    });
+    return response.ok ? (await response.json()) as DrainReport : null;
+  } catch { return null; }
+}
+
 /**
  * The engine's side. Only this computer, holding the master key, may ask; the answer is sent before
  * the process starts closing. `quit` is what quitting means for this launch (the window's own Quit,
@@ -38,8 +67,7 @@ export async function quitRequest(
   if (request.method !== "POST") throw new Error("Ask with POST.");
   // Both ends of the connection are this computer, it did not come through the phone door, and it
   // carries the data folder's own key (a web page can neither read that key nor send it cross-site).
-  const local = loopback.has(request.socket?.localAddress ?? "") && loopback.has(request.socket?.remoteAddress ?? "");
-  if (input.viaRemote || !local || !(await carriesMasterKey(request, input.dataDir)))
+  if (!(await localWithMasterKey(request, input)))
     throw new Error("Only a program on this computer holding Branch's own key can close it.");
   const quit = input.quit;
   if (!quit) throw new Error("This copy of Branch cannot be closed from outside.");

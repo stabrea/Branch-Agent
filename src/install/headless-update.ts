@@ -13,7 +13,7 @@ import { assertFormatReadable, dataOpenError, storeMigrations } from "../never-b
 import { Store } from "../store.js";
 import { requestUpdateBackup } from "./background-engine.js";
 import { databaseName } from "./layout.js";
-import { quitRunning, runningNow, type QuitReport } from "./quit.js";
+import { drainRunning, quitRunning, runningNow, type QuitReport } from "./quit.js";
 import { sessionTokenFileName, type RunningInstance } from "./running.js";
 import { writeUpdateBackup } from "./update-backup.js";
 import { restartService, waitForReturn, type ReturnDeps } from "./service-return.js";
@@ -51,6 +51,8 @@ export interface HeadlessUpdateDeps {
   running?: (dataDir: string) => Promise<RunningInstance | null>;
   backup?: () => Promise<void>;
   snapshot?: () => Promise<string>;
+  /** Asks the running Branch to finish what it is doing first (src/install/quit.ts `drainRunning`). */
+  drain?: (dataDir: string) => Promise<unknown>;
   /** Starts the background service again through its manager (launchctl, systemctl, the scheduled task). */
   restartService?: () => Promise<void>;
   /** How long, and how, to wait for the new version to say it is running. */
@@ -163,6 +165,7 @@ function makeUpdater(input: HeadlessUpdateInput, note: RunningInstance | null, s
     scratchDir: deps.scratchDir ?? join(tmpdir(), "branch-agent-update"),
     ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.extract ? { extract: deps.extract } : {}),
     backup: deps.backup ?? defaultBackup(input.dataDir, input.version, note, input.print),
+    drain: () => (deps.drain ?? ((dir: string) => drainRunning(dir)))(input.dataDir),
     canary: updateCanary({ dataDir: input.dataDir, platform, executableName, fromVersion: input.version,
       target: input.installRoot, snapshot: deps.snapshot ?? defaultSnapshot(input.dataDir, note) }),
     stopDaemon: async () => {

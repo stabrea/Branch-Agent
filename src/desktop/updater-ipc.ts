@@ -33,6 +33,8 @@ const settingsPages = new Set<string>(process.platform === "darwin" ? Object.val
 export interface UpdateHooks {
   backup: () => Promise<void>;
   stopDaemon?: () => Promise<number | null>;
+  /** Lets the engine finish what it is doing before it is closed for the swap (src/runtime.ts `drain`). */
+  drain?: () => Promise<unknown>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
   canary?: (stagedDir: string, version: string) => Promise<void>;
   /**
@@ -55,6 +57,7 @@ export function registerUpdaterIpc(
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
+    ...(hooks?.drain ? { drain: hooks.drain } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
   });
   const authorized = (event: IpcMainInvokeEvent) => {
