@@ -44,8 +44,12 @@ export function resolveStyle(
   platform: NodeJS.Platform = process.platform,
   osRelease: string = release(),
 ): TerminalStyle {
-  const plain = env.NO_COLOR !== undefined || env.TERM === "dumb" || env.BRANCH_TUI_PLAIN === "1";
-  const depth = plain ? "none" : detectDepth(env, platform, osRelease);
+  const plain = env.NO_COLOR !== undefined || env.BRANCH_TUI_PLAIN === "1"
+    || (env.TERM === "dumb" && env.FORCE_TTY !== "1");
+  const depthEnvironment = env.FORCE_TTY === "1" && env.TERM === "dumb"
+    ? { ...env, TERM: undefined }
+    : env;
+  const depth = plain ? "none" : detectDepth(depthEnvironment, platform, osRelease);
   return {
     depth: depth === "none" && !plain ? "ansi16" : depth,
     unicode: detectUnicode(env, platform),
