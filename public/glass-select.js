@@ -293,6 +293,9 @@ document.addEventListener("keydown", (event) => { keyboardMode = true; if (event
 document.addEventListener("keyup", (event) => {
   if (event.key === "Tab") now(helpTarget(document.activeElement));
 }, true);
+document.addEventListener("branch-language", () => {
+  if (tipFor && !tip.hidden) showTip(tipFor);
+});
 addEventListener("scroll", hideTip, true);
 
 dressSelects();

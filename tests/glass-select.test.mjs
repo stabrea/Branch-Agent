@@ -160,13 +160,14 @@ test("a described control reuses its live English and French help without changi
   await tip.waitFor({ state: "visible" });
   assert.equal(await tip.innerText(), english, "hover help reuses the accessible sentence");
   assert.equal(await control.getAttribute("aria-describedby"), linked, "the existing accessibility link is unchanged");
-  await f.page.mouse.down();
-  await f.page.mouse.up();
-  await tip.waitFor({ state: "hidden" });
 
   await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   const french = await description();
   assert.ok(french && french !== english, "the source sentence changed with the language");
+  assert.equal(await tip.innerText(), french, "open help refreshes as soon as its source language changes");
+  await f.page.mouse.down();
+  await f.page.mouse.up();
+  await tip.waitFor({ state: "hidden" });
   await f.page.mouse.move(10, 10);
   await control.hover();
   await tip.waitFor({ state: "visible" });
