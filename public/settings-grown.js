@@ -589,6 +589,7 @@ function start() {
     $("sg-found")?.remove();
     applyLevel();
     showOwnerPickerPage(event.detail?.owner !== false);
+    queueMicrotask(syncPicker);
   });
   document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
   document.body.classList.add("sg-ready");
