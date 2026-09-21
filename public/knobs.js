@@ -370,7 +370,9 @@ async function afterSignIn(tries = 20) {
 
 if (typeof document !== "undefined") {
   const markDirty = (event) => {
-    if (event.target?.matches?.(knobControlSelector)) event.target.dataset.knobDirty = "true";
+    if (!event.target?.matches?.(knobControlSelector)) return;
+    event.target.dataset.knobDirty = "true";
+    stateVersion += 1;
   };
   document.addEventListener("input", markDirty, true);
   document.addEventListener("change", markDirty, true);
