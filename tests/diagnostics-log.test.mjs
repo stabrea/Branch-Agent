@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
-import { utimesSync, writeFileSync } from "node:fs";
+import { rmSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -66,8 +66,9 @@ test("D4 off writes nothing; when needed writes only warnings and errors", async
   let mode = "off";
   const log = new DiagnosticLog({ dir, settings: () => DiagnosticLogSettingsSchema.parse({ mode }), clean });
   log.write({ level: "error", component: "engine", message: "while off" });
-  assert.deepEqual(await readdir(dir).catch(() => []), [], "the log is off by default and writes no file");
-  assert.equal(DiagnosticLogSettingsSchema.parse({}).mode, "off", "it ships off");
+  assert.deepEqual(await readdir(dir).catch(() => []), [], "switched off, the log writes no file");
+  // The owner's decision (2026-09-21): the log ships on at "when needed" — warnings and errors only.
+  assert.equal(DiagnosticLogSettingsSchema.parse({}).mode, "when-needed", "it ships at when needed");
   mode = "when-needed";
   log.write({ level: "info", component: "engine", message: "quiet" });
   log.write({ level: "warn", component: "engine", message: "loud" });
@@ -207,7 +208,7 @@ test("D14 somebody else's profile is refused; Lockdown does not stop the owner r
     /belongs to the owner/);
   const read = await diagnosticApi({ app: fakeApp({ lockdown: true }), dataDir, installType: "x", startedAt: 0 }, "GET", "/api/diagnostics/log", url, async () => ({}));
   assert.deepEqual(read.lines, []);
-  assert.equal(read.settings.mode, "off");
+  assert.equal(read.settings.mode, "when-needed");
 });
 
 test("D15 each stored event lands under the part of Branch it came from", () => {
@@ -278,7 +279,9 @@ test("D18 a script error in the window is a log line: nothing reaches the disk w
   const dataDir = await folder(t);
   const post = (app, message) => diagnosticApi({ app, dataDir, installType: "x", startedAt: 0 }, "POST", "/api/diagnostics/window-error",
     new URL("http://local/api/diagnostics/window-error"), async () => ({ message, stack: `at ${home}/x.js`, where: "app.js:1" }));
-  const off = await post(fakeApp(), "TypeError: boom");
+  const offApp = fakeApp();
+  offApp.store.get = (_table, _owner, key) => key === "diagnostic-log" ? { data: { mode: "off", crashCapture: "off" } } : undefined;
+  const off = await post(offApp, "TypeError: boom");
   assert.equal(off.recorded, false);
   assert.deepEqual(await readdir(join(dataDir, "logs")).catch(() => []), [], "off writes no file, not even a crash note");
   const on = fakeApp();
@@ -301,13 +304,16 @@ test("D20 a crash after the database has closed is still written, and the handle
   const closed = () => { throw new Error("database is not open"); };
   const log = new DiagnosticLog({ dir, settings: closed, clean });
   assert.doesNotThrow(() => log.write({ level: "error", component: "engine", message: "late line" }));
-  // mac7/coding-next: crash notes are a switch now (off as shipped). With the database closed, the
-  // switch file beside the log answers for it: absent, no note; on, the note is still written.
+  // mac7/coding-next: crash notes are a switch (on as shipped, the owner's decision of 2026-09-21).
+  // With the database closed, the switch file beside the log answers for it: switched off, no note;
+  // absent (never saved), the shipped setting, so the note is written without the database.
+  writeFileSync(join(dir, "crash-capture.json"), JSON.stringify({ crashCapture: "off" }));
   assert.doesNotThrow(() => log.crash("engine", new Error("boom while closing")));
-  assert.equal(log.crashes(5).length, 0, "crash capture never switched on: no note");
-  writeFileSync(join(dir, "crash-capture.json"), JSON.stringify({ crashCapture: "on" }));
+  assert.equal(log.crashes(5).length, 0, "switched off: no note");
+  rmSync(join(dir, "crash-capture.json"));
   assert.doesNotThrow(() => log.crash("engine", new Error("boom while closing")));
-  assert.equal(log.crashes(5).length, 1, "switched on: the note is written without the database");
-  assert.equal(log.read().length, 0, "with no readable settings the log behaves as shipped: off");
+  assert.equal(log.crashes(5).length, 1, "never saved: the shipped setting, on, and the note is written without the database");
+  assert.ok(log.read().some((line) => line.message === "late line"),
+    "with no readable settings the log behaves as shipped: when needed, so a late error is kept");
   assert.doesNotThrow(() => log.prune());
 });
