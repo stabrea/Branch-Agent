@@ -149,3 +149,14 @@ test("a glass dropdown starts from its requested value and later keeps the curre
   assert.deepEqual(values, { initial: "high", refreshed: "high", current: "low" });
   assert.deepEqual(f.errors, []);
 });
+
+test("the knowledge fallback keeps its literal label when the language changes", async (t) => {
+  const f = await fixture(t);
+  f.app.knowledgeBases.create("local", { name: "Guide", sources: [] });
+  await f.page.evaluate(async () => (await import("/knowledge.js")).loadKnowledge());
+  const option = f.page.locator("#knowledge-list select option[value=default]");
+  assert.equal(await option.innerText(), "the usual way");
+  await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await option.innerText(), "the usual way", "a missing locale key never replaces the label");
+  assert.deepEqual(f.errors, []);
+});
