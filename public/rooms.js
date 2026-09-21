@@ -67,7 +67,9 @@ async function refresh() {
   paintHero();
   if (inRoom()) await drawRoom();
   else { leaveRoom(); signReplies(); }
-  document.dispatchEvent(new CustomEvent("branch-rooms-changed", { detail: { kind: kind() } }));
+  document.dispatchEvent(new CustomEvent("branch-rooms-changed", { detail: {
+    kind: kind(), trunkId: kind() === "trunk" ? info?.trunk?.id ?? null : null,
+  } }));
 }
 
 /* ---------- faces ---------- */

@@ -3,6 +3,8 @@
  * so the assistant can find the right page and say where it came from. Its own file; the page only
  * provides the empty card.
  */
+import { dropdown } from "/control-makers.js";
+
 const $ = (id) => document.getElementById(id);
 let view = null;
 let pipelines = { pipelines: [], byCollection: {} };
@@ -80,18 +82,8 @@ function card(entry) {
  */
 function pipelinePicker(entry) {
   const row = el("label", undefined, "check-row");
-  const pick = document.createElement("select");
-  const usual = document.createElement("option");
-  usual.value = "default";
-  usual.textContent = "the usual way";
-  pick.append(usual);
-  for (const named of pipelines.pipelines ?? []) {
-    const option = document.createElement("option");
-    option.value = named.name;
-    option.textContent = named.name;
-    pick.append(option);
-  }
-  pick.value = pipelines.byCollection?.[entry.id] ?? "default";
+  const options = [["default", "the usual way"], ...(pipelines.pipelines ?? []).map((named) => [named.name, "", named.name])];
+  const pick = dropdown({ id: "", options, value: pipelines.byCollection?.[entry.id] ?? "default" });
   pick.addEventListener("change", () => act(pick, async () => {
     const byCollection = { ...(pipelines.byCollection ?? {}) };
     if (pick.value === "default") delete byCollection[entry.id]; else byCollection[entry.id] = pick.value;
