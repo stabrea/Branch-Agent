@@ -203,9 +203,13 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance-language");
   const control = f.page.locator("#appearance-language"), tip = f.page.locator("#glass-tip");
-  await f.page.keyboard.press("Tab");
-  await control.focus();
-  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "appearance-language");
+  const focused = await f.page.evaluate(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    const node = document.getElementById("appearance-language");
+    node.focus();
+    return document.activeElement === node;
+  });
+  assert.equal(focused, true, "keyboard focus landed before the next background refresh");
   assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
   assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
     .some((id) => document.getElementById(id)?.textContent?.trim())), "the linked help has words");
