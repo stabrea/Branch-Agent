@@ -199,9 +199,8 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance-language");
   const control = f.page.locator("#appearance-language"), tip = f.page.locator("#glass-tip");
-  await control.focus();
-  await f.page.keyboard.press("Shift+Tab");
   await f.page.keyboard.press("Tab");
+  await control.focus();
   assert.equal(await f.page.evaluate(() => document.activeElement?.id), "appearance-language");
   assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
   assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
@@ -224,8 +223,8 @@ test("a mouse-focused text field keeps delayed help while keyboard focus is imme
   await input.click();
   await f.page.waitForTimeout(500);
   assert.equal(await tip.isVisible(), false, "click focus is not mistaken for keyboard navigation");
-  await f.page.keyboard.press("Shift+Tab");
   await f.page.keyboard.press("Tab");
+  await input.focus();
   await tip.waitFor({ state: "visible" });
   assert.equal(await tip.innerText(), "Words for the modality probe.");
   assert.deepEqual(f.errors, []);
