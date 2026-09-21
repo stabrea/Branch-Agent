@@ -124,11 +124,15 @@ test("a question on a phone scrolls into view above the message box, and is answ
   await f.page.locator("#send").click();
   const card = f.page.locator("#live-ask");
   await card.waitFor({ state: "visible", timeout: 20000 });
+  /* The shell creates the card before live-run draws its answers. On a loaded Windows runner the
+     empty card can be visible for several seconds, so measuring it then races the product's second
+     layout and scroll. Wait for the part a thumb actually uses before checking where it landed. */
+  await card.locator(".live-ask-choice > button").first().waitFor({ state: "visible", timeout: 30000 });
   await f.page.waitForFunction(() => {
     const card = document.getElementById("live-ask")?.getBoundingClientRect();
     const dock = document.querySelector(".composer-dock").getBoundingClientRect();
     return card && card.bottom <= dock.top;
-  }, null, { timeout: 5000 });
+  }, null, { timeout: 30000 });
   const head = await box(f.page, "header"), where = await box(f.page, "#live-ask");
   assert.ok(where.y >= head.y + head.height - 1, "and under the title bar");
   for (const name of ["Yes, just now", "Yes, for this conversation", "Yes, always", "No"]) {
