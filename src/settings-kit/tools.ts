@@ -50,9 +50,11 @@ function ownerHere(store: Store, context: ToolContext): void {
   if (startedFromChat(context, store)) throw chatOwnerOnly(what);
   if (origin?.personProfileId || origin?.lentTo)
     throw new Error(`${what} is for the owner only, and this conversation belongs to somebody else.`);
-  const source = origin?.source ?? context.source ?? "owner";
-  if (source !== "owner")
-    throw new Error(`${what} happens only in a conversation you started yourself, not from a ${source}. Ask Branch in the app.`);
+  // Either one saying "not the owner" is enough: a manual run carries its source on the context and
+  // nothing in the task's record, and a helper carries it in the record and nothing on the context.
+  const outside = [origin?.source, context.source].find((source) => source !== undefined && source !== "owner");
+  if (outside)
+    throw new Error(`${what} happens only in a conversation you started yourself, not from a ${outside}. Ask Branch in the app.`);
 }
 
 type Shown = string | number | boolean;

@@ -186,3 +186,15 @@ test("a pinned setting stays as the owner fixed it, whichever tool asks", async 
   assert.equal(risky.skipped.length, 1);
   assert.equal((await run("settings.list", { search: loose.setting })).shown[0].value, "off");
 });
+
+test("outside work through the runtime's own path gets none of it, the look-only list included", async (t) => {
+  const { app } = await fixture(t);
+  for (const source of ["schedule", "trigger", "mcp", "a2a", "channel"]) {
+    for (const [tool, args] of [["settings.list", {}], ["settings.change", { changes: [{ setting: "fly-core.mode", value: "on" }] }]]) {
+      let result;
+      try { result = await app.runtime.executeTool(tool, args, { mode: "policy", source }); } catch (error) { result = { threw: String(error?.message ?? error) }; }
+      assert.ok(!JSON.stringify(result).includes("fly-core.mode\""), `${source} got the settings through ${tool}`);
+    }
+  }
+  assert.equal(app.learningCore.settings().mode, "off");
+});
