@@ -79,7 +79,8 @@ function taskRows(app: PlaceApp, since: number): Row[] {
     }));
 }
 function overviewRows(app: PlaceApp, words: Words): Row[] {
-  const trunkChats = new Set((trunksFor(app.runtime)?.records.list() ?? []).map((trunk) => trunk.chatSessionId));
+  const trunkChats = new Set((trunksFor(app.runtime)?.records.list() ?? [])
+    .flatMap((trunk) => [trunk.chatSessionId, ...trunk.retiredChats]));
   const runs = app.store.runs(app.runtime.owner).filter((run) => !trunkChats.has(run.sessionId)).slice(0, 12);
   if (!runs.length) return [{ title: words.t("ov.calm", "Nothing waiting"),
     detail: words.t("ov.now.none", "Nothing is running right now."), tone: "ok" }];
@@ -88,14 +89,18 @@ function overviewRows(app: PlaceApp, words: Words): Row[] {
     sessionId: run.sessionId }));
 }
 function peopleRows(app: PlaceApp, words: Words): Row[] {
-  const profiles = app.store.profiles.list();
-  return [{ title: words.t("household.owner", "The owner"), detail: words.t("household.role.owner", "Owner"), tone: "ok" },
-    ...profiles.map((profile) => {
+  const profiles = app.store.profiles;
+  const active = profiles.active();
+  const visible = profiles.isOwner() ? profiles.list() : active ? [active] : [];
+  const rows = visible.map((profile) => {
       const grant = app.runtime.roles.get(profile.id);
       const role = words.t(`household.role.${grant.role}`, grant.role === "child" ? "Child" : "Adult");
       const used = profile.lastUsedAt ? day(profile.lastUsedAt) : words.t("household.never", "Has not used Branch yet");
       return { title: profile.name, detail: `${role} · ${used}` };
-    })];
+    });
+  return profiles.isOwner()
+    ? [{ title: words.t("household.owner", "The owner"), detail: words.t("household.role.owner", "Owner"), tone: "ok" }, ...rows]
+    : rows;
 }
 const recordRows = (app: PlaceApp, table: "schedules" | "procedures" | "specialists", name: string[]): Row[] =>
   app.store.list(table, app.runtime.owner).map((record) => {
