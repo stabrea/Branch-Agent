@@ -431,6 +431,8 @@ test("D1 comparing two tasks shows both sets of figures and the difference betwe
     await page.locator("#prompt").fill(prompt);
     await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
     await page.waitForFunction((answer) => document.getElementById("conversation").textContent.includes(answer), `The answer for ${prompt}.`, { timeout: 20000 });
+    await page.locator("#new-session").waitFor({ state: "visible", timeout: 120000 });
+    await page.waitForFunction(() => !document.getElementById("new-session")?.disabled, undefined, { timeout: 120000 });
     await page.locator("#new-session").click();
   }
   await openPlace(page, "runs");
