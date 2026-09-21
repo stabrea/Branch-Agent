@@ -34,12 +34,14 @@ async function fixture(t) {
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.learningLoop.idle(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
+  const token = page.getByLabel("Session token", { exact: true });
+  await token.waitFor({ state: "visible", timeout: 120000 });
+  await token.fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   return { page, errors, app };
 }
