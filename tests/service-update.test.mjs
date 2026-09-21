@@ -328,7 +328,9 @@ test("a Mac update fetches the Mac download, finds the app bundle and writes the
     scratchDir: join(root, "scratch"), fetch: fetcher, platform: "darwin",
     extract: async (_archive, into) => {
       await mkdir(join(into, "Branch Agent.app", "Contents", "MacOS"), { recursive: true });
+      await mkdir(join(into, "Branch Agent.app", "Contents", "Resources", "app"), { recursive: true });
       await writeFile(join(into, "Branch Agent.app", "Contents", "MacOS", "Branch Agent"), "new");
+      await writeFile(join(into, "Branch Agent.app", "Contents", "Resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
     stopDaemon: async () => 5150,
   });
@@ -352,8 +354,9 @@ test("a Linux update finds the program folder inside the download", async (t) =>
     repo: "x/y", currentVersion: "1.0.0", installDir: join(root, "Branch-Agent-linux-x64"), executableName: "branch-agent",
     assetName: asset, scratchDir: join(root, "scratch"), fetch: releaseFor(asset).fetcher, platform: "linux",
     extract: async (_archive, into) => {
-      await mkdir(join(into, "Branch-Agent-linux-x64"), { recursive: true });
+      await mkdir(join(into, "Branch-Agent-linux-x64", "resources", "app"), { recursive: true });
       await writeFile(join(into, "Branch-Agent-linux-x64", "branch-agent"), "new");
+      await writeFile(join(into, "Branch-Agent-linux-x64", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
   });
   const { script, stagedDir } = await updater.install();

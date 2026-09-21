@@ -24,7 +24,7 @@ Forest/Daylight preferences live in the application database, so they survive se
 
 ## Sign-in and updates
 
-`chatgpt-auth.json` in the user data folder holds the ChatGPT sign-in, encrypted with Electron `safeStorage`. The renderer only ever receives sign-in status, never tokens. Updates run in the main process (`updater.ts`): the GitHub release archive is downloaded to the temp folder, verified against the published SHA-256, expanded with PowerShell, and applied by `apply-update.cmd` after the app exits. The renderer may open only `https://auth.openai.com/` and the project's GitHub pages through `branch:open-external`.
+`chatgpt-auth.json` in the user data folder holds the ChatGPT sign-in, encrypted with Electron `safeStorage`. The renderer only ever receives sign-in status, never tokens. Updates run in the main process (`updater.ts`): Branch accepts only a final `vX.Y.Z` release, downloads its archive to the temp folder, verifies the published SHA-256, and requires the embedded package name and version to match before any safety copy or hand-over. The checked archive is expanded and applied after the app exits. The renderer may open only `https://auth.openai.com/` and the project's GitHub pages through `branch:open-external`.
 
 ## macOS: the first open, and permissions that are kept
 
