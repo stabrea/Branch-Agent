@@ -78,6 +78,10 @@ test("a select opens the glass list; arrows, Enter and type-ahead choose through
   assert.equal(await f.page.evaluate(() => document.activeElement.getAttribute("aria-selected")), "true", "the chosen one has the keyboard");
   await f.page.keyboard.press("ArrowDown");
   const aimed = await f.page.evaluate(() => document.activeElement.textContent);
+  await f.page.evaluate(() => document.querySelector("#glass-list [aria-selected='true']")
+    .dispatchEvent(new MouseEvent("mousemove", { bubbles: true })));
+  assert.equal(await f.page.evaluate(() => document.activeElement.textContent), aimed,
+    "a layout-only mousemove does not take keyboard focus back");
   await f.page.keyboard.press("Enter");
   await list.waitFor({ state: "hidden" });
   const after = await select.inputValue();
@@ -205,6 +209,7 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
   assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
     .some((id) => document.getElementById(id)?.textContent?.trim())), "the linked help has words");
+  await f.page.evaluate(() => document.dispatchEvent(new Event("scroll", { bubbles: true })));
   await tip.waitFor({ state: "visible" });
   await f.page.keyboard.press("Escape");
   await tip.waitFor({ state: "hidden" });
