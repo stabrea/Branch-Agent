@@ -186,7 +186,8 @@ function actions(spec, controls, status) {
     try {
       const view = await api({ card: spec.card, values: inside, ...extra });
       if (version !== writeVersion) return;
-      shown = { ...shown, view }; status.textContent = t(done); status.dataset.t = done;
+      shown = { ...shown, view }; clearControlDrafts(`#knobs-${spec.id}-card`);
+      status.textContent = t(done); status.dataset.t = done;
     } catch (error) {
       if (version !== writeVersion) return;
       status.textContent = error.message; delete status.dataset.t;
@@ -275,6 +276,7 @@ function launchCard(file) {
     try {
       await api(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs/launch-file");
       if (version !== writeVersion) return;
+      clearControlDrafts("#knobs-launch-file-card");
       status.textContent = t("knobs.launch.saved"); status.dataset.t = "knobs.launch.saved";
     } catch (error) {
       if (version !== writeVersion) return;
@@ -289,12 +291,17 @@ function place(card) {
   const existing = $(card.id);
   if (existing) existing.replaceWith(card); else document.body.append(card);
 }
+const knobControlSelector = 'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]';
+function clearControlDrafts(card) {
+  for (const node of document.querySelectorAll(`${card} ${knobControlSelector}`)) delete node.dataset.knobDirty;
+}
 function controlDrafts() {
   const active = document.activeElement;
   return {
     active: active?.id ?? "",
     selection: active && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : null,
-    values: [...document.querySelectorAll('input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]')]
+    values: [...document.querySelectorAll(knobControlSelector)]
+      .filter((node) => node === active || node.dataset.knobDirty === "true")
       .map((node) => [node.id, { value: node.value, checked: node.type === "checkbox" ? node.checked : null }]),
   };
 }
@@ -304,6 +311,7 @@ function restoreControlDrafts(drafts) {
     if (!node) continue;
     node.value = saved.value;
     if (saved.checked !== null) node.checked = saved.checked;
+    node.dataset.knobDirty = "true";
   }
   const active = $(drafts.active);
   if (!active) return;
@@ -311,8 +319,6 @@ function restoreControlDrafts(drafts) {
   if (drafts.selection?.every(Number.isInteger) && typeof active.setSelectionRange === "function")
     active.setSelectionRange(...drafts.selection);
 }
-const editingKnob = () => document.activeElement?.matches?.(
-  'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]');
 function draw(preserveDrafts = false) {
   if (!shown) return;
   const drafts = preserveDrafts ? controlDrafts() : null;
@@ -330,7 +336,7 @@ async function refresh() {
     const next = { view, file };
     if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
     shown = next;
-    draw(editingKnob());
+    draw(true);
   } catch { /* signed out or offline: the next look tries again */ }
 }
 async function afterSignIn(tries = 20) {
@@ -340,6 +346,11 @@ async function afterSignIn(tries = 20) {
 }
 
 if (typeof document !== "undefined") {
+  const markDirty = (event) => {
+    if (event.target?.matches?.(knobControlSelector)) event.target.dataset.knobDirty = "true";
+  };
+  document.addEventListener("input", markDirty, true);
+  document.addEventListener("change", markDirty, true);
   void refresh();
   document.addEventListener("branch-language", () => draw(true));
   const signedIn = $("workspace");
