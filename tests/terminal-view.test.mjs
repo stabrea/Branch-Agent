@@ -74,6 +74,13 @@ test("a place is found by its id, its English name or its French name", () => {
   for (const home of allHomes()) assert.equal(homeOf(parseRoute(home)), home, `${home} goes where it says`);
 });
 
+test("Ctrl+K includes the Overview and People strip homes", () => {
+  const overview = paletteItems(loadWords("en"), [], "overview");
+  const people = paletteItems(loadWords("en"), [], "people");
+  assert.ok(overview.some((item) => item.run === "/go overview"), "Overview is directly discoverable");
+  assert.ok(people.some((item) => item.run === "/go household"), "People is directly discoverable");
+});
+
 /* ---------- the drawing ---------- */
 const FIXED_ROWS = [
   { title: "Write branch-demo.txt", detail: "files.write · branch-demo.txt", tone: "warn" },
