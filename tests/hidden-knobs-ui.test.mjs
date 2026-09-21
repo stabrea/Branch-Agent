@@ -189,9 +189,12 @@ test("a refresh completed while Save is in flight cannot redraw an older value",
     await released;
     await route.continue();
   });
-  await page.locator("#knobs-maxSteps").fill("25");
-  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true })
-    .evaluate((button) => button.click());
+  await page.evaluate(() => {
+    const input = document.getElementById("knobs-maxSteps");
+    input.value = "25";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "25" }));
+    document.querySelector("#knobs-limits-card button").click();
+  });
   await saveCaptured;
   await page.evaluate(() => globalThis.branchKnobs.refresh());
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");

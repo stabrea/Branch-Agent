@@ -94,8 +94,14 @@ function close({ focus = false } = {}) {
 /**
  * phase2/settings integration: a select inside something still moving into place (the Settings window rises
  * for a fifth of a second) keeps its list with it, frame by frame, until nothing around it moves; so the list
- * never stays where the select was. At most a second and a half of frames.
+ * never stays where the select was. Delayed ancestor animations still count as movement: a busy
+ * renderer can otherwise spend twelve frames at the starting position before the animation begins.
  */
+function surroundingMotion(select) {
+  for (let node = select; node; node = node.parentElement)
+    if (node.getAnimations().some((animation) => animation.playState === "running")) return true;
+  return false;
+}
 function placeWhenSettled(select, frames = 90, previous = "", stable = 0) {
   requestAnimationFrame(() => {
     if (openFor !== select || frames <= 0) return;
@@ -103,7 +109,7 @@ function placeWhenSettled(select, frames = 90, previous = "", stable = 0) {
     const position = `${box.left}:${box.top}:${box.width}:${box.height}`;
     place(select);
     const still = position === previous ? stable + 1 : 0;
-    if (still < 12) placeWhenSettled(select, frames - 1, position, still);
+    if (surroundingMotion(select) || still < 12) placeWhenSettled(select, frames - 1, position, still);
   });
 }
 function open(select) {

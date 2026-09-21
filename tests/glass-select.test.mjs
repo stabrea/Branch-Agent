@@ -499,16 +499,20 @@ test("phase2/settings integration: a list opened while the Settings window is st
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   await f.page.locator(".lx-settings-close").click();
-  /* Opened and pressed in one go, the way a quick tap lands while the window rises for a fifth of a second. */
+  /* A busy renderer can hold the window at its starting position before it begins to rise. This
+     delayed animation deterministically covers that case instead of relying on runner speed. */
   const rising = await f.page.evaluate(() => {
     globalThis.branchLayout.go("settings:permissions");
-    const moving = document.querySelector(".lx-settings-win").getAnimations().some((animation) => animation.playState === "running");
+    const window = document.querySelector(".lx-settings-win");
+    for (const animation of window.getAnimations()) animation.cancel();
+    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+      { delay: 300, duration: 220, easing: "ease", fill: "both" });
     document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
-    return moving;
+    return animation.playState;
   });
-  assert.equal(rising, true, "the window was still rising when the select was pressed");
+  assert.equal(rising, "running", "the delayed rise was active when the select was pressed");
   await f.page.locator("#glass-list").waitFor({ state: "visible" });
-  await f.page.waitForTimeout(500);
+  await f.page.waitForTimeout(700);
   const gap = await f.page.evaluate(() => {
     const select = document.getElementById("policy-preset").getBoundingClientRect(), list = document.getElementById("glass-list").getBoundingClientRect();
     return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
