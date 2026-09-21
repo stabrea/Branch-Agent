@@ -22,6 +22,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { settingsHold } from "../dist/settings-kit/tools.js";
 import { secretShaped } from "../dist/settings-kit/catalogue.js";
+import { savePins } from "../dist/settings-kit/pins.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-settings-talk-"));
@@ -129,7 +130,7 @@ test("the owner is asked before any change, under every rule set, and a less car
     const ordinary = app.runtime.checkPolicy("settings.change", change, context, "fp-change");
     assert.equal(ordinary.decision, "ask", `settings.change went through unasked under ${policy.preset}`);
     assert.match(ordinary.label, /asks before it changes its own settings/);
-    assert.match(ordinary.target, /Switch: off → on/, "the question names the exact change");
+    assert.equal(ordinary.target, "fly-core.mode → on", "the question names exactly what was asked for");
     const loosen = app.runtime.checkPolicy("settings.loosen", change, context, "fp-loosen");
     assert.equal(loosen.decision, "ask", `settings.loosen went through unasked under ${policy.preset}`);
     assert.equal(loosen.remember, "never", "a yes to a less careful change is never kept");
@@ -148,4 +149,40 @@ test("Branch answers questions about itself from its own handbook, and looking i
   assert.deepEqual(nothing.passages, []);
   assert.ok(nothing.chapters.length >= 10, "and it says which chapters there are");
   assert.equal(app.runtime.checkPolicy("help.search", { question: "anything" }, as()).decision, "allow");
+});
+
+test("a refused caller cannot make Branch read the owner's settings, even through the approval question", async (t) => {
+  const { app, as } = await fixture(t);
+  const realGet = app.store.get.bind(app.store);
+  let reads = 0;
+  app.store.get = (kind, owner, key) => { if (kind === "settings" && key === "fly-core") reads++; return realGet(kind, owner, key); };
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const change = { changes: [{ setting: "fly-core.mode", value: "on" }] };
+  for (const start of [{ source: "channel" }, { source: "owner", shortLivedKey: true }, { source: "schedule" }, { source: "mcp" },
+    { source: "a2a" }, { source: "owner", personProfileId: person.id }, { source: "owner" }]) {
+    for (const tool of ["settings.change", "settings.loosen"]) {
+      const check = app.runtime.checkPolicy(tool, change, as(start), "fp");
+      assert.equal(check.target, "fly-core.mode → on");
+    }
+  }
+  assert.equal(reads, 0, "working out the question read the setting");
+});
+
+test("a pinned setting stays as the owner fixed it, whichever tool asks", async (t) => {
+  const { app, run } = await fixture(t);
+  const loose = (await run("settings.list", {})).shown.find((row) => row.lessCareful?.startsWith("turning it up") && row.value === "off");
+  const [looseKey, looseField] = [loose.setting.slice(0, loose.setting.indexOf(".")), loose.setting.slice(loose.setting.indexOf(".") + 1)];
+  savePins(app.store, app.runtime.owner, [
+    { key: "fly-core", field: "mode", value: "off", initial: "off", name: "The learning core", label: "Switch" },
+    { key: looseKey, field: looseField, value: "off", initial: "off", name: loose.name, label: loose.label },
+  ]);
+  const plain = await run("settings.change", { changes: [{ setting: "fly-core.mode", value: "on" }] });
+  assert.deepEqual(plain.changed, []);
+  assert.equal(plain.skipped.length, 1);
+  assert.match(plain.skipped[0].why, /pinned|fixed/i);
+  assert.equal(app.learningCore.settings().mode, "off");
+  const risky = await run("settings.loosen", { changes: [{ setting: loose.setting, value: "on" }] });
+  assert.deepEqual(risky.changed, []);
+  assert.equal(risky.skipped.length, 1);
+  assert.equal((await run("settings.list", { search: loose.setting })).shown[0].value, "off");
 });

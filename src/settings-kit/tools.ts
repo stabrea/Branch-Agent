@@ -130,9 +130,13 @@ function plan(store: Store, owner: string, input: ChangeInput): Planned {
 
 const said = (change: Change): string => `${change.name}, ${change.label}: ${String(change.from)} → ${String(change.to)}`;
 
-function describe(store: Store, owner: string, input: ChangeInput): string {
-  const { changes } = plan(store, owner, input);
-  return changes.length ? changes.map(said).join("; ").slice(0, 600) : "no setting would change";
+/**
+ * What the owner is asked about: exactly what the call asks for, from the call alone. It reads
+ * nothing, because the runtime works out a call's target before the tool's own owner check runs, and
+ * a refused caller (a chat, a key, a household task) must not get Branch to read the owner's settings.
+ */
+function describe(input: ChangeInput): string {
+  return input.changes.map((entry) => `${entry.setting} → ${String(entry.value)}`).join("; ").slice(0, 600);
 }
 
 /** Both change tools: the same plan, the same save, one rule about which may make Branch less careful. */
@@ -149,7 +153,8 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
     if (context.dryRun) return { wouldChange: changes.map(said), refused };
     const { applied, skipped } = applyWithPins(store, context.owner, changes, {
       accept: changes.map((change) => change.id), confirmLoosening: loosen, why: "asked for in a conversation",
-      pinnedAllowed: changes.length === 1, writers: writers() });
+      // A pinned setting stays as the owner fixed it: only the owner, moving the switch by hand, changes it.
+      pinnedAllowed: false, writers: writers() });
     return { changed: applied.map(said), skipped, refused };
   };
 }
@@ -166,14 +171,14 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
     name: "settings.change", permission: "settings.write",
     description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). The owner is asked first. A change that makes Branch less careful is refused here; use settings.loosen for it.",
     parameters: ChangeSchema,
-    target: (input: ChangeInput, context: ToolContext) => describe(store, context.owner, input),
+    target: (input: ChangeInput) => describe(input),
     execute: changeTool(false, store, writers),
   });
   registry.register({
     name: "settings.loosen", permission: "settings.write",
     description: "Make a change to Branch's own settings that leaves it less careful or lets it reach further. The owner is asked every time, and the answer is never kept. Only for changes settings.change refused.",
     parameters: ChangeSchema,
-    target: (input: ChangeInput, context: ToolContext) => describe(store, context.owner, input),
+    target: (input: ChangeInput) => describe(input),
     execute: changeTool(true, store, writers),
   });
 }
