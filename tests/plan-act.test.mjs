@@ -8,6 +8,7 @@ import { chromium } from "playwright";
 import { z } from "zod";
 import { createBranch, riskSentence, offPlanDifference, commandDifference, relatedCommand, correctionLabel } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { finishFirstRun } from "./places.mjs";
 
 const say = (content) => ({ content, toolCalls: [] });
 const call = (name, args) => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 9)}`, name, arguments: JSON.stringify(args) }] });
@@ -345,11 +346,7 @@ test("the switch is in the conversation, and the plan card approves in one press
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  if (await page.locator("#first-run").isVisible()) {
-    /* "Try it without an account" finishes first run in one click. */
-    await page.getByRole("button", { name: /Try it without an account/ }).dispatchEvent("click");
-    await page.locator("#first-run").waitFor({ state: "hidden" });
-  }
+  await finishFirstRun(page);
   // The choice lives in the conversation, not in Settings: under More in the calm window (0.18.1).
   await page.locator("#lx-more").click();
   await page.getByRole("menuitemcheckbox", { name: "Show me the plan first" }).click();
