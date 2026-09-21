@@ -345,8 +345,15 @@ test("the terminal overview keeps authoritative active work ahead of more than 1
   app.store.finish(stale.id, "needs_input", "Answer me");
   const answered = app.store.createRun(app.runtime.owner, "Newer answer", stale.sessionId);
   app.store.finish(answered.id, "completed", "done");
+  const tiedAt = new Date(Date.now() + 1000).toISOString();
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id IN (?,?)")
+    .run(tiedAt, stale.id, answered.id);
+  assert.deepEqual(app.store.runs(app.runtime.owner)
+    .filter((run) => run.sessionId === stale.sessionId).map((run) => run.id), [answered.id, stale.id],
+    "when timestamps tie, the later database row is still the newer run");
   const after = await PLACE_ROWS["overview:here"](app, loadWords("en"));
-  assert.ok(after.every((row) => row.title !== "Old question"), "an older waiting run is not authoritative for its conversation");
+  assert.ok(after.every((row) => row.title !== "Old question"),
+    "an older waiting run is not authoritative when its timestamp ties the newer completion");
 });
 
 test("the terminal People page shows a household profile only itself", async (t) => {
