@@ -352,7 +352,8 @@ test("the switch is in the conversation, and the plan card approves in one press
   // The choice lives in the conversation, not in Settings: under More in the calm window (0.18.1).
   await page.locator("#lx-more").click();
   await page.getByRole("menuitemcheckbox", { name: "Show me the plan first" }).click();
-  await page.keyboard.press("Escape");
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  await page.locator("#lx-more-menu").waitFor({ state: "hidden" });
   assert.equal(await page.locator("#session-plan-mode").inputValue(), "show-plan", "the real switch follows the menu");
   await page.waitForFunction(() => document.getElementById("plan-mode-state")?.textContent?.length > 0);
   await page.locator("#prompt").fill("summarise my notes");
