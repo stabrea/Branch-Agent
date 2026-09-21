@@ -194,13 +194,19 @@ test("the Trunks rail stays owner-only", async (t) => {
   });
   assert.equal(await f.page.locator("#trunks-rail").isVisible(), true);
   const synchronous = await f.page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
+      name: "Private Ada", kind: "Private Trunk", status: "Working",
+    } }));
     document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
     return { group: document.getElementById("trunks-rail").hidden,
       tab: document.getElementById("rail-view-trunks").hidden,
-      conversations: document.getElementById("rail-view-conversations").getAttribute("aria-selected") };
+      conversations: document.getElementById("rail-view-conversations").getAttribute("aria-selected"),
+      target: document.getElementById("rail-target-name").textContent,
+      translated: document.getElementById("rail-target-name").dataset.t };
   });
-  assert.deepEqual(synchronous, { group: true, tab: true, conversations: "true" },
-    "owner-only names and actions disappear in the profile event itself");
+  assert.deepEqual(synchronous, { group: true, tab: true, conversations: "true",
+    target: "This computer", translated: "strip.here" },
+  "owner-only names, actions and selected identity disappear in the profile event itself");
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
     detail: { profiles: { isOwner: false } },
   })));
