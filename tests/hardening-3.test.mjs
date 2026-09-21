@@ -153,12 +153,10 @@ test("3 a model on this computer that never starts answering is tried again once
      given a whole first-reply wait instead of the grace still lands far past the bound. */
   app.runtime.reliability.modelStallMs = 300;
   app.runtime.reliability.localFirstReplyMs = 3000;
-  const started = Date.now();
   /* A busy computer: the event loop is held for longer than the grace just before the wait runs out, so
      the silence is noticed late. The retry used to be skipped then (trunk d366b45f, Linux: asked once). */
   setTimeout(() => { const until = Date.now() + 500; while (Date.now() < until); }, 2900);
   const run = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
-  const took = Date.now() - started;
   assert.equal(run.status, "failed");
   assert.match(run.output ?? "", /model on this computer didn't start answering/);
   assert.match(run.output ?? "", /smaller model/);
@@ -167,7 +165,7 @@ test("3 a model on this computer that never starts answering is tried again once
   const recoveries = app.store.events(run.id).filter((event) => event.kind === "model.stall_recovery").map((event) => event.data);
   assert.deepEqual(recoveries.map((one) => one.action), ["retry", "fail"]);
   assert.equal(recoveries[0].waitMs, 300, "the retry waits the grace, however late the silence was noticed");
-  assert.ok(took < 5000, `the whole wait stays near the first-reply wait plus the grace (3.3 s), not a second full wait (6 s): ${took} ms`);
+  assert.equal(recoveries[1].afterMs, 300, "the retry uses the grace cap, not another full first-reply wait");
 });
 
 test("3 the grace is a tenth of the first-reply wait, at most 30 seconds", async () => {
