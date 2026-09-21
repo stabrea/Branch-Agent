@@ -342,6 +342,17 @@ test("the Trunks Settings row opens the live Trunks roster, not specialist recor
     "saved specialist templates remain visible but are not presented as Trunks");
 });
 
+test("the terminal hides Trunk roster rows while Trunks are switched off", async (t) => {
+  const { app } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  app.trunks.create({ name: "Ada" });
+  app.store.save("specialists", app.runtime.owner, "specialist-only", { name: "Specialist only" });
+  app.trunks.setMode("trunks", { mode: "off" });
+  const rows = await PLACE_ROWS["customize:specialists"](app, loadWords("en"));
+  assert.ok(rows.every((row) => row.title !== "Ada"), "a disabled Trunk is not exposed in the terminal");
+  assert.ok(rows.some((row) => row.title === "Specialist only"), "ordinary specialist templates remain visible");
+});
+
 test("terminal Channels and Connections include devices, page bridges, and app accounts", async (t) => {
   const { app } = await running(t);
   app.devices.setMode({ mode: "on" });

@@ -11,8 +11,23 @@ import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let shown = null;
-let writeVersion = 0;
+let stateVersion = 0;
 let writesInFlight = 0;
+const cardWriteVersions = new Map();
+
+function beginWrite(card) {
+  const version = (cardWriteVersions.get(card) ?? 0) + 1;
+  cardWriteVersions.set(card, version);
+  stateVersion += 1;
+  writesInFlight += 1;
+  return version;
+}
+const writeIsCurrent = (card, version) => cardWriteVersions.get(card) === version;
+function finishWrite() {
+  writesInFlight -= 1;
+  stateVersion += 1;
+  if (!writesInFlight) void refresh();
+}
 
 async function api(body, path = "knobs") {
   const response = await fetch("/api/" + path, {
@@ -178,22 +193,20 @@ function actions(spec, controls, status) {
   const row = document.createElement("div");
   row.className = "identity-actions";
   const send = async (values, done) => {
-    const version = ++writeVersion;
-    writesInFlight += 1;
+    const version = beginWrite(spec.id);
     const outside = spec.fields.filter((field) => field.outside);
     const inside = Object.fromEntries(Object.entries(values).filter(([name]) => !outside.some((field) => field.name === name)));
     const extra = Object.fromEntries(outside.map((field) => [field.name, values[field.name]]));
     try {
       const view = await api({ card: spec.card, values: inside, ...extra });
-      if (version !== writeVersion) return;
+      if (!writeIsCurrent(spec.id, version)) return;
       shown = { ...shown, view }; clearControlDrafts(`#knobs-${spec.id}-card`);
       status.textContent = t(done); status.dataset.t = done;
     } catch (error) {
-      if (version !== writeVersion) return;
+      if (!writeIsCurrent(spec.id, version)) return;
       status.textContent = error.message; delete status.dataset.t;
     } finally {
-      writesInFlight -= 1;
-      if (version === writeVersion) writeVersion += 1;
+      finishWrite();
     }
   };
   const save = keyed("button", "knobs.action.save");
@@ -272,15 +285,18 @@ function launchCard(file) {
   const save = keyed("button", "knobs.action.save-for-next-start");
   save.type = "button";
   save.addEventListener("click", async () => {
-    const version = ++writeVersion;
+    const card = "launch-file";
+    const version = beginWrite(card);
     try {
       await api(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs/launch-file");
-      if (version !== writeVersion) return;
+      if (!writeIsCurrent(card, version)) return;
       clearControlDrafts("#knobs-launch-file-card");
       status.textContent = t("knobs.launch.saved"); status.dataset.t = "knobs.launch.saved";
     } catch (error) {
-      if (version !== writeVersion) return;
+      if (!writeIsCurrent(card, version)) return;
       status.textContent = error.message; delete status.dataset.t;
+    } finally {
+      finishWrite();
     }
   });
   card.append(save, status);
@@ -329,10 +345,10 @@ function draw(preserveDrafts = false) {
 const allCardsAreDrawn = () => CARDS.every((spec) => $(`knobs-${spec.id}-card`)) && $("knobs-launch-file-card");
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
-  const version = writeVersion;
+  const version = stateVersion;
   try {
     const [view, file] = await Promise.all([api(), api(undefined, "knobs/launch-file")]);
-    if (version !== writeVersion || writesInFlight) return;
+    if (version !== stateVersion || writesInFlight) return;
     const next = { view, file };
     if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
     shown = next;
