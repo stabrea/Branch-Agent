@@ -309,12 +309,19 @@ function place(card) {
   if (existing) existing.replaceWith(card); else document.body.append(card);
 }
 const knobControlSelector = 'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]';
+const controlNodes = (nodes) => nodes.flatMap((node) => node.matches?.(knobControlSelector)
+  ? [node] : [...(node.querySelectorAll?.(knobControlSelector) ?? [])]);
+const sameControlValue = (left, right) => left?.value === right?.value
+  && (left?.type !== "checkbox" || left.checked === right.checked);
 function clearSavedControlDrafts(card, controls, values) {
   for (const [field, control] of controls) {
     if (JSON.stringify(control.read()) !== JSON.stringify(values[field.name])) continue;
     const prefix = `knobs-${field.controlName ?? field.name}`;
-    for (const node of document.querySelectorAll(`${card} ${knobControlSelector}`))
-      if (node.id === prefix || node.id.startsWith(prefix + "-")) delete node.dataset.knobDirty;
+    const submitted = controlNodes(control.nodes).filter((node) => node.id === prefix || node.id.startsWith(prefix + "-"));
+    const live = [...document.querySelectorAll(`${card} ${knobControlSelector}`)]
+      .filter((node) => node.id === prefix || node.id.startsWith(prefix + "-"));
+    if (live.length !== submitted.length || live.some((node) => !sameControlValue(node, submitted.find((old) => old.id === node.id)))) continue;
+    for (const node of live) delete node.dataset.knobDirty;
   }
 }
 function controlDrafts() {
