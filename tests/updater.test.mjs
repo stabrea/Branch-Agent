@@ -13,13 +13,14 @@ import { Updater, compareVersions } from "../dist/desktop/updater.js";
 const run = promisify(execFile);
 const windows = process.platform === "win32";
 
-async function releaseFixture(t, { tag = "v0.3.0", tamper = false } = {}) {
+async function releaseFixture(t, { tag = "v0.3.0", tamper = false, embeddedVersion = tag.replace(/^v/, ""), embeddedName = "branch-agent" } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-update-"));
   t.after(() => discardTemp(root));
   const source = join(root, "Branch Agent-win32-x64");
-  await mkdir(join(source, "resources"), { recursive: true });
+  await mkdir(join(source, "resources", "app"), { recursive: true });
   await writeFile(join(source, "Branch Agent Test.exe"), "new executable");
   await writeFile(join(source, "resources", "app.txt"), "new resources");
+  await writeFile(join(source, "resources", "app", "package.json"), JSON.stringify({ name: embeddedName, version: embeddedVersion }));
   const archive = join(root, "Branch-Agent-windows-x64.zip");
   if (windows)
     await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
@@ -80,6 +81,18 @@ test("check reports availability against the current version", async (t) => {
   await assert.rejects(unsupported.install(), /installed app only/);
 });
 
+test("automatic updates accept only final release tags", async (t) => {
+  for (const tag of ["v0.3.0-beta", "0.3.0", "v01.3.0", "v0.3", "latest"]) {
+    const { root, installDir, fetchViaFixture } = await releaseFixture(t, { tag });
+    const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+      executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+      scratchDir: join(root, "scratch"), fetch: fetchViaFixture });
+    const status = await updater.check();
+    assert.equal(status.phase, "error", tag);
+    assert.match(status.message, /final release tag/i, tag);
+  }
+});
+
 test("install downloads, verifies, unpacks beside the install and writes the hand-over script", { skip: !windows && "Windows archive tooling" }, async (t) => {
   const { root, installDir, fetchViaFixture } = await releaseFixture(t);
   const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir, executableName: "Branch Agent Test.exe",
@@ -119,4 +132,20 @@ test("a checksum mismatch refuses to install", { skip: !windows && "Windows arch
   await assert.rejects(updater.install(), /did not match the published checksum/);
   assert.equal(updater.status.phase, "error");
   assert.equal(await readFile(join(installDir, "Branch Agent Test.exe"), "utf8"), "old executable");
+});
+
+test("a checksummed archive with the wrong package identity is refused before hand-over", { skip: !windows && "Windows archive tooling" }, async (t) => {
+  for (const fixture of [
+    { embeddedVersion: "9.9.9", message: /contains version 9\.9\.9.*release is 0\.3\.0/i },
+    { embeddedName: "lookalike", message: /not a Branch Agent package/i },
+  ]) {
+    const { root, installDir, fetchViaFixture } = await releaseFixture(t, fixture);
+    let backedUp = false;
+    const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+      executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+      scratchDir: join(root, "scratch"), fetch: fetchViaFixture, backup: async () => { backedUp = true; } });
+    await assert.rejects(updater.install(), fixture.message);
+    assert.equal(backedUp, false, "identity refusal happens before any owner-data backup or hand-over");
+    await assert.rejects(stat(join(root, "scratch", "apply-update.cmd")), /ENOENT/);
+  }
 });

@@ -502,8 +502,9 @@ test("an update takes a safety copy first, keeps three, and stops when the copy 
     repo: "x/y", currentVersion: "1.0.0", installDir: install, executableName: "Branch Agent.exe",
     assetName: "app.zip", scratchDir: join(root, `scratch-${taken.length}-${randomUUID()}`),
     fetch: fakeRelease(), extract: async (_archive, into) => {
-      await mkdir(join(into, "app"), { recursive: true });
+      await mkdir(join(into, "app", "resources", "app"), { recursive: true });
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+      await writeFile(join(into, "app", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
     backup, platform: "win32",
   });

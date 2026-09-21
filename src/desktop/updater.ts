@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { chmod, lstat, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -94,6 +94,13 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/** Automatic updates accept only ordinary final SemVer tags, never aliases or prereleases. */
+export function finalReleaseVersion(tag: string): string {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
+  if (!match) throw new Error("The newest GitHub entry does not use a final release tag such as v1.2.3, so Branch did not offer it as an update.");
+  return `${match[1]}.${match[2]}.${match[3]}`;
+}
+
 export class Updater {
   status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   private busy = false;
@@ -138,6 +145,7 @@ export class Updater {
       await this.download(release, archive);
       await this.verify(archive, release);
       const stagedDir = await this.unpack(archive);
+      await validateStagedPackage(stagedDir, release.latestVersion, this.platform);
       await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
       await this.safetyCopy();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
@@ -193,7 +201,7 @@ export class Updater {
     const asset = data.assets.find((entry) => entry.name === this.options.assetName);
     const checksum = data.assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
     if (!asset || !checksum) throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
-    const latestVersion = data.tag_name.replace(/^v/i, "");
+    const latestVersion = finalReleaseVersion(data.tag_name);
     return {
       currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
       available: compareVersions(latestVersion, this.options.currentVersion) > 0,
@@ -319,6 +327,22 @@ export class Updater {
     this.busy = true;
     return this.set("applying", "Closing to finish the update. The app opens again by itself in a moment.", 1, this.status.release);
   }
+}
+
+const packagedManifestSchema = z.object({ name: z.literal("branch-agent"), version: z.string() }).passthrough();
+
+/** The bytes inside the archive must identify the same Branch release GitHub selected. */
+export async function validateStagedPackage(stagedDir: string, expectedVersion: string, platform: NodeJS.Platform): Promise<void> {
+  const manifest = platform === "darwin"
+    ? join(stagedDir, "Contents", "Resources", "app", "package.json")
+    : join(stagedDir, "resources", "app", "package.json");
+  let raw: unknown;
+  try { raw = JSON.parse(await readFile(manifest, "utf8")); }
+  catch { throw new Error("The download did not contain a readable Branch Agent package identity, so nothing was changed."); }
+  const parsed = packagedManifestSchema.safeParse(raw);
+  if (!parsed.success) throw new Error("The download is not a Branch Agent package, so nothing was changed.");
+  if (parsed.data.version !== expectedVersion)
+    throw new Error(`The download contains version ${parsed.data.version}, but the selected release is ${expectedVersion}, so nothing was changed.`);
 }
 
 export { windowsKeep };

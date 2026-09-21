@@ -205,9 +205,12 @@ const testExe = "Branch Agent Test.exe";
 async function windowsInstall(root) {
   const install = join(root, "Programs", "Branch Agent");
   const write = async (dir, marker) => {
-    await mkdir(join(dir, "resources"), { recursive: true });
+    await mkdir(join(dir, "resources", "app"), { recursive: true });
     await writeFile(join(dir, testExe), marker);
     await writeFile(join(dir, "resources", "version.txt"), marker);
+    await writeFile(join(dir, "resources", "app", "package.json"), JSON.stringify({
+      name: "branch-agent", version: marker === "new" ? "2.0.0" : "1.0.0",
+    }));
   };
   await write(install, "old");
   await writeFile(join(install, "Uninstall Branch Agent.cmd"), "@echo off");
