@@ -65,11 +65,11 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   assert.equal(await wide(), false, "the invitation fits at 400 px");
 
   const key = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
-  app.devices.book.redeem({ offer: app.devices.book.invitation().id, code, name: "Kitchen Mac", platform: "darwin", publicKey: key,
+  app.devices.book.redeem({ offer: app.devices.book.invitation().id, code, name: "action.save", platform: "darwin", publicKey: key,
     offers: ["screen", "notify", "run", "files"] });
   const request = card.locator(".devices-request");
   await request.waitFor({ timeout: 15000 });
-  assert.equal(await request.locator("p").first().innerText(), "Kitchen Mac (Mac computer) asks to join.");
+  assert.equal(await request.locator("p").first().innerText(), "action.save (Mac computer) asks to join.");
   // phase2/shell integration review: the check code the device shows while it waits, to compare before letting it in.
   assert.match(await request.locator("p.subtle").innerText(), /^Check code [0-9A-F]{4} [0-9A-F]{4}\./);
   // mac7/residuals: "Let it in" waits until the owner ticks that the codes match.
@@ -100,7 +100,8 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   await openPlace(page, "chat");
   const picker = page.locator("#composer-device");
   await picker.waitFor({ state: "attached", timeout: 15000 });
-  assert.deepEqual(await picker.locator("option").allInnerTexts(), ["Any connected device", "Kitchen Mac"]);
+  assert.deepEqual(await picker.locator("option").allInnerTexts(), ["Any connected device", "action.save"],
+    "a device name that resembles a locale key stays literal");
   assert.equal(await wide(), false, "the message box still fits with the picker");
 
   await openSettings(page, "appearance");
@@ -108,7 +109,7 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   await openPlace(page, "customize:channels");
   await page.waitForFunction(() => document.querySelector("#devices-card h2")?.textContent === "Vos appareils", null, { timeout: 15000 });
   await card.getByText("Faire une capture de l'écran").waitFor();
-  assert.equal(await card.locator(".devices-device h3").innerText(), "Kitchen Mac");
+  assert.equal(await card.locator(".devices-device h3").innerText(), "action.save");
   assert.equal(await card.getByRole("button", { name: "Retirer cet appareil" }).count(), 1);
   assert.equal(await wide(), false, "French fits at 400 px too");
   await card.getByRole("button", { name: "Retirer cet appareil" }).click();
