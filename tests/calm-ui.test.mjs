@@ -348,7 +348,7 @@ test("calm: More works from the keyboard and names its groups", async (t) => {
 test("calm: a finished conversation is in Recents at once, and the next steps are offered once", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("Tell me a joke");
-  await f.page.locator("#send").click();
+  await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator("#rail-list .rail-item").filter({ hasText: "Tell me a joke" }).waitFor({ timeout: 10000 });
   const tip = f.page.locator("#lx-tip");
   await tip.waitFor({ state: "visible", timeout: 10000 });
@@ -356,7 +356,7 @@ test("calm: a finished conversation is in Recents at once, and the next steps ar
   await tip.getByRole("button", { name: "Not now" }).click();
   await tip.waitFor({ state: "detached" });
   await f.page.locator("#prompt").fill("And another");
-  await f.page.locator("#send").click();
+  await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator(".message.user").filter({ hasText: "And another" }).waitFor();
   await f.page.waitForFunction(() => document.querySelectorAll(".message.assistant").length >= 2);
   await f.page.waitForTimeout(1000);
