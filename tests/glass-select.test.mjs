@@ -203,9 +203,13 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance-language");
   const control = f.page.locator("#appearance-language"), tip = f.page.locator("#glass-tip");
-  await f.page.keyboard.press("Tab");
-  await control.focus();
-  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "appearance-language");
+  const focused = await f.page.evaluate(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    const node = document.getElementById("appearance-language");
+    node.focus();
+    return document.activeElement === node;
+  });
+  assert.equal(focused, true, "keyboard focus landed before the next background refresh");
   assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
   assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
     .some((id) => document.getElementById(id)?.textContent?.trim())), "the linked help has words");
@@ -452,6 +456,10 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   /* ci-flakes-3 listed three more places where the window's refresh every 3 s wrote over what somebody
      was in the middle of. Each is driven here by the very call that refresh makes, with no sleep. */
   await openSettingFor(f.page, "#policy-tool-limit");
+  await f.page.locator("#policy-tool-limit").evaluate((node) => { node.value = "41"; node.blur(); });
+  await f.page.evaluate(() => globalThis.branchApprovals.render());
+  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "41",
+    "a draft survives even when its input event raced the listener");
   await f.page.locator("#policy-tool-limit").fill("42");
   await f.page.evaluate(() => globalThis.branchApprovals.render());
   assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
