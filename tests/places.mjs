@@ -87,6 +87,15 @@ export async function pressUntil(target, happened, what = "the press to take") {
 export const became = (page, isSo) =>
   page.waitForFunction(isSo, null, { timeout: 20000 }).then(() => true, () => false);
 
+/** Finishes the optional first-run screen without depending on one mouse packet reaching Chromium. */
+export async function finishFirstRun(page) {
+  const panel = page.locator("#first-run");
+  if (!(await panel.isVisible())) return;
+  await pressUntil(page.getByRole("button", { name: /Try it without an account/ }),
+    () => panel.waitFor({ state: "hidden", timeout: 20000 }).then(() => true, () => false),
+    "first run to finish");
+}
+
 /** Presses the gear until the Settings window is really open. */
 async function pressUntilOpen(page) {
   const settings = page.locator("#settings-window");

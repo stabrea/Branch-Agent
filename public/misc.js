@@ -152,15 +152,27 @@ async function renderPractice() {
  * "Ask me questions first" beside the box you type in. The setting is remembered; the questions
  * themselves are asked when you send, and the answers are written underneath your request.
  */
+let askFirstRevision = 0;
+let askFirstSaving = false;
 async function renderAskFirst() {
   const toggle = $("ask-first-toggle");
   if (!toggle || !sessionStorage.getItem("branch-token")) return;
-  try { toggle.checked = (await api("ask-first/settings")).askFirst === true; } catch { return; }
+  const revision = askFirstRevision;
+  let view;
+  try { view = await api("ask-first/settings"); } catch { return; }
+  if (!askFirstSaving && revision === askFirstRevision) toggle.checked = view.askFirst === true;
   if (toggle.dataset.wired === "yes") return;
   toggle.dataset.wired = "yes";
   toggle.addEventListener("change", async () => {
-    try { await api("ask-first/settings", { askFirst: toggle.checked }); }
-    catch (e) { say("That could not be saved: " + e.message); toggle.checked = !toggle.checked; }
+    const wanted = toggle.checked, saving = ++askFirstRevision;
+    askFirstSaving = true;
+    try { await api("ask-first/settings", { askFirst: wanted }); }
+    catch (e) {
+      say("That could not be saved: " + e.message);
+      if (saving === askFirstRevision) toggle.checked = !wanted;
+    } finally {
+      if (saving === askFirstRevision) { askFirstSaving = false; askFirstRevision++; }
+    }
   });
 }
 
@@ -181,7 +193,9 @@ async function askBeforeStarting(prompt) {
 
 /** Everything on this file's screens. Safe to call again at any time. */
 async function render() {
+  const focusedCategory = categoryFocus?.isConnected ? categoryFocus : null;
   await Promise.allSettled([renderCategories(), renderPractice(), renderAskFirst()]);
+  if (focusedCategory?.isConnected && document.activeElement === document.body) focusedCategory.focus();
 }
 window.branchAllowed = { render: renderAllowed };
 window.branchMisc = { render, askBeforeStarting };

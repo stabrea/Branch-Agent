@@ -57,7 +57,7 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   await page.locator("#ew-places").waitFor({ state: "attached", timeout: 120000 });
   if (connect) await signIn();
-  return { page, call, errors, app, signIn, browser, url: server.url };
+  return { page, call, errors, app, signIn, browser, url: server.url, connected: connect };
 }
 const box = (page, selector) => page.locator(selector).first().boundingBox();
 const lit = (page) => page.locator('.ew-place[aria-current="page"]').getAttribute("data-place");
@@ -381,6 +381,7 @@ async function askOnPhone(f, edit = (body) => body) {
     await route.fulfill({ response, json: edit(await response.json()) });
   });
   await f.call("/api/policy", { preset: "ask-before-changes" });
+  if (!f.connected) await f.signIn();
   await f.page.locator("#prompt").fill("write a note for me");
   await f.page.locator("#send").click();
   const card = f.page.locator("#live-ask");
@@ -417,7 +418,9 @@ test("a quick double tap on a phone's big answer sends one answer, not two", asy
 });
 
 test("an answer that could not be sent gives the buttons back; No is the quiet answer; a task somebody else started has no Yes, always", async (t) => {
-  const f = await fixture(t);
+  /* Install the response rewrite before sign-in starts the policy poller. Otherwise an already in-flight
+     unmodified GET can win the race, draw the real card without the test-only files, and never be replaced. */
+  const f = await fixture(t, { connect: false });
   const files = [{ kind: "write", path: "a.txt" }, { kind: "write", path: "b.txt" }];
   const card = await askOnPhone(f, (body) => ({ ...body, waiting: body.waiting.map((question) => ({ ...question, source: "channel", files })) }));
   /* ci-flakes-4: #live-ask goes visible as soon as the card is there, and its own parts arrive with the

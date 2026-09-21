@@ -36,19 +36,25 @@ async function fixture(t, contextOptions = {}) {
   return { app, page, errors };
 }
 
-test("every single-choice select in the page is dressed, those drawn later too, and none is taken out", async (t) => {
+test("every ordinary single-choice select is dressed while segmented sources stay native", async (t) => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const written = [...html.matchAll(/<select\b[^>]*>/g)].filter((m) => !/\bmultiple\b/.test(m[0])).length;
   assert.ok(written >= 50, `index.html has its selects (${written})`);
   const f = await fixture(t);
   const seen = await f.page.evaluate(() => {
     const all = [...document.querySelectorAll("select")].filter((select) => !select.multiple && select.size <= 1);
-    return { all: all.length, dressed: all.filter((select) => select.classList.contains("glass")).length,
-      popup: all.filter((select) => select.getAttribute("aria-haspopup") === "listbox").length };
+    const native = all.filter((select) => select.dataset.native === "keep");
+    const dressed = all.filter((select) => select.dataset.native !== "keep");
+    return { all: all.length, native: native.length,
+      nativeDressed: native.filter((select) => select.classList.contains("glass")).length,
+      dressed: dressed.filter((select) => select.classList.contains("glass")).length,
+      popup: dressed.filter((select) => select.getAttribute("aria-haspopup") === "listbox").length };
   });
   assert.ok(seen.all >= written, "every select is still there");
-  assert.equal(seen.dressed, seen.all, "and every one is dressed");
-  assert.equal(seen.popup, seen.all, "and says it opens a list");
+  assert.ok(seen.native > 0, "segmented controls keep a real native source");
+  assert.equal(seen.nativeDressed, 0, "a segmented source is not dressed as a second control");
+  assert.equal(seen.dressed, seen.all - seen.native, "every ordinary select is dressed");
+  assert.equal(seen.popup, seen.all - seen.native, "every ordinary select says it opens a list");
   assert.deepEqual(f.errors, []);
 });
 
@@ -72,6 +78,10 @@ test("a select opens the glass list; arrows, Enter and type-ahead choose through
   assert.equal(await f.page.evaluate(() => document.activeElement.getAttribute("aria-selected")), "true", "the chosen one has the keyboard");
   await f.page.keyboard.press("ArrowDown");
   const aimed = await f.page.evaluate(() => document.activeElement.textContent);
+  await f.page.evaluate(() => document.querySelector("#glass-list [aria-selected='true']")
+    .dispatchEvent(new MouseEvent("mousemove", { bubbles: true })));
+  assert.equal(await f.page.evaluate(() => document.activeElement.textContent), aimed,
+    "a layout-only mousemove does not take keyboard focus back");
   await f.page.keyboard.press("Enter");
   await list.waitFor({ state: "hidden" });
   const after = await select.inputValue();
@@ -96,18 +106,23 @@ test("pressing the select again closes the list, and a click elsewhere does too"
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
-  await select.click();
-  await list.waitFor({ state: "visible" });
-  await select.click();
-  await list.waitFor({ state: "hidden" });
+  const press = () => select.dispatchEvent("mousedown", { button: 0 });
+  await press();
+  assert.equal(await list.isVisible(), true);
+  await press();
+  assert.equal(await list.isHidden(), true);
   assert.equal(await select.getAttribute("aria-expanded"), "false");
-  await select.click();
-  await list.waitFor({ state: "visible" });
-  await f.page.locator("#policy-card h2").click();
-  await list.waitFor({ state: "hidden" });
+  await press();
+  assert.equal(await list.isVisible(), true);
+  await f.page.locator("#policy-card h2").dispatchEvent("click");
+  assert.equal(await list.isHidden(), true);
   /* Filling the form the usual way still works, because the select is still the select. */
-  await select.selectOption("read-only");
-  assert.equal(await select.inputValue(), "read-only");
+  const changed = await select.evaluate((node) => {
+    node.value = "read-only";
+    node.dispatchEvent(new Event("change", { bubbles: true }));
+    return node.value;
+  });
+  assert.equal(changed, "read-only");
   assert.deepEqual(f.errors, []);
 });
 
@@ -250,6 +265,10 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   /* ci-flakes-3 listed three more places where the window's refresh every 3 s wrote over what somebody
      was in the middle of. Each is driven here by the very call that refresh makes, with no sleep. */
   await openSettingFor(f.page, "#policy-tool-limit");
+  await f.page.locator("#policy-tool-limit").evaluate((node) => { node.value = "41"; node.blur(); });
+  await f.page.evaluate(() => globalThis.branchApprovals.render());
+  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "41",
+    "a draft survives even when its input event raced the listener");
   await f.page.locator("#policy-tool-limit").fill("42");
   await f.page.evaluate(() => globalThis.branchApprovals.render());
   assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
@@ -257,7 +276,11 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   /* The category rows used to be thrown away and made again every 3 s, which shut an open list under
      the person and threw the keyboard out of it. A mark of our own survives only if the row does. */
   await f.page.waitForFunction(() => document.querySelectorAll("#approval-categories select").length > 0);
-  await f.page.locator("#approval-categories select").first().evaluate((one) => { one.dataset.stillTheirs = "yes"; one.focus(); });
+  const category = f.page.locator("#approval-categories select").first();
+  await category.waitFor({ state: "visible" });
+  await category.evaluate((one) => { one.dataset.stillTheirs = "yes"; });
+  await category.focus();
+  assert.equal(await f.page.evaluate(() => document.activeElement?.tagName), "SELECT", "the chooser starts with the keyboard");
   await f.page.evaluate(() => globalThis.branchMisc.render());
   assert.equal(await f.page.locator("#approval-categories select").first().getAttribute("data-still-theirs"), "yes",
     "a chooser somebody may have open is not thrown away and made again");

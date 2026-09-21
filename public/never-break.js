@@ -2,6 +2,7 @@
 // gateway, what it has been doing, and a change the assistant suggested for it, which only the owner
 // can accept. The deciding happens on the server (src/never-break/); every word is behind a key.
 import { t, formatNumber } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 /** A sentence to show under the switch after the card is drawn again. */
@@ -63,24 +64,21 @@ function card() {
 function modeControls(mode) {
   const label = worded("label", "field.never-break-mode");
   label.htmlFor = "never-break-mode";
-  const select = document.createElement("select");
-  select.id = "never-break-mode";
-  for (const value of ["off", "when-needed", "on"]) {
-    const option = worded("option", `never-break.switch.${value}`);
-    option.value = value;
-    select.append(option);
-  }
-  select.value = mode;
+  const control = segmented({
+    id: "never-break-mode",
+    options: [["off", "never-break.switch.off"], ["when-needed", "never-break.switch.when-needed"], ["on", "never-break.switch.on"]],
+    value: mode
+  });
   const status = statusLine();
   status.textContent = said;
   said = "";
   const button = worded("button", "action.save-this-setting");
   button.type = "button";
   button.addEventListener("click", async () => {
-    try { await api("", { mode: select.value }); said = t("never-break.saved"); await refresh(); }
+    try { await api("", { mode: control.value }); said = t("never-break.saved"); await refresh(); }
     catch (error) { status.textContent = error.message; }
   });
-  return [label, select, worded("p", `never-break.mode.${mode}`, "field-note"), button, status];
+  return [label, control, worded("p", `never-break.mode.${mode}`, "field-note"), button, status];
 }
 
 function nowLine(view, health) {
