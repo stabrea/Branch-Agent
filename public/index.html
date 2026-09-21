@@ -664,8 +664,11 @@
               ><select id="schedule-repeat">
                 <option value="0">Once</option>
                 <option value="3600000">Every hour</option>
-                <option value="86400000">Every 24 hours</option>
-                <option value="604800000">Every 7 days</option>
+                <option value="daily">Every day</option>
+                <option value="weekdays">Every weekday</option>
+                <option value="weekly">Every week</option>
+                <option value="monthly">Every month</option>
+                <option value="cron">Cron expression</option>
               </select>
             </div>
             <div>
@@ -690,8 +693,25 @@
               </select>
             </div>
             <div>
-              <label for="schedule-daily">Or every day at</label
+              <label for="schedule-daily">At local time</label
               ><input id="schedule-daily" type="time" />
+            </div>
+            <div id="schedule-weekday-field" hidden>
+              <label for="schedule-weekday">Weekday</label
+              ><select id="schedule-weekday">
+                <option value="1">Monday</option><option value="2">Tuesday</option>
+                <option value="3">Wednesday</option><option value="4">Thursday</option>
+                <option value="5">Friday</option><option value="6">Saturday</option>
+                <option value="0">Sunday</option>
+              </select>
+            </div>
+            <div id="schedule-month-day-field" hidden>
+              <label for="schedule-month-day">Day of the month</label
+              ><input id="schedule-month-day" type="number" min="1" max="31" value="1" />
+            </div>
+            <div id="schedule-cron-field" hidden>
+              <label for="schedule-cron">Cron (minute hour day month weekday)</label
+              ><input id="schedule-cron" maxlength="100" placeholder="30 9 * * 1-5" />
             </div>
             <div>
               <label for="schedule-timezone">Timezone</label

@@ -149,9 +149,52 @@ test("F3 the rhythm picker says in plain words what it would do", async (t) => {
     return { weekday: rhythmAsSchedule("weekday", "09:00"), hourly: rhythmAsSchedule("hourly", "09:00") };
   });
   assert.equal(shapes.weekday.dailyAt, "09:00");
+  assert.deepEqual(shapes.weekday.weekdays, [1, 2, 3, 4, 5]);
   assert.ok(shapes.weekday.timezone, "a daily time was given with no timezone, which the app refuses");
   assert.equal(shapes.weekday.intervalMs, undefined, "a daily time came with a gap as well");
   assert.equal(shapes.hourly.intervalMs, 3_600_000);
   assert.equal(shapes.hourly.dailyAt, undefined);
+  assert.deepEqual(errors, []);
+});
+
+test("the schedule form saves weekly, monthly and cron recurrence without stale fields", async (t) => {
+  const { app, page, errors } = await fixture(t);
+  await openPlace(page, "automations:scheduled");
+  await page.locator("#schedule-prompt").fill("Prepare the report");
+  await page.locator("#schedule-time").fill("2030-01-01T09:00");
+  await page.locator("#schedule-kind").selectOption("task");
+  await page.locator("#schedule-timezone").fill("America/New_York");
+  const save = async (count) => {
+    await page.getByRole("button", { name: "Schedule", exact: true }).click();
+    for (let attempt = 0; attempt < 100 && app.store.list("schedules", app.runtime.owner).length < count; attempt++)
+      await page.waitForTimeout(50);
+    assert.equal(app.store.list("schedules", app.runtime.owner).length, count);
+  };
+
+  await page.locator("#schedule-repeat").selectOption("weekly");
+  assert.equal(await page.locator("#schedule-weekday-field").isVisible(), true);
+  await page.locator("#schedule-daily").fill("09:30");
+  await page.locator("#schedule-weekday").selectOption("3");
+  await save(1);
+
+  await page.locator("#schedule-repeat").selectOption("monthly");
+  assert.equal(await page.locator("#schedule-weekday-field").isVisible(), false);
+  assert.equal(await page.locator("#schedule-month-day-field").isVisible(), true);
+  await page.locator("#schedule-month-day").fill("31");
+  await save(2);
+
+  await page.locator("#schedule-repeat").selectOption("cron");
+  assert.equal(await page.locator("#schedule-month-day-field").isVisible(), false);
+  assert.equal(await page.locator("#schedule-cron-field").isVisible(), true);
+  await page.locator("#schedule-cron").fill("30 9 * * 1-5");
+  await save(3);
+
+  const schedules = app.store.list("schedules", app.runtime.owner).map((record) => record.data);
+  const weekly = schedules.find((entry) => Array.isArray(entry.weekdays));
+  const monthly = schedules.find((entry) => entry.monthDay === 31);
+  const cron = schedules.find((entry) => entry.cron);
+  assert.deepEqual([weekly?.dailyAt, weekly?.weekdays, weekly?.timezone], ["09:30", [3], "America/New_York"]);
+  assert.deepEqual([monthly?.dailyAt, monthly?.monthDay, monthly?.weekdays], ["09:30", 31, undefined]);
+  assert.deepEqual([cron?.cron, cron?.dailyAt, cron?.monthDay], ["30 9 * * 1-5", undefined, undefined]);
   assert.deepEqual(errors, []);
 });

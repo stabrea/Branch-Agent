@@ -224,9 +224,20 @@ test("Add a Trunk: switched off it says so and offers the switch; the tab strip 
 test("Overview and People are real, with faces; Who is using Branch lists everyone", async (t) => {
   const f = await fixture(t);
   await f.call("/api/profiles", { name: "Amara", pin: "4321" });
+  const context = f.app.runtime.context();
+  const dueAt = "2030-01-01T14:30:00.000Z";
+  f.app.scheduler.create(context, { prompt: "Weekly report", dueAt, kind: "task", dailyAt: "09:30",
+    timezone: "America/New_York", weekdays: [1, 3, 5] });
+  f.app.scheduler.create(context, { prompt: "Month end", dueAt, kind: "task", dailyAt: "09:30",
+    timezone: "America/New_York", monthDay: 31 });
+  f.app.scheduler.create(context, { prompt: "Cron report", dueAt, kind: "task", cron: "30 9 * * 1-5",
+    timezone: "America/New_York" });
   await f.open();
   await f.page.locator("#trunk-strip .strip-brand").click();
   await f.page.locator(".ov-page").getByRole("heading", { name: "This computer" }).waitFor();
+  assert.ok(await f.page.locator(".ov-page .ov-row").filter({ hasText: "Every Monday, Wednesday, Friday at 09:30" }).isVisible());
+  assert.ok(await f.page.locator(".ov-page .ov-row").filter({ hasText: "Every month on day 31 at 09:30" }).isVisible());
+  assert.ok(await f.page.locator(".ov-page .ov-row").filter({ hasText: "Cron 30 9 * * 1-5 (America/New_York)" }).isVisible());
   assert.ok(await f.page.locator(".ov-page").getByText("Who uses it").isVisible());
   assert.ok(await f.page.locator(".ov-page .ov-row").filter({ hasText: "Amara" }).isVisible());
   await f.page.locator("#strip-people").click();

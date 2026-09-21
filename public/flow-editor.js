@@ -262,14 +262,15 @@ export function rhythmInWords(rhythm, time) {
   return spoken ?? `every day at ${at}`;
 }
 /** The same rhythm as the schedules understand it: a daily time, or a gap in milliseconds. */
-export function rhythmAsSchedule(rhythm, time) {
+export function rhythmAsSchedule(rhythm, time, weekday = new Date().getDay()) {
   const at = /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : "09:00";
   if (rhythm === "hourly") return { intervalMs: 3_600_000 };
   if (rhythm === "6h") return { intervalMs: 21_600_000 };
   if (rhythm === "30m") return { intervalMs: 1_800_000 };
-  if (rhythm === "weekly") return { intervalMs: 604_800_000 };
-  /* Daily and weekday both keep a clock time, which the schedules read in this computer's zone. */
-  return { dailyAt: at, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (rhythm === "weekly") return { dailyAt: at, timezone, weekdays: [Number(weekday)] };
+  if (rhythm === "weekday") return { dailyAt: at, timezone, weekdays: [1, 2, 3, 4, 5] };
+  return { dailyAt: at, timezone };
 }
 function previewRhythm() {
   const box = $("repeat-preview");
@@ -297,10 +298,14 @@ $("editor-resume")?.addEventListener("click", () => { void runFlow("resume"); })
 $("repeat-every")?.addEventListener("change", previewRhythm);
 $("repeat-at")?.addEventListener("input", previewRhythm);
 $("repeat-use")?.addEventListener("click", () => {
-  const wanted = rhythmAsSchedule($("repeat-every").value, $("repeat-at").value);
+  const wanted = rhythmAsSchedule($("repeat-every").value, $("repeat-at").value, Number($("schedule-weekday")?.value ?? 1));
   /* The schedules screen owns the boxes; this only fills them in with the chosen rhythm. */
   if (wanted.dailyAt && $("schedule-daily")) $("schedule-daily").value = wanted.dailyAt;
-  if (wanted.intervalMs && $("schedule-repeat")) $("schedule-repeat").value = String(wanted.intervalMs);
+  if (wanted.weekdays?.length === 5) $("schedule-repeat").value = "weekdays";
+  else if (wanted.weekdays) { $("schedule-repeat").value = "weekly"; $("schedule-weekday").value = String(wanted.weekdays[0]); }
+  else if (wanted.dailyAt) $("schedule-repeat").value = "daily";
+  else if (wanted.intervalMs) $("schedule-repeat").value = String(wanted.intervalMs);
+  $("schedule-repeat")?.dispatchEvent(new Event("change"));
   $("repeat-preview").textContent = t("repeat.used", { words: rhythmInWords($("repeat-every").value, $("repeat-at").value) });
 });
 document.querySelector('[data-view="procedures"]')?.addEventListener("click", () => { void fillFlows(); });

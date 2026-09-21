@@ -3002,11 +3002,14 @@ across more than one computer, this is the paragraph to come back to.
 ## Schedules that repeat, and ones that keep failing
 
 `schedules.create` writes down a reminder, a task, a check or an evaluation with a due moment, and
-optionally an interval (`intervalMs`, at least a minute) or a daily time in a timezone (`dailyAt` plus
-`timezone`). It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook
-(`webhook`), and be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns
-while the app was closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list`
-do what they say, and each schedule keeps the last fifty turns with what happened on each.
+optionally one recurrence: an interval (`intervalMs`, at least a minute), a wall-clock time in a
+timezone (`dailyAt` plus `timezone`), selected local weekdays (`weekdays`, Sunday 0 through Saturday
+6), a local day of the month (`monthDay`), or a numeric five-field `cron` expression. Months without
+the chosen date and local times skipped by a daylight-saving jump are skipped rather than shifted.
+It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook (`webhook`), and
+be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns while the app was
+closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list` do what they say,
+and each schedule keeps the last fifty turns with what happened on each.
 
 A repeating job that **fails** a turn now moves on to its next turn rather than stopping for good, and
 the failures in a row are counted on the record as `consecutiveFailures`. After three in a row the job
@@ -7500,8 +7503,10 @@ because it writes outside this folder.
   having: it lists the conversations, picks one (`--session`), prints what has been said, and either
   says something or just watches. Two terminals can be in one conversation at once and each sees
   what the other said. It goes through the same door, with the same key, as the app window.
-- `branch schedule add --prompt "..." [--at <moment>] [--every <ms>] | list | remove <id>` works
-  against that same running engine over `/api/schedules`.
+- `branch schedule add --prompt "..." [--at <moment>]` works against that same running engine over
+  `/api/schedules`. Repetition may be `--every <ms>`, `--daily HH:MM` with optional `--weekdays
+  mon,wed` or `--month-day 15`, or `--cron "30 9 * * 1-5"`; wall-clock forms accept `--timezone`.
+  `branch schedule list` and `branch schedule remove <id>` use the same connection.
 - **A coding assistant you already have, used as a model.** `cli-agent` is a provider shape that
   runs an installed tool's own command line: Claude Code (`claude -p --output-format json`), Codex
   (`codex exec --json`) or the GitHub Copilot CLI. The prompt goes in on standard input, the answer

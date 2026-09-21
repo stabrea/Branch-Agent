@@ -496,6 +496,15 @@ function renderProcedures() {
     "Turn a repeatable workflow into a recipe with checked results.",
   );
 }
+const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function scheduleRhythm(data) {
+  if (data.cron) return `Cron ${data.cron} (${data.timezone})`;
+  if (data.monthDay) return `Every month on day ${data.monthDay} at ${data.dailyAt} (${data.timezone})`;
+  if (data.weekdays) return `Every ${data.weekdays.map((day) => weekdayNames[day]).join(", ")} at ${data.dailyAt} (${data.timezone})`;
+  if (data.dailyAt) return `Every day at ${data.dailyAt} (${data.timezone})`;
+  if (data.intervalMs) return `Repeats every ${data.intervalMs / 60000} minutes`;
+  return null;
+}
 function renderSchedules() {
   list(
     "schedules-list",
@@ -504,9 +513,8 @@ function renderSchedules() {
       const d = record.data,
         node = recordCard(d.prompt, d.status);
       node.append(el("p", `${d.kind} · ${date(d.dueAt)}`));
-      if (d.intervalMs)
-        node.append(el("p", `Repeats every ${d.intervalMs / 60000} minutes · ${d.runCount ?? 0} executions`, "meta"));
-      if (d.dailyAt) node.append(el("p", `Every day at ${d.dailyAt} (${d.timezone}) · ${d.runCount ?? 0} executions`, "meta"));
+      const rhythm = scheduleRhythm(d);
+      if (rhythm) node.append(el("p", `${rhythm} · ${d.runCount ?? 0} executions`, "meta"));
       const history = Array.isArray(d.history) ? d.history : [];
       if (history.length) {
         const count = (status) => history.filter((h) => h.status === status).length;
@@ -2021,21 +2029,37 @@ form("specialist-form", () =>
 form("procedure-form", () =>
   action("procedures.propose", JSON.parse($("procedure-json").value)),
 );
+function scheduleRecurrence() {
+  const mode = $("schedule-repeat").value;
+  const dailyAt = $("schedule-daily").value;
+  const timezone = $("schedule-timezone").value || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (mode === "daily") return { dailyAt, timezone };
+  if (mode === "weekdays") return { dailyAt, timezone, weekdays: [1, 2, 3, 4, 5] };
+  if (mode === "weekly") return { dailyAt, timezone, weekdays: [Number($("schedule-weekday").value)] };
+  if (mode === "monthly") return { dailyAt, timezone, monthDay: Number($("schedule-month-day").value) };
+  if (mode === "cron") return { cron: $("schedule-cron").value, timezone };
+  return Number(mode) ? { intervalMs: Number(mode) } : {};
+}
+function showScheduleRecurrenceFields() {
+  const mode = $("schedule-repeat").value;
+  const usesTime = ["daily", "weekdays", "weekly", "monthly"].includes(mode);
+  $("schedule-daily").closest("div").hidden = !usesTime;
+  $("schedule-daily").required = usesTime;
+  $("schedule-weekday-field").hidden = mode !== "weekly";
+  $("schedule-month-day-field").hidden = mode !== "monthly";
+  $("schedule-cron-field").hidden = mode !== "cron";
+  $("schedule-cron").required = mode === "cron";
+}
 form("schedule-form", () =>
   action("schedules.create", {
     prompt: $("schedule-prompt").value,
     dueAt: new Date($("schedule-time").value).toISOString(),
     kind: $("schedule-kind").value,
-    ...($("schedule-daily").value
-      ? { dailyAt: $("schedule-daily").value, timezone: $("schedule-timezone").value || Intl.DateTimeFormat().resolvedOptions().timeZone }
-      : {}),
+    ...scheduleRecurrence(),
     ...($("schedule-deliver").value
       ? { deliverTo: JSON.parse($("schedule-deliver").value) }
       : {}),
     ...($("schedule-webhook").checked ? { webhook: true } : {}),
-    ...(Number($("schedule-repeat").value) && !$("schedule-daily").value
-      ? { intervalMs: Number($("schedule-repeat").value) }
-      : {}),
   }),
 );
 $("specialist-json").value = JSON.stringify(
@@ -2087,6 +2111,8 @@ $("appearance-shortcut").addEventListener("click", () => {
   if ($("workspace").hidden) toast("Connect to change settings.");
 });
 $("schedule-timezone").value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+$("schedule-repeat").addEventListener("change", showScheduleRecurrenceFields);
+showScheduleRecurrenceFields();
 if (token || desktop) refresh().catch((e) => toast(e.message));
 function modelConnectionFields() {
   const demonstration = $("model-provider").value === "demo";

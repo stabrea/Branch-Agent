@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nextDailyOccurrence } from "../scheduler.js";
+import { nextWallOccurrence } from "../recurrence.js";
 import { quoteLine } from "./settings.js";
 
 /**
@@ -152,9 +153,8 @@ export function renderPrompt(template: string, filled: Record<string, string>): 
   return template.replace(/\{([a-z]+)\}/g, (whole, name: string) => (name in filled ? `"${filled[name]}"` : whole));
 }
 
-function weekdayIn(date: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long" }).format(date).toLowerCase();
-}
+const weekdayNumber = (name: string): number =>
+  ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(name.toLowerCase());
 
 export interface ScheduleDraft extends Record<string, unknown> {
   prompt: string; dueAt: string; kind: Blueprint["kind"]; daysOff: "run" | "skip";
@@ -171,11 +171,11 @@ export function draftSchedule(entry: Blueprint, values: Record<string, string>, 
     Object.assign(draft, { intervalMs: ms, dueAt: new Date(now.getTime() + ms).toISOString() });
   } else if (entry.timing === "daily") {
     Object.assign(draft, { dailyAt: filled.time, timezone: tz, dueAt: nextDailyOccurrence(now, filled.time!, tz).toISOString() });
-    if (filled.days === "weekdays") draft.daysOff = "skip";
+    if (filled.days === "weekdays") Object.assign(draft, { weekdays: [1, 2, 3, 4, 5], daysOff: "skip" });
   } else {
-    let due = nextDailyOccurrence(now, filled.time!, tz);
-    for (let i = 0; i < 7 && weekdayIn(due, tz) !== filled.day; i++) due = nextDailyOccurrence(due, filled.time!, tz);
-    Object.assign(draft, { intervalMs: 7 * 86_400_000, dueAt: due.toISOString() });
+    const weekday = weekdayNumber(filled.day!);
+    const due = nextWallOccurrence(now, filled.time!, tz, (day) => day.weekday === weekday);
+    Object.assign(draft, { dailyAt: filled.time, timezone: tz, weekdays: [weekday], dueAt: due.toISOString() });
   }
   if (entry.kind === "check") draft.notify = "changes";
   if (entry.permissions) draft.permissions = [...entry.permissions];

@@ -504,10 +504,24 @@ async function scheduleCommand(dataDir: string): Promise<void> {
     const prompt = flag("prompt");
     if (!prompt) throw new Error('Say what to do: branch schedule add --prompt "water the plants" --at 2026-10-01T09:00:00Z');
     const every = flag("every");
+    const dailyAt = flag("daily"), weekdays = flag("weekdays"), monthDay = flag("month-day"), cron = flag("cron");
+    const timezone = flag("timezone") ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const dayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const chosenDays = weekdays?.split(",").map((word) => {
+      const clean = word.trim().toLowerCase();
+      const number = /^\d$/.test(clean) ? Number(clean) : dayNames.indexOf(clean.slice(0, 3));
+      if (number < 0 || number > 6) throw new Error(`Unknown weekday: ${word}`);
+      return number;
+    });
+    if ((chosenDays || monthDay) && !dailyAt) throw new Error("--weekdays and --month-day need --daily HH:MM");
     const saved = await client.post<{ id: string }>("/api/schedules", {
       prompt, kind: flag("kind") ?? "task",
       dueAt: new Date(flag("at") ?? Date.now() + 60_000).toISOString(),
       ...(every ? { intervalMs: Number(every) } : {}),
+      ...(dailyAt ? { dailyAt, timezone } : {}),
+      ...(chosenDays ? { weekdays: chosenDays } : {}),
+      ...(monthDay ? { monthDay: Number(monthDay) } : {}),
+      ...(cron ? { cron, timezone } : {}),
     });
     console.log(asJson ? JSON.stringify(saved) : `Scheduled. Its number is ${saved.id}.`);
     return;
@@ -519,7 +533,7 @@ async function scheduleCommand(dataDir: string): Promise<void> {
     console.log(asJson ? JSON.stringify(done) : done.removed ? "Removed." : "There is no schedule with that number.");
     return;
   }
-  throw new Error('Usage: branch schedule add --prompt "..." [--at <moment>] [--every <ms>] | schedule list | schedule remove <id>');
+  throw new Error('Usage: branch schedule add --prompt "..." [--at <moment>] [--every <ms> | --daily HH:MM [--weekdays mon,wed | --month-day 15] | --cron "30 9 * * 1-5"] [--timezone <zone>] | schedule list | schedule remove <id>');
 }
 /**
  * `branch chat --attach`: a second terminal joining the conversation the engine already running is

@@ -108,9 +108,10 @@ test("blueprints check every blank, fill each once on one line, and draft the ri
   const now = new Date("2026-09-17T10:00:00Z"); // a Thursday
   const weekly = draftSchedule(blueprint("weekly-review"), { day: "Monday", time: "18:00" }, "UTC", now);
   assert.equal(weekly.dueAt, "2026-09-21T18:00:00.000Z");
-  assert.equal(weekly.intervalMs, 7 * 86_400_000);
+  assert.deepEqual([weekly.dailyAt, weekly.weekdays, weekly.timezone], ["18:00", [1], "UTC"], "weekly means Monday at 18:00, not a drifting seven-day gap");
   const workdays = draftSchedule(blueprint("workday-start"), {}, "Europe/Paris", now);
   assert.equal(workdays.dailyAt, "09:00");
+  assert.deepEqual(workdays.weekdays, [1, 2, 3, 4, 5]);
   assert.equal(workdays.daysOff, "skip", "weekdays skip weekends and days off");
   const watch = draftSchedule(blueprint("important-mail"), { minutes: "45" }, "UTC", now);
   assert.deepEqual([watch.kind, watch.intervalMs, watch.notify], ["check", 45 * 60_000, "changes"]);

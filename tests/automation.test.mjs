@@ -99,6 +99,21 @@ test("daily schedules recur at a wall-clock time in their timezone, across a day
   assert.equal(data.dueAt, "2026-03-08T13:30:00.000Z");
 });
 
+test("weekday, monthly and cron jobs remain pending at their next matching turn", async (t) => {
+  const { app, context } = await fixture(t);
+  const now = new Date("2026-03-06T14:30:00.000Z");
+  const common = { dueAt: now.toISOString(), kind: "task", dailyAt: "09:30", timezone: "America/New_York" };
+  const weekday = app.scheduler.create(context, { ...common, prompt: "workday", weekdays: [1, 2, 3, 4, 5] });
+  const monthly = app.scheduler.create(context, { ...common, prompt: "month end", monthDay: 31 });
+  const cron = app.scheduler.create(context, { prompt: "cron", dueAt: now.toISOString(), kind: "task",
+    cron: "30 9 * * 1-5", timezone: "America/New_York" });
+  assert.equal((await app.scheduler.tick(now)).length, 3);
+  const data = (id) => app.store.get("schedules", "local", id).data;
+  assert.deepEqual([data(weekday.id).status, data(weekday.id).dueAt], ["pending", "2026-03-09T13:30:00.000Z"]);
+  assert.deepEqual([data(monthly.id).status, data(monthly.id).dueAt], ["pending", "2026-03-31T13:30:00.000Z"]);
+  assert.deepEqual([data(cron.id).status, data(cron.id).dueAt], ["pending", "2026-03-09T13:30:00.000Z"]);
+});
+
 test("an authenticated webhook triggers a schedule with its payload; manual and script triggers work too", async (t) => {
   const { app, context, provider, root } = await fixture(t);
   const record = app.scheduler.create(context, { prompt: "handle the event", dueAt: "2999-01-01T00:00:00.000Z", kind: "task", webhook: true });
