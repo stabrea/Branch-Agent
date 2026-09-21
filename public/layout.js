@@ -1291,17 +1291,18 @@ function buildSettingsRow() {
 
 /* "Connected" only ever meant the window reached Branch on this computer. It is said only when that stops being true. */
 let misses = 0;
-let serverProbeGeneration = 0;
-async function checkServer() {
-  if (document.hidden || $("workspace").hidden) return;
-  const generation = ++serverProbeGeneration;
+let serverProbe = null;
+async function probeServer() {
+  const aborter = new AbortController();
+  const timeout = setTimeout(() => aborter.abort(), 8000);
   let reached = true;
   try {
-    await fetch("/api/health", { cache: "no-store" });
+    await fetch("/api/health", { cache: "no-store", signal: aborter.signal });
   } catch {
     reached = false;
+  } finally {
+    clearTimeout(timeout);
   }
-  if (generation !== serverProbeGeneration) return;
   misses = reached ? 0 : misses + 1;
   const lost = misses >= 2;
   const chip = $("connection");
@@ -1309,6 +1310,12 @@ async function checkServer() {
   else if (chip.dataset.state === "lost") chip.textContent = "Connected";
   chip.dataset.state = lost ? "lost" : "ok";
   $("lx-restart").hidden = !lost;
+}
+async function checkServer() {
+  if (document.hidden || $("workspace").hidden) return;
+  if (serverProbe) return serverProbe;
+  serverProbe = probeServer();
+  try { await serverProbe; } finally { serverProbe = null; }
 }
 /** The desktop app starts Branch again for real (src/desktop/restart-ipc.ts); a browser can only load the page again. */
 async function restartBranch() {
