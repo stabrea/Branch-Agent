@@ -192,11 +192,14 @@ test("the Trunks rail stays owner-only", async (t) => {
     group.id = "trunks-rail";
     group.textContent = "Private Trunk name and latest words";
     document.getElementById("rail-scroll").append(group);
-    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: { isOwner: true } } }));
+    document.dispatchEvent(new CustomEvent("branch-strip", {
+      detail: { profiles: { isOwner: true }, profileGeneration: 0 },
+    }));
     const ownerGroupVisible = !group.hidden;
     document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
       name: "Private Ada", kind: "Private Trunk", status: "Working",
     } }));
+    document.documentElement.dataset.household = "on";
     document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
     return { ownerGroupVisible, group: group.hidden,
       tab: document.getElementById("rail-view-trunks").hidden,
@@ -210,7 +213,7 @@ test("the Trunks rail stays owner-only", async (t) => {
   /* A strip refresh that began for the owner may finish after the profile event. It must not put
      owner-only names and actions back into somebody else's window. */
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
-    detail: { profiles: { isOwner: true } },
+    detail: { profiles: { isOwner: true }, profileGeneration: 0 },
   })));
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
     name: "Stale private Ada", kind: "Private Trunk", status: "Working",

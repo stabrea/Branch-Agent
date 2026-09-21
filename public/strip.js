@@ -48,18 +48,22 @@ export const shell = {
   /** What the Overview is about: "here", "device:<id>" or "trunk:<id>". */
   target: "here",
 };
+let profileGeneration = 0;
 const PLATFORM = { darwin: ["devices.platform.darwin", "Mac computer"], linux: ["devices.platform.linux", "Linux computer"], win32: ["devices.platform.win32", "Windows computer"],
   ios: ["devices.platform.ios", "iPhone or iPad"], android: ["devices.platform.android", "Android phone"] };
 export const platformWord = (platform) => say(...(PLATFORM[platform] ?? ["strip.kind.computer", "Computer"]));
 
-export async function load() {
-  shell.look = await api("shell-look").catch(() => shell.look);
-  document.body.classList.toggle("faces-3d", shell.look.faces3d === "on");
-  shell.profiles = await api("profiles").catch(() => null);
-  const owner = ownerAtWindow() && shell.profiles?.isOwner !== false;
-  shell.roster = owner ? await api("trunks").catch(() => null) : null;
-  shell.devices = owner ? await api("devices").catch(() => null) : null;
-  shell.join = owner ? await api("devices/join").catch(() => null) : null;
+export async function load(expectedGeneration = profileGeneration) {
+  const look = await api("shell-look").catch(() => shell.look);
+  const profiles = await api("profiles").catch(() => null);
+  const owner = ownerAtWindow() && profiles?.isOwner !== false;
+  const roster = owner ? await api("trunks").catch(() => null) : null;
+  const devices = owner ? await api("devices").catch(() => null) : null;
+  const join = owner ? await api("devices/join").catch(() => null) : null;
+  if (expectedGeneration !== profileGeneration) return false;
+  Object.assign(shell, { look, profiles, roster, devices, join });
+  document.body.classList.toggle("faces-3d", look.faces3d === "on");
+  return true;
 }
 export const isOwner = () => ownerAtWindow() && shell.profiles?.isOwner !== false;
 export const trunksOn = () => !!shell.roster && shell.roster.modes?.trunks !== "off";
@@ -397,10 +401,11 @@ function wireDragging() {
 
 /* ---------- keeping it current ---------- */
 export async function refresh() {
-  await load();
+  const expectedGeneration = profileGeneration;
+  if (!await load(expectedGeneration)) return;
   // An open menu keeps the faces it was opened from; the next refresh draws them again.
   if (!$("strip-menu") && !$("who-menu")) drawStrip();
-  document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell }));
+  document.dispatchEvent(new CustomEvent("branch-strip", { detail: { ...shell, profileGeneration } }));
 }
 function whenReady(work) {
   const ready = () => document.body.classList.contains("lx-ready") && $("workspace") && !$("workspace").hidden;
@@ -414,12 +419,15 @@ whenReady(() => {
   wireGestures();
   void refresh();
   setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
-  document.addEventListener("branch-profile", () => void refresh());
+  document.addEventListener("branch-profile", () => { profileGeneration += 1; void refresh(); });
   document.addEventListener("branch-rooms-changed", (event) => {
     assignedTrunk = String(event.detail?.trunkId ?? "");
     markSelected();
   });
-  document.addEventListener("branch-language", () => { drawStrip(); document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell })); });
+  document.addEventListener("branch-language", () => {
+    drawStrip();
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { ...shell, profileGeneration } }));
+  });
   document.addEventListener("branch-place", markSelected);
   document.addEventListener("branch-strip-reselect", markSelected);
   if ($("conversation")) new MutationObserver(markSelected).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
