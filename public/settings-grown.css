@@ -82,18 +82,23 @@
   border-radius: 16px;
   background: var(--well);
 }
-/* Most older forms put the switch before its words. The approved row reads label first and puts
-   the switch at the far edge; row-reverse changes only presentation and keeps label semantics. */
+/* Most older forms put the switch before its words. Keep every word in DOM reading order and move
+   only the switch to the far edge. */
 .lx-page label:has(> input[type="checkbox"][role="switch"]),
 .lx-subpanel label:has(> input[type="checkbox"][role="switch"]) {
   display: flex;
-  flex-direction: row-reverse;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
   width: 100%;
   padding: 11px 0;
   border-top: 1px solid var(--line);
+}
+.lx-page label > input[type="checkbox"][role="switch"],
+.lx-subpanel label > input[type="checkbox"][role="switch"] {
+  order: 2;
+  flex: 0 0 auto;
+  margin-inline-start: auto;
 }
 /* One column of cards on all screen widths (DG-009); group headings span all. */
 @media (min-width: 1200px) {
