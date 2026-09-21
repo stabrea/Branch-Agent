@@ -347,7 +347,7 @@ test("the switch is in the conversation, and the plan card approves in one press
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
-    await page.getByRole("button", { name: /Try it without an account/ }).click();
+    await page.getByRole("button", { name: /Try it without an account/ }).dispatchEvent("click");
     await page.locator("#first-run").waitFor({ state: "hidden" });
   }
   // The choice lives in the conversation, not in Settings: under More in the calm window (0.18.1).

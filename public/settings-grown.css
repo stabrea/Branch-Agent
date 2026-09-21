@@ -245,6 +245,11 @@
 .lx-settings-link {
   gap: 9px;
 }
+/* Owner instructions must fail closed while another household profile is active. */
+:root[data-household="on"] .lx-settings-link[data-page="instructions"],
+:root[data-household="on"] #lx-page-instructions {
+  display: none !important;
+}
 .lx-settings-link .sg-icon {
   color: var(--text-3);
 }
