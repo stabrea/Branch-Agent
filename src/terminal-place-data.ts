@@ -83,7 +83,10 @@ function overviewRows(app: PlaceApp, words: Words): Row[] {
   const owner = app.store.profiles.isOwner(), scope = app.store.profiles.scope();
   const trunkChats = new Set((owner ? trunksFor(app.runtime)?.records.list() ?? [] : [])
     .flatMap((trunk) => [trunk.chatSessionId, ...trunk.retiredChats]));
-  const visible = app.store.runs(scope).filter((run) => !trunkChats.has(run.sessionId));
+  const latest = new Map<string, ReturnType<PlaceApp["store"]["runs"]>[number]>();
+  for (const run of [...app.store.runs(scope), ...app.store.activeRuns(scope)])
+    if (!latest.has(run.sessionId)) latest.set(run.sessionId, run);
+  const visible = [...latest.values()].filter((run) => !trunkChats.has(run.sessionId));
   const active = visible.filter((run) => run.status === "running" || run.status === "needs_input");
   const recent = visible.filter((run) => run.status !== "running" && run.status !== "needs_input")
     .slice(0, Math.max(0, 12 - active.length));

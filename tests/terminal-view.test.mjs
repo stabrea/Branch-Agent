@@ -329,10 +329,10 @@ test("the terminal overview reads only the active household profile's work", asy
   assert.deepEqual(rows.map((row) => row.sessionId), [samRun.sessionId]);
 });
 
-test("the terminal overview keeps an older active task ahead of newer finished work", async (t) => {
+test("the terminal overview keeps authoritative active work ahead of more than 100 newer runs", async (t) => {
   const { app } = await running(t);
   const active = app.store.createRun(app.runtime.owner, "Still running");
-  for (let index = 0; index < 12; index++) {
+  for (let index = 0; index < 101; index++) {
     const finished = app.store.createRun(app.runtime.owner, `Finished ${index}`);
     app.store.finish(finished.id, "completed", "done");
   }
@@ -340,6 +340,13 @@ test("the terminal overview keeps an older active task ahead of newer finished w
   assert.equal(rows.length, 12, "active work takes one of the recent-work slots");
   assert.equal(rows[0]?.sessionId, active.sessionId, "active work is never hidden behind newer finished tasks");
   assert.ok(rows.some((row) => row.title === "Still running"));
+
+  const stale = app.store.createRun(app.runtime.owner, "Old question");
+  app.store.finish(stale.id, "needs_input", "Answer me");
+  const answered = app.store.createRun(app.runtime.owner, "Newer answer", stale.sessionId);
+  app.store.finish(answered.id, "completed", "done");
+  const after = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.ok(after.every((row) => row.title !== "Old question"), "an older waiting run is not authoritative for its conversation");
 });
 
 test("the terminal People page shows a household profile only itself", async (t) => {
