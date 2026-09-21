@@ -1,8 +1,10 @@
 # Feature-ledger audit, 2026-09-21
 
-`docs/features.json` lists 169 features: **95 implemented, 59 missing, 14 partial**. That leaves
-73 not done, 43%. This audit checks each of the 73 against the tests that exist today, so that
-the ones already built can be proved and moved, and the rest can be built.
+`docs/features.json` lists 169 features: **95 implemented, 59 missing, 14 partial, 1 external**.
+That leaves **74 not fully verified**: 73 rows whose implementation is open (sections A to C, 43%)
+and one whose connector exists but has never been proved against a real service (section D). This
+audit checks each of them against the tests that exist today, so the ones already built can be
+proved and moved, and the rest can be built.
 
 **How it was done:** every test title in `tests/` (4,227 titles in 370 files) was matched against
 each row's acceptance criterion. That finds *candidates*; it does not prove anything. **No row moves in
@@ -107,6 +109,13 @@ moves to `implemented` with that test as evidence. Where it falls short, the gap
 | collaboration.media-comments | a comment anchored to a frame of a video | Claude |
 | collaboration.git-events | repository changes shown as shared events | Claude |
 
-**Totals:** 31 with existing tests to verify, 9 partial, 33 to build. Of the 33, 18 are Claude's and
+## D. Built, but not proved against a real service (1)
+
+| Row | What proof is missing | Who |
+|---|---|---|
+| models.hosted-local | The adapters accept a hosted HTTPS endpoint and a local loopback one, but today's fixtures only emulate the protocols. Complete the same fixture through a real configured hosted endpoint and a real local one (for example Ollama on this computer). | Codex |
+
+**Totals:** 74 not fully verified: 31 with existing tests to verify, 9 partial, 33 to build, 1
+external still to prove. Of the 33, 18 are Claude's and
 15 are Codex's. Some rows in A will fall back to B once checked word for word against the criterion;
 this table does not claim otherwise.
