@@ -14,7 +14,7 @@ import type { Store } from "../store.js";
  */
 export const askParts = [
   "project-board", "answer-engine", "answer-pages", "article-writer", "intent-pipeline", "source-sync",
-  "hindsight", "app-blocks", "analytics", "live-surfaces", "nodes", "app-server", "runtimes",
+  "hindsight", "app-blocks", "analytics", "live-surfaces", "nodes", "app-server", "runtimes", "forecasts",
 ] as const;
 export type AskPart = (typeof askParts)[number];
 export const AskPartSchema = z.enum(askParts);
@@ -41,6 +41,7 @@ export const askLabels: Record<AskPart, string> = {
   nodes: "Other computers running Branch",
   "app-server": "Letting an editor drive Branch over the app-server protocol",
   runtimes: "Other agents answering a conversation (Claude Code, Codex, Copilot, Gemini CLI)",
+  forecasts: "Forecasts, and how well they turned out",
 };
 
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
@@ -58,6 +59,7 @@ export const askTools: Record<AskPart, readonly string[]> = {
   nodes: ["nodes.status", "nodes.ask"],
   "app-server": [],
   runtimes: [],
+  forecasts: ["forecast.add", "forecast.resolve", "forecast.score"],
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */

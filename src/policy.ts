@@ -172,6 +172,8 @@ const readOnlyPermissions = new Set([
   // Saying what a call would do, and how the connections to other AI tools are faring, changes
   // nothing at all: nothing is run and nothing is written.
   "mcp.read",
+  // Reading back forecasts and their scores changes nothing (src/asks/forecasts.ts).
+  "forecasts.read",
   // Looking at what a program left running has printed changes nothing; starting or stopping one does.
   "process.read",
   // GitLab is read-only here: issues, releases and how the checks went.
