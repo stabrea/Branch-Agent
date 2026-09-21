@@ -265,6 +265,10 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   /* ci-flakes-3 listed three more places where the window's refresh every 3 s wrote over what somebody
      was in the middle of. Each is driven here by the very call that refresh makes, with no sleep. */
   await openSettingFor(f.page, "#policy-tool-limit");
+  await f.page.locator("#policy-tool-limit").evaluate((node) => { node.value = "41"; node.blur(); });
+  await f.page.evaluate(() => globalThis.branchApprovals.render());
+  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "41",
+    "a draft survives even when its input event raced the listener");
   await f.page.locator("#policy-tool-limit").fill("42");
   await f.page.evaluate(() => globalThis.branchApprovals.render());
   assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
