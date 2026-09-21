@@ -40,6 +40,7 @@ function github(initial = null, failUpload = false) {
     if (area === "release" && action === "edit") {
       release.isDraft = false;
       release.isLatest = args.includes("--latest");
+      release.isPrerelease = args.includes("--prerelease");
       release.notesFile = args[args.indexOf("--notes-file") + 1];
       return { code: 0, stdout: "", stderr: "" };
     }
@@ -57,6 +58,17 @@ test("a complete tag publishes the reviewed notes as the latest non-draft releas
   assert.match(fake.release().notesFile, /release-notes-1\.2\.3\.md$/);
   assert.equal(fake.release().assets.length, releaseFiles(input.tag).length);
   assert.ok(!fake.calls.flat().includes("Downloads for v1.2.3."));
+});
+
+test("a prerelease tag publishes as a prerelease and never becomes latest", async (t) => {
+  const input = await fixture(t, "v1.2.3-rc.1"), fake = github();
+  await publishRelease({ ...input, repo: "owner/repo", gh: fake.gh });
+  assert.equal(fake.release().isDraft, false);
+  assert.equal(fake.release().isPrerelease, true);
+  assert.equal(fake.release().isLatest, false);
+  const edit = fake.calls.find((args) => args[0] === "release" && args[1] === "edit");
+  assert.ok(edit.includes("--prerelease"));
+  assert.ok(!edit.includes("--latest"));
 });
 
 test("an incomplete local package never creates a release", async (t) => {

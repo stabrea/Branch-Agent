@@ -70,10 +70,13 @@ function missingGroups(release, tag) {
 
 export async function publishRelease({ tag, repo, downloads: directory, source, gh = defaultGh }) {
   const notes = await verifyInputs(tag, source, directory);
+  const prerelease = tag.slice(1).split("+", 1)[0].includes("-");
   let release = await readRelease(gh, tag, repo);
   if (!release) {
-    await checked(gh, ["release", "create", tag, "--repo", repo, "--draft", "--verify-tag",
-      "--title", `Branch Agent ${tag.slice(1)}`, "--notes-file", notes]);
+    const create = ["release", "create", tag, "--repo", repo, "--draft", "--verify-tag",
+      "--title", `Branch Agent ${tag.slice(1)}`, "--notes-file", notes];
+    if (prerelease) create.push("--prerelease");
+    await checked(gh, create);
     release = await readRelease(gh, tag, repo);
   }
   const missing = missingGroups(release, tag);
@@ -83,7 +86,9 @@ export async function publishRelease({ tag, repo, downloads: directory, source, 
   release = await readRelease(gh, tag, repo);
   const absent = releaseFiles(tag).filter((name) => !(release.assets ?? []).some((asset) => asset.name === remoteName(name)));
   if (absent.length) throw new Error(`Release is still missing required assets: ${absent.join(", ")}`);
-  await checked(gh, ["release", "edit", tag, "--repo", repo, "--notes-file", notes, "--draft=false", "--latest"]);
+  const edit = ["release", "edit", tag, "--repo", repo, "--notes-file", notes, "--draft=false"];
+  edit.push(prerelease ? "--prerelease" : "--prerelease=false", ...(prerelease ? [] : ["--latest"]));
+  await checked(gh, edit);
   return { tag, notes, assets: releaseFiles(tag) };
 }
 
