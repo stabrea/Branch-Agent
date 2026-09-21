@@ -202,21 +202,32 @@ test("a described text button moves its native title so only the glass help appe
 test("keyboard focus shows the same help and Escape closes it", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance-language");
-  const control = f.page.locator("#appearance-language"), tip = f.page.locator("#glass-tip");
-  const focused = await f.page.evaluate(() => {
+  /* Focus help is synchronous. Read it and close it in the same browser turn so the Settings
+     background refresh cannot replace the focused control between separate Playwright packets. */
+  const state = await f.page.evaluate(() => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     const node = document.getElementById("appearance-language");
+    const tip = document.getElementById("glass-tip");
     node.focus();
-    return document.activeElement === node;
+    const describedBy = node.getAttribute("aria-describedby") || "";
+    const linkedWords = describedBy.split(/\s+/)
+      .some((id) => document.getElementById(id)?.textContent?.trim());
+    const beforeEscape = {
+      focused: document.activeElement === node,
+      described: Boolean(describedBy),
+      linkedWords,
+      visible: !tip.hidden,
+      words: tip.textContent.trim(),
+    };
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return { ...beforeEscape, hiddenAfterEscape: tip.hidden };
   });
-  assert.equal(focused, true, "keyboard focus landed before the next background refresh");
-  assert.ok(await control.getAttribute("aria-describedby"), "the control has help to show");
-  assert.ok(await control.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
-    .some((id) => document.getElementById(id)?.textContent?.trim())), "the linked help has words");
-  await f.page.evaluate(() => document.dispatchEvent(new Event("scroll", { bubbles: true })));
-  await tip.waitFor({ state: "visible" });
-  await f.page.keyboard.press("Escape");
-  await tip.waitFor({ state: "hidden" });
+  assert.equal(state.focused, true, "keyboard focus landed before the next background refresh");
+  assert.equal(state.described, true, "the control has help to show");
+  assert.equal(state.linkedWords, true, "the linked help has words");
+  assert.match(state.words, /language of this window/i);
+  assert.equal(state.visible, true, "keyboard focus shows its help immediately");
+  assert.equal(state.hiddenAfterEscape, true, "Escape closes the help");
   assert.deepEqual(f.errors, []);
 });
 
