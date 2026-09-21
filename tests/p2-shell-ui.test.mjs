@@ -274,6 +274,19 @@ test("a household person sees this computer and the people, and nothing of the o
   assert.ok(markerAtEvent.eventGeneration > 0);
   assert.equal(markerAtEvent.eventGeneration, markerAtEvent.markerGeneration,
     "the event and document carry one canonical profile generation");
+  const repeatedOwner = await f.page.evaluate(async () => {
+    const { noteWindowProfile } = await import("/app.js");
+    let eventGeneration = null;
+    document.addEventListener("branch-profile", (event) => { eventGeneration = event.detail.profileGeneration; }, { once: true });
+    const before = Number(document.documentElement.dataset.profileGeneration);
+    noteWindowProfile(true, { force: true });
+    return { before, eventGeneration, after: Number(document.documentElement.dataset.profileGeneration) };
+  });
+  assert.deepEqual(repeatedOwner, {
+    before: markerAtEvent.markerGeneration,
+    eventGeneration: markerAtEvent.markerGeneration + 1,
+    after: markerAtEvent.markerGeneration + 1,
+  }, "a profile-to-profile switch still tells every profile-specific screen to refresh");
   assert.deepEqual(f.errors, []);
 });
 
