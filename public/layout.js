@@ -1301,14 +1301,18 @@ function buildSettingsRow() {
 
 /* "Connected" only ever meant the window reached Branch on this computer. It is said only when that stops being true. */
 let misses = 0;
+let serverProbeGeneration = 0;
 async function checkServer() {
   if (document.hidden || $("workspace").hidden) return;
+  const generation = ++serverProbeGeneration;
+  let reached = true;
   try {
     await fetch("/api/health", { cache: "no-store" });
-    misses = 0;
   } catch {
-    misses += 1;
+    reached = false;
   }
+  if (generation !== serverProbeGeneration) return;
+  misses = reached ? 0 : misses + 1;
   const lost = misses >= 2;
   const chip = $("connection");
   if (lost) chip.textContent = say("server.lost", "Branch stopped responding");

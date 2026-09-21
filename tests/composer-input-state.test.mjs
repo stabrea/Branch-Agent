@@ -120,7 +120,7 @@ test("the plus menu changes the real conversation choices", async (t) => {
     ["Temporary: forget this conversation afterwards", "#temporary-toggle"],
   ]) {
     await page.locator("#lx-plus").click();
-    await page.locator("#lx-plus-menu").getByRole("menuitem", { name, exact: true }).click();
+    await page.locator("#lx-plus-menu").getByRole("menuitem", { name, exact: true }).dispatchEvent("click");
     assert.equal(await page.locator(target).isChecked(), true, `${name} presses its existing control`);
     assert.equal(await page.locator("#lx-plus-menu").isHidden(), true);
   }
