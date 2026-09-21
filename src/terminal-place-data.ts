@@ -109,6 +109,20 @@ const recordRows = (app: PlaceApp, table: "schedules" | "procedures" | "speciali
     return { title: clip(title), detail: clip([data.status, data.dueAt, data.description].filter(Boolean).join(" · ")) || record.id };
   });
 
+function specialistRows(app: PlaceApp, words: Words): Row[] {
+  const trunks = (trunksFor(app.runtime)?.records.list() ?? []).map((trunk) => ({
+    title: clip(trunk.name),
+    detail: clip(`${words.t("strip.kind.trunk", "Trunk")} · @${trunk.handle}${trunk.title ? ` · ${trunk.title}` : ""}`),
+    tone: trunk.hidden ? "muted" as const : undefined,
+    sessionId: trunk.chatSessionId,
+  }));
+  const specialists = recordRows(app, "specialists", ["name"]).map((row) => ({
+    ...row,
+    detail: clip(`${words.t("place.customize.specialists", "Specialists")} · ${row.detail ?? ""}`),
+  }));
+  return [...trunks, ...specialists];
+}
+
 function triggers(app: PlaceApp, words: Words): Row[] {
   const on = (enabled: boolean): string => enabled ? words.t("terminal.state.on", "on") : words.t("terminal.state.off", "off");
   return [
@@ -172,7 +186,7 @@ export const PLACE_ROWS: Record<string, RowReader> = {
     title: skill.name, detail: clip(`${skill.activeVersion ? "" : words.t("terminal.state.off", "off") + " · "}${skill.description}`),
     tone: skill.activeVersion ? undefined : "muted" as const,
   })),
-  "customize:specialists": (app) => recordRows(app, "specialists", ["name"]),
+  "customize:specialists": specialistRows,
   "customize:plugins": plugins,
   "customize:connections": (app) => app.mcpConnections.health().map((server) => ({
     title: server.id, detail: `${server.state}${server.lastError ? " · " + clip(server.lastError, 60) : ""}`,
