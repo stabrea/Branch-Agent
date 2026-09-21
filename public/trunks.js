@@ -590,3 +590,6 @@ whenReady(() => {
   // The roster follows new replies without a reload.
   setInterval(() => { if (!document.hidden) void drawRail(); }, 15000);
 });
+/* Studio refreshes the shared strip after enabling, creating or editing a Trunk. Refresh the rail on
+   that same event so it never waits for the 15-second background poll. */
+document.addEventListener("branch-strip", () => void drawRail());

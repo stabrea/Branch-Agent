@@ -133,7 +133,12 @@ test("the rail switches between conversations and real Trunks without duplicatin
   await f.page.locator("#rail-new-trunk").click();
   await f.page.locator("#studio").waitFor({ state: "visible" });
   assert.equal(await f.page.locator("#studio").getByText("Trunks are switched off.").isVisible(), true);
-  await f.page.locator("#studio").getByRole("button", { name: "Close" }).click();
+  await f.page.locator("#studio").getByRole("button", { name: "Switch Trunks on" }).click();
+  await f.page.locator("#trunks-rail").waitFor({ state: "visible" });
+  await f.page.locator("#studio-name").fill("Scout");
+  await f.page.locator("#studio").getByRole("button", { name: "Create the Trunk" }).click();
+  await f.page.locator("#studio").waitFor({ state: "detached" });
+  await f.page.locator('#trunks-rail [data-trunk]').filter({ hasText: "Scout" }).waitFor({ state: "visible" });
   await f.page.locator("#rail-view-trunks").press("ArrowLeft");
   assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
   assert.deepEqual(f.errors, []);
