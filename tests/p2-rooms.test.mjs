@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { call, fixture, on } from "./trunks-helpers.mjs";
+import { runOrigin } from "../dist/key-context.js";
 
 /** Ann writes `room.txt` when the owner's message says "write"; a tool result is answered with "Done". */
 const writer = [({ system, last }) => {
@@ -75,6 +76,35 @@ test("piece 1: a short-lived key's message in a Full access room is held to the 
   await app.trunks.rooms.settled(r.id);
   assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false, "the key's message did not get Full access");
   assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1, "it asks, as the owner's setting says");
+});
+
+test("a queued room message keeps the household person who sent it", async (t) => {
+  let began, release;
+  const started = new Promise((resolve) => { began = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const { app, call: request } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const run = app.runtime.run.bind(app.runtime);
+  app.runtime.run = async (options) => {
+    if (options.prompt.includes("@ann start")) { began(); await held; }
+    return run(options);
+  };
+  const room = app.trunks.rooms.create({ name: "Queued", members: [ann.id, ben.id] });
+  app.trunks.rooms.send(room.id, { text: "@ann start" });
+  await started;
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.trunks.rooms.edit(room.id, { people: [sam.id] });
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  assert.equal((await request(`/api/trunks/rooms/${room.id}/send`, { text: "@ben continue" })).status, 200);
+  app.store.profiles.switch({ profileId: null });
+  release();
+  await app.trunks.rooms.settled(room.id);
+  const answer = app.store.runs(app.runtime.owner)
+    .find((entry) => entry.sessionId === room.memberSessions[ben.id] && entry.prompt.includes("@ben continue"));
+  assert.ok(answer, "Ben answered Sam's queued discussion");
+  assert.equal(runOrigin(app.store, answer.id).personProfileId, sam.id);
 });
 
 test("piece 1: after a restart the room's turns still follow the room's mode", async (t) => {

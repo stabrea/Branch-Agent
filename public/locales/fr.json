@@ -4950,6 +4950,8 @@
   "trunks.room.message": "Votre message",
   "trunks.room.name": "Nom du salon",
   "trunks.room.people": "Personnes autorisées dans ce salon privé",
+  "trunks.room.people.manage": "Changer les personnes autorisées",
+  "trunks.room.people.save": "Enregistrer l’accès au salon",
   "trunks.room.open": "Ouvrir",
   "trunks.room.passed": "(a passé son tour)",
   "trunks.room.reply": "Répondre à @{handle}",

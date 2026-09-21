@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
+import { openPlace } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -175,6 +176,30 @@ test("a private room shows its people and shared artifacts in the conversation",
   await card.locator(".rooms-artifact-content").fill("only this room");
   await card.getByRole("button", { name: "Share", exact: true }).click();
   await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("only this room"));
+  assert.deepEqual(f.errors, []);
+});
+
+test("the owner can revoke a person's access to an existing room", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const room = (await f.call("/api/trunks/rooms", {
+    name: "Private bench", members: [f.scout.id, f.ledger.id], people: [sam.id],
+  })).room;
+  await openPlace(f.page, "customize:specialists");
+  await f.page.evaluate(async () => (await import("/trunks.js")).draw());
+  const roomRow = f.page.locator(".trunks-room-row").filter({ hasText: "Private bench" });
+  await roomRow.getByText("Change who may enter", { exact: true }).click();
+  const samAccess = roomRow.getByRole("checkbox", { name: "Sam" });
+  assert.equal(await samAccess.isChecked(), true);
+  await samAccess.uncheck();
+  await roomRow.getByRole("button", { name: "Save room access", exact: true }).click();
+  let view;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    view = await f.call(`/api/trunks/rooms/${room.id}`);
+    if (!view.people.length) break;
+    await f.page.waitForTimeout(25);
+  }
+  assert.deepEqual(view.people, []);
   assert.deepEqual(f.errors, []);
 });
 

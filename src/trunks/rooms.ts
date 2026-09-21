@@ -5,6 +5,7 @@ import type { PolicyRemember } from "../policy.js";
 import type { Runtime } from "../runtime.js";
 import type { Store } from "../store.js";
 import { shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "../key-context.js"; // phase2/rooms
+import { asPerson } from "../people/context.js";
 import type { TrunkRecords } from "./record.js";
 import {
   asksForOwner, isPass, maxRoomMembers, minRoomMembers, nextRoomTurn,
@@ -276,10 +277,13 @@ export class TrunkRooms {
     if (!member || !sessionId) { this.append(room.id, { kind: "failed", text: "This Trunk is gone", memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
     let run: Run;
     // phase2/rooms: a turn answering a short-lived key's message is that key's work.
-    const byKey = room.events.find((e) => e.seq === task.discussion)?.byKey;
+    const discussion = room.events.find((event) => event.seq === task.discussion);
+    const byKey = discussion?.byKey;
     const start = () => this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
     try {
-      run = await (byKey ? underShortLivedKey(start, byKey) : start());
+      run = await (byKey ? underShortLivedKey(start, byKey)
+        : discussion?.personId ? asPerson({ profileId: discussion.personId, keyId: `room:${room.id}` }, start)
+        : start());
     } catch (error) {
       if (this.closing) return;
       this.append(room.id, { kind: "failed", text: error instanceof Error ? error.message : String(error), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen });
