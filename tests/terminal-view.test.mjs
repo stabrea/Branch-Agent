@@ -323,6 +323,23 @@ test("the terminal People page shows a household profile only itself", async (t)
   assert.deepEqual(rows.map((row) => row.title), ["Sam"]);
 });
 
+test("the Trunks Settings row opens the live Trunks roster, not specialist records", async (t) => {
+  const { app, tui, settle } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  app.trunks.create({ name: "Ada", title: "Keeps the live roster" });
+  app.store.save("specialists", app.runtime.owner, "specialist-only", { name: "Specialist only" });
+  await tui.command("/go settings trunks");
+  await settle();
+  assert.equal(tui.rows[0]?.command, "/go customize specialists");
+  await tui.command(tui.rows[0].command);
+  await settle();
+  assert.equal(homeOf(tui.route), "customize:specialists");
+  assert.ok(tui.rows.some((row) => row.title === "Ada" && row.detail?.startsWith("Trunk ·")),
+    "the real named Trunk appears from the live roster");
+  assert.ok(tui.rows.some((row) => row.title === "Specialist only" && row.detail?.startsWith("Specialists ·")),
+    "saved specialist templates remain visible but are not presented as Trunks");
+});
+
 test("every place, tab and Settings page in docs/places.md opens from the terminal, by command and by key", async (t) => {
   const { tui, input, settle } = await running(t);
   for (const home of allHomes()) {
