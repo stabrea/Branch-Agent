@@ -134,6 +134,10 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
   await openSettings(page, "instructions");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await page.locator("#lx-page-instructions .lx-page-intro").innerText(),
+    "Les fichiers simples que Branch lit avant de travailler : qui il est, qui vous êtes et comment vous voulez que le travail soit fait.");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
   assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
 
@@ -143,12 +147,18 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   });
   assert.equal(await page.locator("#agent-files").count(), 0);
   assert.equal((await page.locator("body").innerText()).includes(privateText), false);
+  assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').isHidden(), true);
+  assert.equal(await page.locator('#sg-page-pick option[value="instructions"]').evaluate((node) => node.disabled), true);
+  assert.equal(await page.locator("#lx-page-instructions").isHidden(), true);
+  assert.equal(await page.locator('.lx-settings-link[data-page="general"]').getAttribute("aria-current"), "true");
 
   await page.evaluate(() => {
     document.documentElement.dataset.household = "off";
     document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: true } }));
   });
   await page.locator("#agent-files").waitFor({ state: "attached" });
+  assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').isVisible(), true);
+  assert.equal(await page.locator('#sg-page-pick option[value="instructions"]').evaluate((node) => node.disabled), false);
 });
 
 // Integration review: undo re-checks where the file is and whether it may be written, and the saved

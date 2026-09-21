@@ -304,6 +304,12 @@ function syncPicker() {
   select.value = current;
   select.dispatchEvent(new Event("branch-sync"));
 }
+function showOwnerPickerPage(owner) {
+  const option = $("sg-page-pick")?.querySelector('option[value="instructions"]');
+  if (!option) return;
+  option.hidden = !owner;
+  option.disabled = !owner;
+}
 
 /* ---------- Settings is a cog right after the account row (#37) ---------- */
 /** The account row, then the cog: the calm window's Settings row and the full window's gear both become that cog. */
@@ -579,7 +585,11 @@ function start() {
     changeAppearance({ settingsLevel: level });
   });
   document.addEventListener("branch-place", drawLatePages);
-  document.addEventListener("branch-profile", () => { $("sg-found")?.remove(); applyLevel(); });
+  document.addEventListener("branch-profile", (event) => {
+    $("sg-found")?.remove();
+    applyLevel();
+    showOwnerPickerPage(event.detail?.owner !== false);
+  });
   document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
   document.body.classList.add("sg-ready");
 }
