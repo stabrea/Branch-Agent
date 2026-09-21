@@ -107,6 +107,27 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   assert.deepEqual(f.errors, []);
 });
 
+test("externally wired segmented redraws restore focus to the replacement", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const mount = document.createElement("div");
+    mount.id = "external-segment-mount";
+    const make = () => globalThis.branchControlMakers.dropdown({ id: "external-segment", options: [
+      ["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"],
+      ["on", "field.switch-on", "On"],
+    ] });
+    const control = make();
+    control.addEventListener("change", () => setTimeout(() => control.replaceWith(make()), 20));
+    mount.append(control);
+    document.getElementById("workspace").append(mount);
+  });
+  const original = await f.page.locator("#external-segment").elementHandle();
+  await f.page.locator("#external-segment-mount [data-v=on]").click();
+  await f.page.waitForFunction((node) => !node.isConnected, original);
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "external-segment");
+  assert.deepEqual(f.errors, []);
+});
+
 test("a segmented control reuses its own changing field note", async (t) => {
   const f = await fixture(t);
   await openPlace(f.page, "automations:procedures");
