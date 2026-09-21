@@ -105,6 +105,22 @@ async function switchEverythingOn(page) {
     await page.waitForTimeout(2500);
   }
 }
+
+test("the desktop Settings level and version stay at the bottom of the rail", async (t) => {
+  const f = await fixture(t, { width: 1440, height: 1800 });
+  await openSettings(f.page, "general");
+  const layout = await f.page.evaluate(() => {
+    const nav = document.querySelector(".lx-settings-nav").getBoundingClientRect();
+    const level = document.querySelector(".sg-level").getBoundingClientRect();
+    const version = document.querySelector("#lx-settings-version").getBoundingClientRect();
+    return { navTop: nav.top, navBottom: nav.bottom, navHeight: nav.height,
+      levelTop: level.top, versionBottom: version.bottom };
+  });
+  assert.ok(layout.levelTop > layout.navTop + layout.navHeight / 2, "the footer group follows the rail spacer");
+  assert.ok(layout.navBottom - layout.versionBottom < 30,
+    `the version remains against the rail bottom: ${JSON.stringify(layout)}`);
+  assert.deepEqual(f.errors, []);
+});
 /** Where each setting's control is: settings:<page>[:<tab>], <place>:<tab>, or null when there is none. */
 function whereEach(page) {
   return page.evaluate((rows) => Object.fromEntries(rows.map(([id, , card, , , selector]) => {

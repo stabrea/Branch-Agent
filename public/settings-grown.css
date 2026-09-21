@@ -320,6 +320,12 @@
   line-height: 1.35;
 }
 
+@media (min-width: 861px) {
+  #settings-window .lx-settings-nav .sg-level {
+    margin-top: auto;
+  }
+}
+
 /* ---------- a phone: one choice of page, the search and the level, nothing that scrolls sideways ---------- */
 @media (max-width: 860px) {
   .lx-settings-nav {
