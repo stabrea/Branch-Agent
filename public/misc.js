@@ -3,6 +3,7 @@
  * added to the bottom of the Usage screen; deciding approvals a kind of thing at a time rather
  * than a tool at a time; and the practice workspace, where nothing is real.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 const say = (message) => (globalThis.toast ? globalThis.toast(message) : console.warn(message));
 function el(tag, text, className) {
@@ -98,11 +99,17 @@ async function renderCategories() {
   for (const category of view.categories) {
     if (!category.tools.length) continue;
     const row = el("div", undefined, "card-list-item");
-    row.append(el("strong", category.label));
-    row.append(el("p", `${category.description} (${category.tools.length} ${category.tools.length === 1 ? "tool" : "tools"})`, "subtle"));
+    /* The kind's name is the dropdown's name: without it a screen reader announced six identical
+       "combo box, Leave as it is" with nothing to tell them apart. (What the choice does is linked
+       by public/settings-describe.js, from its "#approval-categories select" row.) */
+    const name = el("strong", category.label);
+    name.id = `approval-category-${category.id}-name`;
+    row.append(name, el("p", t(category.tools.length === 1 ? "toolKinds.aboutOne" : "toolKinds.aboutMany",
+      { about: category.description, count: category.tools.length }), "subtle"));
     const choice = el("select");
-    for (const [value, label] of [["", "Leave as it is"], ["allow", "Just get on with it"], ["ask", "Ask me first"], ["deny", "Never do this"]]) {
-      const option = el("option", label);
+    choice.setAttribute("aria-labelledby", name.id);
+    for (const [value, key] of [["", "toolKinds.leave"], ["allow", "toolKinds.allow"], ["ask", "toolKinds.ask"], ["deny", "toolKinds.deny"]]) {
+      const option = el("option", t(key));
       option.value = value;
       choice.append(option);
     }
@@ -113,9 +120,9 @@ async function renderCategories() {
         await api("approvals/categories", { [category.id]: choice.value });
         category.decision = choice.value;
         categoriesDrawn = categoriesShape(view.categories);
-        say(`Saved: ${category.label.toLowerCase()} — ${choice.selectedOptions[0].textContent.toLowerCase()}.`);
+        say(t("toolKinds.saved", { kind: category.label.toLowerCase(), choice: choice.selectedOptions[0].textContent.toLowerCase() }));
         void window.branchApprovals?.render();
-      } catch (e) { say("That could not be saved: " + e.message); }
+      } catch (e) { say(t("toolKinds.notSaved", { message: e.message })); }
     });
     row.append(choice);
     host.append(row);
