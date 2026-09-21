@@ -1511,7 +1511,7 @@ function start() {
   installGrownComposer();
   wireKeys();
   extendPalette();
-  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer };
+  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer, showOwnerSettings };
   applyLook();
   const open = [...document.querySelectorAll("#workspace > .view")].find((node) => !node.hidden)?.id || "chat";
   go(open === "settings" ? "chat" : open);

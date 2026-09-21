@@ -586,9 +586,13 @@ function start() {
   });
   document.addEventListener("branch-place", drawLatePages);
   document.addEventListener("branch-profile", (event) => {
+    const owner = event.detail?.owner !== false;
     $("sg-found")?.remove();
     applyLevel();
-    showOwnerPickerPage(event.detail?.owner !== false);
+    /* Applying the household level can rearrange the Settings shell after layout handled the same
+       event. Reapply the owner-only page guard last so Instructions cannot be exposed again. */
+    globalThis.branchLayout?.showOwnerSettings(owner);
+    showOwnerPickerPage(owner);
     queueMicrotask(syncPicker);
   });
   document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
