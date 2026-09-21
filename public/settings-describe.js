@@ -296,9 +296,19 @@ function fill(button, defaults) {
   return true;
 }
 
+/** The "i" whose explanation is being fetched: a second press on it before it opens means "never mind". */
+let opening = null;
+
 async function toggleInfo(button) {
   if (shown?.button === button) { shown.entry.close(); return; }
+  if (opening === button) { opening = null; return; }
+  opening = button;
   const defaults = await loadDefaults();
+  // Only the latest press opens anything, and whatever it replaces is closed first: its close
+  // hides the one shared pane, so running it after this one is shown would hide this one instead.
+  if (opening !== button) return;
+  opening = null;
+  if (shown) shown.entry.close();
   if (!pane) {
     pane = document.createElement("div");
     pane.className = "kit-info-pop";
@@ -311,9 +321,11 @@ async function toggleInfo(button) {
   place(button);
   button.setAttribute("aria-expanded", "true");
   const entry = trackPopover(button, pane, () => {
-    pane.hidden = true;
     button.setAttribute("aria-expanded", "false");
-    if (shown?.button === button) shown = null;
+    // The pane belongs to whichever "i" is showing now; a close that arrives late hides nothing else.
+    if (shown?.button !== button) return;
+    pane.hidden = true;
+    shown = null;
   });
   shown = { button, entry };
 }

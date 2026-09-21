@@ -204,3 +204,36 @@ test("an open explanation follows a language change where it stands", async (t) 
   assert.ok(!/What this does|When you'd change it/.test(words), "no English left in the open explanation");
   assert.equal(await pop.isVisible(), true, "it stayed open, where it was");
 });
+
+test("going straight from one i to another shows the second, with no Escape between", async (t) => {
+  const { page } = await fixture(t);
+  await openSettings(page, "general");
+  const pop = page.locator(".kit-info-pop");
+  const first = infoFor(page, "#keep-running"), second = infoFor(page, "#start-minimised");
+  await first.click();
+  await pop.waitFor({ state: "visible" });
+  await second.click();
+  await page.waitForFunction(() => /Start quietly/.test(document.querySelector(".kit-info-pop")?.innerText ?? ""));
+  assert.equal(await pop.isVisible(), true, "the second explanation is showing");
+  assert.equal(await second.getAttribute("aria-expanded"), "true");
+  assert.equal(await first.getAttribute("aria-expanded"), "false");
+  await page.waitForTimeout(300);
+  assert.equal(await pop.isVisible(), true, "and nothing hides it a moment later");
+});
+
+test("two presses while the explanation is still loading open nothing, and leave the i closed", async (t) => {
+  const { page } = await fixture(t);
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route("**/settings-defaults.json", async (route) => { await held; await route.continue(); });
+  await openSettings(page, "general");
+  const info = infoFor(page, "#keep-running");
+  await info.click();
+  await info.click();
+  release();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".kit-info-pop").isVisible().catch(() => false), false);
+  assert.equal(await info.getAttribute("aria-expanded"), "false");
+  await info.click();
+  await page.locator(".kit-info-pop").waitFor({ state: "visible" });
+});
