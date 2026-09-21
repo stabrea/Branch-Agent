@@ -5,7 +5,7 @@
  * trajectory, the live event feed, the month view and the metering export.
  */
 import test from "node:test";
-import { openPlace, openSettingFor, showEverything } from "./places.mjs";
+import { finishFirstRun, openPlace, openSettingFor, showEverything } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -55,11 +55,7 @@ export async function onPage(t, options = {}) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  if (await page.locator("#first-run").isVisible()) {
-    /* "Try it without an account" finishes first run in one click. */
-    await page.getByRole("button", { name: /Try it without an account/ }).click();
-    await page.locator("#first-run").waitFor({ state: "hidden" });
-  }
+  await finishFirstRun(page);
   /* These tests exercise the full window's own controls: "Show everything" since 0.18.1. */
   await showEverything(page);
   return { app, server, api, page, errors, root };
