@@ -395,7 +395,7 @@ function eventNode(event) {
   if (event.kind === "user") {
     const node = el("div", "message user");
     node.dataset.rewind = "room"; // going back to a message is for an ordinary conversation (public/rewind.js)
-    node.append(el("small", "", say("rooms.you", "You")), withMentions(event.text));
+    node.append(el("small", "", event.personName ?? say("rooms.you", "You")), withMentions(event.text));
     return node;
   }
   if (event.kind === "member") return replyNode(event);
@@ -416,7 +416,7 @@ async function drawRoom() {
   const nodes = roomView.events.map(eventNode).filter(Boolean);
   if (!nodes.length) nodes.push(el("p", "rooms-line", say("rooms.empty", "Say something to the room. Only those you @mention answer; nobody mentioned means everyone.")));
   const grown = box.dataset.roomSeen !== `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
-  box.replaceChildren(...nodes, ...allowedCard(roomView), ...asks(roomView), ...talking(roomView));
+  box.replaceChildren(...nodes, ...artifactCard(roomView), ...allowedCard(roomView), ...asks(roomView), ...talking(roomView));
   box.dataset.roomSeen = `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
   // Only something new brings the newest line into view, so reading back up is never interrupted.
   if (grown) ($("chat") ?? box).scrollIntoView({ block: "end" }); // its end keeps room for the message box
@@ -451,10 +451,33 @@ function talking(view) {
   if (!view.speaking) return [];
   const row = el("div", "rooms-talking");
   row.setAttribute("role", "status");
-  row.append(el("span", "rooms-dots"), el("span", "", say("rooms.talkingNow", "The room is talking…")),
-    press("rooms-stop", say("rooms.stop", "Stop"), () => attempt(async () => { await api(`trunks/rooms/${view.id}/stop`, {}); await drawRoom(); }),
-      say("rooms.stopLabel", "Stop the room: nobody else is asked")));
+  row.append(el("span", "rooms-dots"), el("span", "", say("rooms.talkingNow", "The room is talking…")));
+  if (view.owner) row.append(press("rooms-stop", say("rooms.stop", "Stop"),
+    () => attempt(async () => { await api(`trunks/rooms/${view.id}/stop`, {}); await drawRoom(); }),
+    say("rooms.stopLabel", "Stop the room: nobody else is asked")));
   return [row];
+}
+
+function artifactCard(view) {
+  const card = el("section", "rooms-artifacts");
+  card.append(el("h3", "", say("rooms.artifacts", "Shared with this room")));
+  if (view.people?.length) card.append(el("p", "rooms-people", say("rooms.peopleHere", "People here: {names}", {
+    names: view.people.map((person) => person.name).join(", "),
+  })));
+  for (const artifact of view.artifacts ?? []) {
+    const item = el("article", "rooms-artifact");
+    item.append(el("b", "", artifact.name), el("small", "", say("rooms.artifactBy", "Shared by {name}", { name: artifact.personName })),
+      el("pre", "", artifact.content));
+    card.append(item);
+  }
+  const name = el("input", "rooms-artifact-name"), content = el("textarea", "rooms-artifact-content");
+  name.placeholder = say("rooms.artifactName", "Name");
+  content.placeholder = say("rooms.artifactContent", "Text to share only with this room");
+  card.append(name, content, press("rooms-add-artifact", say("rooms.artifactAdd", "Share"), () => attempt(async () => {
+    await api(`trunks/rooms/${view.id}/artifacts`, { name: name.value.trim(), content: content.value });
+    await drawRoom();
+  })));
+  return [card];
 }
 
 /* ---------- a Trunk waiting for your yes ---------- */

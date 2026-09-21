@@ -25,25 +25,43 @@ const pictureData = z.string().max(400_000).regex(/^data:image\/(png|jpeg|webp);
 export const RoomCreateSchema = z.object({
   name: z.string().trim().min(1).max(60),
   members: z.array(z.string().uuid()).min(minRoomMembers).max(maxRoomMembers),
+  people: z.array(z.string().uuid()).max(8).default([]),
 }).strict();
 export const RoomEditSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   members: z.array(z.string().uuid()).min(minRoomMembers).max(maxRoomMembers).optional(),
+  people: z.array(z.string().uuid()).max(8).optional(),
   picture: pictureData.nullable().optional(),
   pinned: z.boolean().optional(),
   section: z.string().trim().max(40).optional(),
   order: z.number().int().min(0).max(10000).optional(),
 }).strict();
+const RoomArtifactSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  content: z.string().max(12_000),
+}).strict();
 const maxKeptEvents = 300;
+
+export interface RoomArtifact {
+  id: string;
+  name: string;
+  content: string;
+  personId: string | null;
+  personName: string;
+  createdAt: string;
+}
 
 export interface Room {
   id: string;
   name: string;
   members: string[];
+  /** Household profiles allowed into this private room. The owner is always allowed. */
+  people: string[];
   /** The room's own transcript, as a conversation. */
   sessionId: string;
   /** Each member's own conversation for this room. */
   memberSessions: Record<string, string>;
+  artifacts: RoomArtifact[];
   events: RoomEvent[];
   seq: number;
   /** A member asked for the owner, or is waiting for a yes. */
@@ -80,15 +98,19 @@ export class TrunkRooms {
 
   constructor(private readonly deps: RoomDeps) {}
 
+  private normalize(room: Room): Room {
+    return { ...room, people: room.people ?? [], artifacts: room.artifacts ?? [] };
+  }
+
   list(): Room[] {
     return this.deps.store.list("governance", this.deps.owner).filter((r) => r.id.startsWith("trunk-room:"))
-      .map((r) => r.data as unknown as Room)
+      .map((r) => this.normalize(r.data as unknown as Room))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || b.updatedAt.localeCompare(a.updatedAt));
   }
   get(id: string): Room {
     const room = this.deps.store.get("governance", this.deps.owner, `trunk-room:${id}`)?.data as unknown as Room | undefined;
     if (!room) throw Object.assign(new Error("There is no room with that id"), { status: 404 });
-    return room;
+    return this.normalize(room);
   }
   private put(room: Room): Room {
     this.deps.store.save("governance", this.deps.owner, `trunk-room:${room.id}`, { ...room, updatedAt: new Date().toISOString() });
@@ -97,6 +119,30 @@ export class TrunkRooms {
   private checkMembers(members: string[]): void {
     if (new Set(members).size !== members.length) throw new Error("A Trunk can sit in a room only once");
     for (const id of members) this.deps.records.get(id);
+  }
+  private checkPeople(people: string[]): void {
+    if (new Set(people).size !== people.length) throw new Error("A person can join a room only once");
+    const known = new Set(this.deps.store.profiles.list().map((profile) => profile.id));
+    if (people.some((id) => !known.has(id))) throw new Error("That person is no longer on this computer");
+  }
+  allows(room: Room, profileId: string | null): boolean {
+    return profileId === null || room.people.includes(profileId);
+  }
+  requireAccess(id: string, profileId: string | null): Room {
+    const room = this.get(id);
+    if (!this.allows(room, profileId))
+      throw Object.assign(new Error("This private room is only for its members"), { status: 403 });
+    return room;
+  }
+  forPerson(profileId: string): Room[] {
+    return this.list().filter((room) => this.allows(room, profileId));
+  }
+  people(room: Room) {
+    const present = new Map(this.deps.store.profiles.list().map((profile) => [profile.id, profile]));
+    return room.people.flatMap((id) => {
+      const profile = present.get(id);
+      return profile ? [{ id: profile.id, name: profile.name }] : [];
+    });
   }
   private conversation(title: string): string {
     const { store, owner } = this.deps;
@@ -108,10 +154,12 @@ export class TrunkRooms {
   create(input: unknown, options: { context?: string } = {}): Room {
     const value = RoomCreateSchema.parse(input);
     this.checkMembers(value.members);
+    this.checkPeople(value.people);
     if (this.list().some((r) => r.name.toLowerCase() === value.name.toLowerCase())) throw new Error("A room already has that name");
     const now = new Date().toISOString();
-    const room: Room = { id: randomUUID(), name: value.name, members: value.members, sessionId: this.conversation(`Room: ${value.name}`),
-      memberSessions: {}, events: [], seq: 0, needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now,
+    const room: Room = { id: randomUUID(), name: value.name, members: value.members, people: value.people,
+      sessionId: this.conversation(`Room: ${value.name}`), memberSessions: {}, artifacts: [], events: [], seq: 0,
+      needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now,
       ...(options.context ? { context: options.context.slice(0, 3000) } : {}) }; // phase2/rooms
     for (const id of room.members) room.memberSessions[id] = this.conversation(`Room ${value.name}: ${this.deps.records.get(id).name}`);
     this.deps.store.message(room.sessionId, { role: "system", content: `Room "${room.name}". ${this.roster(room).map((m) => `@${m.handle}`).join(", ")} and you.` });
@@ -132,6 +180,7 @@ export class TrunkRooms {
       for (const member of change.members) room.memberSessions[member] ??= this.conversation(`Room ${room.name}: ${this.deps.records.get(member).name}`);
       room.members = change.members;
     }
+    if (change.people) this.checkPeople(change.people);
     const { members: _members, picture, ...rest } = change;
     Object.assign(room, rest, picture !== undefined ? { picture } : {});
     this.put(room);
@@ -159,6 +208,16 @@ export class TrunkRooms {
       return trunk ? [{ id, handle: trunk.handle, name: trunk.name }] : [];
     });
   }
+  addArtifact(id: string, input: unknown, person: { id: string; name: string } | null): RoomArtifact {
+    const room = this.requireAccess(id, person?.id ?? null);
+    if (room.artifacts.length >= 32) throw new Error("A room holds at most 32 shared artifacts");
+    const value = RoomArtifactSchema.parse(input), artifact: RoomArtifact = {
+      id: randomUUID(), ...value, personId: person?.id ?? null, personName: person?.name ?? "Owner",
+      createdAt: new Date().toISOString(),
+    };
+    this.put({ ...room, artifacts: [...room.artifacts, artifact] });
+    return artifact;
+  }
   private append(id: string, event: Omit<RoomEvent, "seq" | "at">): Room {
     const room = this.get(id);
     room.seq += 1;
@@ -171,9 +230,11 @@ export class TrunkRooms {
   }
 
   /** The owner speaks. The turns it starts run in the background; `settled` waits for them. */
-  send(id: string, input: unknown): { seq: number } {
+  send(id: string, input: unknown, person: { id: string; name: string } | null = null): { seq: number } {
     const { text } = z.object({ text: z.string().trim().min(1).max(8000) }).strict().parse(input);
-    const room = this.append(id, { kind: "user", text, ...(startedWithShortLivedKey() ? { byKey: shortLivedKeyMark() } : {}) }); // phase2/rooms
+    this.requireAccess(id, person?.id ?? null);
+    const room = this.append(id, { kind: "user", text, ...(person ? { personId: person.id, personName: person.name } : {}),
+      ...(startedWithShortLivedKey() ? { byKey: shortLivedKeyMark() } : {}) }); // phase2/rooms
     this.put({ ...room, needsYou: this.waiting(id).length > 0 });
     this.deps.store.message(room.sessionId, { role: "user", content: text });
     this.kick(id);
@@ -199,11 +260,15 @@ export class TrunkRooms {
     // Each round has a hard cap, so this bound is only a guard against a log that cannot settle.
     for (let step = 0; step < 40 && !this.closing; step++) {
       const room = this.get(id);
-      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events, room.context); // phase2/rooms: context
+      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events, this.sharedContext(room));
       if (decision.status === "waiting") return this.flag(room, "A Trunk in the room is waiting for your answer");
       if (decision.status !== "task") return;
       await this.turn(room, decision.task);
     }
+  }
+  private sharedContext(room: Room): string {
+    const shared = room.artifacts.map((artifact) => `Shared artifact ${artifact.name}:\n${artifact.content}`).join("\n\n");
+    return [room.context, shared].filter(Boolean).join("\n\n").slice(0, 12_000);
   }
   private async turn(room: Room, task: RoomTask): Promise<void> {
     const member = this.deps.records.find(task.memberId);
@@ -305,6 +370,7 @@ export class TrunkRooms {
   /** What the room shows: its members, the log, and whether anyone is speaking. */
   view(id: string) {
     const room = this.get(id);
-    return { ...room, roster: this.roster(room), speaking: this.driving.has(id), waiting: this.waiting(id), allowed: this.allowed(room) };
+    return { ...room, people: this.people(room), roster: this.roster(room), speaking: this.driving.has(id),
+      waiting: this.waiting(id), allowed: this.allowed(room) };
   }
 }

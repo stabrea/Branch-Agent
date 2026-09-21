@@ -1809,7 +1809,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
       return app.runtime.followUp(match[1]!, prompt, windowCaller(app).person ?? null);
     }
   }
-  if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
+  if (match && request.method === "GET" && !match[2]) {
+    const person = app.store.profiles.active();
+    const shared = person && app.trunks.rooms.forPerson(person.id).some((room) => room.sessionId === match[1]);
+    return app.store.sessionView(shared ? app.runtime.owner : owner, match[1]!);
+  }
   if (match && match[2] === "skill") {
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     const key = `pinned-skill:${match[1]}`;
@@ -3338,8 +3342,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // ---- end of the r17-d block ----
         // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
         if (handlesTrunksPath(path)) {
-          app.store.profiles.requireOwner("Trunks");
-          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+          const active = app.store.profiles.active();
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET",
+            readBody: () => readBody(request, 524288), person: active ? { id: active.id, name: active.name } : null,
+            requireOwner: (what) => app.store.profiles.requireOwner(what) }, path)
             .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
           send(response, 200, answer);
           return;

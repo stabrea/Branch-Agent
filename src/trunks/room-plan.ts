@@ -29,6 +29,9 @@ export interface RoomEvent {
   at: string;
   /** The Trunk that spoke, passed, failed or is waiting. */
   memberId?: string;
+  /** A household person who sent this room message. Omitted for the owner. */
+  personId?: string;
+  personName?: string;
   round?: number;
   /** The seq of the owner's message this turn answered. */
   discussion?: number;
@@ -110,7 +113,7 @@ function watermark(events: readonly RoomEvent[], memberId: string): number {
 }
 
 function speaker(event: RoomEvent, members: readonly RoomMember[]): string {
-  if (event.kind === "user") return "The owner";
+  if (event.kind === "user") return event.personName ?? "The owner";
   return `@${members.find((m) => m.id === event.memberId)?.handle ?? "someone"}`;
 }
 
