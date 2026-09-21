@@ -185,6 +185,33 @@ test("a refresh completed while Save is in flight cannot redraw an older value",
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
 });
 
+test("an edit made after Save stays dirty and survives the saved response", async (t) => {
+  const { app, page } = await openApp(t);
+  await openSettingFor(page, "#knobs-limits-card");
+  let captured, release;
+  const responseCaptured = new Promise((resolve) => { captured = resolve; });
+  const released = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/knobs", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    captured();
+    await released;
+    await route.fulfill({ response });
+  });
+  const steps = page.locator("#knobs-maxSteps");
+  await steps.fill("25");
+  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true }).evaluate((button) => button.click());
+  await responseCaptured;
+  await steps.fill("30");
+  await steps.evaluate((control) => control.blur());
+  release();
+  for (let attempt = 0; attempt < 400 && readKnobs(app.store, "local", "limits").maxSteps !== 25; attempt++)
+    await page.waitForTimeout(25);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
+  assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "30");
+  assert.equal(await page.locator("#knobs-maxSteps").getAttribute("data-knob-dirty"), "true");
+});
+
 test("overlapping saves on different cards keep both values and clear both drafts", async (t) => {
   const { app, page } = await openApp(t);
   await openSettingFor(page, "#knobs-limits-card");

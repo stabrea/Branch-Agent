@@ -200,7 +200,7 @@ function actions(spec, controls, status) {
     try {
       const view = await api({ card: spec.card, values: inside, ...extra });
       if (!writeIsCurrent(spec.id, version)) return;
-      shown = { ...shown, view }; clearControlDrafts(`#knobs-${spec.id}-card`);
+      shown = { ...shown, view }; clearSavedControlDrafts(`#knobs-${spec.id}-card`, controls, values);
       status.textContent = t(done); status.dataset.t = done;
     } catch (error) {
       if (!writeIsCurrent(spec.id, version)) return;
@@ -266,7 +266,7 @@ function launchControls(file) {
     .map((field) => {
       const value = field.section === "commands" ? editable.commands[field.name] : editable.browserSites;
       const c = control({ ...field, name: `launch-${field.name}` }, value, { launched: {}, connections: [], leakKinds: [] });
-      return [field, c];
+      return [{ ...field, controlName: `launch-${field.name}` }, c];
     });
 }
 function launchCard(file) {
@@ -287,10 +287,11 @@ function launchCard(file) {
   save.addEventListener("click", async () => {
     const card = "launch-file";
     const version = beginWrite(card);
+    const values = Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()]));
     try {
-      await api(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs/launch-file");
+      await api(values, "knobs/launch-file");
       if (!writeIsCurrent(card, version)) return;
-      clearControlDrafts("#knobs-launch-file-card");
+      clearSavedControlDrafts("#knobs-launch-file-card", controls, values);
       status.textContent = t("knobs.launch.saved"); status.dataset.t = "knobs.launch.saved";
     } catch (error) {
       if (!writeIsCurrent(card, version)) return;
@@ -308,8 +309,13 @@ function place(card) {
   if (existing) existing.replaceWith(card); else document.body.append(card);
 }
 const knobControlSelector = 'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]';
-function clearControlDrafts(card) {
-  for (const node of document.querySelectorAll(`${card} ${knobControlSelector}`)) delete node.dataset.knobDirty;
+function clearSavedControlDrafts(card, controls, values) {
+  for (const [field, control] of controls) {
+    if (JSON.stringify(control.read()) !== JSON.stringify(values[field.name])) continue;
+    const prefix = `knobs-${field.controlName ?? field.name}`;
+    for (const node of document.querySelectorAll(`${card} ${knobControlSelector}`))
+      if (node.id === prefix || node.id.startsWith(prefix + "-")) delete node.dataset.knobDirty;
+  }
 }
 function controlDrafts() {
   const active = document.activeElement;

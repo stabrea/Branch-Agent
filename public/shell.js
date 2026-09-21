@@ -132,10 +132,12 @@ for (const tab of document.querySelectorAll(".rail-view-tab")) {
 $("rail-new-trunk").addEventListener("click", () => void import("/studio.js").then((studio) => studio.openAdd("trunk")));
 new MutationObserver(syncRailView).observe($("rail-scroll"), { childList: true });
 document.addEventListener("branch-strip", (event) => {
+  const profiles = event.detail?.profiles;
   const confirmedOwner = event.detail?.profiles?.isOwner === true;
-  if (railProfileOwner === null) railProfileOwner = confirmedOwner;
+  if (profiles && railProfileOwner !== false) railProfileOwner = confirmedOwner;
   railCanManageTrunks = railProfileOwner === true && ownerAtWindow() && confirmedOwner;
   syncRailView();
+  if (railCanManageTrunks) document.dispatchEvent(new CustomEvent("branch-strip-reselect"));
 });
 document.addEventListener("branch-profile", (event) => {
   railProfileOwner = event.detail?.owner !== false;
