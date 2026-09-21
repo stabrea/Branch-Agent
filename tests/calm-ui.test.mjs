@@ -223,7 +223,13 @@ test("with no model, the window says so exactly once, and says nothing about its
     healthAuthorization = route.request().headers().authorization ?? "";
     return route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' });
   });
-  await f.page.evaluate(async () => { await globalThis.branchLayout.checkServer(); await globalThis.branchLayout.checkServer(); });
+  /* A ten-second background probe may already be in flight. The first call can join it, so make
+     three calls to guarantee the product observes its required two consecutive misses. */
+  await f.page.evaluate(async () => {
+    await globalThis.branchLayout.checkServer();
+    await globalThis.branchLayout.checkServer();
+    await globalThis.branchLayout.checkServer();
+  });
   assert.equal(healthAuthorization, `Bearer ${f.server.token}`, "the liveness check uses the signed-in session");
   assert.equal(await f.page.locator("#connection").innerText(), "Branch stopped responding");
   assert.equal(await visible(f.page, "#lx-restart"), true);
@@ -397,7 +403,11 @@ test("calm: the empty screen is the question over the box in the middle, over th
 test("calm: Restart asks the desktop app to start Branch again, and a browser loads the page again", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.route("**/api/alive", (route) => route.abort());
-  const lose = () => f.page.evaluate(async () => { await globalThis.branchLayout.checkServer(); await globalThis.branchLayout.checkServer(); });
+  const lose = () => f.page.evaluate(async () => {
+    await globalThis.branchLayout.checkServer();
+    await globalThis.branchLayout.checkServer();
+    await globalThis.branchLayout.checkServer();
+  });
   await lose();
   await f.page.evaluate(() => { globalThis.branchDesktop = { restartBranch: async () => { globalThis.restartAsked = true; return true; } }; });
   await f.page.locator("#lx-restart").click();
