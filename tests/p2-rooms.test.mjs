@@ -107,6 +107,52 @@ test("a queued room message keeps the household person who sent it", async (t) =
   assert.equal(runOrigin(app.store, answer.id).personProfileId, sam.id);
 });
 
+test("a queued room message keeps both its household person and short-lived key", async (t) => {
+  let began, release;
+  const started = new Promise((resolve) => { began = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const { app } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const run = app.runtime.run.bind(app.runtime);
+  app.runtime.run = async (options) => {
+    if (options.prompt.includes("@ann start")) { began(); await held; }
+    return run(options);
+  };
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = app.trunks.rooms.create({ name: "Queued", members: [ann.id, ben.id], people: [sam.id] });
+  app.trunks.rooms.send(room.id, { text: "@ann start" });
+  await started;
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  underShortLivedKey(() => app.trunks.rooms.send(room.id, { text: "@ben continue" }, { id: sam.id, name: "Sam" }),
+    { keyId: "sam-key" });
+  release();
+  await app.trunks.rooms.settled(room.id);
+  const answer = app.store.runs(app.runtime.owner)
+    .find((entry) => entry.sessionId === room.memberSessions[ben.id] && entry.prompt.includes("@ben continue"));
+  const origin = runOrigin(app.store, answer.id);
+  assert.equal(origin.personProfileId, sam.id);
+  assert.equal(origin.shortLivedKey, true);
+  assert.deepEqual(origin.keyIds, ["sam-key"]);
+});
+
+test("an artifact shared after a Trunk has spoken reaches its next turn", async (t) => {
+  const { app, provider } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Late brief", members: [ann.id, ben.id] });
+  app.trunks.rooms.send(room.id, { text: "@ann hello" });
+  await app.trunks.rooms.settled(room.id);
+  const before = provider.requests.length;
+  app.trunks.rooms.addArtifact(room.id, { name: "brief.txt", content: "late private oak plan" }, null);
+  app.trunks.rooms.send(room.id, { text: "@ann use the late brief" });
+  await app.trunks.rooms.settled(room.id);
+  const later = provider.requests.slice(before).flatMap((request) => request.messages).map((message) => String(message.content));
+  assert.ok(later.some((content) => content.includes("Shared artifact brief.txt:") && content.includes("late private oak plan")));
+});
+
 test("piece 1: after a restart the room's turns still follow the room's mode", async (t) => {
   const { app, room: r } = await room(t);
   const { pickConversationMode } = await import("../dist/conversation-mode-api.js");

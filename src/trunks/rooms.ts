@@ -178,7 +178,12 @@ export class TrunkRooms {
       this.checkMembers(change.members);
       // phase2/rooms (integration review): a Trunk taken out of the room loses every yes it held here.
       for (const gone of room.members.filter((m) => !change.members!.includes(m))) this.endGrants(room.memberSessions[gone]);
-      for (const member of change.members) room.memberSessions[member] ??= this.conversation(`Room ${room.name}: ${this.deps.records.get(member).name}`);
+      for (const member of change.members) {
+        if (room.memberSessions[member]) continue;
+        const session = this.conversation(`Room ${change.name ?? room.name}: ${this.deps.records.get(member).name}`);
+        room.memberSessions[member] = session;
+        for (const artifact of room.artifacts) this.shareArtifact(change.name ?? room.name, session, artifact);
+      }
       room.members = change.members;
     }
     if (change.people) this.checkPeople(change.people);
@@ -217,7 +222,12 @@ export class TrunkRooms {
       createdAt: new Date().toISOString(),
     };
     this.put({ ...room, artifacts: [...room.artifacts, artifact] });
+    for (const session of Object.values(room.memberSessions)) this.shareArtifact(room.name, session, artifact);
     return artifact;
+  }
+  private shareArtifact(roomName: string, sessionId: string, artifact: RoomArtifact): void {
+    this.deps.store.message(sessionId, { role: "user",
+      content: `[Room "${roomName}"] Shared artifact ${artifact.name}:\n${artifact.content}` });
   }
   private append(id: string, event: Omit<RoomEvent, "seq" | "at">): Room {
     const room = this.get(id);
@@ -268,8 +278,7 @@ export class TrunkRooms {
     }
   }
   private sharedContext(room: Room): string {
-    const shared = room.artifacts.map((artifact) => `Shared artifact ${artifact.name}:\n${artifact.content}`).join("\n\n");
-    return [room.context, shared].filter(Boolean).join("\n\n").slice(0, 12_000);
+    return room.context ?? "";
   }
   private async turn(room: Room, task: RoomTask): Promise<void> {
     const member = this.deps.records.find(task.memberId);
@@ -280,10 +289,11 @@ export class TrunkRooms {
     const discussion = room.events.find((event) => event.seq === task.discussion);
     const byKey = discussion?.byKey;
     const start = () => this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
+    const asSender = () => discussion?.personId
+      ? asPerson({ profileId: discussion.personId, keyId: `room:${room.id}` }, start)
+      : start();
     try {
-      run = await (byKey ? underShortLivedKey(start, byKey)
-        : discussion?.personId ? asPerson({ profileId: discussion.personId, keyId: `room:${room.id}` }, start)
-        : start());
+      run = await (byKey ? underShortLivedKey(asSender, byKey) : asSender());
     } catch (error) {
       if (this.closing) return;
       this.append(room.id, { kind: "failed", text: error instanceof Error ? error.message : String(error), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen });

@@ -62,6 +62,7 @@ test("version comparison handles tags, prefixes and uneven lengths", () => {
   assert.equal(compareVersions("0.10.0", "0.9.9"), 1);
   assert.equal(compareVersions("1.0", "1.0.1"), -1);
   assert.equal(compareVersions("0.2.0-beta", "0.2.0"), 0);
+  assert.equal(compareVersions("1.2.3+build.7", "1.2.3"), 0);
 });
 
 test("check reports availability against the current version", async (t) => {
@@ -82,7 +83,7 @@ test("check reports availability against the current version", async (t) => {
 });
 
 test("automatic updates accept only final release tags", async (t) => {
-  for (const tag of ["v0.3.0-beta", "0.3.0", "v01.3.0", "v0.3", "latest"]) {
+  for (const tag of ["v0.3.0-beta", "0.3.0", "v01.3.0", "v0.3", "v0.3.0+", "latest"]) {
     const { root, installDir, fetchViaFixture } = await releaseFixture(t, { tag });
     const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
       executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
@@ -91,6 +92,16 @@ test("automatic updates accept only final release tags", async (t) => {
     assert.equal(status.phase, "error", tag);
     assert.match(status.message, /final release tag/i, tag);
   }
+});
+
+test("automatic updates accept stable tags with build metadata", async (t) => {
+  const { root, installDir, fetchViaFixture } = await releaseFixture(t, { tag: "v0.3.0+build.7" });
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+    executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: join(root, "scratch"), fetch: fetchViaFixture });
+  const status = await updater.check();
+  assert.equal(status.phase, "available");
+  assert.equal(status.release.latestVersion, "0.3.0+build.7");
 });
 
 test("install downloads, verifies, unpacks beside the install and writes the hand-over script", { skip: !windows && "Windows archive tooling" }, async (t) => {

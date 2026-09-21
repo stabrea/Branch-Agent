@@ -85,7 +85,7 @@ const releaseSchema = z.object({
 });
 
 export function compareVersions(a: string, b: string): number {
-  const parts = (value: string) => value.replace(/^v/i, "").split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
+  const parts = (value: string) => value.replace(/^v/i, "").replace(/\+.*/, "").split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
   const left = parts(a), right = parts(b);
   for (let index = 0; index < Math.max(left.length, right.length); index++) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
@@ -96,9 +96,9 @@ export function compareVersions(a: string, b: string): number {
 
 /** Automatic updates accept only ordinary final SemVer tags, never aliases or prereleases. */
 export function finalReleaseVersion(tag: string): string {
-  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(tag);
   if (!match) throw new Error("The newest GitHub entry does not use a final release tag such as v1.2.3, so Branch did not offer it as an update.");
-  return `${match[1]}.${match[2]}.${match[3]}`;
+  return `${match[1]}.${match[2]}.${match[3]}${match[4] ?? ""}`;
 }
 
 export class Updater {
