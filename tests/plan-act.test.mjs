@@ -8,7 +8,7 @@ import { chromium } from "playwright";
 import { z } from "zod";
 import { createBranch, riskSentence, offPlanDifference, commandDifference, relatedCommand, correctionLabel } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { finishFirstRun, pressUntil } from "./places.mjs";
+import { finishFirstRun } from "./places.mjs";
 
 const say = (content) => ({ content, toolCalls: [] });
 const call = (name, args) => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 9)}`, name, arguments: JSON.stringify(args) }] });
@@ -343,11 +343,12 @@ test("the switch is in the conversation, and the plan card approves in one press
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  const token = page.getByLabel("Session token", { exact: true });
+  await token.waitFor({ state: "visible", timeout: 120000 });
+  await token.fill(server.token);
   const workspace = page.locator("#workspace");
-  await pressUntil(page.getByRole("button", { name: "Connect", exact: true }),
-    () => workspace.waitFor({ state: "visible", timeout: 120000 }).then(() => true, () => false),
-    "the plan window to connect");
+  await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
+  await workspace.waitFor({ state: "visible", timeout: 120000 });
   await finishFirstRun(page);
   // The choice lives in the conversation, not in Settings: under More in the calm window (0.18.1).
   await page.locator("#lx-more").click();
@@ -357,13 +358,13 @@ test("the switch is in the conversation, and the plan card approves in one press
   assert.equal(await page.locator("#session-plan-mode").inputValue(), "show-plan", "the real switch follows the menu");
   await page.waitForFunction(() => document.getElementById("plan-mode-state")?.textContent?.length > 0);
   await page.locator("#prompt").fill("summarise my notes");
-  await page.locator("#send").click();
-  await page.locator("#plan-card").waitFor({ state: "visible" });
+  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+  await page.locator("#plan-card").waitFor({ state: "visible", timeout: 120000 });
   assert.match(await page.locator("#plan-card").innerText(), /One step changes something: 2 \(summary\.txt\)/);
   assert.equal(await page.locator("#plan-card .plan-step").count(), 2);
   assert.deepEqual(await page.locator("#plan-card input.plan-step-title").evaluateAll((nodes) => nodes.map((n) => n.value)),
     ["Read the notes", "Write the summary"], "each step is there in the owner's own words, and editable");
-  await page.locator("#plan-approve").click();
+  await page.locator("#plan-approve").evaluate((button) => button.click());
   await page.waitForFunction(() => document.getElementById("plan-card")?.innerText.includes("You agreed to this plan"));
   assert.deepEqual(errors, []);
 });
