@@ -126,6 +126,30 @@ test("the plus menu changes the real conversation choices", async (t) => {
   }
 });
 
+test("a refresh that began before Ask first changed cannot put the old choice back", async (t) => {
+  const page = await fixture(t);
+  let captured, release;
+  const responseCaptured = new Promise((resolve) => { captured = resolve; });
+  const released = new Promise((resolve) => { release = resolve; });
+  let held = false;
+  await page.route("**/api/ask-first/settings", async (route) => {
+    if (route.request().method() !== "GET" || held) return route.continue();
+    held = true;
+    const response = await route.fetch();
+    captured();
+    await released;
+    await route.fulfill({ response });
+  });
+  const refreshing = page.evaluate(() => globalThis.branchMisc.render());
+  await responseCaptured;
+  await page.locator("#lx-plus").click();
+  await page.locator("#lx-plus-menu").getByRole("menuitem", { name: "Ask me questions first", exact: true }).dispatchEvent("click");
+  assert.equal(await page.locator("#ask-first-toggle").isChecked(), true, "the new choice is visible immediately");
+  release();
+  await refreshing;
+  assert.equal(await page.locator("#ask-first-toggle").isChecked(), true, "the stale refresh cannot overwrite the new choice");
+});
+
 test("typing, focus and selection survive the three-second redraw", async (t) => {
   const page = await fixture(t);
   const prompt = page.locator("#prompt");
