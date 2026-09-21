@@ -76,7 +76,9 @@ function bindSegmentedSource(source, segments, onChange) {
 
   for (const segment of segments) {
     segment.addEventListener("click", () => {
-      if (source.disabled || source.value === segment.dataset.v) return;
+      if (source.disabled) return;
+      source.focus({ preventScroll: true });
+      if (source.value === segment.dataset.v) return;
       source.value = segment.dataset.v;
       source.dispatchEvent(new Event("input", { bubbles: true }));
       source.dispatchEvent(new Event("change", { bubbles: true }));

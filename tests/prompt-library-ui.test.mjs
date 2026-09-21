@@ -85,6 +85,14 @@ test("saved prompts and the install record fit a 400 px window, and a skill fold
   await card.locator("details summary").filter({ hasText: "tidy-summary" }).waitFor();
   await card.locator("details summary").first().click();
   assert.match(await card.locator("details").first().textContent(), /Left out tidy-summary\/scripts\/run\.sh/);
+  await page.route("**/api/skill-installs", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: { mode: "on", records: [], skills: [{ id: "literal", name: "action.save", enabled: false }] } });
+  });
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language", { detail: { language: "en" } })));
+  const literal = page.locator('#skill-installs-skill option[value="literal"]');
+  await literal.waitFor({ state: "attached" });
+  assert.equal(await literal.innerText(), "action.save", "an installed skill name is not translated as interface copy");
   assert.ok(await sideways(page) <= 0, "no sideways scrolling in Skills");
   assert.deepEqual(errors, []);
 });
