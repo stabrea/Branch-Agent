@@ -25,7 +25,7 @@ import { loadWords, type Words } from "./terminal-words.js";
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 interface Io { interactive: boolean; env: NodeJS.ProcessEnv; json: boolean; write(line: string): void }
 
-const PLACE_COMMANDS = new Set(["inbox", "automations", "library", "customize", "settings"]);
+const PLACE_COMMANDS = new Set(["inbox", "automations", "library", "customize", "overview", "household", "settings"]);
 export const terminalCommandNames = new Set(TERMINAL_CLI_COMMANDS.map((entry) => entry.name));
 
 /**
@@ -36,7 +36,7 @@ export const terminalCommandNames = new Set(TERMINAL_CLI_COMMANDS.map((entry) =>
  * refuses while another Branch holds the saved work.
  */
 export const readOnlyTerminalCommands = new Set([
-  "inbox", "automations", "library", "customize", "settings", "places", "sessions", "memory",
+  "inbox", "automations", "library", "customize", "overview", "household", "settings", "places", "sessions", "memory",
   "skills", "channels", "mcp", "tools", "projects", "usage", "snapshots", "version",
 ]);
 

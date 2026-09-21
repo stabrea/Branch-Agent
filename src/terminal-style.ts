@@ -46,14 +46,17 @@ export function resolveStyle(
 ): TerminalStyle {
   const plain = env.NO_COLOR !== undefined || env.BRANCH_TUI_PLAIN === "1"
     || (env.TERM === "dumb" && env.FORCE_TTY !== "1");
+  const explicitNoColor = env.FORCE_COLOR === "0" || env.FORCE_COLOR === "false"
+    || env.BRANCH_COLOR === "none";
   const depthEnvironment = env.FORCE_TTY === "1" && env.TERM === "dumb"
     ? { ...env, TERM: undefined }
     : env;
-  const depth = plain ? "none" : detectDepth(depthEnvironment, platform, osRelease);
+  const detectedDepth = plain ? "none" : detectDepth(depthEnvironment, platform, osRelease);
+  const depth = detectedDepth === "none" && !plain && !explicitNoColor ? "ansi16" : detectedDepth;
   return {
-    depth: depth === "none" && !plain ? "ansi16" : depth,
+    depth,
     unicode: detectUnicode(env, platform),
-    color: !plain,
+    color: depth !== "none",
     cursor: !plain,
     decorations: !plain && env.BRANCH_TUI_DECORATIONS !== "0",
     columns: positiveInt(env.COLUMNS, size.columns ?? 80),

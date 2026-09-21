@@ -111,7 +111,8 @@ const recordRows = (app: PlaceApp, table: "schedules" | "procedures" | "speciali
   });
 
 function specialistRows(app: PlaceApp, words: Words): Row[] {
-  const trunks = (trunksFor(app.runtime)?.records.list() ?? []).map((trunk) => ({
+  const trunkService = trunksFor(app.runtime);
+  const trunks = (trunkService?.modes().trunks === "off" ? [] : trunkService?.records.list() ?? []).map((trunk) => ({
     title: clip(trunk.name),
     detail: clip(`${words.t("strip.kind.trunk", "Trunk")} · @${trunk.handle}${trunk.title ? ` · ${trunk.title}` : ""}`),
     tone: trunk.hidden ? "muted" as const : undefined,

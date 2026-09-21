@@ -185,6 +185,48 @@ test("a refresh completed while Save is in flight cannot redraw an older value",
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
 });
 
+test("overlapping saves on different cards keep both values and clear both drafts", async (t) => {
+  const { app, page } = await openApp(t);
+  await openSettingFor(page, "#knobs-limits-card");
+  let captured, release;
+  const firstCaptured = new Promise((resolve) => { captured = resolve; });
+  const released = new Promise((resolve) => { release = resolve; });
+  let held = false;
+  await page.route("**/api/knobs", async (route) => {
+    const body = route.request().postDataJSON?.();
+    if (route.request().method() !== "POST" || body?.card !== "limits" || held) return route.continue();
+    held = true;
+    const response = await route.fetch();
+    captured();
+    await released;
+    await route.fulfill({ response });
+  });
+  await page.locator("#knobs-maxSteps").fill("25");
+  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true }).evaluate((button) => button.click());
+  await firstCaptured;
+  await page.locator("#knobs-sensitivity").evaluate((control) => {
+    control.value = "strict";
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.locator("#knobs-leak-guard-card").getByRole("button", { name: "Save", exact: true }).evaluate((button) => button.click());
+  await page.locator("#knobs-leak-guard-card [role=status]").filter({ hasText: "Saved" }).waitFor({ timeout: 20000 });
+  release();
+  for (let attempt = 0; attempt < 400; attempt++) {
+    if (readKnobs(app.store, "local", "limits").maxSteps === 25
+      && readKnobs(app.store, "local", "leakGuard").sensitivity === "strict") break;
+    await page.waitForTimeout(25);
+  }
+  assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 25);
+  assert.equal(readKnobs(app.store, "local", "leakGuard").sensitivity, "strict");
+  await page.evaluate(() => globalThis.branchKnobs.refresh());
+  await page.waitForFunction(() => document.querySelectorAll(
+    "#knobs-limits-card [data-knob-dirty], #knobs-leak-guard-card [data-knob-dirty]",
+  ).length === 0);
+  assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
+  assert.equal(await page.locator("#knobs-sensitivity").inputValue(), "strict");
+  assert.equal(await page.locator("#knobs-limits-card [data-knob-dirty], #knobs-leak-guard-card [data-knob-dirty]").count(), 0);
+});
+
 test("at 400 px the knob cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["knobs-leak-guard-card", "knobs-commands-card", "knobs-reasoning-card"]) {
