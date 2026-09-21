@@ -87,11 +87,8 @@ function bindSegmentedSource(source, segments, onChange) {
   source.addEventListener("change", () => {
     sync();
     const restoreId = document.activeElement === source ? source.id : "";
-    const changed = onChange?.(source.value);
-    if (restoreId && changed instanceof Promise) {
-      void changed.then(() => restoreSegmentedFocus(source, restoreId),
-        () => restoreSegmentedFocus(source, restoreId));
-    } else if (restoreId) restoreSegmentedFocus(source, restoreId);
+    if (restoreId) watchSegmentedReplacement(source, restoreId);
+    onChange?.(source.value);
   });
   source.addEventListener("input", sync);
   return sync;
@@ -100,6 +97,16 @@ function bindSegmentedSource(source, segments, onChange) {
 function restoreSegmentedFocus(source, id) {
   if (document.activeElement !== source && document.activeElement !== document.body) return;
   document.getElementById(id)?.focus({ preventScroll: true });
+}
+
+function watchSegmentedReplacement(source, id) {
+  const observer = new MutationObserver(() => {
+    if (source.isConnected) return;
+    observer.disconnect();
+    restoreSegmentedFocus(source, id);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  setTimeout(() => observer.disconnect(), 30_000);
 }
 
 function proxySegmentedControl(control, source, sync) {
