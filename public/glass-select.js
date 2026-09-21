@@ -269,7 +269,7 @@ function soon(control) {
 }
 function now(control) {
   hideTip();
-  if (!control || touchOnly.matches) return;
+  if (!control) return;
   tipWords(control);
   tipFor = control;
   showTip(control);

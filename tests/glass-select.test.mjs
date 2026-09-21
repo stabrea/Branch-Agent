@@ -326,6 +326,25 @@ test("on a touch-only phone the select keeps its own picker and no hover help ap
   assert.deepEqual(f.errors, []);
 });
 
+test("a touch-primary device still shows help for a hardware keyboard", async (t) => {
+  const f = await fixture(t, { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
+  assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);
+  await f.page.evaluate(() => {
+    const button = document.createElement("button");
+    button.id = "touch-keyboard-help";
+    button.textContent = "Check now";
+    button.setAttribute("aria-description", "Checks without changing anything.");
+    document.getElementById("workspace").prepend(button);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    button.focus();
+    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Tab", bubbles: true }));
+  });
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible", timeout: 1000 });
+  assert.equal(await tip.innerText(), "Checks without changing anything.");
+  assert.deepEqual(f.errors, []);
+});
+
 /* ---------------------------------------------------------------- integration review */
 
 test("integration review: the list sits flush under the select and fully covers the help line under it", async (t) => {
