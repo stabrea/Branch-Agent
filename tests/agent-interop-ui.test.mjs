@@ -16,6 +16,9 @@ test("the switches live in Customize → Connections, modes in Specialists, and 
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } },
   });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  app.store.message(sessionId, { role: "user", content: "action.save" });
+  app.interop.setMode("handoff", { mode: "on" });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
@@ -29,6 +32,8 @@ test("the switches live in Customize → Connections, modes in Specialists, and 
   const card = page.locator("#lx-slot-customize-connections #interop-card");
   await card.waitFor();
   assert.equal(await card.locator("h2").innerText(), "Working with other agents and tools");
+  assert.equal(await page.locator(`#interop-handoff-session option[value="${sessionId}"]`).innerText(), "action.save",
+    "a conversation opening is literal owner text, not a locale key");
   assert.equal(await page.locator("#interop-switch-modes").inputValue(), "off");
   await page.getByLabel("Ways of working (modes)").selectOption("when-needed");
   await page.locator("#lx-slot-customize-connections #interop-card").getByText("Saved.").waitFor().catch(() => undefined);
