@@ -136,13 +136,15 @@ export function dropdown({ id, options = [], value = "", onChange } = {}) {
   control.setAttribute("aria-haspopup", "listbox");
   control.setAttribute("aria-expanded", "false");
   setOptionalId(control, id);
+  let populated = false;
 
   control.setOptions = (nextOptions = []) => {
-    const previous = control.value;
+    const previous = populated ? control.value : undefined;
     control.replaceChildren(...nextOptions.map(optionNode));
     const preferred = [previous, String(value)].find((candidate) =>
       [...control.options].some((option) => option.value === candidate));
     if (preferred !== undefined) control.value = preferred;
+    populated = true;
   };
 
   control.setOptions(options);

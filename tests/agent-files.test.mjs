@@ -122,6 +122,35 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
   }
 });
 
+test("F4b switching profiles clears an open owner-only editor before it can be read", async (t) => {
+  const { server, call } = await served(t);
+  const privateText = "The private backup phrase is owner-only.";
+  assert.equal((await call("POST", "/api/settings-kit/files", { slot: "memory", text: privateText })).status, 200);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
+  await openSettings(page, "instructions");
+  await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
+  assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.household = "on";
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+  });
+  assert.equal(await page.locator("#agent-files").count(), 0);
+  assert.equal((await page.locator("body").innerText()).includes(privateText), false);
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.household = "off";
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: true } }));
+  });
+  await page.locator("#agent-files").waitFor({ state: "attached" });
+});
+
 // Integration review: undo re-checks where the file is and whether it may be written, and the saved
 // texts never reach the diagnostics summary.
 test("F5 undo refuses once the file moved or its folder lost trust, and the diagnostics summary holds no text", async (t) => {
