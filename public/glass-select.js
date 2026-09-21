@@ -211,7 +211,8 @@ function describedWords(control) {
   return words || control.getAttribute("aria-description") || "";
 }
 function describedControl(node) {
-  const control = node?.closest?.(".segmented-control, button, [role=button], a[href], input, select, textarea");
+  let control = node?.closest?.(".segmented-control, button, [role=button], a[href], input, select, textarea");
+  if (control?.matches(".segmented-source")) control = control.closest(".segmented-control") ?? control;
   const segmentedDisabled = control?.matches(".segmented-control") && control.querySelector(".segmented-source")?.disabled;
   if (!control || control.closest("#glass-list, #glass-tip")
     || control.matches(":disabled, [aria-disabled='true'], [data-disabled]") || segmentedDisabled) return null;

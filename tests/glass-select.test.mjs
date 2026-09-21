@@ -233,6 +233,34 @@ test("a segmented control shows the description linked to its native source", as
   assert.deepEqual(f.errors, []);
 });
 
+test("keyboard help for a segmented source is anchored to its visible control", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const note = document.createElement("p");
+    note.id = "keyboard-segment-note";
+    note.textContent = "Choose how Branch should ask.";
+    const control = globalThis.branchControlMakers.segmented({ id: "keyboard-segment" });
+    control.querySelector("select").setAttribute("aria-describedby", note.id);
+    document.getElementById("workspace").prepend(control, note);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    control.querySelector("select").focus();
+    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Tab", bubbles: true }));
+  });
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible" });
+  const position = await f.page.evaluate(() => {
+    const wrapper = document.querySelector(".segmented-control:has(#keyboard-segment)").getBoundingClientRect();
+    const source = document.getElementById("keyboard-segment").getBoundingClientRect();
+    return { tipTop: Number.parseFloat(document.getElementById("glass-tip").style.top),
+      wrapperBottom: wrapper.bottom, sourceBottom: source.bottom };
+  });
+  assert.ok(Math.abs(position.tipTop - (position.wrapperBottom + 8)) < 1,
+    "the tooltip sits below the visible segmented control");
+  assert.ok(Math.abs(position.tipTop - (position.sourceBottom + 8)) > 1,
+    "the clipped native source is not used as the anchor");
+  assert.deepEqual(f.errors, []);
+});
+
 test("a disabled segmented control shows no hover help", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
