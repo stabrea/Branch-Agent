@@ -86,8 +86,9 @@ export async function publishRelease({ tag, repo, downloads: directory, source, 
   release = await readRelease(gh, tag, repo);
   const absent = releaseFiles(tag).filter((name) => !(release.assets ?? []).some((asset) => asset.name === remoteName(name)));
   if (absent.length) throw new Error(`Release is still missing required assets: ${absent.join(", ")}`);
-  const edit = ["release", "edit", tag, "--repo", repo, "--notes-file", notes, "--draft=false"];
-  edit.push(prerelease ? "--prerelease" : "--prerelease=false", ...(prerelease ? [] : ["--latest"]));
+  const edit = prerelease
+    ? ["release", "edit", tag, "--repo", repo, "--notes-file", notes, "--draft=false", "--prerelease"]
+    : ["release", "edit", tag, "--repo", repo, "--notes-file", notes, "--draft=false", "--prerelease=false", "--latest"];
   await checked(gh, edit);
   return { tag, notes, assets: releaseFiles(tag) };
 }
