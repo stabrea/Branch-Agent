@@ -158,13 +158,13 @@ async function slowLocalServer(t, delay) {
 test("3 a model on this computer gets a longer first-reply wait, and the person is told it may be loading", async (t) => {
   const { app } = await fixture(t, { reliability: { stallRecovery: "fail" } });
   const { OpenAIProvider } = await import("../dist/providers.js");
-  const endpoint = await slowLocalServer(t, () => 900);
+  const endpoint = await slowLocalServer(t, () => 100);
   app.runtime.models.register({ id: "on-this-computer", name: "Local", model: "m",
     provider: new OpenAIProvider({ endpoint, model: "m", apiKey: "local" }) });
-  // Shortened for the test (the shipped figures are 60 s and 300 s): silence for 300 ms is a stall,
-  // except before a local model's first word, which may take 2 s.
-  app.runtime.reliability.modelStallMs = 300;
-  app.runtime.reliability.localFirstReplyMs = 2000;
+  // The ordinary quiet notice happens first. The local first-reply ceiling is deliberately far from
+  // the reply so an overloaded runner cannot reverse two nearby real timers (shipped: 60 s / 300 s).
+  app.runtime.reliability.modelStallMs = 30;
+  app.runtime.reliability.localFirstReplyMs = 60000;
   const run = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
   assert.equal(run.status, "completed", run.output);
   assert.equal(run.output, "hello");
@@ -174,7 +174,7 @@ test("3 a model on this computer gets a longer first-reply wait, and the person 
   assert.ok(!app.store.events(run.id).some((event) => event.kind === "model.stalled"));
 
   // With the first-reply wait shorter than the load, it is a stall, as before.
-  app.runtime.reliability.localFirstReplyMs = 500;
+  app.runtime.reliability.localFirstReplyMs = 50;
   const stalled = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
   assert.equal(stalled.status, "failed");
   assert.ok(app.store.events(stalled.id).some((event) => event.kind === "model.stalled"));
