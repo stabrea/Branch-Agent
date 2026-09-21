@@ -174,6 +174,8 @@ export function routeMouse(tui: Tui, event: MouseEvent, hits: Hit[]): void {
     const by = event.kind === "wheel-up" ? -1 : 1;
     if (tui.overlay) return overlayMove(tui, by * 3);
     if (isChat(tui)) return scroll(tui, -by * 3);
+    if ("settings" in tui.route && hits.some((hit) => hit.action.startsWith("page:") && inside(hit, event)))
+      return tui.step(by);
     return move(tui, by, tui.rows.length);
   }
   if (event.kind !== "press" || event.button !== 0) return;

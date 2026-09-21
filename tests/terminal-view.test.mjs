@@ -14,10 +14,11 @@ import { textWidth } from "../dist/terminal-canvas.js";
 import { loadThemeCatalogue, paletteFor } from "../dist/terminal-theme.js";
 import { loadWords } from "../dist/terminal-words.js";
 import { glyphsFor, resolveStyle, stripAnsi } from "../dist/terminal-style.js";
-import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, allHomes, homeOf, parseRoute } from "../dist/terminal-places.js";
+import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, allHomes, homeOf, parseRoute, placeById } from "../dist/terminal-places.js";
 import { ESC, ScreenWriter } from "../dist/terminal-output.js";
 import { LineEditor, takeMouse } from "../dist/terminal-input.js";
 import { Tui } from "../dist/terminal-tui.js";
+import { routeMouse } from "../dist/terminal-keys.js";
 import { paletteItems } from "../dist/terminal-palette.js";
 
 const DOCS = new URL("../docs/places.md", import.meta.url);
@@ -66,6 +67,8 @@ test("a place is found by its id, its English name or its French name", () => {
   assert.deepEqual(parseRoute("Computer & browser"), { settings: "computer", sub: "" });
   assert.deepEqual(parseRoute("settings"), { settings: "general", sub: "" });
   assert.deepEqual(parseRoute("Bibliothèque", french), { place: "library", tab: "memory" });
+  assert.deepEqual(parseRoute("overview"), { place: "overview", tab: "here" });
+  assert.deepEqual(parseRoute("household people"), { place: "household", tab: "people" });
   assert.deepEqual(parseRoute("parametres apparence", french), { settings: "appearance", sub: "" });
   assert.equal(parseRoute("nowhere at all"), null);
   for (const home of allHomes()) assert.equal(homeOf(parseRoute(home)), home, `${home} goes where it says`);
@@ -170,7 +173,7 @@ test("each view says where it is: the page in the head, the place on the tab row
       const page = SETTINGS_PAGES.find((entry) => entry.id === route.settings);
       assert.match(head, new RegExp(`Settings › ${page.english.replace(/&/g, "&")}`), home);
     } else {
-      const place = PLACES.find((entry) => entry.id === route.place);
+      const place = placeById(route.place);
       assert.ok(head.includes(place.english), `${home}: ${head}`);
       const tab = place.tabs.find((entry) => entry.id === route.tab);
       if (tab) assert.ok(frame.plain.some((line) => line.includes(tab.english)), `${home} shows its tab`);
@@ -188,6 +191,16 @@ test("every Settings page stays visible and clickable in a 120 by 24 terminal", 
     assert.ok(frame.plain.some((line) => line.includes(`› ${page.english}`)), `${page.english} has a visible current-page marker`);
     assert.ok(frame.hits.some((hit) => hit.action === `page:${page.id}`), `${page.english} can be selected with the mouse`);
   }
+});
+
+test("the mouse wheel over Settings navigation reaches pages outside the first window", () => {
+  const steps = [];
+  const tui = { route: { settings: "general", sub: "" }, overlay: undefined, rows: [], selected: 0,
+    step: (by) => steps.push(by), requestDraw() {} };
+  const hits = [{ x: 3, y: 2, width: 22, height: 1, action: "page:general" }];
+  routeMouse(tui, { kind: "wheel-down", x: 4, y: 2, button: 65 }, hits);
+  routeMouse(tui, { kind: "wheel-up", x: 4, y: 2, button: 64 }, hits);
+  assert.deepEqual(steps, [1, -1], "wheel navigation moves through every Settings page instead of its body rows");
 });
 
 test("French is drawn in French, and ASCII is drawn when the terminal cannot show more", async () => {
@@ -286,7 +299,7 @@ test("every place, tab and Settings page in docs/places.md opens from the termin
     const frame = frameOf(tui);
     const route = parseRoute(home);
     const name = "settings" in route ? SETTINGS_PAGES.find((page) => page.id === route.settings).english
-      : PLACES.find((place) => place.id === route.place).english;
+      : placeById(route.place).english;
     assert.ok(frame.includes(name), `${home} shows ${name}`);
     if ("settings" in route && route.settings === "models") assert.ok(frame.includes(MODEL_TABS.find((tab) => tab.id === route.sub).english));
   }

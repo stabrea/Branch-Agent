@@ -163,6 +163,24 @@ test("the selected Trunk stays named when its visual strip is off", async (t) =>
   assert.deepEqual(f.errors, []);
 });
 
+test("a hidden active Trunk stays named in the rail", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const selected = await f.page.evaluate(async () => {
+    const strip = await import("/strip.js");
+    strip.shell.roster = { modes: { trunks: "on" }, trunks: [
+      { id: "hidden-ada", name: "Ada", chatSessionId: "hidden-ada-chat", hidden: true },
+    ] };
+    document.getElementById("conversation").dataset.sessionId = "hidden-ada-chat";
+    document.getElementById("rail-target-name").textContent = "This computer";
+    strip.drawStrip();
+    return { name: document.getElementById("rail-target-name").textContent,
+      visible: !!document.querySelector('[data-strip-id="trunk:hidden-ada"]') };
+  });
+  assert.deepEqual(selected, { name: "Ada", visible: false }, "hiding the roster face does not change who owns the conversation");
+  assert.deepEqual(f.errors, []);
+});
+
 test("the Trunks rail stays owner-only", async (t) => {
   const f = await fixture(t);
   await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
