@@ -66,6 +66,8 @@ export const trunksOn = () => !!shell.roster && shell.roster.modes?.trunks !== "
 export const visibleTrunks = () => (trunksOn() ? shell.roster.trunks.filter((trunk) => !trunk.hidden) : []);
 export const findTrunk = (id) => shell.roster?.trunks.find((trunk) => trunk.id === id) ?? null;
 export const findDevice = (id) => shell.devices?.devices.find((device) => device.id === id) ?? null;
+const trunkItem = (trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
+  spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 });
 /** Something is waiting for the owner's yes: the Inbox counts it. */
 const needsYou = () => Number($("lx-inbox-badge")?.textContent || 0) > 0 && !$("lx-inbox-badge")?.hidden;
 
@@ -79,8 +81,7 @@ export function stripItems() {
   // A computer or phone asking to join shows at once, its ring turning until it is let in (critique #46).
   const asking = (shell.devices?.requests ?? []).filter((request) => request.status === "waiting").map((request) => ({ id: `asking:${request.id}`,
     kind: "asking", name: request.name, request, spec: computerSpec({ id: request.id, name: request.name, platform: request.platform }), status: "pairing" }));
-  const trunks = visibleTrunks().map((trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
-    spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 }));
+  const trunks = visibleTrunks().map(trunkItem);
   return { computers: [here, ...devices, ...asking], trunks };
 }
 function statusWords(item) {
@@ -108,7 +109,8 @@ function markSelected() {
   const picked = selectedId(), { computers, trunks } = stripItems(), items = [...computers, ...trunks];
   for (const node of document.querySelectorAll("#trunk-strip .strip-item"))
     node.setAttribute("aria-current", String(node.dataset.stripId === picked));
-  const item = items.find((entry) => entry.id === picked) ?? computers[0];
+  const selectedTrunk = picked.startsWith("trunk:") ? findTrunk(picked.slice("trunk:".length)) : null;
+  const item = items.find((entry) => entry.id === picked) ?? (selectedTrunk ? trunkItem(selectedTrunk) : computers[0]);
   if (item) document.dispatchEvent(new CustomEvent("branch-strip-selection", {
     detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item) },
   }));
