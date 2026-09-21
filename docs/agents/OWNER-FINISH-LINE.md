@@ -278,3 +278,12 @@ Branch is finished only when the following are simultaneously true:
      yes/pick/score inputs; state over stdin rather than process arguments; JEV-owned credentials;
      confidence gates and fallback instead of autonomous action; cross-platform adapter tests and
      measured benchmark evidence before it may influence routing, learning promotion or approvals.
+113. [x] Re-certify existing teamwork on the integrated Grown Up head: durable named roles, fan-out,
+     shared agent-room history after restart, in-room approvals, handoffs and the real room UI pass
+     31/31 focused tests. Keep this evidence distinct from human membership in a private room.
+114. [ ] Satisfy `collaboration.rooms` literally: add both human and agent members to one private room,
+     enforce membership on history and artifacts, and prove refusal after removal. Agent-only Trunk
+     rooms do not close this requirement.
+115. [ ] Re-certify all 169 rows in `docs/features.json` against current code and exercised tests.
+     Replace the stale 95 implemented / 14 partial / 1 external / 59 missing snapshot only from fresh
+     evidence; do not turn source presence, neighboring tests or a renamed capability into completion.
