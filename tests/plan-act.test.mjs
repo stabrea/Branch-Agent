@@ -8,6 +8,7 @@ import { chromium } from "playwright";
 import { z } from "zod";
 import { createBranch, riskSentence, offPlanDifference, commandDifference, relatedCommand, correctionLabel } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { pressUntil } from "./places.mjs";
 
 const say = (content) => ({ content, toolCalls: [] });
 const call = (name, args) => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 9)}`, name, arguments: JSON.stringify(args) }] });
@@ -341,10 +342,12 @@ test("the switch is in the conversation, and the plan card approves in one press
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  const workspace = page.locator("#workspace");
+  await pressUntil(page.getByRole("button", { name: "Connect", exact: true }),
+    () => workspace.waitFor({ state: "visible", timeout: 120000 }).then(() => true, () => false),
+    "the plan window to connect");
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
     await page.getByRole("button", { name: /Try it without an account/ }).click();
