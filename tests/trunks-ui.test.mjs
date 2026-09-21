@@ -27,6 +27,33 @@ test("every word on the Trunks screens has English and real French, and no colou
   assert.match(await readFile(new URL("index.html", PUBLIC), "utf8"), /<script src="\/trunks.js" type="module"><\/script>/);
 });
 
+test("renaming the active Trunk updates the shell target immediately", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-trunk-rename-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
+  await page.goto(server.url + "/");
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+
+  await openPlace(page, "customize:specialists");
+  await page.locator("#trunks-switch-trunks").selectOption("on");
+  await page.locator("#trunks-new-name").fill("Ada");
+  await page.getByRole("button", { name: "Create the Trunk" }).click();
+  await page.getByRole("button", { name: "Talk" }).click();
+  await page.waitForFunction(() => document.getElementById("rail-target-name")?.textContent === "Ada");
+
+  await openPlace(page, "customize:specialists");
+  await page.getByRole("button", { name: "Edit Trunk" }).click();
+  await page.locator("#trunks-edit-name").fill("Ada Bloom");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.waitForFunction(() => document.getElementById("rail-target-name")?.textContent === "Ada Bloom", undefined, { timeout: 1000 });
+  assert.equal(app.trunks.records.list()[0].name, "Ada Bloom");
+});
+
 const rules = [({ last, system }) => {
   const text = last?.content ?? "";
   if (text.startsWith("[Room") && /\nYou are Ada \(@ada\)/.test(system)) return "I can do it. @you which day?";
