@@ -173,11 +173,20 @@ test("thinking resets the silence clock, so a model that is visibly working is n
     name: "thinker",
     async complete(request) {
       // Silent in words for far longer than the 40 ms watchdog, but thinking the whole time. The
-      // signal is honoured, as a real provider's is, so an abort really does end the call.
-      for (let beat = 0; beat < 8; beat++) {
-        await delay(15, undefined, { signal: request.signal });
-        request.onReasoningDelta?.(".");
-      }
+      // repeating provider pulse is already scheduled when each rearmed watchdog starts. This tests
+      // the wiring, not whether a loaded build machine can resolve two sequential timers on time.
+      await new Promise((resolve, reject) => {
+        let beats = 0;
+        const done = () => { clearInterval(pulse); request.signal.removeEventListener("abort", aborted); };
+        const aborted = () => { done(); reject(request.signal.reason); };
+        const pulse = setInterval(() => {
+          request.onReasoningDelta?.(".");
+          if (++beats < 8) return;
+          done();
+          resolve();
+        }, 15);
+        request.signal.addEventListener("abort", aborted, { once: true });
+      });
       return { content: "done thinking", toolCalls: [], reasoningChars: 8 };
     },
   };

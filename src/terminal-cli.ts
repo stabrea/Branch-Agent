@@ -8,7 +8,7 @@ import { usageLimits } from "./usage-limits-api.js"; // mac7/usage-bar
 import { choosePreset, historyLines, presetLines } from "./terminal-commands.js";
 import { PLACE_ROWS, type Row } from "./terminal-place-data.js";
 import { TERMINAL_ALIASES, TERMINAL_CLI_COMMANDS } from "./terminal-parity.js";
-import { MODEL_TABS, PLACES, SETTINGS_PAGES, allHomes, homeOf, parseRoute, type Route } from "./terminal-places.js";
+import { MODEL_TABS, SETTINGS_PAGES, allHomes, homeOf, parseRoute, placeById, type Route } from "./terminal-places.js";
 import { settingsRows } from "./terminal-settings.js";
 import {
   loadThemeCatalogue, lookLanguage, readLook, saveLook, saveLookMode, terminalSwitches, type LookMode,
@@ -92,7 +92,7 @@ function placesCommand(io: Io, words: Words): void {
       const sub = MODEL_TABS.find((entry) => entry.id === route.sub);
       return [words.t("settings.title", "Settings"), words.t(page.key, page.english), ...(route.settings === "models" && sub ? [words.t(sub.key, sub.english)] : [])].join(" › ");
     }
-    const place = PLACES.find((entry) => entry.id === route.place)!;
+    const place = placeById(route.place)!;
     const tab = place.tabs.find((entry) => entry.id === route.tab);
     return [words.t(place.key, place.english), ...(tab ? [words.t(tab.key, tab.english)] : [])].join(" › ");
   };

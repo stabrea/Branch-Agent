@@ -10,6 +10,7 @@
    Every word is behind a key; every colour comes from the page's tokens. */
 import { api } from "/app.js";
 import { t, formatNumber, language } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -37,19 +38,11 @@ function button(key, english, className, handler) {
 
 const POSITIONS = [
   ["off", "field.switch-off", "Off"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "field.switch-on", "On"],
 ];
 function switchSelect(id, mode) {
-  const select = document.createElement("select");
-  select.id = id;
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === mode;
-    select.append(option);
-  }
-  return select;
+  return segmented({ id, options: POSITIONS, value: mode });
 }
 function status() {
   const node = make("p", "subtle");
@@ -94,14 +87,12 @@ function picker(tasks) {
   if (!tasks.length) return [make("p", "empty-state", "recordings.none", "No tasks yet. Once a task has finished, it can be played back here.")];
   const label = make("label", "", "recordings.pick", "Task");
   label.htmlFor = "recordings-task";
-  const select = document.createElement("select");
-  select.id = "recordings-task";
-  for (const task of tasks) {
-    const option = document.createElement("option");
-    option.value = task.id;
-    option.textContent = `${task.createdAt.slice(0, 16).replace("T", " ")} — ${task.prompt || task.id}`;
-    select.append(option);
-  }
+  const options = tasks.map((task) => [task.id, `${task.createdAt.slice(0, 16).replace("T", " ")} — ${task.prompt || task.id}`]);
+  const select = dropdown({
+    id: "recordings-task",
+    options: options.length > 0 ? options : [["", "No tasks"]],
+    value: options.length > 0 ? options[0][0] : ""
+  });
   const stage = document.createElement("div");
   stage.id = "recordings-stage";
   const open = button("recordings.open", "Play it back", "quiet-button", () => void openRecording(select.value, stage));

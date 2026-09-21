@@ -50,6 +50,41 @@ function models(app: PlaceApp, words: Words, sub: string): Row[] {
   return [inWindow(words, words.t("settings.page.models", "Models"))];
 }
 
+const directory = (words: Words, key: string, english: string, detailKey: string, detail: string, command: string): Row => ({
+  title: words.t(key, english), detail: words.t(detailKey, detail), command,
+});
+function directoryRows(words: Words, page: string): Row[] | null {
+  const row = (key: string, english: string, line: string, detail: string, command: string): Row =>
+    directory(words, key, english, line, detail, command);
+  const pages: Record<string, Row[]> = {
+    trunks: [
+      row("settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "/go customize specialists"),
+      row("place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "/go overview here"),
+      row("place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "/go household people"),
+    ],
+    channels: [row("settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "/go customize channels")],
+    connections: [row("settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "/go customize connections")],
+    skills: [
+      row("place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "/go customize skills"),
+      row("place.customize.specialists", "Specialists", "settingsDirectory.specialists.line", "Create and manage Trunks with their own jobs and character.", "/go customize specialists"),
+      row("place.customize.plugins", "Plugins", "settingsDirectory.plugins.line", "Install and review add-ons from other tools and people.", "/go customize plugins"),
+    ],
+    memory: [
+      row("place.library.memory", "Memory", "settingsDirectory.memory.line", "Review what Branch remembers and how it learns.", "/go library memory"),
+      row("place.library.documents", "Documents", "settingsDirectory.documents.line", "Manage the documents Branch may use when it answers.", "/go library documents"),
+      row("place.library.made", "Made for you", "settingsDirectory.made.line", "Open the pages, articles and widgets Branch made.", "/go library made"),
+    ],
+    automations: [
+      row("place.automations.scheduled", "Scheduled", "settingsDirectory.scheduled.line", "Manage work that runs at a particular time.", "/go automations scheduled"),
+      row("place.automations.procedures", "Procedures", "settingsDirectory.procedures.line", "Manage saved ways of doing repeatable work.", "/go automations procedures"),
+      row("place.automations.triggers", "Triggers", "settingsDirectory.triggers.line", "Manage work started by an outside event.", "/go automations triggers"),
+      row("place.inbox.needs", "Needs you", "settingsDirectory.needs.line", "Answer work waiting for your decision.", "/go inbox needs"),
+      row("place.inbox.history", "History", "settingsDirectory.history.line", "Review what ran and how it ended.", "/go inbox history"),
+    ],
+  };
+  return pages[page] ?? null;
+}
+
 /** The rows of one Settings page (and Models tab). */
 export function settingsRows(app: PlaceApp, words: Words, page: string, sub: string, state: SettingsState): Row[] {
   // R17-S21: the comfort settings on each page are real controls (src/comfort/terminal.ts), put
@@ -61,6 +96,8 @@ export function settingsRows(app: PlaceApp, words: Words, page: string, sub: str
 function pageRows(app: PlaceApp, words: Words, page: string, sub: string, state: SettingsState): Row[] {
   const name = (id: string, english: string): string => words.t(`settings.page.${id}`, english);
   const owner = app.runtime.owner;
+  const directoryPage = directoryRows(words, page);
+  if (directoryPage) return directoryPage;
   switch (page) {
     case "appearance": return appearance(words, state);
     case "models": return models(app, words, sub || "connection");

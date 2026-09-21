@@ -8,6 +8,9 @@
    library:made                 Quick answers, pages kept, long articles, live tool pages
    library:documents            Bringing in new items with a cursor
    library:memory               A Hindsight memory server
+   */
+import { segmented } from "/control-makers.js";
+/*
    customize:skills             Sending requests where they belong
    customize:connections        Steps for other apps, MCP examples, the app-server protocol */
 import { api } from "/app.js";
@@ -76,15 +79,13 @@ const PARTS = {
 
 /** The part's three-way switch; a change redraws the cards, since what they show depends on it. */
 function switchFor(part, modes, status) {
-  const select = document.createElement("select");
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === modes[part];
-    select.append(option);
-  }
-  select.addEventListener("change", async () => {
-    try { await api("asks/switch", { part, mode: select.value }); done(status); await drawCards(); } catch (error) { tell(status, error); }
+  const select = segmented({
+    id: `asks-switch-${part}`,
+    options: POSITIONS,
+    value: modes[part],
+    onChange: async (mode) => {
+      try { await api("asks/switch", { part, mode }); done(status); await drawCards(); } catch (error) { tell(status, error); }
+    }
   });
   const [key, english] = PARTS[part];
   return labelled(`asks-switch-${part}`, key, english, select);

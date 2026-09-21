@@ -7,6 +7,7 @@
    which website it belongs to, and which item in their password manager holds it. */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const HOME = "settings:secrets";
 const $ = (id) => document.getElementById(id);
@@ -39,17 +40,7 @@ function field(type, value = "", placeholder = "") {
   return node;
 }
 function chooser(id, options, value) {
-  const node = document.createElement("select");
-  node.id = id;
-  for (const [key, wordKey, english] of options) {
-    const option = document.createElement("option");
-    option.value = key;
-    option.dataset.t = wordKey;
-    option.textContent = say(wordKey, english);
-    node.append(option);
-  }
-  node.value = value;
-  return node;
+  return dropdown({ id, options, value });
 }
 function button(id, key, english, hintKey, hint, handler, primary = false) {
   const node = make("button", primary ? "primary" : "quiet-button", key, english);

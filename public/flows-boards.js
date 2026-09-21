@@ -11,6 +11,7 @@
    type while a task works (globalThis.branchBusySend, used by the message box). */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -44,14 +45,7 @@ function field(tag, value = "", type = "") {
   return node;
 }
 function choice(options, value) {
-  const select = document.createElement("select");
-  for (const [option, key, english] of options) {
-    const item = key ? make("option", "", key, english) : plain("option", english);
-    item.value = option;
-    item.selected = option === value;
-    select.append(item);
-  }
-  return select;
+  return dropdown({ options, value });
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 const saidOk = (node, text) => { delete node.dataset.t; node.textContent = text; };

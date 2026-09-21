@@ -4,24 +4,24 @@
   ╭─ Settings ───────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │   General                MODELS                                                                                  │
   │   Assistant              Which models your assistant uses, and how it signs in to them.                          │
-  │   Appearance                                                                                                     │
-  │   Notifications           Connection   Defaults   On this computer   Second opinion   Pictures & sound           │
-  │ › Models                                                                                                         │
-  │   Accounts               › ● Offline demonstration                                                               │
-  │   Voice                    demo · demo                                                                           │
+  │   Instructions & perso…                                                                                          │
+  │   Appearance              Connection   Defaults   On this computer   Second opinion   Pictures & sound           │
+  │   Notifications                                                                                                  │
+  │ › Models                 › ● Offline demonstration                                                               │
+  │   Accounts                 demo · demo                                                                           │
+  │   Voice                                                                                                          │
   │   Permissions                                                                                                    │
   │   Computer & browser                                                                                             │
   │   Secrets                                                                                                        │
   │   Data & usage                                                                                                   │
   │   Advanced                                                                                                       │
   │   Updates & about                                                                                                │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
+  │   Trunks & people                                                                                                │
+  │   Chat apps & devices                                                                                            │
+  │   Connections                                                                                                    │
+  │   Skills & plugins                                                                                               │
+  │   Memory & library                                                                                               │
+  │   Automations & inbox                                                                                            │
   │                                                                                                                  │
   │                                                                                                                  │
   │                                                                                                                  │

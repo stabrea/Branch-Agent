@@ -348,7 +348,7 @@ test("calm: More works from the keyboard and names its groups", async (t) => {
 test("calm: a finished conversation is in Recents at once, and the next steps are offered once", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("Tell me a joke");
-  await f.page.locator("#send").click();
+  await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator("#rail-list .rail-item").filter({ hasText: "Tell me a joke" }).waitFor({ timeout: 10000 });
   const tip = f.page.locator("#lx-tip");
   await tip.waitFor({ state: "visible", timeout: 10000 });
@@ -356,7 +356,7 @@ test("calm: a finished conversation is in Recents at once, and the next steps ar
   await tip.getByRole("button", { name: "Not now" }).click();
   await tip.waitFor({ state: "detached" });
   await f.page.locator("#prompt").fill("And another");
-  await f.page.locator("#send").click();
+  await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator(".message.user").filter({ hasText: "And another" }).waitFor();
   await f.page.waitForFunction(() => document.querySelectorAll(".message.assistant").length >= 2);
   await f.page.waitForTimeout(1000);
@@ -399,6 +399,36 @@ test("calm: Restart asks the desktop app to start Branch again, and a browser lo
   await f.page.evaluate(() => { delete globalThis.branchDesktop; document.getElementById("lx-restart").disabled = false; globalThis.stillHere = true; });
   await Promise.all([f.page.waitForEvent("load"), f.page.locator("#lx-restart").click()]);
   assert.equal(await f.page.evaluate(() => globalThis.stillHere), undefined, "the browser loaded the page again");
+});
+
+test("calm: a health request that never answers times out and reveals Restart", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.evaluate(async () => {
+    const originalFetch = globalThis.fetch;
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.fetch = (input, init = {}) => {
+      if (!String(input).includes("/api/health")) return originalFetch(input, init);
+      return new Promise((resolve, reject) => {
+        const stop = () => reject(new DOMException("The operation was aborted.", "AbortError"));
+        if (init.signal?.aborted) stop();
+        else init.signal?.addEventListener("abort", stop, { once: true });
+      });
+    };
+    globalThis.setTimeout = (run, milliseconds, ...args) =>
+      originalSetTimeout(run, milliseconds === 8000 ? 0 : milliseconds, ...args);
+    try {
+      const checks = (async () => {
+        await globalThis.branchLayout.checkServer();
+        await globalThis.branchLayout.checkServer();
+      })();
+      await Promise.race([checks, new Promise((resolve) => originalSetTimeout(resolve, 50))]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+  assert.equal(await f.page.locator("#lx-restart").isVisible(), true, "two timed-out probes mark Branch as unavailable");
+  assert.deepEqual(f.errors, []);
 });
 
 test("the desktop restart channel answers only its own window's page, and relaunches once", async () => {

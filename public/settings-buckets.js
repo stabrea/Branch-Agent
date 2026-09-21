@@ -23,7 +23,11 @@ export const BUCKETS = {
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",
-      [["identity-form", R], ["context-assistant", A], ["agent-files", A], ["autonomy-instructions-card", A]]],
+      [["identity-form", R], ["context-assistant", A], ["autonomy-instructions-card", A]]],
+  ],
+  instructions: [
+    ["files", "instructions", "Its files", "The plain files that shape how Branch works and talks to you.",
+      [["agent-files", R]]],
   ],
   appearance: [
     ["theme", "leaf", "Theme and lettering", "Colours, the size of the words, and the language.",
@@ -123,13 +127,37 @@ export const BUCKETS = {
     ["over", "warn", "Starting over", "Putting Branch back as it came.",
       [["danger-zone", A]]],
   ],
+  trunks: [
+    ["open", "people", "Trunks, computers and people", "Open the real places where you manage each one.",
+      [["settings-directory-trunks-trunks", R], ["settings-directory-trunks-overview", R], ["settings-directory-trunks-people", R]]],
+  ],
+  channels: [
+    ["open", "bell", "Chat apps and devices", "Open the real Channels place to set them up.",
+      [["settings-directory-channels-channels", R]]],
+  ],
+  connections: [
+    ["open", "swap", "Connections", "Open the real Connections place to manage them.",
+      [["settings-directory-connections-connections", R]]],
+  ],
+  skills: [
+    ["open", "spark", "Skills, specialists and plugins", "Open the real place for each kind of capability.",
+      [["settings-directory-skills-skills", R], ["settings-directory-skills-specialists", R], ["settings-directory-skills-plugins", R]]],
+  ],
+  memory: [
+    ["open", "memory", "Memory, documents and things made", "Open the real Library page for each kind of item.",
+      [["settings-directory-memory-memory", R], ["settings-directory-memory-documents", R], ["settings-directory-memory-made", R]]],
+  ],
+  automations: [
+    ["open", "automations", "Automations and their record", "Open the real Automations or Inbox page.",
+      [["settings-directory-automations-scheduled", R], ["settings-directory-automations-procedures", R],
+        ["settings-directory-automations-triggers", R], ["settings-directory-automations-needs", R],
+        ["settings-directory-automations-history", R]]],
+  ],
 };
 
 /** Groups in the Settings list, before the page they start at. */
-export const NAV_GROUPS = [["models", "models", "Models and voice"], ["permissions", "safety", "Safety"], ["data", "care", "Care"]];
-
-/** The places outside Settings that hold settings of their own. */
-export const ELSEWHERE = [["inbox", "inbox"], ["automations", "automations"], ["library", "library"], ["customize", "customize"]];
+export const NAV_GROUPS = [["models", "models", "Models and voice"], ["permissions", "safety", "Safety"], ["data", "care", "Care"],
+  ["trunks", "elsewhere", "Elsewhere in Branch"]];
 
 /** Small line icons (24 × 24, stroked). */
 export const ICON_PATHS = {
@@ -140,6 +168,12 @@ export const ICON_PATHS = {
   keyboard: "M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8",
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4",
   person: "M12 11a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0",
+  instructions: "M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6",
+  trunks: "M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 6.5M18 14a6.5 6.5 0 013.5 6",
+  channels: "M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0",
+  connections: "M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4",
+  skills: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6",
+  memory: "M3 4h18v5H3zM5 9v11h14V9M10 13h4",
   leaf: "M5 19C5 10 11 5 20 4c-1 9-6 15-15 15zM5 19l7-7",
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 110 6 3 3 0 010-6z",
   bell: "M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0",
