@@ -271,10 +271,34 @@ function place(card) {
   const existing = $(card.id);
   if (existing) existing.replaceWith(card); else document.body.append(card);
 }
-function draw() {
+function controlDrafts() {
+  const active = document.activeElement;
+  return {
+    active: active?.id ?? "",
+    selection: active && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : null,
+    values: [...document.querySelectorAll('input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]')]
+      .map((node) => [node.id, { value: node.value, checked: node.type === "checkbox" ? node.checked : null }]),
+  };
+}
+function restoreControlDrafts(drafts) {
+  for (const [id, saved] of drafts.values) {
+    const node = $(id);
+    if (!node) continue;
+    node.value = saved.value;
+    if (saved.checked !== null) node.checked = saved.checked;
+  }
+  const active = $(drafts.active);
+  if (!active) return;
+  active.focus({ preventScroll: true });
+  if (drafts.selection?.every(Number.isInteger) && typeof active.setSelectionRange === "function")
+    active.setSelectionRange(...drafts.selection);
+}
+function draw(preserveDrafts = false) {
   if (!shown) return;
+  const drafts = preserveDrafts ? controlDrafts() : null;
   for (const spec of CARDS) place(buildCard(spec, shown.view));
   if (shown.file) place(launchCard(shown.file));
+  if (drafts) restoreControlDrafts(drafts);
 }
 const allCardsAreDrawn = () => CARDS.every((spec) => $(`knobs-${spec.id}-card`)) && $("knobs-launch-file-card");
 async function refresh() {
@@ -295,7 +319,7 @@ async function afterSignIn(tries = 20) {
 
 if (typeof document !== "undefined") {
   void refresh();
-  document.addEventListener("branch-language", draw);
+  document.addEventListener("branch-language", () => draw(true));
   const signedIn = $("workspace");
   if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) void afterSignIn(); }).observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
   window.branchKnobs = { refresh };
