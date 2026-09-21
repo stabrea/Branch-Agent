@@ -72,11 +72,18 @@ const envelope = z.object({
   model: z.string().min(1), id: z.string().optional(), provider: z.string().min(1),
   answer: z.record(z.string(), z.unknown()), usage: z.unknown().optional(),
 }).passthrough();
-const yesAnswer = z.object({ noul: z.number().min(0).max(1), yes: z.boolean().optional() }).passthrough();
-const pickAnswer = z.object({ choice: z.string(), confidence: z.number().min(0).max(1).optional(),
+const yesAnswer = z.object({ type: z.literal("noul"), noul: z.number().min(0).max(1), yes: z.boolean().optional() }).passthrough();
+const pickAnswer = z.object({ type: z.literal("choice"), choice: z.string(), confidence: z.number().min(0).max(1).optional(),
   probabilities: probabilityMap }).passthrough();
-const scoreAnswer = z.object({ score: z.number(), confidence: z.number().min(0).max(1).optional(),
+const scoreAnswer = z.object({ type: z.literal("score"), score: z.number(), confidence: z.number().min(0).max(1).optional(),
   probabilities: probabilityMap, label: z.string().optional() }).passthrough();
+
+function readAnswer<T extends z.ZodTypeAny>(schema: T, raw: unknown): z.infer<T> {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success)
+    throw new Error("JEV returned an answer for a different decision or an invalid shape, so no decision was made.");
+  return parsed.data;
+}
 
 const gateFor = (confidence: number, minimum: number): "ready" | "review" =>
   confidence >= minimum ? "ready" : "review";
@@ -126,19 +133,19 @@ export class JevDecisions {
   private result(input: JevDecisionInput, result: z.infer<typeof envelope>, minimum: number): Record<string, unknown> {
     const commonResult = { model: result.model, provider: result.provider, usage: result.usage ?? null };
     if (input.kind === "yes") {
-      const answer = yesAnswer.parse(result.answer), confidence = Math.max(answer.noul, 1 - answer.noul);
+      const answer = readAnswer(yesAnswer, result.answer), confidence = Math.max(answer.noul, 1 - answer.noul);
       return { ...commonResult, verdict: answer.noul >= 0.5 ? "yes" : "no", probability: answer.noul,
         confidence, gate: gateFor(confidence, minimum) };
     }
     if (input.kind === "pick") {
-      const answer = pickAnswer.parse(result.answer);
+      const answer = readAnswer(pickAnswer, result.answer);
       const offered = new Set([...input.options.map((entry) => entry.name), ...(input.other ? ["other"] : [])]);
       if (!offered.has(answer.choice)) throw new Error("JEV returned a choice that was not offered, so no decision was made.");
       const confidence = answer.confidence ?? answer.probabilities[answer.choice] ?? 0;
       return { ...commonResult, choice: answer.choice, probabilities: answer.probabilities,
         confidence, gate: gateFor(confidence, minimum) };
     }
-    const answer = scoreAnswer.parse(result.answer), confidence = answer.confidence ?? 0;
+    const answer = readAnswer(scoreAnswer, result.answer), confidence = answer.confidence ?? 0;
     if (answer.score < 0 || answer.score > input.labels.length - 1)
       throw new Error("JEV returned a score outside the offered range, so no decision was made.");
     if (answer.label && !input.labels.includes(answer.label))

@@ -145,6 +145,21 @@ test("a provider cannot return a choice or score outside the declared decision",
   "JEV scores are expected values and may legitimately fall between ordinal levels");
 });
 
+test("a JEV answer for a different decision kind always fails closed", async (t) => {
+  const cases = [
+    [{ type: "choice", noul: 0.95 }, { kind: "yes", question: "Is it urgent?", state: "x" }],
+    [{ type: "noul", choice: "code", confidence: 0.95, probabilities: { code: 0.95 } },
+      { kind: "pick", question: "Who?", state: "x", options: [{ name: "code" }, { name: "research" }] }],
+    [{ type: "choice", score: 1, confidence: 0.95, probabilities: { 1: 0.95 } },
+      { kind: "score", question: "How risky?", state: "x", labels: ["low", "high"] }],
+  ];
+  for (const [answer, input] of cases) {
+    const { store, decisions } = fixture(t, answer);
+    saveJevSettings(store, owner, { ...jevSettings(store, owner), mode: "on" });
+    await assert.rejects(() => decisions.decide(input), /different decision or an invalid shape/i);
+  }
+});
+
 test("score labels are bounded and ordered before a process can start", () => {
   const parsed = JevDecisionInputSchema.safeParse({ kind: "score", question: "How risky?", state: "x", labels: ["low"] });
   assert.equal(parsed.success, false);
