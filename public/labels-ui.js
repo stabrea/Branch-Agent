@@ -104,6 +104,7 @@ export async function openLabelPicker(button, sessionId, afterChange) {
     field.type = "text";
     field.maxLength = 40;
     field.placeholder = t("labels.field.new");
+    field.dataset.tPlaceholder = "labels.field.new"; // follows a language change while the picker is open
     field.className = "label-new";
     const add = el("button", "Add", "label-add");
     add.type = "button";
@@ -117,7 +118,9 @@ export async function openLabelPicker(button, sessionId, afterChange) {
     });
     const chips = el("div", undefined, "label-chips");
     chips.append(...rows);
-    picker.replaceChildren(el("p", t("labels.picker.title"), "label-picker-head"), chips, field, add);
+    const head = el("p", t("labels.picker.title"), "label-picker-head");
+    head.dataset.t = "labels.picker.title";
+    picker.replaceChildren(head, chips, field, add);
   };
   await draw();
   button.insertAdjacentElement("afterend", picker);

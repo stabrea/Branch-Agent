@@ -413,6 +413,7 @@
   "browser.confirm.forgetSignIn": "Oublier la connexion pour « {name} » ? Il faudrait vous reconnecter.",
   "charts.action.chartOnly": "Afficher seulement le graphique",
   "charts.action.showNumbers": "Afficher les chiffres",
+  "charts.action.savePicture": "Enregistrer en image",
   "collab.label.aria": "L'étiquette à ajouter",
   "collab.label.placeholder": "Étiquette",
   "collab.quiet.country": "Les jours fériés de quel pays suivre",

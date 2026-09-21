@@ -412,6 +412,7 @@
   "browser.confirm.forgetSignIn": "Forget the sign-in for \"{name}\"? You would have to sign in again.",
   "charts.action.chartOnly": "Show the chart only",
   "charts.action.showNumbers": "Show the numbers",
+  "charts.action.savePicture": "Save as a picture",
   "collab.label.aria": "The label to add",
   "collab.label.placeholder": "Label",
   "collab.quiet.country": "Which country's holidays to follow",

@@ -168,7 +168,10 @@ function daysOffSection(calendar, helpers) {
   const to = el("input"); to.type = "time"; to.value = settings.quietHours?.to ?? "07:00";
   to.setAttribute("aria-label", t("collab.quiet.until")); to.dataset.tLabel = "collab.quiet.until";
   const quietLabel = el("label", undefined, "check");
-  quietLabel.append(quiet, document.createTextNode(` ${t("collab.quiet.overnight")}`));
+  // The words sit in their own marked span, so a language change rewrites them and leaves the box alone.
+  const quietWords = el("span", t("collab.quiet.overnight"));
+  quietWords.dataset.t = "collab.quiet.overnight";
+  quietLabel.append(quiet, " ", quietWords);
   const row = el("div", undefined, "collab-row");
   row.append(el("span", "Holidays for"), country, quietLabel, el("span", "between"), from, el("span", "and"), to);
   wrap.appendChild(row);

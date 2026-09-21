@@ -176,15 +176,19 @@ export function drawChart(source) {
   const table = chartTable(chart);
   table.hidden = true;
   const row = el("div", undefined, "chart-actions");
-  const toggle = el("button", "Show the numbers", "quiet");
+  const toggle = el("button", t("charts.action.showNumbers"), "quiet");
+  toggle.dataset.t = "charts.action.showNumbers";
   toggle.type = "button";
   toggle.setAttribute("aria-expanded", "false");
   toggle.addEventListener("click", () => {
     table.hidden = !table.hidden;
-    toggle.textContent = table.hidden ? t("charts.action.showNumbers") : t("charts.action.chartOnly");
+    // The key changes with the state, so a later language change writes the right one.
+    toggle.dataset.t = table.hidden ? "charts.action.showNumbers" : "charts.action.chartOnly";
+    toggle.textContent = t(toggle.dataset.t);
     toggle.setAttribute("aria-expanded", String(!table.hidden));
   });
-  const save = el("button", "Save as a picture", "quiet");
+  const save = el("button", t("charts.action.savePicture"), "quiet");
+  save.dataset.t = "charts.action.savePicture";
   save.type = "button";
   save.addEventListener("click", async () => {
     try {
