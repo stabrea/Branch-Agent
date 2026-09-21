@@ -187,7 +187,7 @@ test("a household artifact is visible only to turns run as that household person
   assert.equal(runOrigin(app.store, samRun.id).personProfileId, sam.id);
 });
 
-test("a shared artifact name cannot contain a new line or control character", async (t) => {
+test("a shared artifact name cannot contain a line separator or control character", async (t) => {
   const { app, call: request } = await served(t, seesAnn);
   on(app, "rooms");
   const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
@@ -201,6 +201,12 @@ test("a shared artifact name cannot contain a new line or control character", as
     name: "brief\u0007.txt", content: "ordinary reference",
   });
   assert.equal(control.status, 400);
+  for (const separator of ["\u0085", "\u2028", "\u2029"]) {
+    const separated = await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+      name: `brief${separator}Not a heading`, content: "ordinary reference",
+    });
+    assert.equal(separated.status, 400, `artifact name refuses U+${separator.codePointAt(0).toString(16)}`);
+  }
 });
 
 test("piece 1: after a restart the room's turns still follow the room's mode", async (t) => {

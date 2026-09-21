@@ -39,7 +39,7 @@ export const RoomEditSchema = z.object({
 }).strict();
 const RoomArtifactSchema = z.object({
   name: z.string().trim().min(1).max(120)
-    .regex(/^[^\u0000-\u001f\u007f]+$/, "Artifact name cannot contain control characters"),
+    .regex(/^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]+$/, "Artifact name cannot contain control characters"),
   content: z.string().max(12_000),
 }).strict();
 const maxKeptEvents = 300;
