@@ -65,6 +65,23 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
           <span data-t="rail.find">Find anything</span> <kbd>Ctrl K</kbd>
         </button>
+        <div id="rail-target" class="rail-target" aria-live="polite">
+          <strong id="rail-target-name" data-t="strip.here">This computer</strong>
+          <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
+        </div>
+        <div id="rail-view-tabs" class="rail-view-tabs" role="tablist" aria-label="Sidebar view" data-t-label="rail.view">
+          <button id="rail-view-conversations" class="rail-view-tab" type="button" role="tab" data-rail-view="conversations"
+            aria-selected="true" data-t="rail.conversations">Conversations</button>
+          <button id="rail-view-trunks" class="rail-view-tab" type="button" role="tab" data-rail-view="trunks"
+            aria-selected="false" data-t="trunks.rail">Trunks</button>
+        </div>
+        <div id="rail-trunks-actions" class="rail-trunks-actions" hidden>
+          <p id="rail-trunks-empty" class="rail-empty" data-t="studio.off.lede">Trunks are switched off.</p>
+          <button id="rail-new-trunk" class="rail-row" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <span data-t="trunks.new">A new Trunk</span>
+          </button>
+        </div>
         <!-- Wave 8: the one Lockdown switch, and the shape branched conversations make. -->
         <section class="rail-group" id="lockdown-panel" data-group="lockdown" hidden></section>
         <section class="rail-group" id="branch-tree" data-group="branches" hidden></section>

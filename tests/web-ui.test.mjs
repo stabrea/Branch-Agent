@@ -510,7 +510,7 @@ test("Q6 every button and field label on the page says its words through a key",
 const SHARED_WITH_FRENCH = new Set([
   "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
   // The password managers are called what their makers call them, in either language.
-  "1Password", "Bitwarden",
+  "1Password", "Bitwarden", "Trunks",
   // phase2/delight: the near-impossible achievements' rank is written the same way in French.
   "SSS+",
 ]);

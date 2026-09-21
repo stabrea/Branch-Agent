@@ -50,7 +50,6 @@
         "public/index.html",
         "public/layout.css",
         "public/layout.js",
-        "public/settings-grown.css",
         "public/shell.css"
       ],
       "tests": [
@@ -88,11 +87,13 @@
       "paths": [
         "public/control-makers.js",
         "public/control-styles.css",
-        "public/appearance.js"
+        "public/appearance.js",
+        "public/settings-grown.css"
       ],
       "tests": [
         "tests/grown-up-controls.test.mjs",
-        "tests/glass-select.test.mjs"
+        "tests/glass-select.test.mjs",
+        "tests/settings-grown.test.mjs"
       ]
     },
     {

@@ -84,11 +84,15 @@ async function api(path, body, method) {
 export function ownerAtWindow() {
   return document.documentElement.dataset.household !== "on";
 }
+export function noteWindowProfile(owner, { force = false } = {}) {
+  if (!force && ownerAtWindow() === owner) return;
+  const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
+  document.documentElement.dataset.household = owner ? "off" : "on";
+  document.documentElement.dataset.profileGeneration = String(generation);
+  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner, profileGeneration: generation } }));
+}
 function noteProfile(profile) {
-  const household = !!profile && profile.isOwner === false;
-  if (ownerAtWindow() === !household) return;
-  document.documentElement.dataset.household = household ? "on" : "off";
-  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: !household } }));
+  noteWindowProfile(!profile || profile.isOwner !== false);
 }
 window.addEventListener("unhandledrejection", (event) => {
   if (event.reason?.household === true) event.preventDefault();

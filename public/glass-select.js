@@ -1,12 +1,12 @@
-/* Redesign phase 1: every list of choices opens as a sheet of glass, and every button that is only an
-   icon says what it does on hover, in the same glass (the approved sample's "one dropdown, hover help
-   everywhere"). Both only dress what is there:
+/* Redesign phase 1: every list of choices opens as a sheet of glass, and every owner-facing control
+   explains what changing it means on hover or keyboard focus, in the same glass (the approved sample's
+   "one dropdown, hover help everywhere"). Both only dress what is there:
    - The native <select> stays in the page and stays the source of truth. It keeps its label, its value,
      its change event and its place for a screen reader; only the list it opens is Branch's own, a
      listbox with arrows, Enter, Escape and type-ahead that closes when the select is pressed again.
      A phone with only a touch screen keeps its own picker.
-   - A tooltip is shown for an icon-only button (from its aria-label or title) after a short pause, on
-     mouse hover or keyboard focus, never on touch; the title moves into the tooltip so two never show. */
+   - A tooltip reuses a control's accessible description after a short hover pause or immediately on keyboard
+     focus, never on touch. Icon-only buttons use their label; a title moves into the tooltip so two never show. */
 import { trackPopover } from "/popover.js";
 
 const touchOnly = matchMedia("(hover: none) and (pointer: coarse)");
@@ -189,7 +189,7 @@ export function dressSelects(root = document) {
   }
 }
 
-/* ---------- hover help for buttons that are only an icon ---------- */
+/* ---------- hover help ---------- */
 
 const tip = document.createElement("div");
 tip.className = "glass-tip";
@@ -198,6 +198,7 @@ tip.setAttribute("role", "tooltip");
 tip.hidden = true;
 document.body.append(tip);
 let tipFor = null, tipTimer = null;
+let keyboardMode = false;
 
 /** Only a button with no words of its own, which says what it does in aria-label or title. */
 function iconOnly(node) {
@@ -206,24 +207,49 @@ function iconOnly(node) {
   if (button.textContent.trim()) return null;
   return button.getAttribute("aria-label") || button.title || button.dataset.tip ? button : null;
 }
-function tipWords(button) {
-  if (button.title) { button.dataset.tip = button.title; button.removeAttribute("title"); }
-  return button.dataset.tip || button.getAttribute("aria-label") || "";
+function describedWords(control) {
+  if (control.matches(".segmented-control")) control = control.querySelector(".segmented-source") ?? control;
+  const ids = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+  const words = ids.map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(" ");
+  return words || control.getAttribute("aria-description") || "";
 }
-function showTip(button) {
-  const words = tipWords(button);
-  if (!words || !button.isConnected) return;
+function describedControl(node) {
+  const labelled = node?.closest?.("label")?.control;
+  let control = (labelled ?? node)?.closest?.(".segmented-control, button, [role=button], a[href], input, select, textarea");
+  if (control?.matches(".segmented-source")) control = control.closest(".segmented-control") ?? control;
+  const segmentedDisabled = control?.matches(".segmented-control") && control.querySelector(".segmented-source")?.disabled;
+  if (!control || control.closest("#glass-list, #glass-tip")
+    || control.matches(":disabled, [aria-disabled='true'], [data-disabled]") || segmentedDisabled) return null;
+  return describedWords(control) ? control : null;
+}
+function helpTarget(node) {
+  return iconOnly(node) ?? describedControl(node);
+}
+function tipWords(control) {
+  const icon = iconOnly(control);
+  if (control.title) {
+    if (icon) control.dataset.tip = control.title;
+    else control.dataset.nativeTip = control.title;
+    control.removeAttribute("title");
+  }
+  if (!icon) return describedWords(control) || control.dataset.nativeTip || "";
+  return icon.dataset.tip || icon.getAttribute("aria-label") || "";
+}
+function showTip(control) {
+  const words = tipWords(control);
+  if (!words || !control.isConnected) return;
   tip.textContent = words;
   tip.hidden = false;
-  const box = button.getBoundingClientRect(), width = tip.offsetWidth, height = tip.offsetHeight;
+  const box = control.getBoundingClientRect(), width = tip.offsetWidth, height = tip.offsetHeight;
   let top = box.bottom + 8;
   if (top + height > innerHeight - 6) top = box.top - height - 8;
   tip.style.left = `${Math.max(6, Math.min(innerWidth - width - 6, box.left + box.width / 2 - width / 2))}px`;
   tip.style.top = `${Math.max(6, top)}px`;
-  /* Joined to whatever already describes the button, and put back exactly as it was afterwards. */
-  const before = button.getAttribute("aria-describedby");
-  button.dataset.tipBefore = before ?? "";
-  button.setAttribute("aria-describedby", before ? `${before} ${tip.id}` : tip.id);
+  /* A described control already names the source sentence; only icon help needs this tooltip linked. */
+  if (!iconOnly(control)) return;
+  const before = control.getAttribute("aria-describedby");
+  control.dataset.tipBefore = before ?? "";
+  control.setAttribute("aria-describedby", before ? `${before} ${tip.id}` : tip.id);
 }
 function hideTip() {
   clearTimeout(tipTimer);
@@ -235,26 +261,48 @@ function hideTip() {
   tipFor = null;
   tip.hidden = true;
 }
-function soon(button) {
+function soon(control) {
   hideTip();
-  if (!button) return;
-  tipWords(button);
-  tipFor = button;
-  tipTimer = setTimeout(() => showTip(button), 400);
+  if (!control || touchOnly.matches) return;
+  tipWords(control);
+  tipFor = control;
+  tipTimer = setTimeout(() => showTip(control), 400);
+}
+function now(control) {
+  hideTip();
+  if (!control) return;
+  tipWords(control);
+  tipFor = control;
+  showTip(control);
 }
 document.addEventListener("pointerover", (event) => {
   if (event.pointerType !== "mouse") return;
-  const button = iconOnly(event.target);
-  if (button !== tipFor) soon(button);
+  const control = helpTarget(event.target);
+  if (control !== tipFor) soon(control);
 });
+function focusHelp(target) {
+  const control = helpTarget(target);
+  if (control && keyboardMode) { now(control); return true; }
+  return false;
+}
 document.addEventListener("focusin", (event) => {
-  const button = iconOnly(event.target);
-  if (button?.matches(":focus-visible")) soon(button); else hideTip();
-});
-document.addEventListener("pointerdown", hideTip, true);
+  const target = event.target;
+  if (focusHelp(target)) return;
+  requestAnimationFrame(() => { if (document.activeElement === target) focusHelp(target); });
+}, true);
+document.addEventListener("pointerdown", () => { keyboardMode = false; hideTip(); }, true);
 document.addEventListener("focusout", hideTip);
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideTip(); });
-addEventListener("scroll", hideTip, true);
+document.addEventListener("keydown", (event) => { keyboardMode = true; if (event.key === "Escape") hideTip(); });
+document.addEventListener("keyup", (event) => {
+  if (event.key === "Tab") now(helpTarget(document.activeElement));
+}, true);
+document.addEventListener("branch-language", () => {
+  if (tipFor && !tip.hidden) showTip(tipFor);
+});
+addEventListener("scroll", () => {
+  if (tipFor && !tip.hidden) showTip(tipFor);
+  else hideTip();
+}, true);
 
 dressSelects();
 /* Lists drawn later by the page's own modules are dressed as they arrive. */

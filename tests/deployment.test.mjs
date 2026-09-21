@@ -670,8 +670,8 @@ test("B4 the terminal door runs the commands that only look, and refuses the res
   const { server } = await openBranch(t);
   const { readOnlyTerminalCommands } = await import("../dist/terminal-cli.js");
   assert.deepEqual([...readOnlyTerminalCommands].sort(), [
-    "automations", "channels", "customize", "inbox", "library", "mcp", "memory", "places",
-    "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
+    "automations", "channels", "customize", "household", "inbox", "library", "mcp", "memory",
+    "overview", "places", "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
   ], "the list of terminal commands a second terminal may run is pinned; changing it is deliberate");
 
   const ask = (query) => fetch(`${server.url}/api/terminal?${query}`, { headers: { authorization: `Bearer ${server.token}` } });

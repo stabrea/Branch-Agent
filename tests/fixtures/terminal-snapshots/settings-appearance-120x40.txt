@@ -4,10 +4,11 @@
   ╭─ Settings ───────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │   General                APPEARANCE                                                                              │
   │   Assistant              Every KeepOak theme, light or dark. Changes show in this terminal and in the window.    │
-  │ › Appearance                                                                                                     │
-  │   Notifications            Theme: Forest                                                                         │
-  │   Models                   All 44 themes, shared with the window.                                                │
-  │   Accounts               › Light and dark: Dark                                                                  │
+  │   Instructions & perso…                                                                                          │
+  │ › Appearance               Theme: Forest                                                                         │
+  │   Notifications            All 44 themes, shared with the window.                                                │
+  │   Models                 › Light and dark: Dark                                                                  │
+  │   Accounts                                                                                                       │
   │   Voice                                                                                                          │
   │   Permissions                                                                                                    │
   │   Computer & browser                                                                                             │
@@ -15,13 +16,12 @@
   │   Data & usage                                                                                                   │
   │   Advanced                                                                                                       │
   │   Updates & about                                                                                                │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
-  │                                                                                                                  │
+  │   Trunks & people                                                                                                │
+  │   Chat apps & devices                                                                                            │
+  │   Connections                                                                                                    │
+  │   Skills & plugins                                                                                               │
+  │   Memory & library                                                                                               │
+  │   Automations & inbox                                                                                            │
   │                                                                                                                  │
   │                                                                                                                  │
   │                                                                                                                  │

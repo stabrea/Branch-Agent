@@ -1,4 +1,4 @@
-import { MODEL_TABS, PLACES, SETTINGS_PAGES } from "./terminal-places.js";
+import { ALL_PLACES, MODEL_TABS, SETTINGS_PAGES } from "./terminal-places.js";
 import { TERMINAL_COMMANDS, type TerminalCommand } from "./terminal-command-table.js";
 import type { PaletteItem } from "./terminal-screen.js";
 import type { ThemeCatalogue } from "./terminal-theme.js";
@@ -14,7 +14,7 @@ export interface RecentConversation { sessionId: string; opening: string }
 function placeItems(words: Words, crumb: string): PaletteItem[] {
   const section = words.t("rail.sections", "Sections");
   const items: PaletteItem[] = [];
-  for (const place of PLACES) {
+  for (const place of ALL_PLACES) {
     const name = words.t(place.key, place.english);
     items.push({ label: name, section, run: `/go ${place.id}` });
     for (const tab of place.tabs) items.push({ label: `${name}${crumb}${words.t(tab.key, tab.english)}`, section, run: `/go ${place.id}:${tab.id}` });

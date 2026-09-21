@@ -13,6 +13,7 @@ import { api, displayView, openConversation } from "/app.js";
 import { t } from "/i18n.js";
 import { face, trunkSpec } from "/faces.js"; // phase2/shell
 import { dropdown } from "/control-makers.js";
+import { refresh as refreshStrip } from "/strip.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english.replace(/\{(\w+)\}/g, (w, n) => (values && n in values ? String(values[n]) : w)) : word; };
@@ -122,6 +123,7 @@ function createForm() {
       await api("trunks", { name: name.value.trim(), title: title.value.trim(), description: description.value.trim() });
       form.reset();
       saved();
+      await refreshStrip();
       await draw();
     } catch (error) { report(error); }
   });
@@ -146,6 +148,7 @@ function trunkRow(trunk) {
     button("trunks.remove", "Remove", async () => {
       if (!confirm(say("trunks.remove.confirm", "Remove {name}? Its conversations stay in your history.", { name: trunk.name }))) return;
       await api(`trunks/${trunk.id}/remove`, {});
+      await refreshStrip();
       await draw();
     }));
   return item;
@@ -200,7 +203,7 @@ async function openEditor(id) {
   const save = make("button", "", "trunks.save", "Save changes");
   save.type = "button";
   save.addEventListener("click", async () => {
-    try { await api(`trunks/${id}`, editorValues(trunk, f, ticks)); saved(); await draw(); await openEditor(id); } catch (error) { report(error); }
+    try { await api(`trunks/${id}`, editorValues(trunk, f, ticks)); saved(); await refreshStrip(); await draw(); await openEditor(id); } catch (error) { report(error); }
   });
   host.replaceChildren(make("h3", "", "trunks.editing", "Edit {name}", { name: trunk.name }),
     ...labels.flatMap(([name, key, english]) => labelled(`trunks-edit-${name}`, key, english, f[name])),
@@ -590,3 +593,6 @@ whenReady(() => {
   // The roster follows new replies without a reload.
   setInterval(() => { if (!document.hidden) void drawRail(); }, 15000);
 });
+/* Studio refreshes the shared strip after enabling, creating or editing a Trunk. Refresh the rail on
+   that same event so it never waits for the 15-second background poll. */
+document.addEventListener("branch-strip", () => void drawRail());
