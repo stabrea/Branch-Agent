@@ -81,6 +81,11 @@ export interface ToolLoaderOptions {
   maxLoaded?: number;
   /** What past tasks say this one will need, loaded before the first round. */
   preload?: readonly PreloadedTool[];
+  /**
+   * Tools that travel in full whatever the section's ceiling: with the owner's Tool loading switch
+   * off, everything they switched on (src/feature-switches.ts `switchedToolTiers`). Never trimmed.
+   */
+  forced?: readonly string[];
   /** Tools nobody has used for a long time: not advertised unless the task asks for them. */
   demoted?: readonly string[];
   /**
@@ -140,6 +145,7 @@ export class ToolLoader {
   private readonly preloaded: PreloadedTool[];
   private readonly demoted: Set<string>;
   private readonly hidden: Set<string>;
+  private readonly forced: Set<string>;
   /** Whether a hidden tool may be named at all; see `ToolLoaderOptions.nameHidden`. */
   private readonly nameHidden: boolean;
   private readonly recentRounds: number;
@@ -160,6 +166,7 @@ export class ToolLoader {
     this.signals = options.signals ?? {};
     this.demoted = new Set(options.demoted ?? []);
     this.hidden = new Set(options.hidden ?? []);
+    this.forced = new Set(options.forced ?? []);
     this.nameHidden = options.nameHidden ?? true;
     this.index = new ToolIndex(all, options);
     if (options.embedder) this.index.embedder = options.embedder;
@@ -381,7 +388,9 @@ export class ToolLoader {
     // search away, and saying so once costs less than naming forty tools nobody asked about.
     const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)
       && !this.hidden.has(hit.entry.name)).map((hit) => hit.entry);
-    const plan = this.fit(core, wanted.map((hit) => hit.entry), listable, rest.length);
+    // A forced tool is carried like a core one: the ceiling below trims around it, never it.
+    const forced = wanted.filter((hit) => this.forced.has(hit.entry.name)).map((hit) => hit.entry);
+    const plan = this.fit([...core, ...forced], wanted.filter((hit) => !this.forced.has(hit.entry.name)).map((hit) => hit.entry), listable, rest.length);
     for (const entry of plan.loaded) this.sent.add(entry.name);
     this.cached = { at: this.version, plan };
     return plan;

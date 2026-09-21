@@ -156,20 +156,39 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
 ];
 
 /**
- * What the switches mean for one task's tool list: the tools to load from the start ("on"), and the
- * ones not to advertise ("off"). "When needed" adds nothing, because that is the ordinary tiering.
+ * The owner's one Tool loading switch (owner item 17). **deferred** (the switch on, as shipped): a
+ * feature switched on keeps its tools a search away until a task calls for them, which keeps every
+ * request light. **eager** (the switch off): everything switched on travels in full from the first
+ * round, and is never trimmed to fit, for people who want their agents made to follow it.
+ */
+export const toolLoadingKey = "tool-loading";
+export const ToolLoadingSchema = z.object({ mode: z.enum(["deferred", "eager"]).default("deferred") }).strict();
+export type ToolLoading = z.infer<typeof ToolLoadingSchema>["mode"];
+export function toolLoading(store: Reader, owner: string): ToolLoading {
+  const parsed = ToolLoadingSchema.safeParse(store.get("settings", owner, toolLoadingKey)?.data ?? {});
+  return parsed.success ? parsed.data.mode : "deferred";
+}
+/** The one rule: "on" always loads; "when needed" loads up front only when Tool loading is off (eager). */
+export const loadsEagerly = (mode: FeatureMode, loading: ToolLoading): boolean =>
+  mode === "on" || (mode === "when-needed" && loading === "eager");
+
+/**
+ * What the switches mean for one task's tool list: the tools to load from the start, the ones not to
+ * advertise ("off"), and, with Tool loading off, the ones that must travel in full whatever the
+ * section's ceiling (`forced`). "When needed" with Tool loading on adds nothing: the ordinary tiering.
  */
 export function switchedToolTiers(store: Reader, owner: string, available: readonly string[]): {
-  preload: { name: string; reason: string }[]; hidden: string[];
+  preload: { name: string; reason: string }[]; hidden: string[]; forced: string[];
 } {
   const present = new Set(available);
+  const loading = toolLoading(store, owner);
   const preload: { name: string; reason: string }[] = [];
   const hidden: string[] = [];
   for (const feature of toolFeatures) {
     const mode = feature.mode(store, owner);
     const tools = feature.tools.filter((name) => present.has(name));
-    if (mode === "on") preload.push(...tools.map((name) => ({ name, reason: feature.reason })));
+    if (loadsEagerly(mode, loading)) preload.push(...tools.map((name) => ({ name, reason: feature.reason })));
     if (mode === "off" && feature.hideWhenOff) hidden.push(...tools);
   }
-  return { preload, hidden };
+  return { preload, hidden, forced: loading === "eager" ? preload.map((entry) => entry.name) : [] };
 }

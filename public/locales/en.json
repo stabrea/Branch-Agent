@@ -652,6 +652,8 @@
   "batchsets.row.gaps": "{again} asked again, {lost} left unanswered",
   "batchsets.title": "What asking a whole set at once saved",
   "batchsets.total": "${amount} saved across {batched} question(s) answered in a set. {again} had to be asked again one at a time.",
+  "capabilities.field.tool-loading": "Load tools only when a task needs them",
+  "capabilities.tool-loading.title": "Tool loading",
   "cached.empty": "No answer has been reused yet.",
   "cached.intro": "Every round answered from an answer that was already kept, with what it would have cost had it been sent.",
   "cached.title": "What asking twice saved",

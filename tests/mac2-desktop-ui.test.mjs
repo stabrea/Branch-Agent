@@ -375,10 +375,10 @@ test("on loads a feature's tools from the start, off keeps the screen tools out 
   const { app } = await fixture(t);
   const owner = app.runtime.owner;
   const all = ["desktop.windows", "desktop.click", "voice.say", "files.read"];
-  assert.deepEqual(switchedToolTiers(app.store, owner, all), { preload: [], hidden: ["desktop.windows", "desktop.click"] },
+  assert.deepEqual(switchedToolTiers(app.store, owner, all), { preload: [], hidden: ["desktop.windows", "desktop.click"], forced: [] },
     "off hides the screen tools, but not voice.say, which also reads with a provider's voice");
   saveDesktopSettings(app.store, owner, { mode: "when-needed" });
-  assert.deepEqual(switchedToolTiers(app.store, owner, all), { preload: [], hidden: [] }, "when needed is the ordinary tiering");
+  assert.deepEqual(switchedToolTiers(app.store, owner, all), { preload: [], hidden: [], forced: [] }, "when needed is the ordinary tiering");
   saveDesktopSettings(app.store, owner, { mode: "on" });
   saveVoiceSettings(app.store, owner, { systemVoice: "on" });
   assert.deepEqual(switchedToolTiers(app.store, owner, all).preload.map((tool) => tool.name), ["desktop.windows", "desktop.click", "voice.say"]);

@@ -320,7 +320,14 @@ const comfortCards: SettingSpec[] = [
       guard: "plain", initial: 10, kind: { type: "number", min: 1, max: 300 } }] },
 ];
 
-export const settingsCatalogue: readonly SettingSpec[] = [...safety, ...reach, ...comfort, ...comfortCards];
+/** Owner item 17: one Tool loading switch over everything switched on (src/feature-switches.ts). */
+const capabilityCards: SettingSpec[] = [
+  { key: "tool-loading", name: "Tool loading", t: "capabilities.tool-loading.title", home: "settings:general",
+    fields: [{ field: "mode", label: "Load tools only when a task needs them", t: "capabilities.field.tool-loading", guard: "plain",
+      initial: "deferred", kind: { type: "choice", options: ["deferred", "eager"] } }] },
+];
+
+export const settingsCatalogue: readonly SettingSpec[] = [...safety, ...reach, ...comfort, ...comfortCards, ...capabilityCards];
 
 /**
  * Records that are never touched from here, whatever a file or a preset names. The catalogue above

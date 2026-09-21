@@ -653,6 +653,8 @@
   "batchsets.row.gaps": "{again} reposées, {lost} restées sans réponse",
   "batchsets.title": "Ce qu'a économisé l'envoi d'un lot entier de questions",
   "batchsets.total": "{amount} $ économisés sur {batched} question(s) répondues en lot. {again} ont dû être reposées une à une.",
+  "capabilities.field.tool-loading": "Charger les outils seulement quand une tâche en a besoin",
+  "capabilities.tool-loading.title": "Chargement des outils",
   "cached.empty": "Aucune réponse n'a encore été réutilisée.",
   "cached.intro": "Chaque tour répondu à partir d'une réponse déjà conservée, avec ce qu'il aurait coûté s'il avait été envoyé.",
   "cached.title": "Ce que la question posée deux fois a économisé",
