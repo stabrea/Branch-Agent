@@ -175,6 +175,7 @@ export function describeToolCall(name: string, args: unknown): string {
     case "specialists.delegate": return `Asking the ${short(a.id)} specialist`;
     case "specialists.fanout": return "Running several specialists";
     case "sessions.search": case "history.search": return "Looking back through earlier conversations";
+    case "history.attach": return "Reading another conversation for context";
     default:
       if (name.startsWith("memory.")) return name.endsWith("put") || name.endsWith("write") ? "Saving a note to memory" : "Checking memory";
       if (name.startsWith("schedules.")) return "Updating a schedule";
