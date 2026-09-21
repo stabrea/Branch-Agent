@@ -358,7 +358,7 @@ export class Store {
   runs(owner: string): Run[] {
     return this.db
       .prepare(
-        "SELECT * FROM tasks WHERE owner=? ORDER BY created_at DESC LIMIT 100",
+        "SELECT * FROM tasks WHERE owner=? ORDER BY created_at DESC, rowid DESC LIMIT 100",
       )
       .all(owner)
       .map((row) => this.toRun(row));

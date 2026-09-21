@@ -234,19 +234,27 @@ test("overlapping saves on different cards keep both values and clear both draft
   let captured, release;
   const firstCaptured = new Promise((resolve) => { captured = resolve; });
   const released = new Promise((resolve) => { release = resolve; });
-  let held = false;
+  let held = false, posted, responseStatus;
   await page.route("**/api/knobs", async (route) => {
     const body = route.request().postDataJSON?.();
     if (route.request().method() !== "POST" || body?.card !== "limits" || held) return route.continue();
     held = true;
+    posted = body;
     const response = await route.fetch();
+    responseStatus = response.status();
     captured();
     await released;
     await route.fulfill({ response });
   });
-  await page.locator("#knobs-maxSteps").fill("25");
-  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true }).evaluate((button) => button.click());
+  await page.locator("#knobs-limits-card").evaluate((card) => {
+    const control = card.querySelector("#knobs-maxSteps");
+    control.value = "25";
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    [...card.querySelectorAll("button")].find((button) => button.textContent.trim() === "Save").click();
+  });
   await firstCaptured;
+  assert.equal(posted.values.maxSteps, 25, "the held request contains the edit under test");
+  assert.equal(responseStatus, 200, "the held request reached the server successfully");
   await page.locator("#knobs-sensitivity").evaluate((control) => {
     control.value = "strict";
     control.dispatchEvent(new Event("input", { bubbles: true }));
