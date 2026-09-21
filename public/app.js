@@ -1646,6 +1646,7 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
     globalThis.branchContextFilesReady?.();
+    globalThis.branchHeartbeatReady?.();
     /* mac3/security-check: the security check card reads its switches once you are in. */
     globalThis.branchSecurityCheckReady?.();
     globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2

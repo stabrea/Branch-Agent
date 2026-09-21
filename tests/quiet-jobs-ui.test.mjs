@@ -33,7 +33,7 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await signIn(page, server);
-  await openPlace(page, "automations:scheduled");
+  await openPlace(page, "schedules");
   await page.locator("#quiet-checkin h2").waitFor({ state: "visible" });
   for (const [id, home] of Object.entries(cards)) {
     const shape = await page.evaluate((cardId) => {

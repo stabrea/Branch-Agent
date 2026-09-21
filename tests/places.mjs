@@ -4,13 +4,13 @@
 
 /* The names pages had before the redesign, and the place and tab that hold them now. */
 const TABS = {
-  runs: ["inbox", "runs"],
-  memory: ["library", "memory"],
-  documents: ["library", "documents"],
-  skills: ["customize", "skills"],
-  specialists: ["customize", "specialists"],
-  procedures: ["automations", "procedures"],
-  schedules: ["automations", "schedules"],
+  runs: { place: "inbox", tab: "history", oldView: "runs" },
+  memory: { place: "library", tab: "memory", oldView: "memory" },
+  documents: { place: "library", tab: "documents", oldView: "documents" },
+  skills: { place: "customize", tab: "skills", oldView: "skills" },
+  specialists: { place: "customize", tab: "specialists", oldView: "specialists" },
+  procedures: { place: "automations", tab: "procedures", oldView: "procedures" },
+  schedules: { place: "automations", tab: "scheduled", oldView: "schedules" },
 };
 
 /** The window is rebuilt by the last script on the page, which can still be loading when the workspace appears
@@ -62,10 +62,11 @@ export async function openPlace(page, view) {
   if (view === "settings") return openSettings(page);
   if (view === "usage") return openSettings(page, "data");
   if (view.startsWith("settings:")) return openSettings(page, view.slice("settings:".length));
-  const [place, tab] = TABS[view] ?? view.split(":");
+  const oldTab = TABS[view];
+  const [place, tab] = oldTab ? [oldTab.place, oldTab.tab] : view.split(":");
   await closeSettings(page);
   await openPlaceLink(page, place);
-  const trigger = TABS[view] ? `.lx-tab[data-view="${tab}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
+  const trigger = oldTab ? `.lx-tab[data-view="${oldTab.oldView}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
   if (await placeTabIsOpen(page, place, tab)) return;
   await pressUntil(page.locator(trigger),
     () => placeTabBecameOpen(page, place, tab),
