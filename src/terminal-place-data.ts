@@ -80,9 +80,10 @@ function taskRows(app: PlaceApp, since: number): Row[] {
     }));
 }
 function overviewRows(app: PlaceApp, words: Words): Row[] {
-  const trunkChats = new Set((trunksFor(app.runtime)?.records.list() ?? [])
+  const owner = app.store.profiles.isOwner(), scope = app.store.profiles.scope();
+  const trunkChats = new Set((owner ? trunksFor(app.runtime)?.records.list() ?? [] : [])
     .flatMap((trunk) => [trunk.chatSessionId, ...trunk.retiredChats]));
-  const runs = app.store.runs(app.runtime.owner).filter((run) => !trunkChats.has(run.sessionId)).slice(0, 12);
+  const runs = app.store.runs(scope).filter((run) => !trunkChats.has(run.sessionId)).slice(0, 12);
   if (!runs.length) return [{ title: words.t("ov.calm", "Nothing waiting"),
     detail: words.t("ov.now.none", "Nothing is running right now."), tone: "ok" }];
   return runs.map((run) => ({ title: clip(run.prompt), detail: `${run.status.replace(/_/g, " ")} · ${day(run.updatedAt)}`,
@@ -112,7 +113,7 @@ const recordRows = (app: PlaceApp, table: "schedules" | "procedures" | "speciali
 
 function specialistRows(app: PlaceApp, words: Words): Row[] {
   const trunkService = trunksFor(app.runtime);
-  const trunks = (trunkService?.modes().trunks === "off" ? [] : trunkService?.records.list() ?? []).map((trunk) => ({
+  const trunks = (!app.store.profiles.isOwner() || trunkService?.modes().trunks === "off" ? [] : trunkService?.records.list() ?? []).map((trunk) => ({
     title: clip(trunk.name),
     detail: clip(`${words.t("strip.kind.trunk", "Trunk")} · @${trunk.handle}${trunk.title ? ` · ${trunk.title}` : ""}`),
     tone: trunk.hidden ? "muted" as const : undefined,

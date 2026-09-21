@@ -316,6 +316,19 @@ test("the terminal computer overview excludes Trunk conversations", async (t) =>
   assert.ok(rows.every((row) => !/Trunk task/.test(row.title)), "current and retired Trunk work stays in that Trunk");
 });
 
+test("the terminal overview reads only the active household profile's work", async (t) => {
+  const { app } = await running(t);
+  const ownerRun = app.store.createRun(app.runtime.owner, "Owner private task");
+  app.store.finish(ownerRun.id, "completed", "done");
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const samRun = app.store.createRun(app.store.profiles.scope(), "Sam task");
+  app.store.finish(samRun.id, "completed", "done");
+  const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.deepEqual(rows.map((row) => row.title), ["Sam task"]);
+  assert.deepEqual(rows.map((row) => row.sessionId), [samRun.sessionId]);
+});
+
 test("the terminal People page shows a household profile only itself", async (t) => {
   const { app } = await running(t);
   const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
@@ -340,6 +353,16 @@ test("the Trunks Settings row opens the live Trunks roster, not specialist recor
     "the real named Trunk appears from the live roster");
   assert.ok(tui.rows.some((row) => row.title === "Specialist only" && row.detail?.startsWith("Specialists ·")),
     "saved specialist templates remain visible but are not presented as Trunks");
+});
+
+test("the terminal hides owner Trunks from a household profile", async (t) => {
+  const { app } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  const trunk = app.trunks.create({ name: "Ada" });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const rows = await PLACE_ROWS["customize:specialists"](app, loadWords("en"));
+  assert.ok(rows.every((row) => row.title !== "Ada" && row.sessionId !== trunk.chatSessionId));
 });
 
 test("the terminal hides Trunk roster rows while Trunks are switched off", async (t) => {
