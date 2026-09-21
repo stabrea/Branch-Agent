@@ -120,6 +120,16 @@ test("an unchanged refresh cannot replace a knob value while it is being typed",
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
 });
 
+test("a language redraw cannot replace an unsaved launch-file list", async (t) => {
+  const { page } = await openApp(t);
+  await openSettingFor(page, "#knobs-launch-file-card");
+  const sites = page.locator("#knobs-launch-browserSites");
+  const draft = "https://example.com\nhttps://docs.example.org";
+  await sites.fill(draft);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
+  assert.equal(await sites.inputValue(), draft);
+});
+
 test("at 400 px the knob cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["knobs-leak-guard-card", "knobs-commands-card", "knobs-reasoning-card"]) {
