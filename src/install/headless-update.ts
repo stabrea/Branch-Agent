@@ -16,6 +16,8 @@ import { databaseName } from "./layout.js";
 import { quitRunning, runningNow, type QuitReport } from "./quit.js";
 import { sessionTokenFileName, type RunningInstance } from "./running.js";
 import { writeUpdateBackup } from "./update-backup.js";
+import { restartService, waitForReturn, type ReturnDeps } from "./service-return.js";
+import { rollbackCommand } from "./rollback-cli.js";
 
 /**
  * `branch update --yes`: the app's Update button without the window. It uses the same updater, so the
@@ -49,6 +51,12 @@ export interface HeadlessUpdateDeps {
   running?: (dataDir: string) => Promise<RunningInstance | null>;
   backup?: () => Promise<void>;
   snapshot?: () => Promise<string>;
+  /** Starts the background service again through its manager (launchctl, systemctl, the scheduled task). */
+  restartService?: () => Promise<void>;
+  /** How long, and how, to wait for the new version to say it is running. */
+  returnWait?: ReturnDeps;
+  /** Goes back to the version before; answers with an exit code. */
+  rollback?: (restart: () => Promise<void>) => Promise<number>;
 }
 
 /** The safety copies this data folder holds, newest last, so a refusal can name one. */
@@ -215,6 +223,28 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
   activation.activated();
   activation.close();
   input.print(`Updated Branch Agent from ${input.version} to ${to}. The version before is kept beside it. Log: ${log}`);
-  if (stopped.report?.wasRunning && !reopen) input.print("Branch was working in the background; start it again with `branch start` or by signing in again.");
+  if (stopped.report?.wasRunning && note?.mode === "daemon") return serviceBack(input, stopped.report.pid, to, log);
   return 0;
+}
+
+/**
+ * A Branch that was working in the background comes back by itself on the new version, and when it
+ * does not come up the version before is put back and started instead: the owner is never left with
+ * no Branch running.
+ */
+async function serviceBack(input: HeadlessUpdateInput, before: number | null, to: string, log: string): Promise<number> {
+  const deps = input.deps ?? {}, platform = input.platform ?? process.platform;
+  const restart = deps.restartService ?? (() => restartService(platform));
+  const started = await restart().then(() => true, () => false);
+  if (started && (await waitForReturn(input.dataDir, before, deps.returnWait))) {
+    input.print(`Branch is working in the background again, on version ${to}.`);
+    return 0;
+  }
+  input.print(`Version ${to} did not come back up in the background, so Branch is going back to the version it had. Log: ${log}`);
+  const rollback = deps.rollback ?? ((again: () => Promise<void>) => rollbackCommand({
+    dataDir: input.dataDir, version: to, yes: true, platform, print: input.print, deps: { restartService: again },
+  }));
+  const code = await rollback(restart).catch(() => 1);
+  if (code !== 0) input.print("Going back did not finish either. Start Branch with `branch start`, or see what happened with `branch rollback`.");
+  return 1;
 }

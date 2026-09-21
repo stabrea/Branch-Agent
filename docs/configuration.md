@@ -2149,6 +2149,8 @@ written stops the update, because an update nobody can undo is not worth making;
 be read is put aside and a new one started, and an undo with nothing recorded refuses rather than
 guesses.
 
+**A Branch working in the background comes back by itself** (`src/install/service-return.ts`). Closing it for the swap is a polite exit, which launchd's `KeepAlive{SuccessfulExit:false}` and systemd's `Restart=on-failure` do not restart, so after `branch update --yes` the service is started again through its own manager (`launchctl kickstart -k`, `systemctl --user restart branch-agent.service`, the scheduled task's `/Run` on Windows), and Branch waits up to a minute for a process other than the one it closed to say it is running. When none does, the version before is put back with `branch rollback --yes` and started as the service, so the owner is never left with no Branch running; `branch rollback --yes` itself brings a service back as the service, never as a window.
+
 `branch rollback` says what going back would do; `branch rollback --yes` does it. The decision is
 `assessRollback` in `src/never-break/rollback.ts`, and it **refuses**, in a sentence saying why and
 what to do instead, when: there is no record; this update was already undone or superseded; another
