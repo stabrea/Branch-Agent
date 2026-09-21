@@ -440,7 +440,8 @@ function buildSettings() {
     page.id = `lx-page-${id}`;
     page.dataset.page = id;
     page.hidden = true;
-    page.append(worded("h2", "lx-page-title", key, english), make("p", "lx-page-intro", intro));
+    page.append(worded("h2", "lx-page-title", key, english),
+      worded("p", "lx-page-intro", `terminal.settings.${id}.intro`, intro));
     body.append(page);
   }
 
@@ -456,6 +457,14 @@ function buildSettings() {
   buildModelTabs();
   buildAppearanceBlock();
 }
+function showOwnerSettings(owner) {
+  const link = document.querySelector('.lx-settings-link[data-page="instructions"]');
+  const page = $("lx-page-instructions");
+  if (link) link.hidden = !owner;
+  if (page && !owner) page.hidden = true;
+  if (!owner && settingsPage === "instructions") showSettingsPage("general");
+}
+document.addEventListener("branch-profile", (event) => showOwnerSettings(event.detail?.owner !== false));
 function settingsSearch() {
   const wrap = make("label", "lx-search");
   wrap.append(icon("search"));
