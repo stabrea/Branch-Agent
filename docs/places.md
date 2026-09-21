@@ -80,11 +80,11 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Heartbeat and quiet jobs (`mac2/quiet-jobs`) | `automations:scheduled`; its interruptions setting in `settings:notifications` |
 | Undoing a goal (`mac2/goal-undo`) | The conversation: a message action and the Plan tab, no screen of its own |
 | Live chat on channels (`mac2/chat-live`) | `customize:channels` |
-| Persona, identity and "who the owner is" files (SOUL, IDENTITY, USER) | `settings:assistant` |
-| A project's own instructions (AGENTS.md and its aliases) | `settings:general`, under the project |
-| MEMORY.md | `library:memory` |
-| HEARTBEAT.md | `automations:scheduled` |
-| SOP.md | `automations:procedures` |
+| Persona, identity and "who the owner is" files (SOUL, IDENTITY, USER) | Edited in `settings:instructions`; `settings:assistant` may link there from the related assistant controls |
+| A project's own instructions (AGENTS.md and its aliases) | Edited in `settings:instructions`; `settings:general` may link there from the related project |
+| MEMORY.md | Edited in `settings:instructions`; `library:memory` shows the related remembered facts |
+| HEARTBEAT.md | Edited in `settings:instructions`; `automations:scheduled` shows the jobs it wakes |
+| SOP.md | Edited in `settings:instructions`; `automations:procedures` shows the procedures that use it |
 | Suggested automations, the automation catalogue, standing orders, repeating in conversations and the limits on automatic work (`mac7/r17-b`) | `automations:scheduled`; the `/loop`, `/heartbeat`, `/subgoal`, `/bg`, `/handoff`, `/suggestions` and `/blueprint` commands live in the message box |
 | Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
 | What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
