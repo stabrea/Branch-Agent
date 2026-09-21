@@ -158,3 +158,39 @@ test("bringing a second Trunk into a Trunk's conversation makes a room and opens
   assert.equal(await f.page.locator("#thread-name").innerText(), "Scout and Ledger");
   assert.deepEqual(f.errors, []);
 });
+
+test("a private room shows its people and shared artifacts in the conversation", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const room = (await f.call("/api/trunks/rooms", {
+    name: "Private bench", members: [f.scout.id, f.ledger.id], people: [sam.id],
+  })).room;
+  await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "brief.txt", content: "private oak plan" });
+  await f.page.evaluate(async () => globalThis.branchRooms.refresh());
+  assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
+  const card = f.page.locator(".rooms-artifacts");
+  await card.waitFor({ state: "visible" });
+  assert.match(await card.innerText(), /People here: Sam[\s\S]*brief\.txt[\s\S]*Shared by Owner[\s\S]*private oak plan/);
+  await card.locator(".rooms-artifact-name").fill("notes.txt");
+  await card.locator(".rooms-artifact-content").fill("only this room");
+  await card.getByRole("button", { name: "Share", exact: true }).click();
+  await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("only this room"));
+  assert.deepEqual(f.errors, []);
+});
+
+test("a named household member can open only a room they belong to in the real window", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const room = (await f.call("/api/trunks/rooms", {
+    name: "Sam's room", members: [f.scout.id, f.ledger.id], people: [sam.id],
+  })).room;
+  await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "brief.txt", content: "members only" });
+  await f.call("/api/profiles/switch", { profileId: sam.id, pin: "1234" });
+  await f.page.evaluate(async () => globalThis.branchRooms.refresh());
+  assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
+  await f.page.waitForFunction(() => document.getElementById("conversation")?.dataset.room);
+  assert.match(await f.page.locator(".rooms-artifacts").innerText(), /People here: Sam[\s\S]*members only/);
+  await send(f.page, "@scout hello from Sam");
+  await f.page.waitForFunction(() => document.querySelector("#conversation .message.user small")?.textContent === "Sam");
+  assert.deepEqual(f.errors, []);
+});

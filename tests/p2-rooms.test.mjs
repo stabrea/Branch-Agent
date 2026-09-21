@@ -361,3 +361,49 @@ test("integration review: with the switch off, a conversation can still be given
   assert.equal(back.status, 200);
   assert.equal(back.body.kind, "plain");
 });
+
+test("a private room admits named people and Trunks, and removal closes its history and artifacts", async (t) => {
+  const { app, call, provider } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const lee = app.store.profiles.create({ name: "Lee", pin: "5678" });
+  const made = await call("/api/trunks/rooms", { name: "Private bench", members: [ann.id, ben.id], people: [sam.id] });
+  assert.equal(made.status, 200);
+  const id = made.body.room.id;
+  const artifact = await call(`/api/trunks/rooms/${id}/artifacts`, { name: "brief.txt", content: "private oak plan" });
+  assert.equal(artifact.status, 200);
+
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const joined = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(joined.status, 200);
+  assert.deepEqual(joined.body.people.map((person) => person.name), ["Sam"]);
+  assert.deepEqual(joined.body.roster.map((member) => member.name), ["Ann", "Ben"]);
+  assert.equal(joined.body.artifacts[0].content, "private oak plan");
+  assert.equal((await call(`/api/sessions/${made.body.room.sessionId}`)).status, 200, "the shared room opens as a conversation");
+  assert.equal((await call(`/api/trunks/conversations/${made.body.room.sessionId}`)).body.kind, "room");
+  assert.equal((await call(`/api/trunks/rooms/${id}/send`, { text: "@ann use the brief" })).status, 200);
+  await app.trunks.rooms.settled(id);
+  const prompts = provider.requests.flatMap((request) => request.messages).map((message) => String(message.content));
+  assert.ok(prompts.some((content) => content.includes("Shared artifact brief.txt:") && content.includes("private oak plan")),
+    "the room's agent receives its shared artifact");
+
+  app.store.profiles.switch({ profileId: null });
+  const ownerView = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(ownerView.body.events.find((event) => event.kind === "user")?.personName, "Sam");
+  app.store.profiles.switch({ profileId: lee.id, pin: "5678" });
+  const refused = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(refused.status, 403);
+  assert.doesNotMatch(JSON.stringify(refused.body), /Private bench|private oak plan|Ann|Ben/);
+
+  app.store.profiles.switch({ profileId: null });
+  assert.equal((await call(`/api/trunks/rooms/${id}`, { people: [] })).status, 200);
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const removed = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(removed.status, 403);
+  assert.doesNotMatch(JSON.stringify(removed.body), /Private bench|private oak plan|Ann|Ben/);
+  const removedConversation = await call(`/api/trunks/conversations/${made.body.room.sessionId}`);
+  assert.equal(removedConversation.status, 400);
+  assert.doesNotMatch(JSON.stringify(removedConversation.body), /Private bench|private oak plan|Ann|Ben/);
+});

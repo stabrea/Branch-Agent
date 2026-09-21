@@ -392,6 +392,7 @@ export const ROUTES = {
   "/api/trunks/rooms/:id/stop": "task POST",
   "/api/trunks/rooms/:id/answer": "owner POST",
   "/api/trunks/rooms/:id/revoke": "owner POST", // phase2/rooms (integration review): Revoke beside a yes in a room
+  "/api/trunks/rooms/:id/artifacts": "other POST",
   // phase2/rooms: who answers in a conversation is the owner's to choose.
   "/api/trunks/conversations": "owner POST",
   "/api/trunks/conversations/:id": "owner POST",
