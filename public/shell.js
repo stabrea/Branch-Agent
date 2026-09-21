@@ -96,6 +96,7 @@ const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
   document.querySelector('.rail-group[data-group="recents"]')].filter(Boolean);
 let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
 let railCanManageTrunks = true;
+let railProfileOwner = ownerAtWindow();
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
   $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
@@ -127,11 +128,12 @@ for (const tab of document.querySelectorAll(".rail-view-tab")) {
 $("rail-new-trunk").addEventListener("click", () => void import("/studio.js").then((studio) => studio.openAdd("trunk")));
 new MutationObserver(syncRailView).observe($("rail-scroll"), { childList: true });
 document.addEventListener("branch-strip", (event) => {
-  railCanManageTrunks = ownerAtWindow() && event.detail?.profiles?.isOwner !== false;
+  railCanManageTrunks = railProfileOwner && ownerAtWindow() && event.detail?.profiles?.isOwner !== false;
   syncRailView();
 });
 document.addEventListener("branch-profile", (event) => {
-  if (event.detail?.owner !== false) return;
+  railProfileOwner = event.detail?.owner !== false;
+  if (railProfileOwner) return;
   railCanManageTrunks = false;
   setRailTargetFallback();
   syncRailView();

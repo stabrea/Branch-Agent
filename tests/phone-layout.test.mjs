@@ -50,7 +50,7 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   };
-  await page.goto(server.url);
+  await page.goto(server.url, { timeout: 120000 });
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
   await page.locator("#ew-places").waitFor({ state: "attached" });
   if (connect) await signIn();

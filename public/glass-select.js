@@ -96,12 +96,14 @@ function close({ focus = false } = {}) {
  * for a fifth of a second) keeps its list with it, frame by frame, until nothing around it moves; so the list
  * never stays where the select was. At most a second and a half of frames.
  */
-function placeWhenSettled(select, frames = 90) {
+function placeWhenSettled(select, frames = 90, previous = "", stable = 0) {
   requestAnimationFrame(() => {
     if (openFor !== select || frames <= 0) return;
+    const box = select.getBoundingClientRect();
+    const position = `${box.left}:${box.top}:${box.width}:${box.height}`;
     place(select);
-    const moving = document.getAnimations().some((animation) => animation.playState === "running" && animation.effect?.target?.contains?.(select));
-    if (moving) placeWhenSettled(select, frames - 1);
+    const still = position === previous ? stable + 1 : 0;
+    if (still < 12) placeWhenSettled(select, frames - 1, position, still);
   });
 }
 function open(select) {
