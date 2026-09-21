@@ -109,7 +109,8 @@ test("the i opens the setting's name, what it does and when to change it, and le
   const words = await pop.innerText();
   assert.match(words, new RegExp(`^${name}`));
   assert.match(words, /What this does\s+Branch opens by itself when you sign in/);
-  assert.match(words, /When you'd change it\s+If the way it ships doesn't suit you/);
+  assert.match(words, /When you'd change it\s+If the way it ships \(off\) doesn't suit you\. You can always change it back\./,
+    "the sample's sentence, naming the fresh-install value");
   assert.equal(await info.getAttribute("aria-expanded"), "true");
   assert.equal(await page.locator("#start-with-windows").isChecked(), before, "pressing the i does not flip the switch");
 
@@ -147,4 +148,59 @@ test("the i's words are in English and real French", async () => {
     assert.equal(en[key], english, `${key}: en.json should say what settings-describe.js says`);
     assert.ok(fr[key] && fr[key] !== english, `${key} needs real French`);
   }
+});
+
+const DEFAULTS = JSON.parse(await readFile(join(import.meta.dirname, "..", "public", "settings-defaults.json"), "utf8")).defaults;
+
+test("the way it ships is named in words: a list's own option name, a switch's on or off", async (t) => {
+  const { page } = await fixture(t);
+  await openSettings(page, "general");
+  const pop = page.getByRole("dialog", { name: "About this setting" });
+  for (const id of ["never-break-mode", "comfort-respectGitignore"]) {
+    const shipped = await page.locator(`#${id}`).evaluate((control, raw) => {
+      if (control.tagName === "SELECT") return [...control.options].find((option) => option.value === String(raw))?.textContent.trim();
+      return raw === true || raw === "on" ? "on" : "off";
+    }, DEFAULTS[id]);
+    assert.ok(shipped, `${id} has a fresh-install value to name`);
+    // The "i" after this control's own label, however the label is tied to it (wrapped or for=).
+    await page.locator(`#${id}`).evaluate((control) => [...control.labels].find((label) => label.nextElementSibling?.classList.contains("kit-info")).nextElementSibling.click());
+    await pop.waitFor({ state: "visible" });
+    assert.ok((await pop.innerText()).includes(`If the way it ships (${shipped}) doesn't suit you.`), `${id}: ${await pop.innerText()}`);
+    await page.keyboard.press("Escape");
+    await pop.waitFor({ state: "hidden" });
+  }
+});
+
+test("screen control and borrowing the signed-in browser have the sample's own reasons", async (t) => {
+  const { page } = await fixture(t);
+  await openSettings(page, "computer");
+  const pop = page.getByRole("dialog", { name: "About this setting" });
+  for (const [id, words] of [["desktop-enabled", /Only when you want Branch to work other programs on this computer for you\./],
+    ["browser-attach-enabled", /Only for one task that needs a site you are already signed in to\./]]) {
+    const info = infoFor(page, `#${id}`);
+    await info.scrollIntoViewIfNeeded();
+    await info.click();
+    await pop.waitFor({ state: "visible" });
+    assert.match(await pop.innerText(), words, id);
+    await page.keyboard.press("Escape");
+    await pop.waitFor({ state: "hidden" });
+  }
+});
+
+test("an open explanation follows a language change where it stands", async (t) => {
+  const { page } = await fixture(t);
+  await openSettings(page, "general");
+  const fr = JSON.parse(await readFile(join(LOCALES, "fr.json"), "utf8"));
+  await infoFor(page, "#keep-running").click();
+  const pop = page.locator(".kit-info-pop");
+  await pop.waitFor({ state: "visible" });
+  assert.match(await pop.innerText(), /What this does[\s\S]*If the way it ships \(off\)/);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  t.after(() => page.evaluate(async () => (await import("/i18n.js")).setLanguage("en")).catch(() => {}));
+  const shipped = fr["settings-kit.info.when.shipped"].replace("{shipped}", fr["settings-kit.info.shipped.off"]);
+  await page.waitForFunction((words) => document.querySelector(".kit-info-pop")?.innerText.includes(words), shipped, { timeout: 10000 });
+  const words = await pop.innerText();
+  assert.ok(words.includes(fr["settings-kit.info.what"]) && words.includes(fr["settings-kit.info.when"]), words);
+  assert.ok(!/What this does|When you'd change it/.test(words), "no English left in the open explanation");
+  assert.equal(await pop.isVisible(), true, "it stayed open, where it was");
 });

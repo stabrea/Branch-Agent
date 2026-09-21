@@ -25,6 +25,9 @@ import { settingKeys } from "../scripts/check-docs.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const INVENTORY = JSON.parse(await readFile(join(ROOT, "tests", "fixtures", "settings-inventory.json"), "utf8")).settings;
+/* The fresh-install defaults are production data now (the Settings "i" names them); S3 proves them. */
+const DEFAULTS = JSON.parse(await readFile(join(ROOT, "public", "settings-defaults.json"), "utf8")).defaults;
+for (const row of INVENTORY) row.defaultRaw = row.id in DEFAULTS ? DEFAULTS[row.id] : null;
 const { SETTINGS_INDEX } = await import("../public/settings-index.js");
 const { BUCKETS } = await import("../public/settings-buckets.js");
 const INDEX = new Map(SETTINGS_INDEX.map((row) => [row[0], row]));

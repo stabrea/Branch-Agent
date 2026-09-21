@@ -158,8 +158,33 @@ const WHEN = {
   "wake-word-mode": ["settings-kit.info.when.wake", "When you want to start talking without touching anything."],
   "dictation-mode": ["settings-kit.info.when.dictation", "When you would rather speak than type."],
   "retention-enabled": ["settings-kit.info.when.retention", "When conversations are taking up too much room."],
+  "desktop-enabled": ["settings-kit.info.when.screen", "Only when you want Branch to work other programs on this computer for you."],
+  "browser-attach-enabled": ["settings-kit.info.when.borrow", "Only for one task that needs a site you are already signed in to."],
 };
-const WHEN_SHIPPED = ["settings-kit.info.when.shipped", "If the way it ships doesn't suit you. You can always change it back."];
+
+/* Every setting's value on a fresh install (public/settings-defaults.json, proven by the settings
+   audit test), so "the way it ships" can say what that is, as the sample does. */
+let shippedDefaults = null;
+const loadDefaults = () => (shippedDefaults ??= fetch("/settings-defaults.json").then((r) => r.json()).then((d) => d.defaults ?? {}).catch(() => ({})));
+
+/** The shipped value in words: the option's own name for a list, on/off for a switch, "empty" for nothing. */
+function shippedWords(control, value) {
+  if (value === "" || value === null) return say("settings-kit.info.shipped.empty", "empty");
+  if (typeof value === "boolean") return value ? say("settings-kit.info.shipped.on", "on") : say("settings-kit.info.shipped.off", "off");
+  const option = control.tagName === "SELECT" ? [...control.options].find((item) => item.value === String(value)) : null;
+  if (option) return option.textContent.trim();
+  if (value === "on" || value === "off") return shippedWords(control, value === "on");
+  return String(value);
+}
+
+/** When you'd change it: a setting's own sentence, else the way it ships, named when it is known. */
+function whenFor(control, defaults) {
+  if (WHEN[control.id]) return say(...WHEN[control.id]);
+  if (!(control.id in defaults)) return say("settings-kit.info.when.shipped-unknown", "If the way it ships doesn't suit you. You can always change it back.");
+  const shipped = shippedWords(control, defaults[control.id]);
+  const words = t("settings-kit.info.when.shipped", { shipped });
+  return words === "settings-kit.info.when.shipped" ? `If the way it ships (${shipped}) doesn't suit you. You can always change it back.` : words;
+}
 
 const isInfo = (node) => !!node?.classList.contains("kit-info");
 /** The element after `node`, stepping over an "i". */
@@ -186,9 +211,20 @@ function describeBy(button, label) {
   if (button.getAttribute("aria-describedby") !== label.id) button.setAttribute("aria-describedby", label.id);
 }
 
-function addInfo(control) {
-  const label = [...(control.labels ?? [])].find((node) => nameOf(node));
-  if (!label || isInfo(label.nextElementSibling) || !sentenceOf(control)) return;
+/**
+ * One label, in document order: the first label with words in it gets the control's "i". It walks
+ * labels rather than controls because `control.labels` searches the whole document for a `for=`
+ * label, and doing that for ~500 controls on every refresh kept the page too busy to answer a click
+ * once every card was drawn. `label.control` is one lookup, and a label that already has its "i" is
+ * passed over before anything else is read.
+ */
+function addInfo(label, seen) {
+  const control = label.control;
+  if (!control || seen.has(control) || !control.matches(CONTROLS) || !control.closest(CARDS)) return;
+  if (isInfo(label.nextElementSibling)) { seen.add(control); return; }
+  if (!nameOf(label)) return;
+  seen.add(control);
+  if (!sentenceOf(control)) return;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "kit-info";
@@ -215,7 +251,8 @@ function infoAll() {
     if (label?.tagName === "LABEL") describeBy(button, label);
     else button.remove();
   }
-  for (const control of document.querySelectorAll(`${CARDS} :is(${CONTROLS})`)) addInfo(control);
+  const seen = new Set();
+  for (const label of document.querySelectorAll(`${CARDS} label`)) addInfo(label, seen);
 }
 
 let pane = null;
@@ -241,18 +278,11 @@ function place(button) {
   }
 }
 
-function toggleInfo(button) {
-  if (shown?.button === button) { shown.entry.close(); return; }
+/** Writes the popup for this "i" in the language now chosen. */
+function fill(button, defaults) {
   const label = button.previousElementSibling;
   const control = label?.control;
-  if (!control) return;
-  if (!pane) {
-    pane = document.createElement("div");
-    pane.className = "kit-info-pop";
-    pane.setAttribute("role", "dialog");
-    pane.hidden = true;
-    document.body.append(pane);
-  }
+  if (!control) return false;
   const name = line("p", nameOf(label), "kit-info-name");
   name.id = "kit-info-pop-name";
   pane.setAttribute("aria-label", say(...ABOUT));
@@ -262,7 +292,21 @@ function toggleInfo(button) {
     line("b", say("settings-kit.info.what", "What this does")),
     line("p", sentenceOf(control)),
     line("b", say("settings-kit.info.when", "When you'd change it")),
-    line("p", say(...(WHEN[control.id] ?? WHEN_SHIPPED))));
+    line("p", whenFor(control, defaults)));
+  return true;
+}
+
+async function toggleInfo(button) {
+  if (shown?.button === button) { shown.entry.close(); return; }
+  const defaults = await loadDefaults();
+  if (!pane) {
+    pane = document.createElement("div");
+    pane.className = "kit-info-pop";
+    pane.setAttribute("role", "dialog");
+    pane.hidden = true;
+    document.body.append(pane);
+  }
+  if (!fill(button, defaults)) return;
   pane.hidden = false;
   place(button);
   button.setAttribute("aria-expanded", "true");
@@ -313,6 +357,8 @@ if (typeof document !== "undefined") {
     for (const node of document.querySelectorAll(".kit-describe[data-t], .kit-scope[data-t]"))
       node.textContent = say(node.dataset.t, node.textContent);
     for (const button of document.querySelectorAll(".kit-info")) button.setAttribute("aria-label", say(...ABOUT));
+    // An open explanation is written again in the new language, where it stands.
+    if (shown && pane && !pane.hidden) void loadDefaults().then((defaults) => { if (shown && fill(shown.button, defaults)) place(shown.button); });
   });
   /* The explanation is placed against the "i"; once the page scrolls under it, it would point at nothing. */
   document.addEventListener("scroll", (event) => { if (shown && !pane?.contains(event.target)) shown.entry.close(); }, true);
