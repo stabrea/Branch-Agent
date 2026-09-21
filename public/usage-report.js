@@ -7,6 +7,7 @@
  * counters as the counters page, sent only to the owner's own address, off until switched on.
  */
 import { t } from "/i18n.js";
+import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,14 +36,17 @@ const say = (message) => { const node = $("usage-report-status"); if (node) node
 
 function picker(id, labelKey, values, prefix) {
   const label = keyed("label", labelKey);
-  const select = document.createElement("select");
-  select.id = label.htmlFor = id;
-  for (const value of values) {
-    const option = keyed("option", `${prefix}.${value}`);
-    option.value = value;
-    select.append(option);
+  label.htmlFor = id;
+  // Detect three-way switch vs multi-option dropdown
+  if (JSON.stringify(values) === JSON.stringify(["off", "when-needed", "on"])) {
+    const options = values.map((v) => [v, `${prefix}.${v}`]);
+    const control = segmented({ id, options, value: "" });
+    return [label, control];
+  } else {
+    const options = values.map((v) => [v, `${prefix}.${v}`]);
+    const control = dropdown({ id, options, value: "" });
+    return [label, control];
   }
-  return [label, select];
 }
 
 /** Hands the owner the file without putting a word of it into an address. */

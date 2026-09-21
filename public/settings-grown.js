@@ -12,7 +12,7 @@
    Nothing here changes what a setting does. */
 import { fromEnglish, language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
-import { BUCKETS, ELSEWHERE, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
+import { BUCKETS, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
 
 const $ = (id) => document.getElementById(id);
@@ -265,16 +265,9 @@ function dressNav() {
   for (const link of nav.querySelectorAll(".lx-settings-link")) withIcon(link, link.dataset.page);
   for (const [before, key, english] of NAV_GROUPS)
     nav.querySelector(`.lx-settings-link[data-page="${before}"]`)?.before(worded("p", "sg-nav-group", `settingsGrown.nav.${key}`, english));
-  nav.append(worded("p", "sg-nav-group", "settingsGrown.nav.elsewhere", "Elsewhere in Branch"));
-  for (const [place, iconName] of ELSEWHERE) {
-    const link = worded("button", "sg-place-link", `place.${place}`, place);
-    link.type = "button";
-    link.dataset.place = place;
-    withIcon(link, iconName);
-    link.addEventListener("click", () => globalThis.branchLayout?.go(place));
-    nav.append(link);
-  }
   nav.append(pagePicker(nav), levelBox());
+  const version = $("lx-settings-version");
+  if (version) nav.append(version);
 }
 /** On a phone the list of pages is one choice, not a row that scrolls sideways. */
 function pagePicker(nav) {
@@ -301,6 +294,12 @@ function syncPicker() {
   if (!select || !current || select.value === current) return;
   select.value = current;
   select.dispatchEvent(new Event("branch-sync"));
+}
+function showOwnerPickerPage(owner) {
+  const option = $("sg-page-pick")?.querySelector('option[value="instructions"]');
+  if (!option) return;
+  option.hidden = !owner;
+  option.disabled = !owner;
 }
 
 /* ---------- Settings is a cog right after the account row (#37) ---------- */
@@ -577,7 +576,16 @@ function start() {
     changeAppearance({ settingsLevel: level });
   });
   document.addEventListener("branch-place", drawLatePages);
-  document.addEventListener("branch-profile", () => { $("sg-found")?.remove(); applyLevel(); });
+  document.addEventListener("branch-profile", (event) => {
+    const owner = event.detail?.owner !== false;
+    $("sg-found")?.remove();
+    applyLevel();
+    /* Applying the household level can rearrange the Settings shell after layout handled the same
+       event. Reapply the owner-only page guard last so Instructions cannot be exposed again. */
+    globalThis.branchLayout?.showOwnerSettings(owner);
+    showOwnerPickerPage(owner);
+    queueMicrotask(syncPicker);
+  });
   document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
   document.body.classList.add("sg-ready");
 }

@@ -9,6 +9,7 @@
    customize:skills          What skills need on this computer */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -37,14 +38,7 @@ function field(tag, value = "", type = "") {
   return node;
 }
 function choice(options, value) {
-  const select = document.createElement("select");
-  for (const [option, key, english] of options) {
-    const item = make("option", "", key, english);
-    item.value = option;
-    item.selected = option === value;
-    select.append(item);
-  }
-  return select;
+  return dropdown({ options, value });
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 const done = (node) => { node.dataset.t = "autonomy.saved"; node.textContent = say("autonomy.saved", "Saved."); };

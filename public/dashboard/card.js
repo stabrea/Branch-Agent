@@ -9,6 +9,7 @@
       same call the sidebar makes) or the task's "Look inside" sheet does, and the address is tidied. */
 import { api, displayView } from "/app.js";
 import { t } from "/i18n.js";
+import { dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -44,14 +45,11 @@ function buildCard(settings) {
     make("p", "", "dashboard.card.purpose", "One page that shows what Branch is doing, whether it is healthy and what it has cost — for a phone, another computer or a screen on the wall."));
   const label = make("label", "", "dashboard.card.switch", "The dashboard");
   label.htmlFor = "dashboard-mode";
-  const select = document.createElement("select");
-  select.id = "dashboard-mode";
-  for (const [value, key, english] of POSITIONS) {
-    const option = make("option", "", key, english);
-    option.value = value;
-    option.selected = value === settings.mode;
-    select.append(option);
-  }
+  const select = dropdown({
+    id: "dashboard-mode",
+    options: POSITIONS,
+    value: settings.mode
+  });
   const note = make("p", "field-note");
   noteFor(note, settings.mode);
   select.addEventListener("change", () => noteFor(note, select.value));

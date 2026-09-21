@@ -2,6 +2,7 @@
 // bot's token straight into the locker (it is never shown again), the switch, and pairing the owner's
 // own account with the code the bot sends. The work happens on the server; every word has a key.
 import { t } from "/i18n.js";
+import { segmented } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let said = "";
@@ -66,13 +67,11 @@ function tokenAndSwitch(view) {
   const token = document.createElement("input");
   Object.assign(token, { type: "password", autocomplete: "off", spellcheck: false });
   token.placeholder = t(view.tokenSaved ? "telegram-setup.token-kept" : "telegram-setup.token-placeholder");
-  const mode = document.createElement("select");
-  for (const value of ["off", "when-needed", "on"]) {
-    const option = worded("option", `telegram-setup.switch.${value}`);
-    option.value = value;
-    mode.append(option);
-  }
-  mode.value = view.mode;
+  const mode = segmented({
+    id: "telegram-setup-mode",
+    options: [["off", "telegram-setup.switch.off"], ["when-needed", "telegram-setup.switch.when-needed"], ["on", "telegram-setup.switch.on"]],
+    value: view.mode
+  });
   const status = statusLine(said);
   said = "";
   const save = worded("button", "action.save-and-connect");

@@ -59,9 +59,11 @@ function el(tag, text, className) {
 }
 /* `method` is only given where the route needs something other than the usual GET-or-POST rule —
    PUT to save a flow, DELETE to take a line off the to-do list. */
-async function api(path, body, method) {
+async function api(path, body, method, signal) {
   const response = await fetch("/api/" + path, {
     method: method ?? (body === undefined ? "GET" : "POST"),
+    cache: "no-store",
+    signal,
     headers: {
       authorization: "Bearer " + token,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
