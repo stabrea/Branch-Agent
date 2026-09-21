@@ -194,10 +194,12 @@ const RZ = {
   aside: { v: "--aside-w", min: 260, max: 640, snap: 200, label: ["panels.rz.aside", "Side panel width"], toggle: "aside-toggle", wide: 1181 },
 };
 /* Kept per workspace and per person at this window: a household person's widths are their own. */
-const widthsKey = () => `${WIDTHS}:${store.get("branch-owner") || "owner"}:${root.dataset.household === "on" ? "household" : "owner"}`;
+const widthsKey = (household = root.dataset.household === "on") =>
+  `${WIDTHS}:${store.get("branch-owner") || "owner"}:${household ? "household" : "owner"}`;
 let widths = {};
-function loadWidths() {
-  try { widths = JSON.parse(store.get(widthsKey()) || "{}") || {}; } catch { widths = {}; }
+function loadWidths(owner) {
+  const household = owner === false ? true : owner === true ? false : undefined;
+  try { widths = JSON.parse(store.get(widthsKey(household)) || "{}") || {}; } catch { widths = {}; }
   applyWidths();
 }
 const keys = () => (mac ? "Cmd+B" : "Ctrl+B");
@@ -327,7 +329,7 @@ function watchPanes() {
   document.addEventListener("transitionend", again);
   const railToggle = $("rail-toggle");
   if (railToggle) railToggle.title = say("panels.railToggle", "Hide or show the side list ({keys})", { keys: keys() });
-  document.addEventListener("branch-profile", loadWidths);
+  document.addEventListener("branch-profile", (event) => loadWidths(event.detail?.owner));
   loadWidths();
 }
 
