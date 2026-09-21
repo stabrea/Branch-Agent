@@ -297,6 +297,23 @@ test("S8 somebody else's profile sees Regular, cannot change the level, and sear
   assert.deepEqual(f.errors, []);
 });
 
+test("a household profile redirected from Instructions keeps the phone page picker in sync", async (t) => {
+  const f = await fixture(t, { width: 390, height: 844 });
+  await openSettings(f.page, "instructions");
+  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "instructions");
+  const sam = await fetch(new URL("/api/profiles", f.url), {
+    method: "POST", headers: f.headers, body: JSON.stringify({ name: "Sam", pin: "2468" }),
+  }).then((response) => response.json());
+  const switched = await fetch(new URL("/api/profiles/switch", f.url), {
+    method: "POST", headers: f.headers, body: JSON.stringify({ profileId: sam.id, pin: "2468" }),
+  });
+  assert.equal(switched.status, 200);
+  await f.page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 15000 });
+  await f.page.waitForFunction(() => document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page === "general");
+  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "general");
+  assert.deepEqual(f.errors, []);
+});
+
 test("S9 every page is grouped, and a card no group names still shows under More on this page", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
