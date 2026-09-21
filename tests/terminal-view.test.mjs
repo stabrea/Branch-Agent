@@ -329,6 +329,19 @@ test("the terminal overview reads only the active household profile's work", asy
   assert.deepEqual(rows.map((row) => row.sessionId), [samRun.sessionId]);
 });
 
+test("the terminal overview keeps an older active task ahead of newer finished work", async (t) => {
+  const { app } = await running(t);
+  const active = app.store.createRun(app.runtime.owner, "Still running");
+  for (let index = 0; index < 12; index++) {
+    const finished = app.store.createRun(app.runtime.owner, `Finished ${index}`);
+    app.store.finish(finished.id, "completed", "done");
+  }
+  const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.equal(rows.length, 12, "active work takes one of the recent-work slots");
+  assert.equal(rows[0]?.sessionId, active.sessionId, "active work is never hidden behind newer finished tasks");
+  assert.ok(rows.some((row) => row.title === "Still running"));
+});
+
 test("the terminal People page shows a household profile only itself", async (t) => {
   const { app } = await running(t);
   const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
