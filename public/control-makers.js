@@ -86,10 +86,20 @@ function bindSegmentedSource(source, segments, onChange) {
   }
   source.addEventListener("change", () => {
     sync();
-    onChange?.(source.value);
+    const restoreId = document.activeElement === source ? source.id : "";
+    const changed = onChange?.(source.value);
+    if (restoreId && changed instanceof Promise) {
+      void changed.then(() => restoreSegmentedFocus(source, restoreId),
+        () => restoreSegmentedFocus(source, restoreId));
+    } else if (restoreId) restoreSegmentedFocus(source, restoreId);
   });
   source.addEventListener("input", sync);
   return sync;
+}
+
+function restoreSegmentedFocus(source, id) {
+  if (document.activeElement !== source && document.activeElement !== document.body) return;
+  document.getElementById(id)?.focus({ preventScroll: true });
 }
 
 function proxySegmentedControl(control, source, sync) {
