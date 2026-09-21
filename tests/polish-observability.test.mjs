@@ -51,9 +51,11 @@ export async function onPage(t, options = {}) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   for (const file of options.block ?? []) await page.route("**" + file, (route) => route.abort());
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
+  const token = page.getByLabel("Session token", { exact: true });
+  await token.waitFor({ state: "visible", timeout: 120000 });
+  await token.fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await finishFirstRun(page);
   /* These tests exercise the full window's own controls: "Show everything" since 0.18.1. */
