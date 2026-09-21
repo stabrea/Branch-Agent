@@ -34,6 +34,19 @@ async function openPlaceLink(page, place) {
 }
 const settingsEntry = async (page) => (await calm(page) ? railControl(page, "#lx-settings-row") : railControl(page, ".lx-gear"));
 
+/** A tab is open only when both its control and its panel report the same selected place. */
+const placeTabIsOpen = (page, place, tab) => page.evaluate(({ place, tab }) => {
+  const trigger = document.querySelector(`.lx-tab[data-place="${place}"][data-tab="${tab}"]`);
+  const panel = document.querySelector(`.lx-panel[data-place="${place}"][data-tab="${tab}"]`);
+  return trigger?.getAttribute("aria-selected") === "true" && panel?.hidden === false;
+}, { place, tab });
+
+const placeTabBecameOpen = (page, place, tab) => page.waitForFunction(({ place, tab }) => {
+  const trigger = document.querySelector(`.lx-tab[data-place="${place}"][data-tab="${tab}"]`);
+  const panel = document.querySelector(`.lx-panel[data-place="${place}"][data-tab="${tab}"]`);
+  return trigger?.getAttribute("aria-selected") === "true" && panel?.hidden === false;
+}, { place, tab }, { timeout: 20000 }).then(() => true, () => false);
+
 /**
  * Opens a page by its old name ("memory", "runs", "settings", "usage", "chat") or its new one
  * ("customize:plugins", "settings:models").
@@ -53,7 +66,10 @@ export async function openPlace(page, view) {
   await closeSettings(page);
   await openPlaceLink(page, place);
   const trigger = TABS[view] ? `.lx-tab[data-view="${tab}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
-  await page.locator(trigger).click();
+  if (await placeTabIsOpen(page, place, tab)) return;
+  await pressUntil(page.locator(trigger),
+    () => placeTabBecameOpen(page, place, tab),
+    `${place} ${tab} tab to open`);
 }
 
 /**
