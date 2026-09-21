@@ -66,6 +66,15 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
   assert.match(await probe.ariaSnapshot(), /switch .*\[checked\]/, "programmatic updates are exposed without an event");
   await probe.evaluate((node) => { node.checked = false; });
   assert.doesNotMatch(await probe.ariaSnapshot(), /\[checked\]/, "programmatic clearing is exposed without an event");
+  await f.page.evaluate(() => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = '<label>Inserted with its card <input id="inserted-card-switch" type="checkbox"></label>';
+    document.querySelector("#settings-window .lx-page:not([hidden])").append(card);
+  });
+  const inserted = f.page.locator("#inserted-card-switch");
+  await f.page.waitForFunction(() => document.getElementById("inserted-card-switch")?.classList.contains("sw"));
+  assert.equal(await inserted.getAttribute("role"), "switch", "a checkbox inserted with its whole card is dressed");
   assert.deepEqual(f.errors, []);
 });
 
