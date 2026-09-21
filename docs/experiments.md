@@ -58,3 +58,19 @@ Some versions contain an undefined `w = 0` assignment in the neuron reset expres
 Connecting a network to a task does not automatically train it. A proposed learning controller needs explicit observations, actions, outcome feedback, a learning rule, persistent state, and tests on new tasks. Compare it with the same controller frozen, shuffled feedback, and a simple conventional learning baseline. Check that useful changes persist and disappear when the learned state is removed.
 
 For assistant use, a candidate task is choosing between a verified local procedure and model inference. Measure success, all model calls, local runtime, and learning cost. A fly-derived controller should be promoted only if those measurements justify its additional complexity. A stimulus-response smoke run does not meet that condition.
+
+## JEV decision-gate evidence
+
+The JEV integration's contract tests prove only that Branch validates bounded questions and answers,
+keeps state out of process arguments, refuses non-owner configuration, fails closed on invalid output,
+and returns low-confidence answers for review. They do not prove decision quality or that JEV is better
+than another model.
+
+Before JEV may influence routing, learning promotion, approvals, or policy, run a versioned evaluation
+containing labelled `yes`, `pick`, and `score` examples that were not used to tune prompts or settings.
+Record the exact JEV revision, provider, model, prompt/schema version, dataset hash and split, retries,
+timeouts, latency, provider-reported usage and cost. Report accuracy for categorical decisions,
+calibration (including Brier score or log loss) for probabilities, abstention/review rate at the chosen
+confidence threshold, and failures separately. Compare against the current Branch path on the exact
+same examples and count every retry. A promotion requires no permission widening, no worse verified
+task success, and an explicit owner-approved threshold; removing JEV must restore the prior behavior.

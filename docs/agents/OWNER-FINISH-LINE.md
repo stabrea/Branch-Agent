@@ -274,3 +274,7 @@ Branch is finished only when the following are simultaneously true:
 
 111. [ ] Fix 14-16 first: automatic publication and reviewed notes. Then finish the current exhaustive
      run and address its named failures before another product batch lands.
+112. [ ] Add JEV as optional, owner-controlled typed decision support: off by default; bounded
+     yes/pick/score inputs; state over stdin rather than process arguments; JEV-owned credentials;
+     confidence gates and fallback instead of autonomous action; cross-platform adapter tests and
+     measured benchmark evidence before it may influence routing, learning promotion or approvals.
