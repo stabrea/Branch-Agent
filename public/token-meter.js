@@ -1,6 +1,7 @@
 /**
- * The quiet meter under the composer: how much of this conversation's room the assistant has used
- * so far, and roughly what it has cost. Clicking it opens the numbers behind the bar. It never
+ * The quiet meter under the composer: how full this conversation's next request is against the
+ * model's room (the same measure as /tokens, so it drops after the conversation is folded), and
+ * roughly what the conversation has cost. Clicking it opens the numbers behind the bar. It never
  * shows a cost of nothing for a model with no price on file — it says so in words instead.
  */
 import { t, formatNumber } from "/i18n.js";
@@ -23,7 +24,7 @@ async function api(path) {
 }
 /* A sensible room to measure against until the workspace says otherwise. */
 const DEFAULT_BUDGET = 128000;
-let stats = { messages: 0, runs: 0, input: 0, output: 0, cost: null, budget: DEFAULT_BUDGET };
+let stats = { messages: 0, runs: 0, input: 0, output: 0, cost: null, budget: DEFAULT_BUDGET, used: 0 };
 
 const session = () => $("conversation").dataset.sessionId || null;
 /** Money in words, matching the Usage screen; null means nobody knows. */
@@ -32,7 +33,7 @@ const money = (value) =>
     : value > 0 && value < 0.01 ? "< $0.01"
       : "$" + (value < 1 ? value.toFixed(4) : value.toFixed(2));
 
-/** Adds up every task in this conversation: how much went in and out, and what it probably cost. */
+/** Adds up every task in this conversation: what was spent in and out, and what it probably cost. */
 function totals(state, here) {
   const mine = (state.runs ?? []).filter((run) => run.sessionId === here);
   let input = 0, output = 0, cost = null;
@@ -44,7 +45,8 @@ function totals(state, here) {
   return { messages: $("conversation").querySelectorAll(".message").length, runs: mine.length, input, output, cost };
 }
 function paint() {
-  const used = stats.input + stats.output;
+  // How full the next request is — not the sum of everything spent, which re-counts the history each time.
+  const used = stats.used;
   const share = Math.max(0, Math.min(1, used / (stats.budget || DEFAULT_BUDGET)));
   $("meter-fill").style.width = `${Math.round(share * 100)}%`;
   $("meter-button").setAttribute("aria-label", t("meter.of", { used: formatNumber(used), budget: formatNumber(stats.budget) }));
@@ -63,6 +65,7 @@ function paintPopover() {
   const rows = [
     [t("meter.messages"), formatNumber(stats.messages)],
     [t("meter.runs"), formatNumber(stats.runs)],
+    [t("meter.nextRequest"), formatNumber(stats.used)],
     [t("meter.tokensIn"), formatNumber(stats.input)],
     [t("meter.tokensOut"), formatNumber(stats.output)],
     [stats.cost === null || stats.cost === undefined ? t("meter.noCost") : t("meter.cost", { cost: money(stats.cost) }), ""],
@@ -80,14 +83,16 @@ export async function refreshMeter() {
   if ($("workspace").hidden) return;
   const here = session();
   if (!here) {
-    stats = { ...stats, messages: 0, runs: 0, input: 0, output: 0, cost: null };
+    stats = { ...stats, messages: 0, runs: 0, input: 0, output: 0, cost: null, used: 0 };
     paint();
     return;
   }
   try {
-    const state = await api("state");
-    const budget = Number(state.models?.contextWindow ?? state.contextWindow ?? 0) || DEFAULT_BUDGET;
-    stats = { ...totals(state, here), budget };
+    const [state, next] = await Promise.all([api("state"), api(`sessions/${here}/context`).catch(() => null)]);
+    // The room the next request is measured against; the workspace's figure until a task has measured it.
+    const budget = Number(next?.limit ?? 0) || Number(state.models?.contextWindow ?? state.contextWindow ?? 0) || DEFAULT_BUDGET;
+    const used = next ? Math.max(0, next.instructions + next.tools + next.conversation) : 0;
+    stats = { ...totals(state, here), budget, used };
     paint();
     if (!$("meter-popover").hidden) paintPopover();
   } catch { /* the meter keeps what it last showed */ }
