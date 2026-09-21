@@ -76,6 +76,7 @@ const PARTS = {
   "app-server": ["asks.part.appServer", "Letting an editor drive Branch (app-server protocol)"],
   runtimes: ["asks.part.runtimes", "Other agents answering a conversation"],
   forecasts: ["asks.part.forecasts", "Forecasts, and how well they turned out"],
+  leads: ["asks.part.leads", "A list of prospects, filled out and scored"],
 };
 
 /** The part's three-way switch; a change redraws the cards, since what they show depends on it. */
@@ -354,8 +355,22 @@ async function forecastsCard(modes) {
   return node;
 }
 
-const BUILDERS = [boardCard, analyticsCard, nodesCard, runtimesCard, madeCard, sourcesCard, hindsightCard, intentsCard, connectionsCard, forecastsCard];
-const IDS = ["asks-board-card", "asks-analytics-card", "asks-nodes-card", "asks-runtimes-card", "asks-made-card", "asks-sources-card", "asks-hindsight-card", "asks-intents-card", "asks-connections-card", "asks-forecasts-card"];
+/* ---------- settings:data — prospects ---------- */
+async function leadsCard(modes) {
+  const { node, status } = card("asks-leads-card", "settings:data", "asks.leads.title", "Prospects",
+    "asks.leads.purpose", "A list of prospects filled out from their own details, scored against your words, with duplicates taken out. Nothing is looked up online.");
+  node.append(...switchFor("leads", modes, status));
+  if (modes.leads !== "off") {
+    const view = await api("asks/leads");
+    node.append(plain("p", t("asks.leads.count", { count: view.count }), "field-note"));
+    for (const lead of view.top) node.append(plain("p", `${lead.name || "—"} · ${lead.company || "—"} · ${lead.score}`, "field-note"));
+  }
+  node.append(status);
+  return node;
+}
+
+const BUILDERS = [boardCard, analyticsCard, nodesCard, runtimesCard, madeCard, sourcesCard, hindsightCard, intentsCard, connectionsCard, forecastsCard, leadsCard];
+const IDS = ["asks-board-card", "asks-analytics-card", "asks-nodes-card", "asks-runtimes-card", "asks-made-card", "asks-sources-card", "asks-hindsight-card", "asks-intents-card", "asks-connections-card", "asks-forecasts-card", "asks-leads-card"];
 
 async function drawCards() {
   let modes;

@@ -45,7 +45,7 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   // Wave 8: the Obsidian bridge writes documents into a folder and reads them back, so it is a
   // documents tool under a different name.
   ["documents", ["documents.", "pdf.", "library.", "obsidian."]],
-  ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv.", "forecast."]],
+  ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv.", "forecast.", "leads."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],
   ["media", ["media.", "images.", "image.", "audio.", "video.", "voice.", "speech.", "camera."]],
   // R17-C (integration review): the owner's own accounts, music, house and files sent into chats —

@@ -6,6 +6,7 @@ import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import { Analytics } from "./analytics.js";
 import { Forecasts, registerForecasts } from "./forecasts.js";
+import { Leads, registerLeads } from "./leads.js";
 import { AnswerEngine, registerAnswerEngine, type AnswerWeb } from "./answer-engine.js";
 import { AnswerPages, registerAnswerPages } from "./answer-pages.js";
 import { ArticleWriter, registerArticleWriter } from "./article-writer.js";
@@ -52,6 +53,7 @@ export class Asks {
   readonly runtimes: AgentRuntimes;
   readonly nodes: BranchNodes;
   readonly forecasts: Forecasts;
+  readonly leads: Leads;
   readonly surfaces: LiveSurfaces;
   private readonly registrars: Partial<Record<AskPart, () => void>>;
 
@@ -72,6 +74,7 @@ export class Asks {
     this.blocks = new AppBlocks(store, owner, deps.fetch, (name) => deps.secret(name, "a step for another app"));
     this.runtimes = new AgentRuntimes(store, owner, runtime.models, deps.version);
     this.forecasts = new Forecasts(store, owner);
+    this.leads = new Leads(store, owner);
     this.nodes = new BranchNodes(store, owner, deps.fetch, (name) => deps.secret(name, "another computer running Branch"));
     // Asked again by itself, so held exactly as unattended work is: only what the rules allow outright.
     this.surfaces = new LiveSurfaces(store, owner, (name, args, id) =>
@@ -89,6 +92,7 @@ export class Asks {
       "answer-pages": () => registerAnswerPages(registry, this.pages),
       "article-writer": () => registerArticleWriter(registry, this.articles),
       forecasts: () => registerForecasts(registry, store, owner, this.forecasts),
+      leads: () => registerLeads(registry, store, owner, this.leads),
     };
     for (const part of askParts) this.sync(part);
     registry.onRunFinished(async () => { this.analytics.track("task.finished"); });
