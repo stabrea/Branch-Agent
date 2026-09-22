@@ -152,7 +152,7 @@ export function notes(store: Store, runId: string) {
     const data = event.data as Record<string, unknown>;
     if (event.kind === "react.scratch") { thinking.push({ at: event.createdAt, text: String(data.text ?? "") }); continue; }
     if (event.kind === "specialist.style") { style = String(data.style ?? ""); continue; }
-    if (event.kind === "tools.eager_too_big") { loading.push({ at: event.createdAt, text: String(data.note ?? "") }); continue; }
+    if (event.kind === "tools.eager_too_big" || event.kind === "skills.always_too_long") { loading.push({ at: event.createdAt, text: String(data.note ?? "") }); continue; }
     if (event.kind === "fly.applied") { learned.push({ at: event.createdAt, what: String(data.what ?? ""), names: (Array.isArray(data.names) ? data.names : []).map(String) }); continue; }
     if (event.kind === "advice.given") {
       advice = { preset: String(data.preset ?? ""), stands: String(data.stands ?? "unsure"), line: String(data.line ?? "") };

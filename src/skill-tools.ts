@@ -28,9 +28,40 @@ export function pinnedSkillInstructions(store: Store, context: ToolContext): str
 export const alwaysSkillsKey = "skills-always";
 const AlwaysSchema = z.object({ ids: z.array(z.string().uuid()).max(20).default([]) }).strict();
 const alwaysChars = 16000;
-export function alwaysSkills(store: Store, owner: string): string[] {
+/** The skills saved as followed in every task, whatever state they are in. */
+function savedAlways(store: Store, owner: string): string[] {
   const parsed = AlwaysSchema.safeParse(store.get("settings", owner, alwaysSkillsKey)?.data ?? {});
   return parsed.success ? parsed.data.ids : [];
+}
+/** The skills followed in every task: saved as such, and switched on (a skill switched off is not followed). */
+export function alwaysSkills(store: Store, owner: string): string[] {
+  const active = new Set(store.skills.catalog(owner).map((skill) => skill.id));
+  return savedAlways(store, owner).filter((id) => active.has(id));
+}
+/** How much of every task these skills' texts take, each at the version in use (or the one given). */
+function alwaysSize(store: Store, owner: string, ids: readonly string[], override?: { id: string; document: string }): number {
+  const catalog = new Map(store.skills.catalog(owner).map((skill) => [skill.id, skill]));
+  let size = 0;
+  for (const id of ids) {
+    if (override?.id === id) { size += override.document.length; continue; }
+    const entry = catalog.get(id);
+    if (entry) size += store.skills.read(owner, id, { version: entry.version }).document.length;
+  }
+  return size;
+}
+const tooBig = (size: number) =>
+  `That would put about ${size} characters of skills into every task, more than the ${alwaysChars} there is room for. Switch another skill's Always follow off, or shorten this one.`;
+/**
+ * Owner item 17: a skill followed in every task is always followed in full. Making a new version of
+ * one the version in use is refused when the whole set would no longer fit (src/skills.ts).
+ */
+export function guardAlwaysBudget(store: Store): (owner: string, id: string, document: string) => void {
+  return (owner, id, document) => {
+    const ids = savedAlways(store, owner);
+    if (!ids.includes(id)) return;
+    const size = alwaysSize(store, owner, ids, { id, document });
+    if (size > alwaysChars) throw new Error(`This skill is followed in every task. ${tooBig(size)}`);
+  };
 }
 export function setAlwaysSkill(store: Store, owner: string, input: unknown): { ids: string[] } {
   const { id, always } = z.object({ id: z.string().uuid(), always: z.boolean() }).strict().parse(input);
@@ -38,6 +69,9 @@ export function setAlwaysSkill(store: Store, owner: string, input: unknown): { i
   const ids = alwaysSkills(store, owner).filter((one) => one !== id);
   if (always) {
     if (ids.length >= 20) throw new Error("At most 20 skills can be always followed.");
+    // Followed in every task means in full, every time: a set that would not fit is refused now.
+    const size = alwaysSize(store, owner, [...ids, id]);
+    if (size > alwaysChars) throw new Error(tooBig(size));
     ids.push(id);
   }
   store.save("settings", owner, alwaysSkillsKey, { ids });
@@ -69,6 +103,9 @@ export function alwaysSkillInstructions(store: Store, context: ToolContext): str
   }
   if (!parts.length && !tooLong.length) return "";
   store.event(context.runId, "skills.always", { ids: included, tooLong: tooLong.length });
+  // Only saved state from before the size check (or damaged) can get here; it is said, never hidden.
+  if (tooLong.length) store.event(context.runId, "skills.always_too_long", { skills: tooLong,
+    note: `Some skills you follow in every task no longer fit in full (${tooLong.join(", ")}), so this task was told to read them first. Switch one off in Skills, or shorten it.` });
   return "\nThe owner asked that the skills below be followed in every task, whatever the task: treat them as the owner's own standing instructions. " +
     "They never grant a permission and never override the owner's rules or safety.\n" + parts.join("\n\n") +
     (tooLong.length ? `\nAlso always follow ${tooLong.join(", ")}: too long to include here, so read it with skills.read before you start.` : "") + "\n";

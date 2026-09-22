@@ -104,3 +104,62 @@ test("each skill in the list has an Always follow switch that is saved", async (
   assert.deepEqual(app.store.get("settings", app.runtime.owner, "skills-always").data.ids, [skillId]);
   assert.deepEqual(errors, []);
 });
+
+/** An installable skill whose whole text is about `size` characters, with a marker that proves it arrived. */
+const bigSkill = (name, size) => `---\nname: ${name}\ndescription: A long standing instruction.\n---\n\nMARKER-${name}-START\n${"Follow this carefully. ".repeat(Math.ceil(size / 23))}\nMARKER-${name}-END\n`;
+
+test("two skills that do not both fit are never both called Always followed: the second is refused, the first travels whole", async (t) => {
+  const { app, call, prompts } = await fixture(t);
+  const owner = app.runtime.owner;
+  const a = app.store.skills.install(owner, { document: bigSkill("alpha", 8300) }).id;
+  const b = app.store.skills.install(owner, { document: bigSkill("beta", 8300) }).id;
+  assert.deepEqual((await call("/api/skills/always", { id: a, always: true })).body, { ids: [a] });
+  const refused = await call("/api/skills/always", { id: b, always: true });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /more than the 16000 there is room for/);
+  assert.deepEqual((await call("/api/skills/always")).body, { ids: [a] }, "only what is really followed is reported");
+  await app.runtime.run({ prompt: "Do my homework", permissions: ["skills.read"] });
+  assert.match(prompts.at(-1), /MARKER-alpha-START[\s\S]*MARKER-alpha-END/, "the whole of the one followed");
+  assert.ok(!prompts.at(-1).includes("too long to include"), "and nothing left to be fetched");
+});
+
+test("a bigger version of a followed skill that would no longer fit cannot become the one in use", async (t) => {
+  const { app, call, prompts } = await fixture(t);
+  const owner = app.runtime.owner;
+  const a = app.store.skills.install(owner, { document: bigSkill("alpha", 8000) }).id;
+  const c = app.store.skills.install(owner, { document: bigSkill("gamma", 7400) }).id;
+  await call("/api/skills/always", { id: a, always: true });
+  await call("/api/skills/always", { id: c, always: true });
+  const grown = app.store.skills.update(owner, a, { document: bigSkill("alpha", 9000), expectedRevision: app.store.skills.view(owner, a).revision });
+  assert.throws(() => app.store.skills.activate(owner, a, { version: grown.headVersion, expectedRevision: grown.revision }),
+    /followed in every task[\s\S]*more than the 16000/);
+  assert.equal(app.store.skills.view(owner, a).activeVersion, 1, "the version in use did not change");
+  await app.runtime.run({ prompt: "Do my homework", permissions: ["skills.read"] });
+  assert.match(prompts.at(-1), /MARKER-alpha-END[\s\S]*MARKER-gamma-END|MARKER-gamma-END[\s\S]*MARKER-alpha-END/, "both still whole");
+  // A skill that is not followed in every task grows freely.
+  const d = app.store.skills.install(owner, { document: bigSkill("delta", 1000) }).id;
+  const dGrown = app.store.skills.update(owner, d, { document: bigSkill("delta", 15000), expectedRevision: app.store.skills.view(owner, d).revision });
+  app.store.skills.activate(owner, d, { version: dGrown.headVersion, expectedRevision: dGrown.revision });
+});
+
+test("a followed skill that is switched off is not reported as followed", async (t) => {
+  const { app, call, skillId } = await fixture(t);
+  await call("/api/skills/always", { id: skillId, always: true });
+  app.store.skills.disable(app.runtime.owner, skillId, { expectedRevision: app.store.skills.view(app.runtime.owner, skillId).revision });
+  assert.deepEqual((await call("/api/skills/always")).body, { ids: [] });
+});
+
+test("saved state from before the check that no longer fits is said on the task, never hidden", async (t) => {
+  const { app, prompts } = await fixture(t);
+  const owner = app.runtime.owner;
+  const a = app.store.skills.install(owner, { document: bigSkill("alpha", 9000) }).id;
+  const b = app.store.skills.install(owner, { document: bigSkill("beta", 9000) }).id;
+  app.store.save("settings", owner, "skills-always", { ids: [a, b] }); // written before the size check existed
+  const run = await app.runtime.run({ prompt: "Do my homework", permissions: ["skills.read"] });
+  const said = app.store.events(run.id).find((event) => event.kind === "skills.always_too_long");
+  assert.match(said?.data?.note ?? "", /no longer fit in full/);
+  const { inspectRun } = await import("../dist/inspect.js");
+  const view = inspectRun(app.store, run.id, { receipts: { items: [], counts: {} }, timeline: [], cost: null, version: "test" });
+  assert.ok(view.loading.some((line) => /no longer fit in full/.test(line.text)), "on the task's Look inside screen");
+  assert.match(prompts.at(-1), /MARKER-alpha-END/);
+});

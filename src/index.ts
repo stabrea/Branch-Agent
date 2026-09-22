@@ -43,7 +43,7 @@ import { registerSessions } from "./sessions.js";
 // Wave 8: conversations branched off other conversations, seen as a tree, and one answer carried back.
 import { SessionTree, registerSessionTree } from "./session-tree.js";
 import { lockedDown, lockdownRefusal } from "./lockdown.js";
-import { registerSkills } from "./skill-tools.js";
+import { guardAlwaysBudget, registerSkills } from "./skill-tools.js";
 import { registerContextFiles } from "./context-files.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
@@ -311,6 +311,8 @@ export async function createBranch(options: {
   let store: Store;
   try { store = new Store(databasePath); }
   catch (error) { throw dataOpenError(databasePath, error); }
+  // Owner item 17: a skill followed in every task never grows past what every task carries.
+  store.skills.beforeActivate = guardAlwaysBudget(store);
   // --- end mac7/install-torture ---
   // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
   // the task journal beside the database, flushed before every step.

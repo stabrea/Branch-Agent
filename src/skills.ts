@@ -10,6 +10,12 @@ import {
 type Row = Record<string, unknown>;
 export interface SkillCatalogEntry { id: string; version: number; name: string; description: string }
 export class InstalledSkills {
+  /**
+   * Owner item 17: asked before a version becomes the one in use, with its whole text, so a skill
+   * followed in every task can never grow past what every task carries (src/skill-tools.ts). Throws
+   * to refuse. Wired where the app is put together.
+   */
+  beforeActivate?: (owner: string, id: string, document: string) => void;
   constructor(private readonly db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS installed_skills(
       id TEXT PRIMARY KEY, owner TEXT NOT NULL, revision INTEGER NOT NULL,
@@ -112,6 +118,7 @@ export class InstalledSkills {
         throw new Error(`This version cannot be enabled under your skill policy: it ${describeFindings(findings)}.`);
       if (findings.length && !parsed.acknowledge)
         throw new Error(`This version needs your review first: it ${describeFindings(findings)}. Tick the acknowledgement to enable it anyway.`);
+      this.beforeActivate?.(owner, id, this.version(id, parsed.version).document);
       this.select(id, parsed.version);
       this.validateCatalog(owner);
       return this.view(owner, id);
