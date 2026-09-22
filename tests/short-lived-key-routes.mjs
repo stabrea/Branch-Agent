@@ -557,6 +557,7 @@ export const ROUTES = {
   "/api/keychain/settings": "owner POST",
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to — a map of where their passwords are, so it is not read with a key either.
+  "/api/attachments/file": "owner GET", // a file a person attached to a message (src/attachments.ts)
   "/api/vault-autofill": "prefix",
   "/api/vault-autofill/settings": "secret-read",
   "/api/knobs": "owner POST", // R17-S-B

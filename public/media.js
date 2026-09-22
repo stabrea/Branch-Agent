@@ -4,7 +4,15 @@
  */
 const $ = (id) => document.getElementById(id);
 /** The same caps the runtime holds to, so nothing is sent that would only be refused. */
-const limits = { pictures: 4, pictureBytes: 5 * 1024 * 1024, soundBytes: 25 * 1024 * 1024, videoBytes: 32 * 1024 * 1024 };
+/* These mirror src/attachments.ts, which is what actually decides; here they only save a long upload. */
+const limits = {
+  pictures: 4, pictureBytes: 5 * 1024 * 1024, soundBytes: 25 * 1024 * 1024,
+  videoBytes: 32 * 1024 * 1024, documentBytes: 20 * 1024 * 1024, files: 6,
+  /** Everything on one message added up, the same budget the server holds to. */
+  totalBytes: 32 * 1024 * 1024,
+};
+/** What the files already on this message weigh, so the next one can be refused before it is read. */
+const attachedBytes = () => attached.reduce((sum, item) => sum + (item.bytes ?? 0), 0);
 const pictureKinds = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 let attached = [];
 
@@ -36,6 +44,14 @@ const say = (message) => globalThis.toast?.(message);
 /** The pictures the next message should carry, in the shape the run route expects. */
 globalThis.branchAttachments = () =>
   attached.filter((item) => item.kind === "picture").map((item) => ({ mediaType: item.mediaType, data: item.data, name: item.name }));
+/**
+ * Every file on the message, pictures included, to be kept as it is. A picture also travels as a
+ * picture so the model can look at it; a sound and a video are still written out and watched, but the
+ * file itself is no longer thrown away once that is done.
+ */
+globalThis.branchAttachedFiles = () =>
+  attached.filter((item) => item.data && item.keep !== false)
+    .map((item) => ({ mediaType: item.mediaType, data: item.data, name: item.name }));
 globalThis.branchAttachmentsClear = () => {
   attached = [];
   renderAttachments();
@@ -107,13 +123,36 @@ async function addVideo(file) {
   if (!response.ok) throw new Error(data.error || `${file.name} could not be watched`);
   const room = limits.pictures - attached.filter((item) => item.kind === "picture").length;
   data.pictures.slice(0, Math.max(0, room)).forEach((picture, at) =>
-    attached.push({ kind: "picture", name: `${file.name} · ${at + 1}`, mediaType: picture.mediaType, data: picture.data }));
+    // keep:false — these stills came out of the film, and the film itself is already kept.
+    attached.push({ kind: "picture", keep: false, name: `${file.name} · ${at + 1}`, mediaType: picture.mediaType, data: picture.data }));
   renderAttachments();
   const box = $("prompt");
   const said = data.transcript ? `\n\n${file.name}, what is said:\n${data.transcript}` : "";
   if (said) box.value = (box.value ? box.value.trimEnd() : "") + said;
   box.focus();
   say([`Watched ${file.name}.`, ...data.notes].join(" "));
+}
+/** A document, or anything else the server takes: kept, with nothing read out of it here. */
+async function keptOnly(file) {
+  await keepAsIs(file, "document", limits.documentBytes);
+  say(`${file.name} goes with your message.`);
+}
+/** Keeps the file as it arrived, so the conversation can hand it back later. */
+async function keepAsIs(file, kind, mostBytes) {
+  if (attached.length >= limits.files) throw new Error(`Up to ${limits.files} files can go with one message.`);
+  if (file.size > mostBytes)
+    throw new Error(`${file.name} is larger than ${mostBytes / 1048576} MB, so it was skipped.`);
+  // The whole message has a budget as well as each file: two films can each be allowed and still be
+  // too much together. Refused here, before the file is read, so nothing long happens for nothing.
+  if (attachedBytes() + file.size > limits.totalBytes) {
+    const room = Math.max(0, limits.totalBytes - attachedBytes());
+    throw new Error(`Everything on one message can add up to ${limits.totalBytes / 1048576} MB. `
+      + `${file.name} needs ${Math.round(file.size / 1048576)} MB and there is `
+      + `${Math.round(room / 1048576)} MB left — send it in a message of its own.`);
+  }
+  attached.push({ kind, name: file.name, mediaType: file.type || "application/octet-stream",
+    bytes: file.size, data: await asBase64(file) });
+  renderAttachments();
 }
 async function addFiles(files) {
   // While a task is working the next message is a follow-up, and a follow-up carries words only.
@@ -136,14 +175,16 @@ async function addFiles(files) {
       continue;
     }
     if (file.type.startsWith("audio/")) {
-      await addSound(file);
+      await keepAsIs(file, "sound", limits.soundBytes);
+      await addSound(file); // the words in it, as well as the sound itself
       continue;
     }
     if (file.type.startsWith("video/")) {
-      await addVideo(file);
+      await keepAsIs(file, "video", limits.videoBytes);
+      await addVideo(file); // a few stills and the words, beside the film itself
       continue;
     }
-    throw new Error(`${file.name} is not a picture, a sound or a video file. Use the Documents panel for other files.`);
+    await keptOnly(file);
   }
 }
 function wireComposer() {

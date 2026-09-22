@@ -13,7 +13,8 @@ import { z } from "zod";
 import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
-import { RunInputSchema, errorText } from "./contracts.js";
+import { RunInputSchema, errorText, maximumImagesPerTurn, runBodyLimit } from "./contracts.js";
+import type { ImagePart } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
@@ -194,6 +195,7 @@ import { browserContainerApi, handlesBrowserContainer } from "./browser-containe
 import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { attachmentForWindow, rangeWanted, shownInPage } from "./attachments.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -1636,7 +1638,7 @@ async function api(
     return app.store.receipts.verify(body.runId, body.data);
   }
   if (request.method === "POST" && path === "/api/run") {
-    const input = RunInputSchema.parse(await readBody(request));
+    const input = RunInputSchema.parse(await readBody(request, runBodyLimit));
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
     // Redesign phase 1 (integration review): a new conversation's mode is held to what the picker allows here.
     const modeRefused = input.mode && !input.sessionId ? modeRefusal(app, input.mode) : null;
@@ -1648,7 +1650,9 @@ async function api(
       ...(input.temporary ? { temporary: true } : {}),
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
-      ...(input.images?.length ? { images: input.images } : {}),
+      // A picture that was attached is also shown to the model, so the page sends its bytes once.
+      ...(input.images?.length ? { images: input.images } : picturesAmong(input.attachments)),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
@@ -3704,6 +3708,41 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(bytes);
     return true;
   }
+  // A file a person attached, handed back to their own window (src/attachments.ts). The owner's alone,
+  // checked first so the guard moves with the route; nothing the caller sends is ever used as a path.
+  if (request.method === "GET" && path === "/api/attachments/file") {
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams;
+    // The owner check lives at the top of attachmentForWindow, so it cannot be left behind here.
+    const found = await attachmentForWindow(
+      { profiles: app.store.profiles, attachments: app.attachments },
+      { session: wanted.get("session") ?? "", id: wanted.get("id") ?? "", temporary: wanted.get("temporary") === "1" },
+    ).catch(() => null);
+    if (!found) throw new HttpError(404, "That file is not attached to this conversation");
+    // The type is the one kept with the file, never anything the request said.
+    const inline = shownInPage(found.ref.mediaType);
+    const headers = {
+      "content-type": found.ref.mediaType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox",
+      "accept-ranges": "bytes",
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename="${found.ref.name.replace(/[^\w. -]/g, "_")}"`,
+    };
+    const part = rangeWanted(request.headers.range, found.bytes.byteLength);
+    if (part === "outside") {
+      response.writeHead(416, { ...headers, "content-range": `bytes */${found.bytes.byteLength}` });
+      response.end();
+      return true;
+    }
+    if (part) {
+      const slice = found.bytes.subarray(part.start, part.end + 1);
+      response.writeHead(206, { ...headers, "content-length": String(slice.byteLength),
+        "content-range": `bytes ${part.start}-${part.end}/${found.bytes.byteLength}` });
+      response.end(slice);
+      return true;
+    }
+    response.writeHead(200, { ...headers, "content-length": String(found.bytes.byteLength) });
+    response.end(found.bytes);
+    return true;
+  }
   if (request.method === "POST" && path === "/api/voice/transcribe") {
     const contentType = request.headers["content-type"] ?? "";
     if (!contentType.includes("audio/") && !contentType.includes("application/octet-stream")) {
@@ -3993,6 +4032,17 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
   return app.sessionTokens.scopeOf(app.runtime.owner, supplied) === "read" ? { method: "GET", executes: false } : null;
 }
 
+/**
+ * The pictures among a message's attachments, in the shape the model is shown. The file itself is
+ * kept whatever happens; this is only so a picture does not have to be uploaded twice.
+ */
+function picturesAmong(attachments?: { mediaType: string; name: string; data: string }[]): { images?: ImagePart[] } {
+  const pictures = (attachments ?? [])
+    .filter((one) => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(one.mediaType))
+    .slice(0, maximumImagesPerTurn)
+    .map((one) => ({ mediaType: one.mediaType as ImagePart["mediaType"], data: one.data, name: one.name }));
+  return pictures.length ? { images: pictures } : {};
+}
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
@@ -4009,6 +4059,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot open or read the phone download. Do that in the app window.";
   // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
+  // A person's attached files are the owner's alone, like everything else kept beside the database.
+  if (path.startsWith("/api/attachments/"))
+    return "A short-lived key cannot open a file somebody attached. Do that in the app window.";
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);

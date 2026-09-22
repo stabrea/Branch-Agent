@@ -67,6 +67,7 @@ import { Moderation } from "./moderation.js";
 import { PrivacyGuard } from "./privacy-guard.js";
 import { OAuthConnections } from "./oauth.js";
 import { RunArtifacts } from "./artifacts.js";
+import { Attachments } from "./attachments.js";
 import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
 import { ChannelConnectors, registerChannelTools } from "./channels/connectors.js";
@@ -325,6 +326,21 @@ export async function createBranch(options: {
   // Screenshots and saved pages, and the saved sign-ins for the browser: both live beside the
   // private database, never in the person's workspace.
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
+  /**
+   * Files a person attached to a message. They live beside the private database rather than with what
+   * the assistant made: a run artifact is capped at 8 MB and read back only as a picture or a sound,
+   * and neither suits a video or a document. A conversation's files go when the conversation does.
+   */
+  const attachments = new Attachments(join(dataDir, "attachments"));
+  store.onSessionClosed((sessionId) => {
+    void attachments.forget(sessionId).catch(() => undefined);
+    void attachments.forget(sessionId, { temporary: true }).catch(() => undefined);
+  });
+  // A stop at the wrong moment must not turn a temporary conversation's files into permanent ones.
+  // The list of what to sweep is read here, before anything else can start, and only those folders are
+  // removed — so even a slow sweep that outlives this line cannot touch a conversation begun later.
+  const sweeping = attachments.sweepTemporary().catch(() => 0);
+  await Promise.race([sweeping, new Promise((resolve) => setTimeout(resolve, 5000).unref())]);
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
   // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
@@ -474,6 +490,7 @@ export async function createBranch(options: {
     return runtime.pathCheck({ tool: tool ?? "files.list", runId: runId || undefined, source: outside?.source });
   };
   runtime.artifacts = artifacts;
+  runtime.attachments = attachments;
   // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
   codeChanges.testsPermission = (context, folder) => projectTestsVerdict({ store, owner: runtime.owner,
     approvals: runtime.approvals, sessionId: runtime.approvalSessionOf(context),
@@ -1339,6 +1356,8 @@ export async function createBranch(options: {
     /** Assistants elsewhere this one may hand work to. */
     remoteAgents,
     artifacts,
+    /** Files people attached to their messages, kept for as long as the conversation is. */
+    attachments,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
     /** What Windows itself allows: the microphone, the camera and taking hold of windows. */

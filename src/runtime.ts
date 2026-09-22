@@ -26,6 +26,8 @@ import {
   textOnly,
 } from "./contracts.js";
 import type {
+  AttachmentInput,
+  AttachmentRef,
   BudgetOptions,
   Completion,
   ImagePart,
@@ -40,6 +42,7 @@ import type {
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
+import { Attachments } from "./attachments.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
@@ -222,6 +225,16 @@ export function picturesNote(images?: ImagePart[]): string {
   const names = images.map((image, at) => image.name || `picture ${at + 1}`);
   return `\n\n[attached ${images.length === 1 ? "picture" : "pictures"}: ${names.join(", ")}]`;
 }
+/**
+ * The words that say a file came with the message. The reference beside it is what can be opened
+ * again; this is only so the conversation reads properly, and so a model that cannot take the file
+ * itself still knows it was there.
+ */
+export function attachmentsNote(attachments?: AttachmentRef[]): string {
+  if (!attachments?.length) return "";
+  const names = attachments.map((one) => `${one.name} (${one.kind})`);
+  return `\n\n[attached ${attachments.length === 1 ? "file" : "files"}: ${names.join(", ")}]`;
+}
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
@@ -261,6 +274,11 @@ export interface RunOptions {
   checks?: CompletionCheck;
   /** Pictures to show the model with this prompt. Refused in plain words by a text-only model. */
   images?: ImagePart[];
+  /**
+   * Files attached to this message. The originals are kept beside the private database and only their
+   * references are written down, so the conversation can say what it was given without the bytes.
+   */
+  attachments?: AttachmentInput[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
   /**
@@ -355,6 +373,8 @@ export class Runtime {
   toolMeaning: RunToolEmbedder | null = null;
   /** Where screenshots are kept, so a model that can look at pictures can be shown one. */
   artifacts: RunArtifacts | null = null;
+  /** Where a person's attached files are kept; without it, nothing can be attached. */
+  attachments: Attachments | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
   /**
@@ -932,7 +952,17 @@ ${run.output.slice(0, 6000)}`;
           ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
         }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
-    else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+    else {
+      // The files themselves are kept first: a message may only carry a reference to something real.
+      const attached = options.attachments?.length && this.attachments
+        ? await this.attachments.keep(run.sessionId, options.attachments, { temporary: Boolean(options.temporary) })
+        : [];
+      this.store.message(run.sessionId, {
+        role: "user",
+        content: options.prompt + picturesNote(options.images) + attachmentsNote(attached),
+        ...(attached.length ? { attachments: attached } : {}),
+      });
+    }
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
     // Wave mac2 (goal-undo): record the workspace before the task touches it; never fails the task.
     if (!parent && !options.resumeFrom && this.turnStarted) await this.turnStarted(run).catch(() => undefined);

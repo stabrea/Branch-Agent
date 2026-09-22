@@ -1320,6 +1320,61 @@ function toolStep(content, calls, source) {
   node.append(body);
   $("conversation").append(node);
 }
+/** How big a kept file is, in words a person reads rather than bytes. */
+const fileSize = (bytes) =>
+  bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+/** The safe kinds shown in the page itself; everything else is offered as a download. */
+const playableHere = new Set([
+  "image/png", "image/jpeg", "image/webp", "image/gif",
+  "audio/wav", "audio/mpeg", "audio/ogg", "audio/webm", "audio/mp4",
+  "video/mp4", "video/webm", "video/ogg",
+]);
+/** Asks for a kept file with the window's own key, and hands back something the page can point at. */
+async function keptFileUrl(ref) {
+  const answer = await fetch(
+    `/api/attachments/file?session=${encodeURIComponent(sessionId)}&id=${encodeURIComponent(ref.id)}`,
+    { headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || "") } });
+  if (!answer.ok) throw new Error("That file could not be opened");
+  return URL.createObjectURL(await answer.blob());
+}
+/**
+ * A card for each file that came with a message: what it is called, how big it is, and one control —
+ * Show it here for a picture, a sound or a film, and Download for everything else. The bytes are
+ * fetched with the window's key, so nothing is readable from an address alone.
+ */
+function attachedFiles(refs) {
+  const row = el("div", undefined, "message-files");
+  for (const ref of refs) {
+    const card = el("div", undefined, "message-file");
+    card.dataset.attachment = ref.id;
+    card.append(el("span", ref.name, "message-file-name"));
+    card.append(el("span", `${ref.kind} · ${fileSize(ref.bytes)}`, "meta"));
+    const shown = el("div", undefined, "message-file-shown");
+    const open = button(playableHere.has(ref.mediaType) ? "Show it here" : "Download", async () => {
+      open.disabled = true;
+      try {
+        const url = await keptFileUrl(ref);
+        if (!playableHere.has(ref.mediaType)) {
+          const save = Object.assign(document.createElement("a"), { href: url, download: ref.name });
+          document.body.append(save);
+          save.click();
+          save.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          return;
+        }
+        const tag = ref.kind === "picture" ? "img" : ref.kind === "sound" ? "audio" : "video";
+        const media = Object.assign(document.createElement(tag), { src: url });
+        if (tag !== "img") media.controls = true;
+        else media.alt = ref.name;
+        shown.replaceChildren(media);
+      } catch (error) { toast(error.message); open.disabled = false; }
+    });
+    open.classList.add("text-button");
+    card.append(open, shown);
+    row.append(card);
+  }
+  return row;
+}
 function message(role, content, source) {
   if (source?.toolCalls?.length) return toolStep(content, source.toolCalls, source);
   const node = el("div", undefined, "message " + role);
@@ -1331,6 +1386,9 @@ function message(role, content, source) {
   node.append(by);
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
   if (role === "user") node.append(document.createTextNode(content));
+  /* The files that came with this message, shown whenever the conversation is read — including after
+     it is reopened, which is the whole point of keeping them (src/attachments.ts). */
+  if (source?.attachments?.length) node.append(attachedFiles(source.attachments));
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
      through the voice service so the free Windows voice works with no key and no internet. */
@@ -1802,6 +1860,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
     // Pictures put on the composer travel with this one message and are then cleared (wave 5).
     const pictures = globalThis.branchAttachments?.() ?? [];
+    // Wave: the files themselves are kept, so the conversation can hand them back later.
+    const files = globalThis.branchAttachedFiles?.() ?? [];
     /* Redesign phase 1: a conversation begun here starts in the mode its chip shows (public/conversation-mode.js). */
     const startMode = sessionId ? null : globalThis.branchConversationMode?.pending() ?? null;
     const run = await api("run", {
@@ -1810,6 +1870,7 @@ $("chat-form").addEventListener("submit", async (event) => {
       ...(startMode ? { mode: startMode } : {}),
       ...(startingTemporary ? { temporary: true } : {}),
       ...(pictures.length ? { images: pictures } : {}),
+      ...(files.length ? { attachments: files } : {}),
     });
     globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
