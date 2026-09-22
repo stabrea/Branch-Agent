@@ -210,7 +210,7 @@ test("one signed-in session carries across two pages, and the picture of the pag
     "the picture is listed among what this task made");
 });
 
-test("the picture is of the page as it is now, not of the page before", async (t) => {
+test("a picture of each page, taken while the same signed-in session carries across them", async (t) => {
   const site = await memberSite();
   t.after(() => site.close());
   const { registry } = await branchAndBrowser(t, site.origin);
@@ -233,4 +233,12 @@ test("the picture is of the page as it is now, not of the page before", async (t
   const first = await readFile(desk.path), second = await readFile(orders.path);
   openPng(first); openPng(second);
   assert.ok(!first.equals(second), "and the two pages do not look the same");
+
+  // And the pictures were taken of pages this run was really let into. Without this the test would be
+  // happy with two pictures of "Please sign in": the same picture of nothing, twice over.
+  assert.equal(site.sessionsMade(), 1, "one way in was used, not one per page");
+  const inner = site.asked.filter((one) => ["/desk", "/orders"].includes(one.path) && one.sid);
+  assert.deepEqual([...new Set(inner.map((one) => one.path))].sort(), ["/desk", "/orders"],
+    "both pages were fetched with a session behind them");
+  assert.equal(new Set(inner.map((one) => one.sid)).size, 1, "and it was the same session for both");
 });
