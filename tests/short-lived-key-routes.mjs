@@ -68,6 +68,10 @@ export const ROUTES = {
   "/api/artifacts/file": "look",
   "/api/artifacts/page": "task POST",
   "/api/artifacts/save": "task POST",
+  // The file a person attached to a message. A dispatch prefix, and under it the one route that
+  // hands the bytes back — the owner's own, like every other reading of what they keep here.
+  "/api/attachments/": "prefix",
+  "/api/attachments/file": "owner GET",
   "/api/ask-first": "task POST",
   "/api/ask-first/answers": "task POST",
   "/api/ask-first/settings": "owner POST",
@@ -557,7 +561,6 @@ export const ROUTES = {
   "/api/keychain/settings": "owner POST",
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to — a map of where their passwords are, so it is not read with a key either.
-  "/api/attachments/file": "owner GET", // a file a person attached to a message (src/attachments.ts)
   "/api/vault-autofill": "prefix",
   "/api/vault-autofill/settings": "secret-read",
   "/api/knobs": "owner POST", // R17-S-B
