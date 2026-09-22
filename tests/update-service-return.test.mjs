@@ -23,6 +23,8 @@ import { attachToRunning, readRunning, writeRunning } from "../dist/install/runn
 import { ActivationJournal, fingerprintTree } from "../dist/never-break/activation.js";
 
 const posixOnly = process.platform === "win32" && "shell scripts are for macOS and Linux";
+/** One newline, by its number, so no layer between here and the file has to agree about escaping. */
+const NEWLINE = String.fromCharCode(10);
 
 async function scratch(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-service-return-"));
@@ -350,11 +352,77 @@ test("the undo is told what was running, so a service that never came back is st
       quit: { alive: () => false, stopEngine: async () => ({ stopped: true, message: "" }) },
       wasRunning: { pid: 4242, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787", version: "1.0.0", startedAt: "2026-09-22T10:00:00.000Z" },
       restartService: async () => { restarted += 1; },
+      returnWait: cameBack({ version: "1.0.0" }),
       launch: () => assert.fail("a service is never brought back as a window"),
     } });
   assert.equal(code, 0, said.join("\n"));
   assert.equal(restarted, 1, "the service was started again, because the undo was told there was one");
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "1.0.0");
+});
+
+/** Everything `branch rollback --yes` needs to undo 2.0.0 back to 1.0.0, with 1.0.0 having been the service. */
+async function undoSetup(t) {
+  const root = await scratch(t);
+  const dataDir = join(root, "data");
+  await mkdir(dataDir, { recursive: true });
+  const target = join(root, "Apps", "Branch-Agent");
+  await fakeApp(target, "2.0.0");
+  await fakeApp(`${target}.previous`, "1.0.0");
+  const journal = new ActivationJournal(join(dataDir, "activation.sqlite"));
+  const id = journal.stage({ kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target,
+    previous: await fingerprintTree(`${target}.previous`), candidate: await fingerprintTree(target),
+    launcher: null, executableName: "branch-agent", understood: 1, databases: [], backups: [] });
+  journal.activated(id);
+  journal.close();
+  const said = [], events = [];
+  const run = (returnWait) => rollbackCommand({ dataDir, version: "2.0.0", yes: true, platform: "linux",
+    print: (line) => said.push(line),
+    deps: {
+      quit: { alive: () => false, stopEngine: async () => ({ stopped: true, message: "" }) },
+      wasRunning: { pid: 4242, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787",
+        version: "2.0.0", startedAt: "2026-09-22T10:00:00.000Z" },
+      restartService: async () => { events.push("restart"); },
+      returnWait,
+      launch: () => assert.fail("a service is never brought back as a window"),
+    } });
+  const told = () => said.join("\n");
+  return { run, told, events, target };
+}
+
+test("the undo waits for the version it put back to answer for itself, as the update already does", async (t) => {
+  const undo = await undoSetup(t);
+  const code = await undo.run(cameBack({ version: "1.0.0" }));
+
+  assert.equal(code, 0, undo.told());
+  assert.deepEqual(undo.events, ["restart"]);
+  assert.equal(await readFile(join(undo.target, "resources", "version.txt"), "utf8"), "1.0.0");
+});
+
+test("a manager that took the command while nothing came back is not the version being back", async (t) => {
+  // launchctl and systemctl answer as soon as they have been asked, whether or not anything came up.
+  // Taking that for success is how an undo reports Branch is back while nothing is running, which is
+  // the one failure this whole path exists to prevent.
+  const undo = await undoSetup(t);
+  const code = await undo.run(neverBack());
+
+  assert.equal(code, 1, "the undo says it did not finish");
+  assert.deepEqual(undo.events, ["restart"], "the manager really was asked");
+  assert.match(undo.told(), /could not be started again/, undo.told());
+  assert.match(undo.told(), /did not come back up in the background/, "and says what was waited for");
+  assert.match(undo.told(), /branch start/, "and what the owner can do about it");
+  assert.equal(await readFile(join(undo.target, "resources", "version.txt"), "utf8"), "1.0.0",
+    "the files really are back; it is only the running that is not");
+});
+
+test("a Branch that answers with the version we undid is not the version we put back", async (t) => {
+  // The note on disk can say 1.0.0 while what is running is still 2.0.0: a note is written by whatever
+  // started, and an undo that believes it would call the thing it was trying to escape a success.
+  // What the running Branch answers when it is asked is what decides.
+  const undo = await undoSetup(t);
+  const code = await undo.run(cameBack({ version: "1.0.0", answers: "2.0.0" }));
+
+  assert.equal(code, 1, "a Branch on the version we just undid does not count as the undo working");
+  assert.match(undo.told(), /could not be started again/, undo.told());
 });
 
 test("an update whose hand-over fails does not leave a service down", { skip: posixOnly }, async (t) => {

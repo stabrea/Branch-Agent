@@ -12,7 +12,7 @@ import {
 import { Store } from "../store.js";
 import { databaseName } from "./layout.js";
 import { quitRunning, runningNow, type QuitDeps } from "./quit.js";
-import { restartService } from "./service-return.js";
+import { restartService, waitForReturn, type ReturnDeps } from "./service-return.js";
 import type { RunningInstance } from "./running.js";
 
 /**
@@ -38,6 +38,8 @@ export interface RollbackCliDeps {
   launch?: (target: string, executableName: string) => void;
   /** Starts a background service again (it was one before the undo), through its own manager. */
   restartService?: () => Promise<void>;
+  /** How long to wait for the version that was put back to answer, and what to ask; tests hold the clock. */
+  returnWait?: ReturnDeps;
   /**
    * What was running before all of this began, when the caller knows and the disk no longer does. The
    * update's own recovery comes in here after the service has been closed and the new version failed to
@@ -133,7 +135,19 @@ async function runRollback(entry: ActivationEntry, journal: ActivationJournal, i
     restart: async () => {
       if (!wasRunning) return;
       // A background service comes back as the service, not as a window it never had.
-      if (was.mode === "daemon") return (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
+      if (was.mode === "daemon") {
+        await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
+        // The service manager saying yes is not the older version running. It answers as soon as it
+        // has been asked, whether or not anything came up, and an undo that reports success while
+        // nothing is running is the one failure this whole path exists to prevent. So the same proof
+        // the forward update already needs: a Branch that is not the one we just stopped, answering
+        // for itself, and saying it is the version we put back.
+        const back = await waitForReturn(input.dataDir, { pid: was.pid, startedAt: was.startedAt },
+          { version: entry.fromVersion }, deps.returnWait);
+        if (!back)
+          throw new Error(`version ${entry.fromVersion} did not come back up in the background`);
+        return;
+      }
       (deps.launch ?? launcher)(entry.target, entry.executableName);
     },
   });
