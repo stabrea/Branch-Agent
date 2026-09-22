@@ -19,6 +19,8 @@ document.body.append(panel);
 let openFor = null;
 let entry = null;
 let placementFrame = 0;
+let placementTimer = 0;
+let placementPosition = "";
 /* Integration review: a list whose choices change while it is open closes, so a press never picks by a stale position.
    mac7/ci-flakes-2: the window's refresh every 3 s writes some selects' choices again, the same ones; that is not a
    change, and closing on it shut an open list under the person's pointer. Only different choices close it. */
@@ -87,6 +89,9 @@ function close({ focus = false } = {}) {
   openFor = null;
   cancelAnimationFrame(placementFrame);
   placementFrame = 0;
+  clearInterval(placementTimer);
+  placementTimer = 0;
+  placementPosition = "";
   changed.disconnect();
   panel.hidden = true;
   select.setAttribute("aria-expanded", "false");
@@ -94,14 +99,19 @@ function close({ focus = false } = {}) {
   entry = null;
   if (focus) select.focus();
 }
-/** A list stays attached while its select moves, including delayed and script-driven transforms. */
-function follow(select, previous = "") {
+function placeIfMoved(select) {
+  const box = select.getBoundingClientRect();
+  const position = `${box.left}:${box.top}:${box.width}:${box.height}`;
+  if (position === placementPosition) return;
+  placementPosition = position;
+  place(select);
+}
+/** A list stays attached while its select moves, even when a loaded runner misses animation frames. */
+function follow(select) {
   placementFrame = requestAnimationFrame(() => {
     if (openFor !== select) return;
-    const box = select.getBoundingClientRect();
-    const position = `${box.left}:${box.top}:${box.width}:${box.height}`;
-    if (position !== previous) place(select);
-    follow(select, position);
+    placeIfMoved(select);
+    follow(select);
   });
 }
 function open(select) {
@@ -109,7 +119,9 @@ function open(select) {
   place(select);
   panel.hidden = false;
   openFor = select;
+  placementPosition = "";
   follow(select);
+  placementTimer = setInterval(() => { if (openFor === select) placeIfMoved(select); }, 50);
   select.setAttribute("aria-expanded", "true");
   select.setAttribute("aria-controls", panel.id);
   entry = trackPopover(select, panel, () => { if (openFor === select) close(); });

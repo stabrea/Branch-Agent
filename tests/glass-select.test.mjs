@@ -520,3 +520,29 @@ test("phase2/settings integration: a list opened while the Settings window is st
   assert.ok(Math.abs(gap) <= 2, `the list was left where the select was while it moved (gap ${gap})`);
   assert.deepEqual(f.errors, []);
 });
+
+test("a moving window settles its open list even when the browser misses placement frames", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.locator(".lx-settings-close").click();
+  await f.page.evaluate(async () => {
+    globalThis.branchLayout.go("settings:permissions");
+    const window = document.querySelector(".lx-settings-win");
+    for (const animation of window.getAnimations()) animation.cancel();
+    window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+      { duration: 120, easing: "ease", fill: "both" });
+    await new Promise((done) => setTimeout(done, 30));
+    globalThis.requestAnimationFrame = () => 0;
+    const picker = document.getElementById("policy-preset");
+    picker.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+  });
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(250);
+  const gap = await f.page.evaluate(() => {
+    const select = document.getElementById("policy-preset").getBoundingClientRect();
+    const list = document.getElementById("glass-list").getBoundingClientRect();
+    return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
+  });
+  assert.ok(Math.abs(gap) <= 2, `the settled list kept its stale moving position (gap ${gap})`);
+  assert.deepEqual(f.errors, []);
+});
