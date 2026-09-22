@@ -373,11 +373,15 @@ test("a file that makes a browser and hides the name it gives it is refused", as
        contained a comment opener win, and a construction after it disappeared. Each of these hides one
        behind a literal, and each must still be refused. The last is a regular expression, which only a
        real parse can tell from the start of a string. */
-    "tests/quoted-url.test.mjs": ['const u = "https://x.test";', "let h;", "h = new BranchBrowser({});",
+    /* On ONE line, because that is the whole failure: a // inside a string truncated the rest of *that
+       line*, so a fixture with the construction on a later line would not have reproduced it at all. */
+    "tests/quoted-url.test.mjs": ['const u = "https://x.test"; let h; h = new BranchBrowser({});',
       "await h.pdf(context);"],
+    /* And this one needs the closing marker to exist further down, because that is what turns a quoted
+       opener into a block comment that swallows the lines between them -- the construction included. */
     "tests/quoted-opener.test.mjs": ['const s = "/*";', "let h;", "h = new BranchBrowser({});",
-      "await h.pdf(context);"],
-    "tests/regex-then.test.mjs": ["const q = /[\"']/;", "let h;", "h = new BranchBrowser({});",
+      'const e = "*/";', "await h.pdf(context);"],
+    "tests/regex-then.test.mjs": ["const q = /[\"']/; let h; h = new BranchBrowser({});",
       "await h.pdf(context);"],
     /* And one inside a template's `${}`, which is code and so must be seen -- but which has no name,
        so it is refused for having none rather than allowed for being visible. */
