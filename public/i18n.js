@@ -45,14 +45,24 @@ export const formatDate = (value, options = { dateStyle: "medium", timeStyle: "s
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(current, options).format(date);
 };
-/** Writes every marked string on the page (or inside one node) in the language now chosen. */
+/**
+ * Writes every marked string on the page (or inside one node) in the language now chosen. Words that
+ * already read right are left alone: writing the same words again still counts as a change to the
+ * page, and every part of the window that watches for changes (Settings putting its cards in order,
+ * among others) would wake and do its work again for nothing.
+ */
 export function applyLanguage(root = document) {
-  for (const node of root.querySelectorAll("[data-t]")) node.textContent = t(node.dataset.t);
+  for (const node of root.querySelectorAll("[data-t]")) {
+    const words = t(node.dataset.t);
+    if (node.textContent !== words) node.textContent = words;
+  }
   // mac7/r17-g integration review: descriptions read aloud (aria-description) follow the language too.
   const attributes = { tLabel: "aria-label", tPlaceholder: "placeholder", tTitle: "title", tAriaDescription: "aria-description" };
   for (const [dataKey, attribute] of Object.entries(attributes))
-    for (const node of root.querySelectorAll(`[data-${dataKey.replace(/([A-Z])/g, "-$1").toLowerCase()}]`))
-      node.setAttribute(attribute, t(node.dataset[dataKey]));
+    for (const node of root.querySelectorAll(`[data-${dataKey.replace(/([A-Z])/g, "-$1").toLowerCase()}]`)) {
+      const words = t(node.dataset[dataKey]);
+      if (node.getAttribute(attribute) !== words) node.setAttribute(attribute, words);
+    }
   document.documentElement.lang = current;
 }
 /** Switches language, remembers the choice, and redraws the page's words. */
