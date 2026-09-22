@@ -118,12 +118,25 @@ test("API validates malformed and oversized requests", async (t) => {
       .status,
     400,
   );
+  // A message may now bring files with it, so what a run's body may weigh is no longer 64 KiB: it is
+  // 32 MiB of attachments as base64, plus room for the words. 70,000 characters of prompt is therefore
+  // not an oversized request any more — it is a prompt longer than a prompt may be, refused as one.
+  const tooManyWords = await fetch(url + "/api/run", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ prompt: "x".repeat(70000) }),
+  });
+  assert.equal(tooManyWords.status, 400);
+
+  // And a body past what a run may carry at all is still stopped by the reader, before anything is
+  // parsed. 48 MB is past the ceiling on purpose: if the ceiling is ever raised above it, this goes
+  // red and somebody decides that deliberately rather than by accident.
   assert.equal(
     (
       await fetch(url + "/api/run", {
         method: "POST",
         headers,
-        body: JSON.stringify({ prompt: "x".repeat(70000) }),
+        body: `{"prompt":"${"x".repeat(48 * 1024 * 1024)}"}`,
       })
     ).status,
     413,
