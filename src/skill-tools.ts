@@ -66,7 +66,11 @@ export function guardAlwaysBudget(store: Store): (owner: string, id: string, doc
 export function setAlwaysSkill(store: Store, owner: string, input: unknown): { ids: string[] } {
   const { id, always } = z.object({ id: z.string().uuid(), always: z.boolean() }).strict().parse(input);
   if (always && !store.skills.catalog(owner).some((skill) => skill.id === id)) throw new Error("There is no skill with that id.");
-  const ids = alwaysSkills(store, owner).filter((one) => one !== id);
+  // Built from what is saved, not from what is followed now: a followed skill that is switched off
+  // keeps its mark while another skill's switch changes, so switching it back on follows it again.
+  // Only a skill that no longer exists at all is let go.
+  const installed = new Set(store.skills.list(owner).map((skill) => skill.id));
+  const ids = savedAlways(store, owner).filter((one) => one !== id && installed.has(one));
   if (always) {
     if (ids.length >= 20) throw new Error("At most 20 skills can be always followed.");
     // Followed in every task means in full, every time: a set that would not fit is refused now.
@@ -75,7 +79,7 @@ export function setAlwaysSkill(store: Store, owner: string, input: unknown): { i
     ids.push(id);
   }
   store.save("settings", owner, alwaysSkillsKey, { ids });
-  return { ids };
+  return { ids: alwaysSkills(store, owner) };
 }
 /** `GET|POST /api/skills/always`: the owner's alone, checked here so the guard moves with the route. */
 export async function alwaysSkillsRoute(store: Store, owner: string, method: string, body: () => Promise<unknown>): Promise<{ ids: string[] }> {

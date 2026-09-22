@@ -251,3 +251,64 @@ test("saved state from before the check that no longer fits is said on the task,
   assert.ok(view.loading.some((line) => /no longer fit in full/.test(line.text)), "on the task's Look inside screen");
   assert.match(prompts.at(-1), /MARKER-alpha-END/);
 });
+
+test("a followed skill switched off keeps its mark while another is marked, and is followed again when switched back on", async (t) => {
+  const { app, call } = await fixture(t);
+  const owner = app.runtime.owner;
+  const a = app.store.skills.install(owner, { document: bigSkill("alpha", 1000) }).id;
+  const b = app.store.skills.install(owner, { document: bigSkill("beta", 1000) }).id;
+  assert.deepEqual((await call("/api/skills/always", { id: a, always: true })).body, { ids: [a] });
+  app.store.skills.disable(owner, a, { expectedRevision: app.store.skills.view(owner, a).revision });
+  assert.deepEqual((await call("/api/skills/always", { id: b, always: true })).body, { ids: [b] }, "only what is followed now is reported");
+  app.store.skills.activate(owner, a, { version: 1, expectedRevision: app.store.skills.view(owner, a).revision });
+  assert.deepEqual(new Set((await call("/api/skills/always")).body.ids), new Set([a, b]), "A is followed again, beside B");
+  assert.deepEqual(new Set(app.store.get("settings", owner, "skills-always").data.ids), new Set([a, b]));
+  // A skill that is taken away altogether is let go at the next change.
+  app.store.skills.remove(owner, a, { expectedRevision: app.store.skills.view(owner, a).revision });
+  await call("/api/skills/always", { id: b, always: false });
+  assert.deepEqual(app.store.get("settings", owner, "skills-always").data.ids, []);
+});
+
+/** Opens Skills with the first switch change to the list held until `release`, answered by `answer`. */
+async function heldFirstChange(t, answer) {
+  const { app, server, skillId } = await fixture(t);
+  let release, changes = 0;
+  const held = new Promise((resolve) => { release = resolve; });
+  const opened = await skillsPage(t, server, skillId, (page) => page.route("**/api/skills/always", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    if (++changes === 1) { await held; return answer(route); }
+    return route.continue();
+  }));
+  await opened.page.waitForFunction((id) => !document.querySelector(`#skills-list [data-skill-id="${id}"] [role="switch"]`)?.disabled, skillId);
+  return { app, skillId, release, sent: () => changes, ...opened };
+}
+
+test("two quick presses: the one pressed last is the one Branch keeps, even when the first is slow", async (t) => {
+  const { app, release, sent, page, errors, toggle } = await heldFirstChange(t, (route) => route.continue());
+  await toggle().evaluate((node) => node.click()); // on: held on its way
+  await toggle().evaluate((node) => node.click()); // off: the newest choice
+  await page.waitForTimeout(300);
+  assert.equal(sent(), 1, "the second change waits for the first");
+  release();
+  await page.waitForFunction(() => globalThis.branchLoadAlways !== undefined);
+  for (let i = 0; i < 50 && sent() < 2; i++) await new Promise((r) => setTimeout(r, 100));
+  await page.evaluate(() => globalThis.branchLoadAlways());
+  assert.deepEqual(app.store.get("settings", app.runtime.owner, "skills-always")?.data?.ids ?? [], [], "Branch keeps the newest choice");
+  assert.equal(await toggle().isChecked(), false, "and the switch shows it");
+  assert.deepEqual(errors, []);
+});
+
+test("a slow first press that fails does not undo the newer choice on the switch", async (t) => {
+  const refuse = (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Refused for the test." }) });
+  const { app, skillId, release, sent, page, errors, toggle } = await heldFirstChange(t, refuse);
+  await toggle().evaluate((node) => node.click()); // on: held, then refused
+  await toggle().evaluate((node) => node.click()); // off
+  await toggle().evaluate((node) => node.click()); // on again: the newest choice
+  release();
+  for (let i = 0; i < 50 && sent() < 3; i++) await new Promise((r) => setTimeout(r, 100));
+  await page.waitForTimeout(300);
+  // Read before any fresh look redraws the switch from Branch, which would hide a wrong flip.
+  assert.equal(await toggle().isChecked(), true, "the refused older press did not put the switch back off");
+  assert.deepEqual(app.store.get("settings", app.runtime.owner, "skills-always")?.data?.ids, [skillId], "Branch keeps the newest choice");
+  assert.deepEqual(errors, []);
+});

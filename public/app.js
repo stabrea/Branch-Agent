@@ -1176,14 +1176,24 @@ form("models-form", async () => {
    answer the switches are shown but cannot be pressed, so nothing is decided on a guess. */
 let alwaysSkillIds = null; // null: not known yet
 let alwaysAsked = 0, alwaysLoading = false;
+/* Switch changes reach Branch one at a time, in the order they were pressed, so the last one pressed
+   is the last one saved; a look waits for the changes already on their way. */
+let alwaysWrites = Promise.resolve();
+const alwaysNewest = new Map(); // skill id → the number of its newest change
 async function loadAlways() {
   const asked = ++alwaysAsked;
   alwaysLoading = true;
   try {
+    await alwaysWrites;
     const value = await api("skills/always");
     if (asked === alwaysAsked) alwaysSkillIds = new Set(value.ids);
   } catch { /* stays unknown; asked again at the next drawing */ }
   finally { if (asked === alwaysAsked) { alwaysLoading = false; renderSkills(); } }
+}
+function markAlways(skillId, followed) {
+  if (!alwaysSkillIds) return;
+  if (followed) alwaysSkillIds.add(skillId);
+  else alwaysSkillIds.delete(skillId);
 }
 function alwaysFollowSwitch(skillId) {
   const label = el("label", undefined, "check skill-always");
@@ -1192,13 +1202,23 @@ function alwaysFollowSwitch(skillId) {
   box.setAttribute("role", "switch");
   box.checked = Boolean(alwaysSkillIds?.has(skillId));
   box.disabled = alwaysSkillIds === null;
-  box.addEventListener("change", async () => {
+  box.addEventListener("change", () => {
     const asked = ++alwaysAsked; // a look still on its way is now out of date
+    const wanted = box.checked;
     alwaysLoading = false;
-    try {
-      const ids = (await api("skills/always", { id: skillId, always: box.checked })).ids;
-      if (asked === alwaysAsked) alwaysSkillIds = new Set(ids);
-    } catch (error) { box.checked = !box.checked; toast(error.message); }
+    alwaysNewest.set(skillId, asked);
+    // The list shows what was pressed straight away, so a redraw before Branch answers keeps it.
+    markAlways(skillId, wanted);
+    alwaysWrites = alwaysWrites.then(async () => {
+      try {
+        const ids = (await api("skills/always", { id: skillId, always: wanted })).ids;
+        if (asked === alwaysAsked) alwaysSkillIds = new Set(ids);
+      } catch (error) {
+        toast(error.message);
+        // Put back only when this was the newest change to this skill; a newer one already decided it.
+        if (alwaysNewest.get(skillId) === asked) { markAlways(skillId, !wanted); renderSkills(); }
+      }
+    });
   });
   const words = el("span", t("skills.always.label"));
   words.dataset.t = "skills.always.label";
