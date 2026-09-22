@@ -140,3 +140,66 @@ test("Settings can read what Tool loading off would cost, and switch it; a short
   assert.ok([401, 403].includes((await call({ mode: "deferred" }, key)).status));
   assert.equal(toolLoading(app.store, app.runtime.owner), "eager", "the key changed nothing");
 });
+
+test("the fit is measured on what the model receives: a saved note can push a set that looked small over", async (t) => {
+  const seen = [];
+  const app = await fixture(t, { name: "scripted", async complete(request) { seen.push(request.tools.map((tool) => tool.name)); return { content: "ok", toolCalls: [] }; } });
+  const owner = app.runtime.owner;
+  saveKnobs(app.store, owner, "compaction", { contextWindowTokens: 8000 }); // a quarter: 2,000 for forced tools
+  app.store.save("settings", owner, "page-notes", { mode: "when-needed" });
+  setLoading(app, "eager");
+  const build = (fields, pad) => ({ name: "browser.notes", description: "Page notes." + " note".repeat(pad), permission: "files.read",
+    parameters: z.object(Object.fromEntries(Array.from({ length: fields }, (_, i) => [`f${i}`, z.string().optional().describe(`Field ${i}.`)]))).strict(), execute: async () => "ok" });
+  // Weighed exactly as a task weighs it: the registry's own description, through the runtime.
+  const weigh = () => app.runtime.forcedToolTokens(owner, app.registry.descriptions(new Set(["files.read"])), ["browser.notes"]);
+  let chosen = false;
+  for (let fields = 1; fields < 600 && !chosen; fields += 5)
+    for (let pad = 0; pad < 60; pad++) {
+      app.registry.register(build(fields, pad));
+      const raw = weigh();
+      if (raw > 1990 && raw <= 2000) { chosen = true; break; }
+      app.registry.unregister("browser.notes");
+      if (raw > 2000) break;
+    }
+  assert.ok(chosen, "a tool that sits just under the limit");
+  const raw = weigh();
+  await app.runtime.run({ prompt: "hello", permissions: ["files.read"] });
+  assert.ok(seen.at(-1).includes("browser.notes"), "as it stands it fits, and travels in full");
+  // What is remembered about the tool travels with it, and that is what tips it over.
+  app.store.toolUsage.addNote(owner, { tool: "browser.notes", note: "Keeps short notes beside a page you are reading, one per page, and finds them again by the page's address later." });
+  const run = await app.runtime.run({ prompt: "hello", permissions: ["files.read"] });
+  assert.ok(!seen.at(-1).includes("browser.notes"), "with its note it no longer fits: loaded when needed");
+  const event = app.store.events(run.id).find((one) => one.kind === "tools.eager_too_big");
+  assert.ok(event && event.data.tokens > 2000 && event.data.tokens > raw, JSON.stringify(event?.data));
+  assert.equal(event.data.tokens, weigh(), "the task weighed the tool with its note");
+  // Settings says the same, measured the same way.
+  const server = await startServer(app, { dataDir: app.store.folder, port: 0 });
+  t.after(() => server.close());
+  const cost = await (await fetch(server.url + "/api/tool-loading", { headers: { authorization: `Bearer ${server.token}` } })).json();
+  assert.deepEqual({ fits: cost.fits, tokens: cost.tokens }, { fits: false, tokens: event.data.tokens });
+});
+
+test("what Tool loading could not do is on the task's Look inside screen and in the terminal", async (t) => {
+  const app = await fixture(t);
+  const { inspectRun } = await import("../dist/inspect.js");
+  const { progressLine } = await import("../dist/terminal.js");
+  const run = app.store.createRun(app.runtime.owner, "anything");
+  app.store.event(run.id, "tools.eager_too_big", { tokens: 3000, limit: 2000, room: 8000, fits: false, tools: 4, note: "Loading everything switched on up front would take about 3000 tokens, more than the 2000 this model's room allows for tools, so this task loads them when needed." });
+  const view = inspectRun(app.store, run.id, { receipts: { items: [], counts: {} }, timeline: [], cost: null, version: "test" });
+  assert.match(view.loading[0].text, /more than the 2000 this model's room allows for tools/);
+  const event = app.store.events(run.id).find((one) => one.kind === "tools.eager_too_big");
+  assert.match(progressLine(event), /^\[Loading everything switched on up front would take about 3000 tokens/);
+});
+
+test("a household profile cannot read or change how the assistant loads its tools", async (t) => {
+  const app = await fixture(t);
+  const server = await startServer(app, { dataDir: app.store.folder, port: 0 });
+  t.after(() => server.close());
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  const post = await fetch(server.url + "/api/tool-loading", { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ mode: "eager" }) });
+  assert.notEqual(post.status, 200);
+  assert.equal(toolLoading(app.store, app.runtime.owner), "deferred", "nothing changed");
+  assert.notEqual((await fetch(server.url + "/api/tool-loading", { headers: { authorization: `Bearer ${server.token}` } })).status, 200);
+});

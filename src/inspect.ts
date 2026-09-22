@@ -146,10 +146,13 @@ export function notes(store: Store, runId: string) {
   let style: string | null = null;
   // mac2/fly-core-2: advice from the learning core that changed what the task started with.
   const learned: { at: string; what: string; names: string[] }[] = [];
+  // Owner item 17: Tool loading off could not be honoured for this task, and why, in plain words.
+  const loading: { at: string; text: string }[] = [];
   for (const event of store.events(runId)) {
     const data = event.data as Record<string, unknown>;
     if (event.kind === "react.scratch") { thinking.push({ at: event.createdAt, text: String(data.text ?? "") }); continue; }
     if (event.kind === "specialist.style") { style = String(data.style ?? ""); continue; }
+    if (event.kind === "tools.eager_too_big") { loading.push({ at: event.createdAt, text: String(data.note ?? "") }); continue; }
     if (event.kind === "fly.applied") { learned.push({ at: event.createdAt, what: String(data.what ?? ""), names: (Array.isArray(data.names) ? data.names : []).map(String) }); continue; }
     if (event.kind === "advice.given") {
       advice = { preset: String(data.preset ?? ""), stands: String(data.stands ?? "unsure"), line: String(data.line ?? "") };
@@ -163,7 +166,7 @@ export function notes(store: Store, runId: string) {
     else if (event.kind === "policy.ask" || event.kind === "user.ask")
       questions.push({ at: event.createdAt, question: String(data.question ?? data.label ?? "waiting for an answer"), answered: false });
   }
-  return { plan, verdicts, steering, questions, thinking, style, advice, learned };
+  return { plan, verdicts, steering, questions, thinking, style, advice, learned, loading };
 }
 
 /** Everything the "Look inside" screen needs, and the same shape the JSON export writes out. */

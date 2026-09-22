@@ -250,6 +250,8 @@ export function progressLine(event: Event): string | undefined {
     return "[provider retry scheduled]";
   }
   const supported = /^(run\.(started|finished|cleanup_failed)|model\.(started|completed|cancelled|failed)|tool\.(started|completed|failed))$/;
+  if (event.kind === "tools.eager_too_big" && typeof event.data.note === "string")
+    return `[${event.data.note.replace(/\s+/g, " ").slice(0, 300)}]`;
   if (event.kind === "session.reconciled")
     return "[interrupted tool outcome unknown; check actual state before retrying]";
   if (!supported.test(event.kind)) return undefined;

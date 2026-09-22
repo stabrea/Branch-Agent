@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
-import { estimateTokens } from "./contracts.js";
 import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
 import { lockdownOverrides } from "./lockdown.js"; // mac7/lockdown-fix
@@ -177,9 +176,9 @@ export function toolLoading(store: Reader, owner: string): ToolLoading {
  */
 export const eagerShareOfRoom = 0.25;
 /** What Tool loading off would cost now, and whether it fits: for Settings to show before anyone switches it. */
-export function eagerCost(store: Reader & Pick<Store, "save">, owner: string, tools: readonly { name: string }[], room: number) {
-  const forced = new Set(switchedToolTiers(store, owner, tools.map((tool) => tool.name), "eager").forced);
-  return { mode: toolLoading(store, owner), tools: forced.size, ...eagerFit(estimateTokens(tools.filter((tool) => forced.has(tool.name))), room) };
+export function eagerCost(store: Reader, owner: string, available: readonly string[], measure: (forced: string[]) => number, room: number) {
+  const forced = switchedToolTiers(store, owner, available, "eager").forced;
+  return { mode: toolLoading(store, owner), tools: forced.length, ...eagerFit(forced.length ? measure(forced) : 0, room) };
 }
 export function eagerFit(forcedTokens: number, room: number): { fits: boolean; tokens: number; room: number; limit: number } {
   const limit = Math.floor(room * eagerShareOfRoom);

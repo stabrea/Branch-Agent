@@ -1852,6 +1852,15 @@ ${run.output.slice(0, 6000)}`;
    * cheap lexical guess at the two or three this request needs, so an ordinary task never has to
    * spend a round opening one. No model call and no network is involved.
    */
+  /**
+   * Owner item 17: what these forced tools weigh as the model would receive them (descriptions as
+   * sent, saved notes included). The one measure a task and Settings › Capabilities both use.
+   */
+  forcedToolTokens(owner: string, tools: readonly ToolDescription[], forced: readonly string[]): number {
+    const notes = this.store.toolUsage.noteMap(owner);
+    return new ToolLoader(tools, { forced, groupOf: (name) => this.registry.groupOf(name),
+      external: (name) => this.registry.isExternal(name), noteOf: (name) => notes.get(name) ?? "" }).forcedTokens();
+  }
   private openCatalog(run: Run, context: ToolContext, messages: Message[], styleGroups: readonly string[] = []): ToolLoader {
     const tools = this.registry.descriptions(context.permissions);
     const available = [...new Set(tools.map((tool) => this.registry.groupOf(tool.name)))];
@@ -1870,7 +1879,7 @@ ${run.output.slice(0, 6000)}`;
     // task runs as with it on, and the reason is written on the task for the owner to see.
     if (switched.forced.length) {
       const forced = new Set(switched.forced);
-      const fit = eagerFit(estimateTokens(tools.filter((tool) => forced.has(tool.name))), knobs.contextWindow(this.store, this.owner, contextLimit));
+      const fit = eagerFit(this.forcedToolTokens(context.owner, tools, switched.forced), knobs.contextWindow(this.store, this.owner, contextLimit));
       if (!fit.fits) {
         this.store.event(run.id, "tools.eager_too_big", { ...fit, tools: forced.size,
           note: `Loading everything switched on up front would take about ${fit.tokens} tokens, more than the ${fit.limit} this model's room allows for tools, so this task loads them when needed.` });

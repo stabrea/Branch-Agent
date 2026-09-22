@@ -5388,5 +5388,6 @@
   "secrets.kind.key": "Clé {service}",
   "secrets.kind.token": "Jeton {service}",
   "secrets.kind.password": "Mot de passe {service}",
-  "secrets.used-as": "Les commandes l'utilisent sous le nom {name}"
+  "secrets.used-as": "Les commandes l'utilisent sous le nom {name}",
+  "inspector.tool-loading": "Chargement des outils"
 }

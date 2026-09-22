@@ -5387,5 +5387,6 @@
   "secrets.kind.key": "{service} key",
   "secrets.kind.token": "{service} token",
   "secrets.kind.password": "{service} password",
-  "secrets.used-as": "Commands use it as {name}"
+  "secrets.used-as": "Commands use it as {name}",
+  "inspector.tool-loading": "How tools were loaded"
 }

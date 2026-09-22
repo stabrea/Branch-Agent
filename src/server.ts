@@ -1223,10 +1223,12 @@ async function api(
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   // Owner item 17: the one Tool loading switch, and what switching it off would cost for this model.
   if (path === "/api/tool-loading") {
+    // The owner's alone, checked here so the guard moves with the route.
+    app.store.profiles.requireOwner("How the assistant loads its tools");
     const owner = app.runtime.owner;
     if (request.method === "POST") app.store.save("settings", owner, toolLoadingKey, ToolLoadingSchema.parse(await readBody(request)));
     else if (request.method !== "GET") throw new HttpError(405, "Use GET or POST");
-    return eagerCost(app.store, owner, app.registry.descriptions(new Set(app.registry.permissions())), knobs.contextWindow(app.store, owner, contextLimit));
+    return toolLoadingCost(app, owner);
   }
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
@@ -2656,6 +2658,12 @@ async function receiptsView(app: Branch, runId: string) {
   const counts: Record<string, number> = {};
   for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1;
   return { runId, counts, items, usage: app.store.usage(runId), cost: runCost(app, runId) };
+}
+/** What Tool loading off would cost now, measured as a task measures it (src/runtime.ts `forcedToolTokens`). */
+function toolLoadingCost(app: Branch, owner: string) {
+  const tools = app.registry.descriptions(new Set(app.registry.permissions()));
+  return eagerCost(app.store, owner, tools.map((tool) => tool.name), (forced) => app.runtime.forcedToolTokens(owner, tools, forced),
+    knobs.contextWindow(app.store, owner, contextLimit));
 }
 async function skillsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner, skills = app.store.skills;

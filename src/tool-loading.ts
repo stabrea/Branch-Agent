@@ -419,13 +419,22 @@ export class ToolLoader {
     return { loaded: kept, indexed: [], deferred: total - forced.length, descriptions: this.render(kept, [], total - forced.length) };
   }
   /** The tool list as the model receives it: full tools, then the index, then the toolbox opener. */
+  /** One tool exactly as the model receives it: its description as sent, and what was remembered about it. */
+  private asSent(entry: ToolEntry): ToolDescription {
+    const base = this.byName.get(entry.name)!;
+    return { name: base.name, parameters: base.parameters,
+      description: entry.note ? `${entry.description} Remembered: ${entry.note}` : entry.description };
+  }
+  /**
+   * What the forced tools weigh as the model receives them (owner item 17). Measured on the rendered
+   * tools, notes included, never the raw registry text, so Settings and a task agree with what is sent.
+   */
+  forcedTokens(): number {
+    return estimateTokens(this.index.entries.filter((entry) => this.forced.has(entry.name)).map((entry) => this.asSent(entry)));
+  }
   private render(loaded: readonly ToolEntry[], indexed: readonly ToolEntry[], deferred: number): ToolDescription[] {
     const full = [...loaded].sort((a, b) => Number(a.group !== "core") - Number(b.group !== "core")
-      || (this.order.get(a.name) ?? 0) - (this.order.get(b.name) ?? 0)).map((entry) => {
-      const base = this.byName.get(entry.name)!;
-      return { name: base.name, parameters: base.parameters,
-        description: entry.note ? `${entry.description} Remembered: ${entry.note}` : entry.description };
-    });
+      || (this.order.get(a.name) ?? 0) - (this.order.get(b.name) ?? 0)).map((entry) => this.asSent(entry));
     const closed = this.groups().filter((group) => !group.expanded && group.tools);
     return [...full, searchTool(indexed, deferred, this.index.size), describeTool(), noteTool(),
       ...(closed.length ? [opener(closed)] : [])];

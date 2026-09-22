@@ -106,6 +106,8 @@ function draw(view) {
     section("inspector.advice", view.advice ? [lineRow(view.advice.line, t("inspector.advice-note"))] : []),
     /* mac2/fly-core-2: what the learning core chose first, one plain line each. */
     section("inspector.learned", (view.learned ?? []).map(learnedRow)),
+    // Owner item 17: shown only when it happened, so an ordinary task's screen stays as it was.
+    ...((view.loading ?? []).length ? [section("inspector.tool-loading", view.loading.map((line) => lineRow(line.text, formatDate(line.at, { timeStyle: "medium" }))))] : []),
     section("inspector.rounds", view.rounds.map(roundRow)),
     section("inspector.calls", view.calls.map(callRow)),
     // A think-then-act specialist's line of reasoning for each round; never part of the answer.
