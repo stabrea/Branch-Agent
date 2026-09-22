@@ -1,5 +1,5 @@
 import { Canvas, fitText, textWidth, type CellStyle, type Hit, type Paint } from "./terminal-canvas.js";
-import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, type Route } from "./terminal-places.js";
+import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, placeById, type Route } from "./terminal-places.js";
 import type { Row } from "./terminal-place-data.js";
 import type { Glyphs } from "./terminal-style.js";
 import type { TerminalPalette } from "./terminal-theme.js";
@@ -11,7 +11,7 @@ import type { RailItem, UsageBar } from "./terminal-everywhere.js"; // phase2/ev
  * The terminal view, drawn from a plain description of what is on screen. It follows
  * `docs/design.md`: a head with the mark and the page, the five places as a tab row, the
  * conversation with a composer at its foot and a side pane that opens on demand, each place as a
- * title, one sentence, its tabs and its rows, and Settings as a window of twelve pages over it.
+ * title, one sentence, its tabs and its rows, and Settings as a window of named pages over it.
  * Nothing here reads the workspace or writes to the terminal: it only draws.
  */
 /** phase2/everywhere: "ask" is the heading of a question a task stopped on, "askline" a line of it; drawn as one card. */
@@ -112,7 +112,7 @@ export function pageTitle(model: ScreenModel): string {
     const sub = route.settings === "models" ? MODEL_TABS.find((entry) => entry.id === route.sub) : undefined;
     return [t(model, "settings.title", "Settings"), t(model, page.key, page.english), ...(sub ? [t(model, sub.key, sub.english)] : [])].join(crumb);
   }
-  const place = PLACES.find((entry) => entry.id === route.place)!;
+  const place = placeById(route.place)!;
   const tab = place.tabs.find((entry) => entry.id === route.tab);
   if (route.place === "chat" && model.title) return `${t(model, place.key, place.english)}${crumb}${model.title}`; // phase2/everywhere
   return tab ? `${t(model, place.key, place.english)}${crumb}${t(model, tab.key, tab.english)}` : t(model, place.key, place.english);
@@ -348,7 +348,7 @@ function drawPane(canvas: Canvas, model: ScreenModel, box: { x: number; y: numbe
 /* ---------- a place ---------- */
 function drawPlace(canvas: Canvas, model: ScreenModel, area: { x: number; y: number; width: number; height: number },
   route: { place: string; tab: string }): Frame["cursor"] {
-  const place = PLACES.find((entry) => entry.id === route.place)!;
+  const place = placeById(route.place)!;
   const x = area.x + 2, width = area.width - 4;
   canvas.text(x, area.y + 1, t(model, place.key, place.english).toUpperCase(), { fg: "text", bold: true });
   const intro = wrapColumns(t(model, place.intro[0], place.intro[1]), width).slice(0, 2);
@@ -427,9 +427,8 @@ function drawSettings(canvas: Canvas, model: ScreenModel, area: { x: number; y: 
   const navWidth = narrow ? 0 : 24;
   const body = { x: box.x + navWidth + 3, y: box.y + (narrow ? 2 : 1), width: box.width - navWidth - 5, height: box.height - (narrow ? 2 : 2) };
   if (narrow) drawPageStrip(canvas, model, box, route.settings);
-  else SETTINGS_PAGES.forEach((page, index) => {
+  else settingsNavWindow(route.settings, box.height - 2).forEach((page, index) => {
     const on = page.id === route.settings, y = box.y + 1 + index;
-    if (y >= box.y + box.height - 1) return;
     canvas.hit(box.x + 2, y, navWidth - 1, 1, `page:${page.id}`);
     canvas.text(box.x + 2, y, fitText(`${on ? model.glyphs.pointer : " "} ${t(model, page.key, page.english)}`, navWidth - 1, model.glyphs.ellipsis),
       on ? { fg: "accentText", bg: "accentTint", bold: true } : { fg: "muted", bg: "panel" });
@@ -447,6 +446,12 @@ function drawSettings(canvas: Canvas, model: ScreenModel, area: { x: number; y: 
   const rows = model.loading ? [{ title: t(model, "terminal.loading", "Looking…"), tone: "muted" as const }] : model.rows;
   drawRows(canvas, model, rows, { x: body.x + 1, y, width: body.width - 1, height: box.y + box.height - y - 1 }, model.selected, "panel");
   return null;
+}
+function settingsNavWindow(current: string, visible: number): typeof SETTINGS_PAGES {
+  const count = Math.max(1, visible);
+  const index = Math.max(0, SETTINGS_PAGES.findIndex((page) => page.id === current));
+  const start = Math.max(0, Math.min(index - Math.floor(count / 2), SETTINGS_PAGES.length - count));
+  return SETTINGS_PAGES.slice(start, start + count);
 }
 function drawPageStrip(canvas: Canvas, model: ScreenModel, box: { x: number; y: number; width: number }, current: string): void {
   const index = SETTINGS_PAGES.findIndex((entry) => entry.id === current);

@@ -156,24 +156,43 @@ export function uninstallScript(options: {
 }
 
 /**
- * The script shipped next to the release zip. It unpacks the zip with the tar that comes with
- * Windows, then runs this module from inside the unpacked app, so installing needs nothing installed.
+ * The script shipped next to the release zip. It verifies and preflights a private staged copy,
+ * then runs this module from inside the unpacked app, so installing needs nothing else installed.
  */
 export function bootstrapperScript(options: { assetName: string; executableName: string }): string {
   const sys = "%SystemRoot%\\System32\\";
+  const ps = `${sys}WindowsPowerShell\\v1.0\\powershell.exe`;
+  const verify = [
+    "$archive=$env:ARCHIVE", "$expectedName=$env:ASSET_NAME",
+    "$line=(Get-Content -LiteralPath ($archive+'.sha256') -Raw).Trim()",
+    "$match=[regex]::Match($line,'\\A([0-9a-fA-F]{64})  ([^\\r\\n]+)\\z')",
+    "if(-not $match.Success -or $match.Groups[2].Value -cne $expectedName){throw 'The checksum file is not valid.'}",
+    "$actual=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash",
+    "if($actual -ne $match.Groups[1].Value){throw 'The download did not match the published checksum.'}",
+    "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+    "$zip=[IO.Compression.ZipFile]::OpenRead($archive)",
+    "try{foreach($item in $zip.Entries){$name=$item.FullName.Replace([char]92,'/');"
+      + "if($name.IndexOf([char]0) -ge 0 -or $name -match ':' -or $name -match '(^/|(^|/)\\.\\.(/|$))'){throw 'The download contains an unsafe path.'};"
+      + "if((($item.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000){throw 'The download contains an unsafe link.'}}}finally{$zip.Dispose()}",
+  ].join(";");
   return [
-    "@echo off", "setlocal enabledelayedexpansion", "title Install Branch Agent",
+    "@echo off", "setlocal DisableDelayedExpansion", "title Install Branch Agent",
     // bucket 22: `/quiet` (or `--quiet`) never waits for a key press, so a script can run it. The stand-in
     // is `type NUL`, not `rem`: a `rem` would swallow the rest of the line it lands on, `exit` included.
     'set "PAUSE=pause"', 'for %%A in (%*) do if /i "%%~A"=="/quiet" set "PAUSE=type NUL"',
     'for %%A in (%*) do if /i "%%~A"=="--quiet" set "PAUSE=type NUL"',
-    'set "HERE=%~dp0"', `set "ZIP=%HERE%${options.assetName}"`,
-    'set "STAGE=%TEMP%\\branch-agent-setup"',
+    'set "HERE=%~dp0"', `set "ZIP=%HERE%${options.assetName}"`, 'set "CHECKSUM=%ZIP%.sha256"',
     `if not exist "%ZIP%" ( echo Put this file in the same folder as ${options.assetName} and run it again. & %PAUSE% & exit /b 1 )`,
-    'rmdir /s /q "%STAGE%" 2>NUL', 'mkdir "%STAGE%"',
-    "echo Unpacking Branch Agent...",
-    `${sys}tar.exe -xf "%ZIP%" -C "%STAGE%"`,
-    "if errorlevel 1 powershell.exe -NoProfile -NonInteractive -Command \"Expand-Archive -LiteralPath $env:ZIP -DestinationPath $env:STAGE -Force\"",
+    `if not exist "%CHECKSUM%" ( echo Put this file in the same folder as ${options.assetName}.sha256 and run it again. & %PAUSE% & exit /b 1 )`,
+    'set "STAGE=%TEMP%\\branch-agent-setup-%RANDOM%-%RANDOM%"', `set "ASSET_NAME=${options.assetName}"`,
+    `set "ARCHIVE=%STAGE%\\${options.assetName}"`, 'mkdir "%STAGE%"',
+    'if errorlevel 1 ( echo A private setup folder could not be made. & %PAUSE% & exit /b 1 )',
+    'copy /b "%ZIP%" "%ARCHIVE%" >NUL', 'if errorlevel 1 ( rmdir /s /q "%STAGE%" & echo The download could not be staged. & %PAUSE% & exit /b 1 )',
+    'copy /b "%CHECKSUM%" "%ARCHIVE%.sha256" >NUL', 'if errorlevel 1 ( rmdir /s /q "%STAGE%" & echo The checksum could not be staged. & %PAUSE% & exit /b 1 )',
+    "echo Checking Branch Agent...", `"${ps}" -NoProfile -NonInteractive -Command "${verify}"`,
+    'if errorlevel 1 ( rmdir /s /q "%STAGE%" & echo The download was not opened. & %PAUSE% & exit /b 1 )',
+    "echo Unpacking Branch Agent...", `"${ps}" -NoProfile -NonInteractive -Command "Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:STAGE -Force"`,
+    'if errorlevel 1 ( rmdir /s /q "%STAGE%" & echo The download could not be unpacked. & %PAUSE% & exit /b 1 )',
     `set "APP=%STAGE%"`,
     `if not exist "%APP%\\${options.executableName}" for /d %%D in ("%STAGE%\\*") do if exist "%%~fD\\${options.executableName}" set "APP=%%~fD"`,
     `if not exist "%APP%\\${options.executableName}" ( echo The download did not contain the app. & %PAUSE% & exit /b 1 )`,

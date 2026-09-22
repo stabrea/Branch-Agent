@@ -56,6 +56,23 @@ test("the Keep running card sits in Settings → General, works in French and fi
   const { server, dataDir } = await served(t);
   await proposeConfig(dataDir, { holdSeconds: 3 }, "Shorter waits while the assistant restarts", async () => ({ ok: false, detail: "The engine did not come up." }));
   const { page, errors } = await signedIn(t, server);
+  const gatewayAuthorizations = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/gateway/health"))
+      gatewayAuthorizations.push(request.headers().authorization ?? "");
+  });
+  await page.evaluate(() => window.branchNeverBreak.refresh());
+  assert.deepEqual(gatewayAuthorizations, [], "a direct engine does not poll the gateway-only route");
+  await page.route("**/api/never-break", async (route) => {
+    const response = await route.fetch();
+    const view = await response.json();
+    return route.fulfill({ response, json: { ...view, underGateway: true } });
+  });
+  await page.route("**/gateway/health", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: '{"worker":{"state":"ready"},"restarts":0}',
+  }));
+  await page.evaluate(() => window.branchNeverBreak.refresh());
+  assert.ok(gatewayAuthorizations.includes(`Bearer ${server.token}`), "the gateway health check uses the signed-in session");
   await openPlace(page, "settings:general");
   const card = page.locator("#never-break-card");
   await card.waitFor({ state: "attached" });

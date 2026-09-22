@@ -231,10 +231,15 @@ document.addEventListener("branch-language", render);
 /* A card that will not load leaves the rest of the page as it is. Before signing in there is nothing
    to read, so the cards are filled again whenever the owner opens one of their homes. */
 const homes = "[data-view='schedules'], [data-place='automations'], .lx-gear, .lx-settings-link[data-page='notifications']";
-load().catch(() => {});
+const loadWhenSignedIn = () => {
+  if (!sessionStorage.getItem("branch-token")) return;
+  load().catch(() => {});
+};
+globalThis.branchHeartbeatReady = loadWhenSignedIn;
+loadWhenSignedIn();
 document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) return;
-  if (event.target.closest(homes)) load().catch(() => {});
+  if (event.target.closest(homes) || event.target.closest("[data-target='automations']")) loadWhenSignedIn();
   /* The HEARTBEAT.md switch is saved by its own card; read back what it chose once that save is done. */
   if (event.target.closest("#context-heartbeat button")) setTimeout(() => load().catch(() => {}), 500);
 });

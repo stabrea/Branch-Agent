@@ -23,6 +23,16 @@ import { startServer, offLimitsToHousehold } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 import { settingKeys } from "../scripts/check-docs.mjs";
 
+test("every Settings page introduction has English and French words", async () => {
+  const en = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  for (const page of ["trunks", "channels", "connections", "skills", "memory", "automations"]) {
+    const key = `settings.window.${page}.intro`;
+    assert.ok(en[key], `${key} has English words`);
+    assert.ok(fr[key] && fr[key] !== en[key], `${key} has real French words`);
+  }
+});
+
 const ROOT = join(import.meta.dirname, "..");
 const INVENTORY = JSON.parse(await readFile(join(ROOT, "tests", "fixtures", "settings-inventory.json"), "utf8")).settings;
 const { SETTINGS_INDEX } = await import("../public/settings-index.js");
@@ -105,6 +115,22 @@ async function switchEverythingOn(page) {
     await page.waitForTimeout(2500);
   }
 }
+
+test("the desktop Settings level and version stay at the bottom of the rail", async (t) => {
+  const f = await fixture(t, { width: 1440, height: 1800 });
+  await openSettings(f.page, "general");
+  const layout = await f.page.evaluate(() => {
+    const nav = document.querySelector(".lx-settings-nav").getBoundingClientRect();
+    const level = document.querySelector(".sg-level").getBoundingClientRect();
+    const version = document.querySelector("#lx-settings-version").getBoundingClientRect();
+    return { navTop: nav.top, navBottom: nav.bottom, navHeight: nav.height,
+      levelTop: level.top, versionBottom: version.bottom };
+  });
+  assert.ok(layout.levelTop > layout.navTop + layout.navHeight / 2, "the footer group follows the rail spacer");
+  assert.ok(layout.navBottom - layout.versionBottom < 30,
+    `the version remains against the rail bottom: ${JSON.stringify(layout)}`);
+  assert.deepEqual(f.errors, []);
+});
 /** Where each setting's control is: settings:<page>[:<tab>], <place>:<tab>, or null when there is none. */
 function whereEach(page) {
   return page.evaluate((rows) => Object.fromEntries(rows.map(([id, , card, , , selector]) => {
@@ -297,6 +323,23 @@ test("S8 somebody else's profile sees Regular, cannot change the level, and sear
   assert.deepEqual(f.errors, []);
 });
 
+test("a household profile redirected from Instructions keeps the phone page picker in sync", async (t) => {
+  const f = await fixture(t, { width: 390, height: 844 });
+  await openSettings(f.page, "instructions");
+  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "instructions");
+  const sam = await fetch(new URL("/api/profiles", f.url), {
+    method: "POST", headers: f.headers, body: JSON.stringify({ name: "Sam", pin: "2468" }),
+  }).then((response) => response.json());
+  const switched = await fetch(new URL("/api/profiles/switch", f.url), {
+    method: "POST", headers: f.headers, body: JSON.stringify({ profileId: sam.id, pin: "2468" }),
+  });
+  assert.equal(switched.status, 200);
+  await f.page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 15000 });
+  await f.page.waitForFunction(() => document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page === "general");
+  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "general");
+  assert.deepEqual(f.errors, []);
+});
+
 test("S9 every page is grouped, and a card no group names still shows under More on this page", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
@@ -337,6 +380,39 @@ test("S9 every page is grouped, and a card no group names still shows under More
   });
   assert.deepEqual(f.errors, []);
 });
+
+const SETTINGS_DIRECTORIES = {
+  trunks: [["trunks", "customize", "specialists"], ["overview", "overview", "here"], ["people", "household", "people"]],
+  channels: [["channels", "customize", "channels"]],
+  connections: [["connections", "customize", "connections"]],
+  skills: [["skills", "customize", "skills"], ["specialists", "customize", "specialists"], ["plugins", "customize", "plugins"]],
+  memory: [["memory", "library", "memory"], ["documents", "library", "documents"], ["made", "library", "made"]],
+  automations: [["scheduled", "automations", "scheduled"], ["procedures", "automations", "procedures"],
+    ["triggers", "automations", "triggers"], ["needs", "inbox", "needs"], ["history", "inbox", "history"]],
+};
+
+for (const [width, height] of [[1440, 950], [390, 844]]) {
+  test(`S9 directories at ${width}x${height} open their real Branch places`, async (t) => {
+    const f = await fixture(t, { width, height });
+    for (const [page, entries] of Object.entries(SETTINGS_DIRECTORIES)) {
+      await openSettings(f.page, page);
+      assert.equal(await f.page.locator(`#lx-page-${page} .settings-directory-card`).count(), entries.length);
+      for (const [id, place, tab] of entries) {
+        const card = f.page.locator(`#settings-directory-${page}-${id}`);
+        const open = card.getByRole("button");
+        assert.match(await open.getAttribute("aria-label"), /^Open .+/);
+        assert.equal(await open.getAttribute("aria-describedby"), `${await card.getAttribute("id")}-description`);
+        await open.click();
+        assert.equal(await f.page.locator("#settings-window").isVisible(), false);
+        assert.equal(await f.page.locator(`#${place}`).isVisible(), true, `${page}:${id} did not open ${place}`);
+        assert.equal(await f.page.locator(`.lx-panel[data-place="${place}"][data-tab="${tab}"]`).getAttribute("hidden"), null,
+          `${page}:${id} did not open ${place}:${tab}`);
+        await openSettings(f.page, page);
+      }
+    }
+    assert.deepEqual(f.errors, []);
+  });
+}
 
 test("S10 Settings is a cog right after the account row, in the calm and the full window, and draws every card", async (t) => {
   const f = await fixture(t);

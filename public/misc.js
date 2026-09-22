@@ -77,23 +77,32 @@ async function renderAllowed() {
 let categoriesDrawn = "";
 let categoryFocus = null;
 document.addEventListener("focusin", (event) => {
-  categoryFocus = event.target instanceof HTMLSelectElement && event.target.closest("#approval-categories") ? event.target : null;
+  const select = event.target instanceof HTMLSelectElement && event.target.closest("#approval-categories") ? event.target : null;
+  if (select) categoryFocus = select;
+  else if (event.target !== document.body && event.target !== document.documentElement) categoryFocus = null;
 });
+document.addEventListener("pointerdown", (event) => {
+  if (!(event.target instanceof Element) || !event.target.closest("#approval-categories")) categoryFocus = null;
+}, true);
 const categoriesShape = (categories) =>
   JSON.stringify(categories.map((one) => [one.id, one.label, one.description, one.tools.length, one.decision ?? ""]));
+const afterPaint = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+async function restoreCategoryFocus(select) {
+  if (!select?.isConnected || categoryFocus !== select) return;
+  await afterPaint();
+  const nowhere = document.activeElement === document.body || document.activeElement === document.documentElement;
+  if (select.isConnected && categoryFocus === select && nowhere) select.focus({ preventScroll: true });
+}
 
 /** Approval settings, a kind of thing at a time: one choice covers every tool of that kind. */
 async function renderCategories() {
   const host = $("approval-categories");
   if (!host || !sessionStorage.getItem("branch-token")) return;
-  const focused = host.contains(document.activeElement) ? document.activeElement : categoryFocus;
   let view;
   try { view = await api("approvals/categories"); } catch { return; }
   const shape = categoriesShape(view.categories);
-  if (shape === categoriesDrawn && host.childElementCount) {
-    if (focused?.isConnected && document.activeElement === document.body) focused.focus();
-    return;
-  }
+  if (shape === categoriesDrawn && host.childElementCount) return;
   categoriesDrawn = shape;
   host.replaceChildren();
   for (const category of view.categories) {
@@ -197,7 +206,7 @@ async function askBeforeStarting(prompt) {
 async function render() {
   const focusedCategory = categoryFocus?.isConnected ? categoryFocus : null;
   await Promise.allSettled([renderCategories(), renderPractice(), renderAskFirst()]);
-  if (focusedCategory?.isConnected && document.activeElement === document.body) focusedCategory.focus();
+  await restoreCategoryFocus(focusedCategory);
 }
 window.branchAllowed = { render: renderAllowed };
 window.branchMisc = { render, askBeforeStarting };

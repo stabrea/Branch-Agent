@@ -20,7 +20,7 @@ itself there, is in [places.md](places.md); read it before adding anything the o
 | Title bar | The sidebar switch, a way back to the conversation from any place, the page and tab, and in a conversation the side-pane tabs (Activity, Plan, Files, Memory). Then Clear the view, the Lockdown shield and the connection pill |
 | Lockdown | The shield opens the one switch. While Lockdown is on, a red banner under the title bar says so on every page, with Turn it off |
 | A place | A condensed title, one sentence saying what the place holds, tabs, the tab's cards, and an ask box at the foot that sends a question straight to a conversation |
-| Settings | A floating window: twelve pages down the left with search above them, one page at a time; Models has five tabs of its own. Escape, the close button or the scrim closes it |
+| Settings | A floating window: named pages down the left with search above them, one page at a time; Models has five tabs of its own. Escape, the close button or the scrim closes it |
 | Side pane | Only in a conversation, only when opened, on one of four tabs |
 | Composer | A rounded, nearly solid box at the foot of the conversation with the model chip first, then attach, voice, Temporary, Ask me first, who answers, and Send |
 

@@ -100,6 +100,8 @@ test("places and Settings pages print by name when there is no terminal", async 
   const appearance = JSON.parse((await branch(env, "settings", "appearance", "--json")).out);
   assert.equal(appearance.rows[0].command, "/theme list");
   assert.match(appearance.rows[0].title, /Theme: Slate/, "redesign phase 1: a new install wears Slate (owner decision)");
+  assert.equal((await branch(env, "overview", "here")).code, 0, "a command advertised by branch places runs");
+  assert.equal((await branch(env, "household", "people")).code, 0, "the People command advertised by branch places runs");
   const nowhere = await branch(env, "settings", "nowhere");
   assert.notEqual(nowhere.code, 0);
   assert.match(nowhere.err, /branch places/);

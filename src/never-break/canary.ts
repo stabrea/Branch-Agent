@@ -57,6 +57,8 @@ export interface CanaryInput {
   dataCopy: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  /** Release version selected by the updater; the new engine must report this exact value. */
+  expectedVersion?: string;
 }
 export interface CanaryResult { ok: boolean; detail: string; report: SelfTestReport | null }
 
@@ -82,6 +84,8 @@ export async function runCanary(input: CanaryInput): Promise<CanaryResult> {
     const exit = await started(input.engine, env, input.timeoutMs ?? 180_000);
     const result = await readSelfTest(report);
     if (!result) return { ok: false, detail: `The new version did not finish its check (${exit}).`, report: null };
+    if (input.expectedVersion && result.version !== input.expectedVersion)
+      return { ok: false, detail: `The new engine reported version ${result.version}, but the update expected ${input.expectedVersion}.`, report: result };
     const failed = result.checks.filter((one) => !one.ok);
     return { ok: result.ok, report: result, detail: result.ok
       ? `Version ${result.version} passed its check on a copy of your work.`
@@ -124,7 +128,7 @@ export function updateCanary(input: UpdateCanaryInput): (stagedDir: string, vers
     const dataCopy = await input.snapshot();
     if (!isCanaryCopy(input.dataDir, dataCopy)) throw new Error("The copy of your work was not where Branch keeps update copies, so it was not used.");
     const result = await runCanary({ engine: stagedEngine(stagedDir, input.platform, input.executableName),
-      dataCopy, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
+      dataCopy, expectedVersion: version, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
     if (!result.ok) throw new Error(result.detail);
     const platform = input.platform === "win32" || input.platform === "darwin" ? input.platform : "linux";
     if (input.target) await writeWatch(input.dataDir, { from: input.fromVersion, to: version, target: input.target, platform,

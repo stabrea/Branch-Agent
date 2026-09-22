@@ -1,10 +1,12 @@
 import { t } from "./i18n.js";
 /**
  * mac7/diagnostics: Settings › Advanced › Activity log, Settings › Updates & about › Report a
- * problem, and the window's own errors written to the log. Nothing here sends anything outside
- * this computer: the report is shown in full, the owner removes what they like, and then saves a
- * zip or opens GitHub's issue form in their own browser, where they press Submit themselves.
+ * problem, and the window's own errors written to the log. Manual reports are shown in full and
+ * sent only by the owner. Automatic reports are a separate, shipped-off setting: the owner chooses
+ * a linked destination and report parts, sees the exact preview, then explicitly switches it on.
  */
+import { t } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 
 async function api(path, body) {
@@ -141,15 +143,111 @@ async function openIssue() {
   } catch (e) { status.textContent = t("activityLog.status.issueFailed", { message: e.message }); }
 }
 
+/* ---------- Automatic problem reports ---------- */
+const automaticItems = ["about", "health", "services", "settings", "log", "crashes", "updates", "tasks", "disk", "network"];
+const automaticEvents = ["crash", "update"];
+const automaticDestinationValue = (destination) => destination ? JSON.stringify(destination) : "";
+
+function automaticSettingsFromForm() {
+  const selected = $("automatic-problem-destination").value;
+  let destination = null;
+  if (selected === "github") destination = {
+    kind: "github", repository: $("automatic-problem-repository").value.trim(),
+  };
+  else if (selected) destination = JSON.parse(selected);
+  return {
+    mode: $("automatic-problem-mode").value,
+    destination,
+    events: automaticEvents.filter((name) => $(`automatic-problem-event-${name}`).checked),
+    items: automaticItems.filter((name) => $(`automatic-problem-item-${name}`).checked),
+  };
+}
+
+function option(value, words, key = "") {
+  const node = new Option(words, value);
+  if (key) node.dataset.t = key;
+  return node;
+}
+
+function showGitHubRepository() {
+  $("automatic-problem-github").hidden = $("automatic-problem-destination").value !== "github";
+}
+
+function fillAutomaticForm(data) {
+  const { settings, destinations } = data;
+  const choices = [option("", t("automatic-report.destination.choose"), "automatic-report.destination.choose")];
+  for (const chat of destinations.channels) choices.push(option(
+    automaticDestinationValue({ kind: "channel", channel: chat.channel, chatId: chat.chatId }),
+    `${chat.title} — ${chat.channel}`,
+  ));
+  if (destinations.github || settings.destination?.kind === "github")
+    choices.push(option("github", t("automatic-report.destination.github"), "automatic-report.destination.github"));
+  $("automatic-problem-destination").replaceChildren(...choices);
+  $("automatic-problem-mode").value = settings.mode;
+  $("automatic-problem-destination").value = settings.destination?.kind === "github"
+    ? "github" : automaticDestinationValue(settings.destination);
+  $("automatic-problem-repository").value = settings.destination?.kind === "github" ? settings.destination.repository : "";
+  for (const name of automaticEvents) $(`automatic-problem-event-${name}`).checked = settings.events.includes(name);
+  for (const name of automaticItems) $(`automatic-problem-item-${name}`).checked = settings.items.includes(name);
+  showGitHubRepository();
+}
+
+let automaticLoaded = false;
+async function loadAutomaticSettings() {
+  try {
+    fillAutomaticForm(await api("diagnostics/report/automatic"));
+    automaticLoaded = true;
+  } catch (error) { $("automatic-problem-status").textContent = error.message; }
+}
+
+async function previewAutomaticReport() {
+  const status = $("automatic-problem-status");
+  try {
+    const preview = await api("diagnostics/report/automatic/preview", {
+      settings: automaticSettingsFromForm(),
+      kind: $("automatic-problem-preview-kind").value,
+      summary: $("automatic-problem-preview-summary").value,
+    });
+    const shown = $("automatic-problem-preview");
+    shown.textContent = [
+      `${t("automatic-report.preview.destination")}: ${preview.destination}`,
+      `${t("automatic-report.preview.title")}: ${preview.title}`,
+      `${t("automatic-report.preview.body")}:`, preview.body,
+    ].join("\n\n");
+    shown.hidden = false;
+    status.textContent = t("automatic-report.preview.ready");
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function saveAutomaticSettings() {
+  const status = $("automatic-problem-status");
+  try {
+    const saved = await api("diagnostics/report/automatic", automaticSettingsFromForm());
+    fillAutomaticForm(saved);
+    status.textContent = saved.settings.mode === "on"
+      ? t("automatic-report.saved.on") : t("automatic-report.saved.off");
+  } catch (error) { status.textContent = error.message; }
+}
+
 $("activity-log-show")?.addEventListener("click", loadLog);
 $("activity-log-save")?.addEventListener("click", saveLogSettings);
 $("activity-log-clear")?.addEventListener("click", clearLog);
 $("problem-report-gather")?.addEventListener("click", gather);
 $("problem-report-save")?.addEventListener("click", saveZip);
 $("problem-report-issue")?.addEventListener("click", openIssue);
+$("automatic-problem-destination")?.addEventListener("change", showGitHubRepository);
+$("automatic-problem-preview-button")?.addEventListener("click", previewAutomaticReport);
+$("automatic-problem-save")?.addEventListener("click", saveAutomaticSettings);
 // The log card fills itself the first time it is scrolled into view, not on every page load.
 const card = $("activity-log-card");
 if (card && "IntersectionObserver" in window) {
   const seen = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) { seen.disconnect(); void loadLog(); } });
   seen.observe(card);
+}
+const problemCard = $("problem-report-card");
+if (problemCard && "IntersectionObserver" in window) {
+  const seen = new IntersectionObserver((entries) => {
+    if (!automaticLoaded && entries.some((entry) => entry.isIntersecting)) void loadAutomaticSettings();
+  });
+  seen.observe(problemCard);
 }
