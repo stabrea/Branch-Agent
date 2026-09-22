@@ -164,9 +164,13 @@ export class Wiki {
     if (!existing && this.count(owner) >= maximumPages)
       throw new Error(`The wiki already holds ${maximumPages} pages. Remove one before adding another.`);
 
-    // What the wiki would weigh afterwards. A correction does not take the old words away: they move
-    // to the kept versions and sit beside the new ones, so either way this write only ever adds.
-    const after = this.weight(owner) + weight;
+    // What the wiki would weigh afterwards. A correction does not take the old words away — they move
+    // to the kept versions and sit beside the new ones — but a page that already holds its ten
+    // versions lets the oldest one go in the same breath, and those bytes go with it. Counting the
+    // write as pure addition would refuse a correction that finishes comfortably inside the bound,
+    // and would disagree with what `weight()` says a moment later.
+    const letGo = existing ? this.oldestKept(owner, existing.id) : null;
+    const after = this.weight(owner) + weight - (letGo?.bytes ?? 0);
     if (after > maximumOwnerBytes)
       throw new Error(`The wiki may hold ${maximumOwnerBytes / 1048576} MB altogether, and this would put it past that. Nothing was written.`);
 
@@ -191,10 +195,10 @@ export class Wiki {
           weighs(existing.title, existing.body), existing.updatedAt);
       this.db.prepare("UPDATE wiki_pages SET body=?, why=?, bytes=?, version=?, updated_at=? WHERE owner=? AND id=?")
         .run(wanted.body, wanted.why ?? null, weight, existing.version + 1, now, owner, existing.id);
-      const kept = this.db.prepare("SELECT version FROM wiki_history WHERE owner=? AND page_id=? ORDER BY version ASC")
-        .all(owner, existing.id) as { version: number }[];
-      if (kept.length > maximumHistory) {
-        dropped = Number(kept[0]!.version);
+      // Exactly the row the check above counted on being gone, named before the write rather than
+      // looked for again afterwards, so what was promised and what happens cannot drift apart.
+      if (letGo) {
+        dropped = letGo.version;
         this.db.prepare("DELETE FROM wiki_history WHERE owner=? AND page_id=? AND version=?")
           .run(owner, existing.id, dropped);
       }
@@ -204,6 +208,17 @@ export class Wiki {
       throw error;
     }
     return { page: this.page(owner, existing.id)!, replaced: true, oldestVersionDropped: dropped };
+  }
+
+  /**
+   * The kept version this page would let go of if it were corrected now — that is, only once it is
+   * already holding its ten. Null when there is still room, because then nothing is let go.
+   */
+  private oldestKept(owner: string, pageId: string): { version: number; bytes: number } | null {
+    const kept = this.db.prepare("SELECT version, bytes FROM wiki_history WHERE owner=? AND page_id=? ORDER BY version ASC")
+      .all(owner, pageId) as { version: number; bytes: number }[];
+    if (kept.length < maximumHistory) return null;
+    return { version: Number(kept[0]!.version), bytes: Number(kept[0]!.bytes) };
   }
 
   /** What a page used to say, newest first, at most ten of them. */

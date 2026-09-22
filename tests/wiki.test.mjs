@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { maximumHistory, maximumLinksFollowed, maximumPageBytes, maximumPages, maximumSnippet } from "../dist/wiki.js";
+import { maximumHistory, maximumLinksFollowed, maximumOwnerBytes, maximumPageBytes, maximumPages, maximumSnippet } from "../dist/wiki.js";
 
 /**
  * The linked wiki: pages with names, and links between them written `[[like this]]`.
@@ -174,6 +174,49 @@ test("the wiki holds a thousand pages, and the thousand and first is refused wit
   // A correction to a page that is already there is not a new page, so it is not refused.
   const corrected = wiki.write(owner, { title: "Page 1", body: "Still here.", why: "it is allowed" });
   assert.equal(corrected.page.version, 2);
+});
+
+test("near the bound, a correction is weighed against the version it lets go", async (t) => {
+  const { app, wiki } = await branch(t);
+  const db = app.store.sqlite;
+
+  // A page holding its ten kept versions. Each of them weighs its title and body: "Roof" and 4,096.
+  const body = "x".repeat(4096);
+  const each = "Roof".length + body.length;
+  wiki.write(owner, { title: "Roof", body });
+  for (let version = 2; version <= maximumHistory + 1; version += 1)
+    wiki.write(owner, { title: "Roof", body, why: `correction ${version}` });
+  const page = wiki.find(owner, "Roof");
+  assert.equal(wiki.history(owner, page.id).length, maximumHistory, "it is holding its ten");
+
+  // The wiki is put right up against its bound without 128 MB being written: one row's own counter is
+  // set to the weight it would have. This is arithmetic the check does, so arithmetic is what it needs.
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO wiki_pages(id,owner,title,same_name,body,why,bytes,version,created_at,updated_at)
+    VALUES('filler',?,'Filler','filler','.',NULL,?,1,?,?)`)
+    .run(owner, maximumOwnerBytes - wiki.weight(owner) - each, now, now);
+  const before = wiki.weight(owner);
+  assert.equal(before, maximumOwnerBytes - each, "room for exactly the version that is about to be let go");
+
+  // Too big by one byte, counting the version that goes: refused, and nothing at all is changed.
+  // A page weighing one byte more than the two it is measured against: what it replaces plus what is
+  // let go. The check sees `before + this - letGo`, so this is the first size that does not fit.
+  const overBy = { title: "Roof", body: "y".repeat(each * 2 - "Roof".length + 1), why: "one too many" };
+  assert.throws(() => wiki.write(owner, overBy), /may hold 128 MB altogether/);
+  assert.equal(wiki.weight(owner), before, "not a byte was written");
+  assert.equal(wiki.find(owner, "Roof").version, maximumHistory + 1, "the page is on the version it was");
+  assert.equal(wiki.find(owner, "Roof").body, body, "with the words it had");
+  assert.equal(wiki.history(owner, page.id).length, maximumHistory, "and its ten are all still there");
+
+  // Exactly what fits once the oldest kept version goes: allowed, and the total is what was predicted.
+  const fits = { title: "Roof", body: "z".repeat(each * 2 - "Roof".length), why: "this one fits" };
+  const predicted = before + ("Roof".length + fits.body.length) - each;
+  const written = wiki.write(owner, fits);
+  assert.equal(written.replaced, true);
+  assert.equal(written.oldestVersionDropped, 1, "the oldest kept version, the very first, is the one that went");
+  assert.equal(wiki.weight(owner), predicted, "and the wiki weighs exactly what the check said it would");
+  assert.equal(wiki.weight(owner), maximumOwnerBytes, "right up against the bound, and inside it");
+  assert.equal(wiki.history(owner, page.id).length, maximumHistory, "still ten, one of them new");
 });
 
 test("a read brings back twenty-five links and says how many it left", async (t) => {
