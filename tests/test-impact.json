@@ -36,6 +36,17 @@
   "mappings": [
     {
       "paths": [
+        "src/never-break/resume.ts",
+        "src/recurrence.ts",
+        "src/scheduler.ts"
+      ],
+      "tests": [
+        "tests/automation.test.mjs",
+        "tests/never-break-journal.test.mjs"
+      ]
+    },
+    {
+      "paths": [
         "src/remote/ssh-workspace.ts"
       ],
       "tests": [
