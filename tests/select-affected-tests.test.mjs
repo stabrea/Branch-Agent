@@ -144,6 +144,22 @@ test("the isolated composer module has focused browser coverage inside the fast 
   assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
 });
 
+test("calendar recurrence core has reviewed non-browser coverage inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([
+    { status: "M", paths: ["src/recurrence.ts"] },
+    { status: "M", paths: ["src/scheduler.ts"] },
+    { status: "M", paths: ["src/never-break/resume.ts"] },
+  ], { config: checkedIn, weights: {}, browserTest: () => false });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, false);
+  assert.deepEqual(result.tests, [
+    "tests/automation.test.mjs", "tests/leak-guard.test.mjs",
+    "tests/never-break-journal.test.mjs",
+  ]);
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
 test("the historical composer regression cannot receive a narrow green result", () => {
   const result = selectImpact([
     { status: "M", paths: ["public/app.js"] },
