@@ -7,6 +7,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
+import { chromium } from "playwright";
 import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js";
 import { ToolRegistry, Budget, createBranch } from "../dist/index.js";
 
@@ -157,6 +158,13 @@ async function branchAndBrowser(t, origin) {
   registerBrowser(registry, browser);
   return { app, registry, root };
 }
+
+test("this test needs a real browser, and says so", () => {
+  // It drives one through Branch's own browser tool rather than importing Playwright to steer it, so
+  // without this the file looks like a test that needs nothing and the lane that runs it installs no
+  // browser. The import above is what the test selector reads; this asserts it is really there.
+  assert.equal(chromium.name(), "chromium", "this test declares the browser engine it requires");
+});
 
 test("one signed-in session carries across two pages, and the picture of the page is a real picture", async (t) => {
   const site = await memberSite();
