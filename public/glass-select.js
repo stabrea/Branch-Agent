@@ -18,6 +18,7 @@ panel.hidden = true;
 document.body.append(panel);
 let openFor = null;
 let entry = null;
+let placementFrame = 0;
 /* Integration review: a list whose choices change while it is open closes, so a press never picks by a stale position.
    mac7/ci-flakes-2: the window's refresh every 3 s writes some selects' choices again, the same ones; that is not a
    change, and closing on it shut an open list under the person's pointer. Only different choices close it. */
@@ -84,6 +85,8 @@ function close({ focus = false } = {}) {
   if (!openFor) return;
   const select = openFor;
   openFor = null;
+  cancelAnimationFrame(placementFrame);
+  placementFrame = 0;
   changed.disconnect();
   panel.hidden = true;
   select.setAttribute("aria-expanded", "false");
@@ -91,33 +94,22 @@ function close({ focus = false } = {}) {
   entry = null;
   if (focus) select.focus();
 }
-/**
- * phase2/settings integration: a select inside something still moving into place (the Settings window rises
- * for a fifth of a second) keeps its list with it, frame by frame, until nothing around it moves; so the list
- * never stays where the select was. Delayed ancestor animations still count as movement: a busy
- * renderer can otherwise spend twelve frames at the starting position before the animation begins.
- */
-function surroundingMotion(select) {
-  for (let node = select; node; node = node.parentElement)
-    if (node.getAnimations().some((animation) => animation.playState === "running")) return true;
-  return false;
-}
-function placeWhenSettled(select, frames = 90, previous = "", stable = 0) {
-  requestAnimationFrame(() => {
-    if (openFor !== select || frames <= 0) return;
+/** A list stays attached while its select moves, including delayed and script-driven transforms. */
+function follow(select, previous = "") {
+  placementFrame = requestAnimationFrame(() => {
+    if (openFor !== select) return;
     const box = select.getBoundingClientRect();
     const position = `${box.left}:${box.top}:${box.width}:${box.height}`;
-    place(select);
-    const still = position === previous ? stable + 1 : 0;
-    if (surroundingMotion(select) || still < 12) placeWhenSettled(select, frames - 1, position, still);
+    if (position !== previous) place(select);
+    follow(select, position);
   });
 }
 function open(select) {
   fill(select);
   place(select);
-  placeWhenSettled(select);
   panel.hidden = false;
   openFor = select;
+  follow(select);
   select.setAttribute("aria-expanded", "true");
   select.setAttribute("aria-controls", panel.id);
   entry = trackPopover(select, panel, () => { if (openFor === select) close(); });
