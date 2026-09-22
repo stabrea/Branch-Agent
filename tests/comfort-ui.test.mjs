@@ -26,7 +26,7 @@ const homes = {
   "comfort-network-card": "#lx-page-computer",
 };
 
-async function openApp(t, width = 1280) {
+async function openApp(t, width = 1280, { mac = false } = {}) {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-comfort-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -40,6 +40,8 @@ async function openApp(t, width = 1280) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // A Mac, where Command is the main key and Control is a key of its own.
+  if (mac) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel" }));
   // Nothing may be heard, shown by the computer, or recorded.
   await page.addInitScript(() => {
     globalThis.__sounds = [];
@@ -195,6 +197,57 @@ test("R17-S15: keys pressed into Settings set every window action, and the side 
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
   await page.keyboard.press("Alt+l");
   await page.locator("#inspect-panel").waitFor({ state: "visible" });
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a different key the owner can choose", async (t) => {
+  const { app, page, errors } = await openApp(t, 1280, { mac: true });
+  await page.evaluate(() => {
+    globalThis.__folds = 0;
+    document.getElementById("rail-toggle").addEventListener("click", () => { globalThis.__folds += 1; });
+  });
+  const folds = () => page.evaluate(() => globalThis.__folds);
+  let before = await folds();
+  await page.keyboard.press("Control+b");
+  assert.equal(await folds(), before, "Control+B moves the cursor on a Mac; it does not fold the list");
+  await page.keyboard.press("Meta+b");
+  assert.equal(await folds(), before + 1, "Cmd+B does");
+
+  await openSettingFor(page, "#comfort-keys-card");
+  assert.equal(await page.locator("#comfort-sideList").inputValue(), "Cmd+B", "shown as the key it is");
+  for (let tries = 0; tries < 5 && await page.locator("#comfort-sideList").inputValue() !== "Control+B"; tries++) {
+    await page.locator("#comfort-sideList").focus();
+    await page.keyboard.press("Control+b");
+  }
+  assert.equal(await page.locator("#comfort-sideList").inputValue(), "Control+B");
+  await page.locator("#comfort-keys-card").getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator("#comfort-keys-card [role=status]").filter({ hasText: "Saved" }).waitFor();
+  assert.equal(readComfort(app.store, "local", "keys").sideList, "Control+B", "kept apart from Cmd+B");
+  await closeSettings(page);
+  await page.locator("#prompt").blur();
+  before = await folds();
+  await page.keyboard.press("Meta+b");
+  assert.equal(await folds(), before, "Cmd+B no longer folds it");
+  await page.keyboard.press("Control+b");
+  assert.equal(await folds(), before + 1, "the owner's Control+B does");
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S15: keys kept from the owner do nothing owner-only while the window is a household member's", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  saveComfort(app.store, "local", "keys", { newTrunk: "Alt+T", searchHistory: "Alt+H" });
+  await refresh(page);
+  await page.evaluate(() => {
+    globalThis.__trunks = 0;
+    document.getElementById("rail-new-trunk").addEventListener("click", () => { globalThis.__trunks += 1; });
+  });
+  await page.evaluate(() => import("/app.js").then((app) => app.noteWindowProfile(false)));
+  await page.waitForFunction(() => document.documentElement.dataset.household === "on");
+  await page.keyboard.press("Alt+t");
+  assert.equal(await page.evaluate(() => globalThis.__trunks), 0, "no new Trunk from a household window");
+  await page.keyboard.press("Alt+h");
+  await page.waitForTimeout(200);
+  assert.notEqual(await page.evaluate(() => document.activeElement?.id), "history-query", "and no owner history search");
   assert.deepEqual(errors, []);
 });
 

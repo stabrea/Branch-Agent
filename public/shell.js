@@ -600,12 +600,11 @@ function closePalette() {
 /* R17-S15: the owner's own keys for these four (public/comfort.js); without it, the keys they have always been. */
 const pressed = (event, action, always) => globalThis.branchComfort?.pressed(event, action) ?? always;
 const hintFor = (action, always) => globalThis.branchComfort?.hint(action) ?? always;
-/* The side list folds with Ctrl+B (Cmd+B on a Mac, where Ctrl+B moves the cursor in a text box), as in
-   Claude, until the owner gives it other keys; then exactly those keys. */
+/* The side list folds with Ctrl+B (Cmd+B on a Mac, where Control+B moves the cursor in a text box), as
+   in Claude; public/comfort.js reads Command as the main key there. These are the keys it has always
+   had, for a window where that file has not loaded. */
 const onMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-function sideListPressed(event) {
-  const keys = globalThis.branchComfort?.bound("sideList") ?? "Ctrl+B";
-  if (keys.toLowerCase() !== "ctrl+b") return pressed(event, "sideList", false);
+function sideListChord(event) {
   const chord = onMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   return chord && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "b";
 }
@@ -617,13 +616,14 @@ async function lookInsideNewest() {
   const newest = runs.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
   if (newest) void globalThis.branchInspector.open(newest.id);
 }
-/* R17-S15: the actions that have no keys until the owner gives them some (public/comfort.js). */
+/* R17-S15: the actions that have no keys until the owner gives them some (public/comfort.js). Each acts
+   only as this window's person may: keys kept from the owner do nothing owner-only for a household member. */
 const keyedActions = {
-  newTrunk: () => $("rail-new-trunk")?.click(),
+  newTrunk: () => { if (railCanManageTrunks) $("rail-new-trunk")?.click(); },
   focusPrompt: () => $("prompt")?.focus(),
   // The live task's own Stop button: the task is cancelled, not only no longer watched.
   stopTask: () => $("live-stop")?.click(),
-  searchHistory: () => { displayView("memory"); $("history-query")?.focus(); },
+  searchHistory: () => { if (ownerAtWindow()) { displayView("memory"); $("history-query")?.focus(); } },
   lookInside: () => void lookInsideNewest(),
 };
 /** True while a keys box in Settings is taking a key press: that press is being set, not used. */
@@ -631,7 +631,7 @@ const settingKeys = (event) => Boolean(event.target?.closest?.("[data-keys-box]"
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (settingKeys(event)) return;
-  if (sideListPressed(event)) {
+  if (pressed(event, "sideList", sideListChord(event))) {
     if (event.target?.closest?.("[contenteditable]:not([contenteditable=false])")) return;
     if (!$("rail-toggle") || $("workspace")?.hidden) return;
     event.preventDefault();

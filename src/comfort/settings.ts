@@ -8,9 +8,13 @@ import { isSecretEntry } from "../files.js";
  * saving one card never touches another.
  */
 
-/** A key combination written the way people say it: "Ctrl+K", "Ctrl+Shift+K", "F8". Empty means none. */
+/**
+ * A key combination written the way people say it: "Ctrl+K", "Ctrl+Shift+K", "F8". Empty means none.
+ * "Ctrl" is the computer's main key: Command on a Mac, Control elsewhere. On a Mac the Control key
+ * itself is "Control", so Control+B and Command+B are two different combinations there.
+ */
 export const keyCombo = z.string().max(40).regex(
-  /^$|^((Ctrl|Alt|Shift)\+){1,3}([A-Z0-9,./;]|Space|Enter|F([1-9]|1[0-2]))$|^F([1-9]|1[0-2])$/,
+  /^$|^((Ctrl|Control|Alt|Shift)\+){1,4}([A-Z0-9,./;]|Space|Enter|F([1-9]|1[0-2]))$|^F([1-9]|1[0-2])$/,
   "Write a key as Ctrl+K, Alt+Shift+P or F8",
 );
 /** The window's shortcuts that can be changed, with the keys they have always had. */

@@ -81,18 +81,18 @@ function option(value, key) {
   return node;
 }
 
-/** A box that takes the keys pressed in it ("Ctrl+Shift+K"); Backspace empties it. */
+/** A box that takes the keys pressed in it ("Ctrl+Shift+K", shown as "Cmd+Shift+K" on a Mac); Backspace empties it. */
 function keysBox(field, id, value) {
-  const input = Object.assign(document.createElement("input"), { type: "text", value: value ?? "", autocomplete: "off" });
+  const input = Object.assign(document.createElement("input"), { type: "text", value: shownKeys(value ?? ""), autocomplete: "off" });
   input.dataset.keysBox = ""; // a press here is being set, so the window does not act on it
   input.addEventListener("keydown", (event) => {
     if (event.key === "Tab") return;
     event.preventDefault();
     if ((event.key === "Backspace" || event.key === "Delete") && !event.ctrlKey && !event.altKey) { input.value = ""; return; }
     const written = comboOf(event);
-    if (written) input.value = written;
+    if (written) input.value = shownKeys(written);
   });
-  return { nodes: labelled(id, field.name, input), read: () => input.value.trim(), set: (v) => { input.value = v ?? ""; } };
+  return { nodes: labelled(id, field.name, input), read: () => storedKeys(input.value.trim()), set: (v) => { input.value = shownKeys(v ?? ""); } };
 }
 function statusBox(field, id, value) {
   const box = document.createElement("fieldset");
@@ -279,10 +279,17 @@ function draw() {
 /* ---------- R17-S15: shortcuts and vim keys ---------- */
 const keyName = (key) => (key === " " ? "Space" : key.length === 1 ? key.toUpperCase() : key);
 /** The keys of a key press, written the way the settings store them, or "" for a lone modifier. */
+const onMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/* Stored keys say "Ctrl" for the main key; a Mac shows it as the Command key it is. */
+const shownKeys = (keys) => (onMac ? keys.replace(/\bCtrl\b/, "Cmd") : keys);
+const storedKeys = (keys) => (onMac ? keys.replace(/\bCmd\b/, "Ctrl") : keys);
 export function comboOf(event) {
   if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return "";
+  // The Windows key belongs to the system; on a Mac, Command is the main key and Control is its own.
+  if (!onMac && event.metaKey) return "";
   const parts = [];
-  if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
+  if (onMac ? event.metaKey : event.ctrlKey) parts.push("Ctrl");
+  if (onMac && event.ctrlKey) parts.push("Control");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
   const name = keyName(event.key);
@@ -299,7 +306,7 @@ function pressed(event, action) {
   return !!keys && comboOf(event).toLowerCase() === keys.toLowerCase();
 }
 /** The keys for an action as the palette shows them ("Ctrl N"), or "" when none. */
-const hint = (action) => bound(action).replaceAll("+", " ");
+const hint = (action) => shownKeys(bound(action)).replaceAll("+", " ");
 
 const vim = { mode: "insert", pending: "" };
 function vimIndicator(box) {

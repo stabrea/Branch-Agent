@@ -69,6 +69,9 @@ test("every comfort setting ships as Branch has always behaved", () => {
   assert.equal(ComfortKeysSchema.parse({ focusPrompt: "", newTrunk: "" }).focusPrompt, "");
   // Duplicate check covers new actions: focusPrompt = "Ctrl+K" collides with palette.
   assert.throws(() => ComfortKeysSchema.parse({ palette: "Ctrl+K", focusPrompt: "ctrl+k" }), /same keys/);
+  // On a Mac the Control key is its own key: "Control+B" is not the main key's "Ctrl+B".
+  assert.equal(ComfortKeysSchema.parse({ sideList: "Control+B" }).sideList, "Control+B");
+  assert.equal(ComfortKeysSchema.parse({ focusPrompt: "Control+B" }).sideList, "Ctrl+B", "and it shares nothing with the default");
 });
 
 test("R17-S20: a proxy is plain http(s) with no password, and a certificate must be a current authority", () => {
@@ -435,4 +438,12 @@ test("R17-S21: the terminal's Settings pages carry real controls, /switch change
   const frame = renderScreen(tui.model(), tui.size(), tui.palette, "none").plain.join("\n");
   assert.ok(frame.length > 0);
   void root;
+});
+
+test("R17-S15: every shortcut on the Keyboard shortcuts card can be found by Settings search", async () => {
+  const { SETTINGS_INDEX } = await import("../public/settings-index.js");
+  const indexed = new Set(SETTINGS_INDEX.map((row) => row[0]));
+  const fields = Object.keys(ComfortKeysSchema.innerType ? ComfortKeysSchema.innerType().shape : ComfortKeysSchema.shape);
+  assert.ok(fields.length >= 11, `only ${fields.length} fields were read`);
+  assert.deepEqual(fields.filter((name) => !indexed.has(`comfort-${name}`)), [], "add a row to public/settings-index.js");
 });
