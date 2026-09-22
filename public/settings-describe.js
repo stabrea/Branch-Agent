@@ -299,15 +299,37 @@ function fill(button, defaults) {
 /** The "i" whose explanation is being fetched: a second press on it before it opens means "never mind". */
 let opening = null;
 
+/**
+ * While an explanation is still loading, whatever would close it once open cancels it instead:
+ * Escape, or a press anywhere but its own "i" (another page, closing Settings). Answers the stop.
+ */
+function cancelOpeningOn(button) {
+  const cancel = () => { if (opening === button) opening = null; };
+  const onKey = (event) => { if (event.key === "Escape") cancel(); };
+  const onPress = (event) => { if (!button.contains(event.target)) cancel(); };
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointerdown", onPress, true);
+  return () => {
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("pointerdown", onPress, true);
+  };
+}
+
+/** Whether the "i" is still on screen to point the popup at. */
+const onScreen = (button) => button.isConnected && (button.checkVisibility?.() ?? button.getClientRects().length > 0);
+
 async function toggleInfo(button) {
   if (shown?.button === button) { shown.entry.close(); return; }
   if (opening === button) { opening = null; return; }
   opening = button;
-  const defaults = await loadDefaults();
+  const stop = cancelOpeningOn(button);
+  const defaults = await loadDefaults().finally(stop);
   // Only the latest press opens anything, and whatever it replaces is closed first: its close
   // hides the one shared pane, so running it after this one is shown would hide this one instead.
   if (opening !== button) return;
   opening = null;
+  // Settings may have closed, or the "i" gone, while it loaded: nothing to open against.
+  if (!onScreen(button)) return;
   if (shown) shown.entry.close();
   if (!pane) {
     pane = document.createElement("div");

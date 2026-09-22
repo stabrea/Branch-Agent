@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettings } from "./places.mjs";
+import { closeSettings, openSettings } from "./places.mjs";
 
 /*
  * The "i" beside every setting's name, as the sample has it (public/settings-describe.js).
@@ -28,7 +28,8 @@ async function fixture(t) {
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
+  // The app's service worker answers its own files, where a test's held response cannot reach.
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce", serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -236,4 +237,58 @@ test("two presses while the explanation is still loading open nothing, and leave
   assert.equal(await info.getAttribute("aria-expanded"), "false");
   await info.click();
   await page.locator(".kit-info-pop").waitFor({ state: "visible" });
+});
+
+/** Presses an "i" while its explanation is held back, does `meanwhile`, then lets the answer through. */
+async function whileLoading(t, meanwhile) {
+  const { page } = await fixture(t);
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let served;
+  const answered = new Promise((resolve) => { served = resolve; });
+  await page.route("**/settings-defaults.json", async (route) => { await held; await route.continue().finally(served); });
+  await openSettings(page, "general");
+  const info = infoFor(page, "#keep-running");
+  await info.click();
+  await meanwhile(page, info);
+  // Whether it was ever shown, not only whether it is showing: something may hide it again at once.
+  await page.evaluate(() => {
+    globalThis.popEverShown = false;
+    const plain = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "hidden");
+    Object.defineProperty(HTMLElement.prototype, "hidden", { ...plain, set(value) {
+      if (!value && this.classList.contains("kit-info-pop")) globalThis.popEverShown = true;
+      plain.set.call(this, value);
+    } });
+  });
+  release();
+  // The answer, then a moment for anything waiting on it; bounded, since a cancelled fetch may never answer.
+  await Promise.race([answered, page.waitForTimeout(5000)]);
+  await page.waitForTimeout(500);
+  const visible = await page.evaluate(() => globalThis.popEverShown) || await page.locator(".kit-info-pop").isVisible().catch(() => false);
+  return { page, info, visible };
+}
+
+test("Escape while the explanation is loading cancels it, even where Escape closes nothing else", async (t) => {
+  // Escape also closes Settings, which on its own would leave nothing to open against; here Settings
+  // keeps its Escape, so only the cancel itself can stop the popup.
+  const { visible, info, page } = await whileLoading(t, async (page, info) => {
+    await page.evaluate(() => document.querySelector("#settings-window").addEventListener("keydown", (event) => event.stopPropagation()));
+    await info.focus();
+    await page.keyboard.press("Escape");
+  });
+  assert.equal(await page.locator("#settings-window").isVisible(), true, "Settings stayed open");
+  assert.equal(visible, false, "Escape while loading must cancel the delayed popup");
+  assert.equal(await info.getAttribute("aria-expanded"), "false");
+});
+
+test("a press elsewhere, closing Settings, or the i going away while loading opens nothing", async (t) => {
+  // A press inside Settings that closes nothing: only the cancel can stop the popup.
+  const inside = await whileLoading(t, (page) => page.locator("#settings-window .lx-page:not([hidden]) p").filter({ visible: true }).last().click());
+  assert.equal(await inside.page.locator("#settings-window").isVisible(), true, "Settings stayed open");
+  assert.equal(inside.visible, false, "a press elsewhere");
+  assert.equal((await whileLoading(t, (page) => closeSettings(page))).visible, false, "Settings closed");
+  // Gone without a press: nothing to point the popup at.
+  assert.equal((await whileLoading(t, (_page, info) => info.evaluate((node) => node.remove()))).visible, false, "the i removed");
+  assert.equal((await whileLoading(t, (page) => page.evaluate(() => { document.querySelector("#settings-window").hidden = true; }))).visible, false,
+    "Settings hidden without a press");
 });
