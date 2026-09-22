@@ -21,6 +21,7 @@ import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js"
 import { switchComfort } from "../dist/comfort/terminal.js";
 import { loadWords } from "../dist/terminal-words.js";
 import { classify, specFor } from "../dist/settings-kit/catalogue.js";
+import { chromium } from "playwright";
 
 const english = loadWords("en");
 const memoryStore = (records = {}) => ({ get: (_kind, _owner, key) => (key in records ? { data: records[key] } : undefined) });
@@ -36,6 +37,14 @@ async function served(t) {
   }).then(async (response) => ({ status: response.status, body: await response.json() }));
   return { root, branch, call };
 }
+
+
+test("this test needs a real browser, and says so", () => {
+  // It drives one through Branch's own browser tool rather than importing Playwright to steer it, so
+  // without this the file looks like a test that needs nothing and the lane that runs it installs no
+  // browser. The import above is what the test selector reads; this asserts it is really there.
+  assert.equal(chromium.name(), "chromium", "this test declares the browser engine it requires");
+});
 
 test("review: pressing or typing on the page through the computer tools is a sensitive browser step too", () => {
   const policy = { preset: "custom", unmatchedCommands: "ask", limits: {}, rules: [{ tool: "*", match: "*", applies: "any", decision: "allow", remember: "always" }] };

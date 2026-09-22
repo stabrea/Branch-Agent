@@ -34,6 +34,7 @@ import { parseRoute } from "../dist/terminal-places.js";
 import { loadWords } from "../dist/terminal-words.js";
 import { Tui } from "../dist/terminal-tui.js";
 import { renderScreen } from "../dist/terminal-screen.js";
+import { chromium } from "playwright";
 
 const PEMS = (await readFile(new URL("./fixtures/comfort-certificates.pem", import.meta.url), "utf8"))
   .match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);
@@ -47,6 +48,14 @@ async function app(t, options = {}) {
   return { root, app: branch };
 }
 const memoryStore = (records = {}) => ({ get: (_kind, _owner, key) => (key in records ? { data: records[key] } : undefined) });
+
+
+test("this test needs a real browser, and says so", () => {
+  // It drives one through Branch's own browser tool rather than importing Playwright to steer it, so
+  // without this the file looks like a test that needs nothing and the lane that runs it installs no
+  // browser. The import above is what the test selector reads; this asserts it is really there.
+  assert.equal(chromium.name(), "chromium", "this test declares the browser engine it requires");
+});
 
 test("every comfort setting ships as Branch has always behaved", () => {
   const values = allComfort(memoryStore(), "local");
