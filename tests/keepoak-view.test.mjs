@@ -158,33 +158,72 @@ test("the real wiring: KeepOak's session alone, nothing granted or downloaded, a
   assert.deepEqual(calls.slice(2), ["storage", "cache", "auth"], "cookies, storage, cache and saved sign-ins go");
 });
 
-/** A stand-in for ipcMain and Branch's own window. */
+/** A stand-in for ipcMain (which refuses a second handler, as Electron does) and Branch's own window. */
 function fakeIpc(origin) {
   const handlers = new Map(), removed = [];
   const mainFrame = { url: origin + "/?desktop=1" };
   const window = { webContents: { mainFrame }, on: (event, listener) => { window[event] = listener; } };
-  const ipc = { handle: (channel, fn) => handlers.set(channel, fn), removeHandler: (channel) => removed.push(channel) };
+  const ipc = {
+    handle: (channel, fn) => { if (handlers.has(channel)) throw new Error(`second handler for ${channel}`); handlers.set(channel, fn); },
+    removeHandler: (channel) => { removed.push(channel); handlers.delete(channel); },
+  };
   const own = { sender: window.webContents, senderFrame: mainFrame };
-  return { ipc, window, handlers, removed, own };
+  return { ipc, window, handlers, removed, own, mainFrame };
+}
+function fakeViews() {
+  const calls = [], made = [];
+  const makeView = async () => {
+    made.push(true);
+    return { open: async () => { calls.push("open"); }, disconnect: async () => { calls.push("disconnect"); }, close: () => { calls.push("close"); } };
+  };
+  return { calls, made, makeView };
 }
 
-test("only Branch's own window may open KeepOak, and only when the owner switched it on", async () => {
+test("only Branch's own window may open KeepOak, only while the owner has it on, asked each time", async () => {
   const origin = "http://127.0.0.1:4321";
-  const { ipc, window, handlers, removed, own } = fakeIpc(origin);
-  const calls = [];
-  let on = false;
-  registerKeepOakIpc(ipc, window, origin, { open: async () => { calls.push("open"); }, disconnect: async () => { calls.push("disconnect"); }, close: () => { calls.push("close"); } }, async () => on);
+  const { ipc, window, handlers, own } = fakeIpc(origin);
+  const { calls, made, makeView } = fakeViews();
+  let on = false, asked = 0;
+  registerKeepOakIpc(ipc, window, origin, makeView, async () => { asked++; return on; });
   await assert.rejects(handlers.get(keepOakOpenChannel)(own), /switched off/);
-  assert.deepEqual(calls, [], "off: nothing opens");
+  assert.equal(made.length, 0, "off: KeepOak's session is never made");
   on = true;
   await handlers.get(keepOakOpenChannel)(own);
+  await handlers.get(keepOakOpenChannel)(own);
+  assert.equal(made.length, 1, "made once, on the first Open allowed");
+  on = false; // switched off later in Settings: the next Open is refused, not answered from a stale value
+  await assert.rejects(handlers.get(keepOakOpenChannel)(own), /switched off/);
+  assert.equal(asked, 4, "the switch is asked on every Open");
   const stranger = { sender: {}, senderFrame: { url: "https://keepoak.com/" } };
   await assert.rejects(handlers.get(keepOakOpenChannel)(stranger), /access denied/);
   await assert.rejects(handlers.get(keepOakDisconnectChannel)({ sender: window.webContents, senderFrame: { url: "https://evil.example/" } }), /access denied/);
   await handlers.get(keepOakDisconnectChannel)(own);
-  window.closed();
-  assert.deepEqual(calls, ["open", "disconnect", "close"]);
-  assert.deepEqual(removed.sort(), [keepOakDisconnectChannel, keepOakOpenChannel].sort());
+  assert.deepEqual(calls, ["open", "open", "disconnect"]);
+});
+
+test("while off, only an explicit Disconnect touches KeepOak's session; a new window takes the channels over; closing twice is harmless", async () => {
+  const origin = "http://127.0.0.1:4321";
+  const first = fakeIpc(origin);
+  const views = fakeViews();
+  registerKeepOakIpc(first.ipc, first.window, origin, views.makeView, async () => false);
+  assert.equal(views.made.length, 0, "registering makes nothing");
+  await first.handlers.get(keepOakDisconnectChannel)(first.own);
+  assert.equal(views.made.length, 1, "Disconnect may make it, to clear it");
+  assert.deepEqual(views.calls, ["disconnect"]);
+  // Branch's window is made again (the same ipcMain): the new handlers replace the old ones.
+  const again = { ...first.window, webContents: { mainFrame: first.mainFrame }, on: (event, listener) => { again[event] = listener; } };
+  const later = fakeViews();
+  registerKeepOakIpc(first.ipc, again, origin, later.makeView, async () => true);
+  await first.handlers.get(keepOakOpenChannel)({ sender: again.webContents, senderFrame: first.mainFrame });
+  assert.deepEqual(later.calls, ["open"], "the new window's handlers answer");
+  first.window.closed(); // the old window's close frees nothing of the new window's…
+  await first.handlers.get(keepOakOpenChannel)({ sender: again.webContents, senderFrame: first.mainFrame });
+  assert.deepEqual(later.calls, ["open", "open"], "…which still answers");
+  again.closed();
+  again.closed(); // …and closing twice is harmless
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(later.calls, ["open", "open", "close"], "closed once");
+  assert.equal(first.handlers.size, 0, "the channels are free again");
 });
 
 async function branch(t) {

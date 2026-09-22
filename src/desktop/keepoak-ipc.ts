@@ -5,16 +5,22 @@ import { KeepOakView, keepOakMayUse, keepOakPartition, type ViewDeps } from "./k
 export const keepOakOpenChannel = "branch:keepoak-open";
 export const keepOakDisconnectChannel = "branch:keepoak-disconnect";
 
+type View = Pick<KeepOakView, "open" | "disconnect" | "close">;
+/** Which registration holds the channels on each ipcMain, so an old window closing never frees a newer one's. */
+const holders = new WeakMap<object, symbol>();
 /**
- * Only Branch's own window, at Branch's own address, may open or disconnect KeepOak, and opening
- * asks Branch whether the owner switched KeepOak on (src/keepoak.ts) rather than taking the page's
- * word for it. `ipc` is Electron's ipcMain, handed in so this can be checked without Electron.
+ * Only Branch's own window, at Branch's own address, may open or disconnect KeepOak. Opening asks
+ * Branch, each time, whether the owner switched KeepOak on (src/keepoak.ts) rather than taking the
+ * page's word for it. The view, and with it KeepOak's saved session, is only made on the first Open
+ * that is allowed, or on an explicit Disconnect (which must be able to clear it): while KeepOak is
+ * off, `persist:keepoak` is never touched. Registering again for a new window replaces the handlers,
+ * and closing twice is harmless. `ipc` is Electron's ipcMain, handed in so this is checked without it.
  */
 export function registerKeepOakIpc(
   ipc: Pick<IpcMain, "handle" | "removeHandler">,
   window: Pick<BrowserWindow, "webContents" | "on">,
   origin: string,
-  view: Pick<KeepOakView, "open" | "disconnect" | "close">,
+  makeView: () => Promise<View>,
   switchedOn: () => Promise<boolean>,
 ): void {
   const authorized = (event: IpcMainInvokeEvent) => {
@@ -23,21 +29,31 @@ export function registerKeepOakIpc(
       new URL(event.senderFrame?.url ?? "about:blank").origin !== origin)
       throw new Error("KeepOak access denied");
   };
+  let viewing: Promise<View> | null = null;
+  const current = () => (viewing ??= makeView());
+  const free = () => {
+    ipc.removeHandler(keepOakOpenChannel);
+    ipc.removeHandler(keepOakDisconnectChannel);
+  };
+  free(); // a window made again takes over the channels instead of meeting the old handlers
+  const mine = Symbol("keepoak");
+  holders.set(ipc, mine);
   ipc.handle(keepOakOpenChannel, async (event) => {
     authorized(event);
     if (!(await switchedOn().catch(() => false))) throw new Error("KeepOak is switched off. Switch it on in Settings › Accounts.");
-    await view.open();
+    await (await current()).open();
     return true;
   });
   ipc.handle(keepOakDisconnectChannel, async (event) => {
     authorized(event);
-    await view.disconnect();
+    await (await current()).disconnect();
     return true;
   });
   window.on("closed", () => {
-    ipc.removeHandler(keepOakOpenChannel);
-    ipc.removeHandler(keepOakDisconnectChannel);
-    view.close();
+    if (holders.get(ipc) === mine) { free(); holders.delete(ipc); }
+    const was = viewing;
+    viewing = null;
+    void was?.then((view) => view.close(), () => undefined);
   });
 }
 
