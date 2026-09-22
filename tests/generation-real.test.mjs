@@ -4,11 +4,13 @@ import { createServer } from "node:http";
 import { deflateSync, inflateSync } from "node:zlib";
 import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { MediaTools } from "../dist/media.js";
-import { mediaInfo } from "../dist/media-video.js";
+import { mediaInfo, mp4Boxes } from "../dist/media-video.js";
 import { makeVideo, saveVideoSettings } from "../dist/reach/video.js";
 import { saveReachMode } from "../dist/reach/settings.js";
 import { OpenAIProvider } from "../dist/providers.js";
@@ -23,16 +25,23 @@ import { Budget } from "../dist/contracts.js";
  * an MP4 to a check that only reads the first box. Neither proved a person could open what Branch
  * saved.
  *
- * Here the stand-in services answer with files this test builds properly: a four-by-three PNG, really
- * compressed, and an MP4 with a movie header, a video track and its sample table. The test then opens
- * what Branch saved: the PNG is uncompressed back to its exact pixels, and the video is walked box by
- * box, down to the chunk offset pointing at the first sample inside `mdat`. Branch's own reader is
- * asked as well, so the file is readable by the app and not only by this test.
+ * So the stand-in services answer with files that really are what they claim. The picture is built
+ * here and compressed properly. The video is a **genuinely encoded** two-second VP9 film kept at
+ * `tests/fixtures/two-colours-vp9.mp4` — a red second and a blue second, 1,256 bytes. It was encoded
+ * once, away from this test; nothing here needs ffmpeg on the computer running it.
  *
- * Nothing leaves this computer: both services are little local HTTP servers.
+ * What Branch saved is then opened: the PNG back to its exact pixels, and the video **played by a real
+ * browser**, which decodes two frames and hands back their colours. Branch's own reader is asked as
+ * well, so the file is readable by the app and not only by this test.
+ *
+ * Nothing leaves this computer, and no window opens.
  */
 
 const owner = "local";
+const here = dirname(fileURLToPath(import.meta.url));
+const videoFixture = join(here, "fixtures", "two-colours-vp9.mp4");
+/** What the film shows, and where to look: red for the first second, blue for the second. */
+const RED_AT = 0.2, BLUE_AT = 1.5;
 
 /* ---------- a real PNG, made here ---------- */
 
@@ -80,7 +89,8 @@ function realPng(width, height, colourAt) {
 function openPng(file) {
   const bytes = Buffer.from(file);
   assert.ok(bytes.subarray(0, 8).equals(PNG_MAGIC), "it begins the way a PNG begins");
-  let at = 8, header = null, pressed = [];
+  let at = 8, header = null;
+  const pressed = [];
   while (at + 12 <= bytes.length) {
     const size = bytes.readUInt32BE(at), type = bytes.subarray(at + 4, at + 8).toString("ascii");
     const data = bytes.subarray(at + 8, at + 8 + size);
@@ -104,90 +114,57 @@ function openPng(file) {
   return { ...header, pixel };
 }
 
-/* ---------- a real MP4, made here ---------- */
+/* ---------- reading the film's own description of itself ---------- */
 
-function box(type, ...parts) {
-  const body = Buffer.concat(parts);
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(8 + body.length, 0);
-  head.write(type, 4, "ascii");
-  return Buffer.concat([head, body]);
-}
-const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0, 0); return b; };
-const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16BE(n, 0); return b; };
-const MATRIX = Buffer.concat([u32(0x00010000), u32(0), u32(0), u32(0), u32(0x00010000), u32(0), u32(0), u32(0), u32(0x40000000)]);
-const TIMESCALE = 1000, SAMPLES = 4, SAMPLE_BYTES = 256, WIDTH = 640, HEIGHT = 480;
-const DURATION = TIMESCALE * SAMPLES; // one sample a second
-
-function sampleTable(chunkOffset) {
-  const avc1 = box("avc1", Buffer.alloc(6), u16(1), u16(0), u16(0), Buffer.alloc(12),
-    u16(WIDTH), u16(HEIGHT), u32(0x00480000), u32(0x00480000), u32(0), u16(1), Buffer.alloc(32), u16(0x0018), Buffer.from([0xff, 0xff]));
-  return box("stbl",
-    box("stsd", u32(0), u32(1), avc1),
-    box("stts", u32(0), u32(1), u32(SAMPLES), u32(TIMESCALE)),
-    box("stsc", u32(0), u32(1), u32(1), u32(SAMPLES), u32(1)),
-    box("stsz", u32(0), u32(SAMPLE_BYTES), u32(SAMPLES)),
-    box("stco", u32(0), u32(1), u32(chunkOffset)));
-}
-function movie(chunkOffset) {
-  const mvhd = box("mvhd", u32(0), u32(0), u32(0), u32(TIMESCALE), u32(DURATION),
-    u32(0x00010000), u16(0x0100), Buffer.alloc(10), MATRIX, Buffer.alloc(24), u32(2));
-  const tkhd = box("tkhd", Buffer.from([0, 0, 0, 7]), u32(0), u32(0), u32(1), u32(0), u32(DURATION),
-    Buffer.alloc(8), u16(0), u16(0), u16(0), u16(0), MATRIX, u32(WIDTH << 16), u32(HEIGHT << 16));
-  const mdia = box("mdia",
-    box("mdhd", u32(0), u32(0), u32(0), u32(TIMESCALE), u32(DURATION), u16(0x55c4), u16(0)),
-    box("hdlr", u32(0), u32(0), Buffer.from("vide", "ascii"), Buffer.alloc(12), Buffer.from("VideoHandler\0", "ascii")),
-    box("minf",
-      box("vmhd", Buffer.from([0, 0, 0, 1]), u16(0), Buffer.alloc(6)),
-      box("dinf", box("dref", u32(0), u32(1), box("url ", Buffer.from([0, 0, 0, 1])))),
-      sampleTable(chunkOffset)));
-  return box("moov", mvhd, box("trak", tkhd, mdia));
-}
-/** ftyp, then the movie, then the sound and picture data the sample table points into. */
-function realMp4() {
-  const ftyp = box("ftyp", Buffer.from("isom", "ascii"), u32(0x200),
-    Buffer.from("isomiso2avc1mp41", "ascii"));
-  const media = Buffer.alloc(SAMPLES * SAMPLE_BYTES);
-  for (let i = 0; i < media.length; i++) media[i] = (i * 7) % 251;
-  // The chunk offset is where the samples really are, so it can only be written once the sizes are known.
-  const offset = ftyp.length + movie(0).length + 8;
-  return { file: Buffer.concat([ftyp, movie(offset), box("mdat", media)]), media, offset };
-}
-/** Walks an MP4 the way a player does: every box by name, and the boxes inside it. */
-function walk(bytes, limit = 64) {
-  const found = [];
-  let at = 0;
-  while (at + 8 <= bytes.length && found.length < limit) {
-    const size = bytes.readUInt32BE(at), type = bytes.subarray(at + 4, at + 8).toString("ascii");
-    assert.ok(size >= 8 && at + size <= bytes.length, `the ${type} box says a size that fits`);
-    found.push({ type, at, size, body: bytes.subarray(at + 8, at + size) });
-    at += size;
-  }
-  return found;
-}
+const inside = (box) => mp4Boxes(box.body);
 const find = (boxes, type) => boxes.find((one) => one.type === type);
-function openMp4(file) {
-  const bytes = Buffer.from(file);
-  const top = walk(bytes);
-  const ftyp = find(top, "ftyp"), moov = find(top, "moov"), mdat = find(top, "mdat");
-  assert.ok(ftyp && moov && mdat, "it has its kind, its movie and its data");
-  const inMoov = walk(moov.body);
-  const mvhd = find(inMoov, "mvhd").body;
+/** What the file says it holds: the track, what kind of pictures, how big and how long. */
+function describeMp4(file) {
+  const top = mp4Boxes(Buffer.from(file));
+  const moov = find(top, "moov"), mdat = find(top, "mdat");
+  assert.ok(moov && mdat, "it has a movie and some data");
+  assert.ok(mdat.body.length > 0, "and the data is not empty");
+  const inMoov = inside(moov);
   const trak = find(inMoov, "trak");
-  const mdia = walk(walk(trak.body).find((one) => one.type === "mdia").body);
-  const handler = find(mdia, "hdlr").body.subarray(8, 12).toString("ascii");
-  const stbl = walk(walk(find(mdia, "minf").body).find((one) => one.type === "stbl").body);
-  const entry = walk(find(stbl, "stsd").body.subarray(8))[0];
-  const stsz = find(stbl, "stsz").body, stco = find(stbl, "stco").body;
+  const mdia = inside(find(inside(trak), "mdia"));
+  const mdhd = find(mdia, "mdhd").body;
+  const stbl = inside(find(inside(find(mdia, "minf")), "stbl"));
+  const entry = mp4Boxes(find(stbl, "stsd").body.subarray(8))[0];
   return {
-    brand: ftyp.body.subarray(0, 4).toString("ascii"),
-    timescale: mvhd.readUInt32BE(12), duration: mvhd.readUInt32BE(16),
-    seconds: mvhd.readUInt32BE(16) / mvhd.readUInt32BE(12),
     tracks: inMoov.filter((one) => one.type === "trak").length,
-    handler, codec: entry.type, width: entry.body.readUInt16BE(24), height: entry.body.readUInt16BE(26),
-    sampleBytes: stsz.readUInt32BE(4), samples: stsz.readUInt32BE(8),
-    chunkOffset: stco.readUInt32BE(8), mdatAt: mdat.at + 8, mdat: mdat.body,
+    handler: find(mdia, "hdlr").body.subarray(8, 12).toString("ascii"),
+    codec: entry.type, width: entry.body.readUInt16BE(24), height: entry.body.readUInt16BE(26),
+    seconds: mdhd.readUInt32BE(16) / mdhd.readUInt32BE(12),
+    mediaBytes: mdat.body.length,
   };
+}
+
+/** Plays the film in a real browser and hands back the colour in the middle of two frames. */
+async function coloursWhilePlaying(t, file) {
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setContent("<!doctype html><body><video id=v muted></video><canvas id=c></canvas>");
+  return page.evaluate(async ({ source, times }) => {
+    const video = document.getElementById("v"), canvas = document.getElementById("c");
+    video.src = source;
+    await new Promise((resolve, reject) => {
+      video.onloadeddata = resolve;
+      video.onerror = () => reject(new Error(`the browser could not open it: ${video.error?.message ?? video.error?.code}`));
+      setTimeout(() => reject(new Error("the browser never opened it")), 15000);
+    });
+    const middleAt = async (time) => {
+      await new Promise((resolve) => { video.onseeked = resolve; video.currentTime = time; setTimeout(resolve, 5000); });
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(video, 0, 0);
+      const dot = context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+      return [dot[0], dot[1], dot[2]];
+    };
+    const colours = [];
+    for (const time of times) colours.push(await middleAt(time));
+    return { width: video.videoWidth, height: video.videoHeight, duration: video.duration, colours };
+  }, { source: `data:video/mp4;base64,${Buffer.from(file).toString("base64")}`, times: [RED_AT, BLUE_AT] });
 }
 
 /* ---------- the two services, and Branch ---------- */
@@ -211,6 +188,24 @@ async function pictureService(t, png) {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   return `http://127.0.0.1:${server.address().port}`;
+}
+/** A stand-in video service that hands back the encoded film, and Branch saving it. */
+async function videoMade(t, app, root, name = "video_1") {
+  const film = await readFile(videoFixture);
+  saveReachMode(app.store, owner, "video", { mode: "on" });
+  saveVideoSettings(app.store, owner, { service: "openai" });
+  const states = ["queued", "completed"];
+  const deps = {
+    fetcher: async (url) => {
+      if (String(url).endsWith("/v1/videos")) return Response.json({ id: name, status: "queued" });
+      if (String(url).endsWith("/content")) return new Response(film);
+      return Response.json({ id: name, status: states.shift() ?? "completed" });
+    },
+    secret: async () => "sk-test-123", files: app.files, sleep: async () => undefined,
+    now: () => new Date("2026-09-22T10:00:00Z"),
+  };
+  const made = await makeVideo(app.store, owner, deps, { prompt: "an oak in the wind", seconds: 4 }, AbortSignal.timeout(20000));
+  return { film, made, saved: await readFile(join(root, "workspace", made.path)) };
 }
 
 test("a picture that was made is a real picture, opened down to its pixels", async (t) => {
@@ -241,68 +236,49 @@ test("a picture that was made is a real picture, opened down to its pixels", asy
   }
 });
 
-test("a video that was made is a real film: its movie header, its track and its samples", async (t) => {
+test("a video that was made really plays: a browser decodes its frames to the colours that were filmed", async (t) => {
   const { app, root } = await fixture(t);
-  const { file, media, offset } = realMp4();
-  saveReachMode(app.store, owner, "video", { mode: "on" });
-  const states = ["queued", "in_progress", "completed"];
-  const deps = {
-    fetcher: async (url) => {
-      if (String(url).endsWith("/v1/videos")) return Response.json({ id: "video_1", status: "queued" });
-      if (String(url).endsWith("/content")) return new Response(file);
-      return Response.json({ id: "video_1", status: states.shift() });
-    },
-    secret: async () => "sk-test-123", files: app.files, sleep: async () => undefined,
-    now: () => new Date("2026-09-22T10:00:00Z"),
-  };
-  const made = await makeVideo(app.store, owner, deps, { prompt: "an oak in the wind", seconds: 4 }, AbortSignal.timeout(20000));
-  const saved = await readFile(join(root, "workspace", made.path));
+  const { film, saved } = await videoMade(t, app, root);
 
-  const film = openMp4(saved);
-  assert.equal(film.brand, "isom", "a plain MP4 every player knows");
-  assert.equal(film.timescale, TIMESCALE);
-  assert.equal(film.seconds, SAMPLES, "four seconds, as its own movie header says");
+  assert.ok(saved.equals(film), "what was saved is byte for byte what the service sent");
+  const played = await coloursWhilePlaying(t, saved);
+  assert.equal(played.width, 32, "the browser reports the film's own size");
+  assert.equal(played.height, 32);
+  assert.ok(Math.abs(played.duration - 2) < 0.2, `two seconds long (${played.duration})`);
+
+  const [red, blue] = played.colours;
+  assert.ok(red[0] > 150 && red[1] < 80 && red[2] < 80, `the first second is red, decoded (${red})`);
+  assert.ok(blue[2] > 150 && blue[0] < 80 && blue[1] < 80, `the second second is blue, decoded (${blue})`);
+});
+
+test("the saved film's own description matches what plays", async (t) => {
+  const { app, root } = await fixture(t);
+  const { saved } = await videoMade(t, app, root, "video_2");
+
+  const film = describeMp4(saved);
   assert.equal(film.tracks, 1);
-  assert.equal(film.handler, "vide", "and the track really holds pictures");
-  assert.equal(film.codec, "avc1");
-  assert.equal(film.width, WIDTH);
-  assert.equal(film.height, HEIGHT);
-  assert.equal(film.samples, SAMPLES);
-  assert.equal(film.sampleBytes * film.samples, film.mdat.length, "the sample table adds up to the data");
-  assert.equal(film.chunkOffset, offset, "the table points at where the samples are");
-  assert.equal(film.chunkOffset, film.mdatAt, "which is the start of the data itself");
-  assert.ok(saved.subarray(film.chunkOffset, film.chunkOffset + 8).equals(media.subarray(0, 8)),
-    "and the first sample really is there");
+  assert.equal(film.handler, "vide", "the track holds pictures");
+  assert.equal(film.codec, "vp09", "and says which decoder opens them");
+  assert.equal(film.width, 32);
+  assert.equal(film.height, 32);
+  assert.ok(Math.abs(film.seconds - 2) < 0.05, `two seconds (${film.seconds})`);
+  assert.ok(film.mediaBytes > 100, `with real encoded frames in it (${film.mediaBytes} bytes)`);
 });
 
 test("Branch's own reader opens the saved video, and says what it is", async (t) => {
   const { app, root } = await fixture(t);
-  const { file } = realMp4();
-  saveReachMode(app.store, owner, "video", { mode: "on" });
-  saveVideoSettings(app.store, owner, { service: "openai" });
-  const states = ["completed"];
-  const deps = {
-    fetcher: async (url) => {
-      if (String(url).endsWith("/v1/videos")) return Response.json({ id: "video_2", status: "queued" });
-      if (String(url).endsWith("/content")) return new Response(file);
-      return Response.json({ id: "video_2", status: states.shift() ?? "completed" });
-    },
-    secret: async () => "sk-test-123", files: app.files, sleep: async () => undefined,
-    now: () => new Date("2026-09-22T11:00:00Z"),
-  };
-  const made = await makeVideo(app.store, owner, deps, { prompt: "an oak at dusk", seconds: 4 }, AbortSignal.timeout(20000));
+  const { saved } = await videoMade(t, app, root, "video_3");
 
-  const read = mediaInfo(await readFile(join(root, "workspace", made.path)));
+  const read = mediaInfo(saved);
   assert.equal(read.format, "mp4");
   assert.equal(read.brand, "isom");
-  assert.equal(read.seconds, SAMPLES, "the length Branch shows is the film's own");
+  assert.ok(Math.abs(read.seconds - 2) < 0.05, "the length Branch shows is the film's own");
   assert.equal(read.tracks, 1, "and it found the track");
 });
 
 test("the stand-in bytes the old fixtures used would not open", () => {
   const pretend = Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from("ftypisom"), Buffer.alloc(4), Buffer.from("more video")]);
-  // It falls over on the first box, which is as far as anything reading it honestly gets.
-  assert.throws(() => openMp4(pretend), /says a size that fits|its kind, its movie and its data/);
+  assert.throws(() => describeMp4(pretend), /a movie and some data/);
   const info = mediaInfo(pretend);
   assert.equal(info.seconds, null, "Branch cannot say how long it is");
   assert.equal(info.tracks, 0, "because there is no track in it");
