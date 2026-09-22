@@ -34,7 +34,9 @@ function rect(x, y, width, height, fill) {
   return node;
 }
 
-/** The bars. Each round is a column: cached input at the foot, the rest of the input, then the answer. */
+/** The bars. Each round is a column: cached input at the foot, the rest of the input, then the answer.
+    A round whose service never said how much came from the cache (`cached` is null) draws its input
+    faded, so the chart never shows a cache share nobody reported. */
 function bars(data) {
   const width = 320, height = 96, rounds = data.rounds;
   const svg = document.createElementNS(svgNs, "svg");
@@ -46,12 +48,16 @@ function bars(data) {
   const step = width / Math.max(rounds.length, 1), barWidth = Math.max(2, step - 2);
   rounds.forEach((row, at) => {
     const x = at * step, scale = (value) => (value / most) * height;
-    const cached = Math.min(row.cached ?? 0, row.input);
+    const unreported = row.cached === null || row.cached === undefined;
+    const cached = unreported ? 0 : Math.min(row.cached, row.input);
     let y = height;
-    for (const [value, colour] of [[cached, "var(--good)"], [row.input - cached, "var(--copper)"], [row.output, "var(--muted)"]]) {
+    for (const [value, colour, part] of [[cached, "var(--good)", "cached"], [row.input - cached, "var(--copper)", "input"], [row.output, "var(--muted)", "output"]]) {
       const tall = scale(value);
       y -= tall;
-      if (tall > 0) svg.append(rect(x, y, barWidth, tall, colour));
+      if (tall <= 0) continue;
+      const bar = rect(x, y, barWidth, tall, colour);
+      if (unreported && part === "input") bar.classList.add("round-chart-unreported");
+      svg.append(bar);
     }
   });
   for (const fold of data.folds) {
@@ -76,10 +82,15 @@ function legend() {
 }
 
 function paint(box, data) {
-  const cached = data.rounds.reduce((sum, row) => sum + (row.cached ?? 0), 0);
+  const reported = data.rounds.filter((row) => row.cached !== null && row.cached !== undefined);
+  const cached = reported.reduce((sum, row) => sum + row.cached, 0);
   const input = data.rounds.reduce((sum, row) => sum + row.input, 0);
-  const summary = keyed("p", "savings.chart.summary", {
-    rounds: formatNumber(data.rounds.length), input: formatNumber(input), cached: formatNumber(cached), folds: formatNumber(data.folds.length),
+  const unknown = data.rounds.length - reported.length;
+  // A cache nobody reported is said to be unknown, never counted as none.
+  const key = !unknown ? "savings.chart.summary" : reported.length ? "savings.chart.summary-some" : "savings.chart.summary-unreported";
+  const summary = keyed("p", key, {
+    rounds: formatNumber(data.rounds.length), input: formatNumber(input), cached: formatNumber(cached),
+    unknown: formatNumber(unknown), folds: formatNumber(data.folds.length),
   }, "subtle");
   summary.id = "round-chart-summary";
   const parts = [keyed("h3", "savings.chart.title"), summary];

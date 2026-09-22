@@ -3947,6 +3947,8 @@
   "savings.chart.input": "Sent",
   "savings.chart.output": "Answer",
   "savings.chart.summary": "{rounds} rounds, {input} tokens in, {cached} served from the cache, {folds} summaries.",
+  "savings.chart.summary-some": "{rounds} rounds, {input} tokens in, at least {cached} served from the cache ({unknown} rounds did not say), {folds} summaries.",
+  "savings.chart.summary-unreported": "{rounds} rounds, {input} tokens in, the cache was not reported, {folds} summaries.",
   "savings.chart.title": "Each round",
   "savings.chart.towards": "The latest round was {percent}% of the way to the next summary.",
   "savings.difficulty.lead": "A small model says whether a new task is easy or hard, and the answer picks the connection.",
