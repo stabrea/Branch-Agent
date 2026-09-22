@@ -1,4 +1,9 @@
-<p align="center"><img src="docs/images/mascot.png" alt="Branch Agent's mascot: a small round green sprout with big green eyes, standing on root feet, with copper branches that end in glowing lanterns." width="280"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/mascot-night.png">
+    <img src="docs/images/mascot.png" alt="Branch Agent's mascot: a small round green sprout with big green eyes, standing on root feet, with copper branches that end in glowing lanterns." width="280">
+  </picture>
+</p>
 
 # Branch Agent
 
