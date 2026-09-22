@@ -132,7 +132,7 @@ test("R17-049 the round-by-round chart appears in the meter's popover only when 
   await page.locator("#meter-button").click();
   await page.locator("#round-chart svg rect").first().waitFor();
   const summary = await page.locator("#round-chart-summary").textContent();
-  assert.match(summary, /1 rounds, 700 tokens in, 500 served from the cache, 0 summaries/);
+  assert.match(summary, /Rounds: 1\. Tokens in: 700\. Served from the cache: 500\. Summaries: 0\./);
   // The meter redraws its numbers every few seconds; the chart stays.
   await page.evaluate(() => window.branchTokenMeter.refresh());
   await page.waitForTimeout(300);
@@ -144,25 +144,28 @@ test("a round whose service never reported the cache is said to be unknown, neve
   const { app, page, errors } = await openApp(t, 1280, [{ input: 700, output: 20 }, reportedUsage]);
   saveSavings(app.store, "local", "roundChart", { mode: "on" });
   const first = await app.runtime.run({ prompt: "hello" });
-  const summaryAfter = async () => {
-    await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, first.sessionId);
-    await page.evaluate(() => window.branchModelSavings.refresh());
-    await page.evaluate(() => window.branchTokenMeter.refresh());
-    await page.locator("#meter-row").waitFor({ state: "visible" });
-    if (!await page.locator("#meter-popover").isVisible()) await page.locator("#meter-button").click();
-    await page.locator("#round-chart svg rect").first().waitFor();
-    return page.locator("#round-chart-summary").textContent();
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, first.sessionId);
+  await page.evaluate(() => window.branchModelSavings.refresh());
+  await page.evaluate(() => window.branchTokenMeter.refresh());
+  await page.locator("#meter-row").waitFor({ state: "visible" });
+  await page.locator("#meter-button").click();
+  /** Draws the chart now, waiting for that drawing itself, and answers its summary and its bars. */
+  const drawn = async () => {
+    await page.evaluate(() => window.branchRoundChart.refresh());
+    const bars = await page.locator("#round-chart svg rect:not(.round-chart-fold)").count();
+    return { summary: await page.locator("#round-chart-summary").textContent(), bars };
   };
   // Only an unreported round: no cache figure at all, and its input is drawn faded.
-  const only = await summaryAfter();
-  assert.match(only, /1 rounds, 700 tokens in, the cache was not reported, 0 summaries/);
-  assert.doesNotMatch(only, /0 served from the cache/);
+  const only = await drawn();
+  assert.match(only.summary, /Rounds: 1\. Tokens in: 700\. Served from the cache: not reported\. Summaries: 0\./);
+  assert.doesNotMatch(only.summary, /Served from the cache: 0/);
+  assert.equal(only.bars, 2, "one round: what was sent and the answer");
   assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1);
-  // One reported round beside it: the figure is a floor, and says how many rounds did not say.
+  // One reported round beside it: the figure is a floor, and says how many rounds did not report.
   await app.runtime.run({ prompt: "again", sessionId: first.sessionId });
-  await page.locator("#meter-button").click();
-  const both = await summaryAfter();
-  assert.match(both, /2 rounds, 1,400 tokens in, at least 500 served from the cache \(1 rounds did not say\), 0 summaries/);
+  const both = await drawn();
+  assert.equal(both.bars, 5, "the second round is drawn too: from the cache, the rest sent, and the answer");
+  assert.match(both.summary, /Rounds: 2\. Tokens in: 1,400\. Served from the cache: at least 500 \(not reported for 1 of the rounds\)\. Summaries: 0\./);
   assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1, "only the unreported round is faded");
   assert.deepEqual(errors, []);
 });
