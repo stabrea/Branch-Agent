@@ -265,26 +265,62 @@ const REGISTERED_NOTES = ["registry.register({ name: ", String.fromCharCode(39) 
 const OVER_TWO_LINES = ["await registry.execute(", '  "browser.pdf",', "  {},", "  context);"]
   .join(String.fromCharCode(10));
 
-test("a test that runs a browser-backed tool is in the browser group, or every such line is excused", async () => {
-  const names = await browserBackedNames(), methods = await browserMethods();
-  const inBrowserGroup = new Set(testGroups().browser.map(slash));
+/**
+ * The judgement itself, over whatever files it is given. Separated from the walk over the repository
+ * so it can be run against files written for the purpose: a gate nothing currently trips is a gate
+ * nothing proves, and taking the refusal out of a walk over a clean repository changes no result at
+ * all. Ask it about a file that hides its browser and the answer is what says the gate is wired in.
+ */
+export async function judgeFiles(files, read, names, methods, inBrowserGroup = new Set(), excuses = EXCUSED) {
   const offenders = [], unreadable = [];
-  for (const file of await testFiles()) {
+  for (const file of files) {
     if (inBrowserGroup.has(file) || file === SELF) continue;
-    const source = await readFile(join(ROOT, file), "utf8");
+    const source = await read(file);
     // Fails closed. A file that makes a browser and keeps it somewhere this cannot read is refused
-    // here rather than passed in silence: the alternative is a longer list of shapes, and a list is a
+    // rather than passed in silence: the alternative is a longer list of shapes, and a list is a
     // promise that it is complete.
     if (makesOne(source) && !constructedIn(source).length) unreadable.push(file);
     const sites = callsitesIn(source, names, methods);
     if (!sites.length) continue;
-    const excused = EXCUSED[file]?.callsites ?? [];
+    const excused = [...(excuses[file]?.callsites ?? [])];
     for (const site of sites) {
       const at = excused.indexOf(site);
       if (at === -1) offenders.push(`${file}: ${site.slice(0, 100)}`);
       else excused.splice(at, 1);
     }
   }
+  return { offenders, unreadable };
+}
+
+test("a file that makes a browser and hides the name it gives it is refused", async () => {
+  const names = await browserBackedNames(), methods = await browserMethods();
+  const NL = String.fromCharCode(10);
+  const written = {
+    "tests/hidden-later.test.mjs": ["let driver;", "driver = new BranchBrowser({});", "await driver.pdf(context);"],
+    "tests/hidden-array.test.mjs": ["const [driver] = [new BranchBrowser({})];", "await driver.pdf(context);"],
+    "tests/hidden-property.test.mjs": ["const kit = { b: new BranchBrowser({}) };", "await kit.b.navigate(url, context);"],
+    "tests/plain.test.mjs": ["const browser = new BranchBrowser({});", "await browser.close();"],
+    "tests/named.test.mjs": ["const driver = new BranchBrowser({});", "await driver.close();"],
+    "tests/nothing.test.mjs": ["assert.equal(1, 1);"],
+  };
+  const judged = await judgeFiles(Object.keys(written), async (file) => written[file].join(NL), names, methods);
+
+  assert.deepEqual(judged.unreadable,
+    ["tests/hidden-later.test.mjs", "tests/hidden-array.test.mjs", "tests/hidden-property.test.mjs"],
+    "each of these makes a browser and keeps it where the name cannot be read");
+  assert.equal(judged.unreadable.includes("tests/plain.test.mjs"), false, "a plain const is readable");
+  assert.equal(judged.unreadable.includes("tests/named.test.mjs"), false, "and so is a plain const under another name");
+  assert.equal(judged.unreadable.includes("tests/nothing.test.mjs"), false, "and a file that makes none is not asked");
+  // The two readable ones are still judged on what they do with it, which here is only to close it.
+  assert.deepEqual(judged.offenders.map((one) => one.split(":")[0]).sort(),
+    ["tests/named.test.mjs", "tests/plain.test.mjs"], "closing one is still a line somebody has to excuse");
+});
+
+test("a test that runs a browser-backed tool is in the browser group, or every such line is excused", async () => {
+  const names = await browserBackedNames(), methods = await browserMethods();
+  const inBrowserGroup = new Set(testGroups().browser.map(slash));
+  const { offenders, unreadable } = await judgeFiles(await testFiles(),
+    (file) => readFile(join(ROOT, file), "utf8"), names, methods, inBrowserGroup);
   assert.deepEqual(unreadable, [],
     "These make a browser and keep it under a name this cannot read — assigned on a later line, out of "
     + "an array, in an object property. Give it a plain `const name = new BranchBrowser(...)`, or put the "
