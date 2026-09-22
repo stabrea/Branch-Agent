@@ -293,6 +293,86 @@ test("a press elsewhere, closing Settings, or the i going away while loading ope
     "Settings hidden without a press");
 });
 
+test("a card that draws itself again while the explanation loads still opens it, against the i it has now", async (t) => {
+  /* The flake behind #154 on a busy machine: Settings redraws a card (the label is replaced, so infoAll
+     drops that label's "i" and gives the new label its own), and the press made just before was dropped
+     with nothing on screen. The press belongs to the setting, not to that one button. */
+  const { page, info, visible } = await whileLoading(t, async (page) => {
+    await page.evaluate(() => {
+      // A card drawing its controls again, as renderModels and the Permissions page do: new label, new
+      // control with the same name, and the "i" that was pressed is gone with the old ones.
+      const card = document.getElementById("keep-running").closest(".card");
+      card.replaceChildren(...card.cloneNode(true).childNodes);
+    });
+    // Settings gives the new label its own "i" before the explanation arrives.
+    await page.waitForFunction(() => {
+      const control = document.getElementById("keep-running");
+      return control?.closest("label")?.nextElementSibling?.classList.contains("kit-info");
+    });
+  });
+  assert.equal(visible, true, "the explanation the owner asked for is shown");
+  assert.match(await page.locator(".kit-info-pop").innerText(), /^Keep Branch working when the window is closed/,
+    "and it is that setting's own explanation");
+  const expandedNow = await page.evaluate(() => [...document.querySelectorAll(".kit-info")].filter((node) => node.getAttribute("aria-expanded") === "true").length);
+  assert.equal(expandedNow, 1, "exactly one i says it is open");
+  const expanded = await page.evaluate(() => [...document.querySelectorAll(".kit-info")].filter((node) => node.getAttribute("aria-expanded") === "true").length);
+  assert.equal(expanded, 1, "exactly one i says it is open");
+});
+
+test("a redrawn card whose label names its control by id still opens the explanation", async (t) => {
+  /* The harder half of the same race: a `for=` label finds its control by searching the page, so a label
+     already taken off the page can name nothing. The "i" carries its own setting from the moment it was
+     made, which is what makes this one work. */
+  const { page } = await fixture(t);
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let served;
+  const answered = new Promise((resolve) => { served = resolve; });
+  await page.route("**/settings-defaults.json", async (route) => { await held; await route.continue().finally(served); });
+  await openSettings(page, "general");
+  await page.locator("#project-folder").waitFor({ state: "visible" });
+  await page.evaluate(() => {
+    const card = document.getElementById("project-folder").closest(".card");
+    document.querySelector('label[for="project-folder"]').nextElementSibling.click(); // its "i", while held
+    card.replaceChildren(...card.cloneNode(true).childNodes); // the card draws itself again
+  });
+  await page.waitForFunction(() => document.querySelector('label[for="project-folder"]')?.nextElementSibling?.classList.contains("kit-info"));
+  release();
+  await Promise.race([answered, page.waitForTimeout(5000)]);
+  await page.locator(".kit-info-pop").waitFor({ state: "visible", timeout: 10000 });
+  assert.match(await page.locator(".kit-info-pop").innerText(), /folder/i, "the explanation is that setting's own");
+});
+
+test("the page settling under an open explanation does not take it away; scrolling the i out of sight does", async (t) => {
+  /* The flake behind #154 under load: pressing an "i" scrolls the Settings body a moment later, and any
+     scroll used to shut the explanation that press had just opened. */
+  const { page } = await fixture(t);
+  await openSettings(page, "general");
+  const pop = page.locator(".kit-info-pop");
+  const info = infoFor(page, "#keep-running");
+  await info.click();
+  await pop.waitFor({ state: "visible" });
+  const before = await pop.boundingBox();
+  await page.evaluate(() => { document.getElementById("lx-settings-body").scrollBy(0, 40); });
+  await page.waitForTimeout(150);
+  assert.equal(await pop.isVisible(), true, "the page moving under it is not a reason to take it away");
+  const after = await pop.boundingBox();
+  assert.ok(Math.abs((before.y - after.y) - 40) <= 4, `it follows its i (moved ${Math.round(before.y - after.y)} of 40)`);
+  assert.equal(await info.getAttribute("aria-expanded"), "true");
+
+  // Scrolled right past, it keeps following its "i" off the screen rather than being taken away mid-read.
+  await page.evaluate(() => { document.getElementById("lx-settings-body").scrollBy(0, 4000); });
+  await page.waitForTimeout(150);
+  const far = await pop.boundingBox();
+  const button = await info.boundingBox();
+  assert.ok(Math.abs(far.y - (button.y + button.height + 6)) <= 4, "it is still beside its i");
+  assert.equal(await info.getAttribute("aria-expanded"), "true");
+
+  // It goes when its "i" goes: the card is drawn again without it.
+  await page.evaluate(() => { document.getElementById("keep-running").closest("label").nextElementSibling.remove(); });
+  await pop.waitFor({ state: "hidden" });
+});
+
 test("a cancel removes its listeners at once, even when the explanation never arrives", async (t) => {
   const { page } = await fixture(t);
   await page.route("**/settings-defaults.json", () => new Promise(() => {})); // never answered

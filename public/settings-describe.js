@@ -324,18 +324,42 @@ function cancelOpeningOn(button) {
 /** Whether the "i" is still on screen to point the popup at. */
 const onScreen = (button) => button.isConnected && (button.checkVisibility?.() ?? button.getClientRects().length > 0);
 
+/**
+ * The "i" that now stands for the same setting. A card that redraws itself gives its label a new "i"
+ * (infoAll above), so a press made just before that would otherwise be dropped with nothing on screen.
+ */
+function infoNowFor(control) {
+  if (!control) return null;
+  for (const button of document.querySelectorAll(`${CARDS} .kit-info`)) {
+    const now = button.previousElementSibling?.control;
+    // The card may have made a new control as well as a new label, so its own name counts as itself.
+    if (!now || !onScreen(button)) continue;
+    if (now === control || (control.id && now.id === control.id) || (control.name && now.name === control.name)) return button;
+  }
+  return null;
+}
+
 async function toggleInfo(button) {
   if (shown?.button === button) { shown.entry.close(); return; }
   if (opening === button) { opening = null; return; }
   opening = button;
+  // Which setting was pressed, read before the wait, while its label is still there to name it.
+  const label = button.previousElementSibling;
+  const control = label?.control ?? null;
   const stop = cancelOpeningOn(button);
   const defaults = await loadDefaults().finally(stop);
   // Only the latest press opens anything, and whatever it replaces is closed first: its close
   // hides the one shared pane, so running it after this one is shown would hide this one instead.
   if (opening !== button) return;
   opening = null;
-  // Settings may have closed, or the "i" gone, while it loaded: nothing to open against.
-  if (!onScreen(button)) return;
+  /* The card may have drawn itself again while it loaded, which gives the setting a new label and a new
+     "i": the press belongs to the setting, so it opens against the "i" that stands for it now. An "i"
+     taken off a label that is still there was taken away on purpose, and then nothing opens, as before. */
+  if (!onScreen(button)) {
+    const again = label?.isConnected !== true ? infoNowFor(control) : null;
+    if (!again) return;
+    button = again;
+  }
   if (shown) shown.entry.close();
   if (!pane) {
     pane = document.createElement("div");
@@ -378,6 +402,8 @@ function refresh() {
     describeAll();
     chipAll();
     infoAll();
+    // An explanation belongs to its "i": once that has gone from the page, so does it.
+    if (shown && !onScreen(shown.button)) shown.entry.close();
   });
 }
 
@@ -400,8 +426,14 @@ if (typeof document !== "undefined") {
     // An open explanation is written again in the new language, where it stands.
     if (shown && pane && !pane.hidden) void loadDefaults().then((defaults) => { if (shown && fill(shown.button, defaults)) place(shown.button); });
   });
-  /* The explanation is placed against the "i"; once the page scrolls under it, it would point at nothing. */
-  document.addEventListener("scroll", (event) => { if (shown && !pane?.contains(event.target)) shown.entry.close(); }, true);
+  /* The explanation is placed against its "i", so it follows it while the page moves and goes only once
+     the "i" itself is out of sight. Taking it away on any scroll lost it to the page settling under it:
+     pressing an "i" scrolls the Settings body a moment later, which shut the explanation just opened. */
+  document.addEventListener("scroll", (event) => {
+    if (!shown || pane?.contains(event.target)) return;
+    if (onScreen(shown.button)) place(shown.button);
+    else shown.entry.close();
+  }, true);
   globalThis.branchDescribeSettings = () => refresh();
   /**
    * Integration review (mac7/wake-pins): the same, at once. A card that throws its controls away and
