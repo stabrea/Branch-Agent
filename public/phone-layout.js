@@ -110,22 +110,34 @@ export function scrollFor(card, dock, scroller, margin = 12) {
   const above = card.top - (scroller.top + margin);
   return above < 0 ? above : 0;
 }
-let shownQuestion = "";
 function revealQuestion() {
   const card = $("live-ask");
   const question = card && !card.hidden ? card.textContent.trim() : "";
-  if (question === shownQuestion) return;
-  shownQuestion = question;
   if (!question || !nearby.matches) return;
   const scroller = $("workspace"), dock = document.querySelector(".composer-dock");
   if (!scroller || !dock) return;
   const by = scrollFor(card.getBoundingClientRect(), dock.getBoundingClientRect(), scroller.getBoundingClientRect());
   if (by) scroller.scrollTop += by;
 }
+let revealFrame = 0;
+/** Coalesces a redraw into one settled-layout measurement. */
+function scheduleRevealQuestion() {
+  if (revealFrame) return;
+  revealFrame = requestAnimationFrame(() => {
+    revealFrame = 0;
+    revealQuestion();
+  });
+}
 function watchQuestions() {
   const chat = $("chat");
   if (!chat) return;
-  new MutationObserver(() => requestAnimationFrame(revealQuestion)).observe(chat, { childList: true, subtree: true });
+  new MutationObserver(scheduleRevealQuestion).observe(chat, { childList: true, subtree: true });
+  /* The question's choices and the fixed composer can finish laying out after their text arrives.
+     Recheck their real boxes whenever either size changes, instead of trusting one early frame. */
+  const sizes = new ResizeObserver(scheduleRevealQuestion);
+  const card = $("live-ask"), dock = document.querySelector(".composer-dock");
+  if (card) sizes.observe(card);
+  if (dock) sizes.observe(dock);
 }
 
 function start() {

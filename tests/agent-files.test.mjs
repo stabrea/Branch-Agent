@@ -1,5 +1,5 @@
 /**
- * Redesign phase 2 (accounts, critique #40): the assistant's own files in Settings › Assistant, with
+ * The assistant's own files in Settings › Instructions & personality, with
  * an editor, a preview, the size limit Branch reads, and an undo of the last save. The owner's alone:
  * a household profile and a short-lived key are refused the text and every change.
  */
@@ -93,8 +93,10 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
-    await openSettings(page, "assistant");
+    await openSettings(page, "instructions");
     const card = page.locator("#agent-files");
+    assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').getAttribute("aria-current"), "true");
+    assert.equal(await card.evaluate((node) => node.closest(".lx-page")?.id), "lx-page-instructions");
     assert.equal(await card.locator(".agent-file").count(), 8);
     await card.getByRole("button", { name: "Change HEARTBEAT.md here" }).click();
     const text = card.getByLabel("What the file says");
@@ -118,6 +120,72 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
     assert.deepEqual(errors, []);
     await page.close();
   }
+});
+
+test("F4b switching profiles clears an open owner-only editor before it can be read", async (t) => {
+  const { server, call } = await served(t);
+  const privateText = "The private backup phrase is owner-only.";
+  assert.equal((await call("POST", "/api/settings-kit/files", { slot: "memory", text: privateText })).status, 200);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
+  await openSettings(page, "appearance");
+  assert.equal(await page.locator("#lx-page-appearance .lx-page-intro").innerText(),
+    "Every KeepOak theme, light or dark, with the oak in any season. Changes show behind this window as you pick.");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await page.locator("#lx-page-appearance .lx-page-intro").innerText(),
+    "Tous les thèmes KeepOak, clairs ou sombres, avec le chêne à chaque saison. Les changements s’affichent derrière cette fenêtre au fil de vos choix.");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  await openSettings(page, "instructions");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await page.locator("#lx-page-instructions .lx-page-intro").innerText(),
+    "Les fichiers simples que Branch lit avant de travailler : qui il est, qui vous êtes et comment vous voulez que le travail soit fait.");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
+  assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
+
+  const person = (await call("POST", "/api/profiles", { name: "Sam", pin: "2468" })).body;
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: person.id, pin: "2468" })).status, 200);
+  await page.waitForFunction(() => document.documentElement.dataset.household === "on");
+  const householdView = await page.evaluate((privateValue) => {
+    const instructions = document.querySelector('.lx-settings-link[data-page="instructions"]');
+    const instructionsPage = document.getElementById("lx-page-instructions");
+    return {
+      editorCount: document.querySelectorAll("#agent-files").length,
+      privateTextVisible: document.body.innerText.includes(privateValue),
+      instructionsHidden: instructions.hidden || getComputedStyle(instructions).display === "none",
+      optionDisabled: document.querySelector('#sg-page-pick option[value="instructions"]').disabled,
+      pageHidden: instructionsPage.hidden || getComputedStyle(instructionsPage).display === "none",
+      generalCurrent: document.querySelector('.lx-settings-link[data-page="general"]').getAttribute("aria-current"),
+    };
+  }, privateText);
+  assert.deepEqual(householdView, {
+    editorCount: 0,
+    privateTextVisible: false,
+    instructionsHidden: true,
+    optionDisabled: true,
+    pageHidden: true,
+    generalCurrent: "true",
+  });
+
+  const guardedRoute = await page.evaluate(() => {
+    globalThis.branchLayout.go("settings:instructions");
+    return {
+      instructionsHidden: document.getElementById("lx-page-instructions").hidden,
+      generalCurrent: document.querySelector('.lx-settings-link[data-page="general"]').getAttribute("aria-current"),
+    };
+  });
+  assert.deepEqual(guardedRoute, { instructionsHidden: true, generalCurrent: "true" });
+
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: null })).status, 200);
+  await page.waitForFunction(() => document.documentElement.dataset.household === "off");
+  await page.locator("#agent-files").waitFor({ state: "attached" });
+  assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').isVisible(), true);
+  assert.equal(await page.locator('#sg-page-pick option[value="instructions"]').evaluate((node) => node.disabled), false);
 });
 
 // Integration review: undo re-checks where the file is and whether it may be written, and the saved

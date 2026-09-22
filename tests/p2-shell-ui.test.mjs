@@ -257,6 +257,84 @@ test("a household person sees this computer and the people, and nothing of the o
   assert.deepEqual(await f.page.locator(".person-card").evaluateAll((nodes) => nodes.map((node) => node.dataset.person)), ["owner", person.id], "only their own card beside the owner's");
   assert.ok(await f.page.getByRole("button", { name: "Back to the owner" }).isVisible());
   assert.equal(await f.page.locator(".person-add").count(), 0);
+  await f.page.evaluate(() => {
+    globalThis.profileMarkerAtOwnerEvent = null;
+    document.addEventListener("branch-profile", (event) => {
+      if (event.detail?.owner === true) globalThis.profileMarkerAtOwnerEvent = {
+        marker: document.documentElement.dataset.household,
+        eventGeneration: event.detail.profileGeneration,
+        markerGeneration: Number(document.documentElement.dataset.profileGeneration),
+      };
+    }, { once: true });
+  });
+  await f.page.getByRole("button", { name: "Back to the owner" }).click();
+  await f.page.waitForFunction(() => globalThis.profileMarkerAtOwnerEvent !== null);
+  const markerAtEvent = await f.page.evaluate(() => globalThis.profileMarkerAtOwnerEvent);
+  assert.equal(markerAtEvent.marker, "off", "the canonical owner marker changes before owner-only listeners run");
+  assert.ok(markerAtEvent.eventGeneration > 0);
+  assert.equal(markerAtEvent.eventGeneration, markerAtEvent.markerGeneration,
+    "the event and document carry one canonical profile generation");
+  await f.page.locator("#rail-view-trunks").waitFor({ state: "visible" });
+  await f.page.locator("#rail-view-trunks").click();
+  await f.page.locator("#rail-trunks-actions").waitFor({ state: "visible" });
+  assert.equal(await f.page.locator("#rail-trunks-actions").getAttribute("hidden"), null,
+    "returning from the startup household profile restores the owner's Trunks without a reload");
+  const repeatedOwner = await f.page.evaluate(async () => {
+    const { noteWindowProfile } = await import("/app.js");
+    let eventGeneration = null;
+    document.addEventListener("branch-profile", (event) => { eventGeneration = event.detail.profileGeneration; }, { once: true });
+    const before = Number(document.documentElement.dataset.profileGeneration);
+    noteWindowProfile(true, { force: true });
+    return { before, eventGeneration, after: Number(document.documentElement.dataset.profileGeneration) };
+  });
+  assert.deepEqual(repeatedOwner, {
+    before: markerAtEvent.markerGeneration,
+    eventGeneration: markerAtEvent.markerGeneration + 1,
+    after: markerAtEvent.markerGeneration + 1,
+  }, "a profile-to-profile switch still tells every profile-specific screen to refresh");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a stale household strip response cannot hide the restored owner's Trunks", async (t) => {
+  const f = await fixture(t);
+  await withTrunk(f);
+  await f.open();
+  await f.page.locator("#rail-view-trunks").click();
+  assert.equal(await f.page.locator("#rail-trunks-actions").getAttribute("hidden"), null);
+  const state = await f.page.evaluate(() => {
+    document.documentElement.dataset.household = "on";
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+    document.documentElement.dataset.household = "off";
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: true } }));
+    document.dispatchEvent(new CustomEvent("branch-strip", {
+      detail: { profiles: { isOwner: false }, profileGeneration: 1 },
+    }));
+    document.dispatchEvent(new CustomEvent("branch-strip", {
+      detail: { profiles: { isOwner: true }, profileGeneration: 2 },
+    }));
+    return {
+      trunksTabHidden: document.getElementById("rail-view-trunks").hidden,
+      trunksActionsHidden: document.getElementById("rail-trunks-actions").hidden,
+    };
+  });
+  assert.deepEqual(state, { trunksTabHidden: false, trunksActionsHidden: false });
+  const caughtUp = await f.page.evaluate(() => {
+    document.documentElement.dataset.household = "on";
+    document.documentElement.dataset.profileGeneration = "40";
+    document.dispatchEvent(new CustomEvent("branch-profile", {
+      detail: { owner: false, profileGeneration: 40 },
+    }));
+    document.documentElement.dataset.household = "off";
+    document.documentElement.dataset.profileGeneration = "41";
+    document.dispatchEvent(new CustomEvent("branch-profile", {
+      detail: { owner: true, profileGeneration: 41 },
+    }));
+    document.dispatchEvent(new CustomEvent("branch-strip", {
+      detail: { profiles: { isOwner: true }, profileGeneration: 41 },
+    }));
+    return document.getElementById("rail-view-trunks").hidden;
+  });
+  assert.equal(caughtUp, false, "a listener that missed older profile events accepts the canonical generation");
   assert.deepEqual(f.errors, []);
 });
 

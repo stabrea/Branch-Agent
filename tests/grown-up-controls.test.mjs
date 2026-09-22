@@ -75,6 +75,16 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
   const inserted = f.page.locator("#inserted-card-switch");
   await f.page.waitForFunction(() => document.getElementById("inserted-card-switch")?.classList.contains("sw"));
   assert.equal(await inserted.getAttribute("role"), "switch", "a checkbox inserted with its whole card is dressed");
+  const order = await f.page.evaluate(() => {
+    const label = document.createElement("label");
+    label.innerHTML = '<input id="switch-order-input" type="checkbox"><span id="switch-order-description">Description</span>'
+      + '<strong id="switch-order-warning">Makes Branch less careful</strong>';
+    document.querySelector("#settings-window .lx-page:not([hidden]) .card").append(label);
+    globalThis.branchControlMakers.dressSwitches(label);
+    const left = (selector) => document.querySelector(selector).getBoundingClientRect().left;
+    return [left("#switch-order-description"), left("#switch-order-warning"), left("#switch-order-input")];
+  });
+  assert.ok(order[0] < order[1] && order[1] < order[2], "description, warning and switch keep their reading order");
   assert.deepEqual(f.errors, []);
 });
 
@@ -163,6 +173,73 @@ test("long choices remain labeled selects and open the shared glass list", async
   assert.deepEqual(await list.locator("[role=option]").allInnerTexts(), expected);
   await list.dispatchEvent("keydown", { key: "Escape" });
   assert.equal(await select.getAttribute("aria-expanded"), "false");
+  assert.deepEqual(f.errors, []);
+});
+test("Settings uses the sample reading column instead of stacked glass cards", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "general");
+  const geometry = await f.page.evaluate(() => {
+    const win = document.querySelector(".lx-settings-win");
+    const nav = document.querySelector(".lx-settings-nav");
+    const page = document.querySelector("#lx-page-general");
+    const title = page.querySelector(".lx-page-title");
+    const settingsTitle = document.querySelector(".lx-settings-title");
+    const version = document.querySelector(".lx-settings-version");
+    const level = document.querySelector(".sg-level");
+    const card = page.querySelector(":scope > .card:not(.danger)");
+    const label = card.querySelector('label:has(> input[type="checkbox"][role="switch"])');
+    const input = label.querySelector('input[role="switch"]');
+    const words = label.querySelector("span");
+    const cardStyle = getComputedStyle(card);
+    const winBox = win.getBoundingClientRect();
+    return {
+      inset: [winBox.left, winBox.top],
+      radius: getComputedStyle(win).borderRadius,
+      navWidth: nav.getBoundingClientRect().width,
+      pageMax: getComputedStyle(page).maxWidth,
+      titleSize: getComputedStyle(title).fontSize,
+      settingsMark: getComputedStyle(settingsTitle, "::before").backgroundImage.includes("keepoak-mark-reversed.png"),
+      footerOrder: level.compareDocumentPosition(version) & Node.DOCUMENT_POSITION_FOLLOWING ? "level-version" : "wrong",
+      versionAlign: getComputedStyle(version).textAlign,
+      levelRadius: getComputedStyle(level).borderRadius,
+      card: {
+        background: cardStyle.backgroundColor,
+        radius: cardStyle.borderRadius,
+        divider: cardStyle.borderBottomStyle,
+      },
+      switchAfterWords: input.getBoundingClientRect().left > words.getBoundingClientRect().right,
+    };
+  });
+  assert.deepEqual(geometry, {
+    inset: [10, 10], radius: "18px", navWidth: 272, pageMax: "1000px", titleSize: "28px",
+    settingsMark: true, footerOrder: "level-version", versionAlign: "left", levelRadius: "14px",
+    card: { background: "rgba(0, 0, 0, 0)", radius: "0px", divider: "solid" },
+    switchAfterWords: true,
+  });
+  assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  assert.deepEqual(f.errors, []);
+});
+
+test("the destructive danger zone keeps its warning enclosure", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "about");
+  const appearance = await f.page.locator("#danger-zone").evaluate((node) => {
+    const style = getComputedStyle(node);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--bad)";
+    document.body.append(probe);
+    const bad = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      borderStyle: style.borderStyle,
+      borderColor: style.borderColor,
+      bad,
+      radius: style.borderRadius,
+    };
+  });
+  assert.equal(appearance.borderStyle, "solid");
+  assert.equal(appearance.borderColor, appearance.bad);
+  assert.notEqual(appearance.radius, "0px");
   assert.deepEqual(f.errors, []);
 });
 

@@ -2,11 +2,11 @@ import type { Words } from "./terminal-words.js";
 
 /**
  * The map of Branch, as the terminal shows it: the five places in the window's order with the
- * window's names, their tabs, the thirteen Settings pages, the five Models tabs and the four side-pane
+ * window's names, their tabs, the Settings pages, the five Models tabs and the four side-pane
  * tabs. Every key is the one `public/layout.js` uses, so both surfaces say the same words, and
  * `tests/terminal-places.test.mjs` checks this list against `docs/places.md` and `layout.js`.
  */
-export type PlaceId = "chat" | "inbox" | "automations" | "library" | "customize";
+export type PlaceId = "chat" | "inbox" | "automations" | "library" | "customize" | "overview" | "household";
 export interface Named { id: string; key: string; english: string }
 export interface Place extends Named { intro: [string, string]; tabs: Named[] }
 export interface SettingsPage extends Named { intro: [string, string] }
@@ -32,12 +32,23 @@ export const PLACES: Place[] = [
       tab("plugins", "place.customize.plugins", "Plugins"), tab("connections", "place.customize.connections", "Connections"),
       tab("channels", "place.customize.channels", "Channels")] },
 ];
+export const STRIP_PLACES: Place[] = [
+  { id: "overview", key: "place.overview", english: "Overview",
+    intro: ["place.overview.intro", "What a computer or a Trunk is doing, in one screen."],
+    tabs: [tab("here", "place.overview.here", "Overview")] },
+  { id: "household", key: "place.household", english: "People",
+    intro: ["place.household.intro", "Everyone who uses Branch here, and what each may do."],
+    tabs: [tab("people", "place.household.people", "People")] },
+];
+/** Every place the terminal can open, including the two homes shown in the window's strip. */
+export const ALL_PLACES = [...PLACES, ...STRIP_PLACES];
 
 const page = (id: string, english: string, intro: string): SettingsPage =>
   ({ id, key: `settings.page.${id}`, english, intro: [`terminal.settings.${id}.intro`, intro] });
 export const SETTINGS_PAGES: SettingsPage[] = [
   page("general", "General", "How Branch starts and runs on this computer, your projects, and the people who use it."),
   page("assistant", "Assistant", "Who your assistant is, and how much it keeps and learns."),
+  page("instructions", "Instructions & personality", "Plain files Branch reads before it works: who it is, who you are, and how you want things done."),
   page("appearance", "Appearance", "Every KeepOak theme, light or dark. Changes show in this terminal and in the window."),
   page("notifications", "Notifications", "When Branch may interrupt you, and the days it should leave you alone."),
   page("models", "Models", "Which models your assistant uses, and how it signs in to them."),
@@ -49,6 +60,12 @@ export const SETTINGS_PAGES: SettingsPage[] = [
   page("data", "Data & usage", "What it costs, what is kept, and your safety copies."),
   page("advanced", "Advanced", "Tools for checking and fixing Branch."),
   page("about", "Updates & about", "Your version, and updates."),
+  page("trunks", "Trunks & people", "Your own assistants, the computers they use, and the people who use Branch here."),
+  page("channels", "Chat apps & devices", "The chat apps, pages and devices that reach Branch."),
+  page("connections", "Connections", "Tool servers Branch uses, other AI tools using Branch, and your own accounts."),
+  page("skills", "Skills & plugins", "What your assistant can do: skills, specialists and plugins."),
+  page("memory", "Memory & library", "What it remembers, your documents and what it has made."),
+  page("automations", "Automations & inbox", "Work that runs by itself, and how Inbox keeps the record."),
 ];
 export const MODEL_TABS: Named[] = [
   tab("connection", "settings.models.connection", "Connection"), tab("defaults", "settings.models.defaults", "Defaults"),
@@ -65,14 +82,14 @@ export type Route = { place: PlaceId; tab: string } | { settings: string; sub: s
 /** Every home the terminal can open, written as `docs/places.md` writes them. */
 export function allHomes(): string[] {
   const homes = ["chat"];
-  for (const place of PLACES) for (const entry of place.tabs) homes.push(`${place.id}:${entry.id}`);
+  for (const place of ALL_PLACES) for (const entry of place.tabs) homes.push(`${place.id}:${entry.id}`);
   for (const entry of SETTINGS_PAGES) {
     if (entry.id === "models") for (const sub of MODEL_TABS) homes.push(`settings:models:${sub.id}`);
     else homes.push(`settings:${entry.id}`);
   }
   return homes;
 }
-export const placeById = (id: string): Place | undefined => PLACES.find((place) => place.id === id);
+export const placeById = (id: string): Place | undefined => ALL_PLACES.find((place) => place.id === id);
 export const firstTab = (id: PlaceId): string => placeById(id)?.tabs[0]?.id ?? "";
 
 const squash = (text: string): string => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
@@ -90,13 +107,13 @@ export function parseRoute(text: string, words?: Words): Route | null {
   const [head, ...rest] = parts.length === 1 ? splitWords(parts[0]!, words) : parts;
   const settingsWord = [squash("settings"), squash(words?.t("settings.title", "Settings") ?? "settings")];
   if (settingsWord.includes(head!)) return settingsRoute(rest, words);
-  const place = PLACES.find((entry) => names(entry, words, head!));
+  const place = ALL_PLACES.find((entry) => names(entry, words, head!));
   if (place) {
     const wanted = rest.join(" ");
     const chosen = place.tabs.find((entry) => names(entry, words, wanted));
     return { place: place.id as PlaceId, tab: chosen?.id ?? place.tabs[0]?.id ?? "" };
   }
-  for (const entry of PLACES) {
+  for (const entry of ALL_PLACES) {
     const chosen = entry.tabs.find((candidate) => names(candidate, words, parts.join(" ")));
     if (chosen) return { place: entry.id as PlaceId, tab: chosen.id };
   }
@@ -107,7 +124,7 @@ function splitWords(typed: string, words?: Words): string[] {
   const settings = squash(words?.t("settings.title", "Settings") ?? "settings");
   for (const lead of new Set(["settings", settings]))
     if (typed.startsWith(lead + " ")) return [lead, typed.slice(lead.length + 1)];
-  const place = PLACES.find((entry) => [entry.id, squash(entry.english)].some((name) => typed.startsWith(name + " ")));
+  const place = ALL_PLACES.find((entry) => [entry.id, squash(entry.english)].some((name) => typed.startsWith(name + " ")));
   return place ? [place.id, typed.slice(typed.indexOf(" ") + 1)] : [typed];
 }
 function settingsRoute(parts: string[], words?: Words): Route | null {

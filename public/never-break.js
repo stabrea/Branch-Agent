@@ -23,7 +23,10 @@ async function api(path = "", body) {
 }
 /** The gateway answers for itself, without the engine, when Branch runs behind one. */
 async function gatewayHealth() {
-  const response = await fetch("/gateway/health").catch(() => null);
+  const response = await fetch("/gateway/health", {
+    cache: "no-store",
+    headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || "") },
+  }).catch(() => null);
   return response && response.ok ? response.json().catch(() => null) : null;
 }
 
@@ -125,7 +128,8 @@ function draw(view, health) {
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
   try {
-    const [view, health] = await Promise.all([api(), gatewayHealth()]);
+    const view = await api();
+    const health = view.underGateway ? await gatewayHealth() : null;
     last = [view, health];
     draw(view, health);
   } catch { /* signed out or offline: the next look tries again */ }

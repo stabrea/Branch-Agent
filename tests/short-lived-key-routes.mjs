@@ -53,6 +53,7 @@ export const ROUTES = {
   "/api/adapt/switch": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
+  "/api/alive": "look",
   "/api/agents": "prefix",
   "/api/agents/": "prefix",
   "/api/agents/discover": "look",
@@ -61,6 +62,7 @@ export const ROUTES = {
   "/api/agents/remote": "owner POST",
   "/api/agents/remote/remove": "owner POST",
   "/api/approval-reviewer": "owner POST",
+  "/api/jev": "secret-read",
   "/api/approvals/categories": "owner POST",
   "/api/artifacts": "look",
   "/api/artifacts/file": "look",
@@ -184,6 +186,8 @@ export const ROUTES = {
   "/api/diagnostics/log/clear": "owner POST",
   "/api/diagnostics/window-error": "owner POST",
   "/api/diagnostics/report": "owner POST",
+  "/api/diagnostics/report/automatic": "owner GET,POST",
+  "/api/diagnostics/report/automatic/preview": "owner POST",
   "/api/diagnostics/report/save": "owner POST",
   "/api/diagnostics/report/issue": "owner POST",
   "/api/documents": "other POST",
@@ -390,6 +394,7 @@ export const ROUTES = {
   "/api/trunks/rooms/:id/stop": "task POST",
   "/api/trunks/rooms/:id/answer": "owner POST",
   "/api/trunks/rooms/:id/revoke": "owner POST", // phase2/rooms (integration review): Revoke beside a yes in a room
+  "/api/trunks/rooms/:id/artifacts": "other POST",
   // phase2/rooms: who answers in a conversation is the owner's to choose.
   "/api/trunks/conversations": "owner POST",
   "/api/trunks/conversations/:id": "owner POST",

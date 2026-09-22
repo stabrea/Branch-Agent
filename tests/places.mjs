@@ -4,13 +4,13 @@
 
 /* The names pages had before the redesign, and the place and tab that hold them now. */
 const TABS = {
-  runs: ["inbox", "runs"],
-  memory: ["library", "memory"],
-  documents: ["library", "documents"],
-  skills: ["customize", "skills"],
-  specialists: ["customize", "specialists"],
-  procedures: ["automations", "procedures"],
-  schedules: ["automations", "schedules"],
+  runs: { place: "inbox", tab: "history", oldView: "runs" },
+  memory: { place: "library", tab: "memory", oldView: "memory" },
+  documents: { place: "library", tab: "documents", oldView: "documents" },
+  skills: { place: "customize", tab: "skills", oldView: "skills" },
+  specialists: { place: "customize", tab: "specialists", oldView: "specialists" },
+  procedures: { place: "automations", tab: "procedures", oldView: "procedures" },
+  schedules: { place: "automations", tab: "scheduled", oldView: "schedules" },
 };
 
 /** The window is rebuilt by the last script on the page, which can still be loading when the workspace appears
@@ -34,6 +34,19 @@ async function openPlaceLink(page, place) {
 }
 const settingsEntry = async (page) => (await calm(page) ? railControl(page, "#lx-settings-row") : railControl(page, ".lx-gear"));
 
+/** A tab is open only when both its control and its panel report the same selected place. */
+const placeTabIsOpen = (page, place, tab) => page.evaluate(({ place, tab }) => {
+  const trigger = document.querySelector(`.lx-tab[data-place="${place}"][data-tab="${tab}"]`);
+  const panel = document.querySelector(`.lx-panel[data-place="${place}"][data-tab="${tab}"]`);
+  return trigger?.getAttribute("aria-selected") === "true" && panel?.hidden === false;
+}, { place, tab });
+
+const placeTabBecameOpen = (page, place, tab) => page.waitForFunction(({ place, tab }) => {
+  const trigger = document.querySelector(`.lx-tab[data-place="${place}"][data-tab="${tab}"]`);
+  const panel = document.querySelector(`.lx-panel[data-place="${place}"][data-tab="${tab}"]`);
+  return trigger?.getAttribute("aria-selected") === "true" && panel?.hidden === false;
+}, { place, tab }, { timeout: 20000 }).then(() => true, () => false);
+
 /**
  * Opens a page by its old name ("memory", "runs", "settings", "usage", "chat") or its new one
  * ("customize:plugins", "settings:models").
@@ -49,11 +62,15 @@ export async function openPlace(page, view) {
   if (view === "settings") return openSettings(page);
   if (view === "usage") return openSettings(page, "data");
   if (view.startsWith("settings:")) return openSettings(page, view.slice("settings:".length));
-  const [place, tab] = TABS[view] ?? view.split(":");
+  const oldTab = TABS[view];
+  const [place, tab] = oldTab ? [oldTab.place, oldTab.tab] : view.split(":");
   await closeSettings(page);
   await openPlaceLink(page, place);
-  const trigger = TABS[view] ? `.lx-tab[data-view="${tab}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
-  await page.locator(trigger).click();
+  const trigger = oldTab ? `.lx-tab[data-view="${oldTab.oldView}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
+  if (await placeTabIsOpen(page, place, tab)) return;
+  await pressUntil(page.locator(trigger),
+    () => placeTabBecameOpen(page, place, tab),
+    `${place} ${tab} tab to open`);
 }
 
 /**

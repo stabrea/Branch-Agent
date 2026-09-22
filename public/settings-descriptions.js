@@ -10,6 +10,8 @@
  * Each row: the control (a CSS selector), the key in `public/locales/*.json`, and the English words.
  */
 export const descriptions = [
+  ["#automatic-problem-preview-kind", "automatic-report.describe.preview-kind", "Changes only the example below; it does not change which real problems are sent."],
+  ["#automatic-problem-preview-summary", "automatic-report.describe.preview-summary", "Adds example words to this preview only. Branch does not save them or use them in a real report."],
   // mac7/clean-uninstall: the danger zone at the bottom of Settings.
   ["#danger-keep", "describe.danger-keep", "Keeps the folder with your conversations and settings, so only Branch itself and what it downloaded go. It starts ticked; untick it and everything goes."],
   ["#danger-confirm", "describe.danger-confirm", "Type Branch Agent, exactly, to switch the button on. It is there so a misclick cannot remove Branch."],
@@ -150,6 +152,12 @@ export const descriptions = [
   ["#approval-reviewer-connection", "describe.reviewer-connection", "Which connection does the second look."],
   ["#approval-reviewer-rules", "describe.reviewer-rules", "Your own rules for the second look, in plain words."],
   ["#approval-reviewer-ceiling", "describe.reviewer-ceiling", "One look stops once it has used this much."],
+  ["#jev-command", "describe.jev-command", "The JEV program Branch runs for bounded decisions. Leave it empty to use JEV's usual command."],
+  ["#jev-provider", "describe.jev-provider", "Which JEV provider makes the decision. Automatic uses JEV's own default."],
+  ["#jev-model", "describe.jev-model", "An optional JEV model override. Empty uses the chosen provider's default."],
+  ["#jev-timeout", "describe.jev-timeout", "How long Branch waits for one JEV decision before treating it as unavailable."],
+  ["#jev-retries", "describe.jev-retries", "How many times Branch retries a failed JEV decision before falling back."],
+  ["#jev-confidence", "describe.jev-confidence", "Answers below this confidence are never promoted automatically; Branch falls back or asks for review."],
   ["#folder-trust-mode", "describe.folder-trust", "Whether a folder must be trusted before the files it carries are read. Off reads every folder."],
   ["#loop-guard-mode", "describe.loop-guard", "Stops a task that keeps repeating the same step. Off lets it carry on."],
   ["#security-audit-mode", "describe.security-audit", "Checks Branch's own setup for weak spots by itself. It only reads."],

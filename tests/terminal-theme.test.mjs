@@ -61,6 +61,14 @@ test("the style carries the depth, and a plain terminal gets no colour and no cu
   assert.equal(conhost.depth, "truecolor");
   const plain = resolveStyle({ NO_COLOR: "1" }, {}, "linux", "");
   assert.deepEqual([plain.depth, plain.cursor, plain.color], ["none", false, false]);
+  const forced = resolveStyle({ TERM: "dumb", FORCE_TTY: "1", COLORTERM: "truecolor" }, {}, "linux", "");
+  assert.deepEqual([forced.depth, forced.cursor, forced.decorations, forced.color], ["truecolor", true, true, true],
+    "an explicit full terminal view overrides an inherited TERM=dumb without hiding its colour capability");
+  for (const choice of [{ FORCE_COLOR: "0" }, { BRANCH_COLOR: "none" }]) {
+    const colourless = resolveStyle({ TERM: "dumb", FORCE_TTY: "1", ...choice }, {}, "linux", "");
+    assert.deepEqual([colourless.depth, colourless.cursor, colourless.decorations, colourless.color], ["none", true, true, false],
+      `${JSON.stringify(choice)} keeps the forced terminal interactive without adding colour`);
+  }
   const unknown = resolveStyle({}, {}, "linux", "");
   assert.equal(unknown.depth, "ansi16", "a terminal that asked for the view gets at least sixteen colours");
 });

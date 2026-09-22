@@ -1,10 +1,11 @@
-// `npm test`: every test file, with the ones that start the whole desktop app run one at a time.
+// `npm test`: every test file, with browser and desktop-app files run one at a time.
 //
 // Each desktop file starts Electron, the engine, its database and a window. Three of them at once on
 // a four-processor Windows build machine took longer than two minutes just to say "Connected": in one
 // run a file that got there needed 167 seconds while two others started beside it ran out of time.
-// Nothing in the app was wrong, so the files are no longer started side by side. Everything else
-// still runs three at a time.
+// Nothing in the app was wrong, so the files are no longer started side by side. Browser files have
+// the same constraint: three Chromium windows can make a stable control stop answering for minutes.
+// Ordinary non-browser files still run three at a time.
 //
 // `npm test -- --shard=2/6` runs the second of six shares. The build machines run one share each at
 // the same time, so the whole suite no longer waits on one machine: on Windows it took 63 minutes. The shares are packed by how long each file took last time it was measured
@@ -22,15 +23,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const folders = ["tests", join("packages", "sdk", "test")];
 const desktop = (file) => /^tests[\\/]desktop[^\\/]*\.test\.mjs$/.test(file);
+const browserImport = /^\s*(?:import\b[^\n]*from\s+["']playwright["']|(?:const|let|var)\b[^\n]*import\(["']playwright["']\))/m;
 const here = fileURLToPath(new URL(".", import.meta.url));
 const weightsFile = join(here, "..", "tests", "test-weights.json");
 const posix = (file) => file.replace(/\\/g, "/");
 
-/** Test files in a stable order, split into the ones that start the desktop app and the rest. */
-export function testGroups(list = (folder) => readdirSync(folder)) {
+/** Test files in a stable order, split by how much real browser machinery each starts. */
+export function testGroups(list = (folder) => readdirSync(folder), read = (file) => readFileSync(file, "utf8")) {
   const files = folders.flatMap((folder) =>
     list(folder).filter((name) => name.endsWith(".test.mjs")).sort().map((name) => join(folder, name)));
-  return { shared: files.filter((file) => !desktop(file)), desktop: files.filter(desktop) };
+  const desktopFiles = files.filter(desktop);
+  const browser = files.filter((file) => !desktop(file) && browserImport.test(read(file)));
+  return { shared: files.filter((file) => !desktop(file) && !browser.includes(file)), browser, desktop: desktopFiles };
 }
 
 /** The measured seconds per file for this kind of computer, or an empty map. */
@@ -84,7 +88,7 @@ export function parseFilesFrom(argv, groups, read = (file) => readFileSync(file,
   }
   const normalized = parsed.map(posix);
   if (new Set(normalized).size !== normalized.length) throw new Error("--files-from contains a duplicate test");
-  const discovered = new Map([...groups.shared, ...groups.desktop].map((entry) => [posix(entry), entry]));
+  const discovered = new Map([...groups.shared, ...groups.browser, ...groups.desktop].map((entry) => [posix(entry), entry]));
   return normalized.map((entry) => {
     const match = discovered.get(entry);
     if (!match) throw new Error(`Selected test was not discovered: ${entry}`);
@@ -128,16 +132,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const { index, total } = parseShard(argv);
   const groups = testGroups();
   const explicit = parseFilesFrom(argv, groups);
-  const mine = new Set(explicit ?? shards([...groups.shared, ...groups.desktop], total, loadWeights())[index]);
+  const mine = new Set(explicit ?? shards([...groups.shared, ...groups.browser, ...groups.desktop], total, loadWeights())[index]);
   const shared = groups.shared.filter((file) => mine.has(file));
+  const browsers = groups.browser.filter((file) => mine.has(file));
   const apps = groups.desktop.filter((file) => mine.has(file));
   console.log(explicit
-    ? `Selected ${shared.length + apps.length} of ${groups.shared.length + groups.desktop.length} test files.`
-    : `Share ${index + 1} of ${total}: ${shared.length + apps.length} of ${groups.shared.length + groups.desktop.length} test files.`);
+    ? `Selected ${shared.length + browsers.length + apps.length} of ${groups.shared.length + groups.browser.length + groups.desktop.length} test files.`
+    : `Share ${index + 1} of ${total}: ${shared.length + browsers.length + apps.length} of ${groups.shared.length + groups.browser.length + groups.desktop.length} test files.`);
   const timings = process.env.BRANCH_TEST_TIMINGS;
-  const parts = timings ? [`${timings}.shared`, `${timings}.desktop`] : [];
-  // Both groups always run, so one red run reports every failure.
-  const statuses = [run(shared, 3, parts[0]), run(apps, 1, parts[1])];
+  const parts = timings ? [`${timings}.shared`, `${timings}.browser`, `${timings}.desktop`] : [];
+  // Every group always runs, so one red run reports every failure.
+  const statuses = [run(shared, 3, parts[0]), run(browsers, 1, parts[1]), run(apps, 1, parts[2])];
   if (timings) mergeTimings(timings, parts);
   process.exitCode = statuses.some((status) => status !== 0) ? 1 : 0;
 }

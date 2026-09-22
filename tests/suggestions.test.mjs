@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { openSettingFor } from "./places.mjs";
+import { openSettingFor, pressUntil } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { nextSuggestion, SuggestionsSettingsSchema } from "../dist/suggestions.js";
@@ -162,8 +162,11 @@ test("integration review: when the background engine cannot be set up, the bar s
     await f.open();
     const bar = f.page.locator("#suggest-bar");
     await bar.waitFor({ state: "visible" });
-    await bar.getByRole("button", { name: "Yes", exact: true }).click();
-    await f.page.waitForFunction(() => /could not keep running in the background/.test(document.getElementById("toast")?.textContent ?? ""));
+    const failedPlainly = () => f.page.waitForFunction(() =>
+      /could not keep running in the background/.test(document.getElementById("toast")?.textContent ?? ""),
+    null, { timeout: 20000 }).then(() => true, () => false);
+    await pressUntil(bar.getByRole("button", { name: "Yes", exact: true }), failedPlainly,
+      "the failed background setup to be reported");
     const said = await f.page.locator("#toast").innerText();
     assert.match(said, reply.status ? /system list could not be read/ : /Windows would not add the task/);
     assert.doesNotMatch(said, /now keeps running/);

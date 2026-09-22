@@ -10,7 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import {
-  KEYCHAIN, MOBILE, androidSdk, ensureKeystore, iosRuntimeInstalled, releaseKey, sha256File, xcodeArgs,
+  KEYCHAIN, MOBILE, androidSdk, ensureKeystore, iosRuntimeInstalled, prepare, releaseKey, sha256File, xcodeArgs,
 } from "../scripts/package-mobile.mjs";
 import { brandProject, dropStoryboards } from "../apps/mobile/scripts/ios-project.mjs";
 import { discardTemp } from "./temp-dir.mjs";
@@ -82,6 +82,14 @@ test("a checksum file sits beside each output", async (t) => {
   const digest = await sha256File(file);
   assert.equal(await readFile(`${file}.sha256`, "utf8"), `${digest}  Branch-Agent-android.apk\n`);
   assert.equal(await androidSdk({ ANDROID_HOME: join(dir, "nowhere") }, async () => ""), null);
+});
+
+test("the Capacitor sync runs through Node instead of a platform-specific bin shim", async () => {
+  const { calls, runner } = fakeRunner();
+  await prepare(runner);
+  const sync = calls.find((call) => call.args.includes("sync"));
+  assert.equal(sync.file, process.execPath);
+  assert.deepEqual(sync.args, [join(MOBILE, "node_modules", "@capacitor", "cli", "bin", "capacitor"), "sync"]);
 });
 
 const sdk = await androidSdk();

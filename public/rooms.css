@@ -554,6 +554,44 @@ body.lx .composer-dock:has(> .rooms-mentions) {
   white-space: nowrap;
 }
 
+.rooms-artifacts {
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+  padding: 14px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-md, 10px);
+  background: var(--glass);
+}
+.rooms-artifacts h3,
+.rooms-artifacts p,
+.rooms-artifact pre {
+  margin: 0;
+}
+.rooms-artifact {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--hover);
+}
+.rooms-artifact small,
+.rooms-people {
+  color: var(--text-3);
+}
+.rooms-artifact pre {
+  max-height: 12em;
+  overflow: auto;
+  color: var(--text-2);
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rooms-artifact-content {
+  min-height: 72px;
+  resize: vertical;
+}
+
 /* Integration review: a room's last card (a question, a yes with Revoke) clears the message box's fade on a phone. */
 @media (max-width: 700px) {
   #conversation[data-room] {
