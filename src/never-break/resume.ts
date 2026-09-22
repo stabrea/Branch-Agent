@@ -301,7 +301,7 @@ export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Recor
   let released = 0;
   for (const row of rows) {
     const data = JSON.parse(String(row.data)) as Record<string, unknown>;
-    if (typeof data.intervalMs !== "number" && typeof data.dailyAt !== "string") continue;
+    if (typeof data.intervalMs !== "number" && typeof data.dailyAt !== "string" && typeof data.cron !== "string") continue;
     store.save("schedules", String(row.owner), String(row.id), { ...data, status: "pending", dueAt: nextTurn(data, now),
       lastInterruption: { at: now.toISOString(), note: "Branch was restarted during this job's turn. That turn is settled with its task; the job carries on at its next turn." } });
     released++;

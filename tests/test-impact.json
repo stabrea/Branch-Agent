@@ -42,7 +42,26 @@
       ],
       "tests": [
         "tests/automation.test.mjs",
-        "tests/never-break-journal.test.mjs"
+        "tests/never-break-journal.test.mjs",
+        "tests/schedule-recurrence.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "src/schedule-cli.ts",
+        "src/cli-completion.ts"
+      ],
+      "tests": [
+        "tests/auth-tracing-cli.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "src/autonomy/blueprints.ts"
+      ],
+      "tests": [
+        "tests/autonomy.test.mjs",
+        "tests/schedule-recurrence.test.mjs"
       ]
     },
     {
@@ -71,6 +90,22 @@
     },
     {
       "paths": [
+        "public/flow-editor.js"
+      ],
+      "tests": [
+        "tests/flow-editor.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/overview.js"
+      ],
+      "tests": [
+        "tests/p2-shell-ui.test.mjs"
+      ]
+    },
+    {
+      "paths": [
         "public/panels.css"
       ],
       "tests": [
@@ -93,6 +128,10 @@
       "tests": [
         "tests/composer-input-state.test.mjs"
       ]
+    },
+    {
+      "paths": ["public/glass-select.js"],
+      "tests": ["tests/glass-select.test.mjs"]
     },
     {
       "paths": [
