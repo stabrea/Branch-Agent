@@ -5,6 +5,7 @@
  * grants nothing, and a short-lived key cannot change the list.
  */
 import test from "node:test";
+import { alwaysSkillsRoute } from "../dist/skill-tools.js";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -62,6 +63,22 @@ test("the list refuses a made-up skill and a short-lived key", async (t) => {
   assert.equal((await call("/api/skills/always", { id: "11111111-2222-4333-8444-555555555555", always: true })).status, 400);
   const key = app.sessionTokens.create(app.runtime.owner, { name: "phone", scope: "run" }).token;
   assert.ok([401, 403].includes((await call("/api/skills/always", { id: skillId, always: true }, key)).status));
+  assert.ok([401, 403].includes((await call("/api/skills/always", undefined, key)).status), "nor read the list");
+  assert.deepEqual((await call("/api/skills/always")).body, { ids: [] }, "nothing was changed");
+});
+
+test("a household profile can neither read nor change the skills followed in every task", async (t) => {
+  const { app, call, skillId } = await fixture(t);
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  assert.notEqual((await call("/api/skills/always")).status, 200);
+  assert.notEqual((await call("/api/skills/always", { id: skillId, always: true })).status, 200);
+  // The route's own guard (it names itself) is what stays if the outer table is ever refactored.
+  for (const method of ["GET", "POST"])
+    await assert.rejects(alwaysSkillsRoute(app.store, app.runtime.owner, method, async () => ({ id: skillId, always: true })),
+      /^Error: Skills followed in every task belongs to the owner/);
+  app.store.profiles.switch({ profileId: null });
   assert.deepEqual((await call("/api/skills/always")).body, { ids: [] }, "nothing was changed");
 });
 

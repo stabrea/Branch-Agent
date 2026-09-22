@@ -952,6 +952,7 @@ export const ROUTES = {
   "/api/skills/:id/remove": "owner POST",
   "/api/skills/:id/test": "other POST",
   "/api/skills/:id/update": "owner POST",
+  "/api/skills/always": "owner GET,POST", // owner item 17: skills whose whole text goes into every task
   "/api/skills/browser": "owner POST",
   "/api/skills/draft-from-runs": "other POST",
   "/api/skills/install": "owner POST",

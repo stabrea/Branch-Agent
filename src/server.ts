@@ -31,7 +31,7 @@ import { readAttachSettings, saveAttachSettings } from "./integrations/browser-a
 import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
-import { alwaysSkills, setAlwaysSkill } from "./skill-tools.js";
+import { alwaysSkillsRoute } from "./skill-tools.js";
 import { healthReport } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
@@ -2679,10 +2679,8 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "POST" && path === "/api/skills/install")
     return skills.install(owner, await readBody(request, 128 * 1024));
   // Owner item 17: skills whose full instructions go into every task (src/skill-tools.ts).
-  if (path === "/api/skills/always") {
-    if (request.method === "GET") return { ids: alwaysSkills(app.store, owner) };
-    if (request.method === "POST") return setAlwaysSkill(app.store, owner, await readBody(request));
-  }
+  if (path === "/api/skills/always")
+    return alwaysSkillsRoute(app.store, owner, request.method ?? "GET", () => readBody(request));
   // Wave 4: packages people share, help with writing a skill, and suggestions from recent tasks.
   if (request.method === "GET" && path === "/api/skills/packages") return { packages: app.skillPackages.list(), problems: app.packageProblems };
   if (request.method === "GET" && path === "/api/skills/suggest") return suggestSkills(app.store, owner);
@@ -4037,6 +4035,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Owner item 17: how the assistant loads its tools, and what that costs, is the owner's to read and change.
   if (path === "/api/tool-loading")
     return "A short-lived key cannot read or change how the assistant loads its tools. Do that in the app window.";
+  if (path === "/api/skills/always")
+    return "A short-lived key cannot read or change which skills are followed in every task. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered

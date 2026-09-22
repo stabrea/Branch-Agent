@@ -43,6 +43,13 @@ export function setAlwaysSkill(store: Store, owner: string, input: unknown): { i
   store.save("settings", owner, alwaysSkillsKey, { ids });
   return { ids };
 }
+/** `GET|POST /api/skills/always`: the owner's alone, checked here so the guard moves with the route. */
+export async function alwaysSkillsRoute(store: Store, owner: string, method: string, body: () => Promise<unknown>): Promise<{ ids: string[] }> {
+  store.profiles.requireOwner("Skills followed in every task");
+  if (method === "GET") return { ids: alwaysSkills(store, owner) };
+  if (method === "POST") return setAlwaysSkill(store, owner, await body());
+  throw new Error("Use GET or POST");
+}
 export function alwaysSkillInstructions(store: Store, context: ToolContext): string {
   const wanted = alwaysSkills(store, context.owner);
   if (!wanted.length || !context.permissions.has("skills.read")) return "";
