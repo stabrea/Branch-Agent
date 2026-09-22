@@ -513,6 +513,15 @@ test("a repeating job cut off by a restart goes back on the list, and a missed t
   assert.equal(released.status, "pending");
   assert.match(released.lastInterruption.note, /carries on at its next turn/);
 
+  app.store.save("schedules", "local", "44444444-4444-4444-8444-444444444444", { kind: "task", prompt: "workdays",
+    dueAt: threeHoursAgo, cron: "30 9 * * 1-5", timezone: "UTC", status: "interrupted", permissions: [], history: [] });
+  let recoveredCron;
+  const nextCronAt = new Date(now.getTime() + 24 * 3600_000).toISOString();
+  assert.equal(releaseInterruptedSchedules(app.store, (data) => { recoveredCron = data.cron; return nextCronAt; }, now), 1);
+  assert.equal(recoveredCron, "30 9 * * 1-5");
+  assert.deepEqual([app.store.get("schedules", "local", "44444444-4444-4444-8444-444444444444").data.status,
+    app.store.get("schedules", "local", "44444444-4444-4444-8444-444444444444").data.dueAt], ["pending", nextCronAt]);
+
   // Switch off: the job still runs once, exactly as before, with no note.
   app.store.save("schedules", "local", "33333333-3333-4333-8333-333333333333", { kind: "task", prompt: "missed while off", dueAt: threeHoursAgo,
     intervalMs: 3600_000, status: "pending", permissions: [], history: [] });

@@ -602,6 +602,17 @@ test("C5 schedules can be added, listed and removed over the running engine's ow
   assert.equal((await api("POST", `/api/schedules/${id}/remove`, {})).status, 404);
 });
 
+test("C5a `branch schedule` stays a client of the engine already running", async (t) => {
+  const { api, dataDir, root } = await served(t);
+  const env = { ...process.env, BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: join(root, "workspace") };
+  const cli = (...args) => run(process.execPath, ["dist/cli.js", "schedule", ...args], { env, timeout: 30_000 });
+  const added = JSON.parse((await cli("add", "--prompt", "water the plants", "--every", "60000", "--json")).stdout);
+  const listed = JSON.parse((await cli("list", "--json")).stdout);
+  assert.equal(listed.schedules.find((row) => row.id === added.id).data.prompt, "water the plants");
+  assert.equal(JSON.parse((await cli("remove", added.id, "--json")).stdout).removed, true);
+  assert.equal((await api("GET", "/api/schedules")).body.schedules.length, 0);
+});
+
 test("C6 a coding assistant already installed here can answer as a model", async (t) => {
   const { app, root } = await fixture(t);
   const words = await fakeProgram(root, "fake-agent.mjs",
