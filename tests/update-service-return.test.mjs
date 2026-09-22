@@ -17,7 +17,9 @@ import { restartService, serviceRestartCommand, waitForReturn } from "../dist/in
 import { performRollback } from "../dist/never-break/rollback.js";
 import { headlessUpdate } from "../dist/install/headless-update.js";
 import { rollbackCommand } from "../dist/install/rollback-cli.js";
-import { writeRunning } from "../dist/install/running.js";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import { attachToRunning, readRunning, writeRunning } from "../dist/install/running.js";
 import { ActivationJournal, fingerprintTree } from "../dist/never-break/activation.js";
 
 const posixOnly = process.platform === "win32" && "shell scripts are for macOS and Linux";
@@ -72,6 +74,27 @@ async function waiting(notes, over = {}) {
   });
   return { back, clock };
 }
+
+test("the version a Branch answers with is not the version written down beside it", async (t) => {
+  // `running.json` is written by whatever started. A swap that half happened, or an older copy that
+  // wrote the file last, can leave it naming a version that is not the one now answering on the port.
+  // The return check compares the answer, so the two have to come back as different things.
+  const root = await mkdtemp(join(tmpdir(), "branch-attach-version-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+
+  // Tell the note a lie the server will not repeat.
+  const note = await readRunning(join(root, "data"));
+  await writeRunning(join(root, "data"), { ...note, version: "9.9.9-not-really" });
+
+  const joined = await attachToRunning(join(root, "data"));
+  assert.ok(joined, "the running Branch is found");
+  assert.equal(joined.instance.version, "9.9.9-not-really", "the note still says what it was told to say");
+  assert.equal(joined.version, app.version, "and the version handed back is the one it answered with");
+  assert.notEqual(joined.version, joined.instance.version, "which is the whole point of keeping both");
+});
 
 test("the wait is for the service, on the right version, started since — and it has to answer", async () => {
   // What coming back looks like: the service, version 2.0.0, started after the one that was closed,
