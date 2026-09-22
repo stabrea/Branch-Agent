@@ -191,6 +191,21 @@ function wanted(page, host) {
   }
   return order.filter(Boolean);
 }
+/**
+ * Moves a card into its place without taking the keyboard away. A plain insertBefore takes the card
+ * out of the page and puts it back, and the browser drops focus from anything that leaves the page:
+ * a person who had tabbed to a switch was sent back to the top of the window. moveBefore keeps focus
+ * where the browser has it; a new node (not yet on the page) or a browser without it moves the old
+ * way, and the focus is given back.
+ */
+function moveInto(host, node, spot) {
+  if (host.moveBefore && node.isConnected) {
+    try { host.moveBefore(node, spot); return; } catch { /* not movable this way: the old way below */ }
+  }
+  const focused = node.contains(document.activeElement) ? document.activeElement : null;
+  host.insertBefore(node, spot);
+  if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
+}
 /** Puts the page in order, touching only what is out of place, so running it again moves nothing. */
 function arrange(page) {
   const host = hostFor(page);
@@ -200,7 +215,7 @@ function arrange(page) {
   if (page.startsWith("models:")) before = null;
   for (const node of order) {
     const spot = before ? before.nextSibling : host.firstChild;
-    if (spot !== node) host.insertBefore(node, spot);
+    if (spot !== node) moveInto(host, node, spot);
     before = node;
   }
   for (const stale of host.querySelectorAll(":scope > .sg-head")) if (!order.includes(stale)) stale.remove();
