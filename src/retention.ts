@@ -50,7 +50,12 @@ export function sentenceFor(settings: RetentionSettings): string {
   if (!settings.enabled) return "Conversations are kept for ever; nothing is ever deleted by itself.";
   const parts: string[] = [];
   if (settings.keepDays > 0) parts.push(`older than ${settings.keepDays} day${settings.keepDays === 1 ? "" : "s"}`);
-  if (settings.megabytes > 0) parts.push(`the oldest, once everything together is over ${settings.megabytes} MB`);
+  // "Everything together" means the words and the files. It used to mean the words alone, which made
+  // a conversation holding a film count as a few kilobytes, so the limit was saying something it was
+  // not doing. Nothing is ever deleted without the owner's yes, so the honest number changes what is
+  // offered, never what goes.
+  if (settings.megabytes > 0)
+    parts.push(`the oldest, once everything together — the words and the files attached to them — is over ${settings.megabytes} MB`);
   if (!parts.length) return "No rule is set yet, so nothing is proposed for deletion.";
   return `Branch offers to delete conversations ${parts.join(", and ")}. It always asks first.`;
 }

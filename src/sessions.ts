@@ -24,6 +24,8 @@ export interface ConversationFiles {
   writeInto(to: string, files: readonly { ref: AttachmentRef; bytes: Buffer }[]): AttachmentRef[];
   /** One file a conversation holds, read back whole, for putting into an archive. */
   bytesOf(sessionId: string, id: string): Buffer;
+  /** What a conversation's files weigh, or null when that cannot be answered. */
+  bytesHeld(sessionId: string): number | null;
 }
 /**
  * Gives every message in a copy its own references, by copying the files the originals name into the

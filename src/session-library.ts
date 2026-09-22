@@ -252,21 +252,39 @@ export class SessionLibrary {
       (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count,
       (SELECT COALESCE(SUM(length(CAST(m.body AS BLOB))),0) FROM messages m WHERE m.session_id=s.id) AS bytes
       FROM sessions s WHERE s.owner=? AND s.temporary=0 ORDER BY s.created_at ASC, s.id ASC`).all(owner);
-    const all = rows.map((row) => ({ sessionId: String(row.id), createdAt: String(row.created_at),
-      messageCount: Number(row.message_count), bytes: Number(row.bytes), why: "" }));
+    // What a conversation weighs is its words **and** its files. Measuring only the message JSON made
+    // a conversation holding thirty megabytes of video count as a few kilobytes, so "keep everything
+    // under N MB" was blind to the only thing that now makes a conversation big.
+    const all = rows.map((row) => {
+      const sessionId = String(row.id), words = Number(row.bytes);
+      const held = this.weightOfFiles(sessionId);
+      return { sessionId, createdAt: String(row.created_at), messageCount: Number(row.message_count),
+        bytes: words + held.bytes, words, files: held.bytes, measured: held.measured, why: "" };
+    });
     const cutoff = days > 0 ? now - days * 86_400_000 : null;
-    const wanted = new Map<string, { sessionId: string; createdAt: string; messageCount: number; bytes: number; why: string }>();
+    const wanted = new Map<string, typeof all[number]>();
     for (const entry of all)
       if (cutoff !== null && Date.parse(entry.createdAt) < cutoff)
         wanted.set(entry.sessionId, { ...entry, why: `older than ${days} day${days === 1 ? "" : "s"}` });
     let total = all.reduce((sum, entry) => sum + entry.bytes, 0);
     const ceiling = megabytes > 0 ? megabytes * 1_048_576 : null;
+    // Every conversation offered on size says the files are why, when the words on their own were
+    // inside the limit. Until this the rule could not see the files at all, so the owner set that
+    // limit without them in it, and being told "your history is too big" with no explanation the
+    // first time the app counts honestly is exactly the surprise worth avoiding.
+    const overOnlyWithFiles = ceiling !== null && all.reduce((sum, entry) => sum + entry.words, 0) <= ceiling;
     for (const entry of wanted.values()) total -= entry.bytes;
     if (ceiling !== null)
       for (const entry of all) {
         if (total <= ceiling) break;
         if (wanted.has(entry.sessionId)) continue;
-        wanted.set(entry.sessionId, { ...entry, why: `the whole history is over ${megabytes} MB` });
+        // A conversation whose files could not be measured still counts towards the total — leaving
+        // it out would make the history look smaller than it is — but it is never the one offered up
+        // on the strength of a number nobody could check.
+        if (!entry.measured) continue;
+        wanted.set(entry.sessionId, { ...entry, why: overOnlyWithFiles
+          ? `the whole history is over ${megabytes} MB, once the files attached to it are counted`
+          : `the whole history is over ${megabytes} MB` });
         total -= entry.bytes;
       }
     return { conversations: [...wanted.values()], bytes: all.reduce((sum, entry) => sum + entry.bytes, 0) };
@@ -294,6 +312,27 @@ export class SessionLibrary {
         data: bytes.toString("base64") };
     });
     return { files: carried };
+  }
+  /**
+   * What one conversation's files weigh. A conversation the file store cannot answer for is measured
+   * by what its own messages say they were given — the recorded size of every file they name —  and
+   * marked unmeasured, so the history's total stays honest while nothing is offered for deletion on
+   * the strength of a number that could not be checked.
+   */
+  private weightOfFiles(sessionId: string): { bytes: number; measured: boolean } {
+    const files = this.files();
+    if (!files) return { bytes: this.bytesMessagesName(sessionId), measured: false };
+    const held = files.bytesHeld(sessionId);
+    return held === null ? { bytes: this.bytesMessagesName(sessionId), measured: false } : { bytes: held, measured: true };
+  }
+  private bytesMessagesName(sessionId: string): number {
+    let total = 0;
+    for (const row of this.db.prepare("SELECT body FROM messages WHERE session_id=?").all(sessionId)) {
+      let message: Message;
+      try { message = JSON.parse(String(row.body)) as Message; } catch { continue; }
+      for (const ref of message.attachments ?? []) total += ref.bytes;
+    }
+    return total;
   }
   import(owner: string, input: unknown) {
     return this.copy(owner, parseConversationArchive(input), true);

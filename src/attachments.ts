@@ -347,6 +347,22 @@ export class Attachments {
     });
     return this.commitCopies(target, made);
   }
+  /**
+   * What one conversation's files weigh, or `null` when that cannot be answered. A conversation with
+   * no files at all answers 0, which is certain; a listing that will not be read answers `null`,
+   * which is not the same thing and must not be treated as none.
+   */
+  bytesHeld(sessionId: string): number | null {
+    try {
+      const listing = z.array(AttachmentRefSchema)
+        .parse(JSON.parse(readFileSync(join(this.folder(sessionId, false), "kept.json"), "utf8")));
+      return listing.reduce((sum, ref) => sum + ref.bytes, 0);
+    } catch (error) {
+      // No folder and no listing is a conversation that was never given a file. Anything else is a
+      // question this cannot answer, and saying 0 would make it look small enough to keep.
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? 0 : null;
+    }
+  }
   /** Everything attached to one conversation, oldest first. */
   async list(sessionId: string, options: { temporary?: boolean } = {}): Promise<AttachmentRef[]> {
     return this.listing(this.folder(sessionId, options.temporary));
