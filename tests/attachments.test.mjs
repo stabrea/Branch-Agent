@@ -332,6 +332,19 @@ test("a listing that fails to be written leaves the files already kept untouched
     `only the first file and the listing remain (${left.join(", ")})`);
 });
 
+/**
+ * Waits for something the test is about to depend on, and gives up out loud rather than hanging. A
+ * test that waits for ever tells you nothing when the thing it waits for stops happening.
+ */
+async function waitFor(ready, what, ms = 10000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (ready()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`waited ${ms}ms in vain for ${what}`);
+}
+
 test("a conversation's turn leaves the queue when it is done, and never takes a newer one with it", async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), "branch-attachments-queue-"));
   t.after(() => discardTemp(scratch));
@@ -348,13 +361,13 @@ test("a conversation's turn leaves the queue when it is done, and never takes a 
   const session = "00000000-0000-4000-8000-00000000000f";
   const older = store.keep(session, [attached("one.md", "text/markdown", markdown)]);
   const newer = store.keep(session, [attached("two.md", "text/markdown", markdown)]);
-  while (gates.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitFor(() => gates.length >= 1, "the first turn to reach the listing");
   assert.equal(store.queuedTurns, 1, "one conversation is being written to");
 
   // The older turn finishes while the newer one is still queued behind it.
   gates.shift()();
   await older;
-  while (gates.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitFor(() => gates.length >= 1, "the second turn to reach the listing");
   assert.equal(store.queuedTurns, 1,
     "the older turn finishing did not take the newer turn's place in the queue away");
 
@@ -367,7 +380,7 @@ test("a conversation's turn leaves the queue when it is done, and never takes a 
   for (let number = 0; number < 40; number += 1) {
     const each = `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`;
     const keeping = store.keep(each, [attached("note.md", "text/markdown", markdown)]);
-    while (!gates.length) await new Promise((resolve) => setImmediate(resolve));
+    await waitFor(() => gates.length >= 1, `conversation ${number} to reach the listing`);
     gates.shift()();
     await keeping;
   }
