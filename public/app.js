@@ -1036,18 +1036,122 @@ function showUpdateStatus(status) {
 async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
   showVersions(null);
+  // An update that did not go through is said on any install, with or without the desktop app.
+  void showUpdateFailure();
   if (!window.branchDesktop) return;
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
 }
 $("updates-check").addEventListener("click", async () => {
+  // Checking again starts over: this attempt's failure is put away (a recorded one still shows).
+  failedNow = null;
+  void showUpdateFailure();
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
-$("updates-install").addEventListener("click", async () => {
+/* ---------- tasks working when Update is pressed ---------- */
+let busyTimer = null, waitingForTasks = false, installing = false;
+/** How many tasks are working now, or null when that could not be found out (never taken as none). */
+const busyTasks = () => api("comfort/update-plan", {}).then((plan) => {
+  // Only a real count counts: null, false, "" or "3" would each read as a number and could pass for none.
+  const count = plan?.busyTasks;
+  return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : null;
+}, () => null);
+function endBusyChoice() {
+  waitingForTasks = false;
+  clearTimeout(busyTimer);
+  busyTimer = null;
+  $("updates-busy").hidden = true;
+}
+/** Starts the update once, however many presses or answers arrive at the same moment. */
+async function installNow() {
+  if (installing) return;
+  installing = true;
+  endBusyChoice();
   try {
     window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
     showUpdateStatus(await window.branchDesktop.installUpdate());
-  } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
+  } catch (e) {
+    window.branchUpdateScreen?.hide(); toast(e.message);
+    failedNow = { version: state.version };
+    failureAsked++; // a look already on its way is now out of date
+    await renderUpdates();
+  }
+  finally { installing = false; }
+}
+/* ---------- an update that did not go through (owner item 19) ---------- */
+/* This attempt, when it stopped here; otherwise the journal says whether the last hand-over put the
+   version before back. Either way Branch is still on the version it was, and nothing was lost. */
+let failedNow = null, failureSaid = null, failureAsked = 0;
+function sayFailure(failure) {
+  failureSaid = failure;
+  const block = $("updates-failed");
+  if (!failure) { block.hidden = true; return; }
+  $("updates-failed-text").textContent = failure.toVersion
+    ? t("updates.failed.to", { to: failure.toVersion, version: state.version })
+    : t("updates.failed.now", { version: state.version });
+  block.hidden = false;
+  $("updates-card").hidden = false;
+  // Without the desktop app there is nothing to check or install from here: only the failure shows.
+  if (!window.branchDesktop) for (const id of ["updates-check", "updates-install"]) $(id).hidden = true;
+}
+async function showUpdateFailure() {
+  // Only the newest look answers: an older one still on its way never hides a failure shown since.
+  const asked = ++failureAsked;
+  if (failedNow) return sayFailure(failedNow);
+  const recorded = await api("updates/failure").then((answer) => answer.failure, () => null);
+  if (asked !== failureAsked) return;
+  sayFailure(recorded);
+}
+document.addEventListener("branch-language", () => { if (failureSaid) sayFailure(failureSaid); });
+$("updates-failed-log").addEventListener("click", async () => {
+  const note = $("updates-failed-saved");
+  try {
+    const saved = await api("updates/failure-report", {});
+    const bytes = Uint8Array.from(atob(saved.base64), (c) => c.charCodeAt(0));
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+    link.download = saved.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    note.textContent = t("updates.failed.saved", { name: saved.name });
+  } catch (e) { note.textContent = t("updates.failed.not-saved", { why: e.message }); }
 });
+/* The sentence carries a number, so it is written again on a language change rather than marked with a key. */
+let busySaid = null;
+function sayBusy(key, count) {
+  busySaid = { key, count };
+  $("updates-busy-text").textContent = t(key, { count });
+}
+const busyKey = (count, waiting) => count === null ? (waiting ? "updates.busy.waiting-unknown" : "updates.busy.unknown")
+  : count === 1 ? (waiting ? "updates.busy.waiting-one" : "updates.busy.one") : (waiting ? "updates.busy.waiting-many" : "updates.busy.many");
+document.addEventListener("branch-language", () => { if (busySaid && !$("updates-busy").hidden) sayBusy(busySaid.key, busySaid.count); });
+let countingForUpdate = false;
+$("updates-install").addEventListener("click", async () => {
+  // A second press while the first is still counting, installing or asking is the same press.
+  if (installing || countingForUpdate || !$("updates-busy").hidden) return;
+  countingForUpdate = true;
+  const count = await busyTasks().finally(() => { countingForUpdate = false; });
+  if (count === 0) return installNow();
+  // Nothing closes under a working task without the owner's say, and not knowing counts as maybe:
+  // wait for them, or update now and have them offered back.
+  sayBusy(busyKey(count, false), count ?? 0);
+  $("updates-busy").hidden = false;
+});
+$("updates-wait").addEventListener("click", () => {
+  clearTimeout(busyTimer);
+  waitingForTasks = true;
+  // One question at a time: the next look is only arranged once this one has an answer.
+  const check = async () => {
+    if (!waitingForTasks) return;
+    const count = await busyTasks();
+    if (!waitingForTasks) return;
+    if (count === 0) return installNow();
+    sayBusy(busyKey(count, true), count ?? 0);
+    busyTimer = setTimeout(() => void check(), 3000);
+  };
+  void check();
+});
+$("updates-now").addEventListener("click", () => void installNow());
+$("updates-busy-cancel").addEventListener("click", () => endBusyChoice());
 function modelLine(model) {
   if (!model) return "Model: not recorded";
   const name = model.presetName || model.presetId;
