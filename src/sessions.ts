@@ -13,6 +13,13 @@ type BranchInput = z.input<typeof BranchSessionSchema>;
 const sessionIdSchema = z.string().uuid();
 const maximumMessages = 1000, maximumBytes = 4 * 1024 * 1024;
 
+/** A message as a copy of it may keep it: everything except the references to files that stay behind. */
+function withoutFiles(message: Message): Message {
+  if (!message.attachments) return message;
+  const { attachments, ...rest } = message;
+  return rest;
+}
+
 /** Conversation copies use new source IDs; workspace state is shared. */
 export class SessionBranches {
   constructor(private readonly db: DatabaseSync) {
@@ -40,7 +47,12 @@ export class SessionBranches {
     try {
       this.db.prepare("INSERT INTO sessions(id,owner,created_at) VALUES(?,?,?)").run(sessionId, owner, createdAt);
       const insert = this.db.prepare("INSERT INTO messages(session_id,body) VALUES(?,?)");
-      for (const row of rows) insert.run(sessionId, String(row.body));
+      // Same rule as an export: a copy carries the words, not the files. An attachment's id names a
+      // file inside the parent's own folder, which this conversation does not have and never will,
+      // so copying the reference across would put a card here that cannot be opened — and would tie
+      // this conversation's cards to the lifetime of the one it came off. What was attached stays
+      // readable in the message's own text, where the runtime wrote it.
+      for (const row of rows) insert.run(sessionId, JSON.stringify(withoutFiles(JSON.parse(String(row.body)) as Message)));
       this.db.prepare("INSERT INTO session_branches VALUES(?,?,?,?)")
         .run(sessionId, parentSessionId, messageId, createdAt);
       this.db.exec("COMMIT");

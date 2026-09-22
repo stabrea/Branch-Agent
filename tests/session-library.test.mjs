@@ -33,6 +33,49 @@ function counts(db) {
   return ["sessions", "messages", "session_origins"].map(table => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n);
 }
 
+
+const onePixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const askedIn = (messages) => messages.find((message) => message.role === "user");
+
+test("a conversation that was given a file can still be exported, and every copy of it keeps the words without the file", async (t) => {
+  // One picture used to be enough to make a conversation permanently un-exportable: the archive
+  // schema is strict and did not know the key, so export, import and duplicate all answered 400.
+  const provider = { name: "attachment-fixture", async complete() { return { content: "Looked at it.", toolCalls: [] }; } };
+  const original = await fixture(t, provider), target = await fixture(t, provider);
+  const run = await original.app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(askedIn(original.app.store.messages(run.sessionId)).attachments.length, 1,
+    "the conversation really is holding a reference to a kept file");
+
+  const exported = original.app.store.exportSession("local", run.sessionId);
+  const carried = askedIn(exported.messages);
+  assert.equal("attachments" in carried, false,
+    "an archive never names bytes that did not travel with it");
+  assert.match(carried.content, /\[attached file: chart\.png \(picture\)\]/,
+    "and what the message was given is still readable in its own words");
+
+  const imported = target.app.store.importSession("local", JSON.parse(JSON.stringify(exported)));
+  assert.equal(askedIn(target.app.store.sessionView("local", imported.sessionId).messages).attachments, undefined);
+
+  // An archive is a file somebody can write. Left to itself it could name files of its own
+  // choosing inside the folder of whatever conversation it lands in.
+  const smuggled = { ...exported, messages: exported.messages.map((message) => message.role === "user"
+    ? { ...message, attachments: [{ id: "0123456789abcdef", kind: "picture",
+        mediaType: "image/png", name: "someone-elses.png", bytes: 70 }] }
+    : message) };
+  const injected = target.app.store.importSession("local", smuggled);
+  assert.equal(askedIn(target.app.store.sessionView("local", injected.sessionId).messages).attachments, undefined,
+    "an archive does not get to point a new conversation at files it chose");
+
+  const twin = original.app.store.duplicateSession("local", run.sessionId);
+  assert.equal(askedIn(original.app.store.sessionView("local", twin.sessionId).messages).attachments, undefined,
+    "a duplicate has no card it cannot open");
+  assert.equal(askedIn(original.app.store.messages(run.sessionId)).attachments.length, 1,
+    "and the conversation it was copied from still has its own");
+});
+
+
 test("session export imports into a clean instance and resumes exact history without replaying tools", async (t) => {
   let received;
   const provider = { name: "library-fixture", async complete(input) {

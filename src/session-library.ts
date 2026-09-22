@@ -1,18 +1,34 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { ToolCallSchema } from "./contracts.js";
+import { AttachmentRefSchema, maximumAttachmentsPerTurn, ToolCallSchema } from "./contracts.js";
 
 export const maximumArchiveBytes = 4 * 1024 * 1024;
-const MessageSchema = z.object({
+const StoredMessageSchema = z.object({
   role: z.enum(["user", "assistant", "tool"]), content: z.string(),
   toolCalls: z.array(ToolCallSchema).max(16).optional(),
   toolCallId: z.string().min(1).max(200).optional(),
+  /**
+   * A message that was given a file carries these, so the key has to be allowed through or one
+   * picture is enough to stop a whole conversation ever being exported, imported or copied. They
+   * are taken off again just below.
+   */
+  attachments: z.array(AttachmentRefSchema).max(maximumAttachmentsPerTurn).optional(),
 }).strict().superRefine((message, context) => {
   if ((message.toolCalls !== undefined && message.role !== "assistant") ||
       (message.role === "tool") !== (message.toolCallId !== undefined))
     context.addIssue({ code: "custom", message: "Message fields do not match its role" });
 });
+/**
+ * A copy of a conversation carries its words, never a reference to bytes that did not come with
+ * it. An attachment's id names a file inside one conversation's own folder: carried into a second
+ * conversation it is either a card that cannot open, or — worse, coming from an archive somebody
+ * else wrote — a name of this owner's choosing pointing into a folder they did not fill. Deleting
+ * the first conversation would take the second one's cards with it. So the references stop here,
+ * at the one gate every copy goes through, and what the message was given stays readable in its
+ * own words: the runtime already writes "[attached file: one.png (picture)]" into the text.
+ */
+const MessageSchema = StoredMessageSchema.transform(({ attachments, ...message }) => message);
 const ArchiveSchema = z.object({
   format: z.literal("branch-agent-conversation"), version: z.literal(1),
   exportedAt: z.iso.datetime(), messages: z.array(MessageSchema).min(1).max(1000),

@@ -25,6 +25,32 @@ function seed(store, owner = "local", content = "Source decision") {
 }
 const point = (view, index = 0) => ({ sessionId: view.sessionId, messageId: view.messages[index].messageId });
 
+
+test("a branch leaves the files behind with the conversation that holds them, and says so in the words", async (t) => {
+  // A branch used to copy message bodies across verbatim, references and all. The new conversation
+  // has no folder of its own, so every card it showed was one that could not be opened — and the
+  // parent's own cards would have taken it with them the day the parent was deleted.
+  const onePixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const { app } = await fixture(t, { name: "branch-attachment-fixture",
+    async complete() { return { content: "Looked at it.", toolCalls: [] }; } });
+  const run = await app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  assert.equal(run.status, "completed", run.output);
+  const view = app.store.sessionView("local", run.sessionId);
+  const asked = view.messages.find((message) => message.role === "user");
+  assert.equal(asked.attachments.length, 1, "the conversation being branched really is holding one");
+
+  const branch = app.store.branchSession("local", { sessionId: run.sessionId, messageId: asked.messageId });
+  const carried = app.store.sessionView("local", branch.sessionId).messages.find((message) => message.role === "user");
+  assert.equal(carried.attachments, undefined, "the branch has nothing it cannot open");
+  assert.match(carried.content, /\[attached file: chart\.png \(picture\)\]/,
+    "and still says what the message it came from was given");
+  assert.equal(app.store.sessionView("local", run.sessionId).messages
+    .find((message) => message.role === "user").attachments.length, 1,
+    "the conversation it came off is untouched");
+});
+
+
 test("conversation branch preserves exact prefix, tool evidence and original while continuing independently", async (t) => {
   let effects = 0, branchedRequest;
   const provider = { name: "branch-fixture", async complete(request) {
