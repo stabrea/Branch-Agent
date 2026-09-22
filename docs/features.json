@@ -3273,23 +3273,27 @@
       "family": "packages",
       "name": "Multistep browser workflows",
       "acceptance_criterion": "Complete a multistep form fixture and pause before any action requiring the configured approval.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/integrations/browser.ts",
           "src/approvals.ts",
+          "src/policy.ts",
           "tests/browser.test.mjs",
           "tests/browser-more.test.mjs",
-          "tests/comfort.test.mjs"
+          "tests/comfort.test.mjs",
+          "tests/form-approval.test.mjs"
         ],
         "tests": [
+          "the form is filled in across its pages, and the order stops to ask before it is placed",
+          "the rules are what decide: the shop is allowed, the checkout is asked about",
           "isolated browser completes form workflow and refuses destinations outside configured origins",
           "the approval settings ask before a file is sent to a website, but not before a picture is taken",
           "R17-S19: confirming sensitive browser steps asks every time, before any standing yes, and never loosens a refusal"
         ],
-        "detail": "A multistep browser run does pause for approval before browser.upload, so the old note was wrong on that point; the form fixture is still one page, and no single test completes a multistep form then pauses."
+        "detail": "A form running across three pages is filled in to the end and the click that would place the order raises policy.ask and waits, with the shop and the checkout on different hosts and the owner's rules deciding which is asked about (tests/form-approval.test.mjs). Registering browser.click without its host target makes that test fail, so what is pinned is the rule being consulted, not the form being fillable."
       },
-      "remaining": "One test that completes a multistep form and pauses for approval before the sensitive step."
+      "remaining": ""
     },
     {
       "id": "packages.trajectories",
