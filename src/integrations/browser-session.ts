@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Download, Page, Route } from 'playwright';
+import type { Browser, BrowserContext, CDPSession, Download, Page, Route } from 'playwright';
 import type { ToolContext } from '../contracts.js';
 import type { StorageState } from './browser-profiles.js';
 
@@ -6,6 +6,18 @@ import type { StorageState } from './browser-profiles.js';
 export interface DialogRecord { kind: string; message: string; at: string }
 /** A file the website sent, after it was saved inside the workspace. */
 export interface DownloadRecord { file: string; bytes: number; from: string }
+/** A request held before Chromium sends it, including every hop of a redirect. */
+export interface BrowserRequest {
+  url: string;
+  resourceType: string;
+  networkId?: string | undefined;
+}
+interface PausedRequest {
+  requestId: string;
+  request: { url: string };
+  resourceType: string;
+  networkId?: string | undefined;
+}
 export interface SessionOptions {
   /** Cookies and site storage from a saved sign-in, used for this run's window only. */
   storageState?: StorageState | undefined;
@@ -41,7 +53,8 @@ export class BrowserSession {
   private pending: Promise<void>[] = [];
   options: SessionOptions = {};
   constructor(private readonly launch: () => Promise<Browser>,
-    private readonly route: (route: Route) => Promise<void>) {}
+    private readonly guardRequest: (request: BrowserRequest) => Promise<void>,
+    private readonly maxRedirectHops = 5) {}
 
   private checkOpen(): void {
     if (this.closed) throw new Error('Browser run is closed');
@@ -55,7 +68,9 @@ export class BrowserSession {
         ...(this.options.storageState ? { storageState: this.options.storageState as never } : {}) });
       this.checkOpen();
       this.context.setDefaultTimeout(10000);
-      await this.context.route('**/*', this.route);
+      // This catches a pop-up's first request before its page exists. CDP below additionally catches
+      // every redirect hop, which Playwright routes do not surface.
+      await this.context.route('**/*', route => this.answerRoute(route));
       await this.context.routeWebSocket('**/*', socket => socket.close());
       const page = await this.newPage();
       this.checkOpen();
@@ -89,10 +104,8 @@ export class BrowserSession {
     const page = await this.context.newPage().finally(() => { this.creatingTab--; });
     // In the owner's own browser the website list is put on Branch's tab alone, so their other
     // tabs carry on exactly as before.
-    if (this.borrowed) await page.route('**/*', async route => {
-      if (this.options.guardUrl?.(route.request().url())) { await route.abort(); return; }
-      await this.route(route);
-    });
+    if (this.borrowed) await page.route('**/*', route => this.answerRoute(route));
+    await this.guardPage(page);
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
       // R17-S19: the owner may have message boxes accepted (OK) rather than dismissed (Cancel).
@@ -104,6 +117,46 @@ export class BrowserSession {
     page.on('download', download => this.pending.push(this.collect(download)));
     this.pages.push(page);
     return page;
+  }
+  private async answerRoute(route: Route): Promise<void> {
+    try {
+      const request = route.request();
+      const refused = this.options.guardUrl?.(request.url());
+      if (refused) throw new Error(refused);
+      await this.guardRequest({ url: request.url(), resourceType: request.resourceType() });
+      await route.continue();
+    } catch {
+      await route.abort().catch(() => undefined);
+    }
+  }
+  /** Chromium pauses each redirect destination here before sending it, unlike Playwright routes. */
+  private async guardPage(page: Page): Promise<void> {
+    if (!this.context) throw new Error('Browser run is closed');
+    const session = await this.context.newCDPSession(page);
+    const redirectCounts = new Map<string, number>();
+    session.on('Fetch.requestPaused', (event: PausedRequest) => {
+      void this.answerPaused(session, event, redirectCounts);
+    });
+    await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+  }
+  private async answerPaused(session: CDPSession, event: PausedRequest,
+    redirectCounts: Map<string, number>): Promise<void> {
+    try {
+      const refused = this.options.guardUrl?.(event.request.url);
+      if (refused) throw new Error(refused);
+      if (event.resourceType === 'Document' && event.networkId) {
+        const count = (redirectCounts.get(event.networkId) ?? 0) + 1;
+        redirectCounts.set(event.networkId, count);
+        if (count > this.maxRedirectHops + 1) throw new Error('Too many redirects');
+      }
+      await this.guardRequest({ url: event.request.url, resourceType: event.resourceType,
+        ...(event.networkId ? { networkId: event.networkId } : {}) });
+      await session.send('Fetch.continueRequest', { requestId: event.requestId });
+    } catch {
+      await session.send('Fetch.failRequest', {
+        requestId: event.requestId, errorReason: 'BlockedByClient',
+      }).catch(() => undefined);
+    }
   }
   private async collect(download: Download): Promise<void> {
     const from = download.url().slice(0, 300);

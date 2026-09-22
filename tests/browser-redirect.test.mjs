@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { BranchBrowser, redirectHops, redirectTo } from "../dist/integrations/browser.js";
+import { BranchBrowser, redirectHops } from "../dist/integrations/browser.js";
 import { ToolRegistry, Budget } from "../dist/index.js";
 
 /**
@@ -100,6 +100,67 @@ test("a redirect to a website the owner did not allow is still refused, and neve
   assert.equal(forbiddenHits, 0, "the website that was not allowed was never asked for anything");
 });
 
+test("the network policy checks the redirect destination before it is fetched", async (t) => {
+  let destinationHits = 0;
+  const destination = createServer((_request, response) => { destinationHits += 1; response.end("must not load"); });
+  destination.listen(0, "127.0.0.1");
+  await once(destination, "listening");
+  t.after(async () => { destination.close(); await once(destination, "close"); });
+  const destinationOrigin = `http://127.0.0.1:${destination.address().port}`;
+
+  const source = createServer((_request, response) => {
+    response.writeHead(302, { location: `${destinationOrigin}/private` });
+    response.end();
+  });
+  source.listen(0, "127.0.0.1");
+  await once(source, "listening");
+  t.after(async () => { source.close(); await once(source, "close"); });
+  const sourceOrigin = `http://127.0.0.1:${source.address().port}`;
+  const checked = [];
+  const browser = new BranchBrowser({ allowedOrigins: [sourceOrigin, destinationOrigin] });
+  browser.policy = { assertAllowed: async (target) => {
+    checked.push(target.href);
+    if (target.origin === destinationOrigin) throw new Error("blocked by the owner's network rules");
+  } };
+  t.after(() => browser.close());
+
+  await assert.rejects(browser.navigate(`${sourceOrigin}/start`, context(["browser.read"])));
+  assert.deepEqual(checked, [
+    `${sourceOrigin}/start`, // browser.navigate checks before opening a window
+    `${sourceOrigin}/start`, // Chromium's actual first request is checked too
+    `${destinationOrigin}/private`, // then the redirect hop is checked before it is sent
+  ]);
+  assert.equal(destinationHits, 0, "the destination was refused before a request reached it");
+});
+
+test("a pop-up cannot send its first request to an unlisted website", async (t) => {
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => { forbiddenHits += 1; response.end("must not load"); });
+  forbidden.listen(0, "127.0.0.1");
+  await once(forbidden, "listening");
+  t.after(async () => { forbidden.close(); await once(forbidden, "close"); });
+  const forbiddenOrigin = `http://127.0.0.1:${forbidden.address().port}`;
+
+  const allowed = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html");
+    response.end(`<button onclick="window.open('${forbiddenOrigin}/stolen')">Open report</button>`);
+  });
+  allowed.listen(0, "127.0.0.1");
+  await once(allowed, "listening");
+  t.after(async () => { allowed.close(); await once(allowed, "close"); });
+  const allowedOrigin = `http://127.0.0.1:${allowed.address().port}`;
+  const browser = new BranchBrowser({ allowedOrigins: [allowedOrigin] });
+  t.after(() => browser.close());
+  const registry = new ToolRegistry();
+  const { registerBrowser } = await import("../dist/integrations/browser.js");
+  registerBrowser(registry, browser);
+
+  await registry.execute("browser.navigate", { url: allowedOrigin }, context());
+  await registry.execute("browser.click", { role: "button", name: "Open report" }, context());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(forbiddenHits, 0, "the pop-up was refused before its first request left Chromium");
+});
+
 test("a site that keeps sending the browser onwards is given up on", async (t) => {
   const site = await siteThatRedirects();
   t.after(() => site.close());
@@ -113,16 +174,4 @@ test("a site that keeps sending the browser onwards is given up on", async (t) =
   // then loosening the limit would still pass.
   assert.ok(rounds.length <= 8, `it stopped after a few (${rounds.length})`);
   assert.ok(redirectHops <= 5, `and the limit itself stays small (${redirectHops})`);
-});
-
-test("where a redirect leads is read the way a browser reads it", () => {
-  const answer = (status, headers = {}) => ({ status: () => status, headers: () => headers });
-  assert.equal(redirectTo(answer(200, { location: "/desk" }), "http://site.test/"), null, "not a redirect at all");
-  assert.equal(redirectTo(answer(302, {}), "http://site.test/"), null, "a redirect that says nowhere");
-  assert.equal(redirectTo(answer(302, { location: "/desk" }), "http://site.test/enter"), "http://site.test/desk",
-    "a relative destination is read against where it came from");
-  assert.equal(redirectTo(answer(301, { location: "https://elsewhere.test/x" }), "http://site.test/"),
-    "https://elsewhere.test/x", "and an absolute one is kept as it is");
-  assert.equal(redirectTo(answer(303, { location: "http://[bad" }), "http://site.test/"), null,
-    "something that is not an address is not followed");
 });

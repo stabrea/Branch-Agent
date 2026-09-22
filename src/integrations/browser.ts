@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { chromium, type Browser, type Download, type Page, type Route } from 'playwright';
+import { chromium, type Browser, type Download, type Page } from 'playwright';
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import type { ToolContext } from '../contracts.js';
 import type { RunArtifacts } from '../artifacts.js';
-import { BrowserSession, type DownloadRecord } from './browser-session.js';
+import { BrowserSession, type BrowserRequest, type DownloadRecord } from './browser-session.js';
 import { BrowserProfiles, profileNameSchema, type StorageState } from './browser-profiles.js';
 import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, safeDownloadName, screenshot, waitFor } from './browser-page.js';
 import { AnnotateSchema, MarkRegistry, annotate, clearMarks, liveMarkKey } from './browser-marks.js';
@@ -96,17 +96,6 @@ export interface BrowserTracer {
 
 /** How many times in a row a site may send the browser onwards before it is simply refused. */
 export const redirectHops = 5;
-/**
- * Where a redirect leads, as an absolute address, or null when the answer is not a redirect. A
- * redirect with no destination, or one that cannot be read as an address, counts as no redirect, so
- * the answer itself is handed to the page rather than followed anywhere.
- */
-export function redirectTo(response: { status(): number; headers(): Record<string, string> }, from: string): string | null {
-  if (response.status() < 300 || response.status() >= 400) return null;
-  const location = response.headers()["location"];
-  if (!location) return null;
-  try { return new URL(location, from).toString(); } catch { return null; }
-}
 
 export class BranchBrowser {
   private browser: Browser | undefined;
@@ -153,27 +142,13 @@ export class BranchBrowser {
       return this.origins.has(origin) || (!!entry?.granted && entry.granted === origin);
     } catch { return false; }
   }
-  /**
-   * A redirect is followed here, one step at a time, and only ever to a website the owner allowed.
-   * Sending the browser itself somewhere it may not go is the thing being prevented; refusing every
-   * redirect also broke the ordinary way of signing in, where the site answers the form and then sends
-   * you to the page you asked for.
-   */
-  private async route(request: Route, entry?: RunEntry): Promise<void> {
-    let url = request.request().url();
-    for (let hops = 0; hops <= redirectHops; hops++) {
-      if (!this.allowed(url, entry)) { await request.abort(); return; }
-      try {
-        const response = await request.fetch({ url, maxRedirects: 0, timeout: 10000 });
-        try {
-          const next = redirectTo(response, url);
-          if (!next) { await request.fulfill({ response }); return; }
-          url = next; // checked against the allowed websites at the top of the next turn
-        } finally { await response.dispose(); }
-      } catch { await request.abort().catch(() => undefined); return; }
-    }
-    // A site that keeps sending the browser onwards is not answered at all.
-    await request.abort().catch(() => undefined);
+  /** Checks Chromium's actual request, including each redirect destination, before it is sent. */
+  private async guardRequest(request: BrowserRequest, entry?: RunEntry): Promise<void> {
+    if (!this.allowed(request.url, entry)) throw new Error('Browser destination is not an allowed origin');
+    if (request.resourceType !== 'Document') return;
+    const target = new URL(request.url);
+    if (entry?.granted !== target.origin)
+      await this.policy?.assertAllowed(target, 'browser address');
   }
   private async launch(): Promise<Browser> {
     const env = Object.fromEntries(['PATH', 'SystemRoot', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME']
@@ -198,7 +173,7 @@ export class BranchBrowser {
     // w911 (A2019) hook: the sandbox decides per task at first launch; null keeps the local launch below.
     const session: BrowserSession = new BrowserSession(
       () => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()),
-      route => this.route(route, created));
+      request => this.guardRequest(request, created), redirectHops);
     session.options.saveDownload = download => this.saveDownload(download);
     session.options.dialogAnswer = () => this.care(context.owner).dialogs; // R17-S19
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
