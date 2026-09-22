@@ -221,9 +221,10 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     // The hand-over has already closed the service and told the script not to reopen it. Stopping
     // here would leave the owner with the version they had and nothing running it, which is the
     // one outcome none of this is allowed to produce. So the same recovery runs, for the version
-    // that is still installed.
+    // that is still installed — but the update still failed, and the answer given to whatever asked
+    // for it says so. Recovering the old service is the least this owes them, not a success.
     if (stopped.report?.wasRunning && note?.mode === "daemon")
-      return serviceBack(input, note, input.version, log);
+      await serviceBack(input, note, input.version, log);
     return 1;
   }
   activation.activated();

@@ -182,11 +182,26 @@ async function updateSetup(t, { mode = "daemon" } = {}) {
   await fakeApp(input.installRoot, "1.0.0");
   return { deps, events, lines, input };
 }
-const quick = (notes) => ({ running: async () => notes.shift() ?? null, sleep: async () => undefined, waitMs: 0 });
+/**
+ * A return the strict check will accept: the background service, on the version asked for, started
+ * after the one that was closed, and answering on its own port with that same version. Anything a
+ * test leaves out here is a thing the check is entitled to refuse.
+ */
+const cameBack = (over = {}) => {
+  const note = { pid: 5151, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787",
+    version: "2.0.0", startedAt: new Date(Date.now() + 60000).toISOString(), ...over };
+  return {
+    running: async () => note,
+    attach: async () => ({ instance: note, version: over.answers ?? note.version }),
+    sleep: async () => undefined, waitMs: 0,
+  };
+};
+/** Nothing comes back at all, and nothing answers. */
+const neverBack = () => ({ running: async () => null, attach: async () => null, sleep: async () => undefined, waitMs: 0 });
 
 test("a Branch working in the background comes back by itself on the new version", { skip: posixOnly }, async (t) => {
   const s = await updateSetup(t);
-  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: quick([{ pid: 5151, mode: "daemon" }]) } });
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: cameBack() } });
   assert.equal(code, 0, s.lines.join("\n"));
   assert.ok(s.events.includes("restart"), "the service was started again through its manager");
   assert.ok(!s.events.includes("rollback"));
@@ -196,15 +211,26 @@ test("a Branch working in the background comes back by itself on the new version
 
 test("when the new version does not come up, the version before is put back and started", { skip: posixOnly }, async (t) => {
   const s = await updateSetup(t);
-  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: quick([{ pid: 4242 }]) } });
+  // The service does come back — on the version we were leaving. That is not the new version coming
+  // up, and taking the note's word for it was how this used to pass.
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: cameBack({ version: "1.0.0" }) } });
   assert.equal(code, 1);
   assert.ok(s.events.indexOf("rollback") > s.events.indexOf("restart"), "it went back only after the new version failed to come up");
   assert.match(s.lines.join("\n"), /did not come back up in the background, so Branch is going back to the version it had/);
 });
 
+test("a Branch that answers with the old version is not the new one coming back", { skip: posixOnly }, async (t) => {
+  // The note on disk is written by whatever started, so a swap that half happened can leave it saying
+  // 2.0.0 while the Branch actually answering on the port is still 1.0.0. The note is not the proof.
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: cameBack({ answers: "1.0.0" }) } });
+  assert.equal(code, 1, "what it answered with is what counts, not what was written down");
+  assert.ok(s.events.includes("rollback"), "so the version before was put back");
+});
+
 test("a service manager that refuses the start goes straight to the way back", { skip: posixOnly }, async (t) => {
   const s = await updateSetup(t);
-  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, restartService: async () => { throw new Error("no such unit"); }, returnWait: quick([]) } });
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, restartService: async () => { throw new Error("no such unit"); }, returnWait: neverBack() } });
   assert.equal(code, 1);
   assert.ok(s.events.includes("rollback"));
 });
@@ -286,9 +312,11 @@ test("an update whose hand-over fails does not leave a service down", { skip: po
   const events = s.events;
   const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
     runScript: (...args) => { events.push(["script", ...args]); return 3; },
-    returnWait: quick([{ pid: 5151, mode: "daemon", version: "1.0.0", port: 8787, url: "http://127.0.0.1:8787", startedAt: new Date().toISOString() }]),
+    returnWait: cameBack({ version: "1.0.0" }),
   } });
   assert.ok(events.includes("restart"), "the service was started again after the hand-over failed");
   assert.match(s.lines.join("\n"), /did not finish/);
-  assert.equal(code, 0, "and the owner is left with Branch running, on the version they had");
+  assert.match(s.lines.join("\n"), /working in the background again, on version 1\.0\.0/, "and it really came back");
+  // The service is back, and the update still failed. Whatever asked for it is told so.
+  assert.equal(code, 1, "a failed update never answers 0, however well the recovery went");
 });
