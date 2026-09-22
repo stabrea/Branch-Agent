@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { readdirSync, realpathSync } from "node:fs";
+import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream, readdirSync, realpathSync } from "node:fs";
+import type { Readable } from "node:stream";
 import { join, sep } from "node:path";
 import {
   AttachmentRefSchema, maxAttachmentsBytesPerTurn, maximumAttachmentsPerTurn, mediaTypeToken,
@@ -107,7 +108,7 @@ function trueName(path: string): string | null {
  */
 export interface DeliveryParts {
   profiles: { requireOwner(why: string): void };
-  attachments: Pick<Attachments, "read">;
+  attachments: Pick<Attachments, "partOf">;
   temporaryConversation(sessionId: string): boolean;
 }
 /**
@@ -118,9 +119,9 @@ export interface DeliveryParts {
  */
 export async function attachmentForWindow(
   parts: DeliveryParts, wanted: { session: string; id: string },
-): Promise<{ ref: AttachmentRef; bytes: Buffer }> {
+): Promise<{ ref: AttachmentRef; size: number; open: (part: BytesWanted | null) => Readable }> {
   parts.profiles.requireOwner("Opening an attached file");
-  return parts.attachments.read(wanted.session, wanted.id,
+  return parts.attachments.partOf(wanted.session, wanted.id,
     { temporary: parts.temporaryConversation(wanted.session) });
 }
 
@@ -151,6 +152,8 @@ export class Attachments {
     private readonly listFolders: (path: string) => string[] = readdirSync,
     private readonly writeListing: (path: string, text: string) => Promise<void> = flushToFile,
     private readonly remove: (path: string) => Promise<void> = (path) => rm(path, { recursive: true, force: true }),
+    private readonly openRange: (path: string, part: BytesWanted | null) => Readable =
+      (path, part) => createReadStream(path, part ? { start: part.start, end: part.end } : {}),
   ) {}
   /** One queue per conversation, so its listing is never written by two turns at once. */
   private readonly turns = new Map<string, Promise<void>>();
@@ -245,7 +248,13 @@ export class Attachments {
    * be really inside this store before it is opened, so a link or a name that climbs out cannot be
    * followed.
    */
-  async read(sessionId: string, id: string, options: { temporary?: boolean } = {}): Promise<{ ref: AttachmentRef; bytes: Buffer }> {
+  /**
+   * Where a kept file really is, and how big it really is, after every check reading it makes. The
+   * path is what lets one second of a film be sent without the whole film being held in memory
+   * first; the size is the file's own, not the number written down when it arrived.
+   */
+  async locate(sessionId: string, id: string, options: { temporary?: boolean } = {}):
+    Promise<{ ref: AttachmentRef; path: string; size: number }> {
     if (!/^[a-f0-9]{16}$/.test(id)) throw new Error("That file is not attached to this conversation");
     const folder = this.folder(sessionId, options.temporary);
     const ref = (await this.listing(folder)).find((one) => one.id === id);
@@ -256,7 +265,24 @@ export class Attachments {
     const root = trueName(this.root);
     if (!file || !root || !(file === root || file.startsWith(root + sep)))
       throw new Error("That file is not attached to this conversation");
-    return { ref, bytes: await readFile(file) };
+    return { ref, path: file, size: (await stat(file)).size };
+  }
+  async read(sessionId: string, id: string, options: { temporary?: boolean } = {}): Promise<{ ref: AttachmentRef; bytes: Buffer }> {
+    const { ref, path } = await this.locate(sessionId, id, options);
+    return { ref, bytes: await readFile(path) };
+  }
+  /**
+   * The part of a kept file somebody asked for, read from the file itself. Asking for the first
+   * kilobyte of a thirty-megabyte film used to cost thirty megabytes: the whole thing was read into
+   * memory and then a slice of it was sent. A window with a few films open could spend a gigabyte
+   * answering scrubs of a few kilobytes each.
+   */
+  async partOf(sessionId: string, id: string, options: { temporary?: boolean } = {}):
+    Promise<{ ref: AttachmentRef; size: number; open: (wanted: BytesWanted | null) => Readable }> {
+    const { ref, path, size } = await this.locate(sessionId, id, options);
+    // How big it is has to be known before which part was asked for can be worked out, so the part
+    // is chosen afterwards — without looking the file up a second time.
+    return { ref, size, open: (wanted) => this.openRange(path, wanted) };
   }
   /** Everything attached to one conversation, oldest first. */
   async list(sessionId: string, options: { temporary?: boolean } = {}): Promise<AttachmentRef[]> {

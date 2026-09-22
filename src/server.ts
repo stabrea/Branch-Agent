@@ -3729,21 +3729,23 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       "accept-ranges": "bytes",
       "content-disposition": `${inline ? "inline" : "attachment"}; filename="${found.ref.name.replace(/[^\w. -]/g, "_")}"`,
     };
-    const part = rangeWanted(request.headers.range, found.bytes.byteLength);
+    const part = rangeWanted(request.headers.range, found.size);
     if (part === "outside") {
-      response.writeHead(416, { ...headers, "content-range": `bytes */${found.bytes.byteLength}` });
+      response.writeHead(416, { ...headers, "content-range": `bytes */${found.size}` });
       response.end();
       return true;
     }
+    // Sent from the file rather than from a copy of all of it: asking for the first kilobyte of a
+    // thirty-megabyte film should not cost thirty megabytes of memory.
     if (part) {
-      const slice = found.bytes.subarray(part.start, part.end + 1);
-      response.writeHead(206, { ...headers, "content-length": String(slice.byteLength),
-        "content-range": `bytes ${part.start}-${part.end}/${found.bytes.byteLength}` });
-      response.end(slice);
-      return true;
+      response.writeHead(206, { ...headers, "content-length": String(part.end - part.start + 1),
+        "content-range": `bytes ${part.start}-${part.end}/${found.size}` });
+    } else {
+      response.writeHead(200, { ...headers, "content-length": String(found.size) });
     }
-    response.writeHead(200, { ...headers, "content-length": String(found.bytes.byteLength) });
-    response.end(found.bytes);
+    const sending = found.open(part);
+    sending.on("error", () => response.destroy());
+    sending.pipe(response);
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/transcribe") {

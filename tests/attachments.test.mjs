@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, symlink, writeFile } from "node:fs/promises";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { createReadStream, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -24,6 +24,12 @@ import { ROUTES } from "./short-lived-key-routes.mjs";
  */
 
 const owner = "local";
+/** Everything a stream hands over, for the tests that read one. */
+async function bytesOf(stream) {
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
 /** A real, tiny PNG (one pixel), a real WAV header with silence, and a small MP4-shaped file. */
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 function wav(seconds = 1, rate = 8000) {
@@ -81,6 +87,37 @@ async function listening(t, scratch) {
   t.after(() => setDiagnosticLog(null));
   return log;
 }
+
+
+test("one part of a file is read as that part, not sliced out of a copy of the whole thing", async (t) => {
+  // Asking for the first kilobyte of a thirty-megabyte film cost thirty megabytes: the file was read
+  // whole and a slice of it was sent. A window with a few films open could spend a gigabyte
+  // answering scrubs of a few kilobytes each. A test cannot watch memory without measuring this
+  // machine instead of the code, so it watches the ask: what the file is opened for.
+  const scratch = await mkdtemp(join(tmpdir(), "branch-range-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+  const asked = [];
+  const store = new Attachments(root, readdirSync, undefined, undefined, (path, part) => {
+    asked.push(part);
+    return createReadStream(path, part ? { start: part.start, end: part.end } : {});
+  });
+  const whole = Buffer.from("0123456789".repeat(400));
+  const [kept] = await store.keep("a-conversation",
+    [{ name: "numbers.txt", mediaType: "text/plain", data: whole.toString("base64") }]);
+
+  const part = await store.partOf("a-conversation", kept.id);
+  assert.equal(part.size, whole.length, "the size comes from the file itself");
+  assert.deepEqual(asked, [], "nothing is opened until somebody says which part they want");
+
+  assert.ok((await bytesOf(part.open({ start: 10, end: 19 }))).equals(whole.subarray(10, 20)));
+  assert.deepEqual(asked, [{ start: 10, end: 19 }],
+    "the file was opened for those ten bytes, not for all four thousand");
+
+  assert.ok((await bytesOf(part.open(null))).equals(whole), "and asking for all of it still gives all of it");
+  assert.deepEqual(asked, [{ start: 10, end: 19 }, null]);
+});
+
 
 test("a delete that fails says so instead of leaving the bytes behind in silence", async (t) => {
   // Deleting a conversation's folder can fail — something still has a file open, which on Windows is
@@ -244,8 +281,9 @@ test("handing a file back checks who is asking, before it looks anything up", as
   const parts = { profiles: app.store.profiles, attachments: app.attachments,
     temporaryConversation: (session) => app.store.sessionTemporary(session) };
 
-  assert.ok((await attachmentForWindow(parts, { session: sessionId, id: ref.id })).bytes.equals(png),
-    "the owner is handed the file");
+  const handed = await attachmentForWindow(parts, { session: sessionId, id: ref.id });
+  assert.equal(handed.size, png.length, "the owner is handed the file, and its real size");
+  assert.ok((await bytesOf(handed.open(null))).equals(png));
 
   // Straight at the helper, with nothing in front of it: the guard inside it is the only thing deciding.
   const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
