@@ -22,7 +22,7 @@ import { closeSettings, openSettings } from "./places.mjs";
 const LOCALES = join(import.meta.dirname, "..", "public", "locales");
 const MODEL_TABS = ["connection", "defaults", "local", "second", "media"];
 
-async function fixture(t) {
+async function fixture(t, before) {
   const root = await mkdtemp(join(tmpdir(), "branch-info-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -32,6 +32,7 @@ async function fixture(t) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce", serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  if (before) await before(page);
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
@@ -343,9 +344,15 @@ test("a redrawn card whose label names its control by id still opens the explana
   assert.match(await page.locator(".kit-info-pop").innerText(), /folder/i, "the explanation is that setting's own");
 });
 
-test("the page settling under an open explanation does not take it away; scrolling the i out of sight does", async (t) => {
-  /* The flake behind #154 under load: pressing an "i" scrolls the Settings body a moment later, and any
-     scroll used to shut the explanation that press had just opened. */
+test("an open explanation follows its i wherever the page goes, and goes only when the i goes", async (t) => {
+  /*
+   * The title used to say scrolling the "i" out of sight took the explanation away. It does not, and
+   * it must not: the flake behind #154 was the Settings body scrolling a moment after a press, all on
+   * its own while the page settled, which shut the explanation that press had just opened. The page
+   * moving under you is not you changing your mind. Below: it follows a small scroll, it follows one
+   * that carries the "i" clean off the screen, it goes when the "i" is taken off the page, and it goes
+   * when the "i" is hidden where it stands.
+   */
   const { page } = await fixture(t);
   await openSettings(page, "general");
   const pop = page.locator(".kit-info-pop");
@@ -361,6 +368,7 @@ test("the page settling under an open explanation does not take it away; scrolli
   assert.equal(await info.getAttribute("aria-expanded"), "true");
 
   // Scrolled right past, it keeps following its "i" off the screen rather than being taken away mid-read.
+  // This is the line the old title contradicted, so it is asserted, not assumed.
   await page.evaluate(() => { document.getElementById("lx-settings-body").scrollBy(0, 4000); });
   await page.waitForTimeout(150);
   const far = await pop.boundingBox();
@@ -371,6 +379,25 @@ test("the page settling under an open explanation does not take it away; scrolli
   // It goes when its "i" goes: the card is drawn again without it.
   await page.evaluate(() => { document.getElementById("keep-running").closest("label").nextElementSibling.remove(); });
   await pop.waitFor({ state: "hidden" });
+});
+
+/*
+ * The other half of the same rule, which nothing held: "gone" is not only "taken off the page". An
+ * "i" hidden where it stands -- a card folded away, a page swapped behind it -- is gone too, and the
+ * explanation must not be left standing over a control nobody can see.
+ */
+test("an explanation goes when its i is hidden where it stands, not only when it is removed", async (t) => {
+  const { page, errors } = await fixture(t);
+  await openSettings(page, "general");
+  const pop = page.locator(".kit-info-pop");
+  const info = infoFor(page, "#keep-running");
+  await info.click();
+  await pop.waitFor({ state: "visible" });
+  await page.evaluate(() => { document.getElementById("keep-running").closest(".card").style.display = "none"; });
+  await page.evaluate(() => { document.getElementById("lx-settings-body").scrollBy(0, 1); });
+  await pop.waitFor({ state: "hidden" });
+  assert.equal(await info.getAttribute("aria-expanded"), "false", "the i no longer says it has something open");
+  assert.deepEqual(errors, []);
 });
 
 test("a cancel removes its listeners at once, even when the explanation never arrives", async (t) => {
@@ -400,4 +427,43 @@ test("a cancel removes its listeners at once, even when the explanation never ar
   // Press after press with no answer never piles them up.
   for (let i = 0; i < 3; i++) { await info.click(); await info.focus(); await page.keyboard.press("Escape"); }
   assert.equal(await listening(), 0);
+});
+
+/*
+ * Codex review of `5eeebba4`, blocker 1. A second press on the same "i" before it opens means
+ * "never mind" -- but that press's own cancel listeners watch for a press *outside* its button, so
+ * they never fire for it, and the answer they were waiting for may never arrive. Every other press
+ * therefore left a keydown and a pointerdown on the document for ever, and the next press added two
+ * more: six presses on a dead network left six behind, growing without end.
+ */
+test("a second press on the same i, while the words never arrive, leaves nothing on the document", async (t) => {
+  const { page, errors } = await fixture(t, async (page) => {
+    await page.addInitScript(() => {
+      globalThis.__docWatch = { added: 0, removed: 0 };
+      const add = Document.prototype.addEventListener, drop = Document.prototype.removeEventListener;
+      const ours = (node, type) => node === document && (type === "keydown" || type === "pointerdown");
+      Document.prototype.addEventListener = function (type, fn, options) {
+        if (ours(this, type)) globalThis.__docWatch.added += 1;
+        return add.call(this, type, fn, options);
+      };
+      Document.prototype.removeEventListener = function (type, fn, options) {
+        if (ours(this, type)) globalThis.__docWatch.removed += 1;
+        return drop.call(this, type, fn, options);
+      };
+    });
+    // The words never arrive: a dead or very slow network, which is the case under review.
+    await page.route("**/settings-defaults.json", () => {});
+  });
+  await openSettings(page, "general");
+  const info = infoFor(page, "#keep-running");
+  await info.waitFor({ state: "visible", timeout: 30000 });
+  const start = await page.evaluate(() => ({ ...globalThis.__docWatch }));
+  for (let press = 0; press < 6; press++) { await info.click(); await page.waitForTimeout(120); }
+  const end = await page.evaluate(() => globalThis.__docWatch);
+  const left = (end.added - start.added) - (end.removed - start.removed);
+  assert.ok(end.added > start.added, "the presses are meant to install the cancel listeners");
+  assert.equal(left, 0, `six presses left ${left} listeners on the document`);
+  assert.equal(await page.locator(".kit-info-pop").count() === 0 || await page.locator(".kit-info-pop").isHidden(), true,
+    "nothing opened, because the words never came");
+  assert.deepEqual(errors, []);
 });

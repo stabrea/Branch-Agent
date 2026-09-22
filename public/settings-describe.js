@@ -298,6 +298,8 @@ function fill(button, defaults) {
 
 /** The "i" whose explanation is being fetched: a second press on it before it opens means "never mind". */
 let opening = null;
+/** How to take that press's cancel listeners off the document again, for whoever ends the wait. */
+let stopOpening = null;
 
 /**
  * While an explanation is still loading, whatever would close it once open cancels it instead:
@@ -321,8 +323,13 @@ function cancelOpeningOn(button) {
   return stop;
 }
 
-/** Whether the "i" is still on screen to point the popup at. */
-const onScreen = (button) => button.isConnected && (button.checkVisibility?.() ?? button.getClientRects().length > 0);
+/**
+ * Whether the "i" is still there to point the explanation at: on the page and not hidden.
+ *
+ * Deliberately **not** "in view". checkVisibility answers display, visibility and content-visibility,
+ * never where the page is scrolled to, and that is the rule we want: see the scroll listener below.
+ */
+const onPage = (button) => button.isConnected && (button.checkVisibility?.() ?? button.getClientRects().length > 0);
 
 /**
  * The "i" that now stands for the same setting. A card that redraws itself gives its label a new "i"
@@ -333,7 +340,7 @@ function infoNowFor(control) {
   for (const button of document.querySelectorAll(`${CARDS} .kit-info`)) {
     const now = button.previousElementSibling?.control;
     // The card may have made a new control as well as a new label, so its own name counts as itself.
-    if (!now || !onScreen(button)) continue;
+    if (!now || !onPage(button)) continue;
     if (now === control || (control.id && now.id === control.id) || (control.name && now.name === control.name)) return button;
   }
   return null;
@@ -341,13 +348,19 @@ function infoNowFor(control) {
 
 async function toggleInfo(button) {
   if (shown?.button === button) { shown.entry.close(); return; }
-  if (opening === button) { opening = null; return; }
+  /* A second press on the same "i" before it opens means "never mind" -- and it must take that press's
+     cancel listeners off the document itself. Its own onPress sees a press inside its own button and
+     rightly does not cancel, and the answer it is waiting for may never come: on a dead network every
+     other press then left a keydown and a pointerdown on the document for ever, and the next press
+     added two more. */
+  if (opening === button) { opening = null; stopOpening?.(); stopOpening = null; return; }
   opening = button;
   // Which setting was pressed, read before the wait, while its label is still there to name it.
   const label = button.previousElementSibling;
   const control = label?.control ?? null;
   const stop = cancelOpeningOn(button);
-  const defaults = await loadDefaults().finally(stop);
+  stopOpening = stop;
+  const defaults = await loadDefaults().finally(() => { if (stopOpening === stop) stopOpening = null; stop(); });
   // Only the latest press opens anything, and whatever it replaces is closed first: its close
   // hides the one shared pane, so running it after this one is shown would hide this one instead.
   if (opening !== button) return;
@@ -355,7 +368,7 @@ async function toggleInfo(button) {
   /* The card may have drawn itself again while it loaded, which gives the setting a new label and a new
      "i": the press belongs to the setting, so it opens against the "i" that stands for it now. An "i"
      taken off a label that is still there was taken away on purpose, and then nothing opens, as before. */
-  if (!onScreen(button)) {
+  if (!onPage(button)) {
     const again = label?.isConnected !== true ? infoNowFor(control) : null;
     if (!again) return;
     button = again;
@@ -403,7 +416,7 @@ function refresh() {
     chipAll();
     infoAll();
     // An explanation belongs to its "i": once that has gone from the page, so does it.
-    if (shown && !onScreen(shown.button)) shown.entry.close();
+    if (shown && !onPage(shown.button)) shown.entry.close();
   });
 }
 
@@ -426,12 +439,24 @@ if (typeof document !== "undefined") {
     // An open explanation is written again in the new language, where it stands.
     if (shown && pane && !pane.hidden) void loadDefaults().then((defaults) => { if (shown && fill(shown.button, defaults)) place(shown.button); });
   });
-  /* The explanation is placed against its "i", so it follows it while the page moves and goes only once
-     the "i" itself is out of sight. Taking it away on any scroll lost it to the page settling under it:
-     pressing an "i" scrolls the Settings body a moment later, which shut the explanation just opened. */
+  /*
+   * The rule, in one line: **the explanation follows its "i" for as long as that "i" is on the page,
+   * and goes when the "i" goes.** Scrolling is not a reason to take it away -- not even scrolling the
+   * "i" clean off the screen, where the explanation goes with it and comes back with it.
+   *
+   * It reads as the odd choice until you have chased the flake: pressing an "i" makes the Settings
+   * body scroll a moment later, all on its own, while the page is still settling. A rule of "close
+   * when it leaves the view" threw away the explanation the person had just asked for, about one run
+   * in three under load, with the "i" at y=2507 in a 1000px viewport. The page moving under you is
+   * not you changing your mind. So: follow while it is there, close when it is gone.
+   */
   document.addEventListener("scroll", (event) => {
     if (!shown || pane?.contains(event.target)) return;
-    if (onScreen(shown.button)) place(shown.button);
+    if (onPage(shown.button)) place(shown.button);
+    // The rule's home is refresh() above; this is the same rule answered at once rather than on the
+    // next pass. Measured: with this branch removed, an "i" hidden where it stands still takes its
+    // explanation with it, in 200-600ms, through refresh(). It is kept as the immediate path, not
+    // as a second opinion -- both ask onPage, so they cannot disagree.
     else shown.entry.close();
   }, true);
   globalThis.branchDescribeSettings = () => refresh();
