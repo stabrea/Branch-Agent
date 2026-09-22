@@ -113,6 +113,21 @@ test("when the count cannot be had, nothing installs until the owner says so", a
   assert.deepEqual(errors, []);
 });
 
+test("an answer that is not a real count is never taken as none, however it reads as a number", async (t) => {
+  const { page, errors } = await openApp(t);
+  let answer = null;
+  await page.route("**/api/comfort/update-plan", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ busyTasks: answer }) }));
+  for (const odd of [null, false, "", "0", 0.5, -1, "3"]) {
+    answer = odd;
+    await page.locator("#updates-install").click();
+    await page.locator("#updates-busy").waitFor({ state: "visible" });
+    assert.match(await page.locator("#updates-busy-text").textContent(), /could not tell whether any task is working/, JSON.stringify(odd));
+    assert.equal(await installs(page), 0, `${JSON.stringify(odd)} did not install`);
+    await page.locator("#updates-busy-cancel").click();
+  }
+  assert.deepEqual(errors, []);
+});
+
 test("slow answers while waiting, and a double press, still install exactly once", async (t) => {
   const { app, page } = await openApp(t);
   const one = app.store.createRun(app.runtime.owner, "a job");

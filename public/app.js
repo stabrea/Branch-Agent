@@ -1051,8 +1051,9 @@ $("updates-check").addEventListener("click", async () => {
 let busyTimer = null, waitingForTasks = false, installing = false;
 /** How many tasks are working now, or null when that could not be found out (never taken as none). */
 const busyTasks = () => api("comfort/update-plan", {}).then((plan) => {
-  const count = Number(plan.busyTasks);
-  return Number.isInteger(count) && count >= 0 ? count : null;
+  // Only a real count counts: null, false, "" or "3" would each read as a number and could pass for none.
+  const count = plan?.busyTasks;
+  return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : null;
 }, () => null);
 function endBusyChoice() {
   waitingForTasks = false;
