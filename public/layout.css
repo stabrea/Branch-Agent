@@ -584,9 +584,13 @@ body.lx-help .context-panel > .acorn-art {
   color: var(--text-2);
 }
 .lx-tabs {
+  /* It rides along at the top of the page as the place scrolls: flush with the scrolling edge at every
+     width, never up into the header, and on the page's own surface so nothing that scrolls under it shows
+     through (the glass tint over a solid ground, as Settings' sticky mirrors are). */
   position: sticky;
-  top: calc(-1 * var(--s5));
+  top: calc(-1 * var(--workspace-top, var(--s5)));
   z-index: 3;
+  background: linear-gradient(var(--glass-2), var(--glass-2)), var(--surface);
   display: flex;
   gap: 2px;
   margin: 0 0 var(--s4);

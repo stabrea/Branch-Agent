@@ -577,10 +577,12 @@ header {
 }
 #login,
 #workspace {
+  /* Its top padding, named so what sticks to its top (a place's tabs) sits exactly at the edge. */
+  --workspace-top: var(--s5);
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--s5) var(--s5) var(--s6);
+  padding: var(--workspace-top) var(--s5) var(--s6);
 }
 /* one reading column, centred, with no page-in-page frames */
 #workspace > .view {
@@ -1320,7 +1322,8 @@ details.tool-step > summary:hover {
   }
   #login,
   #workspace {
-    padding: var(--s4) var(--s4) var(--s5);
+    --workspace-top: var(--s4);
+    padding: var(--workspace-top) var(--s4) var(--s5);
   }
   .composer-dock {
     padding: var(--s4);
@@ -1349,7 +1352,8 @@ details.tool-step > summary:hover {
   }
   #login,
   #workspace {
-    padding: var(--s3) var(--s3) var(--s4);
+    --workspace-top: var(--s3);
+    padding: var(--workspace-top) var(--s3) var(--s4);
   }
   .welcome {
     padding: var(--s5) 0 var(--s4);
