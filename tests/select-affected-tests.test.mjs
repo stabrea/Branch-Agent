@@ -142,6 +142,19 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs", "tests/settings-grown.test.mjs"]);
 });
 
+test("glass list behavior has its exact browser contract inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const result = selectImpact([{ status: "M", paths: ["public/glass-select.js"] }], {
+    config: checkedIn,
+    weights,
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+  assert.deepEqual(result.tests, ["tests/glass-select.test.mjs", "tests/leak-guard.test.mjs"]);
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
   const result = selectImpact([{ status: "M", paths: ["public/composer-grown.js"] }], {

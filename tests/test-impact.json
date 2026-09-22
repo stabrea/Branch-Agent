@@ -130,6 +130,10 @@
       ]
     },
     {
+      "paths": ["public/glass-select.js"],
+      "tests": ["tests/glass-select.test.mjs"]
+    },
+    {
       "paths": [
         "public/control-makers.js",
         "public/control-styles.css",
