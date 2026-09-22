@@ -218,12 +218,18 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     activation.failed();
     activation.close();
     input.print(`The update did not finish, so Branch stays on the version it had. What happened is in ${log}.`);
+    // The hand-over has already closed the service and told the script not to reopen it. Stopping
+    // here would leave the owner with the version they had and nothing running it, which is the
+    // one outcome none of this is allowed to produce. So the same recovery runs, for the version
+    // that is still installed.
+    if (stopped.report?.wasRunning && note?.mode === "daemon")
+      return serviceBack(input, note, input.version, log);
     return 1;
   }
   activation.activated();
   activation.close();
   input.print(`Updated Branch Agent from ${input.version} to ${to}. The version before is kept beside it. Log: ${log}`);
-  if (stopped.report?.wasRunning && note?.mode === "daemon") return serviceBack(input, stopped.report.pid, to, log);
+  if (stopped.report?.wasRunning && note?.mode === "daemon") return serviceBack(input, note, to, log);
   return 0;
 }
 
@@ -232,17 +238,23 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
  * does not come up the version before is put back and started instead: the owner is never left with
  * no Branch running.
  */
-async function serviceBack(input: HeadlessUpdateInput, before: number | null, to: string, log: string): Promise<number> {
+async function serviceBack(
+  input: HeadlessUpdateInput, before: RunningInstance, expected: string, log: string,
+): Promise<number> {
   const deps = input.deps ?? {}, platform = input.platform ?? process.platform;
   const restart = deps.restartService ?? (() => restartService(platform));
   const started = await restart().then(() => true, () => false);
-  if (started && (await waitForReturn(input.dataDir, before, deps.returnWait))) {
-    input.print(`Branch is working in the background again, on version ${to}.`);
+  if (started && (await waitForReturn(input.dataDir, before, { version: expected }, deps.returnWait))) {
+    input.print(`Branch is working in the background again, on version ${expected}.`);
     return 0;
   }
-  input.print(`Version ${to} did not come back up in the background, so Branch is going back to the version it had. Log: ${log}`);
+  input.print(`Version ${expected} did not come back up in the background, so Branch is going back to the version it had. Log: ${log}`);
+  // What was running before this started is carried into the undo. By now nothing is running — that is
+  // the whole reason we are here — so asking the disk again would answer "nothing was running" and the
+  // undo would put the files back and start nothing.
   const rollback = deps.rollback ?? ((again: () => Promise<void>) => rollbackCommand({
-    dataDir: input.dataDir, version: to, yes: true, platform, print: input.print, deps: { restartService: again },
+    dataDir: input.dataDir, version: expected, yes: true, platform, print: input.print,
+    deps: { restartService: again, wasRunning: before },
   }));
   const code = await rollback(restart).catch(() => 1);
   if (code !== 0) input.print("Going back did not finish either. Start Branch with `branch start`, or see what happened with `branch rollback`.");

@@ -3,7 +3,7 @@ import { launchctl, launchdDomain, launchdLabel } from "./launchd.js";
 import { systemctl, systemdUnitName } from "./systemd.js";
 import { daemonTaskName } from "./daemon.js";
 import { runningNow } from "./quit.js";
-import type { RunningInstance } from "./running.js";
+import { attachToRunning, type RunningInstance } from "./running.js";
 
 /**
  * After an update or a rollback, a Branch that was running as a background service is started again
@@ -26,24 +26,57 @@ export async function restartService(platform: NodeJS.Platform = process.platfor
 
 export interface ReturnDeps {
   running?: (dataDir: string) => Promise<RunningInstance | null>;
+  /** Proves the note is a Branch that really answers, with this computer's own saved key. */
+  attach?: (dataDir: string) => Promise<{ instance: RunningInstance; version: string } | null>;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   waitMs?: number;
 }
 
+/** What was running before the swap: the process, and when that process started. */
+export interface Before { pid: number | null; startedAt: string | null }
+
 /**
- * Waits for a Branch other than the one that was closed (`before`) to say it is running. Answers with
- * the new process, or null when none came up in time.
+ * Waits for the background service to be **back**, and is strict about what that means. A note on disk
+ * saying something is running is not enough on its own: the note is written by whatever started, and one
+ * left behind by the copy that was just closed looks exactly like a fresh one apart from its time.
+ *
+ * So four things have to hold, and each of them is a way this went wrong before:
+ *
+ *   - it is the **background service**, not a window somebody happened to open;
+ *   - it is the **version that was meant to be running** — coming back on the old one is not coming back;
+ *   - it started **after** the one that was closed. The time is what decides, not the process id: an
+ *     operating system is free to hand the same id out again, and a Branch that legitimately gets it is
+ *     still a new Branch;
+ *   - and it **answers**, on its own port, with this computer's saved key, saying the same version.
+ *
+ * Answers with the instance that came back, or null when none did in time.
  */
-export async function waitForReturn(dataDir: string, before: number | null, deps: ReturnDeps = {}): Promise<RunningInstance | null> {
+export async function waitForReturn(
+  dataDir: string, before: Before, expect: { version: string }, deps: ReturnDeps = {},
+): Promise<RunningInstance | null> {
   const running = deps.running ?? ((dir: string) => runningNow(dir));
+  const attach = deps.attach ?? (async (dir: string) => {
+    const found = await attachToRunning(dir);
+    return found ? { instance: found.instance, version: found.instance.version } : null;
+  });
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
   const now = deps.now ?? Date.now;
   const deadline = now() + (deps.waitMs ?? 60000);
   for (;;) {
     const note = await running(dataDir).catch(() => null);
-    if (note && note.pid !== before) return note;
+    if (note && isTheReturn(note, before, expect.version)) {
+      const answered = await attach(dataDir).catch(() => null);
+      if (answered && answered.version === expect.version && answered.instance.pid === note.pid) return note;
+    }
     if (now() >= deadline) return null;
     await sleep(500);
   }
+}
+
+/** Whether the note on disk describes the service, on the right version, started since the swap. */
+function isTheReturn(note: RunningInstance, before: Before, version: string): boolean {
+  if (note.mode !== "daemon" || note.version !== version) return false;
+  if (before.startedAt === null) return note.pid !== before.pid;
+  return Date.parse(note.startedAt) > Date.parse(before.startedAt);
 }

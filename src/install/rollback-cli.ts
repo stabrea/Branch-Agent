@@ -13,6 +13,7 @@ import { Store } from "../store.js";
 import { databaseName } from "./layout.js";
 import { quitRunning, runningNow, type QuitDeps } from "./quit.js";
 import { restartService } from "./service-return.js";
+import type { RunningInstance } from "./running.js";
 
 /**
  * `branch rollback` — going back to the version before the last update, and being told plainly when
@@ -37,6 +38,13 @@ export interface RollbackCliDeps {
   launch?: (target: string, executableName: string) => void;
   /** Starts a background service again (it was one before the undo), through its own manager. */
   restartService?: () => Promise<void>;
+  /**
+   * What was running before all of this began, when the caller knows and the disk no longer does. The
+   * update's own recovery comes in here after the service has been closed and the new version failed to
+   * come up: reading the disk then says "nothing was running", and the undo would put the files back and
+   * start nothing.
+   */
+  wasRunning?: RunningInstance | null;
   /** Only for the torture tests: stops the swap after this many moves. */
   stopAfter?: number;
   budgetMs?: number;
@@ -110,7 +118,7 @@ export async function rollbackCommand(input: RollbackCliInput): Promise<number> 
 
 async function runRollback(entry: ActivationEntry, journal: ActivationJournal, input: RollbackCliInput): Promise<RollbackReport> {
   const deps = input.deps ?? {};
-  const was = await runningNow(input.dataDir, deps.quit?.alive);
+  const was = deps.wasRunning ?? await runningNow(input.dataDir, deps.quit?.alive);
   const wasRunning = was !== null;
   return performRollback(entry, {
     journal, by: `${process.pid}@${process.platform}`,

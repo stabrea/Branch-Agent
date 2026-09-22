@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { discardTemp } from "./temp-dir.mjs";
 import { restartService, serviceRestartCommand, waitForReturn } from "../dist/install/service-return.js";
+import { performRollback } from "../dist/never-break/rollback.js";
 import { headlessUpdate } from "../dist/install/headless-update.js";
 import { rollbackCommand } from "../dist/install/rollback-cli.js";
 import { writeRunning } from "../dist/install/running.js";
@@ -50,16 +51,93 @@ test("starting the service again really runs that system's own command", async (
   assert.equal(onMac[0][1][0], "kickstart");
 });
 
-test("the wait is for a Branch other than the one that was closed, and gives up in time", async () => {
+/** A note the way the running file holds one, so a test says what it means rather than what it types. */
+const note = (over = {}) => ({
+  pid: 5151, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787",
+  version: "2.0.0", startedAt: "2026-09-22T10:00:05.000Z", ...over,
+});
+const wasRunning = { pid: 4242, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787",
+  version: "1.0.0", startedAt: "2026-09-22T10:00:00.000Z" };
+/** The wait, driven by a list of notes, with the clock and the answering Branch in the test's hands. */
+async function waiting(notes, over = {}) {
   let clock = 0;
-  const notes = [null, { pid: 10 }, { pid: 10 }, { pid: 22, mode: "daemon" }];
-  const back = await waitForReturn("data", 10, { running: async () => notes.shift() ?? null, sleep: async (ms) => { clock += ms; }, now: () => clock });
-  assert.equal(back?.pid, 22, "the old process id still written down is not the new version");
+  const left = [...notes];
+  const answers = over.attach === undefined ? { instance: note(), version: "2.0.0" } : over.attach;
+  const back = await waitForReturn("data", wasRunning, { version: "2.0.0" }, {
+    running: async () => left.shift() ?? null,
+    attach: async () => answers,
+    sleep: async (ms) => { clock += ms; },
+    now: () => clock,
+    waitMs: 3000,
+  });
+  return { back, clock };
+}
 
-  clock = 0;
-  const never = await waitForReturn("data", 10, { running: async () => ({ pid: 10 }), sleep: async (ms) => { clock += ms; }, now: () => clock, waitMs: 3000 });
-  assert.equal(never, null);
-  assert.ok(clock >= 3000 && clock < 4000, "it waited as long as it was allowed, and no longer");
+test("the wait is for the service, on the right version, started since — and it has to answer", async () => {
+  // What coming back looks like: the service, version 2.0.0, started after the one that was closed,
+  // and answering on its own port with this computer's key.
+  const good = await waiting([null, note()]);
+  assert.equal(good.back?.pid, 5151, "that is the return");
+
+  // Four things that look like a return and are not. Each of these was accepted before.
+  const notTheService = await waiting([note({ mode: "app" })]);
+  assert.equal(notTheService.back, null, "a window somebody opened is not the service coming back");
+
+  const oldVersion = await waiting([note({ version: "1.0.0" })]);
+  assert.equal(oldVersion.back, null, "coming back on the version we were leaving is not coming back");
+
+  const staleNote = await waiting([note({ pid: 4242, startedAt: wasRunning.startedAt })]);
+  assert.equal(staleNote.back, null, "the note the closed copy left behind is not a new Branch");
+
+  const unrelated = await waiting([note({ pid: 9999, startedAt: "2026-09-22T09:59:00.000Z" })]);
+  assert.equal(unrelated.back, null, "something that started before the swap is not the return either");
+
+  // A process id the system handed out again is still a new Branch, and must not be punished for it.
+  const reused = await waiting([note({ pid: 4242 })], { attach: { instance: note({ pid: 4242 }), version: "2.0.0" } });
+  assert.equal(reused.back?.pid, 4242, "the same id, a later start: a new Branch");
+
+  // And a note that cannot be made to answer is not proof of anything.
+  const silent = await waiting([note(), note(), note()], { attach: null });
+  assert.equal(silent.back, null, "a Branch that will not answer with this computer's key is not counted");
+  assert.ok(silent.clock >= 3000 && silent.clock < 4000, "it waited as long as it was allowed, and no longer");
+
+  const wrongAnswer = await waiting([note()], { attach: { instance: note(), version: "1.0.0" } });
+  assert.equal(wrongAnswer.back, null, "and one that answers with another version is not the version we wanted");
+});
+
+test("an undo whose restart fails is a failure, whatever else went right", async (t) => {
+  // Everything about this undo works except the one thing that puts Branch back in front of the owner.
+  // Being on the older files with nothing running them is not being back, and saying otherwise sent the
+  // owner away with exit code 0 and a service that was down.
+  const root = await scratch(t);
+  const journal = new ActivationJournal(join(root, "activation.sqlite"));
+  const target = join(root, "Apps", "Branch-Agent");
+  await fakeApp(target, "2.0.0");
+  await fakeApp(`${target}.previous`, "1.0.0");
+  const id = journal.stage({ kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target,
+    previous: await fingerprintTree(`${target}.previous`), candidate: await fingerprintTree(target),
+    launcher: null, executableName: "branch-agent", understood: 1, databases: [], backups: [] });
+  journal.activated(id);
+
+  const shared = {
+    journal, by: "test@test",
+    observe: async () => ({ current: await fingerprintTree(target), previous: await fingerprintTree(`${target}.previous`), store: null, runnerKnows: 0 }),
+    swap: async () => ["put version 1.0.0 back"],
+  };
+  const refused = await performRollback(journal.current(), { ...shared, restart: async () => { throw new Error("no such unit"); } });
+  assert.equal(refused.ok, false, "the undo did not do what it set out to do");
+  assert.match(refused.message, /could not be started again/);
+  assert.match(refused.message, /no such unit/, "and says what the manager said");
+  assert.ok(refused.steps.some((step) => step.step === "started Branch again" && !step.ok), "the step is written down as failed");
+
+  // The same undo with a restart that works is a success, so this is about the restart and nothing else.
+  journal.activated(journal.stage({ kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target,
+    previous: await fingerprintTree(`${target}.previous`), candidate: await fingerprintTree(target),
+    launcher: null, executableName: "branch-agent", understood: 1, databases: [], backups: [] }));
+  const fine = await performRollback(journal.current(), { ...shared, restart: async () => undefined });
+  journal.close(); // before the folder goes, or Windows will not let it
+  assert.equal(fine.ok, true, fine.message);
+  assert.match(fine.message, /Branch is back on version 1\.0\.0/);
 });
 
 /* ---------- branch update --yes ---------- */
@@ -166,4 +244,51 @@ test("branch rollback brings a background service back as the service, not as a 
   assert.equal(code, 0, said.join("\n"));
   assert.equal(restarted, 1);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "1.0.0", "the version before is back");
+});
+
+
+test("the undo is told what was running, so a service that never came back is started again", async (t) => {
+  // The update's recovery reaches the undo after the service has been closed and the new version never
+  // came up. Asking the disk then answers "nothing is running", and the files would go back with nothing
+  // started. What was running before all this began is carried in instead.
+  const root = await scratch(t);
+  const dataDir = join(root, "data");
+  await mkdir(dataDir, { recursive: true });
+  const target = join(root, "Apps", "Branch-Agent");
+  await fakeApp(target, "2.0.0");
+  await fakeApp(`${target}.previous`, "1.0.0");
+  const journal = new ActivationJournal(join(dataDir, "activation.sqlite"));
+  const id = journal.stage({ kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target,
+    previous: await fingerprintTree(`${target}.previous`), candidate: await fingerprintTree(target),
+    launcher: null, executableName: "branch-agent", understood: 1, databases: [], backups: [] });
+  journal.activated(id);
+  journal.close();
+
+  // Nothing is running, exactly as it is at that moment.
+  let restarted = 0;
+  const said = [];
+  const code = await rollbackCommand({ dataDir, version: "2.0.0", yes: true, platform: "linux", print: (line) => said.push(line),
+    deps: {
+      quit: { alive: () => false, stopEngine: async () => ({ stopped: true, message: "" }) },
+      wasRunning: { pid: 4242, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787", version: "1.0.0", startedAt: "2026-09-22T10:00:00.000Z" },
+      restartService: async () => { restarted += 1; },
+      launch: () => assert.fail("a service is never brought back as a window"),
+    } });
+  assert.equal(code, 0, said.join("\n"));
+  assert.equal(restarted, 1, "the service was started again, because the undo was told there was one");
+  assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "1.0.0");
+});
+
+test("an update whose hand-over fails does not leave a service down", { skip: posixOnly }, async (t) => {
+  // The hand-over closed the service and told the script not to reopen it. If the script then fails,
+  // stopping here leaves the owner on the version they had with nothing running it.
+  const s = await updateSetup(t);
+  const events = s.events;
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    runScript: (...args) => { events.push(["script", ...args]); return 3; },
+    returnWait: quick([{ pid: 5151, mode: "daemon", version: "1.0.0", port: 8787, url: "http://127.0.0.1:8787", startedAt: new Date().toISOString() }]),
+  } });
+  assert.ok(events.includes("restart"), "the service was started again after the hand-over failed");
+  assert.match(s.lines.join("\n"), /did not finish/);
+  assert.equal(code, 0, "and the owner is left with Branch running, on the version they had");
 });
