@@ -85,6 +85,16 @@ test("changed test files select themselves but cannot exceed the budget", () => 
   assert.match(over.reasons.join("\n"), /budget/i);
 });
 
+test("a changed test with a dynamic Playwright import installs the browser", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([{ status: "M", paths: ["tests/hidden-knobs-ui.test.mjs"] }], {
+    config: checkedIn,
+    weights: { "tests/leak-guard.test.mjs": 2, "tests/hidden-knobs-ui.test.mjs": 10 },
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+});
+
 test("unknown product paths, empty diffs, deletes, and renames fail closed", () => {
   for (const changes of [
     [],
