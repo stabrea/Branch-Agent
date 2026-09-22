@@ -86,16 +86,23 @@ export function slug(name: string): string {
   return base || "trunk";
 }
 
+/** A Trunk saved before a field existed reads with that field's default: a Trunk from before voices has none (""). */
+function settled(data: unknown): Trunk {
+  const trunk = data as Trunk;
+  return typeof trunk.voice === "string" ? trunk : { ...trunk, voice: "" };
+}
+
 export class TrunkRecords {
   constructor(private readonly store: Store, private readonly owner: string) {}
 
   list(): Trunk[] {
     return this.store.list("governance", this.owner).filter((r) => r.id.startsWith("trunk:"))
-      .map((r) => r.data as unknown as Trunk)
+      .map((r) => settled(r.data))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || a.name.localeCompare(b.name));
   }
   find(id: string): Trunk | undefined {
-    return this.store.get("governance", this.owner, `trunk:${id}`)?.data as unknown as Trunk | undefined;
+    const data = this.store.get("governance", this.owner, `trunk:${id}`)?.data;
+    return data ? settled(data) : undefined;
   }
   get(id: string): Trunk {
     const trunk = this.find(id);

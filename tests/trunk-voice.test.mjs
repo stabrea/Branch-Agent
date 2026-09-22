@@ -140,6 +140,12 @@ test("in the window: a Trunk's answer is read in its voice, chosen in the studio
   assert.match(await page.locator(`#${await picker.getAttribute("aria-describedby")}`).innerText(), /reads its answers in/);
   await picker.evaluate((node) => node.append(Object.assign(document.createElement("option"), { value: "Test Voice", textContent: "Test Voice" })));
   await picker.selectOption("Test Voice");
+  // Hear it reads a sample in the chosen voice, the way answers are read.
+  await page.getByRole("button", { name: "Hear it" }).click();
+  for (let i = 0; i < 50 && !spoken.length; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(spoken.at(-1)?.voice, "Test Voice", "Hear it uses the chosen voice");
+  assert.match(spoken.at(-1)?.text ?? "", /this is how I sound/);
+  spoken.length = 0;
   await page.getByRole("button", { name: "Save changes" }).click();
   for (let i = 0; i < 50 && app.trunks.records.list().find((one) => one.id === ada.id)?.voice !== "Test Voice"; i++) await new Promise((r) => setTimeout(r, 100));
   assert.equal(app.trunks.records.list().find((one) => one.id === ada.id).voice, "Test Voice");
@@ -161,4 +167,25 @@ test("in the window: a Trunk's answer is read in its voice, chosen in the studio
   for (let i = 0; i < 100 && spoken.length === before; i++) await new Promise((r) => setTimeout(r, 100));
   assert.equal(spoken.at(-1)?.voice, undefined, "your own voice");
   assert.deepEqual(errors, []);
+});
+
+test("a Trunk saved before voices existed reads as your own voice everywhere the window looks", async (t) => {
+  const { app, root } = await fixture(t);
+  on(app, "conversations");
+  const old = app.trunks.create({ name: "Old" });
+  await app.trunks.introduced();
+  // Saved as a Trunk from before this change was: no voice at all.
+  const key = `trunk:${old.id}`;
+  const { voice: _gone, ...legacy } = app.store.get("governance", app.runtime.owner, key).data;
+  app.store.save("governance", app.runtime.owner, key, legacy);
+  assert.equal("voice" in app.store.get("governance", app.runtime.owner, key).data, false);
+  assert.equal(app.trunks.roster().trunks.find((one) => one.id === old.id).voice, "", "the roster");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const ask = async (path, body) => (await fetch(server.url + path, { method: body ? "POST" : "GET",
+    headers: { authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json" },
+    ...(body ? { body: JSON.stringify(body) } : {}) })).json();
+  const { sessionId } = await ask("/api/trunks/conversations", { trunkId: old.id });
+  assert.equal((await ask(`/api/trunks/conversations/${sessionId}`)).trunk.voice, "", "the conversation");
+  assert.equal(app.trunks.exportFile(old.id).trunk.voice, "", "the Trunk's file");
 });
