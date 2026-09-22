@@ -14,14 +14,14 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { activationJournalName, openActivationJournal, settleActivation } from "../dist/never-break/activation.js";
 import { trunkMode } from "../dist/trunks/settings.js";
-import { keeperInstructions, keeperName, updateFixApi } from "../dist/update-fix.js";
+import { boundPrompt, keeperInstructions, keeperName, updateFixApi } from "../dist/update-fix.js";
 import { openSettingFor } from "./places.mjs";
 
 const secret = "sk-ant-api03-" + "y".repeat(48);
 const provider = { name: "scripted", async complete() { return { content: "Looking at it.", toolCalls: [] }; } };
 
 /** A Branch whose last update did not go through; the browser, if any, is launched before TEMP moves. */
-async function failedUpdate(t, before = async () => {}) {
+async function failedUpdate(t, before = async () => {}, model = provider) {
   const root = await mkdtemp(join(tmpdir(), "branch-update-fix-"));
   const dataDir = join(root, "data"), temp = join(root, "temp");
   await mkdir(join(temp, "branch-agent-update"), { recursive: true });
@@ -29,7 +29,7 @@ async function failedUpdate(t, before = async () => {}) {
     ["[10:00:01] app closed", `[10:00:02] copying with ${secret}`, "[10:00:03] copy failed; putting the previous version back"].join("\r\n"));
   const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
   Object.assign(process.env, { TEMP: temp, TMP: temp, TMPDIR: temp });
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider: model });
   const server = await startServer(app, { dataDir, port: 0 });
   t.after(async () => {
     await before();
@@ -125,5 +125,62 @@ test("in the app: Fix update opens the keeper's conversation with the record sen
   const sent = await mine();
   assert.match(sent, /copy failed; putting the previous version back/, "what it was given is on screen");
   assert.ok(!sent.includes("sk-ant-"), "cleaned on screen too");
+  assert.deepEqual(errors, []);
+});
+
+test("a new keeper has introduced itself before the record is handed over, so the report is never refused as a second task", async (t) => {
+  const slowHello = { name: "scripted", async complete(request) {
+    if (/Introduce yourself/.test(request.messages.at(-1)?.content ?? "")) await new Promise((r) => setTimeout(r, 800));
+    return { content: "Hello, I look after updates.", toolCalls: [] };
+  } };
+  const { app, call } = await failedUpdate(t, undefined, slowHello);
+  const fix = (await call("updates/fix", {})).body;
+  assert.equal(fix.made, true);
+  const running = app.store.runs(app.runtime.owner).filter((run) => run.sessionId === fix.sessionId && run.status === "running");
+  assert.deepEqual(running, [], "nothing is still working in the keeper's conversation");
+  assert.ok(app.store.messages(fix.sessionId).some((m) => m.role === "assistant"), "its introduction is there");
+  const handed = await app.runtime.run({ prompt: fix.prompt, sessionId: fix.sessionId });
+  assert.equal(handed.status, "completed", "the record is taken straight away");
+});
+
+test("the update's own steps always reach the keeper, their end kept, however long the other items are", () => {
+  const long = (mark) => `${mark}-START\n` + "x".repeat(9000) + `\n${mark}-END`;
+  const steps = { title: "What the last update did", text: long("STEPS").replace("STEPS-END", "copy failed; putting the previous version back") };
+  const text = boundPrompt("Head.\n", [{ title: "About", text: long("ABOUT") }, { title: "Activity", text: long("ACTIVITY") }], steps);
+  assert.ok(text.length <= 12_000, `bounded: ${text.length}`);
+  assert.match(text, /copy failed; putting the previous version back/, "where the update stopped is there");
+  assert.match(text, /ABOUT-START/, "an earlier item is cut short, not left out");
+  assert.ok(!text.includes("ABOUT-END"), "and it is cut");
+  assert.match(text, /## What the last update did/);
+});
+
+test("in the app: Fix update waits while another task is working, and says so", async (t) => {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const held = { name: "scripted", async complete(request) {
+    if (/hold on/.test(request.messages.at(-1)?.content ?? "")) await gate;
+    return { content: "Done.", toolCalls: [] };
+  } };
+  const { server } = await failedUpdate(t, async () => { release(); await browser.close(); }, held);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [], fixes = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("request", (request) => { if (request.url().includes("/api/updates/fix")) fixes.push(request.url()); });
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#prompt").fill("hold on while I work");
+  await page.locator("#prompt").press("Enter");
+  await page.waitForFunction(() => document.getElementById("send")?.disabled === true);
+  const working = await page.evaluate(() => document.getElementById("conversation").dataset.sessionId);
+  await openSettingFor(page, "#updates-card");
+  await page.locator("#updates-failed-fix").click();
+  await page.getByText("A task is working. Fix update can hand over the record when it has finished.").first().waitFor();
+  assert.deepEqual(fixes, [], "nothing was asked for");
+  assert.equal(await page.evaluate(() => document.getElementById("conversation").dataset.sessionId), working, "the working conversation stays open");
+  release();
   assert.deepEqual(errors, []);
 });

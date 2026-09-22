@@ -271,6 +271,7 @@
   "updates.failed.send": "Envoyez-nous le fichier vous-même, sur Discord par exemple. Rien n'est envoyé tout seul.",
   "updates.failed.saved": "Enregistré sous {name}. Envoyez-le-nous vous-même, sur Discord par exemple. Rien n'a été envoyé.",
   "updates.failed.not-saved": "Le fichier n'a pas pu être créé : {why}",
+  "updates.fix.busy": "Une tâche est en cours. « Réparer la mise à jour » pourra transmettre le relevé quand elle sera finie.",
   "updates.fix.button": "Réparer la mise à jour",
   "updates.fix.keeper": "Qui répare les mises à jour",
   "updates.fix.keeper-default": "Gardien des mises à jour, créé la première fois qu'il en faut un",

@@ -270,6 +270,7 @@
   "updates.failed.send": "Send the file to us yourself, on Discord for example. Nothing is sent by itself.",
   "updates.failed.saved": "Saved as {name}. Send it to us yourself, on Discord for example. Nothing was sent.",
   "updates.failed.not-saved": "The file could not be made: {why}",
+  "updates.fix.busy": "A task is working. Fix update can hand over the record when it has finished.",
   "updates.fix.button": "Fix update",
   "updates.fix.keeper": "Who fixes updates",
   "updates.fix.keeper-default": "Update keeper, made the first time it's needed",

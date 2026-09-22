@@ -1108,6 +1108,8 @@ document.addEventListener("branch-language", () => { if (failureSaid) sayFailure
    message box, so what it was given is on screen and it remembers every update it looked at. */
 $("updates-failed-fix").addEventListener("click", async () => {
   const button = $("updates-failed-fix");
+  // Opening the keeper's conversation would leave a task that is working now without its window.
+  if (conversationBusy) { toast(t("updates.fix.busy")); return; }
   button.disabled = true;
   try {
     const fix = await api("updates/fix", {});

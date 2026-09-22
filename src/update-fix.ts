@@ -16,6 +16,8 @@ import { saveTrunkMode, trunkMode } from "./trunks/settings.js";
 export const updateKeeperKey = "update-keeper";
 const KeeperSchema = z.object({ trunkId: z.string().uuid().nullable().default(null) }).strict();
 const promptChars = 12_000;
+/** Kept for the update's own steps: that record says where it stopped, so it always goes. */
+const logChars = 4_000;
 
 export const keeperName = "Update keeper";
 export const keeperInstructions = [
@@ -50,18 +52,31 @@ function ensureKeeper(app: Pick<DiagnosticContext["app"], "store" | "runtime" | 
 async function fixPrompt(ctx: DiagnosticContext): Promise<string> {
   const { app, dataDir } = ctx;
   const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => diagnosticLogSettings(app.store, app.runtime.owner) });
-  const items = [...await gatherReport(reportSources(ctx, log), updateItemIds), await updateLogItem()];
+  const items = await gatherReport(reportSources(ctx, log), updateItemIds);
+  const steps = await updateLogItem();
   const failure = lastUpdateFailure(dataDir);
   const head = failure
     ? `The update from ${failure.fromVersion} to ${failure.toVersion} didn't go through, and Branch is still on ${app.version}.`
     : `An update didn't go through, and Branch is still on ${app.version}.`;
-  let text = `${head} Here is what Branch recorded, with secrets removed. What went wrong, and how do I fix it? Don't change anything without asking me first.\n`;
-  for (const item of items) {
-    const part = `\n## ${item.title}\n${item.text.trim()}\n`;
-    if (text.length + part.length > promptChars) { text += `\n## ${item.title}\n(left out to keep this short; it is in the downloaded file)\n`; continue; }
-    text += part;
-  }
-  return text;
+  return boundPrompt(`${head} Here is what Branch recorded, with secrets removed. What went wrong, and how do I fix it? Don't change anything without asking me first.\n`, items, steps);
+}
+/**
+ * The message within `promptChars`: each item cut short rather than left out, within what is left once
+ * the update's own steps have their room, and those steps always there, their end kept.
+ */
+export function boundPrompt(head: string, items: readonly { title: string; text: string }[], steps: { title: string; text: string }): string {
+  let text = head;
+  for (const item of items) text += section(item.title, item.text.trim(), promptChars - logChars - text.length, "start");
+  return text + section(steps.title, steps.text.trim(), promptChars - text.length, "end");
+}
+/** One item under its title, cut to `room` characters: its start kept, or its end (where an update stopped). */
+function section(title: string, body: string, room: number, keep: "start" | "end"): string {
+  const heading = `\n## ${title}\n`, note = "(the rest is in the downloaded file)";
+  const space = room - heading.length - 1;
+  if (body.length <= space) return `${heading}${body}\n`;
+  if (space <= note.length + 20) return `${heading}${note}\n`;
+  const kept = space - note.length - 1;
+  return keep === "start" ? `${heading}${body.slice(0, kept)}\n${note}\n` : `${heading}${note}\n${body.slice(-kept)}\n`;
 }
 
 export const handlesUpdateFixPath = (path: string): boolean => path === "/api/updates/fix" || path === "/api/updates/keeper";
@@ -83,6 +98,8 @@ export async function updateFixApi(ctx: DiagnosticContext, method: string, path:
   const trunksSwitchedOn = trunkMode(app.store, app.runtime.owner, "trunks") === "off";
   if (trunksSwitchedOn) saveTrunkMode(app.store, app.runtime.owner, "trunks", { mode: "when-needed" });
   const { trunkId, made } = ensureKeeper(app);
+  // A new keeper introduces itself in its conversation first; the report is handed over after that.
+  if (made) await app.trunks.introduced();
   const trunk = app.trunks.records.get(trunkId);
   return { trunkId, name: trunk.name, sessionId: trunk.chatSessionId, made, trunksSwitchedOn, prompt: await fixPrompt(ctx) };
 }
