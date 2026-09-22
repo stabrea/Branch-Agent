@@ -154,3 +154,96 @@ test("in the window: the chips are cleared once the message is sent", async (t) 
   await page.locator("#composer-attachments").waitFor({ state: "hidden", timeout: 10000 });
   assert.deepEqual(errors, []);
 });
+
+/** A real one-pixel PNG, so the page sees a picture rather than a file it calls a picture. */
+const onePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64");
+
+test("what was said is shown exactly once, whether or not a file came with it", async (t) => {
+  const { app, page, root, errors } = await windowWithBranch(t);
+  const file = join(root, "roof.md");
+  await writeFile(file, "# Roof" + "\n\n" + "Fixed on Tuesday." + "\n", "utf8");
+
+  // An ordinary message, nothing attached. This is the one that was rendered twice.
+  await page.locator("#prompt").fill("Tell me about the roof.");
+  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+  await page.getByText("Read it.").first().waitFor({ timeout: 20000 });
+  const sessionId = await page.locator("#conversation").getAttribute("data-session-id");
+  const plain = await page.locator(".message.user").first().textContent();
+  assert.equal(plain.split("Tell me about the roof.").length - 1, 1,
+    `an ordinary message says what was said once, not twice (${plain})`);
+
+  // And a message that does carry a file keeps both: the words, once, and the card.
+  await page.locator("#composer-media-file").setInputFiles(file);
+  await page.locator("#composer-attachments").getByText("roof.md").waitFor({ timeout: 10000 });
+  await page.locator("#prompt").fill("And what does this say?");
+  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+  await page.locator("[data-attachment]").first().waitFor({ timeout: 20000 });
+  const withFile = await page.locator(".message.user").last().textContent();
+  assert.equal(withFile.split("And what does this say?").length - 1, 1,
+    `a message with a file says what was said once (${withFile})`);
+  assert.match(withFile, /roof\.md/, "and the card is there beside the words");
+
+  // A reply that carries a file must not lose its words either. Put one in the conversation the way
+  // the store holds it, then reopen the conversation the way a person comes back to it.
+  const ref = app.store.messages(sessionId).findLast((one) => one.role === "user").attachments[0];
+  app.store.message(sessionId, { role: "assistant", content: "Here it is again.", attachments: [ref] });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.evaluate(async (id) => {
+    const app = await import("/app.js");
+    await app.openConversation(id);
+  }, sessionId);
+  const reply = page.locator(".message.assistant").last();
+  await reply.getByText("Here it is again.").waitFor({ timeout: 20000 });
+  assert.match(await reply.textContent(), /roof\.md/, "the reply keeps its words and its card");
+  assert.deepEqual(errors, []);
+});
+
+test("a picture goes with the message once: the page does not also send it to be looked at", async (t) => {
+  const { page, root, errors } = await windowWithBranch(t);
+  const file = join(root, "dot.png");
+  await writeFile(file, onePixelPng);
+
+  await page.locator("#composer-media-file").setInputFiles(file);
+  await page.locator("#composer-attachments").getByText("dot.png").waitFor({ timeout: 10000 });
+
+  // The page has two lists: what the model should look at, and what the message carries. A picture a
+  // person attached belongs in the second only — the server derives the model's copy from it. Sending
+  // it in both doubled its bytes, and four legal pictures came to more than a message may weigh.
+  const sent = await page.evaluate(() => ({
+    toLookAt: globalThis.branchAttachments().map((one) => one.name),
+    carried: globalThis.branchAttachedFiles().map((one) => one.name),
+  }));
+  assert.deepEqual(sent.toLookAt, [], "the picture is not sent a second time to be looked at");
+  assert.deepEqual(sent.carried, ["dot.png"], "it travels once, with the message");
+  assert.deepEqual(errors, []);
+});
+
+test("a temporary conversation's file opens from its own card, like any other", async (t) => {
+  const { app, page, root, errors } = await windowWithBranch(t);
+  const file = join(root, "dot.png");
+  await writeFile(file, onePixelPng);
+
+  // Started as temporary, so its files are kept in the temporary folder. Nothing the page sends says
+  // which folder to read from — the conversation itself decides (src/attachments.ts).
+  // Temporary is one of the controls the calm window keeps out of sight; a person who wants it has
+  // the full window on, so the test asks for the same window rather than reaching past the page.
+  await page.evaluate(() => { document.documentElement.dataset.everything = "on"; });
+  await page.locator("#temporary-toggle").check();
+  await page.locator("#composer-media-file").setInputFiles(file);
+  await page.locator("#composer-attachments").getByText("dot.png").waitFor({ timeout: 10000 });
+  await page.locator("#prompt").fill("Keep this for now.");
+  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+  await page.locator("[data-attachment]").first().waitFor({ timeout: 20000 });
+
+  const sessionId = await page.locator("#conversation").getAttribute("data-session-id");
+  assert.equal(app.store.sessionTemporary(sessionId), true, "this really is a temporary conversation");
+
+  // The visible control, pressed as a person presses it.
+  await page.locator("[data-attachment] button").first().click();
+  const shown = page.locator("[data-attachment] img").first();
+  await shown.waitFor({ timeout: 20000 });
+  assert.match(await shown.getAttribute("src"), /^blob:/, "the bytes came back and are on the page");
+  assert.deepEqual(errors, []);
+});
