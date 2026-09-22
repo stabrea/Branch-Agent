@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { ToolContext, ToolTarget } from "./contracts.js";
+import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import type { ToolRegistry } from "./registry.js";
+import type { Store } from "./store.js";
 
 /**
  * A small wiki the owner and the assistant write together: pages with names, and links between them
@@ -154,11 +156,15 @@ export class Wiki {
    */
   write(owner: string, input: unknown): { page: WikiPage; replaced: boolean; oldestVersionDropped: number | null } {
     const wanted = WikiWriteSchema.parse(input);
-    const weight = weighs(wanted.title, wanted.body);
-    if (weight > maximumPageBytes)
-      throw new Error(`A page holds up to ${maximumPageBytes / 1024} KiB of words; "${wanted.title}" is ${Math.ceil(weight / 1024)} KiB. Split it into two pages.`);
-
     const existing = this.find(owner, wanted.title);
+    // What will actually be stored, weighed. A correction keeps the page's own spelling, so weighing
+    // the caller's way of writing the name would measure something that is never written down: a
+    // shorter alias could let an oversized page through, a longer one could refuse a page that fits.
+    const kept = existing ? existing.title : wanted.title;
+    const weight = weighs(kept, wanted.body);
+    if (weight > maximumPageBytes)
+      throw new Error(`A page holds up to ${maximumPageBytes / 1024} KiB of words; "${kept}" is ${Math.ceil(weight / 1024)} KiB. Split it into two pages.`);
+
     if (existing && !wanted.why)
       throw new Error(`There is already a page called "${existing.title}". To replace what it says, say why.`);
     if (!existing && this.count(owner) >= maximumPages)
@@ -291,8 +297,40 @@ export class Wiki {
 const pageTarget = (kind: ToolTarget["kind"], title: string): ToolTarget[] =>
   [{ kind, path: `wiki/${sameNameAs(title)}` }];
 const wholeWiki = (): ToolTarget[] => [{ kind: "read", path: "wiki", folder: true }];
+/**
+ * What a read really touches. Without `follow` that is one page. With it, the answer carries a piece
+ * of every page the links resolve to, so every one of those is named here — before the rules are
+ * consulted, not after. A rule that refuses one page must refuse a read that would hand back a piece
+ * of it through a link on another.
+ */
+function readTargets(wiki: Wiki, owner: string, title: string, follow: boolean): ToolTarget[] {
+  const start = pageTarget("read", title);
+  if (!follow) return start;
+  const page = wiki.find(owner, title);
+  if (!page) return start;
+  const reached = linksIn(page.body).slice(0, maximumLinksFollowed)
+    .map((text) => wiki.find(owner, text))
+    .filter((one): one is WikiPage => Boolean(one))
+    .map((one) => ({ kind: "read" as const, path: `wiki/${sameNameAs(one.title)}` }));
+  return [...start, ...reached];
+}
 
-export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string): void {
+export const shortLivedWikiRefusal = "A short-lived key cannot read or write the wiki. Do that in the app window.";
+export const chatWikiRefusal = "A message from a chat app cannot read or write the wiki. Do that in the app window.";
+/**
+ * The wiki belongs to the owner wherever it is reached from, not only over HTTP. A tool runs inside a
+ * task, and a task can have been started by somebody else at this computer, by a short-lived key or by
+ * a message from a chat app; the route guard never sees any of those. So the same check sits at the
+ * top of every wiki tool as well.
+ */
+function onlyTheOwner(store: Store, context: ToolContext): void {
+  store.profiles.requireOwner("The wiki");
+  const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
+  if (startedWithShortLivedKey() || origin?.shortLivedKey) throw new Error(shortLivedWikiRefusal);
+  if (startedFromChat(context, store)) throw new Error(chatWikiRefusal);
+}
+
+export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, store: Store): void {
   registry.register({
     name: "wiki.read", permission: "memory.read",
     description: "Read one page of the wiki, and what its [[links]] point at.",
@@ -302,8 +340,11 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string):
       follow: z.boolean().default(false),
     }).strict(),
     target: (input) => `wiki/${sameNameAs(input.title)}`,
-    targets: (input) => pageTarget("read", input.title),
-    execute: async (input) => wiki.read(owner, input.title, { follow: input.follow }),
+    targets: (input) => readTargets(wiki, owner, input.title, input.follow),
+    execute: async (input, context) => {
+      onlyTheOwner(store, context);
+      return wiki.read(owner, input.title, { follow: input.follow });
+    },
   });
   registry.register({
     name: "wiki.write", permission: "memory.write",
@@ -311,7 +352,10 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string):
     parameters: WikiWriteSchema,
     target: (input) => `wiki/${sameNameAs(input.title)}`,
     targets: (input) => pageTarget("write", input.title),
-    execute: async (input) => wiki.write(owner, input),
+    execute: async (input, context) => {
+      onlyTheOwner(store, context);
+      return wiki.write(owner, input);
+    },
   });
   registry.register({
     name: "wiki.search", permission: "memory.read",
@@ -319,7 +363,10 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string):
     parameters: z.object({ query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).default(20) }).strict(),
     target: () => "wiki",
     targets: () => wholeWiki(),
-    execute: async (input) => ({ pages: wiki.search(owner, input.query, input.limit) }),
+    execute: async (input, context) => {
+      onlyTheOwner(store, context);
+      return { pages: wiki.search(owner, input.query, input.limit) };
+    },
   });
   registry.register({
     name: "wiki.history", permission: "memory.read",
@@ -327,7 +374,8 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string):
     parameters: z.object({ title: z.string().trim().min(1).max(200) }).strict(),
     target: (input) => `wiki/${sameNameAs(input.title)}`,
     targets: (input) => pageTarget("read", input.title),
-    execute: async (input) => {
+    execute: async (input, context) => {
+      onlyTheOwner(store, context);
       const page = wiki.find(owner, input.title);
       if (!page) throw new Error(`There is no page called "${input.title.trim()}".`);
       return { page: { id: page.id, title: page.title, version: page.version }, earlier: wiki.history(owner, page.id) };

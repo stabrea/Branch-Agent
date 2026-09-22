@@ -868,7 +868,7 @@ export async function createBranch(options: {
   const todos = new Todos(store.sqlite);
   // Pages with names, and links between them written [[like this]] (src/wiki.ts).
   const wiki = new Wiki(store.sqlite);
-  registerWiki(registry, wiki, runtime.owner);
+  registerWiki(registry, wiki, runtime.owner, store);
   registerTodos(registry, todos, runtime.owner);
   // --- mac3/never-break: with the switch on, the assistant may suggest gateway settings (never apply them) ---
   if ((await loadGatewayConfig(dataDir)).config.mode !== "off")

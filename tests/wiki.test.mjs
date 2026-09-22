@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { addPolicyRule } from "../dist/policy.js";
+import { underShortLivedKey } from "../dist/key-context.js";
 import { maximumHistory, maximumLinksFollowed, maximumOwnerBytes, maximumPageBytes, maximumPages, maximumSnippet } from "../dist/wiki.js";
 
 /**
@@ -255,6 +257,89 @@ test("the wiki is the owner's: somebody else at this computer is refused by the 
     "and so is writing one");
   app.store.profiles.switch({ profileId: null });
   assert.equal(app.wiki.count(app.runtime.owner), 1, "nothing of theirs was written");
+});
+
+test("the wiki is the owner's through the tools as well, not only through the routes", async (t) => {
+  const { app } = await branch(t);
+  const context = app.runtime.context({});
+  const tools = [
+    ["wiki.read", { title: "Roof" }],
+    ["wiki.search", { query: "roof" }],
+    ["wiki.history", { title: "Roof" }],
+    ["wiki.write", { title: "Theirs", body: "." }],
+  ];
+
+  // The owner, at the window: everything works.
+  await app.registry.execute("wiki.write", { title: "Roof", body: "Fixed on Tuesday." }, context);
+  const read = await app.registry.execute("wiki.read", { title: "Roof" }, context);
+  assert.equal(read.page.body, "Fixed on Tuesday.");
+
+  // Somebody else at this computer. The routes never see a tool call, so the guard has to be here.
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  for (const [tool, args] of tools)
+    await assert.rejects(app.registry.execute(tool, args, context), `${tool} is the owner's`);
+  app.store.profiles.switch({ profileId: null });
+
+  // A script's own key.
+  for (const [tool, args] of tools)
+    await assert.rejects(underShortLivedKey(() => app.registry.execute(tool, args, context)),
+      /short-lived key cannot read or write the wiki/, `${tool} with a short-lived key`);
+
+  // And a message from a chat app, which cannot prove who is typing.
+  for (const [tool, args] of tools)
+    await assert.rejects(app.registry.execute(tool, args, { ...context, source: "channel" }),
+      /chat app cannot read or write the wiki/, `${tool} from a chat`);
+
+  assert.equal(app.wiki.count(app.runtime.owner), 1, "and nothing of theirs was written");
+});
+
+test("following links declares every page it would hand back, so a refused page stays refused", async (t) => {
+  const { app, wiki } = await branch(t);
+  wiki.write(owner, { title: "Private", body: "The safe code is 1234." });
+  wiki.write(owner, { title: "Index", body: "Everything worth knowing: [[Private]]." });
+  addPolicyRule(app.store, owner, { tool: "wiki.*", match: "wiki/private", decision: "deny", remember: "always" });
+  const context = app.runtime.context({});
+
+  // What the rules are shown. Following a link reads the page it points at, so that page is named.
+  assert.deepEqual(app.registry.targetsOf("wiki.read", { title: "Index", follow: true }, context),
+    [{ kind: "read", path: "wiki/index" }, { kind: "read", path: "wiki/private" }]);
+
+  const following = app.runtime.checkPolicy("wiki.read", { title: "Index", follow: true }, context);
+  assert.equal(following.decision, "deny", "a piece of the refused page cannot come back through a link");
+  assert.match(following.reason ?? "", /wiki\/private/, "and the refusal names the page that was refused");
+
+  // Reading the index itself is untouched: the rule is about the private page, not about links.
+  assert.notEqual(app.runtime.checkPolicy("wiki.read", { title: "Index", follow: false }, context).decision, "deny");
+});
+
+test("a correction is weighed by the name the page keeps, not the one the caller typed", async (t) => {
+  const { app, wiki } = await branch(t);
+  const db = app.store.sqlite;
+  const bytesOf = (title) => Number(db.prepare("SELECT bytes FROM wiki_pages WHERE owner=? AND same_name=?")
+    .get(owner, title.trim().replace(/\s+/g, " ").toLowerCase()).bytes);
+
+  // The page's own name has two spaces in it; the alias below writes one, so it is shorter. Weighing
+  // the caller's spelling would undercount, and a page bigger than a page may be would be stored.
+  const kept = "Roof  Repairs";
+  wiki.write(owner, { title: kept, body: "." });
+  const fits = maximumPageBytes - Buffer.byteLength(kept, "utf8");
+  assert.throws(() => wiki.write(owner, { title: "roof repairs", body: "x".repeat(fits + 1), why: "one too many" }),
+    /32 KiB/, "measured by the name really kept, this is one byte too many");
+  assert.equal(wiki.find(owner, kept).body, ".", "and nothing was written");
+
+  const written = wiki.write(owner, { title: "roof repairs", body: "x".repeat(fits), why: "exactly what fits" });
+  assert.equal(written.page.title, kept, "the page keeps its own name");
+  assert.equal(bytesOf(kept), maximumPageBytes, "and what is stored weighs exactly what a page may weigh");
+
+  // The other way round: an alias with more spaces than the name kept would overcount, and refuse a
+  // correction that fits perfectly well.
+  const door = "Front Door";
+  wiki.write(owner, { title: door, body: "." });
+  const room = maximumPageBytes - Buffer.byteLength(door, "utf8");
+  const wide = wiki.write(owner, { title: "front    door", body: "y".repeat(room), why: "still fits" });
+  assert.equal(wide.page.title, door);
+  assert.equal(bytesOf(door), maximumPageBytes, "the longer spelling was never what was measured");
 });
 
 test("every wiki tool says what it touches, by page or by the whole wiki", async (t) => {
