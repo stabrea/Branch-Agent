@@ -296,6 +296,84 @@ test("a batch with one bad file in it leaves nothing behind", async (t) => {
   assert.deepEqual(await store.list(session), [], "and nothing is claimed to be attached");
 });
 
+test("a listing that fails to be written leaves the files already kept untouched", async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), "branch-attachments-commit-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+  const session = "00000000-0000-4000-8000-00000000000e";
+
+  // The listing's own write, held by the test. Everything else is real: real folders, real bytes.
+  let refuse = false;
+  const wrote = [];
+  const store = new Attachments(root, readdirSync, async (path, text) => {
+    if (refuse) throw new Error("the disk said no");
+    wrote.push(path);
+    writeFileSync(path, text);
+  });
+
+  const [first] = await store.keep(session, [attached("roof.md", "text/markdown", markdown)]);
+  assert.match(wrote[0], /kept\.json\.[a-f0-9]{12}\.part$/, "the listing is built beside itself, not on top of itself");
+
+  // Now the second file's listing cannot be written. The first file must survive it untouched.
+  refuse = true;
+  await assert.rejects(store.keep(session, [attached("gutters.md", "text/markdown", Buffer.from("# Gutters", "utf8"))]),
+    /the disk said no/);
+
+  const listed = await store.list(session);
+  assert.deepEqual(listed.map((one) => one.name), ["roof.md"], "the conversation still knows about the first file");
+  assert.equal(listed[0].id, first.id, "and by the same name it had");
+  const back = await store.read(session, first.id);
+  assert.ok(back.bytes.equals(markdown), "whose bytes are still there, whole");
+
+  // And nothing of the failed turn is left behind: not its bytes, not the listing it was building.
+  const folder = join(root, session.replace(/[^a-z0-9]/gi, ""));
+  const left = (await readdir(folder)).sort();
+  assert.deepEqual(left, ["kept.json", first.id].sort(),
+    `only the first file and the listing remain (${left.join(", ")})`);
+});
+
+test("a conversation's turn leaves the queue when it is done, and never takes a newer one with it", async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), "branch-attachments-queue-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+
+  // A gate on the listing's write, so a turn can be held open for as long as the test needs.
+  const gates = [];
+  const store = new Attachments(root, readdirSync, async (path, text) => {
+    const wait = new Promise((resolve) => gates.push(resolve));
+    await wait;
+    writeFileSync(path, text);
+  });
+
+  const session = "00000000-0000-4000-8000-00000000000f";
+  const older = store.keep(session, [attached("one.md", "text/markdown", markdown)]);
+  const newer = store.keep(session, [attached("two.md", "text/markdown", markdown)]);
+  while (gates.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.queuedTurns, 1, "one conversation is being written to");
+
+  // The older turn finishes while the newer one is still queued behind it.
+  gates.shift()();
+  await older;
+  while (gates.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.queuedTurns, 1,
+    "the older turn finishing did not take the newer turn's place in the queue away");
+
+  gates.shift()();
+  await newer;
+  assert.equal(store.queuedTurns, 0, "and when the last one is done, nothing is left behind");
+  assert.equal((await store.list(session)).length, 2, "both files are kept");
+
+  // Many conversations, each one finished: the queue is a queue, not a record of everything ever done.
+  for (let number = 0; number < 40; number += 1) {
+    const each = `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`;
+    const keeping = store.keep(each, [attached("note.md", "text/markdown", markdown)]);
+    while (!gates.length) await new Promise((resolve) => setImmediate(resolve));
+    gates.shift()();
+    await keeping;
+  }
+  assert.equal(store.queuedTurns, 0, "forty finished conversations leave nothing in the queue");
+});
+
 test("two messages attaching at once keep both sets of files", async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), "branch-attachments-race-"));
   t.after(() => discardTemp(scratch));
