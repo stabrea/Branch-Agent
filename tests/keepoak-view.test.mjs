@@ -1,7 +1,7 @@
 /**
  * Issue #105, slice 1: KeepOak inside Branch. A window of its own, locked to keepoak.com, with its own
- * session; off as it ships; Sign out and switching it off forget the KeepOak sign-in. Electron is
- * stood in for, so nothing here opens a window or starts a program.
+ * session; off as it ships; switching it off closes its window and keeps the sign-in, and only
+ * Sign out forgets it. Electron is stood in for, so nothing here opens a window or starts a program.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
