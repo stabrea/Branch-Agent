@@ -129,9 +129,13 @@ test("a language redraw cannot replace an unsaved launch-file list", async (t) =
   await openSettingFor(page, "#knobs-launch-file-card");
   const sites = page.locator("#knobs-launch-browserSites");
   const draft = "https://example.com\nhttps://docs.example.org";
-  await sites.fill(draft);
-  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
+  await sites.evaluate((control, value) => {
+    control.value = value;
+    control.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+    document.dispatchEvent(new CustomEvent("branch-language"));
+  }, draft);
   assert.equal(await sites.inputValue(), draft);
+  assert.equal(await sites.getAttribute("data-knob-dirty"), "true", "the redraw preserves the draft marker too");
 });
 
 test("a stale Save button submits the visible launch-file draft after a redraw", async (t) => {
