@@ -30,7 +30,9 @@ const ROOT = join(import.meta.dirname, "..");
 
 /** How a browser is made, and how a name is given to one that already exists. */
 const MAKES_ONE = /new\s+BranchBrowser\b/;
-const MADE_HERE = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:await\s+)?new\s+BranchBrowser\b/g;
+/** Every construction, so they can be counted rather than merely noticed. */
+const MAKES_EACH = /new\s+BranchBrowser\b/g;
+const MADE_HERE = /(?:(?:const|let|var)\s+|,\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:await\s+)?new\s+BranchBrowser\b/g;
 const RENAMED = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*;/g;
 /** How the product writes a tool's name where it registers it, in any of the three quote styles. */
 const NAME_DECLARATION = /name:\s*["'`]((?:browser|computer)\.[A-Za-z_]+)["'`]/g;
@@ -78,6 +80,50 @@ export async function browserMethods(read = (file) => readFile(join(ROOT, file),
 
 /** Whether a file makes a browser at all, however it then keeps hold of it. */
 export const makesOne = (source) => MAKES_ONE.test(source);
+
+/**
+ * Constructions this cannot attribute to a name, counted one at a time.
+ *
+ * Refusing a *file* that makes a browser and yields no name at all was the first rule here, and it
+ * had a hole the width of a second construction: one readable `const browser = new BranchBrowser(...)`
+ * satisfied "a name was derived", and anything hidden after it — a later assignment, an array, a
+ * property — rode in behind it with its calls unseen. A file is the wrong unit. Each construction
+ * has to be one the reader can put a name to, so both numbers are counted and the difference is what
+ * is refused.
+ */
+/**
+ * The lines of a file that are code, for counting purposes: a comment is prose and a construction
+ * written inside a quoted string is a fixture. This file is full of both — it explains the shapes it
+ * refuses and holds them as test data — and counting those as real constructions would have it refuse
+ * itself. Only the counting uses this; nothing else reads it.
+ */
+export function codeLines(source) {
+  const out = [];
+  let inBlock = false;
+  for (const raw of source.split(/\r?\n/)) {
+    let line = raw;
+    if (inBlock) {
+      const ends = line.indexOf("*/");
+      if (ends < 0) { out.push(""); continue; }
+      line = line.slice(ends + 2);
+      inBlock = false;
+    }
+    const opens = line.indexOf("/*");
+    if (opens >= 0) { inBlock = !line.includes("*/", opens); line = line.slice(0, opens); }
+    const slashes = line.indexOf("//");
+    if (slashes >= 0) line = line.slice(0, slashes);
+    // A construction sitting inside a quoted string is test data, not a construction.
+    out.push(line.replace(/(["'\`])(?:\\.|(?!\1)[^\\])*\1/g, (quoted) => " ".repeat(quoted.length)));
+  }
+  return out.join("\n");
+}
+
+export function unreadableConstructions(source) {
+  const code = codeLines(source);
+  const made = (code.match(MAKES_EACH) ?? []).length;
+  const readable = [...code.matchAll(MADE_HERE)].length;
+  return Math.max(0, made - readable);
+}
 /** The names a file is seen giving to a browser it makes — not counting the usual name, which is assumed. */
 export function constructedIn(source) {
   return [...new Set([...source.matchAll(MADE_HERE)].map((made) => made[1]))].sort();
@@ -279,7 +325,7 @@ export async function judgeFiles(files, read, names, methods, inBrowserGroup = n
     // Fails closed. A file that makes a browser and keeps it somewhere this cannot read is refused
     // rather than passed in silence: the alternative is a longer list of shapes, and a list is a
     // promise that it is complete.
-    if (makesOne(source) && !constructedIn(source).length) unreadable.push(file);
+    if (unreadableConstructions(source)) unreadable.push(file);
     const sites = callsitesIn(source, names, methods);
     if (!sites.length) continue;
     const excused = [...(excuses[file]?.callsites ?? [])];
@@ -302,18 +348,40 @@ test("a file that makes a browser and hides the name it gives it is refused", as
     "tests/plain.test.mjs": ["const browser = new BranchBrowser({});", "await browser.close();"],
     "tests/named.test.mjs": ["const driver = new BranchBrowser({});", "await driver.close();"],
     "tests/nothing.test.mjs": ["assert.equal(1, 1);"],
+    /* Codex's exact-head review: one readable construction used to answer for the whole file, so a
+       second hidden one rode in behind it with its calls unseen. Counting per file could not see this;
+       counting per construction can. */
+    "tests/mixed.test.mjs": ["const browser = new BranchBrowser({});", "await browser.close();",
+      "let hidden;", "hidden = new BranchBrowser({});", "await hidden.pdf(context);"],
+    /* And the shape that made counting per construction cost something: a declarator after a comma is
+       an ordinary way to write real code, and tests/browser.test.mjs writes it five times. */
+    "tests/comma.test.mjs": ["const probe = observeLaunch(), browser = new BranchBrowser({});",
+      "await browser.close();"],
+    /* A construction that is prose, and one that is a fixture. Neither is a construction. */
+    "tests/prose.test.mjs": ["// const browser = new BranchBrowser({});", "assert.equal(1, 1);"],
+    "tests/fixture.test.mjs": ['const written = ["const x = new BranchBrowser({});"];', "assert.ok(written);"],
   };
   const judged = await judgeFiles(Object.keys(written), async (file) => written[file].join(NL), names, methods);
 
   assert.deepEqual(judged.unreadable,
-    ["tests/hidden-later.test.mjs", "tests/hidden-array.test.mjs", "tests/hidden-property.test.mjs"],
+    ["tests/hidden-later.test.mjs", "tests/hidden-array.test.mjs", "tests/hidden-property.test.mjs",
+      "tests/mixed.test.mjs"],
     "each of these makes a browser and keeps it where the name cannot be read");
+  // The decision is per construction: one readable one does not answer for a hidden one beside it.
+  assert.equal(unreadableConstructions(written["tests/mixed.test.mjs"].join(NL)), 1,
+    "exactly the hidden one of the two is refused");
+  assert.equal(judged.unreadable.includes("tests/comma.test.mjs"), false,
+    "a declarator after a comma is ordinary code and must not be refused");
+  assert.equal(judged.unreadable.includes("tests/prose.test.mjs"), false, "a comment is not a construction");
+  assert.equal(judged.unreadable.includes("tests/fixture.test.mjs"), false, "and neither is a quoted fixture");
   assert.equal(judged.unreadable.includes("tests/plain.test.mjs"), false, "a plain const is readable");
   assert.equal(judged.unreadable.includes("tests/named.test.mjs"), false, "and so is a plain const under another name");
   assert.equal(judged.unreadable.includes("tests/nothing.test.mjs"), false, "and a file that makes none is not asked");
-  // The two readable ones are still judged on what they do with it, which here is only to close it.
+  // The readable ones are still judged on what they do with it, which here is only to close it -- and
+  // the mixed file is an offender as well as unreadable, because the call it *can* read still counts.
   assert.deepEqual(judged.offenders.map((one) => one.split(":")[0]).sort(),
-    ["tests/named.test.mjs", "tests/plain.test.mjs"], "closing one is still a line somebody has to excuse");
+    ["tests/comma.test.mjs", "tests/mixed.test.mjs", "tests/named.test.mjs", "tests/plain.test.mjs"],
+    "closing one is still a line somebody has to excuse");
 });
 
 test("a test that runs a browser-backed tool is in the browser group, or every such line is excused", async () => {
