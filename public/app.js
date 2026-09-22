@@ -1071,6 +1071,7 @@ async function installNow() {
   } catch (e) {
     window.branchUpdateScreen?.hide(); toast(e.message);
     failedNow = { version: state.version };
+    failureAsked++; // a look already on its way is now out of date
     await renderUpdates();
   }
   finally { installing = false; }
@@ -1078,7 +1079,7 @@ async function installNow() {
 /* ---------- an update that did not go through (owner item 19) ---------- */
 /* This attempt, when it stopped here; otherwise the journal says whether the last hand-over put the
    version before back. Either way Branch is still on the version it was, and nothing was lost. */
-let failedNow = null, failureSaid = null;
+let failedNow = null, failureSaid = null, failureAsked = 0;
 function sayFailure(failure) {
   failureSaid = failure;
   const block = $("updates-failed");
@@ -1092,8 +1093,11 @@ function sayFailure(failure) {
   if (!window.branchDesktop) for (const id of ["updates-check", "updates-install"]) $(id).hidden = true;
 }
 async function showUpdateFailure() {
+  // Only the newest look answers: an older one still on its way never hides a failure shown since.
+  const asked = ++failureAsked;
   if (failedNow) return sayFailure(failedNow);
   const recorded = await api("updates/failure").then((answer) => answer.failure, () => null);
+  if (asked !== failureAsked) return;
   sayFailure(recorded);
 }
 document.addEventListener("branch-language", () => { if (failureSaid) sayFailure(failureSaid); });

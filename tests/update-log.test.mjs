@@ -166,3 +166,67 @@ test("an install that stops here says it in plain words at once, in the language
   await page.waitForFunction(() => document.querySelector("#updates-failed")?.hidden === true);
   assert.deepEqual(errors, []);
 });
+
+test("the update file reads nothing it leaves out: no settings, tasks, services or health, and nothing looked up", async () => {
+  const { gatherReport } = await import("../dist/diagnostic-report.js");
+  const { updateSources } = await import("../dist/update-failure.js");
+  const touched = [];
+  const spy = (name, answer) => (...args) => { touched.push(name); return answer; };
+  const root = await mkdtemp(join(tmpdir(), "branch-update-sources-"));
+  try {
+    const sources = {
+      version: "1.0.0", dataDir: root, installType: "test", log: null, logMode: "when-needed",
+      health: spy("health", Promise.resolve({ ok: true })), settings: spy("settings", { secret: 1 }),
+      services: spy("services", {}), events: spy("events", {}), resolve: spy("resolve", Promise.resolve({})),
+    };
+    const items = await gatherReport(updateSources(sources));
+    assert.deepEqual(touched, [], "none of the left-out sources is asked");
+    assert.ok(items.some((item) => item.id === "updates"), "the update items are still there");
+  } finally { await discardTemp(root); }
+});
+
+test("only the end of a long update log is read: at most 400 lines, each cut short, a huge first line dropped", async (t) => {
+  const { updateLogItem } = await import("../dist/update-failure.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-update-tail-"));
+  const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+  Object.assign(process.env, { TEMP: root, TMP: root, TMPDIR: root });
+  t.after(async () => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; await discardTemp(root); });
+  await mkdir(join(root, "branch-agent-update"), { recursive: true });
+  const lines = ["x".repeat(3_000_000), ...Array.from({ length: 600 }, (_, i) => `[step ${i}] ${"y".repeat(i === 599 ? 5000 : 10)}`)];
+  await writeFile(join(root, "branch-agent-update", "apply-update.log"), lines.join("\n"));
+  const text = (await updateLogItem()).text;
+  const kept = text.split("\n");
+  assert.ok(kept.length <= 400, `${kept.length} lines`);
+  assert.ok(kept.every((line) => line.length <= 2000), "every line cut short");
+  assert.ok(!text.includes("x".repeat(100)), "the huge first line is never read");
+  assert.match(kept.at(-1), /^\[step 599\]/, "the newest step is there");
+});
+
+test("a look at the record that was already on its way never hides a failure shown since", async (t) => {
+  const { page, server, errors } = await openApp(t, { desktop: true });
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  // Every look at the recorded failure is held, and when let go it says there was none.
+  await page.route("**/api/updates/failure", async (route) => { await held; await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ failure: null }) }); });
+  await connect(page, server);
+  await page.locator("#updates-install").waitFor({ state: "visible" });
+  await page.locator("#updates-install").click();
+  await page.locator("#updates-failed-text").waitFor({ state: "visible" });
+  release();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator("#updates-failed").isVisible(), true, "the failure just shown stays");
+  assert.deepEqual(errors, []);
+});
+
+test("the log is read from its end, never more than a fixed amount, however big it grew", async (t) => {
+  const { tailOf } = await import("../dist/update-failure.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-update-ceiling-"));
+  t.after(() => discardTemp(root));
+  const path = join(root, "apply-update.log");
+  await writeFile(path, "a".repeat(3_000_000) + "\nlast step");
+  const tail = await tailOf(path);
+  assert.ok(tail.length <= 256 * 1024, `${tail.length} characters read`);
+  assert.equal(tail, "last step", "the cut first line is dropped");
+  await writeFile(path, "small\nlog");
+  assert.equal(await tailOf(path), "small\nlog", "a small log is read whole");
+});
