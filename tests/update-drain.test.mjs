@@ -6,7 +6,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -208,18 +208,20 @@ async function stopsAfterClosing(t, stopDaemon) {
     drain: async () => undefined,
     undrain: async () => { calls.undrained++; },
     revive: async () => { calls.revived++; },
-    // The scratch folder is fresh by now: a folder where the script goes makes writing it fail.
-    stopDaemon: async () => { await mkdir(join(scratchDir, "recover-update.cmd"), { recursive: true }); return stopDaemon(); },
+    // When the close answers, a folder where the script goes makes writing it fail (the scratch
+    // folder is fresh by now). A close that throws gets no such help: it must stop the update itself.
+    stopDaemon: async () => { const answer = await stopDaemon(); await mkdir(join(scratchDir, "recover-update.cmd"), { recursive: true }); return answer; },
   });
   await assert.rejects(updater.install());
-  return { ...calls, phase: updater.status.phase };
+  const script = await readFile(join(scratchDir, "apply-update.cmd"), "utf8").then(() => true, () => false);
+  return { ...calls, phase: updater.status.phase, script };
 }
 
 test("a stopped update gives a still-running engine its work back, and starts again only one proved closed", async (t) => {
   assert.deepEqual(await stopsAfterClosing(t, async () => ({ pid: 4242, stopped: false })),
-    { undrained: 1, revived: 0, phase: "error" }, "alive after the wait: only drained, so the drain is taken back");
+    { undrained: 1, revived: 0, phase: "error", script: false }, "alive after the wait: only drained, so the drain is taken back");
   assert.deepEqual(await stopsAfterClosing(t, async () => ({ pid: 4242, stopped: true })),
-    { undrained: 0, revived: 1, phase: "error" }, "proved closed: started again, not sent an undo it cannot hear");
+    { undrained: 0, revived: 1, phase: "error", script: false }, "proved closed: started again, not sent an undo it cannot hear");
   assert.deepEqual(await stopsAfterClosing(t, async () => { throw new Error("no answer"); }),
-    { undrained: 1, revived: 0, phase: "error" }, "a stop that failed proves nothing closed");
+    { undrained: 1, revived: 0, phase: "error", script: false }, "a close that failed outright stops the update: nothing proves the engine gone");
 });

@@ -240,12 +240,12 @@ test("cmd runs the two-wait script through to the copy", { skip: process.platfor
     "both waits were passed, in order, before the copy");
 });
 
-test("an engine that refuses to close still lets the update go ahead", async (t) => {
+test("an engine whose close fails outright stops the update, with no hand-over written", async (t) => {
   const root = await scratch(t);
   const updater = await updaterFor(root, "scratch-refused", {
     stopDaemon: async () => { throw new Error("taskkill is missing"); },
   });
-  const { script } = await updater.install();
-  assert.equal(updater.status.phase, "ready");
-  assert.ok(!(await readFile(script, "utf8")).includes(":engine"), "no pid to wait for, so no wait loop");
+  await assert.rejects(updater.install(), /could not be closed, so the update was stopped.*taskkill is missing/s);
+  assert.equal(updater.status.phase, "error");
+  await assert.rejects(readFile(join(root, "scratch-refused", "apply-update.cmd"), "utf8"), /ENOENT/, "no hand-over under a live engine");
 });

@@ -200,11 +200,6 @@ export class Updater {
       throw new Error(`The safety copy could not be made, so the update was stopped: ${why} Free some space on this drive, or move Branch's data folder somewhere it can write, then try the update again.`);
     }
   }
-  /**
-   * Closes the engine working in the background before the files are swapped, and answers with its
-   * process id so the hand-over waits for it as well. A refusal never stops the update: the hand-over
-   * script ends that process itself if it has to.
-   */
   /** Gives Branch its work back after a drain the update did not follow through (never throws). */
   async undrain(): Promise<void> {
     await this.options.undrain?.().catch(() => undefined);
@@ -222,11 +217,21 @@ export class Updater {
     if (closed) await this.options.revive?.().catch(() => undefined);
     else await this.undrain();
   }
+  /**
+   * Closes the engine working in the background before the files are swapped, and answers with its
+   * process id so the hand-over waits for it as well. A close that fails outright stops the update:
+   * with no answer there is neither proof the engine is gone nor a process id for the hand-over to
+   * wait for, and on Windows it may still hold the files being replaced. The engine is then treated
+   * as still alive, so `giveBack` takes its drain back.
+   */
   private async stopBackground(): Promise<EngineStop> {
     if (!this.options.stopDaemon) return noEngine;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    // A refusal proves nothing was closed: the engine is treated as still alive.
-    try { return await this.options.stopDaemon(); } catch { return noEngine; }
+    try { return await this.options.stopDaemon(); }
+    catch (error) {
+      const why = (error instanceof Error ? error.message : String(error)).replace(/\.?$/, ".");
+      throw new Error(`The part of Branch that works in the background could not be closed, so the update was stopped and nothing was changed: ${why}`);
+    }
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/latest`, {
