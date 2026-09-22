@@ -1013,9 +1013,10 @@
           "tests/skills-ui.test.mjs"
         ],
         "tests": [
-          "initial request carries enabled skill metadata only; full documents load through skills.read",
-          "run snapshots pin advertised versions; later edits, switches and disables do not change an active run",
-          "removal prevents subsequent reads; skill metadata never expands tool permissions"
+          "runtime loads only selected instructions and does not expand permissions from allowed-tools",
+          "task skill catalogs pin versions through edits and activation, and removal denies further reads",
+          "tasks without skills.read do not receive metadata and direct tools cannot select inactive versions",
+          "a task discovers skill metadata and reads the selected active document through skills.read"
         ],
         "detail": "Runtime injects a metadata-only catalog of enabled skills into the system prompt and loads a full document only on an explicit skills.read for a listed id and version. Browser fixture verifies metadata-only discovery then exact v2 delivery."
       },
@@ -1043,10 +1044,12 @@
           "tests/skills-ui.test.mjs"
         ],
         "tests": [
-          "single-file SKILL.md install validates frontmatter, name pattern and size bounds",
-          "update creates an immutable new version; activation and rollback select retained versions with optimistic revision checks",
-          "disable and remove respect owner boundaries, capacity limits and transactional rollback",
-          "browser Skills view installs, edits, imports, activates, disables and removes with drafts preserved"
+          "skill parser accepts YAML metadata and rejects malformed, ambiguous, aliased and oversized documents",
+          "skill documents retain exact bytes, owner isolation, revisions and selection across restart",
+          "invalid skill changes are atomic, bounded and reject forged owner or conflicting active names",
+          "installed, enabled and metadata byte limits reject changes without partial writes",
+          "skill API requires authorization, exposes metadata only in state and rejects stale or malformed updates",
+          "single-file skill import, version editing, retained activation, disabling and removal"
         ],
         "detail": "Single-file SKILL.md documents only (agentskills.io frontmatter). Bundled scripts, assets and references are not installed; this is not full Agent Skills package support."
       },
