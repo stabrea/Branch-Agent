@@ -66,22 +66,27 @@ const escape = String.fromCharCode(27);
 
 
 test("a secret with an escape sequence hidden inside it is still taken out", async (t) => {
-  // The order is the whole finding. Cleaning the text *after* looking for secrets means an escape in the
-  // middle of a key breaks the shape the redactor looks for, the key goes through untouched, and then the
-  // escape is helpfully removed — leaving the key in plain sight in the file the owner is told to send.
-  const broken = (text) => text.slice(0, 20) + escape + "[0m" + text.slice(20);
+  // The order is the whole finding. Looking for secrets *before* cleaning the text means an escape in the
+  // middle of a key breaks the shape the redactor looks for, so the key goes through — and then the escape
+  // is helpfully removed, leaving it in plain sight in the file the owner is told to send.
+  //
+  // Each of these is a case where nothing else would have caught it: a key with no label beside it, a path
+  // with no `authorization:` in front of it, an address the escape splits in two.
+  const broken = (text, at) => text.slice(0, at) + escape + "[0m" + text.slice(at);
+  const key = "sk-ant-api03-A1b2C3d4E5f6G7h8I9j0KLMNOPQRSTUVWX";
   const dir = await updateLog(t, [
-    `authorization: Bearer ${broken("sk-ant-api03-NOTAREALKEY-abcdefghijklmnopqrstuv")}`,
-    `config {"apiKey":"${broken("sk-proj-abcdefghij1234567890")}"}`,
-    `owner email: ${"someone@example.com".slice(0, 4)}${escape}[1m${"someone@example.com".slice(4)}`,
+    `step 7: using ${broken(key, 25)}`,
+    `at ${broken("C:" + String.fromCharCode(92) + "Users" + String.fromCharCode(92) + "bishi" + String.fromCharCode(92) + "Documents", 12)}`,
+    `mail ${broken("someone@example.com", 4)}`,
     "step 9: failed to move the folder",
   ]);
   const item = await updateLogItem(dir);
 
-  assert.equal(/sk-ant-api03/.test(item.text), false, `the key is gone whole (${item.text.slice(0, 200)})`);
-  assert.equal(/sk-proj-/.test(item.text), false, "and so is the one inside the JSON");
-  assert.equal(item.text.includes("example.com"), false, "and the address, which the escape had split");
-  assert.match(item.text, /step 9: failed to move the folder/);
+  assert.equal(item.text.includes("KLMNOPQRSTUVWX"), false, `no part of the key survives (${item.text.slice(0, 160)})`);
+  assert.equal(item.text.includes("G7h8I9j0"), false, "not even the half after the escape");
+  assert.equal(item.text.includes("example.com"), false, "the address is gone whole");
+  assert.equal(item.text.includes("some"), false, "including the half before the escape");
+  assert.match(item.text, /step 9: failed to move the folder/, "and what went wrong is still readable");
 });
 
 test("a bare carriage return, which writes over the line before it, does not survive", async (t) => {
