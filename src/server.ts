@@ -1651,7 +1651,7 @@ async function api(
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
       // A picture that was attached is also shown to the model, so the page sends its bytes once.
-      ...(input.images?.length ? { images: input.images } : picturesAmong(input.attachments)),
+      ...picturesFor(input),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
@@ -4036,6 +4036,16 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
  * The pictures among a message's attachments, in the shape the model is shown. The file itself is
  * kept whatever happens; this is only so a picture does not have to be uploaded twice.
  */
+/**
+ * What the model looks at this turn: the pictures the page sent to be looked at — a still out of a
+ * film — together with the pictures among the files the message carries. The two are different
+ * things, so one never hides the other: a message with a film and a photograph shows the model both.
+ */
+function picturesFor(input: { images?: ImagePart[] | undefined; attachments?: { mediaType: string; name: string; data: string }[] | undefined }): { images?: ImagePart[] } {
+  const all = [...(input.images ?? []), ...(picturesAmong(input.attachments).images ?? [])]
+    .slice(0, maximumImagesPerTurn);
+  return all.length ? { images: all } : {};
+}
 function picturesAmong(attachments?: { mediaType: string; name: string; data: string }[]): { images?: ImagePart[] } {
   const pictures = (attachments ?? [])
     .filter((one) => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(one.mediaType))

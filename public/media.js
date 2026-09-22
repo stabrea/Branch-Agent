@@ -41,9 +41,16 @@ const say = (message) => globalThis.toast?.(message);
 
 /* ---------- what you attach to the message you are writing ---------- */
 
-/** The pictures the next message should carry, in the shape the run route expects. */
+/**
+ * The pictures the next message should carry for the model to look at, and *only* the ones that are
+ * not kept as files in their own right: a still taken out of a film, which exists so the model can
+ * see what the film shows. A picture a person attached travels once, with the other files, and the
+ * server derives the model's copy from it. Sending it in both places doubled its bytes and could
+ * push four perfectly legal pictures past what a message may weigh (src/server.ts: picturesAmong).
+ */
 globalThis.branchAttachments = () =>
-  attached.filter((item) => item.kind === "picture").map((item) => ({ mediaType: item.mediaType, data: item.data, name: item.name }));
+  attached.filter((item) => item.kind === "picture" && item.keep === false)
+    .map((item) => ({ mediaType: item.mediaType, data: item.data, name: item.name }));
 /**
  * Every file on the message, pictures included, to be kept as it is. A picture also travels as a
  * picture so the model can look at it; a sound and a video are still written out and watched, but the
