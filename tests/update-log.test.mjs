@@ -55,7 +55,13 @@ const call = (server, path, body, key = server.token) => fetch(server.url + "/ap
 });
 
 test("a failed update is known after the restart, and its file holds only what explains it, cleaned", async (t) => {
-  const { server, dataDir } = await failedUpdate(t);
+  const { app, server, dataDir } = await failedUpdate(t);
+  // What the file leaves out is never read: tasks, trace spans and tool servers are watched.
+  const read = [];
+  const watch = (target, name, label) => { const real = target[name].bind(target); target[name] = (...args) => { read.push(label); return real(...args); }; };
+  watch(app.store, "recentEvents", "tasks");
+  watch(app.store.spans, "recent", "spans");
+  watch(app.mcpConnections, "health", "tool servers");
   assert.deepEqual(await (await call(server, "updates/failure")).json(), { failure: null }, "no update yet, nothing to say");
   stageAndFail(dataDir);
   const { failure } = await (await call(server, "updates/failure")).json();
@@ -70,6 +76,7 @@ test("a failed update is known after the restart, and its file holds only what e
   for (const step of ["app closed", "keeping previous version", "copy failed; putting the previous version back"]) assert.ok(log.includes(step), step);
   assert.ok(!log.includes(secret), "cleaned like every other item");
   assert.match(files.get("updates.txt"), /"state": "failed"/);
+  assert.deepEqual(read, [], "nothing it leaves out was read to make it");
   // A copy is kept in Branch's own folder too, and nothing was sent anywhere.
   assert.ok((await readFile(join(dataDir, "diagnostics", saved.name))).length > 0);
 });
@@ -169,7 +176,7 @@ test("an install that stops here says it in plain words at once, in the language
 
 test("the update file reads nothing it leaves out: no settings, tasks, services or health, and nothing looked up", async () => {
   const { gatherReport } = await import("../dist/diagnostic-report.js");
-  const { updateSources } = await import("../dist/update-failure.js");
+  const { updateItemIds } = await import("../dist/update-failure.js");
   const touched = [];
   const spy = (name, answer) => (...args) => { touched.push(name); return answer; };
   const root = await mkdtemp(join(tmpdir(), "branch-update-sources-"));
@@ -179,9 +186,9 @@ test("the update file reads nothing it leaves out: no settings, tasks, services 
       health: spy("health", Promise.resolve({ ok: true })), settings: spy("settings", { secret: 1 }),
       services: spy("services", {}), events: spy("events", {}), resolve: spy("resolve", Promise.resolve({})),
     };
-    const items = await gatherReport(updateSources(sources));
+    const items = await gatherReport(sources, updateItemIds);
     assert.deepEqual(touched, [], "none of the left-out sources is asked");
-    assert.ok(items.some((item) => item.id === "updates"), "the update items are still there");
+    assert.deepEqual(items.map((item) => item.id).sort(), [...updateItemIds].sort(), "exactly the update items");
   } finally { await discardTemp(root); }
 });
 

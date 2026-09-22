@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { DiagnosticLog, diagnosticLogSettings, redactForLog } from "./diagnostic-log.js";
-import { gatherReport, reportZip, type ReportItem, type ReportSources } from "./diagnostic-report.js";
+import { gatherReport, reportZip, type ReportItem } from "./diagnostic-report.js";
 import { reportSources, type DiagnosticContext } from "./diagnostic-api.js";
 
 /**
@@ -36,8 +36,8 @@ export async function tailOf(path: string): Promise<string> {
     return size > length ? text.slice(text.indexOf("\n") + 1) : text;
   } finally { await file.close(); }
 }
-/** Report a problem's items that explain an update, and nothing else. */
-const updateItems = new Set(["about", "updates", "log", "crashes", "disk"]);
+/** Report a problem's items that explain an update, and nothing else: only these are gathered. */
+export const updateItemIds = ["about", "updates", "log", "crashes", "disk"] as const;
 
 /** The last update's own steps, the end only, cleaned like every report item. */
 export async function updateLogItem(): Promise<ReportItem> {
@@ -61,21 +61,13 @@ export function lastUpdateFailure(dataDir: string): { fromVersion: string; toVer
   } finally { db?.close(); }
 }
 
-/**
- * Report a problem's sources with everything the update file leaves out made inert: settings, tasks,
- * services and health are never read, and no name is looked up on the network. Only the items that
- * explain an update read anything.
- */
-export function updateSources(sources: ReportSources): ReportSources {
-  const nothing = () => ({});
-  return { ...sources, health: async () => ({}), settings: nothing, services: nothing, events: nothing, resolve: null };
-}
-
 /** The update's file, saved beside the owner's other reports and handed back for the download. */
 async function failureReport(ctx: DiagnosticContext): Promise<{ name: string; path: string; base64: string }> {
   const { app, dataDir } = ctx;
   const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => diagnosticLogSettings(app.store, app.runtime.owner) });
-  const items = (await gatherReport(updateSources(reportSources(ctx, log)))).filter((item) => updateItems.has(item.id));
+  // Only the items that explain an update are gathered: settings, tasks, services and health are
+  // never read, and no name is looked up on the network.
+  const items = await gatherReport(reportSources(ctx, log), updateItemIds);
   const zip = reportZip([...items, await updateLogItem()]);
   const folder = join(dataDir, "diagnostics");
   await mkdir(folder, { recursive: true, mode: 0o700 });
