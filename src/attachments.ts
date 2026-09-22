@@ -99,10 +99,15 @@ function trueName(path: string): string | null {
   try { return realpathSync(path); } catch { return null; }
 }
 
-/** What handing a file back needs: who is at the window, and where the files are kept. */
+/**
+ * What handing a file back needs: who is at the window, where the files are kept, and whether the
+ * conversation they belong to is a temporary one. That last answer comes from the conversation
+ * itself, never from the request: a caller that could name the folder could ask for the other one.
+ */
 export interface DeliveryParts {
   profiles: { requireOwner(why: string): void };
   attachments: Pick<Attachments, "read">;
+  temporaryConversation(sessionId: string): boolean;
 }
 /**
  * Hands one kept file back for a window to show or save. The owner check is the first thing here, so
@@ -111,10 +116,11 @@ export interface DeliveryParts {
  * relies on the other.
  */
 export async function attachmentForWindow(
-  parts: DeliveryParts, wanted: { session: string; id: string; temporary?: boolean },
+  parts: DeliveryParts, wanted: { session: string; id: string },
 ): Promise<{ ref: AttachmentRef; bytes: Buffer }> {
   parts.profiles.requireOwner("Opening an attached file");
-  return parts.attachments.read(wanted.session, wanted.id, { temporary: Boolean(wanted.temporary) });
+  return parts.attachments.read(wanted.session, wanted.id,
+    { temporary: parts.temporaryConversation(wanted.session) });
 }
 
 export class Attachments {

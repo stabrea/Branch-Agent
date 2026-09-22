@@ -3714,8 +3714,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const wanted = new URL(request.url ?? "/", "http://local").searchParams;
     // The owner check lives at the top of attachmentForWindow, so it cannot be left behind here.
     const found = await attachmentForWindow(
-      { profiles: app.store.profiles, attachments: app.attachments },
-      { session: wanted.get("session") ?? "", id: wanted.get("id") ?? "", temporary: wanted.get("temporary") === "1" },
+      {
+        profiles: app.store.profiles, attachments: app.attachments,
+        temporaryConversation: (session) => app.store.sessionTemporary(session),
+      },
+      { session: wanted.get("session") ?? "", id: wanted.get("id") ?? "" },
     ).catch(() => null);
     if (!found) throw new HttpError(404, "That file is not attached to this conversation");
     // The type is the one kept with the file, never anything the request said.
