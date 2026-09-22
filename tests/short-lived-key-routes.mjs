@@ -94,6 +94,7 @@ export const ROUTES = {
   "/api/cached-answers": "look",
   "/api/calendar": "owner POST",
   // mac7/connect: the Set up panel for each chat app; looking is open, saving a token is the owner's.
+  "/api/capabilities": "owner GET,POST", // owner item 17: every capability, on or off
   "/api/channel-setup": "owner POST",
   "/api/channel-setup/": "prefix",
   "/api/channel-setup/sample": "look",

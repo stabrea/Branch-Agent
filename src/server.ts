@@ -221,7 +221,7 @@ import { readCredentialSettings, saveCredentialSettings } from "./credential-cli
 import { readVaultAutofillSettings, saveVaultAutofillSettings } from "./vault-autofill.js";
 import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
 import { eagerCost, optionalFields, ToolLoadingSchema, toolLoadingKey } from "./feature-switches.js";
-import { capabilityRows, setCapability } from "./capabilities.js";
+import { capabilitiesRoute } from "./capabilities.js";
 import * as knobs from "./knobs/apply.js";
 import { contextLimit } from "./runtime.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
@@ -1225,14 +1225,8 @@ async function api(
   if (path.startsWith("/api/developer/")) return developerApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   // Owner item 17: the Capabilities page, every switch as one on/off toggle (src/capabilities.ts).
-  if (path === "/api/capabilities") {
-    // The owner's alone, checked here so the guard moves with the route.
-    app.store.profiles.requireOwner("What the assistant can do");
-    const owner = app.runtime.owner;
-    if (request.method === "POST") return setCapability(app.store, owner, await readBody(request));
-    if (request.method !== "GET") throw new HttpError(405, "Use GET or POST");
-    return { toolLoading: toolLoadingCost(app, owner), rows: capabilityRows(app.store, owner) };
-  }
+  if (path === "/api/capabilities")
+    return capabilitiesRoute(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request), () => toolLoadingCost(app, app.runtime.owner));
   // Owner item 17: the one Tool loading switch, and what switching it off would cost for this model.
   if (path === "/api/tool-loading") {
     // The owner's alone, checked here so the guard moves with the route.
@@ -4048,6 +4042,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot read or change how the assistant loads its tools. Do that in the app window.";
   if (path === "/api/skills/always")
     return "A short-lived key cannot read or change which skills are followed in every task. Do that in the app window.";
+  if (path === "/api/capabilities")
+    return "A short-lived key cannot read or change what the assistant can do. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered

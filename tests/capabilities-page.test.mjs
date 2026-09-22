@@ -18,6 +18,7 @@ import { toolFeatures } from "../dist/feature-switches.js";
 import { slots } from "../dist/context-files.js";
 import { labelKeyOf } from "../dist/capabilities-table.js";
 import { trunkMode } from "../dist/trunks/settings.js";
+import { capabilitiesRoute } from "../dist/capabilities.js";
 
 /** Every parts module, read from its own lists: each part is a capability the page must show. */
 const partsModules = await Promise.all([
@@ -112,6 +113,7 @@ test("Lockdown keeps what it covers off, and a short-lived key changes nothing",
   assert.ok(row((await call()).body, "web-pages").locked === false, "what Lockdown does not cover stays switchable");
   const key = app.sessionTokens.create(owner, { name: "phone", scope: "run" }).token;
   assert.ok([401, 403].includes((await call({ key: "web-pages", on: true }, key)).status));
+  assert.ok([401, 403].includes((await call(undefined, key)).status), "nor read the page");
   assert.equal(app.store.get("settings", owner, "web-pages")?.data?.mode ?? "off", "off");
 });
 
@@ -122,6 +124,10 @@ test("a household profile can neither read nor switch what the assistant can do"
   t.after(() => app.store.profiles.switch({ profileId: null }));
   assert.notEqual((await call()).status, 200);
   assert.notEqual((await call({ key: "web-pages", on: true })).status, 200);
+  // The route's own guard (it names itself) is what stays if the outer table is ever refactored.
+  for (const method of ["GET", "POST"])
+    await assert.rejects(capabilitiesRoute(app.store, owner, method, async () => ({ key: "web-pages", on: true }), () => null),
+      /^Error: What the assistant can do belongs to the owner/);
   assert.equal(app.store.get("settings", owner, "web-pages")?.data?.mode ?? "off", "off", "nothing changed");
 });
 

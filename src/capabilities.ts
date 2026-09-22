@@ -74,6 +74,14 @@ function write(store: Store, owner: string, id: string, on: boolean): void {
   }
 }
 
+/** `GET|POST /api/capabilities`: the owner's alone, checked here so the guard moves with the route. */
+export async function capabilitiesRoute(store: Store, owner: string, method: string, body: () => Promise<unknown>, toolLoading: () => unknown): Promise<unknown> {
+  store.profiles.requireOwner("What the assistant can do");
+  if (method === "POST") return setCapability(store, owner, await body());
+  if (method !== "GET") throw new Error("Use GET or POST");
+  return { toolLoading: toolLoading(), rows: capabilityRows(store, owner) };
+}
+
 /** Switches one capability on or off. On also switches on what it needs, so it works at once. */
 export function setCapability(store: Store, owner: string, input: unknown): CapabilityRow {
   const { key, on } = SetSchema.parse(input);
