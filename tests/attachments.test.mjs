@@ -9,6 +9,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { Attachments, attachmentForWindow, attachmentLimits, kindOf, rangeWanted, shownInPage } from "../dist/attachments.js";
 import { maxAttachmentsBytesPerTurn } from "../dist/contracts.js";
+import { DiagnosticLog, DiagnosticLogSettingsSchema, setDiagnosticLog } from "../dist/diagnostic-log.js";
 import { ROUTES } from "./short-lived-key-routes.mjs";
 
 /**
@@ -70,6 +71,63 @@ async function branch(t, provider) {
     fetch(`${server.url}/api/attachments/file?${query}`, { headers: { ...headers, ...extra } });
   return { app, root, server, headers, post, fetchFile };
 }
+
+
+/** A log that is on, put in place for one test and taken away again afterwards. */
+async function listening(t, scratch) {
+  const log = new DiagnosticLog({ dir: join(scratch, "logs"),
+    settings: () => DiagnosticLogSettingsSchema.parse({ mode: "on" }) });
+  setDiagnosticLog(log);
+  t.after(() => setDiagnosticLog(null));
+  return log;
+}
+
+test("a delete that fails says so instead of leaving the bytes behind in silence", async (t) => {
+  // Deleting a conversation's folder can fail — something still has a file open, which on Windows is
+  // an ordinary Tuesday. It was thrown away with .catch(() => undefined), so the files of a
+  // conversation the owner deleted stayed on disk with nothing pointing at them and no way for
+  // anyone, then or later, to discover it.
+  const scratch = await mkdtemp(join(tmpdir(), "branch-forget-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+  mkdirSync(root, { recursive: true });
+  const log = await listening(t, scratch);
+
+  const locked = new Attachments(root, readdirSync, undefined,
+    () => Promise.reject(Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" })));
+  assert.equal(await locked.forget("a-conversation"), false, "it does not claim the files went");
+
+  const [line] = log.read({ component: "attachments" });
+  assert.equal(line.level, "error");
+  assert.match(line.message, /could not be deleted/);
+  assert.match(String(line.fields.reason), /EBUSY/, "and says why, so it can be acted on");
+
+  // And when the delete works, it is not reported as a problem.
+  const working = new Attachments(root);
+  assert.equal(await working.forget("a-conversation"), true);
+  assert.equal(log.read({ component: "attachments" }).length, 1, "nothing is written about a delete that worked");
+});
+
+test("the sweep counts the folders that really went, not the ones it tried", async (t) => {
+  // Returning the number it attempted made the count a promise it had not kept: temporary files
+  // outliving their conversation were reported as swept away.
+  const scratch = await mkdtemp(join(tmpdir(), "branch-sweep-count-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+  mkdirSync(root, { recursive: true });
+  for (const name of ["tmp-one", "tmp-two", "tmp-three"]) mkdirSync(join(root, name), { recursive: true });
+  const log = await listening(t, scratch);
+
+  const store = new Attachments(root, readdirSync, undefined,
+    (path) => path.endsWith("tmp-two") ? Promise.reject(new Error("EBUSY")) : Promise.resolve());
+  assert.equal(await store.sweepTemporary(), 2, "two went; the one that would not is not counted with them");
+
+  const [line] = log.read({ component: "attachments" });
+  assert.match(line.message, /still here after the sweep/);
+  assert.equal(line.fields.left, 1);
+  assert.equal(line.fields.swept, 2);
+});
+
 
 test("four kinds of file attach to one message, and the conversation keeps what it was given", async (t) => {
   const { app, post } = await branch(t);

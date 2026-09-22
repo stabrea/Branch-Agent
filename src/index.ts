@@ -333,8 +333,11 @@ export async function createBranch(options: {
    */
   const attachments = new Attachments(join(dataDir, "attachments"));
   store.onSessionClosed((sessionId) => {
-    void attachments.forget(sessionId).catch(() => undefined);
-    void attachments.forget(sessionId, { temporary: true }).catch(() => undefined);
+    // A listener may not throw and is never awaited, so a delete that fails cannot be retried from
+    // here. It is no longer thrown away in silence either: `forget` writes what happened and says
+    // whether the files really went.
+    void attachments.forget(sessionId);
+    void attachments.forget(sessionId, { temporary: true });
   });
   // A stop at the wrong moment must not turn a temporary conversation's files into permanent ones.
   // The list of what to sweep is read here, before anything else can start, and only those folders are

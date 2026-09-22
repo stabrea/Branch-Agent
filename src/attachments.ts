@@ -7,6 +7,7 @@ import {
   AttachmentRefSchema, maxAttachmentsBytesPerTurn, maximumAttachmentsPerTurn, mediaTypeToken,
   type AttachmentInput, type AttachmentKind, type AttachmentRef,
 } from "./contracts.js";
+import { diagnose } from "./diagnostic-log.js";
 import { documentBytesLimit } from "./documents.js";
 
 /**
@@ -140,14 +141,16 @@ async function flushToFile(path: string, text: string): Promise<void> {
 
 export class Attachments {
   /**
-   * The second and third arguments exist so a test can hold the folder listing still and make the
-   * listing's own write fail. Neither is part of the app's own surface: `createBranch` builds this
-   * with one argument and gets `readdirSync` and a real flushed write.
+   * Everything after the first argument exists so a test can hold the folder listing still, make the
+   * listing's own write fail, and make a delete fail the way a locked file does. None of it is part
+   * of the app's own surface: `createBranch` builds this with one argument and gets `readdirSync`, a
+   * real flushed write and a real recursive delete.
    */
   constructor(
     readonly root: string,
     private readonly listFolders: (path: string) => string[] = readdirSync,
     private readonly writeListing: (path: string, text: string) => Promise<void> = flushToFile,
+    private readonly remove: (path: string) => Promise<void> = (path) => rm(path, { recursive: true, force: true }),
   ) {}
   /** One queue per conversation, so its listing is never written by two turns at once. */
   private readonly turns = new Map<string, Promise<void>>();
@@ -260,8 +263,23 @@ export class Attachments {
     return this.listing(this.folder(sessionId, options.temporary));
   }
   /** The conversation is gone, so its files go with it: nothing is left pointing at nothing. */
-  async forget(sessionId: string, options: { temporary?: boolean } = {}): Promise<void> {
-    await rm(this.folder(sessionId, options.temporary), { recursive: true, force: true });
+  /**
+   * Says whether the files really went. It never throws, because the one caller is a listener that
+   * may not throw and is never awaited — but it does not stay quiet either. A delete that fails, as
+   * one does when something still holds a file open, leaves the bytes of a conversation the owner
+   * threw away sitting on disk with nothing pointing at them; saying nothing meant nobody could ever
+   * find out, not even afterwards.
+   */
+  async forget(sessionId: string, options: { temporary?: boolean } = {}): Promise<boolean> {
+    const folder = this.folder(sessionId, options.temporary);
+    try {
+      await this.remove(folder);
+      return true;
+    } catch (error) {
+      diagnose("attachments", "error", "A conversation's files could not be deleted",
+        { fields: { folder, reason: error instanceof Error ? error.message : String(error) } });
+      return false;
+    }
   }
   /**
    * Temporary conversations leave nothing behind. Closing one sweeps its folder; this sweeps any that
@@ -280,11 +298,15 @@ export class Attachments {
     let folders: string[] = [];
     try { folders = this.listFolders(this.root); } catch { return 0; }
     const leftovers = folders.filter(isTemporaryFolder);
-    let swept = 0;
+    let swept = 0, left = 0;
     for (const name of leftovers) {
-      await rm(join(this.root, name), { recursive: true, force: true }).catch(() => undefined);
-      swept += 1;
+      // Counting a folder as swept whether or not it went made the number a promise the sweep had
+      // not kept: temporary files that outlived their conversation were reported as gone.
+      try { await this.remove(join(this.root, name)); swept += 1; }
+      catch { left += 1; }
     }
+    if (left) diagnose("attachments", "error",
+      "Temporary conversation files are still here after the sweep", { fields: { left, swept } });
     return swept;
   }
 }
