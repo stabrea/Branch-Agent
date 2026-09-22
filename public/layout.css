@@ -2556,3 +2556,7 @@ select.glass[aria-expanded="true"] {
 .glass-tip[hidden] {
   display: none;
 }
+
+/* Owner item 17: Settings › Capabilities, one switch per row, name on the left. */
+.capability-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.capability-row label { flex: 1; min-width: 0; }

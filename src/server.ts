@@ -221,6 +221,7 @@ import { readCredentialSettings, saveCredentialSettings } from "./credential-cli
 import { readVaultAutofillSettings, saveVaultAutofillSettings } from "./vault-autofill.js";
 import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
 import { eagerCost, optionalFields, ToolLoadingSchema, toolLoadingKey } from "./feature-switches.js";
+import { capabilityRows, setCapability } from "./capabilities.js";
 import * as knobs from "./knobs/apply.js";
 import { contextLimit } from "./runtime.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
@@ -565,6 +566,7 @@ async function staticFile(
     "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    "/capabilities.js": ["capabilities.js", "text/javascript; charset=utf-8"], // owner item 17
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
     "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
     // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
@@ -1222,6 +1224,14 @@ async function api(
   // Wave 7: the two coder switches in Settings → Developer, kept in one small block.
   if (path.startsWith("/api/developer/")) return developerApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
+  // Owner item 17: the Capabilities page, every switch as one on/off toggle (src/capabilities.ts).
+  if (path === "/api/capabilities") {
+    const owner = app.runtime.owner;
+    if (request.method === "POST") return setCapability(app.store, owner, await readBody(request));
+    if (request.method !== "GET") throw new HttpError(405, "Use GET or POST");
+    return { toolLoading: eagerCost(app.store, owner, app.registry.descriptions(new Set(app.registry.permissions())), knobs.contextWindow(app.store, owner, contextLimit)),
+      rows: capabilityRows(app.store, owner) };
+  }
   // Owner item 17: the one Tool loading switch, and what switching it off would cost for this model.
   if (path === "/api/tool-loading") {
     // The owner's alone, checked here so the guard moves with the route.

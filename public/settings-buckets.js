@@ -208,6 +208,8 @@ export const ICON_PATHS = {
   accounts: "M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 6.5M18 14a6.5 6.5 0 013.5 6",
   voice: "M12 3a3 3 0 013 3v5a3 3 0 01-6 0V6a3 3 0 013-3zM6 11a6 6 0 0012 0M12 17v4",
   permissions: "M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z",
+  // Owner item 17: two switches, one on and one off.
+  capabilities: "M7 6h10a3 3 0 010 6H7a3 3 0 010-6zM17 9h.01M7 12h10a3 3 0 010 6H7a3 3 0 010-6zM7 15h.01",
   computer: "M3 4h18v12H3zM8 20h8M12 16v4",
   secrets: "M15 9a4 4 0 11-3.5 6H9v2H7v2H4v-3l6.5-6.5A4 4 0 0115 9z",
   data: "M12 4c4 0 7 1.3 7 3s-3 3-7 3-7-1.3-7-3 3-3 7-3zM5 7v10c0 1.7 3 3 7 3s7-1.3 7-3V7",

@@ -235,6 +235,8 @@ const SETTINGS_PAGES = [
   ["accounts", "settings.page.accounts", "Accounts", "Every sign-in and key Branch can use, which one answers, and what happens when one runs low."], // phase2/accounts
   ["voice", "settings.page.voice", "Voice", "Talking to your assistant and hearing it answer."],
   ["permissions", "settings.page.permissions", "Permissions", "What your assistant may do without asking, and how much it may do at once."],
+  // Owner item 17: every capability on or off in one place, and how its tools are loaded (public/capabilities.js).
+  ["capabilities", "settings.page.capabilities", "Capabilities", "What your assistant can do, each one on or off, and how its tools are loaded."],
   ["computer", "settings.page.computer", "Computer & browser", "What it may touch on this computer, in your browser and on your other machines."],
   ["secrets", "settings.page.secrets", "Secrets", "Keys and passwords your assistant may use, one item at a time."],
   ["data", "settings.page.data", "Data & usage", "What it costs, what is kept, and your safety copies."],
@@ -659,6 +661,7 @@ function buildOnThisPage(page) {
 function showSettingsPage(id) {
   if (id === "instructions" && !ownerAtWindow()) id = "general";
   settingsPage = id;
+  if (id === "capabilities") void globalThis.branchCapabilities?.refresh(); // what is switched on now, not at sign-in
   for (const page of document.querySelectorAll(".lx-page")) page.hidden = page.dataset.page !== id;
   for (const link of document.querySelectorAll(".lx-settings-link"))
     link.setAttribute("aria-current", String(link.dataset.page === id));

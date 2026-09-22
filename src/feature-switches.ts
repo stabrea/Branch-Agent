@@ -108,51 +108,63 @@ const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "s
  * with a provider's voice, so the system voice being off refuses that one route rather than hiding
  * the tool; the refusal lives in the voice service.
  */
-const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boolean; mode: (store: Reader, owner: string) => FeatureMode }[] = [
-  { reason: "your screen and keyboard are switched on", tools: screenTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "desktop-control") },
-  { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
+/**
+ * Owner item 17 (the Capabilities page): each switch's settings record (`key`, and the `field` inside
+ * it, "mode" unless said) and the page group it is shown under. Add-ons keep their modes in one record
+ * of their own and are written through their own save (src/capabilities.ts).
+ */
+export type CapabilityGroup = "computer" | "accounts" | "work" | "research" | "memory" | "automations" | "agents" | "trunks" | "reach" | "flows" | "helpers" | "safety" | "add-ons";
+export interface ToolFeature {
+  reason: string; tools: readonly string[]; hideWhenOff: boolean; mode: (store: Reader, owner: string) => FeatureMode;
+  key: string; field?: "mode" | "systemVoice"; group: CapabilityGroup;
+}
+const listed = (group: CapabilityGroup) => ([key, reason, tools]: readonly [string, string, readonly string[]]): ToolFeature =>
+  ({ reason, tools, hideWhenOff: true, key, group, mode: (s: Reader, o: string) => savedMode(s, o, key) });
+export const toolFeatures: ToolFeature[] = [
+  { reason: "your screen and keyboard are switched on", tools: screenTools, hideWhenOff: true, key: "desktop-control", group: "computer", mode: (s, o) => savedMode(s, o, "desktop-control") },
+  { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, key: "voice", field: "systemVoice", group: "computer", mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
   // Bucket 17 hook.
-  { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
+  { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, key: "media-programs", group: "research", mode: (s, o) => savedMode(s, o, "media-programs") },
   // w911 (A0374) hook: fixing a failed command (src/troubleshoot.ts; the name is written here to avoid an import loop).
-  { reason: "fixing failed commands is switched on", tools: ["troubleshoot.run"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "troubleshoot") },
+  { reason: "fixing failed commands is switched on", tools: ["troubleshoot.run"], hideWhenOff: true, key: "troubleshoot", group: "work", mode: (s, o) => savedMode(s, o, "troubleshoot") },
   // Optional JEV judgments send the bounded state to the provider the owner configured in JEV.
-  { reason: "JEV decision support is switched on", tools: ["decisions.judge"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "jev-decisions") },
+  { reason: "JEV decision support is switched on", tools: ["decisions.judge"], hideWhenOff: true, key: "jev-decisions", group: "helpers", mode: (s, o) => savedMode(s, o, "jev-decisions") },
   // w911 (A2144) hook: page notes.
-  { reason: "page notes are switched on", tools: pageNotesTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "page-notes") },
+  { reason: "page notes are switched on", tools: pageNotesTools, hideWhenOff: true, key: "page-notes", group: "research", mode: (s, o) => savedMode(s, o, "page-notes") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
-  ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...interopToolFeatures.map(listed("agents")),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
-  ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...askToolFeatures.map(listed("helpers")),
   // mac7/nodes: the owner's other devices (src/devices/); the mode is kept in the devices record.
-  { reason: "using your other devices is switched on", tools: deviceTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "devices-book") },
+  { reason: "using your other devices is switched on", tools: deviceTools, hideWhenOff: true, key: "devices-book", group: "computer", mode: (s, o) => savedMode(s, o, "devices-book") },
   // ── r17-b: suggestions, standing orders, procedures, readiness, instructions (src/autonomy/settings.ts keeps these lists). ──
-  ...autonomyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...autonomyToolFeatures.map(listed("automations")),
   // ── R17-A: Trunks (src/trunks/settings.ts keeps these lists). ──
-  ...trunkToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...trunkToolFeatures.map(listed("trunks")),
   // ── mac7/r17-d: coding polish (src/coding/settings.ts keeps these lists). ──
-  ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...codingToolFeatures.map(listed("work")),
   // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
-  ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...personalToolFeatures.map(listed("accounts")),
   // ── r17-i: reach and platform (src/reach/settings.ts keeps these lists). ──
-  ...reachToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...reachToolFeatures.map(listed("reach")),
   // ── mac7/r17-g: the safety extras (src/safety-extras/settings.ts keeps these lists). ──
-  ...safetyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...safetyToolFeatures.map(listed("safety")),
   // ── r17-h: flows and boards (src/flows-boards/settings.ts keeps these lists). ──
-  ...boardToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...boardToolFeatures.map(listed("flows")),
   // ── R17-F: learning, deeper (src/learning-more/settings.ts keeps these lists). ──
-  ...learningToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...learningToolFeatures.map(listed("memory")),
   // ── mac7/learn: understanding something -- the map and the tour (src/learn/settings.ts). ──
-  ...learnToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...learnToolFeatures.map(listed("memory")),
   // mac7/vault-autofill (R17-068): filling a saved sign-in (src/vault-autofill.ts). Written out here
   // rather than imported, because that module reads this one for the three-way switch.
-  { reason: "filling a saved sign-in is switched on", tools: signInFillTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "vault-autofill") },
+  { reason: "filling a saved sign-in is switched on", tools: signInFillTools, hideWhenOff: true, key: "vault-autofill", group: "computer", mode: (s, o) => savedMode(s, o, "vault-autofill") },
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
-  { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
+  { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, key: "sdk-kit", group: "work", mode: (s, o) => savedMode(s, o, "sdk-kit") },
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──
   ...(Object.entries(addOnTools) as [AddOnPart, readonly string[]][]).map(([part, tools]) => ({
-    reason: `${addOnLabels[part]} is switched on`, tools, hideWhenOff: true, mode: (s: Reader, o: string) => addOnMode(s, o, part) })),
+    reason: `${addOnLabels[part]} is switched on`, tools, hideWhenOff: true, key: `add-ons:${part}`, group: "add-ons" as const, mode: (s: Reader, o: string) => addOnMode(s, o, part) })),
   // w911 (A0743, A1452) hook: reading whole web pages and following their links (src/web-pages.ts).
-  { reason: "reading and crawling web pages is switched on", tools: ["web.page", "web.crawl"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "web-pages") },
+  { reason: "reading and crawling web pages is switched on", tools: ["web.page", "web.crawl"], hideWhenOff: true, key: "web-pages", group: "research", mode: (s, o) => savedMode(s, o, "web-pages") },
 ];
 
 /**
