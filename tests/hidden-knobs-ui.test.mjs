@@ -181,14 +181,21 @@ test("a focused clean control stays clean across redraws and accepts the next se
 });
 
 test("a refresh that started before Save cannot redraw over the saved value or receipt", async (t) => {
-  const { page } = await openApp(t);
+  const { app, page } = await openApp(t);
   await openSettingFor(page, "#knobs-limits-card");
-  let captured, release;
+  let captured, release, capturedPost;
   const responseCaptured = new Promise((resolve) => { captured = resolve; });
   const released = new Promise((resolve) => { release = resolve; });
+  const postCaptured = new Promise((resolve) => { capturedPost = resolve; });
+  let posted;
   let held = false;
   await page.route("**/api/knobs", async (route) => {
-    if (route.request().method() !== "GET" || held) return route.continue();
+    if (route.request().method() === "POST") {
+      posted = route.request().postDataJSON();
+      capturedPost();
+      return route.continue();
+    }
+    if (held) return route.continue();
     held = true;
     const response = await route.fetch();
     captured();
@@ -197,11 +204,18 @@ test("a refresh that started before Save cannot redraw over the saved value or r
   });
   const refreshing = page.evaluate(() => globalThis.branchKnobs.refresh());
   await responseCaptured;
-  await page.locator("#knobs-maxSteps").fill("25");
-  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true })
-    .evaluate((button) => button.click());
+  await page.evaluate(() => {
+    const input = document.getElementById("knobs-maxSteps");
+    input.value = "25";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "25" }));
+    [...document.querySelectorAll("#knobs-limits-card button")]
+      .find((button) => button.textContent.trim() === "Save").click();
+  });
+  await postCaptured;
+  assert.equal(posted.values.maxSteps, 25, "the save request contains the value under test");
   const receipt = page.locator("#knobs-limits-card [role=status]").filter({ hasText: "Saved" });
   await receipt.waitFor({ state: "visible", timeout: 20000 });
+  assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 25, "the value is saved before the old response is released");
   release();
   await refreshing;
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "25");
