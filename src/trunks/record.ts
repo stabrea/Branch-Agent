@@ -31,6 +31,8 @@ export const TrunkSchema = TrunkCreateSchema.extend({
   reasoning: z.enum(reasoningEfforts).nullable().default(null),
   /** Its own character and working instructions (its SOUL), given as text. */
   instructions: z.string().max(8000).default(""),
+  /** The voice it reads its answers in; empty uses the owner's own voice setting. */
+  voice: z.string().trim().max(80).default(""),
   style: SpecialistStyleSchema.default("default"),
   /** Tool permissions it may use; empty means the owner's ordinary set, less anything its reach keeps off. */
   permissions: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
