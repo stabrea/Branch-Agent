@@ -1374,6 +1374,14 @@
                 <button id="updates-busy-cancel" type="button" class="quiet" data-t="updates.busy.cancel">Not now</button>
               </div>
             </div>
+            <!-- Owner item 19: an update that did not go through, and one file that explains it, sent by the owner. -->
+            <div id="updates-failed" class="updates-busy" hidden>
+              <p id="updates-failed-text" role="status"></p>
+              <div class="identity-actions">
+                <button id="updates-failed-log" type="button" data-t="updates.failed.download">Download what happened</button>
+              </div>
+              <p id="updates-failed-saved" class="subtle" data-t="updates.failed.send">Send the file to us yourself, on Discord for example. Nothing is sent by itself.</p>
+            </div>
             <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
           <form id="projects-form" class="card">

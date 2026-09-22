@@ -194,6 +194,7 @@ import { browserContainerApi, handlesBrowserContainer } from "./browser-containe
 import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { handlesUpdateFailurePath, updateFailureApi } from "./update-failure.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -1692,6 +1693,9 @@ async function api(
   if (handlesDiagnosticPath(path))
     return diagnosticApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt },
       request.method ?? "GET", path, new URL(request.url ?? "/", "http://local"), () => readBody(request, 8 * 1024 * 1024));
+  // Owner item 19: an update that did not go through, and its file (src/update-failure.ts), the owner's alone.
+  if (handlesUpdateFailurePath(path))
+    return updateFailureApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt }, request.method ?? "GET", path);
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
       health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
@@ -4011,6 +4015,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
+  if (handlesUpdateFailurePath(path))
+    return "A short-lived key cannot read an update's problem or make its file. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered

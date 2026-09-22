@@ -1036,10 +1036,15 @@ function showUpdateStatus(status) {
 async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
   showVersions(null);
+  // An update that did not go through is said on any install, with or without the desktop app.
+  void showUpdateFailure();
   if (!window.branchDesktop) return;
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
 }
 $("updates-check").addEventListener("click", async () => {
+  // Checking again starts over: this attempt's failure is put away (a recorded one still shows).
+  failedNow = null;
+  void showUpdateFailure();
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
 /* ---------- tasks working when Update is pressed ---------- */
@@ -1063,9 +1068,48 @@ async function installNow() {
   try {
     window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
     showUpdateStatus(await window.branchDesktop.installUpdate());
-  } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
+  } catch (e) {
+    window.branchUpdateScreen?.hide(); toast(e.message);
+    failedNow = { version: state.version };
+    await renderUpdates();
+  }
   finally { installing = false; }
 }
+/* ---------- an update that did not go through (owner item 19) ---------- */
+/* This attempt, when it stopped here; otherwise the journal says whether the last hand-over put the
+   version before back. Either way Branch is still on the version it was, and nothing was lost. */
+let failedNow = null, failureSaid = null;
+function sayFailure(failure) {
+  failureSaid = failure;
+  const block = $("updates-failed");
+  if (!failure) { block.hidden = true; return; }
+  $("updates-failed-text").textContent = failure.toVersion
+    ? t("updates.failed.to", { to: failure.toVersion, version: state.version })
+    : t("updates.failed.now", { version: state.version });
+  block.hidden = false;
+  $("updates-card").hidden = false;
+  // Without the desktop app there is nothing to check or install from here: only the failure shows.
+  if (!window.branchDesktop) for (const id of ["updates-check", "updates-install"]) $(id).hidden = true;
+}
+async function showUpdateFailure() {
+  if (failedNow) return sayFailure(failedNow);
+  const recorded = await api("updates/failure").then((answer) => answer.failure, () => null);
+  sayFailure(recorded);
+}
+document.addEventListener("branch-language", () => { if (failureSaid) sayFailure(failureSaid); });
+$("updates-failed-log").addEventListener("click", async () => {
+  const note = $("updates-failed-saved");
+  try {
+    const saved = await api("updates/failure-report", {});
+    const bytes = Uint8Array.from(atob(saved.base64), (c) => c.charCodeAt(0));
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+    link.download = saved.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    note.textContent = t("updates.failed.saved", { name: saved.name });
+  } catch (e) { note.textContent = t("updates.failed.not-saved", { why: e.message }); }
+});
 /* The sentence carries a number, so it is written again on a language change rather than marked with a key. */
 let busySaid = null;
 function sayBusy(key, count) {
