@@ -304,15 +304,21 @@ let opening = null;
  * Escape, or a press anywhere but its own "i" (another page, closing Settings). Answers the stop.
  */
 function cancelOpeningOn(button) {
-  const cancel = () => { if (opening === button) opening = null; };
+  // Removed on the first cancel as well as when the answer arrives: an answer that never comes
+  // must not leave two document-wide listeners behind for every press.
+  let listening = true;
+  const stop = () => {
+    if (!listening) return;
+    listening = false;
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("pointerdown", onPress, true);
+  };
+  const cancel = () => { if (opening === button) opening = null; stop(); };
   const onKey = (event) => { if (event.key === "Escape") cancel(); };
   const onPress = (event) => { if (!button.contains(event.target)) cancel(); };
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("pointerdown", onPress, true);
-  return () => {
-    document.removeEventListener("keydown", onKey, true);
-    document.removeEventListener("pointerdown", onPress, true);
-  };
+  return stop;
 }
 
 /** Whether the "i" is still on screen to point the popup at. */

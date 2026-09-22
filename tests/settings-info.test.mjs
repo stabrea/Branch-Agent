@@ -292,3 +292,32 @@ test("a press elsewhere, closing Settings, or the i going away while loading ope
   assert.equal((await whileLoading(t, (page) => page.evaluate(() => { document.querySelector("#settings-window").hidden = true; }))).visible, false,
     "Settings hidden without a press");
 });
+
+test("a cancel removes its listeners at once, even when the explanation never arrives", async (t) => {
+  const { page } = await fixture(t);
+  await page.route("**/settings-defaults.json", () => new Promise(() => {})); // never answered
+  // Counts the capture listeners the popup puts on the page for keydown and pointerdown.
+  await page.evaluate(() => {
+    globalThis.popListeners = 0;
+    const add = document.addEventListener.bind(document), remove = document.removeEventListener.bind(document);
+    document.addEventListener = (type, fn, options) => { if ((type === "keydown" || type === "pointerdown") && options === true) globalThis.popListeners++; return add(type, fn, options); };
+    document.removeEventListener = (type, fn, options) => { if ((type === "keydown" || type === "pointerdown") && options === true) globalThis.popListeners--; return remove(type, fn, options); };
+  });
+  await openSettings(page, "general");
+  const info = infoFor(page, "#keep-running");
+  const listening = () => page.evaluate(() => globalThis.popListeners);
+  await info.click();
+  assert.equal(await listening(), 2, "listening while it loads");
+  // Settings keeps its Escape here, so only the cancel itself is at work.
+  await page.evaluate(() => document.querySelector("#settings-window").addEventListener("keydown", (event) => event.stopPropagation()));
+  await info.focus();
+  await page.keyboard.press("Escape");
+  assert.equal(await listening(), 0, "Escape removed both at once");
+  await info.click();
+  assert.equal(await listening(), 2);
+  await page.locator("#keep-running").locator("xpath=ancestor::section[1]").locator("h2").first().click();
+  assert.equal(await listening(), 0, "a press elsewhere removed both at once");
+  // Press after press with no answer never piles them up.
+  for (let i = 0; i < 3; i++) { await info.click(); await info.focus(); await page.keyboard.press("Escape"); }
+  assert.equal(await listening(), 0);
+});
