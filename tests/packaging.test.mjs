@@ -236,6 +236,12 @@ test("a real .icns is made with sips and iconutil", { skip: process.platform !==
     execFileSync(file, args, { stdio: "ignore" });
   const bytes = await readFile(join(root, "k.icns"));
   assert.equal(bytes.subarray(0, 4).toString("latin1"), "icns");
+  /* And it is the mascot inside, not only a well-formed file: the dock never takes its icon from the
+     window, so this file is the whole of what an installed Branch shows there. */
+  execFileSync("iconutil", ["-c", "iconset", join(root, "k.icns"), "-o", join(root, "back.iconset")], { stdio: "ignore" });
+  const drawn = readPng(await readFile(join(root, "back.iconset", "icon_256x256.png")));
+  assert.equal(drawn.width, 256);
+  await isTheMascot(drawn, "the macOS .icns at 256");
 });
 
 /**
