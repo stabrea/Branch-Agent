@@ -29,6 +29,7 @@ import { testGroups } from "../scripts/run-tests.mjs";
 const ROOT = join(import.meta.dirname, "..");
 
 /** How a browser is made, and how a name is given to one that already exists. */
+const MAKES_ONE = /new\s+BranchBrowser\b/;
 const MADE_HERE = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:await\s+)?new\s+BranchBrowser\b/g;
 const RENAMED = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*;/g;
 /** How the product writes a tool's name where it registers it, in any of the three quote styles. */
@@ -75,21 +76,33 @@ export async function browserMethods(read = (file) => readFile(join(ROOT, file),
   return [...names].sort();
 }
 
+/** Whether a file makes a browser at all, however it then keeps hold of it. */
+export const makesOne = (source) => MAKES_ONE.test(source);
+/** The names a file is seen giving to a browser it makes — not counting the usual name, which is assumed. */
+export function constructedIn(source) {
+  return [...new Set([...source.matchAll(MADE_HERE)].map((made) => made[1]))].sort();
+}
 /**
  * What a file calls the browser it made. `browser` is the usual name and is always one of them, but a
  * file is free to call it anything — `const driver = new BranchBrowser(...)` — and a reader that only
  * knew the usual name would let every call on it through. A name given to one that already exists
- * counts too, one hop, which is how a helper hands one back into a test.
+ * counts too: any number of hops in the order they are written, and one hop written before its
+ * source, both of which a helper handing a browser back into a test will do.
  *
- * **What this does not follow, said rather than left to be discovered:** a method pulled off the
- * object on its own (`const { navigate } = browser`), a browser handed in as an argument and named
- * by the parameter, and one made by a factory rather than by `new`. Each of those is invisible here,
- * and a test that does one is an offender nobody will be told about until the lane goes red. They are
- * worth catching the day one appears; none exists today, which is why this stops where it does.
+ * **What this cannot follow at all:** a browser handed in as an argument and named by the parameter,
+ * and one made by a factory rather than by `new`. Neither constructs anything here, so nothing below
+ * catches them either; they are the two shapes that are genuinely on trust, and no test in the
+ * repository does one today.
+ *
+ * Every other way of holding on to a browser it makes — assigned on a later line, destructured out
+ * of an array, kept in an object property — is not enumerated, because enumerating is the thing that
+ * went wrong: a list of shapes is a promise that the list is complete, and mine was not. A file that
+ * makes a browser and whose name for it this cannot read is **refused** instead (`makesOne` and
+ * `constructedIn` above, used by the first test below). Measured before choosing it: of the thirteen
+ * test files that make a browser today, **none** would be refused.
  */
 export function receiversIn(source) {
-  const found = new Set(["browser"]);
-  for (const made of source.matchAll(MADE_HERE)) found.add(made[1]);
+  const found = new Set(["browser", ...constructedIn(source)]);
   for (const renamed of source.matchAll(RENAMED)) if (found.has(renamed[2])) found.add(renamed[1]);
   return [...found].sort();
 }
@@ -255,10 +268,15 @@ const OVER_TWO_LINES = ["await registry.execute(", '  "browser.pdf",', "  {},", 
 test("a test that runs a browser-backed tool is in the browser group, or every such line is excused", async () => {
   const names = await browserBackedNames(), methods = await browserMethods();
   const inBrowserGroup = new Set(testGroups().browser.map(slash));
-  const offenders = [];
+  const offenders = [], unreadable = [];
   for (const file of await testFiles()) {
     if (inBrowserGroup.has(file) || file === SELF) continue;
-    const sites = callsitesIn(await readFile(join(ROOT, file), "utf8"), names, methods);
+    const source = await readFile(join(ROOT, file), "utf8");
+    // Fails closed. A file that makes a browser and keeps it somewhere this cannot read is refused
+    // here rather than passed in silence: the alternative is a longer list of shapes, and a list is a
+    // promise that it is complete.
+    if (makesOne(source) && !constructedIn(source).length) unreadable.push(file);
+    const sites = callsitesIn(source, names, methods);
     if (!sites.length) continue;
     const excused = EXCUSED[file]?.callsites ?? [];
     for (const site of sites) {
@@ -267,6 +285,11 @@ test("a test that runs a browser-backed tool is in the browser group, or every s
       else excused.splice(at, 1);
     }
   }
+  assert.deepEqual(unreadable, [],
+    "These make a browser and keep it under a name this cannot read — assigned on a later line, out of "
+    + "an array, in an object property. Give it a plain `const name = new BranchBrowser(...)`, or put the "
+    + "file in the browser group. It is refused rather than passed because what it does with that browser "
+    + "cannot be seen from here.");
   assert.deepEqual(offenders, [],
     "These make a browser-backed tool run, and no browser is installed for the lane that runs them. Declare the "
     + "engine the way tests/comfort.test.mjs does, or add the exact line to EXCUSED with a reason it never launches.");
@@ -322,20 +345,38 @@ test("the detector notices every way one of these tools can be made to run", asy
     "await other.pdf(context);"].join(String.fromCharCode(10));
   assert.equal(seen(HANDED_ON), 1, "and one more name given to the same browser, which is how a helper hands one back");
 
-  // Where this stops, asserted rather than left to be discovered. Each of these is a real way to
-  // reach a browser that nothing here can see; none exists in the repository today, which is why it
-  // stops here. If one of these starts being seen, this assertion is what says so — widen the note
-  // above `receiversIn` rather than quietly deleting the line.
-  const limits = {
-    "a method pulled off the object on its own":
-      ["const { navigate } = new BranchBrowser({});", "await navigate(url, context);"],
-    "a browser handed in and named by the parameter":
-      ["async function drive(engine) { await engine.pdf(context); }"],
-    "a browser made by a factory rather than by `new`":
-      ["const made = buildBrowser();", "await made.snapshot(context);"],
+  // Every way of holding on to a browser it made that this cannot read is **refused** rather than
+  // enumerated: the file is an offender, named, with what to do about it. Enumerating is what went
+  // wrong last time — a list of shapes promises the list is complete, and mine was not.
+  const held = {
+    "assigned on a line after it is declared": ["let driver;", "driver = new BranchBrowser({});", "await driver.pdf(context);"],
+    "taken out of an array": ["const [driver] = [new BranchBrowser({})];", "await driver.pdf(context);"],
+    "kept in an object property": ["const kit = { b: new BranchBrowser({}) };", "await kit.b.navigate(url, context);"],
+    "a method taken off it on its own": ["const { navigate } = new BranchBrowser({});", "await navigate(url, context);"],
   };
-  for (const [what, source] of Object.entries(limits))
-    assert.equal(seen(source.join(String.fromCharCode(10))), 0, `still not seen, and known: ${what}`);
+  for (const [what, lines] of Object.entries(held)) {
+    const source = lines.join(String.fromCharCode(10));
+    assert.equal(seen(source), 0, `not seen as a call, which is the point: ${what}`);
+    assert.ok(makesOne(source) && constructedIn(source).length === 0,
+      `and refused instead of passed, because the name cannot be read: ${what}`);
+  }
+
+  // The two that are genuinely on trust, because nothing is constructed in the file to refuse. Named
+  // rather than left to be found, and no test in the repository does either today.
+  for (const [what, lines] of Object.entries({
+    "a browser handed in and named by the parameter": ["async function drive(engine) { await engine.pdf(context); }"],
+    "a browser made by a factory rather than by `new`": ["const made = buildBrowser();", "await made.snapshot(context);"],
+  })) {
+    const source = lines.join(String.fromCharCode(10));
+    assert.equal(seen(source), 0, `still not seen, and known: ${what}`);
+    assert.equal(makesOne(source), false, `and nothing is made here to refuse: ${what}`);
+  }
+
+  // What was claimed as one hop is more than one, and the note now says what it does.
+  const chain = ["const driver = new BranchBrowser({});", "const a = driver;", "const b = a;", "await b.pdf(context);"];
+  assert.equal(seen(chain.join(String.fromCharCode(10))), 1, "a chain of names, in the order they are written");
+  const backwards = ["const later = driver;", "const driver = new BranchBrowser({});", "await later.pdf(context);"];
+  assert.equal(seen(backwards.join(String.fromCharCode(10))), 1, "and a name written before the browser it points at");
 
   // The methods come from the class, so the next one added is covered the day it is written.
   assert.ok(methods.includes("annotate") && methods.includes("extractShaped") && methods.includes("navigate"),
