@@ -192,7 +192,7 @@ function makeUpdater(input: HeadlessUpdateInput, note: RunningInstance | null, s
         stopped: false, wasRunning: true, pid: null,
         message: `Branch Agent could not be closed (${error instanceof Error ? error.message : String(error)}).`,
       }));
-      return stopped.report.stopped ? stopped.report.pid : null;
+      return { pid: stopped.report.stopped ? stopped.report.pid : null, stopped: stopped.report.stopped };
     },
   });
 }

@@ -13,6 +13,10 @@ import { checksumAssetName } from "./release-assets.js";
  * against the published SHA-256, unpacks it beside the install, then hands over to a small script
  * that waits for the app to exit, mirrors the new files into place and starts the new version.
  */
+/** How closing the background engine went: its process id, and whether it was proved closed. */
+export interface EngineStop { pid: number | null; stopped: boolean }
+const noEngine: EngineStop = { pid: null, stopped: false };
+
 export interface UpdaterOptions {
   repo: string;
   currentVersion: string;
@@ -36,10 +40,11 @@ export interface UpdaterOptions {
   backup?: () => Promise<void>;
   /**
    * Closes the engine that keeps working with the window closed, so the old program files are not
-   * held open while they are replaced. Answers with the process id that was closed, or null when
-   * nothing was working in the background.
+   * held open while they are replaced. Answers with its process id (null when nothing was working in
+   * the background) and whether it was proved closed: one still alive after the wait keeps its id, so
+   * the hand-over waits for it, but it was only drained, and a stopped update gives it its work back.
    */
-  stopDaemon?: () => Promise<number | null>;
+  stopDaemon?: () => Promise<EngineStop>;
   /**
    * Asks the running Branch to finish what it is doing before it is closed for the swap (no new work,
    * a short wait, the rest marked so the next version offers it back). Never stops the update.
@@ -162,7 +167,7 @@ export class Updater {
       let script: string;
       try {
         this.stoppedEngine = await this.stopBackground();
-        script = await this.writeScript(stagedDir, this.stoppedEngine);
+        script = await this.writeScript(stagedDir, this.stoppedEngine.pid);
       } catch (error) { await this.giveBack(); throw error; }
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };
@@ -204,22 +209,24 @@ export class Updater {
   async undrain(): Promise<void> {
     await this.options.undrain?.().catch(() => undefined);
   }
-  /** The background engine this install closed, if it closed one. */
-  private stoppedEngine: number | null = null;
+  /** What this install did to the background engine, once it has tried to close it. */
+  private stoppedEngine: EngineStop | null = null;
   /**
-   * An update that stops before its hand-over is running leaves Branch as it found it: an engine it
-   * closed is started again, and one it only drained is given its work back (never throws).
+   * An update that stops before its hand-over is running leaves Branch as it found it: an engine
+   * proved closed is started again; one still alive (or never asked) was only drained, so it is given
+   * its work back (never throws).
    */
   async giveBack(): Promise<void> {
-    if (this.stoppedEngine !== null) {
-      await this.options.revive?.().catch(() => undefined);
-      this.stoppedEngine = null;
-    } else await this.undrain();
+    const closed = this.stoppedEngine?.stopped === true;
+    this.stoppedEngine = null;
+    if (closed) await this.options.revive?.().catch(() => undefined);
+    else await this.undrain();
   }
-  private async stopBackground(): Promise<number | null> {
-    if (!this.options.stopDaemon) return null;
+  private async stopBackground(): Promise<EngineStop> {
+    if (!this.options.stopDaemon) return noEngine;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    try { return await this.options.stopDaemon(); } catch { return null; }
+    // A refusal proves nothing was closed: the engine is treated as still alive.
+    try { return await this.options.stopDaemon(); } catch { return noEngine; }
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/latest`, {

@@ -6,7 +6,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -15,6 +16,7 @@ import { startServer } from "../dist/server.js";
 import { cutByUpdate } from "../dist/never-break/resume.js";
 import { drainPath, drainRunning, undrainRunning } from "../dist/install/quit.js";
 import { writeRunning } from "../dist/install/running.js";
+import { Updater } from "../dist/desktop/updater.js";
 
 /** A model that answers `quick` at once and otherwise waits until the task is stopped. */
 const provider = () => ({
@@ -173,4 +175,51 @@ test("a released job forgets the task that was cut, so a later crash is never ta
   app.store.save("schedules", owner, "job", { ...released, status: "interrupted" });
   await app.neverBreak.recoverOnStart(dataDir);
   assert.equal(app.store.get("schedules", owner, "job").data.status, "interrupted");
+});
+
+/** A published 2.0.0 whose download matches its checksum, answered without the network. */
+function fakeRelease() {
+  const bytes = Buffer.from("pretend zip"), digest = createHash("sha256").update(bytes).digest("hex");
+  return async (url) => {
+    if (String(url).includes("releases/latest"))
+      return new Response(JSON.stringify({ tag_name: "v2.0.0", name: "2.0.0", body: "", published_at: null, html_url: "https://github.com/x/y/releases/tag/v2.0.0", assets: [
+        { name: "app.zip", browser_download_url: "https://example.invalid/app.zip", size: bytes.length },
+        { name: "app.zip.sha256", browser_download_url: "https://example.invalid/app.sha256", size: 64 }] }), { status: 200 });
+    if (String(url).endsWith("app.zip")) return new Response(bytes, { status: 200 });
+    return new Response(`${digest}  app.zip
+`, { status: 200 });
+  };
+}
+
+/**
+ * An update that stops after trying to close the background engine, when the hand-over script cannot
+ * be written. Nothing is spawned: the script is only written, and here it cannot be.
+ */
+async function stopsAfterClosing(t, stopDaemon) {
+  const root = await mkdtemp(join(tmpdir(), "branch-giveback-"));
+  t.after(() => discardTemp(root));
+  const scratchDir = join(root, "scratch"), installDir = join(root, "installed");
+  await mkdir(installDir, { recursive: true });
+  const calls = { undrained: 0, revived: 0 };
+  const updater = new Updater({
+    repo: "x/y", currentVersion: "1.0.0", installDir, executableName: "Branch Agent.exe", assetName: "app.zip",
+    scratchDir, fetch: fakeRelease(), platform: "win32", packaged: true,
+    extract: async (_archive, into) => { await mkdir(join(into, "app"), { recursive: true }); await writeFile(join(into, "app", "Branch Agent.exe"), "new"); },
+    drain: async () => undefined,
+    undrain: async () => { calls.undrained++; },
+    revive: async () => { calls.revived++; },
+    // The scratch folder is fresh by now: a folder where the script goes makes writing it fail.
+    stopDaemon: async () => { await mkdir(join(scratchDir, "recover-update.cmd"), { recursive: true }); return stopDaemon(); },
+  });
+  await assert.rejects(updater.install());
+  return { ...calls, phase: updater.status.phase };
+}
+
+test("a stopped update gives a still-running engine its work back, and starts again only one proved closed", async (t) => {
+  assert.deepEqual(await stopsAfterClosing(t, async () => ({ pid: 4242, stopped: false })),
+    { undrained: 1, revived: 0, phase: "error" }, "alive after the wait: only drained, so the drain is taken back");
+  assert.deepEqual(await stopsAfterClosing(t, async () => ({ pid: 4242, stopped: true })),
+    { undrained: 0, revived: 1, phase: "error" }, "proved closed: started again, not sent an undo it cannot hear");
+  assert.deepEqual(await stopsAfterClosing(t, async () => { throw new Error("no answer"); }),
+    { undrained: 1, revived: 0, phase: "error" }, "a stop that failed proves nothing closed");
 });

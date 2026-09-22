@@ -266,7 +266,7 @@ async function start(): Promise<void> {
   if (running)
     return createWindow(running.url, running.token, settings, {
       backup: () => requestUpdateBackup(running.url, running.token),
-      stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
+      stopDaemon: () => stopBackgroundEngine(dataDir).then(({ pid, stopped }) => ({ pid, stopped })),
       drain: () => drainRunning(dataDir),
       undrain: () => undrainRunning(dataDir),
       // The engine this window joined was closed for the update; the update stopped, so it comes back.
