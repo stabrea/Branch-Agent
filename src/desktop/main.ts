@@ -18,6 +18,7 @@ import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
 import { drainRunning, undrainRunning } from "../install/quit.js";
+import { restartService } from "../install/service-return.js";
 import { installedAppRoot } from "./install-root.js";
 import { minimizedFlag, startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
@@ -268,6 +269,8 @@ async function start(): Promise<void> {
       stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
       drain: () => drainRunning(dataDir),
       undrain: () => undrainRunning(dataDir),
+      // The engine this window joined was closed for the update; the update stopped, so it comes back.
+      revive: () => restartService(),
       canary: desktopCanary(dataDir, () => engineSnapshot(running.url, running.token)), // mac3/never-break
       ...desktopRecord(dataDir), // mac7/safe-rollback
     });

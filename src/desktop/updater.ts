@@ -48,6 +48,11 @@ export interface UpdaterOptions {
   /** Takes the drain back when the update stops after it and before Branch is closed. */
   undrain?: () => Promise<void>;
   /**
+   * Starts again what `stopDaemon` closed, when the update stops after that and before the hand-over
+   * is running: a closed engine cannot take a drain back, so it is brought back instead.
+   */
+  revive?: () => Promise<void>;
+  /**
    * mac3/never-break: tries the unpacked version on a copy of the owner's data before anything is
    * swapped. Throws a plain sentence when the new version did not pass; the update then stops.
    */
@@ -147,14 +152,18 @@ export class Updater {
       const stagedDir = await this.unpack(archive);
       await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
       await this.safetyCopy();
+      this.stoppedEngine = null;
       if (this.options.drain) {
         this.set("unpacking", "Letting Branch finish what it is doing before the update…", null, release);
         // A drain that cannot be proved stops the update here, before anything is closed or swapped.
-        await this.options.drain();
+        // It may still have happened (an answer lost on the way back), so it is taken back either way.
+        try { await this.options.drain(); } catch (error) { await this.undrain(); throw error; }
       }
       let script: string;
-      try { script = await this.writeScript(stagedDir, await this.stopBackground()); }
-      catch (error) { await this.undrain(); throw error; }
+      try {
+        this.stoppedEngine = await this.stopBackground();
+        script = await this.writeScript(stagedDir, this.stoppedEngine);
+      } catch (error) { await this.giveBack(); throw error; }
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };
     } catch (error) {
@@ -194,6 +203,18 @@ export class Updater {
   /** Gives Branch its work back after a drain the update did not follow through (never throws). */
   async undrain(): Promise<void> {
     await this.options.undrain?.().catch(() => undefined);
+  }
+  /** The background engine this install closed, if it closed one. */
+  private stoppedEngine: number | null = null;
+  /**
+   * An update that stops before its hand-over is running leaves Branch as it found it: an engine it
+   * closed is started again, and one it only drained is given its work back (never throws).
+   */
+  async giveBack(): Promise<void> {
+    if (this.stoppedEngine !== null) {
+      await this.options.revive?.().catch(() => undefined);
+      this.stoppedEngine = null;
+    } else await this.undrain();
   }
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;

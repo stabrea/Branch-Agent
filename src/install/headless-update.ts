@@ -17,7 +17,7 @@ import { drainRunning, quitRunning, runningNow, undrainRunning, type QuitReport 
 import { sessionTokenFileName, type RunningInstance } from "./running.js";
 import { writeUpdateBackup } from "./update-backup.js";
 import { restartService, waitForReturn, type ReturnDeps } from "./service-return.js";
-import { rollbackCommand } from "./rollback-cli.js";
+import { launchInstalled, rollbackCommand } from "./rollback-cli.js";
 
 /**
  * `branch update --yes`: the app's Update button without the window. It uses the same updater, so the
@@ -58,6 +58,8 @@ export interface HeadlessUpdateDeps {
   restartService?: () => Promise<void>;
   /** How long, and how, to wait for the new version to say it is running. */
   returnWait?: ReturnDeps;
+  /** Opens the installed app again (a window Branch closed for an update that then stopped). */
+  launchApp?: (target: string, executableName: string) => void;
   /** Goes back to the version before; answers with an exit code. */
   rollback?: (restart: () => Promise<void>) => Promise<number>;
 }
@@ -157,6 +159,18 @@ export async function recordActivation(input: {
 const endedPid = (): number => spawnSync("/bin/sh", ["-c", "exit 0"]).pid ?? 0;
 const runSh = (script: string, args: string[]): number => spawnSync("/bin/sh", [script, ...args], { stdio: "ignore" }).status ?? 1;
 
+/**
+ * Branch was closed for this update: if it stops before the swap is done, Branch is started again as
+ * it was, a background service through its manager and a window by opening the app.
+ */
+function reviveFor(input: HeadlessUpdateInput, note: RunningInstance | null, stopped: { report: QuitReport | null }): () => Promise<void> {
+  const deps = input.deps ?? {}, platform = input.platform ?? process.platform;
+  return async () => {
+    if (!stopped.report?.wasRunning) return;
+    if (note?.mode === "daemon") await (deps.restartService ?? (() => restartService(platform)))().catch(() => undefined);
+    else (deps.launchApp ?? launchInstalled)(input.installRoot, appEntryName(platform));
+  };
+}
 function makeUpdater(input: HeadlessUpdateInput, note: RunningInstance | null, stopped: { report: QuitReport | null }): Updater {
   const platform = input.platform ?? process.platform, deps = input.deps ?? {};
   const executableName = appEntryName(platform);
@@ -168,6 +182,7 @@ function makeUpdater(input: HeadlessUpdateInput, note: RunningInstance | null, s
     backup: deps.backup ?? defaultBackup(input.dataDir, input.version, note, input.print),
     drain: () => (deps.drain ?? ((dir: string) => drainRunning(dir)))(input.dataDir),
     undrain: () => (deps.undrain ?? ((dir: string) => undrainRunning(dir)))(input.dataDir),
+    revive: reviveFor(input, note, stopped),
     canary: updateCanary({ dataDir: input.dataDir, platform, executableName, fromVersion: input.version,
       target: input.installRoot, snapshot: deps.snapshot ?? defaultSnapshot(input.dataDir, note) }),
     stopDaemon: async () => {
@@ -208,13 +223,15 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     input.print(`${stopped.report?.message ?? "Branch Agent was not closed."} Nothing was changed; the update can be run again once Branch has closed.`);
     return 1;
   }
+  const revive = reviveFor(input, note, stopped);
   // mac7/safe-rollback: what this update changes is written down before anything moves.
   let activation: Awaited<ReturnType<typeof recordActivation>> | null = null;
   try {
     activation = await recordActivation({ dataDir: input.dataDir, installRoot: input.installRoot, stagedDir,
       fromVersion: input.version, toVersion: to, executableName: appEntryName(platform) });
   } catch (error) {
-    input.print(`${error instanceof Error ? error.message : String(error)} Nothing was changed.`);
+    await revive();
+    input.print(`${error instanceof Error ? error.message : String(error)} Nothing was changed, and Branch was started again.`);
     return 1;
   }
   // The stop already happened (and was waited for) in the updater, so the script waits for nothing.
@@ -224,6 +241,8 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
   if (code !== 0) {
     activation.failed();
     activation.close();
+    // The hand-over put the version before back; a window it reopens itself, a service it leaves closed.
+    if (note?.mode === "daemon") await revive();
     input.print(`The update did not finish, so Branch stays on the version it had. What happened is in ${log}.`);
     return 1;
   }

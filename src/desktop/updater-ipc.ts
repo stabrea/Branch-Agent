@@ -37,6 +37,8 @@ export interface UpdateHooks {
   drain?: () => Promise<unknown>;
   /** Takes the drain back when the update stops before the hand-over is running. */
   undrain?: () => Promise<void>;
+  /** Starts the background engine again when it was closed and the update then stopped. */
+  revive?: () => Promise<void>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
   canary?: (stagedDir: string, version: string) => Promise<void>;
   /**
@@ -61,6 +63,7 @@ export function registerUpdaterIpc(
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
     ...(hooks?.drain ? { drain: hooks.drain } : {}),
     ...(hooks?.undrain ? { undrain: hooks.undrain } : {}),
+    ...(hooks?.revive ? { revive: hooks.revive } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
   });
   const authorized = (event: IpcMainInvokeEvent) => {
@@ -101,8 +104,9 @@ export function registerUpdaterIpc(
           : `The update could not be started: ${why}.`);
       });
     } catch (error) {
-      // Nothing was swapped: this window's own work, drained for the update, is given back.
-      await updater.undrain();
+      // Nothing was swapped: a background engine the update closed is started again, and this
+      // window's own work, drained for the update, is given back.
+      await updater.giveBack();
       throw error;
     }
     const status = updater.applying();

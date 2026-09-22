@@ -324,7 +324,8 @@ export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Recor
     if (typeof data.intervalMs !== "number" && typeof data.dailyAt !== "string") continue;
     // With `only`, a job goes back only when the task its turn had started is one of those.
     if (only && !(typeof data.activeRunId === "string" && only.has(data.activeRunId))) continue;
-    store.save("schedules", String(row.owner), String(row.id), { ...data, status: "pending", dueAt: nextTurn(data, now),
+    const { activeRunId: _released, ...rest } = data;
+    store.save("schedules", String(row.owner), String(row.id), { ...rest, status: "pending", dueAt: nextTurn(data, now),
       lastInterruption: { at: now.toISOString(), note: "Branch was restarted during this job's turn. That turn is settled with its task; the job carries on at its next turn." } });
     released++;
   }

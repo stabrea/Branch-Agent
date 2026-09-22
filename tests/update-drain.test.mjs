@@ -157,3 +157,20 @@ test("a schedule's turn writes down its task as soon as it starts", async (t) =>
   await app.runtime.shutdown();
   await ticking;
 });
+
+test("a released job forgets the task that was cut, so a later crash is never taken for the update", async (t) => {
+  const { app, dataDir } = await fixture(t);
+  const owner = app.runtime.owner;
+  const cut = app.store.createRun(owner, "cut by the update");
+  app.store.event(cut.id, "run.cut-by-update", { waitedMs: 30000 });
+  app.store.finish(cut.id, "interrupted", "stopped for the update");
+  app.store.save("schedules", owner, "job", { prompt: "check", intervalMs: 3600000, status: "interrupted", activeRunId: cut.id, dueAt: new Date().toISOString() });
+  await app.neverBreak.recoverOnStart(dataDir);
+  const released = app.store.get("schedules", owner, "job").data;
+  assert.equal(released.status, "pending");
+  assert.equal("activeRunId" in released, false, "the released job names no task");
+  // Its next turn is cut off by a crash before it named its own task: not the update's to release.
+  app.store.save("schedules", owner, "job", { ...released, status: "interrupted" });
+  await app.neverBreak.recoverOnStart(dataDir);
+  assert.equal(app.store.get("schedules", owner, "job").data.status, "interrupted");
+});

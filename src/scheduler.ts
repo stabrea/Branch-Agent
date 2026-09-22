@@ -272,7 +272,9 @@ export class Scheduler {
     return run;
   }
   private async execute(record: SavedRecord, now: Date, trigger: string, payload: unknown, advance: boolean, found: unknown = null): Promise<Run | undefined> {
-    const startedAt = now.toISOString(), data = record.data;
+    // A turn names only its own task: an earlier turn's `activeRunId` never carries into this one.
+    const { activeRunId: _earlier, ...data } = record.data;
+    const startedAt = now.toISOString();
     const history = (Array.isArray(data.history) ? data.history as HistoryEntry[] : []).slice(-(historyLimit - 1));
     const entry: HistoryEntry = { runId: null, status: "running", startedAt, trigger };
     // mac3/never-break: a turn missed while Branch was not running runs once, and says so.

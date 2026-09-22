@@ -173,3 +173,39 @@ test("a Branch that was drained and then would not close gets its work back at o
   assert.ok(s.events.indexOf("undrain") > s.events.indexOf("quit"), "given back after the refusal to close");
   assert.ok(!s.events.some((event) => Array.isArray(event)), "nothing swapped");
 });
+
+test("a drain that happened but whose answer was lost is taken back, and nothing is closed", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    drain: async () => { s.events.push("drained"); throw new Error("the answer was lost on the way back"); },
+    undrain: async () => { s.events.push("undrain"); } } });
+  assert.equal(code, 1);
+  assert.deepEqual(s.events.filter((event) => typeof event === "string" && ["drained", "undrain", "quit"].includes(event)), ["drained", "undrain"], "taken back, never closed");
+});
+
+test("closed for the update and then stopped before the swap: a service is started again", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  // Writing the hand-over script fails after Branch was closed: a folder sits where the script goes.
+  const extract = async (file, into) => { await s.deps.extract(file, into); await mkdir(join(s.deps.scratchDir, "apply-update.sh"), { recursive: true }); };
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, extract, undrain: async () => { s.events.push("undrain"); } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.indexOf("restart") > s.events.indexOf("quit"), "the closed service was started again");
+  assert.ok(!s.events.includes("undrain"), "a closed engine is brought back, not sent an undo it cannot hear");
+});
+
+test("closed for the update and then stopped before the swap: a window is opened again", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t, { mode: "app" });
+  const extract = async (file, into) => { await s.deps.extract(file, into); await mkdir(join(s.deps.scratchDir, "apply-update.sh"), { recursive: true }); };
+  const opened = [];
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, extract, launchApp: (target) => opened.push(target) } });
+  assert.equal(code, 1);
+  assert.deepEqual(opened, [s.input.installRoot], "the app it closed is opened again");
+  assert.ok(!s.events.includes("restart"), "a window is not started as a service");
+});
+
+test("a hand-over that fails and leaves a service closed starts it again", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, runScript: (...args) => { s.events.push(["script", ...args]); return 1; } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.includes("restart"), "the version before is running again as the service");
+});
