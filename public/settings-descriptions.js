@@ -10,6 +10,8 @@
  * Each row: the control (a CSS selector), the key in `public/locales/*.json`, and the English words.
  */
 export const descriptions = [
+  ["#automatic-problem-preview-kind", "automatic-report.describe.preview-kind", "Changes only the example below; it does not change which real problems are sent."],
+  ["#automatic-problem-preview-summary", "automatic-report.describe.preview-summary", "Adds example words to this preview only. Branch does not save them or use them in a real report."],
   // mac7/clean-uninstall: the danger zone at the bottom of Settings.
   ["#danger-keep", "describe.danger-keep", "Keeps the folder with your conversations and settings, so only Branch itself and what it downloaded go. It starts ticked; untick it and everything goes."],
   ["#danger-confirm", "describe.danger-confirm", "Type Branch Agent, exactly, to switch the button on. It is there so a misclick cannot remove Branch."],

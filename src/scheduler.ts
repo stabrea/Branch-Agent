@@ -10,6 +10,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { SuiteRunner } from "./evaluation-runner.js";
 import { GateScriptSchema, afterGateFailure, checkGateProgram, gateFingerprint, gatePrompt, runGate, type GateRunner, type GateScript } from "./job-gate.js";
 import { Heartbeat, automationHealth, quietSwitches, quietWord, saveQuietSwitches, registerHeartbeat, type Health, type QuietMode } from "./heartbeat.js";
+import { nextCronOccurrence, nextWallOccurrence, validCron } from "./recurrence.js";
 
 const timezone = z.string().min(1).max(64).refine((zone) => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; }
@@ -27,6 +28,13 @@ export const ScheduleSchema = z
     intervalMs: z.number().int().min(60000).max(31536000000).optional(),
     /** Repeat every day at this local time in `timezone` (HH:MM, 24-hour). */
     dailyAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    /** With `dailyAt`, run only on these local weekdays (0 Sunday through 6 Saturday). */
+    weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7)
+      .refine((days) => new Set(days).size === days.length, "A weekday can appear only once").optional(),
+    /** With `dailyAt`, run on this day of each month; months without it are skipped. */
+    monthDay: z.number().int().min(1).max(31).optional(),
+    /** Numeric five-field cron: minute hour day-of-month month weekday. */
+    cron: z.string().trim().max(100).refine(validCron, "Invalid five-field cron expression").optional(),
     timezone: timezone.optional(),
     /** Send the finished result to a connected channel chat. */
     deliverTo: z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().optional(),
@@ -41,8 +49,13 @@ export const ScheduleSchema = z
     notify: z.enum(["always", "changes"]).optional(),
   })
   .strict()
-  .refine((value) => !(value.intervalMs && value.dailyAt), "Choose either an interval or a daily time")
+  .refine((value) => [value.intervalMs, value.dailyAt, value.cron].filter((entry) => entry !== undefined).length <= 1,
+    "Choose one recurrence: interval, wall-clock time, or cron")
   .refine((value) => !value.dailyAt || value.timezone, "A daily time needs a timezone")
+  .refine((value) => !value.cron || value.timezone, "A cron recurrence needs a timezone")
+  .refine((value) => !value.weekdays || value.dailyAt, "A weekday recurrence needs a daily time")
+  .refine((value) => !value.monthDay || value.dailyAt, "A monthly recurrence needs a daily time")
+  .refine((value) => !(value.weekdays && value.monthDay), "Choose either weekdays or a day of the month")
   .refine((value) => value.kind !== "evaluation" || !!value.suite, "An evaluation schedule needs the name of a suite")
   .refine((value) => !value.gate || value.kind === "task" || value.kind === "check", "Only a task or a check can have a check script");
 export type DeliveryHandler = (channel: string, chatId: string, text: string, key: string) => Promise<{ messageId?: string | undefined; queued?: number }>;
@@ -52,12 +65,19 @@ const historyLimit = 50;
 export const failuresBeforePausing = 3;
 /** Whether a schedule comes round again, rather than happening once. */
 const repeating = (data: Record<string, unknown>): boolean =>
-  typeof data.intervalMs === "number" || typeof data.dailyAt === "string";
+  typeof data.intervalMs === "number" || typeof data.dailyAt === "string" || typeof data.cron === "string";
 /** The moment a repeating schedule is next due after `now`. */
-export const nextTurn = (data: Record<string, unknown>, now: Date): string =>
-  typeof data.dailyAt === "string"
-    ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
-    : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
+export const nextTurn = (data: Record<string, unknown>, now: Date): string => {
+  const zone = String(data.timezone);
+  if (typeof data.cron === "string") return nextCronOccurrence(now, data.cron, zone).toISOString();
+  if (typeof data.dailyAt === "string") {
+    const weekdays = Array.isArray(data.weekdays) ? data.weekdays.map(Number) : null;
+    if (weekdays) return nextWallOccurrence(now, data.dailyAt, zone, (day) => weekdays.includes(day.weekday)).toISOString();
+    if (typeof data.monthDay === "number") return nextWallOccurrence(now, data.dailyAt, zone, (day) => day.day === data.monthDay).toISOString();
+    return nextDailyOccurrence(now, data.dailyAt, zone).toISOString();
+  }
+  return new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
+};
 
 /** What a check says when it has nothing to report; exactly this, after trimming, sends nothing. */
 export const nothingNew = quietWord;
@@ -119,32 +139,7 @@ export function scheduleHealth(data: Record<string, unknown>): Health {
 
 /** The next moment `HH:MM` occurs in `zone` strictly after `after`. */
 export function nextDailyOccurrence(after: Date, hhmm: string, zone: string): Date {
-  const [hour, minute] = hhmm.split(":").map(Number) as [number, number];
-  const parts = (date: Date) => {
-    const found: Record<string, number> = {};
-    for (const part of new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(date))
-      if (part.type !== "literal") found[part.type] = Number(part.value);
-    return found;
-  };
-  const wallToUtc = (y: number, m: number, d: number) => {
-    let guess = Date.UTC(y, m - 1, d, hour, minute, 0);
-    for (let i = 0; i < 3; i++) {
-      const p = parts(new Date(guess));
-      const seen = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
-      const wanted = Date.UTC(y, m - 1, d, hour, minute, 0);
-      if (seen === wanted) break;
-      guess += wanted - seen;
-    }
-    return guess;
-  };
-  const today = parts(after);
-  let candidate = wallToUtc(today.year!, today.month!, today.day!);
-  if (candidate <= after.getTime()) {
-    const tomorrow = new Date(Date.UTC(today.year!, today.month! - 1, today.day! + 1, 12));
-    const t = parts(tomorrow);
-    candidate = wallToUtc(t.year!, t.month!, t.day!);
-  }
-  return new Date(candidate);
+  return nextWallOccurrence(after, hhmm, zone, () => true);
 }
 
 /** What the scheduler needs to know about days off; the calendar settings supply it. */
@@ -493,7 +488,7 @@ export function registerSchedules(
   registry.register({
     name: "schedules.create",
     description:
-      "Persist a reminder, task or monitoring check with an optional interval or a daily time in a timezone, optional delivery to a channel chat, and optional webhook triggering. Runs when online; missed periods coalesce into one execution. Failed tasks do not auto-retry.",
+      "Persist a reminder, task or monitoring check with an optional interval, wall-clock weekday/monthly recurrence, or five-field cron in a timezone; optional delivery to a channel chat; and optional webhook triggering. Runs when online; missed periods coalesce into one execution. Failed tasks do not auto-retry.",
     permission: "schedules.manage",
     parameters: ScheduleSchema,
     execute: async (a, c) => scheduler.create(c, a),

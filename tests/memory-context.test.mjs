@@ -259,7 +259,7 @@ test("facts travel as JSON Lines and come back without making a second copy", as
 
 test("the HTTP routes hand back facts as JSON Lines and a conversation as Markdown", async (t) => {
   const { app, root } = await fixture(t, answering("Done."));
-  const server = await startServer(app, { dataDir: join(root, "data") });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(() => server.close());
   const headers = { authorization: `Bearer ${server.token}`, host: new URL(server.url).host };
   put(app, "The spare key is under the blue pot");

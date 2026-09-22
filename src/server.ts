@@ -3035,7 +3035,9 @@ export async function startServer(
   const token = await sessionToken(options.dataDir);
   diagnosticInstall.type = installTypeOf({ installRoot: options.installRoot ?? null, presence: options.presence ?? "app", packageRoot: packageRootHere() });
   diagnosticInstall.startedAt = Date.now();
-  const stopDiagnosticLog = startDiagnosticLog(app, options.dataDir); // mac7/diagnostics
+  const stopDiagnosticLog = startDiagnosticLog(
+    app, options.dataDir, diagnosticInstall.type, diagnosticInstall.startedAt,
+  ); // mac7/diagnostics
   let url = "";
   // The same count the waiting line uses, so the two together never run more than this computer is
   // meant to handle.
