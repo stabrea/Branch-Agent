@@ -53,6 +53,12 @@ async function served(t) {
   return { app, wiki, server, call };
 }
 
+test("wiki tools live in the memory toolbox instead of expanding every model round", async (t) => {
+  const { app } = await branch(t);
+  for (const name of ["wiki.read", "wiki.write", "wiki.search", "wiki.history"])
+    assert.equal(app.registry.groupOf(name), "memory", `${name} belongs with the other saved knowledge tools`);
+});
+
 test("a page can point at one that does not exist yet, and the link starts working when it does", async (t) => {
   const { wiki } = await branch(t);
   wiki.write(owner, { title: "Roof", body: "Fixed on Tuesday.\n\nSee [[Gutters]] as well." });

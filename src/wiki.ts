@@ -375,7 +375,7 @@ function ownerIsAsking(store: Store, context: ToolContext): boolean {
 
 export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, store: Store): void {
   registry.register({
-    name: "wiki.read", permission: "memory.read",
+    name: "wiki.read", group: "memory", permission: "memory.read",
     description: "Read one page of the wiki, and what its [[links]] point at.",
     parameters: z.object({
       title: z.string().trim().min(1).max(200),
@@ -395,7 +395,7 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
     },
   });
   registry.register({
-    name: "wiki.write", permission: "memory.write",
+    name: "wiki.write", group: "memory", permission: "memory.write",
     description: "Write a page of the wiki. Writing over a page that already exists needs a reason.",
     parameters: WikiWriteSchema,
     target: (input) => `wiki/${sameNameAs(input.title)}`,
@@ -406,7 +406,7 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
     },
   });
   registry.register({
-    name: "wiki.search", permission: "memory.read",
+    name: "wiki.search", group: "memory", permission: "memory.read",
     description: "Find pages of the wiki whose name or words hold what was asked for.",
     parameters: z.object({ query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).default(20) }).strict(),
     target: () => "wiki",
@@ -417,7 +417,7 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
     },
   });
   registry.register({
-    name: "wiki.history", permission: "memory.read",
+    name: "wiki.history", group: "memory", permission: "memory.read",
     description: "What a page of the wiki used to say, newest first.",
     parameters: z.object({ title: z.string().trim().min(1).max(200) }).strict(),
     target: (input) => `wiki/${sameNameAs(input.title)}`,
