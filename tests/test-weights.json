@@ -972,6 +972,7 @@
   "tests/session-ui.test.mjs": 32.136,
   "tests/sessions.test.mjs": 2.091,
   "tests/settings-descriptions.test.mjs": 32.897,
+  "tests/settings-grown.test.mjs": 433.739,
   "tests/settings-kit-review.test.mjs": 2.226,
   "tests/settings-kit-ui.test.mjs": 27.303,
   "tests/settings-kit.test.mjs": 2.756,
