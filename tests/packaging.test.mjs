@@ -2,14 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { discardTemp } from "./temp-dir.mjs";
 import {
   assetNameFor, checksumLine, finishMac, includedInApp, signingRequired, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons, PACKAGE_ICON, macIconPlan,
 } from "../scripts/package-desktop.mjs";
-import { ICO_SIZES, icoFrom } from "../scripts/prepare-icon.mjs";
+import { ICO_OUTPUT, ICO_SIZES, icoFrom, runningAsProgram } from "../scripts/prepare-icon.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
 import { builtOutputs, missingOutputs, pathInTarball } from "../scripts/pack-cli.mjs";
@@ -512,4 +513,84 @@ test("the Windows icon holds every size Windows draws, and every one of them is 
     assert.equal(drawn.width, size, `entry ${index} holds a picture of the wrong size`);
     await isTheMascot(drawn, `the Windows icon at ${size}`);
   }
+});
+
+
+/*
+ * Codex review of `6c062291`: the Windows icon was never built, and every test I had written missed it.
+ *
+ * The entry guard compared `import.meta.url` with `file://` + `process.argv[1]`. On Windows the first
+ * is `file:///C:/...` and the second makes `file://C:\...`: no slash before the drive letter and
+ * backslashes throughout, so they can never be equal. The build ran the script, matched nothing, did
+ * nothing, exited 0, and the packager shipped no Windows application icon at all.
+ *
+ * Six mutations passed over that without noticing, because every one of them called icoFrom directly
+ * and not one of them ran the program. These three do.
+ */
+test("the Windows icon script knows when it is the program, by conversion and not by gluing strings", async () => {
+  const here = join(import.meta.dirname, "..", "scripts", "prepare-icon.mjs");
+  assert.equal(runningAsProgram(pathToFileURL(here).href, here), true, "its own path is recognised");
+  assert.equal(runningAsProgram(pathToFileURL(here).href, join(import.meta.dirname, "other.mjs")), false,
+    "another file being run is not this one");
+  assert.equal(runningAsProgram(pathToFileURL(here).href, undefined), false, "and no program at all is not this one");
+
+  /* The bug itself cannot be run on a Mac -- only Windows produces a `C:\` argv -- so the shape is
+     held instead: the comparison must go through pathToFileURL, which knows about drive letters and
+     separators, and must never be built by gluing `file://` onto a path. */
+  const source = await readFile(here, "utf8");
+  assert.match(source, /url === pathToFileURL\(resolve\(argv1\)\)\.href/,
+    "the entry guard must compare a converted path; gluing file:// onto argv[1] is the bug this replaced");
+});
+
+test("running the Windows icon script as a program really writes an icon, and it has its alpha", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-ico-"));
+  t.after(() => discardTemp(root));
+  const into = join(root, "keepoak.ico");
+  assert.equal(existsSync(into), false, "the directory starts clean, so a stale file cannot pass for a new one");
+
+  const ran = spawnSync(process.execPath, [join("scripts", "prepare-icon.mjs"), into],
+    { cwd: join(import.meta.dirname, ".."), encoding: "utf8" });
+  assert.equal(ran.status, 0, `the script failed: ${ran.stderr || ran.stdout}`);
+  assert.equal(existsSync(into), true, "the script reported success and wrote nothing, which is the whole bug");
+
+  const ico = await readFile(into);
+  assert.equal(ico.readUInt16LE(4), ICO_SIZES.length, "every size Windows asks for");
+  let transparent = 0;
+  for (const [index, size] of ICO_SIZES.entries()) {
+    const entry = 6 + index * 16;
+    const drawn = readPng(ico.subarray(ico.readUInt32LE(entry + 12), ico.readUInt32LE(entry + 12) + ico.readUInt32LE(entry + 8)));
+    assert.equal(drawn.width, size);
+    // A square icon with no transparent corner is a square icon: the mascot has to keep its alpha or
+    // Windows draws it on a white tile.
+    const corner = drawn.data[3];
+    if (corner < 8) transparent += 1;
+  }
+  assert.equal(transparent, ICO_SIZES.length, "every size kept its transparent corner");
+  assert.match(ran.stdout, /keepoak\.ico from/, "and it says what it made and from what");
+});
+
+test("the Windows icon script refuses to report success when it could not write the file", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-ico-shut-"));
+  t.after(() => discardTemp(root));
+  // A file where a directory would have to be: writing inside it cannot work.
+  const blocker = join(root, "blocker");
+  await writeFile(blocker, "not a directory", "utf8");
+  const ran = spawnSync(process.execPath, [join("scripts", "prepare-icon.mjs"), join(blocker, "keepoak.ico")],
+    { cwd: join(import.meta.dirname, ".."), encoding: "utf8" });
+  assert.notEqual(ran.status, 0, "a build that cannot write the icon must not exit 0");
+  assert.equal(existsSync(join(blocker, "keepoak.ico")), false);
+});
+
+/* The readback is its own claim: a write can succeed and still leave nothing behind. /dev/null takes
+   every byte and keeps none, which is exactly that case and needs no trickery to arrange. */
+test("a write that succeeds and keeps nothing is still a failure", { skip: process.platform === "win32" }, () => {
+  const ran = spawnSync(process.execPath, [join("scripts", "prepare-icon.mjs"), "/dev/null"],
+    { cwd: join(import.meta.dirname, ".."), encoding: "utf8" });
+  assert.notEqual(ran.status, 0, "the bytes went nowhere and the build was told everything was fine");
+  assert.match(ran.stderr, /was not written|bytes, expected/, ran.stderr || ran.stdout);
+});
+
+test("the packager asks for the icon at the path the installer later reads", () => {
+  assert.equal(ICO_OUTPUT, "public/assets/keepoak.ico");
+  assert.equal(packagerOptions("win32", "x64").icon, ICO_OUTPUT, "the packager and the script must name one file");
 });
