@@ -45,6 +45,8 @@ const combo = (name, def) => ({ name, kind: "keys", def });
 const CARDS = [
   { id: "keys", card: "keys", home: "settings:general", fields: [
     combo("palette", "Ctrl+K"), combo("newConversation", "Ctrl+N"), combo("appearance", "Ctrl+,"), combo("sidePane", "Ctrl+Shift+K"),
+    combo("sideList", "Ctrl+B"), combo("newTrunk", ""), combo("focusPrompt", ""), combo("stopTask", ""),
+    combo("searchHistory", ""), combo("lookInside", ""),
     sw("vim", false)] },
   { id: "files", card: "files", home: "settings:general", fields: [sw("respectGitignore", true), { name: "extraIgnoreFiles", kind: "lines", def: [] }] },
   { id: "display", card: "display", home: "settings:appearance", fields: [{ name: "statusLine", kind: "status", def: null }, sw("timestamps", false)] },
@@ -82,6 +84,7 @@ function option(value, key) {
 /** A box that takes the keys pressed in it ("Ctrl+Shift+K"); Backspace empties it. */
 function keysBox(field, id, value) {
   const input = Object.assign(document.createElement("input"), { type: "text", value: value ?? "", autocomplete: "off" });
+  input.dataset.keysBox = ""; // a press here is being set, so the window does not act on it
   input.addEventListener("keydown", (event) => {
     if (event.key === "Tab") return;
     event.preventDefault();
@@ -286,8 +289,10 @@ export function comboOf(event) {
   if (!parts.length && !/^F([1-9]|1[0-2])$/.test(name)) return "";
   return [...parts, name].join("+");
 }
-const defaults = { palette: "Ctrl+K", newConversation: "Ctrl+N", appearance: "Ctrl+,", sidePane: "Ctrl+Shift+K" };
-const bound = (action) => view?.values.keys[action] ?? view?.values.voice[action] ?? defaults[action] ?? "";
+/* The keys each action has always had, read from the cards above so they are written down once. */
+const keyDefaults = Object.fromEntries(CARDS.flatMap((card) => card.fields).filter((field) => field.kind === "keys").map((field) => [field.name, field.def]));
+/** The keys the owner gave an action, or the ones it has always had; "" is none. */
+const bound = (action) => view?.values.keys[action] ?? view?.values.voice[action] ?? keyDefaults[action] ?? "";
 /** True when this key press is the owner's keys for an action. */
 function pressed(event, action) {
   const keys = bound(action);
@@ -526,7 +531,7 @@ async function afterSignIn(tries = 20) {
 }
 
 const comfort = {
-  refresh, pressed, hint, attention, maxRecordingSeconds, comboOf, vimMotion, refreshStatus, autoUpdate,
+  refresh, pressed, bound, hint, attention, maxRecordingSeconds, comboOf, vimMotion, refreshStatus, autoUpdate,
   /** Plays a sound; replaced in tests so nothing is heard. */
   player: playTone,
   get values() { return view?.values ?? null; },

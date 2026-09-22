@@ -19,6 +19,12 @@ export const shortcutDefaults = {
   newConversation: "Ctrl+N",
   appearance: "Ctrl+,",
   sidePane: "Ctrl+Shift+K",
+  sideList: "Ctrl+B",
+  newTrunk: "",
+  focusPrompt: "",
+  stopTask: "",
+  searchHistory: "",
+  lookInside: "",
 } as const;
 export type ShortcutAction = keyof typeof shortcutDefaults;
 export const shortcutActions = Object.keys(shortcutDefaults) as ShortcutAction[];
@@ -29,6 +35,12 @@ export const ComfortKeysSchema = z.object({
   newConversation: keyCombo.default(shortcutDefaults.newConversation),
   appearance: keyCombo.default(shortcutDefaults.appearance),
   sidePane: keyCombo.default(shortcutDefaults.sidePane),
+  sideList: keyCombo.default(shortcutDefaults.sideList),
+  newTrunk: keyCombo.default(shortcutDefaults.newTrunk),
+  focusPrompt: keyCombo.default(shortcutDefaults.focusPrompt),
+  stopTask: keyCombo.default(shortcutDefaults.stopTask),
+  searchHistory: keyCombo.default(shortcutDefaults.searchHistory),
+  lookInside: keyCombo.default(shortcutDefaults.lookInside),
   /** Esc leaves typing for moving (h j k l, w b, 0 $, x, dd, i a o), as in vim. */
   vim: z.boolean().default(false),
 }).strict().superRefine((value, context) => {

@@ -128,6 +128,76 @@ test("R17-S15: a rebound shortcut works, the old keys stop, and vim keys move an
   assert.deepEqual(moved, [1, 4, 3, 4]);
 });
 
+test("R17-S15: keys pressed into Settings set every window action, and the side list keeps Ctrl+B until given others", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  const clicks = (id) => page.evaluate((target) => {
+    globalThis.__clicks ??= {};
+    globalThis.__clicks[target] = 0;
+    document.getElementById(target)?.addEventListener("click", () => { globalThis.__clicks[target] += 1; });
+  }, id);
+  const clicked = (id) => page.evaluate((target) => globalThis.__clicks[target], id);
+  await clicks("rail-toggle");
+  await page.keyboard.press("Control+b");
+  assert.equal(await clicked("rail-toggle"), 1, "as shipped, Ctrl+B folds the side list");
+
+  // Press-to-set: the keys pressed in the box are written into it, and do nothing else while there.
+  await openSettingFor(page, "#comfort-keys-card");
+  const raw = await page.locator("#comfort-keys-card").evaluate((card) => [...card.querySelectorAll("label, p")].map((node) => node.textContent.trim()).filter((text) => text.startsWith("comfort.")));
+  assert.deepEqual(raw, [], "every action on the card has its own words");
+  // The cards are drawn again once the window has signed in; a box focused just before that is gone,
+  // so the press is made again on the box that is there until it holds the keys.
+  for (let tries = 0; tries < 5 && await page.locator("#comfort-focusPrompt").inputValue() !== "Ctrl+Shift+P"; tries++) {
+    await page.locator("#comfort-focusPrompt").focus();
+    await page.keyboard.press("Control+Shift+p");
+  }
+  assert.equal(await page.locator("#comfort-focusPrompt").inputValue(), "Ctrl+Shift+P");
+  await page.locator("#comfort-sideList").focus();
+  // Opening Settings may move the side list itself, so each check counts from just before its press.
+  let folds = await clicked("rail-toggle");
+  await page.keyboard.press("Control+b");
+  assert.equal(await clicked("rail-toggle"), folds, "a press being set does not fold the side list");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Alt+b");
+  await page.locator("#comfort-keys-card").getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator("#comfort-keys-card [role=status]").filter({ hasText: "Saved" }).waitFor();
+  const saved = readComfort(app.store, "local", "keys");
+  assert.equal(saved.focusPrompt, "Ctrl+Shift+P");
+  assert.equal(saved.sideList, "Alt+B");
+  await closeSettings(page);
+
+  await page.locator("#prompt").blur();
+  await page.keyboard.press("Control+Shift+p");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "prompt", "the new keys focus the message box");
+  await page.locator("#prompt").blur();
+  folds = await clicked("rail-toggle");
+  await page.keyboard.press("Control+b");
+  assert.equal(await clicked("rail-toggle"), folds, "Ctrl+B no longer folds the side list");
+  await page.keyboard.press("Alt+b");
+  assert.equal(await clicked("rail-toggle"), folds + 1, "Alt+B does");
+  await page.keyboard.press("Alt+b"); // and back, so the rest of the window is where it was
+
+  saveComfort(app.store, "local", "keys", { newTrunk: "Alt+T", searchHistory: "Alt+H", stopTask: "Alt+S", lookInside: "Alt+L" });
+  await refresh(page);
+  await clicks("rail-new-trunk");
+  await page.keyboard.press("Alt+t");
+  assert.equal(await clicked("rail-new-trunk"), 1, "new Trunk");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Alt+h");
+  await page.waitForFunction(() => document.activeElement?.id === "history-query");
+  assert.ok(await page.locator("#history-query").isVisible(), "the history search is open, ready to type in");
+  // Stop presses the live task's own Stop button, which cancels the task.
+  await page.evaluate(() => { const stop = document.createElement("button"); stop.id = "live-stop"; stop.hidden = true; document.body.append(stop); });
+  await clicks("live-stop");
+  await page.keyboard.press("Alt+s");
+  assert.equal(await clicked("live-stop"), 1, "stop the task");
+  // Look inside opens the newest task of the conversation on screen.
+  const run = await app.runtime.run({ prompt: "hello" });
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
+  await page.keyboard.press("Alt+l");
+  await page.locator("#inspect-panel").waitFor({ state: "visible" });
+  assert.deepEqual(errors, []);
+});
+
 test("R17-S16: the status line shows the pieces picked, and each message shows its time", async (t) => {
   const { app, page } = await openApp(t);
   assert.equal(await page.locator("#comfort-status").isVisible().catch(() => false), false, "as shipped there is no extra line");

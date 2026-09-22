@@ -6,9 +6,12 @@
 
    The side list and the side panel can be dragged wider or narrower, as in the Claude desktop app:
    drag the edge, double-click it to go back to normal, or focus it and use the arrow keys (Enter folds it).
-   Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only. */
+   Ctrl+B (Cmd+B on a Mac), or the keys the owner chose in Settings, folds the side list (public/shell.js).
+   Widths are kept in this browser only. */
 import { api, displayView } from "/app.js";
 import { t, formatDate } from "/i18n.js";
+
+const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -303,23 +306,11 @@ function keyOnHandle(event, k) {
     foldPane(k);
   }
 }
-/* Ctrl+B (Cmd+B on a Mac, where Ctrl+B moves the cursor in a text box) folds the side list, as in Claude. */
-const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-function onKey(event) {
-  const chord = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  if (!chord || event.altKey || event.shiftKey || event.key.toLowerCase() !== "b") return;
-  if (event.target?.closest?.("[contenteditable]:not([contenteditable=false])")) return;
-  const toggle = $("rail-toggle");
-  if (!toggle || $("workspace")?.hidden) return;
-  event.preventDefault();
-  toggle.click();
-}
 function watchPanes() {
   for (const k of Object.keys(RZ)) makeHandle(k);
   document.addEventListener("pointermove", moveDrag);
   document.addEventListener("pointerup", endDrag);
   document.addEventListener("pointercancel", endDrag);
-  document.addEventListener("keydown", onKey);
   const again = () => requestAnimationFrame(placeHandles);
   const sizes = new ResizeObserver(again);
   for (const k of Object.keys(RZ)) if (paneEl(k)) sizes.observe(paneEl(k));
