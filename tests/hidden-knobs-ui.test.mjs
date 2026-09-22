@@ -134,6 +134,24 @@ test("a language redraw cannot replace an unsaved launch-file list", async (t) =
   assert.equal(await sites.inputValue(), draft);
 });
 
+test("a stale Save button submits the visible launch-file draft after a redraw", async (t) => {
+  const { page, launchFile } = await openApp(t);
+  await openSettingFor(page, "#knobs-launch-file-card");
+  const staleSave = await page.locator("#knobs-launch-file-card")
+    .getByRole("button", { name: "Save for the next start", exact: true }).elementHandle();
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
+  const draft = "https://example.com\nhttps://docs.example.org";
+  await page.locator("#knobs-launch-browserSites").fill(draft);
+  await staleSave.evaluate((button) => button.click());
+  for (let tries = 0; tries < 200; tries++) {
+    const sites = JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins;
+    if (sites.length === 2) break;
+    await page.waitForTimeout(25);
+  }
+  assert.deepEqual(JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins,
+    ["https://example.com", "https://docs.example.org"]);
+});
+
 test("a focused clean control stays clean across redraws and accepts the next server value", async (t) => {
   const { app, page } = await openApp(t);
   await openSettingFor(page, "#knobs-limits-card");

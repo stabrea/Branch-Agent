@@ -269,6 +269,16 @@ function launchControls(file) {
       return [{ ...field, controlName: `launch-${field.name}` }, c];
     });
 }
+function visibleLaunchValues(controls) {
+  return Object.fromEntries(controls.map(([field, fallback]) => {
+    const control = $(`knobs-${field.controlName}`);
+    if (!control) return [field.name, fallback.read()];
+    if (field.kind === "switch") return [field.name, control.value === "on"];
+    if (field.kind === "number") return [field.name, control.value === "" ? field.def : Number(control.value)];
+    if (field.kind === "lines") return [field.name, control.value.split(/[\s,]+/).filter(Boolean)];
+    return [field.name, control.value];
+  }));
+}
 function launchCard(file) {
   const card = document.createElement("section");
   card.className = "card";
@@ -287,7 +297,7 @@ function launchCard(file) {
   save.addEventListener("click", async () => {
     const card = "launch-file";
     const version = beginWrite(card);
-    const values = Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()]));
+    const values = visibleLaunchValues(controls);
     try {
       await api(values, "knobs/launch-file");
       if (!writeIsCurrent(card, version)) return;
