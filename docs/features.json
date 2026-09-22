@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T02:10:10.191184+00:00",
+  "assessment_date": "2026-09-22T00:00:00+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -90,68 +90,97 @@
       "family": "surfaces",
       "name": "Voice dictation and transcription",
       "acceptance_criterion": "Submit an audio fixture and produce a readable transcript that can be sent as a conversation turn.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "src/voice.ts",
+          "src/voice-dictation.ts",
+          "public/media.js",
+          "public/voice.js",
+          "tests/voice.test.mjs",
+          "tests/voice-providers.test.mjs",
+          "tests/live-voice.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "transcribeAudio succeeds with valid audio and provider",
+          "a voice note arriving on a channel is written out, answered, and quoted back",
+          "L19 a person presses Dictate, sees the words appear, and the microphone closes when they stop"
+        ],
+        "detail": "Audio becomes text through the provider. A channel voice note's words become the task and are quoted back, and dictation fills the message box. Transcription and turning the words into a message are tested separately."
       },
-      "remaining": "Submit an audio fixture and produce a readable transcript that can be sent as a conversation turn."
+      "remaining": ""
     },
     {
       "id": "surfaces.voice-output",
       "family": "surfaces",
       "name": "Text-to-speech",
       "acceptance_criterion": "Generate playable speech from a response using the selected provider.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "public/app.js",
+          "src/voice.ts",
+          "src/voice-service.ts",
+          "src/speech-engines.ts",
           "src/server.ts",
-          "src/cli.ts"
+          "tests/voice.test.mjs",
+          "tests/voice-providers.test.mjs",
+          "tests/speech-engines.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "generateSpeech succeeds with valid provider",
+          "the OpenAI shape hands back sound, and the Windows voice is built as a script without being run",
+          "Gemini reads text aloud through its own route and hands back the sound inline",
+          "a program on this computer reads aloud with only the owner's own arguments"
+        ],
+        "detail": "The voice service's speak() picks a route (OpenAI, Gemini, Windows or a local program) and returns audio bytes with a media type; tests check the bytes for each route. Gap: the POST /api/voice/speak route itself has no test of the audio it returns."
       },
-      "remaining": "Generate playable speech from a response using the selected provider."
+      "remaining": ""
     },
     {
       "id": "surfaces.attachments",
       "family": "surfaces",
       "name": "Images audio video and document attachments",
       "acceptance_criterion": "Attach representative image, audio, video and document files and preserve their content types and accessible references in the conversation.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "public/app.js",
           "src/server.ts",
-          "src/cli.ts"
+          "src/media-understand-api.ts",
+          "public/app.js",
+          "tests/media.test.mjs",
+          "tests/media-understand.test.mjs",
+          "tests/cli-tui.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a picture on the composer reaches the run as an image part, and the gallery route lists what was made",
+          "a video attached in the composer comes back as pictures and words, and only when switched on",
+          "--attach sends a text file with the request"
+        ],
+        "detail": "Pictures, video, audio and documents can all be attached, each in its own way. No single test carries all four kinds and keeps their types."
       },
-      "remaining": "Attach representative image, audio, video and document files and preserve their content types and accessible references in the conversation."
+      "remaining": "One fixture that attaches image, audio, video and a document and keeps their types and references."
     },
     {
       "id": "surfaces.generation",
       "family": "surfaces",
       "name": "Image and video generation",
       "acceptance_criterion": "Generate one image and one video through configured adapters and verify that both output files can be decoded.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "src/media-images.ts",
+          "src/reach/video.ts",
+          "tests/media.test.mjs",
+          "tests/reach.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a picture is asked for at /images/generations and lands as an artifact",
+          "R17-079: a video from OpenAI's own API, key in a header only, saved in the workspace",
+          "R17-079: Google's Veo route, the download followed once over https without the key, and a non-video refused"
+        ],
+        "detail": "Images come from /images/generations and are saved as artifacts. Video comes through the Sora or Veo adapters, and a file without an MP4 header is refused."
       },
-      "remaining": "Generate one image and one video through configured adapters and verify that both output files can be decoded."
+      "remaining": ""
     },
     {
       "id": "surfaces.playback",
@@ -161,12 +190,11 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "public/media.js",
+          "public/voice.js"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "Attached sound and video become words and still pictures; nothing plays them inline."
       },
       "remaining": "Play an attached audio file and video file inside the supported conversation client."
     },
@@ -179,11 +207,12 @@
       "evidence": {
         "paths": [
           "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "public/layout.js",
+          "public/compare.js",
+          "public/panels.js"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "No side-by-side view of several conversations: compare.js compares two finished tasks read-only, and panels.js is a single side panel."
       },
       "remaining": "Arrange multiple topics side by side and verify that messages remain assigned to the correct topic."
     },
@@ -192,34 +221,45 @@
       "family": "surfaces",
       "name": "Mobile installable web app and push notifications",
       "acceptance_criterion": "Install the supported mobile web app and receive a push notification for a completed task when the app is backgrounded.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "public/service-worker.js",
+          "apps/mobile/web/rules.js",
+          "tests/web-ui.test.mjs",
+          "tests/mobile-rules.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "U6 the installable-app files are served and the worker is skipped inside the desktop app",
+          "a notification is only for something new that is waiting for the owner"
+        ],
+        "detail": "There is an installable app and phone notifications for items waiting on the owner. Nothing notifies when a task completes, and there is no Web Push while the app is in the background."
       },
-      "remaining": "Install the supported mobile web app and receive a push notification for a completed task when the app is backgrounded."
+      "remaining": "Notify when a task completes, and deliver Web Push while the app is in the background."
     },
     {
       "id": "surfaces.i18n",
       "family": "surfaces",
       "name": "Localized application interface",
       "acceptance_criterion": "Switch between two supported interface languages and verify that navigation and task controls remain usable.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "public/i18n.js",
+          "public/locales/en.json",
+          "public/locales/fr.json",
+          "tests/web-ui.test.mjs",
+          "tests/p2-shell-ui.test.mjs",
+          "tests/locales-contract.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "U7 switching the language changes a visible label and English stays the fallback",
+          "in French every word of the strip and the studio follows at once, and no icon is lost",
+          "the shipped language files are valid, unique and keep the same interpolation contract"
+        ],
+        "detail": "English and French ship with the same keys. Switching the language changes the screen at once, and English is the fallback."
       },
-      "remaining": "Switch between two supported interface languages and verify that navigation and task controls remain usable."
+      "remaining": ""
     },
     {
       "id": "surfaces.attention",
@@ -251,17 +291,21 @@
       "family": "surfaces",
       "name": "Personal knowledge access from note editors",
       "acceptance_criterion": "Query indexed personal knowledge from a supported note-editor client and open the cited document.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "public/app.js",
-          "src/server.ts",
-          "src/cli.ts"
+          "extras/obsidian-plugin/main.js",
+          "src/obsidian.ts",
+          "tests/asks-surfaces.test.mjs",
+          "tests/obsidian.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A2133 the Obsidian plugin asks Branch with a short-lived key and puts the answer in the note",
+          "O3 only the notes the owner tagged are read back"
+        ],
+        "detail": "The Obsidian plugin asks Branch and puts the answer in the note. There is no query of indexed knowledge from the editor that comes back with a cited document you can open."
       },
-      "remaining": "Query indexed personal knowledge from a supported note-editor client and open the cited document."
+      "remaining": "Query indexed knowledge from the editor and open the cited document from the answer."
     },
     {
       "id": "routing.channels",
@@ -343,17 +387,20 @@
       "family": "routing",
       "name": "Conversation spanning channels",
       "acceptance_criterion": "Continue one conversation from two linked channels with both surfaces observing the same ordered history.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/server.ts",
           "src/runtime.ts",
           "src/store.ts",
-          "src/server.ts"
+          "tests/teams-registry.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a chat linked to a conversation continues that very conversation, so both surfaces see one ordered history"
+        ],
+        "detail": "POST /api/channels/link ties a chat to an existing conversation; the test sends from the web, then Telegram, then the web, and checks one ordered stored history."
       },
-      "remaining": "Continue one conversation from two linked channels with both surfaces observing the same ordered history."
+      "remaining": ""
     },
     {
       "id": "routing.shared-identity",
@@ -382,16 +429,17 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/files.ts",
-          "src/runtime.ts"
+          "src/trunks/index.ts",
+          "src/trunks/memory-scope.ts",
+          "tests/trunks.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "a Trunk's turn carries its instructions, its tools and its memory scope, however the message arrives",
+          "what a Trunk learns is always its own: it cannot write into the shared facts"
         ],
-        "detail": "Owner isolation applies to stored memory; delegated specialists currently share parent owner and workspace."
+        "detail": "Each Trunk keeps its own memory, but all Trunks share one workspace."
       },
-      "remaining": "Provide per-agent file roots and prove file plus memory isolation between isolated agents."
+      "remaining": "Per-agent file roots, and a test that one agent cannot fetch another's memory or files."
     },
     {
       "id": "routing.lifecycle",
@@ -693,16 +741,24 @@
       "family": "models",
       "name": "Hardware-aware local model acquisition",
       "acceptance_criterion": "Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/providers.ts",
-          "src/contracts.ts"
+          "src/local-hardware.ts",
+          "src/local-fit.ts",
+          "src/local-models.ts",
+          "src/local-oneclick.ts",
+          "tests/local-models.test.mjs",
+          "tests/local-oneclick.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "L2 a small computer is offered small models and told why the big ones would crawl",
+          "L1 a model is downloaded with progress reports that end at 100 per cent",
+          "O1 one click with Ollama: start it, download, size the room for words, load, connect"
+        ],
+        "detail": "Model sizes are recommended from this computer's memory. A download reports progress to 100%, and one click connects a model that runs locally."
       },
-      "remaining": "Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint."
+      "remaining": ""
     },
     {
       "id": "models.reasoning-default",
@@ -798,116 +854,145 @@
       "evidence": {
         "paths": [
           "src/integrations/browser.ts",
-          "tests/browser.test.mjs"
+          "src/integrations/browser-profiles.ts",
+          "tests/browser.test.mjs",
+          "tests/browser-more.test.mjs"
         ],
         "tests": [
-          "isolated browser completes form workflow and refuses destinations outside configured origins"
+          "isolated browser completes form workflow and refuses destinations outside configured origins",
+          "a screenshot is kept as a signed run artifact and shown to a model that can look at pictures",
+          "a saved sign-in keeps a cookie across two tasks and holds nothing readable on disk"
         ],
-        "detail": "A live browser context is reused for navigation, accessibility snapshots, fill and click; accessibility text is not a screenshot."
+        "detail": "Screenshots, a form flow and a saved sign-in are each tested, but not as one multi-page run."
       },
-      "remaining": "Add actual screenshot output and a multi-page fixture proving same authorized browser session across pages."
+      "remaining": "One multi-page fixture that screenshots each step while the same signed-in session carries across pages."
     },
     {
       "id": "execution.desktop",
       "family": "execution",
       "name": "Live shared Linux desktop",
       "acceptance_criterion": "Operate a desktop-only test application and allow the user to take over the same live desktop.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/desktop",
+          "src/sandbox-backends.ts",
+          "tests/screen-control.test.mjs",
+          "tests/posix-desktop-script.test.mjs",
+          "tests/sandbox-remote.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "with the switch on, Branch can see, read, type into and photograph a window it opened",
+          "a notice with a Stop button is on screen while Branch is using it, and it can be photographed",
+          "Linux builds xdotool arguments with typed words after --, and refuses what it cannot do"
+        ],
+        "detail": "Screen control operates a real desktop app on the user's own desktop with a Stop notice. There is no shared Linux desktop (VNC/Xvfb) and no test where the user takes over."
       },
-      "remaining": "Operate a desktop-only test application and allow the user to take over the same live desktop."
+      "remaining": "A shared Linux desktop (VNC/Xvfb) and a test where the user takes over."
     },
     {
       "id": "execution.annotations",
       "family": "execution",
       "name": "DOM inspection and element-attached comments",
       "acceptance_criterion": "Attach a comment to a DOM element and include the element identity and inspection context in the resulting task.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/browser-annotations.ts",
+          "src/browser-notes-api.ts",
+          "src/integrations/browser-notes-tool.ts",
+          "tests/browser-annotations.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A2144: capturing on Branch's own page keeps no field value and no script, is listed, and resolves",
+          "A2144: a note naming a conversation is queued there as untrusted page content and reaches the next turn"
+        ],
+        "detail": "A page note captures the selector, the element, its parents and cleaned HTML, and reaches the next turn marked as untrusted."
       },
-      "remaining": "Attach a comment to a DOM element and include the element identity and inspection context in the resulting task."
+      "remaining": ""
     },
     {
       "id": "execution.host-bridge",
       "family": "execution",
       "name": "Host file browser and command bridge",
       "acceptance_criterion": "Perform an authorized operation on an explicitly selected host and return the host identity with its result.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/remote/ssh-workspace.ts",
+          "src/asks/nodes.ts",
+          "tests/sandbox-remote.test.mjs",
+          "tests/asks-surfaces.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A0648 a computer may only run the programs the owner allowed, and the card names the computer",
+          "gateway: the healthiest labelled computer takes a task, and a down one is passed over"
+        ],
+        "detail": "A host chosen by name runs only the programs it allows. No test checks the host identity returned with the result when the host was chosen explicitly."
       },
-      "remaining": "Perform an authorized operation on an explicitly selected host and return the host identity with its result."
+      "remaining": "Return and assert the identity of an explicitly chosen host with its result."
     },
     {
       "id": "execution.remote",
       "family": "execution",
       "name": "SSH and serverless execution adapters",
       "acceptance_criterion": "Run the same bounded command through configured SSH and serverless adapters and record the execution target.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/remote/ssh-workspace.ts",
+          "src/sandbox-backends.ts",
+          "tests/sandbox-remote.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A0648 a computer may only run the programs the owner allowed, and the card names the computer",
+          "the SSH runner binds every tool to one resolved OpenSSH suite"
+        ],
+        "detail": "Allowed programs run over SSH. There is no serverless adapter."
       },
-      "remaining": "Run the same bounded command through configured SSH and serverless adapters and record the execution target."
+      "remaining": "A serverless adapter, run by the same allowed-program rules as SSH."
     },
     {
       "id": "execution.nodes",
       "family": "execution",
       "name": "Paired camera screen location and notification commands",
       "acceptance_criterion": "Pair a device, discover its granted commands and execute a permitted device command while rejecting an unavailable one.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/devices/hub.ts",
+          "src/devices/book.ts",
+          "src/devices/tools.ts",
+          "src/devices/capabilities.ts",
+          "src/server.ts",
+          "tests/devices-socket.test.mjs",
+          "tests/devices.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "pair, switch on, use with a picture, survive a dropped connection, and be revoked",
+          "switches are per device and per capability, and a platform cannot be given what it cannot do"
+        ],
+        "detail": "A device pairs and connects over a signed socket and only its switched-on capabilities run; device.screen runs, device.notify is refused while off, and a capability the platform lacks is rejected."
       },
-      "remaining": "Pair a device, discover its granted commands and execute a permitted device command while rejecting an unavailable one."
+      "remaining": ""
     },
     {
       "id": "execution.hardware",
       "family": "execution",
       "name": "MQTT and embedded hardware integrations",
       "acceptance_criterion": "Exchange an MQTT fixture and exercise declared serial, GPIO, I2C or SPI adapters against device fixtures while reporting unsupported protocols or disconnects explicitly.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/channels/",
+          "tests/channels-parity-sockets.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "MQTT: connects with the password, pairs a stranger, answers on the reply topic, and never answers itself or history"
+        ],
+        "detail": "There is an MQTT channel, but no serial, GPIO, I2C or SPI adapter."
       },
-      "remaining": "Exchange an MQTT fixture and exercise declared serial, GPIO, I2C or SPI adapters against device fixtures while reporting unsupported protocols or disconnects explicitly."
+      "remaining": "A serial, GPIO, I2C or SPI adapter; today only the MQTT channel reaches devices."
     },
     {
       "id": "extensions.progressive",
@@ -1016,18 +1101,23 @@
       "family": "extensions",
       "name": "Plugin and channel adapter registry",
       "acceptance_criterion": "Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/add-ons",
+          "src/registry-install.ts",
+          "src/plugins.ts",
+          "tests/add-ons.test.mjs",
+          "tests/skills-plugins.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "lists: a folder marketplace and a signed web list are browsed without installing, and a bad entry is refused",
+          "a package is looked at, installed switched off, switched on and taken back out; a malware listing stops it",
+          "a signed registry entry is checked, a forged one is refused, and an unsigned one is labelled"
+        ],
+        "detail": "Entries install from a declared marketplace or a signed list, arrive switched off, add nothing until they are switched on, and are refused if forged."
       },
-      "remaining": "Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation."
+      "remaining": ""
     },
     {
       "id": "extensions.templates",
@@ -1093,18 +1183,21 @@
       "family": "extensions",
       "name": "Generate capability-limited WASM tools",
       "acceptance_criterion": "Build a requested WASM tool and execute it with only declared host capabilities.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/safety-extras/wasm-add-ons.ts",
+          "src/safety-extras/wasm-check.ts",
+          "tests/safety-extras-wasm.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "what a module asks for is read before it runs",
+          "it runs sealed: the answer comes back, and a module that never stops is stopped",
+          "installing, running as a tool through the gate, and refusing changed bytes"
+        ],
+        "detail": "Supplied WASM modules are checked, fingerprinted and run sealed as tools. Branch does not build a tool on request, and capabilities are not declared per tool."
       },
-      "remaining": "Build a requested WASM tool and execute it with only declared host capabilities."
+      "remaining": "Build a requested tool, with capabilities declared per tool rather than one fixed import list."
     },
     {
       "id": "extensions.lifecycle-hooks",
@@ -1134,36 +1227,40 @@
       "family": "extensions",
       "name": "Connect external hosted agent platforms",
       "acceptance_criterion": "Invoke a configured external agent-platform workflow and return its correlated result through the assistant.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/a2a-client.ts",
+          "src/interop/agent-market.ts",
+          "tests/interop-agents.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "an assistant elsewhere can be added by its card, asked, and removed"
+        ],
+        "detail": "A configured remote A2A agent can be called with agents.ask and its answer comes back. There is no connector for hosted workflow platforms like Dify or n8n, and the test does not check task-id correlation."
       },
-      "remaining": "Invoke a configured external agent-platform workflow and return its correlated result through the assistant."
+      "remaining": "Connectors for hosted workflow platforms (Dify, n8n), with task-id correlation tested."
     },
     {
       "id": "extensions.visual-workflows",
       "family": "extensions",
       "name": "Visual branching workflow editor",
       "acceptance_criterion": "Build a workflow with connected blocks and a conditional branch, save it and execute the selected branch.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/flow-graph.ts",
+          "src/flow-graph-run.ts",
+          "tests/flow-graph.test.mjs",
+          "tests/flow-editor.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "G2 a condition picks each of its two ways out",
+          "F1 a step is added, the picture redraws, and the flow saves through the same shape"
+        ],
+        "detail": "Branching in the graph engine works, and the visual editor saves flows. No test builds a condition in the editor and then runs it."
       },
-      "remaining": "Build a workflow with connected blocks and a conditional branch, save it and execute the selected branch."
+      "remaining": "Build a conditional branch in the visual editor and run it in one test."
     },
     {
       "id": "memory.profile",
@@ -1274,32 +1371,42 @@
       "family": "memory",
       "name": "Vector plus full-text rank fusion",
       "acceptance_criterion": "Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory-retrieval.ts",
+          "src/document-embeddings.ts",
+          "tests/memory-context.test.mjs",
+          "tests/rag-vector.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "facts are found by their words and by meaning, and turning meaning off falls back to words alone",
+          "R5 a paraphrase the words miss is found by meaning, through the shared store of readings"
+        ],
+        "detail": "Word search and meaning search are merged with reciprocal rank fusion. Each result shows its score and which way it matched."
       },
-      "remaining": "Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking."
+      "remaining": ""
     },
     {
       "id": "memory.providers",
       "family": "memory",
       "name": "External memory provider support",
       "acceptance_criterion": "Replace the memory backend through configuration and verify that read and write operations use the selected backend.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/learning-more/providers.ts",
+          "src/memory-backend.ts",
+          "tests/learning-more.test.mjs",
+          "tests/docs-memory-2.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "R17-060: outside memory services, none by default; Mem0 and Honcho requests, keys from the locker, each person apart",
+          "the shipped backend answers every part of the contract it promises"
+        ],
+        "detail": "Mem0, Honcho or Hindsight can be added alongside built-in memory, but cannot replace it: SQLite is the only backend."
       },
-      "remaining": "Replace the memory backend through configuration and verify that read and write operations use the selected backend."
+      "remaining": "Let an outside memory service replace, not only sit beside, the built-in SQLite memory."
     },
     {
       "id": "memory.scope",
@@ -1370,16 +1477,24 @@
       "family": "memory",
       "name": "Semantic retrieval over personal document formats",
       "acceptance_criterion": "Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
+          "src/document-readers.ts",
+          "src/documents.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "src/obsidian.ts",
+          "tests/docs-memory-2.test.mjs",
+          "tests/docs-3.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a PDF in a folder is read, and its passages carry the page number",
+          "the document library reads a Word file and refuses a locked PDF with a reason",
+          "D10 a picture is described once, indexed with a citation, and cached by its bytes"
+        ],
+        "detail": "PDF, Word, Markdown and images are indexed with source citations. Org-mode is not supported, and no single test covers all the formats together."
       },
-      "remaining": "Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents."
+      "remaining": "Org-mode, and one fixture that indexes every supported format with citations."
     },
     {
       "id": "memory.hygiene",
@@ -1463,11 +1578,11 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/knowledge-graph.ts",
+          "src/knowledge-cards.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "There is an entity graph and there are fact cards, but no editable pages that link to each other."
       },
       "remaining": "Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval."
     },
@@ -1476,32 +1591,40 @@
       "family": "memory",
       "name": "Shared memory through independent host adapters",
       "acceptance_criterion": "Ingest a supported host's session log and retrieve its permitted memory through a second host adapter.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/learning-more/session-lessons.ts",
+          "src/mcp-server.ts",
+          "tests/learning-more.test.mjs",
+          "tests/mcp-server.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "R17-057: preferences from Claude Code and Codex chats, one opt-in each, sign-ins never opened, shown before kept",
+          "MCP resources/read returns memory facts"
+        ],
+        "detail": "Claude Code and Codex logs become memories, and memory is shared over MCP. No test ingests from one host and reads back through another."
       },
-      "remaining": "Ingest a supported host's session log and retrieve its permitted memory through a second host adapter."
+      "remaining": "Ingest from one host and read the same memory back through a second host adapter."
     },
     {
       "id": "memory.connector-datasets",
       "family": "memory",
       "name": "Locally searchable email calendar and message datasets",
       "acceptance_criterion": "Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/asks/source-sync.ts",
+          "tests/asks-integrations.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A0612 a mailbox is read after its last UID over real IMAP, without marking anything read",
+          "A0612 GitHub items come in after the cursor, and the cursor moves only when all were written"
+        ],
+        "detail": "IMAP, Telegram and GitHub sync by cursor into the documents index. There is no CalDAV source, and no test searches the synced items and returns where they came from."
       },
-      "remaining": "Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers."
+      "remaining": "A CalDAV source, and a test that searches synced items and returns their source identifiers."
     },
     {
       "id": "learning.compaction",
@@ -1939,16 +2062,19 @@
       "family": "delegation",
       "name": "Persistent specialist roles and team rooms",
       "acceptance_criterion": "Create a team with specialized agents and retain their roles and shared room history after restarting.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/teams.ts",
+          "src/server.ts",
+          "tests/teams-registry.test.mjs"
         ],
-        "tests": [],
-        "detail": "Specialist definitions persist; there is no team or shared-room data model."
+        "tests": [
+          "a team with roles fans a task out to every member and keeps the answers in a shared room that survives a restart"
+        ],
+        "detail": "The Teams class stores members' roles and a shared room conversation; the test runs the team, restarts the app, and finds the team and its room messages still there."
       },
-      "remaining": "Add durable team membership/roles and shared room history with restart fixture."
+      "remaining": ""
     },
     {
       "id": "delegation.handoff",
@@ -2134,18 +2260,21 @@
       "family": "automation",
       "name": "Package requirements settings and dashboard metrics",
       "acceptance_criterion": "Load a task package and expose its required tools, configurable inputs and declared runtime metrics.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/scheduler.ts",
-          "src/store.ts",
-          "src/server.ts",
-          "src/cli.ts"
+          "src/skill-package.ts",
+          "src/recipes.ts",
+          "tests/skills-plugins.test.mjs",
+          "tests/recipes.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a skill package round-trips through one file, names what it asks for, and is refused once a file is changed",
+          "recipes bind declared inputs before running and refuse missing, wrong or unknown ones"
+        ],
+        "detail": "Packages declare their permissions and inputs, but no package declares or exposes runtime metrics."
       },
-      "remaining": "Load a task package and expose its required tools, configurable inputs and declared runtime metrics."
+      "remaining": "Packages that declare and expose runtime metrics."
     },
     {
       "id": "automation.once",
@@ -2222,29 +2351,39 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/files.ts"
+          "src/files.ts",
+          "src/workspace-editor-api.ts",
+          "tests/code-editor.test.mjs"
         ],
-        "tests": [],
-        "detail": "Agent can read/write UTF-8 Markdown bytes, but whole-file overwrite lacks shared editor or merge support."
+        "tests": [
+          "A0098 a stale save is refused with 409 and nothing is overwritten"
+        ],
+        "detail": "A save based on an old version is refused with 409, not merged, so two edits that don't conflict are not both kept."
       },
-      "remaining": "Provide user editor and conflict-aware nonconflicting agent/user merge fixture."
+      "remaining": "Merge two non-conflicting edits to the same file instead of refusing the older save."
     },
     {
       "id": "workspace.office",
       "family": "workspace",
       "name": "Document spreadsheet and presentation cowork",
       "acceptance_criterion": "Create and reopen a document, spreadsheet and presentation in the supported office integration.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/files.ts",
-          "public/app.js"
+          "src/document-write.ts",
+          "src/document-docx.ts",
+          "src/document-xlsx.ts",
+          "src/document-pptx.ts",
+          "tests/docs-3.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "D1 a written Word file reads back with its headings, list, table and title",
+          "D2 a written spreadsheet keeps figures as figures and a formula with its worked-out value",
+          "D3 a written deck reads back slide by slide, with notes and a picture slide"
+        ],
+        "detail": "Word, Excel and PowerPoint files are written locally and read back. There is no office-suite integration or co-editing."
       },
-      "remaining": "Create and reopen a document, spreadsheet and presentation in the supported office integration."
+      "remaining": "Integrate an office suite and edit alongside another person; today files are written and read locally."
     },
     {
       "id": "workspace.diffs",
@@ -2295,17 +2434,20 @@
       "family": "workspace",
       "name": "Explicit topic context sharing",
       "acceptance_criterion": "Attach another topic as context and record which topic was accessed for the task.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/files.ts",
-          "public/app.js"
+          "src/history.ts",
+          "src/store.ts",
+          "tests/history.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "assistant retrieves a previous conversation without mistaking its current prompt for evidence",
+          "history full-text search returns originating sessions and enforces owner/role bounds"
+        ],
+        "detail": "history.search and history.read let a task read another conversation, and those calls are logged. There is no explicit way to attach a topic as context and no dedicated record of which topic was accessed."
       },
-      "remaining": "Attach another topic as context and record which topic was accessed for the task."
+      "remaining": "An explicit way to attach another topic as context, with a record of which topic was read."
     },
     {
       "id": "workspace.managed-files",
@@ -2315,12 +2457,11 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/index.ts",
           "src/files.ts",
-          "public/app.js"
+          "src/documents.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "There are read-only folder rules, but nothing uploads a managed file and mounts it read-only into a task."
       },
       "remaining": "Upload a managed file and expose it to a task through a read-only mount that rejects writes."
     },
@@ -2329,17 +2470,20 @@
       "family": "workspace",
       "name": "Tasks assigned to agents and teams on a board",
       "acceptance_criterion": "Create a task, assign it to an agent or team and move it through board stages with persisted state.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/files.ts",
-          "public/app.js"
+          "src/flows-boards/kanban.ts",
+          "src/flows-boards/api.ts",
+          "src/flows-boards/tools.ts",
+          "tests/flows-boards.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "R17-071 the shared board: lanes, hand-offs, what the assistant may not do, and the circuit breaker"
+        ],
+        "detail": "The shared project board keeps cards in SQLite and moves them through to do, doing, to check, done and stuck; cards can be handed on with a note, and a card that keeps failing is stopped until the owner resets it. The assignee is free text of up to 64 characters, not a checked Trunk or team."
       },
-      "remaining": "Create a task, assign it to an agent or team and move it through board stages with persisted state."
+      "remaining": "Assign a card to a checked Trunk or team, not free text."
     },
     {
       "id": "security.permissions",
@@ -2366,19 +2510,20 @@
       "family": "security",
       "name": "Per-agent containers and mounts",
       "acceptance_criterion": "Execute in an agent container and prove unmounted host and other-agent paths are inaccessible.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/sandbox-backends.ts",
+          "src/code-run.ts",
+          "tests/sandbox-remote.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A2152 the container backend builds the exact arguments, against a fake docker that never runs one",
+          "A0018/A2277 a rule's folder list is the only part of the workspace a sandboxed script can see"
+        ],
+        "detail": "Docker isolation is set per approval rule, not per agent, and no test runs a real container."
       },
-      "remaining": "Execute in an agent container and prove unmounted host and other-agent paths are inaccessible."
+      "remaining": "Container isolation per agent, and a test that runs a real container and proves other paths are unreachable."
     },
     {
       "id": "security.os",
@@ -2388,35 +2533,42 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "tests/runtime.test.mjs"
+          "src/sandbox-seatbelt.ts",
+          "src/sandbox-bwrap.ts",
+          "src/sandbox-wall.ts",
+          "src/sandbox-backends.ts",
+          "tests/os-sandbox.test.mjs",
+          "tests/sandbox-remote.test.mjs"
         ],
         "tests": [
-          "files reject traversal, secrets, and symlink paths",
-          "hardlinks cannot expose or overwrite files outside workspace"
+          "W19 macOS's own sandbox refuses a write outside the workspace and allows one inside",
+          "W6 bubblewrap arguments: read-only disk, writable workspace, protected folders, no network",
+          "W12 Linux: bwrap through the fixed starter, the filter written, the door bridged, all cleaned up",
+          "W9 on Windows the start is handed back untouched; elsewhere nothing starts without a wall"
         ],
-        "detail": "Application-level path guards are present; they are not OS sandbox enforcement."
+        "detail": "Only macOS has a real enforcement test (W19, macOS only). Linux bubblewrap is tested by the arguments it builds, and Windows gets no OS-level file restriction."
       },
-      "remaining": "Add actual supported OS sandbox backends and enforcement fixtures."
+      "remaining": "Real enforcement tests on Linux (bubblewrap run, not only arguments) and a Windows file restriction."
     },
     {
       "id": "security.wasm",
       "family": "security",
       "name": "Capability-limited WASM",
       "acceptance_criterion": "Run a WASM tool and reject a host operation absent from its capability manifest.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/safety-extras/wasm-check.ts",
+          "src/safety-extras/wasm-add-ons.ts",
+          "tests/safety-extras-wasm.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "what a module asks for is read before it runs",
+          "installing, running as a tool through the gate, and refusing changed bytes"
+        ],
+        "detail": "A WASM module that imports anything outside branch.* is refused when checked and when installed. The allowed list is fixed, not declared per module."
       },
-      "remaining": "Run a WASM tool and reject a host operation absent from its capability manifest."
+      "remaining": ""
     },
     {
       "id": "security.credentials",
@@ -2427,16 +2579,19 @@
       "evidence": {
         "paths": [
           "src/providers.ts",
-          "src/integrations/mcp-config.ts",
-          "src/integrations/mcp.ts"
+          "src/integrations/mcp.ts",
+          "src/safety-extras/wasm-add-ons.ts",
+          "tests/integrations.test.mjs",
+          "tests/skills-plugins.test.mjs",
+          "tests/safety-extras-wasm.test.mjs"
         ],
         "tests": [
           "real MCP stdio lifecycle filters tools, validates schema, confines credentials and closes",
-          "MCP startup errors and metadata do not expose configured bearer values"
+          "a package's declared web call runs under the network rules with a locker secret, and the secret never reaches the task"
         ],
-        "detail": "Provider/MCP credentials use host headers or explicitly selected process environment and MCP result redaction; no WASM."
+        "detail": "Credentials are added on the host side for providers, MCP and package web calls. The sealed WASM runner exists, but it has no host-request path that adds credentials, and no test shows credentials stay out of it."
       },
-      "remaining": "Implement WASM execution with host-boundary credential injection and verify absence from WASM input/output."
+      "remaining": "A host-side credential path for WASM add-ons, and a test that no credential reaches WASM input or output."
     },
     {
       "id": "security.network",
@@ -2554,19 +2709,22 @@
       "family": "security",
       "name": "Passkey authentication for the assistant service",
       "acceptance_criterion": "Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/people/passkeys.ts",
+          "src/people/webauthn.ts",
+          "src/people/sign-in.ts",
+          "tests/people.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "B19-15 passkeys: a registration and a signature are checked, and a copied passkey is caught",
+          "B19-16 passkeys over the page: register while signed in, then sign in with it alone",
+          "B19-23 passkeys: the device must check who holds it, a challenge lasts two minutes, and a short RSA key is refused"
+        ],
+        "detail": "WebAuthn registration and sign-in work over HTTP. The wrong origin, the wrong challenge, a forged signature, a copied counter and another person's credential are all refused."
       },
-      "remaining": "Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt."
+      "remaining": ""
     },
     {
       "id": "security.ssrf",
@@ -2593,18 +2751,21 @@
       "family": "security",
       "name": "Cross-origin WebSocket admission control",
       "acceptance_criterion": "Reject a WebSocket upgrade from an untrusted origin while allowing the configured application origin.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/server.ts",
-          "tests/server.test.mjs"
+          "src/devices/hub.ts",
+          "tests/devices-socket.test.mjs",
+          "tests/run-recording.test.mjs"
         ],
         "tests": [
-          "private API requires token, validates origin and host, and rejects URL token"
+          "the door refuses a wrong host, a foreign page, an unknown device, a wrong key and a replayed hello",
+          "A1637 the live run socket refuses a missing or wrong key, and a task that is not there"
         ],
-        "detail": "HTTP API validates Origin/Host; no WebSocket upgrade handling."
+        "detail": "The WebSocket upgrade handler checks host and origin; the test gets 401 from https://evil.example and 101 from the app's own origin. Gap: the task socket's origin refusal is not tested directly."
       },
-      "remaining": "Implement the WebSocket surface and test rejection/acceptance of upgrade origins."
+      "remaining": ""
     },
     {
       "id": "security.release-verification",
@@ -2615,54 +2776,52 @@
       "evidence": {
         "paths": [
           "src/desktop/updater.ts",
-          "src/desktop/updater-ipc.ts",
           "tests/updater.test.mjs"
         ],
         "tests": [
-          "install downloads, verifies, unpacks beside the install and writes the hand-over script",
-          "a checksum mismatch refuses to install"
+          "a checksum mismatch refuses to install",
+          "a checksummed archive with the wrong package identity is refused before hand-over"
         ],
-        "detail": "In-app updates verify the published SHA-256 and refuse a tampered archive. No signed attestation yet."
+        "detail": "Updates check the SHA-256 and the package identity. There is no attestation or provenance check."
       },
-      "remaining": "Publish and verify a signed attestation alongside the checksum."
+      "remaining": "Attestation or provenance checks on updates, beyond the SHA-256 and package identity."
     },
     {
       "id": "security.encrypted-relay",
       "family": "security",
       "name": "End-to-end encrypted relay transport",
       "acceptance_criterion": "Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/reach/relay.ts",
+          "tests/reach.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "R17-080: sealed envelopes open only for this computer, from the paired relay, once, and in time",
+          "R17-080: the relay adapter polls only while on, answers only chats that wrote first, and never forwards"
+        ],
+        "detail": "Relay messages are sealed with AES-256-GCM and a key derived from the pairing. The relay never sees plaintext, and tampered, replayed or misaddressed envelopes are refused."
       },
-      "remaining": "Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext."
+      "remaining": ""
     },
     {
       "id": "security.host-pinning",
       "family": "security",
       "name": "Pinned SSH host identity for remote execution",
       "acceptance_criterion": "Execute against a recorded SSH host key and reject a connection whose host identity has changed.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/remote/ssh-workspace.ts",
+          "tests/sandbox-remote.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "A0329 a computer whose key the owner has never accepted is refused, never trusted"
+        ],
+        "detail": "An unknown host key is refused and strict checking is forced. No test covers a host whose key has changed."
       },
-      "remaining": "Execute against a recorded SSH host key and reject a connection whose host identity has changed."
+      "remaining": "A test that runs a command against a host whose key has changed and proves it is refused."
     },
     {
       "id": "security.skill-scanning",
@@ -2752,72 +2911,86 @@
       "family": "interop",
       "name": "ACP integration",
       "acceptance_criterion": "Complete a task through a supported ACP client or agent adapter using its documented subset.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/server.ts",
-          "src/providers.ts",
-          "src/integrations/mcp.ts"
+          "src/acp.ts",
+          "src/cli.ts",
+          "tests/interop-agents.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "branch acp-serve speaks the protocol on standard input and output",
+          "an editor says hello, opens a conversation and gets the answer word by word",
+          "a step that needs a yes is put to the editor and the answer is honoured"
+        ],
+        "detail": "branch acp-serve runs initialize, session/new, session/prompt and request_permission over stdin/stdout; the test finishes a task and checks the turn ends with stopReason end_turn."
       },
-      "remaining": "Complete a task through a supported ACP client or agent adapter using its documented subset."
+      "remaining": ""
     },
     {
       "id": "interop.a2a",
       "family": "interop",
       "name": "Agent-to-agent surface",
       "acceptance_criterion": "Exchange a task and result with a compatible A2A peer using declared capabilities.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/server.ts",
-          "src/providers.ts",
-          "src/integrations/mcp.ts"
+          "src/a2a.ts",
+          "src/a2a-routes.ts",
+          "src/a2a-client.ts",
+          "tests/interop-agents.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "the agent card is hidden until the owner shares, then names what is shared",
+          "tasks/send makes a real task and answers with its artifact, and tasks/get finds it again",
+          "an assistant elsewhere can be added by its card, asked, and removed"
+        ],
+        "detail": "Branch serves an agent card and tasks/send, and can call other agents with agents.ask."
       },
-      "remaining": "Exchange a task and result with a compatible A2A peer using declared capabilities."
+      "remaining": ""
     },
     {
       "id": "interop.node-discovery",
       "family": "interop",
       "name": "Remote tool skill and inference discovery",
       "acceptance_criterion": "Discover tools, skills and inference advertised by a node and identify their owning host.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/server.ts",
-          "src/providers.ts",
-          "src/integrations/mcp.ts"
+          "src/a2a-client.ts",
+          "src/interop/fleet.ts",
+          "src/interop/client-tools.ts",
+          "src/devices/capabilities.ts",
+          "tests/interop-agents.test.mjs",
+          "tests/devices.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "discovery only looks at the addresses the owner types in, and pairing shares a link",
+          "a node only offers what it has the programs for, and asks the system only when switched on"
+        ],
+        "detail": "Agent cards, device capabilities and lent tools are separate. No single listing shows tools, skills and inference with the host that owns each."
       },
-      "remaining": "Discover tools, skills and inference advertised by a node and identify their owning host."
+      "remaining": "One listing of tools, skills and inference, each tagged with its owning host."
     },
     {
       "id": "interop.personal-connectors",
       "family": "interop",
       "name": "Personal email calendar and task account connection",
       "acceptance_criterion": "Connect a supported account and read permitted email, calendar and task data without exposing its credentials.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/server.ts",
-          "src/providers.ts",
-          "src/integrations/mcp.ts"
+          "src/personal/google.ts",
+          "src/personal/microsoft.ts",
+          "tests/personal-connectors.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "R17-029: Gmail search and read carry the key only in the header and mark the words as somebody else's",
+          "R17-030: Outlook search, read, draft reply and calendar through Microsoft Graph"
+        ],
+        "detail": "Google and Microsoft mail and calendar work. Task lists (Google Tasks, To Do) are not supported."
       },
-      "remaining": "Connect a supported account and read permitted email, calendar and task data without exposing its credentials."
+      "remaining": "Task data (Google Tasks, Microsoft To Do) alongside mail and calendar."
     },
     {
       "id": "operations.setup",
@@ -2848,12 +3021,21 @@
       "evidence": {
         "paths": [
           "src/cli.ts",
-          "src/server.ts"
+          "src/deployment-api.ts",
+          "src/server.ts",
+          "tests/deployment.test.mjs",
+          "tests/mac-followups.test.mjs",
+          "tests/daemon-update.test.mjs",
+          "tests/service-update.test.mjs"
         ],
-        "tests": [],
-        "detail": "Foreground HTTP server persists while process stays alive and handles SIGINT/SIGTERM."
+        "tests": [
+          "the background engine is a sign-in task that opens no window, and is never registered here",
+          "only this computer, with the master key, can close the engine, and only the background one",
+          "the background engine is asked to close, forced if it will not, and the note is cleared"
+        ],
+        "detail": "The background engine installs as a sign-in task or service and stops through a controlled close route; no test starts it, closes the launcher and checks that tasks keep being handled."
       },
-      "remaining": "Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop."
+      "remaining": "A test that starts the background engine, closes the launcher and proves tasks keep being handled."
     },
     {
       "id": "operations.portable",
@@ -2862,14 +3044,9 @@
       "acceptance_criterion": "Launch a packaged binary on a declared supported target and report measured gateway resource usage.",
       "status": "missing",
       "evidence": {
-        "paths": [
-          "src/cli.ts",
-          "src/index.ts",
-          "src/server.ts",
-          "package.json"
-        ],
+        "paths": [],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "There is no single-binary build and no measured resource report."
       },
       "remaining": "Launch a packaged binary on a declared supported target and report measured gateway resource usage."
     },
@@ -2880,14 +3057,9 @@
       "acceptance_criterion": "Suspend the configured serverless environment and resume an operation with its persisted workspace intact.",
       "status": "missing",
       "evidence": {
-        "paths": [
-          "src/cli.ts",
-          "src/index.ts",
-          "src/server.ts",
-          "package.json"
-        ],
+        "paths": [],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "No serverless suspend or scale-to-zero support."
       },
       "remaining": "Suspend the configured serverless environment and resume an operation with its persisted workspace intact."
     },
@@ -2917,36 +3089,41 @@
       "family": "operations",
       "name": "Import configuration skills memories and sessions",
       "acceptance_criterion": "Preview and import supported configuration, memory and skills while preserving original source state.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/cli.ts",
-          "src/index.ts",
-          "src/server.ts",
-          "package.json"
+          "src/migrate/scan.ts",
+          "src/migrate/apply.ts",
+          "src/migrate-api.ts",
+          "tests/move-in.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Claude Code: the preview lists everything, holds back what cannot come, and changes nothing",
+          "Claude Code: bringing it over fills Branch's own stores, once",
+          "the original database is left exactly as it was, and the private copy is removed"
+        ],
+        "detail": "Move-in previews the source without changing it, then imports memory, skills, settings and sessions once. The source is left byte-identical."
       },
-      "remaining": "Preview and import supported configuration, memory and skills while preserving original source state."
+      "remaining": ""
     },
     {
       "id": "operations.distribution",
       "family": "operations",
       "name": "Preconfigured branded desktop distribution",
       "acceptance_criterion": "Build a distribution with selected branding, providers and extensions and verify those defaults on first launch.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
+          "src/install/unix-install-cli.ts",
           "src/cli.ts",
-          "src/index.ts",
-          "src/server.ts",
-          "package.json"
+          "tests/install-boring.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a custom distribution: an assistant file beside the installer is brought in on a fresh install only"
+        ],
+        "detail": "An assistant file next to the installer is imported on first install (specialists, procedures, skills only); there is no branding and no preset providers or extensions."
       },
-      "remaining": "Build a distribution with selected branding, providers and extensions and verify those defaults on first launch."
+      "remaining": "Branding and preset providers or extensions in a custom distribution."
     },
     {
       "id": "operations.backup-restore",
@@ -2979,13 +3156,10 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/cli.ts",
-          "src/index.ts",
-          "src/server.ts",
-          "package.json"
+          "src/sandbox-backends.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "Nothing creates, snapshots, stops and restores a sandbox with its policies kept."
       },
       "remaining": "Create, snapshot, stop and restore a configured agent sandbox while preserving its declared network and inference policies."
     },
@@ -2994,36 +3168,42 @@
       "family": "packages",
       "name": "Cited multi-source reports",
       "acceptance_criterion": "Produce a multi-source report whose cited links support the associated factual claims.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src/research.ts",
+          "src/research-claims.ts",
+          "src/citations.ts",
+          "tests/data-research.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "research reads several pages, says where they agree and where they differ, and cites both",
+          "claims are only called agreed when two different sources say the same figures",
+          "sources are numbered once each and listed as Markdown"
+        ],
+        "detail": "research.run reads several pages, calls a claim agreed only when two sources give the same figures, reports conflicts, and cites its sources by number."
       },
-      "remaining": "Produce a multi-source report whose cited links support the associated factual claims."
+      "remaining": ""
     },
     {
       "id": "packages.monitoring",
       "family": "packages",
       "name": "Change monitoring and knowledge graphs",
       "acceptance_criterion": "Detect a seeded source change and retain the prior observation and resulting alert evidence.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src/monitors.ts",
+          "tests/data-research.test.mjs",
+          "tests/embeds-watches.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a watch notices a change and sends it to a chat",
+          "E3 a page watch sends its news through a channel the owner connected"
+        ],
+        "detail": "A page change is caught and sent to a chat. Each look overwrites the last snapshot, so earlier observations are not kept."
       },
-      "remaining": "Detect a seeded source change and retain the prior observation and resulting alert evidence."
+      "remaining": "Keep earlier observations instead of overwriting the snapshot, and assert the prior one survives."
     },
     {
       "id": "packages.leads",
@@ -3033,13 +3213,10 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "No code for finding, enriching, scoring or deduplicating prospects exists in src or tests."
       },
       "remaining": "Enrich and score a fixture prospect set and exclude duplicates in the exported results."
     },
@@ -3050,14 +3227,9 @@
       "acceptance_criterion": "Store probabilistic forecasts and calculate a calibration score after recording outcomes.",
       "status": "missing",
       "evidence": {
-        "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
-        ],
+        "paths": [],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "There are no stored forecasts and no calibration."
       },
       "remaining": "Store probabilistic forecasts and calculate a calibration score after recording outcomes."
     },
@@ -3069,13 +3241,11 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src/media-video.ts",
+          "src/media-programs.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "Nothing cuts clips, burns in captions or makes thumbnails."
       },
       "remaining": "Generate a playable short clip with captions and a thumbnail from a valid input video."
     },
@@ -3087,13 +3257,11 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src/channels/bluesky.ts",
+          "src/channels/mastodon.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "The social services are chat channels only; nothing drafts or schedules a post behind an approval queue."
       },
       "remaining": "Prepare and schedule a social post while retaining it in the approval queue until authorized."
     },
@@ -3106,51 +3274,60 @@
       "evidence": {
         "paths": [
           "src/integrations/browser.ts",
-          "src/registry.ts",
-          "tests/browser.test.mjs"
+          "src/approvals.ts",
+          "tests/browser.test.mjs",
+          "tests/browser-more.test.mjs",
+          "tests/comfort.test.mjs"
         ],
         "tests": [
-          "isolated browser completes form workflow and refuses destinations outside configured origins"
+          "isolated browser completes form workflow and refuses destinations outside configured origins",
+          "the approval settings ask before a file is sent to a website, but not before a picture is taken",
+          "R17-S19: confirming sensitive browser steps asks every time, before any standing yes, and never loosens a refusal"
         ],
-        "detail": "Fixture fills/clicks a single form and tool permissions can reject interaction; no pending approval workflow."
+        "detail": "A multistep browser run does pause for approval before browser.upload, so the old note was wrong on that point; the form fixture is still one page, and no single test completes a multistep form then pauses."
       },
-      "remaining": "Add multi-step form acceptance and an explicit approval-pause/resume flow before protected actions."
+      "remaining": "One test that completes a multistep form and pauses for approval before the sensitive step."
     },
     {
       "id": "packages.trajectories",
       "family": "packages",
       "name": "Trajectory generation and compression",
       "acceptance_criterion": "Generate a batch of tool trajectories and export a compressed representation preserving task and outcome links.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src/trajectory.ts",
+          "src/trajectory-report.ts",
+          "tests/polish-observability.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "D2 a saved trajectory validates against the documented shape and carries the whole record",
+          "D2 many tasks come back as JSON Lines, one trajectory a line"
+        ],
+        "detail": "Existing runs export as JSON Lines. Nothing generates new trajectories, and nothing really compresses them."
       },
-      "remaining": "Generate a batch of tool trajectories and export a compressed representation preserving task and outcome links."
+      "remaining": "Generate batches of trajectories and a real compressed form."
     },
     {
       "id": "packages.morning-brief",
       "family": "packages",
       "name": "Spoken daily briefing from personal sources",
       "acceptance_criterion": "Generate and play a dated briefing from configured email, calendar, health and news fixtures with source links.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/index.ts",
-          "src/knowledge.ts",
-          "src/scheduler.ts"
+          "src/brief.ts",
+          "src/personal/spoken-brief.ts",
+          "tests/data-research.test.mjs",
+          "tests/personal-files-voice.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "R17-025: the briefing reads connected calendars and mail, carries on past a failure, and is sent only after the checks",
+          "the morning brief gathers what the app already knows and sends it on"
+        ],
+        "detail": "A dated brief from calendar, mail and the app's own data is spoken or sent. It has no health or news sources and no source links."
       },
-      "remaining": "Generate and play a dated briefing from configured email, calendar, health and news fixtures with source links."
+      "remaining": "Health and news sources, and source links in the brief."
     },
     {
       "id": "reliability.activity",
@@ -3182,17 +3359,18 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "public/app.js"
+          "src/model-savings/rounds.ts",
+          "public/round-chart.js",
+          "tests/model-savings.test.mjs",
+          "tests/model-savings-ui.test.mjs"
         ],
         "tests": [
-          "failed and cancelled provider attempts retain estimated cost and unknown usage",
-          "invalid completion retains available reported usage"
+          "R17-049 one conversation, round by round, with cache and folds",
+          "the ChatGPT route records the cached tokens the service reports"
         ],
-        "detail": "Estimated/reported input/output and unknown-call accounting exist; UI shows run aggregates, no cache usage."
+        "detail": "Tokens are recorded per round, and unreported cache is stored as null. round-chart.js then shows null as 0 (row.cached ?? 0)."
       },
-      "remaining": "Include supported cache-use metrics and per-round client display, marking absent cache metrics unavailable."
+      "remaining": "Show an unreported cache count as unknown in public/round-chart.js instead of 0."
     },
     {
       "id": "reliability.compaction",
@@ -3328,19 +3506,21 @@
       "family": "reliability",
       "name": "Reconcile interrupted writes before retry",
       "acceptance_criterion": "Interrupt a write with unknown outcome and require external-state reconciliation before any automatic repeat.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/transcript.ts",
           "src/runtime.ts",
+          "src/transcript.ts",
+          "tests/teams-registry.test.mjs",
           "tests/reliability.test.mjs"
         ],
         "tests": [
+          "after an interruption, an unknown-outcome write is not repeated until the state has been checked",
           "an interrupted task continues from its transcript without repeating tool actions"
         ],
-        "detail": "Unknown-outcome tool calls are classified at interruption and on continue; the model is instructed to check actual state before repeating a write."
+        "detail": "When an interrupted task resumes, the runtime refuses to repeat the uncertain write and logs reconciliation.required; the same write is allowed only after files.read checks the actual state."
       },
-      "remaining": "Enforce a recorded reconciliation step before a repeat of the same write is allowed."
+      "remaining": ""
     },
     {
       "id": "reliability.delivery-ledger",
@@ -3411,38 +3591,45 @@
       "family": "reliability",
       "name": "Measure task accuracy energy latency and cost",
       "acceptance_criterion": "Run a fixed evaluation suite and report observed accuracy, latency, cost and supported energy metrics with unavailable values marked.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "experiments/accounting.py",
-          "experiments/test_accounting.py",
-          "src/knowledge.ts"
+          "src/evaluation.ts",
+          "src/evaluation-runner.ts",
+          "src/evaluation-suites.ts",
+          "tests/teams-registry.test.mjs",
+          "tests/evaluation-more.test.mjs"
         ],
         "tests": [
-          "AccountingTests.test_missing_prices_are_not_zero_dollars",
-          "AccountingTests.test_synthetic_savings_are_not_live_claims",
-          "AccountingTests.test_reject_unpaired_tasks_and_training_leakage"
+          "the fixed evaluation suite records accuracy, latency and cost from real runs and marks energy unavailable",
+          "the six suites that ship are valid, load from disk, and pass on a scripted model"
         ],
-        "detail": "Accounting summarizes supplied ledgers and specialist checks evaluate files; no integrated suite runner or energy metric."
+        "detail": "Fixed suites report accuracy, latency, tokens and dollars. An unknown price is null and energy is unavailable."
       },
-      "remaining": "Execute a fixed evaluation suite and record accuracy/latency/cost/energy availability from actual runs."
+      "remaining": ""
     },
     {
       "id": "reliability.tracing",
       "family": "reliability",
       "name": "Export task traces and service metrics",
       "acceptance_criterion": "Export a correlated task trace and service metric to configured observability endpoints.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/tracing.ts",
+          "src/tracing-export.ts",
+          "tests/tracing-policy.test.mjs",
+          "tests/usage-telemetry.test.mjs",
+          "tests/auth-tracing-cli.test.mjs"
         ],
-        "tests": [],
-        "detail": "Local events are correlated by runId and parentRunId, available as JSON through the API."
+        "tests": [
+          "T2: a finished task sends its own steps, and crashes go too when asked for",
+          "U4: after a task the counters reach the owner's own collector, carrying numbers only",
+          "T1: a task's spans nest, and a sub-task sits inside the same trace"
+        ],
+        "detail": "Tasks send OTLP spans tagged with the run id to the owner's collector, and counters go to /v1/metrics. The metrics are totals, not tied to a trace."
       },
-      "remaining": "Add trace/metric export to configured observability endpoints."
+      "remaining": ""
     },
     {
       "id": "reliability.capability-inventory",
@@ -3472,12 +3659,11 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/store.ts",
-          "src/server.ts",
-          "public/app.js"
+          "src/trunks/messages.ts",
+          "src/channels/nostr-crypto.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "Trunk messages are attributed by name, not signed cryptographically. Only Nostr checks signatures, and that is a chat channel."
       },
       "remaining": "Publish a collaboration event under a member identity and reject a modified event whose signature no longer verifies."
     },
@@ -3515,10 +3701,10 @@
         "paths": [
           "src/store.ts",
           "src/server.ts",
-          "public/app.js"
+          "src/history.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "Only separate searches exist (conversations, memory, documents); nothing searches workflow or repository events with the same query."
       },
       "remaining": "Search one query across conversation, workflow and repository events and return source-linked results."
     },
@@ -3529,13 +3715,9 @@
       "acceptance_criterion": "Attach a comment to a video timestamp and reopen the comment at the same media position.",
       "status": "missing",
       "evidence": {
-        "paths": [
-          "src/store.ts",
-          "src/server.ts",
-          "public/app.js"
-        ],
+        "paths": [],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "No comment can be tied to a video timestamp."
       },
       "remaining": "Attach a comment to a video timestamp and reopen the comment at the same media position."
     },
@@ -3547,12 +3729,10 @@
       "status": "missing",
       "evidence": {
         "paths": [
-          "src/store.ts",
-          "src/server.ts",
-          "public/app.js"
+          "src/channels/nostr.ts"
         ],
         "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "detail": "No signed, searchable events for patches or repository status (no NIP-34)."
       },
       "remaining": "Publish a patch and its repository status as searchable signed events linked to the correct repository."
     }
