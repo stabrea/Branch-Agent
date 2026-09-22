@@ -114,6 +114,17 @@ function follow(select) {
     follow(select);
   });
 }
+/** The final placement must not depend on a busy browser delivering a frame or interval on time. */
+function settleAfterAnimations(select) {
+  const animations = [];
+  for (let node = select; node; node = node.parentElement) {
+    animations.push(...node.getAnimations().filter((animation) => animation.playState !== "finished"));
+  }
+  if (!animations.length) return;
+  void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+    if (openFor === select) placeIfMoved(select);
+  });
+}
 function open(select) {
   fill(select);
   place(select);
@@ -122,6 +133,7 @@ function open(select) {
   placementPosition = "";
   follow(select);
   placementTimer = setInterval(() => { if (openFor === select) placeIfMoved(select); }, 50);
+  settleAfterAnimations(select);
   select.setAttribute("aria-expanded", "true");
   select.setAttribute("aria-controls", panel.id);
   entry = trackPopover(select, panel, () => { if (openFor === select) close(); });
