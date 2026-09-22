@@ -326,6 +326,11 @@ export const chatWikiRefusal = "A message from a chat app cannot read or write t
 function onlyTheOwner(store: Store, context: ToolContext): void {
   store.profiles.requireOwner("The wiki");
   const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
+  // Whose task this is, read from what the task itself wrote down when it started. The window's own
+  // check knows this while a tool is running, but only from the scope the registry puts around
+  // `execute`; working out what a call would touch happens outside that scope, so the record is asked
+  // here directly rather than trusting where this happens to be called from.
+  if (origin?.personProfileId) throw new Error("The wiki belongs to the owner. Switch back to the owner's profile to use it.");
   if (startedWithShortLivedKey() || origin?.shortLivedKey) throw new Error(shortLivedWikiRefusal);
   if (startedFromChat(context, store)) throw new Error(chatWikiRefusal);
 }
