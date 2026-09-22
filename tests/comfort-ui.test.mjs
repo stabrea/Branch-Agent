@@ -103,9 +103,9 @@ test("R17-S15: a rebound shortcut works, the old keys stop, and vim keys move an
   saveComfort(app.store, "local", "keys", { newConversation: "Ctrl+J", vim: true });
   await refresh(page);
   await page.evaluate(() => { globalThis.__newClicks = 0; document.getElementById("rail-new").addEventListener("click", () => { globalThis.__newClicks += 1; }); });
-  await page.keyboard.press("Control+n");
+  await page.keyboard.press("ControlOrMeta+n");
   assert.equal(await page.evaluate(() => globalThis.__newClicks), 0, "Ctrl+N no longer starts a conversation");
-  await page.keyboard.press("Control+j");
+  await page.keyboard.press("ControlOrMeta+j");
   assert.equal(await page.evaluate(() => globalThis.__newClicks), 1, "Ctrl+J does");
 
   const box = page.locator("#prompt");
@@ -139,7 +139,7 @@ test("R17-S15: keys pressed into Settings set every window action, and the side 
   }, id);
   const clicked = (id) => page.evaluate((target) => globalThis.__clicks[target], id);
   await clicks("rail-toggle");
-  await page.keyboard.press("Control+b");
+  await page.keyboard.press("ControlOrMeta+b");
   assert.equal(await clicked("rail-toggle"), 1, "as shipped, Ctrl+B folds the side list");
 
   // Press-to-set: the keys pressed in the box are written into it, and do nothing else while there.
@@ -148,15 +148,16 @@ test("R17-S15: keys pressed into Settings set every window action, and the side 
   assert.deepEqual(raw, [], "every action on the card has its own words");
   // The cards are drawn again once the window has signed in; a box focused just before that is gone,
   // so the press is made again on the box that is there until it holds the keys.
-  for (let tries = 0; tries < 5 && await page.locator("#comfort-focusPrompt").inputValue() !== "Ctrl+Shift+P"; tries++) {
+  const shownMain = (await page.evaluate(() => /Mac/.test(navigator.platform))) ? "Cmd" : "Ctrl";
+  for (let tries = 0; tries < 5 && await page.locator("#comfort-focusPrompt").inputValue() !== `${shownMain}+Shift+P`; tries++) {
     await page.locator("#comfort-focusPrompt").focus();
-    await page.keyboard.press("Control+Shift+p");
+    await page.keyboard.press("ControlOrMeta+Shift+p");
   }
-  assert.equal(await page.locator("#comfort-focusPrompt").inputValue(), "Ctrl+Shift+P");
+  assert.equal(await page.locator("#comfort-focusPrompt").inputValue(), `${shownMain}+Shift+P`);
   await page.locator("#comfort-sideList").focus();
   // Opening Settings may move the side list itself, so each check counts from just before its press.
   let folds = await clicked("rail-toggle");
-  await page.keyboard.press("Control+b");
+  await page.keyboard.press("ControlOrMeta+b");
   assert.equal(await clicked("rail-toggle"), folds, "a press being set does not fold the side list");
   await page.keyboard.press("Backspace");
   await page.keyboard.press("Alt+b");
@@ -168,11 +169,11 @@ test("R17-S15: keys pressed into Settings set every window action, and the side 
   await closeSettings(page);
 
   await page.locator("#prompt").blur();
-  await page.keyboard.press("Control+Shift+p");
+  await page.keyboard.press("ControlOrMeta+Shift+p");
   assert.equal(await page.evaluate(() => document.activeElement?.id), "prompt", "the new keys focus the message box");
   await page.locator("#prompt").blur();
   folds = await clicked("rail-toggle");
-  await page.keyboard.press("Control+b");
+  await page.keyboard.press("ControlOrMeta+b");
   assert.equal(await clicked("rail-toggle"), folds, "Ctrl+B no longer folds the side list");
   await page.keyboard.press("Alt+b");
   assert.equal(await clicked("rail-toggle"), folds + 1, "Alt+B does");
@@ -230,6 +231,52 @@ test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a
   assert.equal(await folds(), before, "Cmd+B no longer folds it");
   await page.keyboard.press("Control+b");
   assert.equal(await folds(), before + 1, "the owner's Control+B does");
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S15 on a Mac: Option shortcuts are set and work from what a Mac keyboard really sends, and ordinary keys keep their characters", async (t) => {
+  const { app, page, errors } = await openApp(t, 1280, { mac: true });
+  await openSettingFor(page, "#comfort-keys-card");
+  /* The events a Mac keyboard really sends. Playwright's own Alt+B sends a plain "b", which is why the
+     earlier tests never saw this: Option makes B into "∫", and Option+Shift+K into a dead key. */
+  const send = (id, init) => page.locator(id).evaluate((box, i) => {
+    box.focus();
+    box.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...i }));
+    return box.value;
+  }, init);
+  // The cards are drawn again once the window has signed in, so a press is repeated on the box that is there.
+  const into = async (id, init, want) => {
+    let got = "";
+    for (let tries = 0; tries < 5 && got !== want; tries++) got = await send(id, init);
+    return got;
+  };
+  assert.equal(await into("#comfort-sideList", { key: "∫", code: "KeyB", altKey: true }, "Alt+B"), "Alt+B", "Option+B is B, not ∫");
+  assert.equal(await into("#comfort-focusPrompt", { key: "Dead", code: "KeyK", altKey: true, shiftKey: true }, "Alt+Shift+K"), "Alt+Shift+K",
+    "Option+Shift+K is K, not nothing");
+  assert.equal(await into("#comfort-newTrunk", { key: "t", code: "KeyT", metaKey: true }, "Cmd+T"), "Cmd+T");
+  assert.equal(await into("#comfort-newTrunk", { key: "t", code: "KeyT", ctrlKey: true }, "Control+T"), "Control+T", "Command and Control stay two keys");
+  // An ordinary character keeps its name wherever the layout puts it: on a French keyboard A sits where Q
+  // is on an English one, and the comma where M is.
+  assert.equal(await into("#comfort-searchHistory", { key: "a", code: "KeyQ", metaKey: true }, "Cmd+A"), "Cmd+A");
+  assert.equal(await into("#comfort-lookInside", { key: ",", code: "KeyM", metaKey: true }, "Cmd+,"), "Cmd+,", "a comma stays a comma");
+  await send("#comfort-lookInside", { key: "Backspace", code: "Backspace" });
+  await page.locator("#comfort-keys-card").getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator("#comfort-keys-card [role=status]").filter({ hasText: "Saved" }).waitFor();
+  const saved = readComfort(app.store, "local", "keys");
+  assert.deepEqual([saved.sideList, saved.focusPrompt, saved.newTrunk, saved.searchHistory], ["Alt+B", "Alt+Shift+K", "Control+T", "Ctrl+A"]);
+  await closeSettings(page);
+
+  // And they work from the same real presses.
+  await page.locator("#prompt").blur();
+  const folds = await page.evaluate(() => {
+    globalThis.__optionFolds = 0;
+    document.getElementById("rail-toggle").addEventListener("click", () => { globalThis.__optionFolds += 1; });
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "∫", code: "KeyB", altKey: true }));
+    return globalThis.__optionFolds;
+  });
+  assert.equal(folds, 1, "a real Option+B folds the side list");
+  await page.evaluate(() => document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Dead", code: "KeyK", altKey: true, shiftKey: true })));
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "prompt", "a real Option+Shift+K focuses the message box");
   assert.deepEqual(errors, []);
 });
 

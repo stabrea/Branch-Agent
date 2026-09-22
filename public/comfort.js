@@ -278,6 +278,20 @@ function draw() {
 
 /* ---------- R17-S15: shortcuts and vim keys ---------- */
 const keyName = (key) => (key === " " ? "Space" : key.length === 1 ? key.toUpperCase() : key);
+/**
+ * The character a key made names it, as before, unless the character is one no shortcut can be
+ * written with: on a Mac, Option turns B into "∫" and Option+Shift+K into a dead key, so a shortcut
+ * read from the character could never be set or fire. Only then is a letter or digit key named by
+ * where it is. An ordinary character always wins, so the key marked A on a French keyboard is still A
+ * (it sits where Q is on an English one), and a comma is still a comma wherever the layout puts it.
+ */
+function physical(event) {
+  const key = event.key ?? "";
+  const unusable = key === "" || key === "Dead" || key === "Unidentified" || (key.length === 1 && !/^[\x20-\x7e]$/.test(key));
+  if (!unusable) return null;
+  const code = event.code ?? "";
+  return /^Key[A-Z]$/.test(code) ? code.slice(3) : /^Digit[0-9]$/.test(code) ? code.slice(5) : null;
+}
 /** The keys of a key press, written the way the settings store them, or "" for a lone modifier. */
 const onMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 /* Stored keys say "Ctrl" for the main key; a Mac shows it as the Command key it is. */
@@ -292,7 +306,7 @@ export function comboOf(event) {
   if (onMac && event.ctrlKey) parts.push("Control");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
-  const name = keyName(event.key);
+  const name = physical(event) ?? keyName(event.key);
   if (!parts.length && !/^F([1-9]|1[0-2])$/.test(name)) return "";
   return [...parts, name].join("+");
 }
@@ -509,7 +523,7 @@ function onTalkKey(event, down) {
     if (event.repeat || talking) return;
   } else {
     const last = bound("pushToTalkKey").split("+").pop().toLowerCase();
-    if (!talking || (keyName(event.key).toLowerCase() !== last && !modifiers.includes(event.key))) return;
+    if (!talking || ((physical(event) ?? keyName(event.key)).toLowerCase() !== last && !modifiers.includes(event.key))) return;
   }
   talking = down;
   button.dispatchEvent(new PointerEvent(down ? "pointerdown" : "pointerup", { bubbles: true }));
