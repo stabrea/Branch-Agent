@@ -721,6 +721,34 @@ details.tool-step > summary:hover {
   line-height: 1.1;
   margin: var(--s2) 0 var(--s2);
 }
+/* part two (OWNER-LIST 7): two optional steps, and the sign-in code one character to a box */
+.first-run-steps .first-run-step {
+  padding: var(--s3) 0;
+  border-top: 1px solid var(--line);
+}
+.first-run-steps .first-run-step h3 {
+  margin: 0 0 var(--s1);
+}
+.first-run-code {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: var(--s2) var(--s2) var(--s2) 0;
+  vertical-align: middle;
+}
+.first-run-code-cell {
+  min-width: 1.6em;
+  padding: 4px 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r1);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  text-align: center;
+}
+#first-run-status details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .first-run-lead {
   margin: 0 0 var(--s4);
   color: var(--muted);
