@@ -1472,7 +1472,11 @@ async function api(
       reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
     return app.store.backup(app.version);
   }
-  if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
+  if (request.method === "POST" && path === "/api/restore") {
+    app.store.profiles.requireOwner("Restoring a backup");
+    const replaceExisting = new URL(request.url ?? "/", "http://local").searchParams.get("replace") === "1";
+    return app.store.restore(await readBody(request, maximumBackupBytes), { replaceExisting });
+  }
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
   if (request.method === "GET" && path === "/api/teams") return { teams: app.teams.list() };
