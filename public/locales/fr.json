@@ -5537,5 +5537,6 @@
   "capabilities.label.context-files-tools": "TOOLS.md : notes sur les outils de cet ordinateur et leurs manies",
   "capabilities.label.context-files-sop": "SOP.md : des procédures à suivre toujours de la même façon",
   "capabilities.label.context-files-memory": "MEMORY.md : ce que vous avez noté pour qu'il s'en souvienne",
-  "capabilities.label.context-files-heartbeat": "HEARTBEAT.md : quoi regarder au réveil programmé"
+  "capabilities.label.context-files-heartbeat": "HEARTBEAT.md : quoi regarder au réveil programmé",
+  "capabilities.label.jev-decisions": "Aide à la décision JEV"
 }

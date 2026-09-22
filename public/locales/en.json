@@ -5536,5 +5536,6 @@
   "capabilities.label.context-files-tools": "TOOLS.md: notes about this computer's own tools and quirks",
   "capabilities.label.context-files-sop": "SOP.md: procedures to follow the same way every time",
   "capabilities.label.context-files-memory": "MEMORY.md: things you wrote down to be remembered",
-  "capabilities.label.context-files-heartbeat": "HEARTBEAT.md: what to look at when waking on a schedule"
+  "capabilities.label.context-files-heartbeat": "HEARTBEAT.md: what to look at when waking on a schedule",
+  "capabilities.label.jev-decisions": "JEV decision support"
 }
