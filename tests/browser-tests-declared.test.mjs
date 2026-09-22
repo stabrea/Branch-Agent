@@ -28,32 +28,92 @@ import { testGroups } from "../scripts/run-tests.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 
-/** Every browser-backed tool the product registers, read from the product itself. */
-export async function browserBackedNames(read = (file) => readFile(join(ROOT, file), "utf8")) {
-  const sources = await Promise.all(["src/integrations/browser.ts", "src/integrations/computer.ts"].map(read));
+/** How the product writes a tool's name where it registers it, in any of the three quote styles. */
+const NAME_DECLARATION = /name:\s*["'`]((?:browser|computer)\.[A-Za-z_]+)["'`]/g;
+/** How a method of the browser object is written, with `private` captured so it can be left out. */
+const METHOD_DECLARATION = /^\s{2}(private\s+)?(?:async\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^(]*>)?\s*\(/gm;
+
+/** Every `.ts` file under src, so a tool cannot hide by being registered somewhere new. */
+async function productSources(dir = "src") {
+  const found = [];
+  for (const entry of await readdir(join(ROOT, dir), { withFileTypes: true }).catch(() => [])) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...await productSources(path));
+    else if (entry.name.endsWith(".ts")) found.push(path);
+  }
+  return found;
+}
+
+/**
+ * Every browser-backed tool the product registers, read from the product itself — from **all** of it.
+ * Naming the two files known to register them is how `browser.notes` stayed invisible: it is
+ * registered in `src/integrations/browser-notes-tool.ts`, which was not one of the two. A list of
+ * places is the same mistake as a list of names, one level up.
+ */
+export async function browserBackedNames(read = (file) => readFile(join(ROOT, file), "utf8"), files) {
+  const sources = await Promise.all((files ?? await productSources()).map((file) => read(file).catch(() => "")));
   const names = new Set();
   for (const source of sources)
-    for (const found of source.matchAll(/name: ["']((?:browser|computer)\.[a-z_]+)["']/g)) names.add(found[1]);
+    for (const found of source.matchAll(NAME_DECLARATION)) names.add(found[1]);
   return [...names].sort();
 }
 
 /**
- * Every line of a test that makes one of those tools run. Deliberately generous about *how*: through the
- * registry, through the runtime's own dispatch, as a tool call a scripted model makes, or straight at a
- * browser object. What it does not do is guess which of those is "really" a launch — that judgement
- * belongs in EXCUSED, where somebody has to write it down.
+ * What the browser object itself can be asked to do, read off `BranchBrowser`. A written-out list of
+ * method names left `annotate` and `extractShaped` unseen on the day they were added, and would have
+ * left the next one unseen too. Private methods are left out: a test cannot call one.
  */
-export function callsitesIn(source, names) {
-  const escaped = (name) => name.replace(".", "\\.");
-  const found = [];
-  for (const line of source.split(/\r?\n/)) {
-    const named = names.some((name) => line.includes(name)
-      && (new RegExp(`(execute|executeTool|call|run)\\s*\\(\\s*["'\`]${escaped(name)}["'\`]`).test(line)
-        || new RegExp(`name:\\s*["'\`]${escaped(name)}["'\`]`).test(line)));
-    const direct = /\bbrowser\.(navigate|screenshot|snapshot|pdf|act|click|fill|upload|extract|wait|tab)\s*\(/.test(line);
-    if (named || direct) found.push(line.trim());
-  }
-  return found;
+export async function browserMethods(read = (file) => readFile(join(ROOT, file), "utf8")) {
+  const source = await read("src/integrations/browser.ts");
+  const body = source.slice(source.indexOf("export class BranchBrowser"));
+  const names = new Set();
+  for (const found of body.matchAll(METHOD_DECLARATION)) if (!found[1]) names.add(found[2]);
+  names.delete("constructor");
+  return [...names].sort();
+}
+
+/**
+ * Every line of a test that makes one of those tools run. Deliberately generous about *how*: through
+ * the registry, through the runtime's own dispatch, as a tool call a scripted model makes, or straight
+ * at a browser object. What it does not do is guess which of those is "really" a launch — that
+ * judgement belongs in EXCUSED, where somebody has to write it down.
+ *
+ * Read whole rather than line by line. A dispatch written across two lines — the opening bracket on
+ * one, the tool's name on the next — is the ordinary way a long call is laid out, and a reader that
+ * took one line at a time could not see one. The line reported is the line the call starts on, which
+ * is the line an excuse quotes.
+ */
+export function callsitesIn(source, names, methods = []) {
+  // Every character that is not a letter, a digit or an underscore is escaped one at a time. A
+  // character class would do the same job in one line and is exactly the kind of line that arrives
+  // here with a backslash missing.
+  const escaped = (text) => [...text].map((one) => (/[A-Za-z0-9_]/.test(one) ? one : "\\" + one)).join("");
+  const anyName = names.map(escaped).join("|") || "(?!)";
+  const anyMethod = methods.map(escaped).join("|") || "(?!)";
+  const gap = "\\s*";                       // any run of space, newlines included
+  // A double quote, a single quote and a backtick, written by their numbers so that no layer
+  // between this file and a reader has to agree about how to escape them.
+  const quote = "[" + String.fromCharCode(34, 39, 96) + "]";
+  const patterns = [
+    new RegExp(`(?:execute|executeTool|call|run)${gap}\\(${gap}${quote}(?:${anyName})${quote}`, "g"),
+    new RegExp(`name:${gap}${quote}(?:${anyName})${quote}`, "g"),
+    new RegExp(`\\bbrowser\\.(?:${anyMethod})${gap}\\(`, "g"),
+  ];
+  const lines = source.split(/\r?\n/);
+  const startOf = [];
+  let at = 0;
+  for (const line of lines) { startOf.push(at); at += line.length + 1; }
+  const lineAt = (index) => {
+    let low = 0, high = startOf.length - 1;
+    while (low < high) { const mid = (low + high + 1) >> 1; if (startOf[mid] <= index) low = mid; else high = mid - 1; }
+    return low;
+  };
+  // One entry per line, as before: two lines that read the same are still two, because an excuse is
+  // about a line and a file may hold the same stand-in twice.
+  const hit = new Set();
+  for (const pattern of patterns)
+    for (const found of source.matchAll(pattern)) hit.add(lineAt(found.index));
+  return [...hit].sort((one, other) => one - other).map((index) => lines[index].trim());
 }
 
 /**
@@ -77,9 +137,10 @@ const EXCUSED = {
     ],
   },
   "tests/guardrails.test.mjs": {
-    why: "the one navigate is inside assert.rejects: the address is on the blocked list and is refused before anything launches",
+    why: "the one navigate is inside assert.rejects: the address is on the blocked list and is refused before anything launches Closing a browser that never launched opens nothing.",
     callsites: [
       "await assert.rejects(browser.navigate(\"https://example.org/admin/panel\", { owner: \"local\", runId: \"r1\", signal: new AbortController().signal, permissions: new Set(), depth: 0, workspace: \"\", budget: {} }), /on the blocked list/);",
+      "await browser.close();",
     ],
   },
   "tests/hardening.test.mjs": {
@@ -136,10 +197,11 @@ const EXCUSED = {
     ],
   },
   "tests/web-pages.test.mjs": {
-    why: "stand-in browser tools, registered so the page reader can be driven without a browser",
+    why: "stand-in browser tools, registered so the page reader can be driven without a browser Closing one opens nothing; the teardown runs whether or not anything launched.",
     callsites: [
       "app.registry.register({ name: \"browser.navigate\", permission: \"browser.read\", description: \"stand-in\",",
       "app.registry.register({ name: \"browser.snapshot\", permission: \"browser.read\", description: \"stand-in\",",
+      "closers.push(() => browser.close());",
     ],
   },
 };
@@ -161,13 +223,20 @@ const slash = (file) => file.replaceAll("\\", "/");
  */
 const SELF = "tests/browser-tests-declared.test.mjs";
 
+/** How page notes are registered in the product, single quotes and all. */
+const REGISTERED_NOTES = ["registry.register({ name: ", String.fromCharCode(39) + "browser.notes" + String.fromCharCode(39),
+  ", permission: " + String.fromCharCode(39) + "browser.read" + String.fromCharCode(39) + ","].join("");
+/** One dispatch, written the way a long one is written. */
+const OVER_TWO_LINES = ["await registry.execute(", '  "browser.pdf",', "  {},", "  context);"]
+  .join(String.fromCharCode(10));
+
 test("a test that runs a browser-backed tool is in the browser group, or every such line is excused", async () => {
-  const names = await browserBackedNames();
+  const names = await browserBackedNames(), methods = await browserMethods();
   const inBrowserGroup = new Set(testGroups().browser.map(slash));
   const offenders = [];
   for (const file of await testFiles()) {
     if (inBrowserGroup.has(file) || file === SELF) continue;
-    const sites = callsitesIn(await readFile(join(ROOT, file), "utf8"), names);
+    const sites = callsitesIn(await readFile(join(ROOT, file), "utf8"), names, methods);
     if (!sites.length) continue;
     const excused = EXCUSED[file]?.callsites ?? [];
     for (const site of sites) {
@@ -182,13 +251,13 @@ test("a test that runs a browser-backed tool is in the browser group, or every s
 });
 
 test("every excused line is still in its file, and every excuse still has a file", async () => {
-  const names = await browserBackedNames();
+  const names = await browserBackedNames(), methods = await browserMethods();
   const files = new Set(await testFiles());
   const stale = [];
   for (const [file, excuse] of Object.entries(EXCUSED)) {
     assert.ok(excuse.why.length > 40, `${file}: the reason has to be a sentence somebody can disagree with`);
     if (!files.has(file)) { stale.push(`${file} (gone)`); continue; }
-    const sites = callsitesIn(await readFile(join(ROOT, file), "utf8"), names);
+    const sites = callsitesIn(await readFile(join(ROOT, file), "utf8"), names, methods);
     for (const line of excuse.callsites)
       if (!sites.includes(line)) stale.push(`${file}: excused a line that is no longer there — ${line.slice(0, 80)}`);
   }
@@ -196,10 +265,10 @@ test("every excused line is still in its file, and every excuse still has a file
 });
 
 test("the detector notices every way one of these tools can be made to run", async () => {
-  const names = await browserBackedNames();
+  const names = await browserBackedNames(), methods = await browserMethods();
   assert.ok(names.includes("browser.pdf") && names.includes("browser.act") && names.includes("computer.look"),
     `the names come from the product, so they include the ones nobody thought to list (${names.length} of them)`);
-  const seen = (source) => callsitesIn(source, names).length;
+  const seen = (source) => callsitesIn(source, names, methods).length;
 
   assert.equal(seen('await registry.execute("browser.pdf", {}, context);'), 1, "through the registry");
   assert.equal(seen('await app.runtime.executeTool("browser.act", { what: "buy" }, context);'), 1, "through the runtime");
@@ -207,6 +276,22 @@ test("the detector notices every way one of these tools can be made to run", asy
   assert.equal(seen('await registry.execute("computer.look", { at: "page" }, context);'), 1, "a page-targeted computer tool");
   assert.equal(seen("await browser.pdf(context);"), 1, "straight at a browser object");
   assert.equal(seen('const note = "the browser.pdf tool writes a file";'), 0, "but prose about a tool is not a call");
+
+  // The four an independent re-review found it blind to. Each is a way a browser is really reached,
+  // and each was invisible for its own reason: a tool registered in a file nobody listed, two methods
+  // missing from a written-out list, and a call laid out over more than one line.
+  assert.ok(names.includes("browser.notes"),
+    "a tool registered outside the two files that used to be read: src/integrations/browser-notes-tool.ts");
+  assert.equal(seen(REGISTERED_NOTES), 1, "so registering it is seen, in whichever quotes it is written");
+  assert.equal(seen("await browser.annotate(mark, context);"), 1, "straight at a method nobody listed");
+  assert.equal(seen("await browser.extractShaped(shape, context);"), 1, "including one with a capital in it");
+  assert.equal(seen(OVER_TWO_LINES), 1,
+    "and a dispatch laid out over more than one line, which reading a line at a time could not see");
+
+  // The methods come from the class, so the next one added is covered the day it is written.
+  assert.ok(methods.includes("annotate") && methods.includes("extractShaped") && methods.includes("navigate"),
+    `the methods are read off BranchBrowser (${methods.length} of them)`);
+  assert.equal(methods.includes("freeName"), false, "a private method is not something a test can call");
 });
 
 test("the files this was written for are in the group that gets a browser", async () => {
