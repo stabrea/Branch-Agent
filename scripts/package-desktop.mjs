@@ -98,10 +98,18 @@ async function runPackager(options) {
   return packager(options);
 }
 
+/**
+ * The one picture every installed icon is made from: the mascot the README shows, at the size it was
+ * drawn. Windows, macOS and Linux all scale from this, so the Dock, the taskbar and the menu cannot
+ * drift apart or fall back to the old mark. It is the merged artwork itself rather than a copy of it
+ * in public/assets, because a copy is another thing to keep in step and a megabyte in every install.
+ */
+export const PACKAGE_ICON = "docs/images/mascot.png";
+
 async function packageWindows({ arch, release }) {
-  // The .ico comes from Electron's own image code, so it is made only here, on Windows.
-  const electron = (await import("electron")).default;
-  runCommand([electron, "scripts/prepare-icon.cjs"]);
+  // The .ico is made from the mascot with the repository's own PNG code, so a release needs nothing
+  // installed and the icon can be checked by a test instead of by looking at it.
+  runCommand([process.execPath, "scripts/prepare-icon.mjs"]);
   const paths = await runPackager(packagerOptions("win32", arch));
   // Smart App Control blocks unsigned executables it has never seen. The packager rewrites the
   // executable's icon and version resources, giving every build a brand-new hash. Until releases
@@ -135,13 +143,18 @@ async function finishArchive(archive, command, options) {
   await writeChecksum(archive);
 }
 
-async function macIcon() {
+/** Where the Mac icon is built and the exact commands that build it, so its source can be read back. */
+export function macIconPlan() {
   const iconset = join(RELEASE, "build", "keepoak.iconset");
   const icns = join(RELEASE, "build", "keepoak.icns");
+  return { iconset, icns, commands: mac.iconPlan(PACKAGE_ICON, iconset, icns) };
+}
+
+async function macIcon() {
+  const { iconset, icns, commands } = macIconPlan();
   await rm(iconset, { recursive: true, force: true });
   await mkdir(iconset, { recursive: true });
-  for (const command of mac.iconPlan("public/assets/keepoak-mark.png", iconset, icns))
-    runCommand(command, { stdio: "ignore" });
+  for (const command of commands) runCommand(command, { stdio: "ignore" });
   return icns;
 }
 
@@ -223,7 +236,7 @@ async function packageMac({ arch, release }) {
 export async function writeLinuxIcons(folder) {
   const { LINUX_ICON_FOLDER, LINUX_ICON_SIZES, iconFileName } = await import("../dist/install/unix-icons.js");
   const { readPng, scale, writePng } = await import("../apps/mobile/scripts/png.mjs");
-  const mark = readPng(await readFile("public/assets/keepoak-mark.png"));
+  const mark = readPng(await readFile(PACKAGE_ICON));
   const into = join(folder, LINUX_ICON_FOLDER);
   await mkdir(into, { recursive: true });
   for (const size of LINUX_ICON_SIZES)
@@ -232,14 +245,20 @@ export async function writeLinuxIcons(folder) {
 }
 
 async function packageLinux({ arch }) {
-  const [out] = await runPackager(packagerOptions("linux", arch, "public/assets/keepoak-mark.png"));
+  const [out] = await runPackager(packagerOptions("linux", arch, PACKAGE_ICON));
   const folder = join(RELEASE, linux.LINUX_FOLDER);
   await rm(folder, { recursive: true, force: true });
   await rename(out, folder);
   await chmod(folder, 0o755); // the packager's working folder is private to its builder
   const manifest = JSON.parse(await readFile("package.json", "utf8"));
   await writeFile(join(folder, `${linux.LINUX_EXECUTABLE}.desktop`), linux.desktopEntry({ version: manifest.version }), "utf8");
-  await copyFile("public/assets/keepoak-mark.png", join(folder, `${linux.LINUX_EXECUTABLE}.png`));
+  // Scaled rather than copied: the drawn size is bigger than any icon theme asks for, and a megabyte
+  // beside the program for a picture nothing draws at that size is waste.
+  {
+    const { readPng, scale, writePng } = await import("../apps/mobile/scripts/png.mjs");
+    const source = readPng(await readFile(PACKAGE_ICON));
+    await writeFile(join(folder, `${linux.LINUX_EXECUTABLE}.png`), writePng(scale(source, 512)));
+  }
   console.log(await writeLinuxIcons(folder));
   const archive = join(RELEASE, assetNameFor("linux", arch));
   await finishArchive(archive, linux.tarCommand({ releaseDir: RELEASE, folder: linux.LINUX_FOLDER, archive }), {

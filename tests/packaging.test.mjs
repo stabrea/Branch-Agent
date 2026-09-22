@@ -7,8 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assetNameFor, checksumLine, finishMac, includedInApp, signingRequired, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
+  assetNameFor, checksumLine, finishMac, includedInApp, signingRequired, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons, PACKAGE_ICON, macIconPlan,
 } from "../scripts/package-desktop.mjs";
+import { ICO_SIZES, icoFrom } from "../scripts/prepare-icon.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
 import { builtOutputs, missingOutputs, pathInTarball } from "../scripts/pack-cli.mjs";
@@ -68,7 +69,7 @@ test("macOS options carry the bundle id, the icon and the permission sentences",
 });
 
 test("Linux options name the program without a space", () => {
-  const options = packagerOptions("linux", "x64", "public/assets/keepoak-mark.png");
+  const options = packagerOptions("linux", "x64", PACKAGE_ICON);
   assert.equal(options.platform, "linux");
   assert.equal(options.executableName, "branch-agent");
   assert.throws(() => linux.linuxAssetName("arm64"), /no Linux download/);
@@ -231,7 +232,7 @@ test("a real .icns is made with sips and iconutil", { skip: process.platform !==
   t.after(() => discardTemp(root));
   const iconset = join(root, "k.iconset");
   await mkdir(iconset);
-  for (const [file, ...args] of mac.iconPlan("public/assets/keepoak-mark.png", iconset, join(root, "k.icns")))
+  for (const [file, ...args] of mac.iconPlan(PACKAGE_ICON, iconset, join(root, "k.icns")))
     execFileSync(file, args, { stdio: "ignore" });
   const bytes = await readFile(join(root, "k.icns"));
   assert.equal(bytes.subarray(0, 4).toString("latin1"), "icns");
@@ -340,6 +341,7 @@ test("the packager really writes every icon size into the Linux download, under 
     const drawn = readPng(await readFile(file));
     assert.equal(drawn.width, size);
     assert.ok(drawn.data.some((byte) => byte !== 0), `${file} is really the mark, not an empty square`);
+    await isTheMascot(drawn, file);
   }
 });
 
@@ -439,4 +441,69 @@ test("a version tag cannot build or publish until fail-closed CI passed for that
   assert.match(job("android"), /needs: release-gate/);
   assert.match(job("build"), /needs: \[release-gate, android\]/);
   assert.match(job("publish"), /needs: \[release-gate, build\]/);
+});
+
+
+/* ---------- mac7/app-icon: the icon an installed Branch actually shows ---------- */
+
+/** How far apart two same-sized pictures are, 0 being the same picture. */
+function apart(one, other) {
+  let total = 0;
+  for (let at = 0; at < one.data.length; at++) total += Math.abs(one.data[at] - other.data[at]);
+  return total / one.data.length;
+}
+
+/** The mascot and the mark it replaces, both at `size`, to say which a drawn icon really is. */
+async function marks(size) {
+  const [mascot, old] = await Promise.all([readFile(PACKAGE_ICON), readFile("public/assets/keepoak-mark.png")]);
+  return { mascot: scale(readPng(mascot), size), old: scale(readPng(old), size) };
+}
+
+/** Fails when `drawn` is the old KeepOak mark rather than the mascot. */
+async function isTheMascot(drawn, where) {
+  const { mascot, old } = await marks(drawn.width);
+  const toMascot = apart(drawn, mascot), toOld = apart(drawn, old);
+  assert.ok(toMascot < toOld, `${where} is still the old mark (${toMascot.toFixed(1)} from the mascot, ${toOld.toFixed(1)} from the mark)`);
+}
+
+test("every installed icon is made from the one approved mascot, so the three platforms cannot drift apart", async () => {
+  assert.ok(existsSync(PACKAGE_ICON), `${PACKAGE_ICON} is not in the repository`);
+  const source = readPng(await readFile(PACKAGE_ICON));
+  assert.ok(source.width >= 1024, `the source is ${source.width} wide; a Retina dock asks for 1024`);
+  assert.equal(source.width, source.height, "an app icon is square");
+  await isTheMascot(scale(source, 256), PACKAGE_ICON);
+  /* Each platform names the same file, read from what the build really runs rather than from a call
+     the test makes up: the macOS iconset commands, the Linux packager and the Windows .ico. */
+  const plan = macIconPlan();
+  const sips = plan.commands.filter(([tool]) => tool === "sips");
+  assert.ok(sips.length >= 10, "every size a Mac asks for");
+  for (const command of sips) assert.equal(command[4], PACKAGE_ICON, "a Mac icon size is drawn from something else");
+  assert.equal(packagerOptions("linux", "x64", PACKAGE_ICON).icon, PACKAGE_ICON);
+
+  /* And the old mark is named nowhere in the packaging, so no platform can quietly keep it. */
+  const script = await readFile("scripts/package-desktop.mjs", "utf8");
+  assert.doesNotMatch(script, /keepoak-mark/, "the packaging still reaches for the old mark somewhere");
+  const windows = await readFile("scripts/prepare-icon.mjs", "utf8");
+  assert.doesNotMatch(windows, /keepoak-mark/, "the Windows icon still reaches for the old mark");
+});
+
+test("the Windows icon holds every size Windows draws, and every one of them is the mascot", async () => {
+  const ico = icoFrom(readPng(await readFile(PACKAGE_ICON)));
+  assert.equal(ico.readUInt16LE(0), 0);
+  assert.equal(ico.readUInt16LE(2), 1, "an icon, not a cursor");
+  assert.equal(ico.readUInt16LE(4), ICO_SIZES.length, "one entry per size");
+  /* One 256 image is what shipped before: the Start menu, the taskbar and a file listing each ask
+     for a different size, and Windows shrinking one big picture is where a blurry icon comes from. */
+  assert.ok(ICO_SIZES.includes(16) && ICO_SIZES.includes(32) && ICO_SIZES.includes(256), "the sizes Windows really asks for");
+  for (const [index, size] of ICO_SIZES.entries()) {
+    const entry = 6 + index * 16;
+    assert.equal(ico[entry] || 256, size, `entry ${index} says the wrong width`);
+    assert.equal(ico[entry + 1] || 256, size, `entry ${index} says the wrong height`);
+    assert.equal(ico.readUInt16LE(entry + 6), 32, "with its alpha kept");
+    const at = ico.readUInt32LE(entry + 12), length = ico.readUInt32LE(entry + 8);
+    assert.ok(at + length <= ico.length, `entry ${index} points past the end of the file`);
+    const drawn = readPng(ico.subarray(at, at + length));
+    assert.equal(drawn.width, size, `entry ${index} holds a picture of the wrong size`);
+    await isTheMascot(drawn, `the Windows icon at ${size}`);
+  }
 });
