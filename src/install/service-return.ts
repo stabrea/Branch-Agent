@@ -58,7 +58,10 @@ export async function waitForReturn(
   const running = deps.running ?? ((dir: string) => runningNow(dir));
   const attach = deps.attach ?? (async (dir: string) => {
     const found = await attachToRunning(dir);
-    return found ? { instance: found.instance, version: found.instance.version } : null;
+    // `found.version` is what the running Branch said when it was asked, not what the note on disk
+    // claims. Taking the note's word would let a Branch still on the old version pass for the new one
+    // as long as something had written the new number down.
+    return found ? { instance: found.instance, version: found.version } : null;
   });
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
   const now = deps.now ?? Date.now;

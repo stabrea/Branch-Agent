@@ -25,7 +25,17 @@ export interface AttachDeps {
   alive?: (pid: number) => boolean;
   fetch?: typeof fetch;
 }
-export interface Attachment { url: string; token: string; instance: RunningInstance }
+export interface Attachment {
+  url: string;
+  token: string;
+  instance: RunningInstance;
+  /**
+   * The version the running Branch **answered** with, which is not always the one written in
+   * `running.json`: that file is written by whatever started, and a swap that half happened can leave
+   * it describing a version that is not the one now answering on the port.
+   */
+  version: string;
+}
 
 export async function writeRunning(
   dataDir: string, instance: Omit<RunningInstance, "startedAt"> & { startedAt?: string },
@@ -70,6 +80,6 @@ export async function attachToRunning(dataDir: string, deps: AttachDeps = {}): P
     if (!response.ok) return null;
     const body = await response.json() as { version?: unknown };
     if (typeof body?.version !== "string") return null;
-    return { url: instance.url, token, instance };
+    return { url: instance.url, token, instance, version: body.version };
   } catch { return null; }
 }
