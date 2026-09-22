@@ -229,7 +229,8 @@ function addInfo(label, seen) {
   button.type = "button";
   button.className = "kit-info";
   button.textContent = "i";
-  button.setAttribute("aria-haspopup", "dialog");
+  // Not aria-haspopup: what opens holds words about this setting and nothing to do, so it is no
+  // dialog and no menu. aria-expanded below says the words are showing; that is the whole truth.
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-label", say(...ABOUT));
   describeBy(button, label);
@@ -285,8 +286,6 @@ function fill(button, defaults) {
   if (!control) return false;
   const name = line("p", nameOf(label), "kit-info-name");
   name.id = "kit-info-pop-name";
-  pane.setAttribute("aria-label", say(...ABOUT));
-  pane.setAttribute("aria-describedby", name.id);
   pane.replaceChildren(
     name,
     line("b", say("settings-kit.info.what", "What this does")),
@@ -312,11 +311,25 @@ function cancelOpeningOn(button) {
   const stop = () => {
     if (!listening) return;
     listening = false;
+    if (stopOpening === stop) stopOpening = null;
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("pointerdown", onPress, true);
   };
   const cancel = () => { if (opening === button) opening = null; stop(); };
-  const onKey = (event) => { if (event.key === "Escape") cancel(); };
+  /*
+   * One Escape undoes one thing. Without consuming the key here it went on to layout.js, which shut
+   * Settings: asking for an explanation and changing your mind closed the whole window. An
+   * explanation that did open is already treated this way by public/popover.js, which calls
+   * stopImmediatePropagation for the same reason, so this is the same rule applied a moment earlier.
+   * The keyboard goes back to the "i" that is still there, never to the page behind it.
+   */
+  const onKey = (event) => {
+    if (event.key !== "Escape") return;
+    cancel();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (button.isConnected) button.focus({ preventScroll: true });
+  };
   const onPress = (event) => { if (!button.contains(event.target)) cancel(); };
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("pointerdown", onPress, true);
@@ -326,10 +339,16 @@ function cancelOpeningOn(button) {
 /**
  * Whether the "i" is still there to point the explanation at: on the page and not hidden.
  *
- * Deliberately **not** "in view". checkVisibility answers display, visibility and content-visibility,
- * never where the page is scrolled to, and that is the rule we want: see the scroll listener below.
+ * checkVisibility answers `display` on its own; `visibility` and `content-visibility` have to be
+ * asked for, and an earlier comment here wrongly said otherwise, which is how an "i" hidden where it
+ * stands kept its explanation open over it.
+ *
+ * Deliberately **not** "in view": none of these ask where the page is scrolled to, and that is the
+ * rule we want -- see the scroll listener below.
  */
-const onPage = (button) => button.isConnected && (button.checkVisibility?.() ?? button.getClientRects().length > 0);
+const onPage = (button) => button.isConnected
+  && (button.checkVisibility?.({ visibilityProperty: true, contentVisibilityAuto: true })
+    ?? button.getClientRects().length > 0);
 
 /**
  * The "i" that now stands for the same setting. A card that redraws itself gives its label a new "i"
@@ -344,6 +363,26 @@ function infoNowFor(control) {
     if (now === control || (control.id && now.id === control.id) || (control.name && now.name === control.name)) return button;
   }
   return null;
+}
+
+
+/**
+ * While the explanation is open it is the "i"'s own description, so a screen reader reads the whole
+ * of it where the person asked for it, instead of being told a dialog opened and left to find it.
+ * Whatever the "i" was described by before is kept and put back when it closes.
+ */
+function describeWith(button, paneId) {
+  const before = button.getAttribute("aria-describedby");
+  // The explanation opens with the setting's own name, which is what the "i" was described by
+  // already, so this replaces rather than adds: appending read the name twice before the words.
+  button.setAttribute("aria-describedby", paneId);
+  return before;
+}
+
+/** Puts back what the "i" was described by before its explanation was opened. */
+function describeAgain(button, before) {
+  if (before) button.setAttribute("aria-describedby", before);
+  else button.removeAttribute("aria-describedby");
 }
 
 async function toggleInfo(button) {
@@ -377,7 +416,13 @@ async function toggleInfo(button) {
   if (!pane) {
     pane = document.createElement("div");
     pane.className = "kit-info-pop";
-    pane.setAttribute("role", "dialog");
+    pane.id = "kit-info-pop";
+    /* Words about the control it is pointing at, and nothing to do in them: that is a tooltip, not a
+       dialog. Calling it a dialog told a screen reader to expect something to act on and gave it
+       none, and it left the words themselves reachable only by going and finding them. They are the
+       "i"'s own description while it is open (describeWith below), so they are read where they are
+       asked for. */
+    pane.setAttribute("role", "tooltip");
     pane.hidden = true;
     document.body.append(pane);
   }
@@ -385,8 +430,10 @@ async function toggleInfo(button) {
   pane.hidden = false;
   place(button);
   button.setAttribute("aria-expanded", "true");
+  const described = describeWith(button, pane.id);
   const entry = trackPopover(button, pane, () => {
     button.setAttribute("aria-expanded", "false");
+    describeAgain(button, described);
     // The pane belongs to whichever "i" is showing now; a close that arrives late hides nothing else.
     if (shown?.button !== button) return;
     pane.hidden = true;

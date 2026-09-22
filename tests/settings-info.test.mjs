@@ -106,7 +106,9 @@ test("the i opens the setting's name, what it does and when to change it, and le
     "and a screen reader hears which setting it is about");
   const before = await page.locator("#start-with-windows").isChecked();
   await info.click();
-  const pop = page.getByRole("dialog", { name: "About this setting" });
+  // Codex review of 8b1ed7b5: the explanation is not a dialog, so it is not found by pretending it is.
+  // What a screen reader is told about it is held by the accessibility-tree test further down.
+  const pop = page.locator(".kit-info-pop");
   await pop.waitFor({ state: "visible" });
   const words = await pop.innerText();
   assert.match(words, new RegExp(`^${name}`));
@@ -135,7 +137,9 @@ test("a setting with its own reason to change says it", async (t) => {
   const { page } = await fixture(t);
   await openSettings(page, "general");
   await infoFor(page, "#phone-switch").click();
-  const pop = page.getByRole("dialog", { name: "About this setting" });
+  // Codex review of 8b1ed7b5: the explanation is not a dialog, so it is not found by pretending it is.
+  // What a screen reader is told about it is held by the accessibility-tree test further down.
+  const pop = page.locator(".kit-info-pop");
   await pop.waitFor({ state: "visible" });
   assert.match(await pop.innerText(), /Switch it on when you want to use Branch from your phone\./);
 });
@@ -157,7 +161,9 @@ const DEFAULTS = JSON.parse(await readFile(join(import.meta.dirname, "..", "publ
 test("the way it ships is named in words: a list's own option name, a switch's on or off", async (t) => {
   const { page } = await fixture(t);
   await openSettings(page, "general");
-  const pop = page.getByRole("dialog", { name: "About this setting" });
+  // Codex review of 8b1ed7b5: the explanation is not a dialog, so it is not found by pretending it is.
+  // What a screen reader is told about it is held by the accessibility-tree test further down.
+  const pop = page.locator(".kit-info-pop");
   for (const id of ["never-break-mode", "comfort-respectGitignore"]) {
     const shipped = await page.locator(`#${id}`).evaluate((control, raw) => {
       if (control.tagName === "SELECT") return [...control.options].find((option) => option.value === String(raw))?.textContent.trim();
@@ -176,7 +182,9 @@ test("the way it ships is named in words: a list's own option name, a switch's o
 test("screen control and borrowing the signed-in browser have the sample's own reasons", async (t) => {
   const { page } = await fixture(t);
   await openSettings(page, "computer");
-  const pop = page.getByRole("dialog", { name: "About this setting" });
+  // Codex review of 8b1ed7b5: the explanation is not a dialog, so it is not found by pretending it is.
+  // What a screen reader is told about it is held by the accessibility-tree test further down.
+  const pop = page.locator(".kit-info-pop");
   for (const [id, words] of [["desktop-enabled", /Only when you want Branch to work other programs on this computer for you\./],
     ["browser-attach-enabled", /Only for one task that needs a site you are already signed in to\./]]) {
     const info = infoFor(page, `#${id}`);
@@ -400,6 +408,31 @@ test("an explanation goes when its i is hidden where it stands, not only when it
   assert.deepEqual(errors, []);
 });
 
+/*
+ * Codex review of `8b1ed7b5`, blocker 3. The half of "hidden where it stands" that was claimed and
+ * not held: checkVisibility answers `display` on its own and has to be asked about `visibility`, so
+ * an "i" made invisible where it stands kept its explanation open over it.
+ */
+test("an explanation goes when its i is made invisible, not only when it is un-displayed", async (t) => {
+  const { page, errors } = await fixture(t);
+  await openSettings(page, "general");
+  const pop = page.locator(".kit-info-pop");
+  const info = infoFor(page, "#keep-running");
+  await info.click();
+  await pop.waitFor({ state: "visible" });
+  // The card keeps its place and its size; only its words stop being drawn.
+  assert.deepEqual(await page.evaluate(() => {
+    const card = document.getElementById("keep-running").closest(".card");
+    card.style.visibility = "hidden";
+    const button = document.getElementById("keep-running").closest("label").nextElementSibling;
+    return [button.getClientRects().length > 0, button.checkVisibility()];
+  }), [true, true], "this is the case a plain checkVisibility calls visible; that is the point of the test");
+  await page.evaluate(() => { document.getElementById("lx-settings-body").scrollBy(0, 1); });
+  await pop.waitFor({ state: "hidden" });
+  assert.equal(await info.getAttribute("aria-expanded"), "false");
+  assert.deepEqual(errors, []);
+});
+
 test("a cancel removes its listeners at once, even when the explanation never arrives", async (t) => {
   const { page } = await fixture(t);
   await page.route("**/settings-defaults.json", () => new Promise(() => {})); // never answered
@@ -465,5 +498,86 @@ test("a second press on the same i, while the words never arrive, leaves nothing
   assert.equal(left, 0, `six presses left ${left} listeners on the document`);
   assert.equal(await page.locator(".kit-info-pop").count() === 0 || await page.locator(".kit-info-pop").isHidden(), true,
     "nothing opened, because the words never came");
+  assert.deepEqual(errors, []);
+});
+
+/**
+ * What a screen reader is actually told, read from the accessibility tree rather than from the
+ * attributes. An `aria-describedby` that points at nothing passes an attribute check and says
+ * nothing to a person, so the tree is the only honest witness.
+ */
+async function announced(page, selector) {
+  const cdp = await page.context().newCDPSession(page);
+  const doc = await cdp.send("DOM.getDocument", { depth: -1 });
+  const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector });
+  const { nodes } = await cdp.send("Accessibility.getPartialAXTree", { nodeId, fetchRelatives: false });
+  const node = nodes[0];
+  return { role: node?.role?.value, name: node?.name?.value, description: node?.description?.value ?? "" };
+}
+
+/*
+ * Codex review of `8b1ed7b5`, blocker 2. The explanation holds words about a setting and nothing to
+ * do in them, so calling it a dialog told a screen reader to expect something to act on, gave it
+ * none, and left the words themselves reachable only by going to look for them.
+ */
+test("the explanation is the i's own description, and does not pretend to be a dialog", async (t) => {
+  const { page, errors } = await fixture(t);
+  await openSettings(page, "general");
+  const info = infoFor(page, "#keep-running");
+  await info.click();
+  await page.locator(".kit-info-pop").waitFor({ state: "visible" });
+
+  const open = await announced(page, ".lx-page .card .kit-info[aria-expanded=true]");
+  assert.equal(open.role, "button", "the i is a button and stays one");
+  for (const words of ["What this does", "When you'd change it"])
+    assert.ok(open.description.includes(words), `the open explanation is not in what the i says: ${JSON.stringify(open.description)}`);
+  assert.ok(await page.evaluate(() => document.querySelector(".kit-info-pop").textContent.trim().length > 40));
+  // Compared without spaces: the tree puts one between each block, the DOM's textContent does not.
+  const bare = (words) => words.replace(/\s+/g, "");
+  const paneWords = await page.locator(".kit-info-pop").evaluate((pane) => pane.textContent);
+  assert.equal(bare(open.description), bare(paneWords), "the whole explanation, not a part of it");
+
+  assert.notEqual(await page.locator(".kit-info-pop").getAttribute("role"), "dialog", "it is not a dialog");
+  assert.equal(await info.getAttribute("aria-haspopup"), null, "it does not promise a dialog or a menu either");
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("kit-info")), true,
+    "the keyboard stays on the i; nothing nonmodal may take it");
+
+  // Closed again, the "i" says what it said before -- the explanation is not left in its description.
+  await info.click();
+  await page.locator(".kit-info-pop").waitFor({ state: "hidden" });
+  const shut = await announced(page, ".lx-page .card .kit-info[aria-expanded=false]");
+  assert.ok(!shut.description.includes("When you'd change it"), "the explanation outstayed its welcome in the description");
+  assert.deepEqual(errors, []);
+});
+
+/*
+ * Codex review of `8b1ed7b5`, blocker 1. Escape while the words are still loading means "never
+ * mind" about the explanation -- and nothing else. Without consuming the key it went on to
+ * public/layout.js, which shut Settings: asking for an explanation and changing your mind closed the
+ * whole window and left the keyboard nowhere.
+ */
+test("Escape while the words are loading undoes the press and nothing else", async (t) => {
+  const { page, errors } = await fixture(t, async (page) => {
+    // The words never arrive, so Escape lands in exactly the window this is about.
+    await page.route("**/settings-defaults.json", () => {});
+  });
+  await openSettings(page, "general");
+  const info = infoFor(page, "#keep-running");
+  await info.waitFor({ state: "visible", timeout: 30000 });
+  await info.click();
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+
+  assert.equal(await page.locator("#settings-window").isHidden(), false, "Escape shut Settings instead of the press");
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("kit-info")), true,
+    "the keyboard was left nowhere instead of on the i it came from");
+  assert.equal(await page.locator(".kit-info-pop").count() === 0 || await page.locator(".kit-info-pop").isHidden(), true,
+    "nothing opened: the press was cancelled, not completed");
+  assert.equal(await info.getAttribute("aria-expanded"), "false");
+
+  // And a second Escape, with nothing pending, reaches Settings as it always did.
+  await page.keyboard.press("Escape");
+  await page.locator("#settings-window").waitFor({ state: "hidden", timeout: 10000 });
   assert.deepEqual(errors, []);
 });
