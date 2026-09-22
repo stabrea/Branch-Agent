@@ -85,6 +85,16 @@ test("changed test files select themselves but cannot exceed the budget", () => 
   assert.match(over.reasons.join("\n"), /budget/i);
 });
 
+test("a changed test with a dynamic Playwright import installs the browser", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([{ status: "M", paths: ["tests/hidden-knobs-ui.test.mjs"] }], {
+    config: checkedIn,
+    weights: { "tests/leak-guard.test.mjs": 2, "tests/hidden-knobs-ui.test.mjs": 10 },
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+});
+
 test("unknown product paths, empty diffs, deletes, and renames fail closed", () => {
   for (const changes of [
     [],
@@ -130,6 +140,19 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.equal(settings.classification, "narrow");
   assert.equal(settings.browserNeeded, true);
   assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs", "tests/settings-grown.test.mjs"]);
+});
+
+test("glass list behavior has its exact browser contract inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const result = selectImpact([{ status: "M", paths: ["public/glass-select.js"] }], {
+    config: checkedIn,
+    weights,
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+  assert.deepEqual(result.tests, ["tests/glass-select.test.mjs", "tests/leak-guard.test.mjs"]);
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
 });
 
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {

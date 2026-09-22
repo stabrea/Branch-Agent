@@ -471,9 +471,14 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   await f.page.evaluate(() => globalThis.branchApprovals.render());
   assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "41",
     "a draft survives even when its input event raced the listener");
-  await f.page.locator("#policy-tool-limit").fill("42");
-  await f.page.evaluate(() => globalThis.branchApprovals.render());
-  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
+  const ceiling = await f.page.evaluate(async () => {
+    const box = document.getElementById("policy-tool-limit");
+    box.value = "42";
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "2" }));
+    await globalThis.branchApprovals.render();
+    return box.value;
+  });
+  assert.equal(ceiling, "42", "the ceiling being typed is still theirs");
 
   /* The category rows used to be thrown away and made again every 3 s, which shut an open list under
      the person and threw the keyboard out of it. A mark of our own survives only if the row does. */
@@ -529,10 +534,14 @@ test("a moving window settles its open list even when the browser misses placeme
     globalThis.branchLayout.go("settings:permissions");
     const window = document.querySelector(".lx-settings-win");
     for (const animation of window.getAnimations()) animation.cancel();
-    window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
       { duration: 120, easing: "ease", fill: "both" });
-    await new Promise((done) => setTimeout(done, 30));
+    /* A timeout does not prove a Web Animation has begun: a loaded macOS runner can leave it pending
+       at localTime 0. Start it at a known moving position before suppressing page callbacks. */
+    await animation.ready;
+    animation.currentTime = 30;
     globalThis.requestAnimationFrame = () => 0;
+    globalThis.setInterval = () => 0;
     const picker = document.getElementById("policy-preset");
     picker.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
   });
