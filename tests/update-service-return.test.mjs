@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { discardTemp } from "./temp-dir.mjs";
-import { serviceRestartCommand, waitForReturn } from "../dist/install/service-return.js";
+import { restartService, serviceRestartCommand, waitForReturn } from "../dist/install/service-return.js";
 import { headlessUpdate } from "../dist/install/headless-update.js";
 import { rollbackCommand } from "../dist/install/rollback-cli.js";
 import { writeRunning } from "../dist/install/running.js";
@@ -34,6 +34,20 @@ test("each system's own manager is asked to start the service again, by its exac
   assert.match(tool, /schtasks\.exe$/i);
   assert.deepEqual(args, ["/Run", "/TN", "Branch Agent daemon"]);
   assert.throws(() => serviceRestartCommand("aix"), /not available/);
+});
+
+test("starting the service again really runs that system's own command", async () => {
+  // Every test below hands in its own `restartService`, so without this the one function that
+  // actually asks the system to start Branch again could do nothing at all and nothing would notice.
+  const ran = [];
+  await restartService("linux", async (tool, args) => { ran.push([tool, args]); });
+  assert.deepEqual(ran, [["systemctl", ["--user", "restart", "branch-agent.service"]]]);
+
+  const onMac = [];
+  await restartService("darwin", async (tool, args) => { onMac.push([tool, args]); });
+  assert.equal(onMac.length, 1);
+  assert.equal(onMac[0][0], "/bin/launchctl");
+  assert.equal(onMac[0][1][0], "kickstart");
 });
 
 test("the wait is for a Branch other than the one that was closed, and gives up in time", async () => {
