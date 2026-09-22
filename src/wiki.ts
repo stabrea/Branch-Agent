@@ -323,16 +323,45 @@ export const chatWikiRefusal = "A message from a chat app cannot read or write t
  * a message from a chat app; the route guard never sees any of those. So the same check sits at the
  * top of every wiki tool as well.
  */
+export const householdWikiRefusal = "The wiki belongs to the owner. Switch back to the owner's profile to use it.";
+/**
+ * Whether this call is the owner's own, and if not, why not — one answer, used by both the guard that
+ * refuses a tool and the step that works out what a call would touch.
+ *
+ * **A task decides for itself.** When there is a real run behind the call, the answer comes from what
+ * that run wrote down when it started: whose it is, whether a short-lived key asked for it, whether a
+ * chat message started it. The profile showing in the window is deliberately not consulted then, and
+ * that is the whole point: the owner's own task keeps being the owner's while they look at somebody
+ * else's profile, and a household person's task stays theirs after the window is switched back.
+ *
+ * Reading the window instead would be wrong in both directions. It would refuse an owner's task for the
+ * wrong reason — which, in the step that works out targets, quietly drops the pages a read would reach
+ * and lets a refused page through. And it would let a household task in once the window changed.
+ *
+ * With no run behind the call at all — somebody working the tool by hand — there is nothing to read, so
+ * the window is what decides, exactly as it does everywhere else.
+ */
+function notTheOwners(store: Store, context: ToolContext): string | null {
+  // A real task is one that wrote down where it came from when it started. A bare run row with no
+  // `run.started` recorded nothing about whose it is, so there is nothing to read and the window
+  // decides, the same as a call made by hand.
+  const started = Boolean(context.runId) && store.run(context.runId!) !== undefined
+    && store.events(context.runId!).some((event) => event.kind === "run.started");
+  if (started) {
+    const origin = runOrigin(store, context.runId!);
+    if (origin.personProfileId) return householdWikiRefusal;
+    if (origin.shortLivedKey || startedWithShortLivedKey()) return shortLivedWikiRefusal;
+    if (origin.source === "channel" || context.source === "channel") return chatWikiRefusal;
+    return null;
+  }
+  try { store.profiles.requireOwner("The wiki"); } catch (error) { return error instanceof Error ? error.message : String(error); }
+  if (startedWithShortLivedKey()) return shortLivedWikiRefusal;
+  if (startedFromChat(context, store)) return chatWikiRefusal;
+  return null;
+}
 function onlyTheOwner(store: Store, context: ToolContext): void {
-  store.profiles.requireOwner("The wiki");
-  const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
-  // Whose task this is, read from what the task itself wrote down when it started. The window's own
-  // check knows this while a tool is running, but only from the scope the registry puts around
-  // `execute`; working out what a call would touch happens outside that scope, so the record is asked
-  // here directly rather than trusting where this happens to be called from.
-  if (origin?.personProfileId) throw new Error("The wiki belongs to the owner. Switch back to the owner's profile to use it.");
-  if (startedWithShortLivedKey() || origin?.shortLivedKey) throw new Error(shortLivedWikiRefusal);
-  if (startedFromChat(context, store)) throw new Error(chatWikiRefusal);
+  const refusal = notTheOwners(store, context);
+  if (refusal) throw new Error(refusal);
 }
 /**
  * The same question, asked without throwing, for the one place that runs **before** a tool does: working
@@ -341,7 +370,7 @@ function onlyTheOwner(store: Store, context: ToolContext): void {
  * know the name of, and the refusal would be the leak.
  */
 function ownerIsAsking(store: Store, context: ToolContext): boolean {
-  try { onlyTheOwner(store, context); return true; } catch { return false; }
+  return notTheOwners(store, context) === null;
 }
 
 export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, store: Store): void {

@@ -380,6 +380,31 @@ test("what a call would touch is worked out for the owner alone, so a refusal ca
   assert.equal(app.runtime.checkPolicy("wiki.read", { title: "Index", follow: true }, asOwner).decision, "deny");
 });
 
+test("an owner's own task keeps its linked targets while the window is on somebody else", async (t) => {
+  const { app, wiki } = await branch(t);
+  wiki.write(owner, { title: "Private", body: "The safe code is 1234." });
+  wiki.write(owner, { title: "Index", body: "Everything worth knowing: [[Private]]." });
+  addPolicyRule(app.store, owner, { tool: "wiki.*", match: "wiki/private", decision: "deny", remember: "always" });
+
+  const run = app.store.createRun(app.runtime.owner, "the owner's own task");
+  app.store.event(run.id, "run.started", { source: "owner", parentRunId: null });
+  const context = app.runtime.context({ runId: run.id });
+
+  // The owner has switched the window to somebody else's profile. Their task is still their task, and
+  // reading the window here would quietly drop the linked page from what the rules are shown — the call
+  // would then be allowed through and would hand back a piece of the very page the owner refused.
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+
+  assert.deepEqual(app.registry.targetsOf("wiki.read", { title: "Index", follow: true }, context),
+    [{ kind: "read", path: "wiki/index" }, { kind: "read", path: "wiki/private" }],
+    "every page the read would reach is still named");
+  const judged = app.runtime.checkPolicy("wiki.read", { title: "Index", follow: true }, context);
+  assert.equal(judged.decision, "deny", "so the owner's own rule about the private page still refuses it");
+  assert.match(judged.reason ?? "", /wiki\/private/, "and the refusal names it");
+  app.store.profiles.switch({ profileId: null });
+});
+
 test("every wiki tool says what it touches, by page or by the whole wiki", async (t) => {
   const { app } = await branch(t);
   const context = { owner: app.runtime.owner, workspace: ".", runId: "targets", permissions: new Set(), depth: 0 };
