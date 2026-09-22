@@ -142,6 +142,18 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs", "tests/settings-grown.test.mjs"]);
 });
 
+test("phone layout styling selects its real browser proof", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([{ status: "M", paths: ["public/phone-layout.css"] }], {
+    config: checkedIn,
+    weights: {},
+    browserTest: (file) => file === "tests/phone-layout.test.mjs",
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+  assert.deepEqual(result.tests, ["tests/leak-guard.test.mjs", "tests/phone-layout.test.mjs"]);
+});
+
 test("glass list behavior has its exact browser contract inside the fast budget", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
   const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
