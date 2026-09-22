@@ -108,8 +108,11 @@ test("a branch's carry-back button follows a live language change, before and af
   const root = await app.runtime.run({ prompt: "the loft hatch" });
   const point = app.store.sessionView(owner, root.sessionId).messages.find((message) => message.role === "assistant");
   const branch = app.store.branchSession(owner, { sessionId: root.sessionId, messageId: point.messageId });
-  await page.evaluate((id) => globalThis.branchOther.renderTree(id), branch.sessionId);
+  /* The branch is opened in the window, as a person would, so the window's own redraws draw its tree too:
+     a tree drawn for a conversation that is not on screen is hidden by the next redraw (#152 macOS shard 2). */
+  await page.evaluate((id) => import("/app.js").then((shell) => shell.openConversation(id)), branch.sessionId);
   const button = page.locator("#branch-tree button.rail-row").last();
+  await button.waitFor({ state: "visible" });
   const en = await locale("en"), fr = await locale("fr");
   assert.equal(await button.textContent(), en["other.action.carryBack"], "drawn in English first");
 
