@@ -321,14 +321,15 @@ function cancelOpeningOn(button) {
    * Settings: asking for an explanation and changing your mind closed the whole window. An
    * explanation that did open is already treated this way by public/popover.js, which calls
    * stopImmediatePropagation for the same reason, so this is the same rule applied a moment earlier.
-   * The keyboard goes back to the "i" that is still there, never to the page behind it.
+   * Nothing here moves the keyboard. Pressing the "i" left it on the "i", so cancelling leaves it
+   * there -- and if the person has since gone to another control, dragging them back to an
+   * explanation they gave up on would be worse than the bug. Proved both ways below.
    */
   const onKey = (event) => {
     if (event.key !== "Escape") return;
     cancel();
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (button.isConnected) button.focus({ preventScroll: true });
   };
   const onPress = (event) => { if (!button.contains(event.target)) cancel(); };
   document.addEventListener("keydown", onKey, true);

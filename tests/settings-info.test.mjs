@@ -579,5 +579,17 @@ test("Escape while the words are loading undoes the press and nothing else", asy
   // And a second Escape, with nothing pending, reaches Settings as it always did.
   await page.keyboard.press("Escape");
   await page.locator("#settings-window").waitFor({ state: "hidden", timeout: 10000 });
+
+  /* The other half of "nothing moves the keyboard": someone who pressed an "i", thought better of
+     it and went to another control is not dragged back to the explanation they gave up on. */
+  await openSettings(page, "general");
+  await info.waitFor({ state: "visible", timeout: 30000 });
+  await info.click();
+  await page.evaluate(() => document.getElementById("keep-running").focus());
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "keep-running",
+    "the keyboard was taken back to an i the person had already left");
+  assert.equal(await page.locator("#settings-window").isHidden(), false, "one Escape still undoes one thing");
   assert.deepEqual(errors, []);
 });
