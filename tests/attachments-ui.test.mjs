@@ -175,6 +175,10 @@ test("what was said is shown exactly once, whether or not a file came with it", 
     `an ordinary message says what was said once, not twice (${plain})`);
 
   // And a message that does carry a file keeps both: the words, once, and the card.
+  // A file cannot be put on the next message while the assistant is still working — the page says so
+  // in as many words (public/media.js) — and the reply appears on the screen a moment before the rest
+  // of the turn finishes. So wait for the attach button to come back, which is what a person sees.
+  await page.waitForFunction(() => !document.getElementById("composer-media")?.disabled, null, { timeout: 20000 });
   await page.locator("#composer-media-file").setInputFiles(file);
   await page.locator("#composer-attachments").getByText("roof.md").waitFor({ timeout: 10000 });
   await page.locator("#prompt").fill("And what does this say?");
