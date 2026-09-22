@@ -115,7 +115,7 @@
       "family": "surfaces",
       "name": "Text-to-speech",
       "acceptance_criterion": "Generate playable speech from a response using the selected provider.",
-      "status": "implemented",
+      "status": "partial",
       "evidence": {
         "paths": [
           "src/voice.ts",
@@ -134,7 +134,7 @@
         ],
         "detail": "The voice service's speak() picks a route (OpenAI, Gemini, Windows or a local program) and returns audio bytes with a media type; tests check the bytes for each route. Gap: the POST /api/voice/speak route itself has no test of the audio it returns."
       },
-      "remaining": ""
+      "remaining": "Decode or play a real generated audio file in a test; today the fixtures return a few stand-in bytes with a media type, and nothing opens them."
     },
     {
       "id": "surfaces.attachments",
@@ -165,7 +165,7 @@
       "family": "surfaces",
       "name": "Image and video generation",
       "acceptance_criterion": "Generate one image and one video through configured adapters and verify that both output files can be decoded.",
-      "status": "implemented",
+      "status": "partial",
       "evidence": {
         "paths": [
           "src/media-images.ts",
@@ -180,7 +180,7 @@
         ],
         "detail": "Images come from /images/generations and are saved as artifacts. Video comes through the Sora or Veo adapters, and a file without an MP4 header is refused."
       },
-      "remaining": ""
+      "remaining": "Decode the saved image and the saved MP4 in a test; today the video check reads only the header, and the fixtures are stand-in bytes."
     },
     {
       "id": "surfaces.playback",
@@ -2062,7 +2062,7 @@
       "family": "delegation",
       "name": "Persistent specialist roles and team rooms",
       "acceptance_criterion": "Create a team with specialized agents and retain their roles and shared room history after restarting.",
-      "status": "implemented",
+      "status": "partial",
       "evidence": {
         "paths": [
           "src/teams.ts",
@@ -2074,7 +2074,7 @@
         ],
         "detail": "The Teams class stores members' roles and a shared room conversation; the test runs the team, restarts the app, and finds the team and its room messages still there."
       },
-      "remaining": ""
+      "remaining": "Assert each member's role after the restart; the restart test checks only the team's name and the room's message count."
     },
     {
       "id": "delegation.handoff",
@@ -2555,7 +2555,7 @@
       "family": "security",
       "name": "Capability-limited WASM",
       "acceptance_criterion": "Run a WASM tool and reject a host operation absent from its capability manifest.",
-      "status": "implemented",
+      "status": "partial",
       "evidence": {
         "paths": [
           "src/safety-extras/wasm-check.ts",
@@ -2568,7 +2568,7 @@
         ],
         "detail": "A WASM module that imports anything outside branch.* is refused when checked and when installed. The allowed list is fixed, not declared per module."
       },
-      "remaining": ""
+      "remaining": "A capability manifest per module, and a test that refuses a host operation the module did not declare; today one fixed allow-list covers every add-on."
     },
     {
       "id": "security.credentials",
