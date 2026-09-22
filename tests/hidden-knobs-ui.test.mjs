@@ -152,6 +152,19 @@ test("a stale Save button submits the visible launch-file draft after a redraw",
     ["https://example.com", "https://docs.example.org"]);
 });
 
+test("a stale Save button submits the visible knob draft after a redraw", async (t) => {
+  const { app, page } = await openApp(t);
+  await openSettingFor(page, "#knobs-limits-card");
+  const staleSave = await page.locator("#knobs-limits-card")
+    .getByRole("button", { name: "Save", exact: true }).elementHandle();
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
+  await page.locator("#knobs-maxSteps").fill("25");
+  await staleSave.evaluate((button) => button.click());
+  for (let tries = 0; tries < 200 && readKnobs(app.store, "local", "limits").maxSteps !== 25; tries++)
+    await page.waitForTimeout(25);
+  assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 25);
+});
+
 test("a focused clean control stays clean across redraws and accepts the next server value", async (t) => {
   const { app, page } = await openApp(t);
   await openSettingFor(page, "#knobs-limits-card");

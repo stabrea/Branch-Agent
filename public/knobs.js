@@ -211,7 +211,7 @@ function actions(spec, controls, status) {
   };
   const save = keyed("button", "knobs.action.save");
   save.type = "button";
-  save.addEventListener("click", () => send(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs.saved"));
+  save.addEventListener("click", () => send(visibleControlValues(controls), "knobs.saved"));
   const reset = keyed("button", "knobs.action.reset", "quiet-button");
   reset.type = "button";
   reset.addEventListener("click", () => {
@@ -269,16 +269,6 @@ function launchControls(file) {
       return [{ ...field, controlName: `launch-${field.name}` }, c];
     });
 }
-function visibleLaunchValues(controls) {
-  return Object.fromEntries(controls.map(([field, fallback]) => {
-    const control = $(`knobs-${field.controlName}`);
-    if (!control) return [field.name, fallback.read()];
-    if (field.kind === "switch") return [field.name, control.value === "on"];
-    if (field.kind === "number") return [field.name, control.value === "" ? field.def : Number(control.value)];
-    if (field.kind === "lines") return [field.name, control.value.split(/[\s,]+/).filter(Boolean)];
-    return [field.name, control.value];
-  }));
-}
 function launchCard(file) {
   const card = document.createElement("section");
   card.className = "card";
@@ -297,7 +287,7 @@ function launchCard(file) {
   save.addEventListener("click", async () => {
     const card = "launch-file";
     const version = beginWrite(card);
-    const values = visibleLaunchValues(controls);
+    const values = visibleControlValues(controls);
     try {
       await api(values, "knobs/launch-file");
       if (!writeIsCurrent(card, version)) return;
@@ -321,6 +311,17 @@ function place(card) {
 const knobControlSelector = 'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]';
 const controlNodes = (nodes) => nodes.flatMap((node) => node.matches?.(knobControlSelector)
   ? [node] : [...(node.querySelectorAll?.(knobControlSelector) ?? [])]);
+function visibleControlValues(controls) {
+  return Object.fromEntries(controls.map(([field, control]) => {
+    for (const submitted of controlNodes(control.nodes)) {
+      const visible = $(submitted.id);
+      if (!visible || visible === submitted) continue;
+      submitted.value = visible.value;
+      if (submitted.type === "checkbox") submitted.checked = visible.checked;
+    }
+    return [field.name, control.read()];
+  }));
+}
 const sameControlValue = (left, right) => left?.value === right?.value
   && (left?.type !== "checkbox" || left.checked === right.checked);
 function clearSavedControlDrafts(card, controls, values) {
