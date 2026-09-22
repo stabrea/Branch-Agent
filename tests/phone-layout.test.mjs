@@ -133,6 +133,23 @@ test("a question on a phone scrolls into view above the message box, and is answ
     const dock = document.querySelector(".composer-dock").getBoundingClientRect();
     return card && card.bottom <= dock.top;
   }, null, { timeout: 30000 });
+  /* A late font/control layout changes size without adding another child. The resize watcher must
+     clear the composer again; a one-shot mutation measurement leaves the answers covered. */
+  await f.page.evaluate(() => {
+    const choices = document.querySelector("#live-ask .live-ask-choice");
+    choices.style.paddingBottom = "48px";
+  });
+  await f.page.waitForFunction(() => {
+    const card = document.getElementById("live-ask")?.getBoundingClientRect();
+    const dock = document.querySelector(".composer-dock").getBoundingClientRect();
+    return card && card.bottom <= dock.top;
+  }, null, { timeout: 30000 });
+  await f.page.evaluate(() => { document.querySelector("#live-ask .live-ask-choice").style.paddingBottom = ""; });
+  await f.page.waitForFunction(() => {
+    const card = document.getElementById("live-ask")?.getBoundingClientRect();
+    const head = document.querySelector("header")?.getBoundingClientRect();
+    return card && head && card.top >= head.bottom - 1;
+  }, null, { timeout: 30000 });
   const head = await box(f.page, "header"), where = await box(f.page, "#live-ask");
   assert.ok(where.y >= head.y + head.height - 1, "and under the title bar");
   for (const name of ["Yes, just now", "Yes, for this conversation", "Yes, always", "No"]) {

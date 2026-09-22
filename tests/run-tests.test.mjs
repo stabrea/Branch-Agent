@@ -5,27 +5,30 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { loadWeights, parseFilesFrom, parseShard, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
-test("npm test runs the files that start the desktop app on their own, and everything else together", () => {
+test("npm test isolates browser and desktop files while keeping ordinary tests together", () => {
   const listing = {
     tests: ["desktop.test.mjs", "desktop-export.test.mjs", "memory-ui.test.mjs", "places.mjs", "mac2-desktop-ui.test.mjs"],
     [join("packages", "sdk", "test")]: ["client.test.mjs"],
   };
-  const groups = testGroups((folder) => listing[folder]);
+  const groups = testGroups((folder) => listing[folder], (file) =>
+    /(?:mac2-desktop-ui|memory-ui)/.test(file) ? 'import { chromium } from "playwright";' : "");
   assert.deepEqual(groups.desktop, [join("tests", "desktop-export.test.mjs"), join("tests", "desktop.test.mjs")]);
-  assert.deepEqual(groups.shared, [
-    join("tests", "mac2-desktop-ui.test.mjs"), join("tests", "memory-ui.test.mjs"), join("packages", "sdk", "test", "client.test.mjs"),
-  ]);
+  assert.deepEqual(groups.browser, [join("tests", "mac2-desktop-ui.test.mjs"), join("tests", "memory-ui.test.mjs")]);
+  assert.deepEqual(groups.shared, [join("packages", "sdk", "test", "client.test.mjs")]);
   // The real folders: the four desktop files, and none of them among the rest.
   const real = testGroups();
   assert.deepEqual(real.desktop.map((file) => file.replace(/\\/g, "/")),
     ["tests/desktop-export.test.mjs", "tests/desktop-identity.test.mjs", "tests/desktop-settings.test.mjs", "tests/desktop.test.mjs"]);
   assert.equal(real.shared.some((file) => /^tests[\\/]desktop/.test(file)), false);
+  assert.ok(real.browser.includes(join("tests", "glass-select.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "settings-grown.test.mjs")));
+  assert.equal(real.shared.some((file) => real.browser.includes(file)), false);
   assert.ok(real.shared.includes(join("tests", "run-tests.test.mjs")));
 });
 
 test("the shares the build machines run cover every test file exactly once, for any number of shares", () => {
-  const { shared, desktop } = testGroups();
-  const all = [...shared, ...desktop];
+  const { shared, browser, desktop } = testGroups();
+  const all = [...shared, ...browser, ...desktop];
   for (const platform of ["win32", "darwin", "linux", "unmeasured"]) {
     for (const total of [1, 2, 3, 4, 5, 6, 8]) {
       const shares = shards(all, total, loadWeights(platform));
@@ -54,7 +57,7 @@ test("--shard names one share of the whole, and anything else is refused", () =>
 });
 
 test("--files-from selects an explicit discovered subset and rejects stale or duplicate entries", () => {
-  const groups = { shared: [join("tests", "a.test.mjs"), join("tests", "b.test.mjs")], desktop: [] };
+  const groups = { shared: [join("tests", "a.test.mjs")], browser: [join("tests", "b.test.mjs")], desktop: [] };
   const read = () => JSON.stringify(["tests/b.test.mjs"]);
   assert.deepEqual(parseFilesFrom(["--files-from=selected.json"], groups, read), [join("tests", "b.test.mjs")]);
   assert.throws(() => parseFilesFrom(["--files-from=selected.json"], groups,

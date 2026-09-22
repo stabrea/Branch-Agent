@@ -85,6 +85,16 @@ test("changed test files select themselves but cannot exceed the budget", () => 
   assert.match(over.reasons.join("\n"), /budget/i);
 });
 
+test("a changed test with a dynamic Playwright import installs the browser", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([{ status: "M", paths: ["tests/hidden-knobs-ui.test.mjs"] }], {
+    config: checkedIn,
+    weights: { "tests/leak-guard.test.mjs": 2, "tests/hidden-knobs-ui.test.mjs": 10 },
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+});
+
 test("unknown product paths, empty diffs, deletes, and renames fail closed", () => {
   for (const changes of [
     [],
@@ -132,6 +142,19 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs", "tests/settings-grown.test.mjs"]);
 });
 
+test("glass list behavior has its exact browser contract inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const result = selectImpact([{ status: "M", paths: ["public/glass-select.js"] }], {
+    config: checkedIn,
+    weights,
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+  assert.deepEqual(result.tests, ["tests/glass-select.test.mjs", "tests/leak-guard.test.mjs"]);
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
   const result = selectImpact([{ status: "M", paths: ["public/composer-grown.js"] }], {
@@ -142,6 +165,64 @@ test("the isolated composer module has focused browser coverage inside the fast 
   assert.equal(result.browserNeeded, true);
   assert.deepEqual(result.tests, ["tests/composer-input-state.test.mjs", "tests/leak-guard.test.mjs"]);
   assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
+test("calendar recurrence core has reviewed non-browser coverage inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const result = selectImpact([
+    { status: "M", paths: ["src/recurrence.ts"] },
+    { status: "M", paths: ["src/scheduler.ts"] },
+    { status: "M", paths: ["src/never-break/resume.ts"] },
+  ], { config: checkedIn, weights, browserTest: () => false });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, false);
+  assert.deepEqual(result.tests, [
+    "tests/automation.test.mjs", "tests/leak-guard.test.mjs",
+    "tests/never-break-journal.test.mjs", "tests/schedule-recurrence.test.mjs",
+  ]);
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
+test("recurrence slices use real weights and shared shell changes fail closed", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const options = { config: checkedIn, weights };
+  const cli = selectImpact([
+    { status: "M", paths: ["src/schedule-cli.ts"] },
+    { status: "M", paths: ["src/cli-completion.ts"] },
+  ], options);
+  assert.deepEqual(cli.tests, ["tests/auth-tracing-cli.test.mjs", "tests/leak-guard.test.mjs"]);
+  assert.equal(cli.classification, "narrow");
+  const blueprints = selectImpact([{ status: "M", paths: ["src/autonomy/blueprints.ts"] }], options);
+  assert.deepEqual(blueprints.tests, ["tests/autonomy.test.mjs", "tests/leak-guard.test.mjs", "tests/schedule-recurrence.test.mjs"]);
+  assert.equal(blueprints.classification, "narrow");
+  const modules = selectImpact([
+    { status: "M", paths: ["public/flow-editor.js"] },
+    { status: "M", paths: ["public/locales/en.json"] },
+    { status: "M", paths: ["public/locales/fr.json"] },
+    { status: "M", paths: ["public/overview.js"] },
+    { status: "M", paths: ["tests/flow-editor.test.mjs"] },
+    { status: "M", paths: ["tests/p2-shell-ui.test.mjs"] },
+  ], options);
+  assert.equal(modules.classification, "narrow");
+  assert.equal(modules.browserNeeded, true);
+  assert.ok(modules.predictedSeconds < checkedIn.budgetSeconds);
+  const ui = selectImpact([
+    { status: "M", paths: ["public/app.js"] },
+    { status: "M", paths: ["public/flow-editor.js"] },
+    { status: "M", paths: ["public/index.html"] },
+    { status: "M", paths: ["public/locales/en.json"] },
+    { status: "M", paths: ["public/locales/fr.json"] },
+    { status: "M", paths: ["public/overview.js"] },
+    { status: "M", paths: ["tests/flow-editor.test.mjs"] },
+    { status: "M", paths: ["tests/p2-shell-ui.test.mjs"] },
+  ], options);
+  assert.equal(ui.classification, "full-required");
+  assert.equal(ui.browserNeeded, false);
+  assert.ok(ui.predictedSeconds > checkedIn.budgetSeconds);
+  assert.ok(ui.tests.includes("tests/flow-editor.test.mjs"));
+  assert.ok(ui.tests.includes("tests/p2-shell-ui.test.mjs"));
 });
 
 test("the historical composer regression cannot receive a narrow green result", () => {

@@ -118,20 +118,15 @@ holds. Nothing was installed on the Mac, no system package was added to the VM, 
 Hermes, OpenClaw and Codex installations were not run, configured or read. The loopback forwarder is
 deliberately left running and fixed, since it belongs to the rig rather than to this board.
 
-## A gap in the fingerprint, stated rather than hidden
+## The marking program is part of the fingerprint
 
-`scorerDigest` is given each task's id, whether it is read-only and whether its tests are restored —
-**not the source of the check function itself**. So rewriting a check to be kinder, while leaving
-the task's words alone, would produce the same digest, and `comparisonRefusal` would certify a
-comparison between a board marked the old way and a board marked the new way.
+`scorerDigest` includes every task's actual `check` function and the complete task module that holds
+shared marking helpers. Rewriting a check, a threshold or a helper therefore produces a different
+digest, and `comparisonRefusal` will refuse to put that run beside one marked by the old program.
 
-That is precisely the failure `scorerDigest` was written to prevent for rubrics, and it is open here
-for programs. Nothing in this branch exploits it — no check was changed after a result was seen, and
-the two that were changed (`node --test`, and the environment a check runs in) were changed before
-any real window and are in the git history with their reasons. But a reader should know the
-fingerprint does not cover it. Closing it means hashing each `check` function's source into the
-digest, which invalidates every board recorded before the change — which is why it was not done in
-the middle of the window that produced this one.
+This deliberately makes the result files already in this folder historical. They keep their old
+digest and remain internally comparable with one another, but a new run cannot be silently appended
+and compared after the marking code changes. Start a fresh result file after any scorer change.
 
 ## Claude Code
 

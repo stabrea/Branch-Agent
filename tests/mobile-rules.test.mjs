@@ -81,6 +81,34 @@ test("the native rules repeat the address rule and keep the bridge to the app's 
   assert.match(read("ios/App/ShareExtension/ShareViewController.swift"), /BranchSharePlan\.requests\(note: note\.text \?\? "", texts: texts/);
 });
 
+test("Android timestamps run on the declared Android 7 minimum", () => {
+  const read = (path) => readFileSync(new URL(`../apps/mobile/android/${path}`, import.meta.url), "utf8");
+  assert.match(read("variables.gradle"), /minSdkVersion\s*=\s*24\b/);
+  const clock = read("app/src/main/java/com/keepoak/branchagent/BranchClock.java");
+  const node = read("app/src/main/java/com/keepoak/branchagent/BranchNode.java");
+  const phone = read("app/src/main/java/com/keepoak/branchagent/BranchPhonePlugin.java");
+  for (const source of [clock, node, phone]) assert.doesNotMatch(source, /java\.time\b|\bInstant\b/);
+  assert.match(clock, /SimpleDateFormat\("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"/);
+  assert.match(clock, /setTimeZone\(TimeZone\.getTimeZone\("UTC"\)\)/);
+  assert.match(node, /BranchClock\.now\(\)/);
+  assert.match(phone, /BranchClock\.now\(\)/);
+});
+
+test("iOS explains local-network access and bounds share-extension reads", () => {
+  const read = (path) => readFileSync(new URL(`../apps/mobile/ios/${path}`, import.meta.url), "utf8");
+  for (const plist of [read("App/App/Info.plist"), read("App/ShareExtension/Info.plist")]) {
+    assert.match(plist, /<key>NSLocalNetworkUsageDescription<\/key>\s*<string>[^<]+<\/string>/);
+  }
+  const share = read("App/ShareExtension/ShareViewController.swift");
+  assert.match(share, /private static let maxSharedBytes = 20 \* 1024 \* 1024/);
+  assert.match(share, /loadFileRepresentation\(forTypeIdentifier:/);
+  assert.match(share, /resourceValues\(forKeys: \[\.fileSizeKey\]\)/);
+  assert.match(share, /size <= min\(maxSharedBytes, limit\)/);
+  assert.match(share, /read\(upToCount: bound \+ 1\)/);
+  assert.doesNotMatch(share, /Data\(contentsOf:/);
+  assert.match(share, /remainingFileBytes -= file\.data\.count/);
+});
+
 test("an invitation link gives the address and the offer; a bare address gives only the address", () => {
   assert.deepEqual(readInvitation(`http://desk.tail1.ts.net:4567/pair?id=${offer}`), { origin: "http://desk.tail1.ts.net:4567", offerId: offer });
   assert.deepEqual(readInvitation(" 100.64.1.2:3210 "), { origin: "http://100.64.1.2:3210", offerId: null });

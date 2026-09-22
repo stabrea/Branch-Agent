@@ -155,7 +155,7 @@ export class Trunks {
         at: lastRun?.updatedAt ?? trunk.updatedAt, unread: Math.max(0, replies - (seen[trunk.id] ?? 0)),
         working: lastRun?.status === "running" };
     });
-    return { trunks, rooms: this.rooms.list().map((room) => ({ id: room.id, name: room.name, members: room.members, needsYou: room.needsYou,
+    return { trunks, rooms: this.rooms.list().map((room) => ({ id: room.id, name: room.name, members: room.members, people: room.people, needsYou: room.needsYou,
       pinned: room.pinned, section: room.section, order: room.order, picture: room.picture, sessionId: room.sessionId,
       latest: room.events.filter((e) => e.kind === "user" || e.kind === "member").at(-1)?.text.slice(0, 160) ?? null, at: room.updatedAt })) };
   }

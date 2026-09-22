@@ -36,6 +36,36 @@
   "mappings": [
     {
       "paths": [
+        "src/never-break/resume.ts",
+        "src/recurrence.ts",
+        "src/scheduler.ts"
+      ],
+      "tests": [
+        "tests/automation.test.mjs",
+        "tests/never-break-journal.test.mjs",
+        "tests/schedule-recurrence.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "src/schedule-cli.ts",
+        "src/cli-completion.ts"
+      ],
+      "tests": [
+        "tests/auth-tracing-cli.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "src/autonomy/blueprints.ts"
+      ],
+      "tests": [
+        "tests/autonomy.test.mjs",
+        "tests/schedule-recurrence.test.mjs"
+      ]
+    },
+    {
+      "paths": [
         "src/remote/ssh-workspace.ts"
       ],
       "tests": [
@@ -56,6 +86,22 @@
         "tests/calm-ui.test.mjs",
         "tests/shell-ui.test.mjs",
         "tests/tool-targets-comprehensive-guard.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/flow-editor.js"
+      ],
+      "tests": [
+        "tests/flow-editor.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "public/overview.js"
+      ],
+      "tests": [
+        "tests/p2-shell-ui.test.mjs"
       ]
     },
     {
@@ -84,6 +130,10 @@
       ]
     },
     {
+      "paths": ["public/glass-select.js"],
+      "tests": ["tests/glass-select.test.mjs"]
+    },
+    {
       "paths": [
         "public/control-makers.js",
         "public/control-styles.css",
@@ -107,6 +157,21 @@
     {
       "paths": ["public/approval-reviewer.js"],
       "tests": ["tests/approvals.test.mjs", "tests/settings-grown.test.mjs"]
+    },
+    {
+      "paths": [
+        "public/jev-decisions.js",
+        "public/settings-buckets.js",
+        "public/settings-index.js"
+      ],
+      "tests": [
+        "tests/jev-decisions-ui.test.mjs",
+        "tests/settings-grown.test.mjs"
+      ]
+    },
+    {
+      "paths": ["src/jev-decisions.ts"],
+      "tests": ["tests/jev-decisions.test.mjs"]
     },
     {
       "paths": ["public/asks.js"],

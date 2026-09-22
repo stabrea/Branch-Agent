@@ -43,7 +43,7 @@ async function fakeApp(root, platform, version) {
   await mkdir(join(program, ".."), { recursive: true });
   await writeFile(program, '#!/bin/sh\nprintf "%s\\n" "$@" > "$BRANCH_TEST_RECORD"\n');
   await chmod(program, 0o755);
-  await writeFile(join(resources, "package.json"), JSON.stringify({ version }));
+  await writeFile(join(resources, "package.json"), JSON.stringify({ name: "branch-agent", version }));
   await writeFile(join(resources, "dist", "install", "install-cli.js"), "");
   if (platform === "linux")
     await writeFile(join(app, "branch-agent.desktop"), '[Desktop Entry]\nName=Branch Agent\nX-Branch-Agent-Version=1\nExec="branch-agent" %U\nIcon=branch-agent.png\n');

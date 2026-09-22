@@ -1922,11 +1922,11 @@
           </form>
           <!-- mac7/clean-uninstall: the danger zone, last in Settings, like the delete-account area
                in other products. It shows what would go before anything goes. -->
-          <!-- mac7/diagnostics: Report a problem (public/activity-log.js). Nothing is sent: the owner
-               reads every item, removes what they like, then saves a zip or opens a GitHub issue form. -->
+          <!-- mac7/diagnostics: manual reports are never sent; automatic reports are a separate,
+               off-by-default opt-in limited to an already linked owner destination. -->
           <section id="problem-report-card" class="card">
             <h2 data-t="settings.card.report">Report a problem</h2>
-            <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. Nothing is sent: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
+            <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. This manual report is not sent automatically: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
             <label for="problem-report-summary" data-t="field.report-summary">What went wrong (optional)</label>
             <input id="problem-report-summary" maxlength="500" aria-describedby="problem-report-intro" />
             <button id="problem-report-gather" type="button" data-t="action.report-gather">Gather a report to read</button>
@@ -1936,6 +1936,89 @@
               <button id="problem-report-save" type="button" data-t="action.report-save">Save as a zip</button>
               <button id="problem-report-issue" type="button" data-t="action.report-issue">Open a GitHub issue form</button>
             </div>
+            <hr />
+            <h3 data-t="automatic-report.title">Send future problems automatically</h3>
+            <p id="automatic-problem-help" class="subtle" data-t="automatic-report.help">Off unless you turn it on. Branch sends only the report parts you choose, through an owner chat or GitHub account already linked here. You can preview the exact words first, and every attempt is written in Allowed &amp; audit.</p>
+            <label for="automatic-problem-mode" data-t="automatic-report.field.mode">Automatic reports</label>
+            <select id="automatic-problem-mode" aria-describedby="automatic-problem-help">
+              <option value="off" data-t="automatic-report.mode.off">Off</option>
+              <option value="on" data-t="automatic-report.mode.on">On</option>
+            </select>
+            <label for="automatic-problem-destination" data-t="automatic-report.field.destination">Send through</label>
+            <select id="automatic-problem-destination" aria-describedby="automatic-problem-help"></select>
+            <div id="automatic-problem-github" hidden>
+              <label for="automatic-problem-repository" data-t="automatic-report.field.repository">GitHub repository</label>
+              <input id="automatic-problem-repository" maxlength="201" placeholder="owner/repository" aria-describedby="automatic-problem-help" />
+            </div>
+            <fieldset>
+              <legend data-t="automatic-report.field.events">Send when</legend>
+              <p id="automatic-problem-events-note" class="field-note" data-t="automatic-report.describe.events">Choose which kinds of product failure may make a report. Untick one and that kind stays on this computer.</p>
+              <label class="checkbox-row" for="automatic-problem-event-crash">
+                <input id="automatic-problem-event-crash" type="checkbox" checked aria-describedby="automatic-problem-events-note" />
+                <span data-t="automatic-report.event.crash">Crashes</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-event-update">
+                <input id="automatic-problem-event-update" type="checkbox" checked aria-describedby="automatic-problem-events-note" />
+                <span data-t="automatic-report.event.update">Update problems</span>
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend data-t="automatic-report.field.parts">Include these report parts</legend>
+              <p id="automatic-problem-items-note" class="field-note" data-t="automatic-report.describe.items">Each ticked part is gathered only after a chosen problem happens. Untick a part and Branch never reads it for an automatic report.</p>
+              <label class="checkbox-row" for="automatic-problem-item-about">
+                <input id="automatic-problem-item-about" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.about">About Branch and this computer</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-health">
+                <input id="automatic-problem-item-health" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.health">Health checks</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-services">
+                <input id="automatic-problem-item-services" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.services">What is running</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-settings">
+                <input id="automatic-problem-item-settings" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.settings">Settings (secrets removed)</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-log">
+                <input id="automatic-problem-item-log" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.log">Activity log</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-crashes">
+                <input id="automatic-problem-item-crashes" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.crashes">Crash notes</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-updates">
+                <input id="automatic-problem-item-updates" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.updates">Update details</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-tasks">
+                <input id="automatic-problem-item-tasks" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.tasks">Recent tasks (shape only)</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-disk">
+                <input id="automatic-problem-item-disk" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.disk">Disk space and permissions</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-network">
+                <input id="automatic-problem-item-network" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.network">Internet reachability</span>
+              </label>
+            </fieldset>
+            <label for="automatic-problem-preview-kind" data-t="automatic-report.field.preview-kind">Preview this kind of problem</label>
+            <select id="automatic-problem-preview-kind">
+              <option value="crash" data-t="automatic-report.event.crash">Crashes</option>
+              <option value="update" data-t="automatic-report.event.update">Update problems</option>
+            </select>
+            <label for="automatic-problem-preview-summary" data-t="automatic-report.field.summary">Example summary (optional)</label>
+            <input id="automatic-problem-preview-summary" maxlength="500" />
+            <div class="identity-actions">
+              <button id="automatic-problem-preview-button" type="button" data-t="automatic-report.action.preview">Preview exactly what would be sent</button>
+              <button id="automatic-problem-save" type="button" data-t="automatic-report.action.save">Save automatic reports</button>
+            </div>
+            <p id="automatic-problem-status" class="subtle" role="status"></p>
+            <pre id="automatic-problem-preview" hidden></pre>
           </section>
           <section id="danger-zone" class="card danger-zone" data-home="settings:about">
             <h2 data-t="danger.card.title">Danger zone</h2>
@@ -2157,6 +2240,7 @@
     <script src="/rewind.js" type="module"></script>
     <!-- Wave mac3 (tool-safety): a second look before approvals. -->
     <script src="/approval-reviewer.js" type="module"></script>
+    <script src="/jev-decisions.js" type="module"></script>
     <script src="/os-sandbox.js" type="module"></script>
     <!-- Wave 9 redesign: last, so every panel it moves already exists. -->
     <script src="/context-files.js" type="module"></script>

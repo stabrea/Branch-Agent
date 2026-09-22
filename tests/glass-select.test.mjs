@@ -471,9 +471,14 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   await f.page.evaluate(() => globalThis.branchApprovals.render());
   assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "41",
     "a draft survives even when its input event raced the listener");
-  await f.page.locator("#policy-tool-limit").fill("42");
-  await f.page.evaluate(() => globalThis.branchApprovals.render());
-  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
+  const ceiling = await f.page.evaluate(async () => {
+    const box = document.getElementById("policy-tool-limit");
+    box.value = "42";
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "2" }));
+    await globalThis.branchApprovals.render();
+    return box.value;
+  });
+  assert.equal(ceiling, "42", "the ceiling being typed is still theirs");
 
   /* The category rows used to be thrown away and made again every 3 s, which shut an open list under
      the person and threw the keyboard out of it. A mark of our own survives only if the row does. */
@@ -499,20 +504,54 @@ test("phase2/settings integration: a list opened while the Settings window is st
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   await f.page.locator(".lx-settings-close").click();
-  /* Opened and pressed in one go, the way a quick tap lands while the window rises for a fifth of a second. */
+  /* A busy renderer can hold the window at its starting position before it begins to rise. This
+     delayed animation deterministically covers that case instead of relying on runner speed. */
   const rising = await f.page.evaluate(() => {
     globalThis.branchLayout.go("settings:permissions");
-    const moving = document.querySelector(".lx-settings-win").getAnimations().some((animation) => animation.playState === "running");
+    const window = document.querySelector(".lx-settings-win");
+    for (const animation of window.getAnimations()) animation.cancel();
+    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+      { delay: 300, duration: 220, easing: "ease", fill: "both" });
     document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
-    return moving;
+    return animation.playState;
   });
-  assert.equal(rising, true, "the window was still rising when the select was pressed");
+  assert.equal(rising, "running", "the delayed rise was active when the select was pressed");
   await f.page.locator("#glass-list").waitFor({ state: "visible" });
-  await f.page.waitForTimeout(500);
+  await f.page.waitForTimeout(700);
   const gap = await f.page.evaluate(() => {
     const select = document.getElementById("policy-preset").getBoundingClientRect(), list = document.getElementById("glass-list").getBoundingClientRect();
     return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
   });
   assert.ok(Math.abs(gap) <= 2, `the list was left where the select was while it moved (gap ${gap})`);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a moving window settles its open list even when the browser misses placement frames", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.locator(".lx-settings-close").click();
+  await f.page.evaluate(async () => {
+    globalThis.branchLayout.go("settings:permissions");
+    const window = document.querySelector(".lx-settings-win");
+    for (const animation of window.getAnimations()) animation.cancel();
+    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+      { duration: 120, easing: "ease", fill: "both" });
+    /* A timeout does not prove a Web Animation has begun: a loaded macOS runner can leave it pending
+       at localTime 0. Start it at a known moving position before suppressing page callbacks. */
+    await animation.ready;
+    animation.currentTime = 30;
+    globalThis.requestAnimationFrame = () => 0;
+    globalThis.setInterval = () => 0;
+    const picker = document.getElementById("policy-preset");
+    picker.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+  });
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(250);
+  const gap = await f.page.evaluate(() => {
+    const select = document.getElementById("policy-preset").getBoundingClientRect();
+    const list = document.getElementById("glass-list").getBoundingClientRect();
+    return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
+  });
+  assert.ok(Math.abs(gap) <= 2, `the settled list kept its stale moving position (gap ${gap})`);
   assert.deepEqual(f.errors, []);
 });

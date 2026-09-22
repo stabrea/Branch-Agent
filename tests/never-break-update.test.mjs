@@ -165,7 +165,11 @@ test("the Windows update keeps the version before the previous one too", async (
     : String(url).endsWith("app.zip") ? new Response(bytes) : new Response(`${digest}  app.zip\n`);
   const make = (name, extra = {}) => new Updater({ repo: "x/y", currentVersion: "1.0.0", installDir: join(root, "installed"),
     executableName: "Branch Agent.exe", assetName: "app.zip", scratchDir: join(root, name), fetch, platform: "win32",
-    extract: async (_archive, into) => { await mkdir(join(into, "app"), { recursive: true }); await writeFile(join(into, "app", "Branch Agent.exe"), "new"); },
+    extract: async (_archive, into) => {
+      await mkdir(join(into, "app", "resources", "app"), { recursive: true });
+      await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+      await writeFile(join(into, "app", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
+    },
     ...extra });
   await mkdir(join(root, "installed"), { recursive: true });
   const text = await readFile((await make("plain").install()).script, "utf8");
@@ -219,6 +223,11 @@ test("the canary reads the new version's own verdict and always cleans up the co
   assert.equal(bad.ok, false);
   assert.match(bad.detail, /failed its check on a copy of your work: opens the saved work \(it broke\)/);
 
+  const mismatched = await fakeRelease(join(root, "version"), verdict(true));
+  const wrongVersion = await runCanary({ engine: mismatched, dataCopy: await copyFolder(join(root, "version")), expectedVersion: "2.1.0" });
+  assert.equal(wrongVersion.ok, false);
+  assert.match(wrongVersion.detail, /reported version 2\.0\.0.*expected 2\.1\.0/i);
+
   const hanging = await fakeRelease(join(root, "c"), "setInterval(() => {}, 1000);");
   const slow = await runCanary({ engine: hanging, dataCopy: await copyFolder(join(root, "c")), timeoutMs: 500 });
   assert.equal(slow.ok, false);
@@ -242,9 +251,10 @@ test("the real engine passes its own check on a copy of real saved work", { skip
   const snapshot = () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database });
   const canary = updateCanary({ dataDir, platform: "linux", executableName: "node-runtime", fromVersion: "0.16.0",
     target: join(root, "installed"), snapshot, timeoutMs: 240_000 });
-  await canary(staged, "0.17.0");
+  const realVersion = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")).version;
+  await canary(staged, realVersion);
   const watch = await readWatch(dataDir);
-  assert.deepEqual([watch.from, watch.to, watch.target], ["0.16.0", "0.17.0", join(root, "installed")]);
+  assert.deepEqual([watch.from, watch.to, watch.target], ["0.16.0", realVersion, join(root, "installed")]);
   assert.deepEqual(await readdir(join(dataDir, "updates")), [], "the copy was removed");
   assert.equal(app.store.runs("local").length, 1, "the owner's own data was not touched by the check");
 
