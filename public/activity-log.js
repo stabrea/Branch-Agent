@@ -1,4 +1,3 @@
-import { t } from "./i18n.js";
 /**
  * mac7/diagnostics: Settings › Advanced › Activity log, Settings › Updates & about › Report a
  * problem, and the window's own errors written to the log. Manual reports are shown in full and

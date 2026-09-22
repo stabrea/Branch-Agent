@@ -1,7 +1,8 @@
 /**
  * #152 review: words drawn by these panels follow a language change while they are open, without
  * being drawn again — the label picker's heading and new-label field, the "hold messages overnight"
- * words beside their checkbox, and a chart's two buttons, whichever state the numbers toggle is in.
+ * words beside their checkbox, a chart's two buttons whichever state the numbers toggle is in, and a
+ * branch's carry-back button before and after it is pressed.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -35,7 +36,7 @@ async function onPage(t, provider) {
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await finishFirstRun(page);
   await showEverything(page);
-  return { page, api, errors };
+  return { app, page, api, errors };
 }
 
 const locale = async (name) => JSON.parse(await readFile(new URL(`../public/locales/${name}.json`, import.meta.url), "utf8"));
@@ -97,5 +98,28 @@ test("open panels follow a live language change: label picker, quiet hours and a
   assert.equal((await read()).buttons[0], fr["charts.action.chartOnly"]);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   assert.equal((await read()).buttons[0], en["charts.action.chartOnly"], "the toggle's current state, in the new language");
+  assert.deepEqual(errors, []);
+});
+
+test("a branch's carry-back button follows a live language change, before and after it is pressed", async (t) => {
+  const answers = { name: "scripted", async complete() { return { content: "The loft answer.", toolCalls: [] }; } };
+  const { app, page, errors } = await onPage(t, answers);
+  const owner = app.runtime.owner;
+  const root = await app.runtime.run({ prompt: "the loft hatch" });
+  const point = app.store.sessionView(owner, root.sessionId).messages.find((message) => message.role === "assistant");
+  const branch = app.store.branchSession(owner, { sessionId: root.sessionId, messageId: point.messageId });
+  await page.evaluate((id) => globalThis.branchOther.renderTree(id), branch.sessionId);
+  const button = page.locator("#branch-tree button.rail-row").last();
+  const en = await locale("en"), fr = await locale("fr");
+  assert.equal(await button.textContent(), en["other.action.carryBack"], "drawn in English first");
+
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await button.textContent(), fr["other.action.carryBack"], "the drawn button, in French without being drawn again");
+
+  await button.click();
+  await page.waitForFunction((words) => [...document.querySelectorAll("#branch-tree button.rail-row")].some((b) => b.textContent === words),
+    fr["other.status.carriedBack"]);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  assert.equal(await button.textContent(), en["other.status.carriedBack"], "its new state, in the new language");
   assert.deepEqual(errors, []);
 });
