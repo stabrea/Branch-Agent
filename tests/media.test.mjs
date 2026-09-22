@@ -344,7 +344,11 @@ test("the picture button on the message box makes a chip the next message will c
   await page.setInputFiles("#composer-media-file", { name: "dot.png", mimeType: "image/png", buffer: onePixelPng });
   await page.waitForSelector("#composer-attachments .attachment img");
   assert.equal(await page.locator("#composer-attachments .attachment").count(), 1);
-  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachments().map((p) => p.name)), ["dot.png"]);
+  // A picture now travels once, as a file the message carries; the server derives the model's copy
+  // from it. `branchAttachments()` is only for pictures that are not files of their own, such as a
+  // still taken out of a film (public/media.js).
+  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachedFiles().map((p) => p.name)), ["dot.png"]);
+  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachments()), [], "and not a second time");
   await page.click("#composer-attachments .attachment button");
   assert.equal(await page.locator("#composer-attachments .attachment").count(), 0, "the chip can be taken off again");
   assert.deepEqual(errors, []);
