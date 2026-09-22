@@ -146,18 +146,60 @@ test("the isolated composer module has focused browser coverage inside the fast 
 
 test("calendar recurrence core has reviewed non-browser coverage inside the fast budget", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
   const result = selectImpact([
     { status: "M", paths: ["src/recurrence.ts"] },
     { status: "M", paths: ["src/scheduler.ts"] },
     { status: "M", paths: ["src/never-break/resume.ts"] },
-  ], { config: checkedIn, weights: {}, browserTest: () => false });
+  ], { config: checkedIn, weights, browserTest: () => false });
   assert.equal(result.classification, "narrow");
   assert.equal(result.browserNeeded, false);
   assert.deepEqual(result.tests, [
     "tests/automation.test.mjs", "tests/leak-guard.test.mjs",
-    "tests/never-break-journal.test.mjs",
+    "tests/never-break-journal.test.mjs", "tests/schedule-recurrence.test.mjs",
   ]);
   assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
+test("recurrence slices use real weights and shared shell changes fail closed", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const options = { config: checkedIn, weights };
+  const cli = selectImpact([
+    { status: "M", paths: ["src/schedule-cli.ts"] },
+    { status: "M", paths: ["src/cli-completion.ts"] },
+  ], options);
+  assert.deepEqual(cli.tests, ["tests/auth-tracing-cli.test.mjs", "tests/leak-guard.test.mjs"]);
+  assert.equal(cli.classification, "narrow");
+  const blueprints = selectImpact([{ status: "M", paths: ["src/autonomy/blueprints.ts"] }], options);
+  assert.deepEqual(blueprints.tests, ["tests/autonomy.test.mjs", "tests/leak-guard.test.mjs", "tests/schedule-recurrence.test.mjs"]);
+  assert.equal(blueprints.classification, "narrow");
+  const modules = selectImpact([
+    { status: "M", paths: ["public/flow-editor.js"] },
+    { status: "M", paths: ["public/locales/en.json"] },
+    { status: "M", paths: ["public/locales/fr.json"] },
+    { status: "M", paths: ["public/overview.js"] },
+    { status: "M", paths: ["tests/flow-editor.test.mjs"] },
+    { status: "M", paths: ["tests/p2-shell-ui.test.mjs"] },
+  ], options);
+  assert.equal(modules.classification, "narrow");
+  assert.equal(modules.browserNeeded, true);
+  assert.ok(modules.predictedSeconds < checkedIn.budgetSeconds);
+  const ui = selectImpact([
+    { status: "M", paths: ["public/app.js"] },
+    { status: "M", paths: ["public/flow-editor.js"] },
+    { status: "M", paths: ["public/index.html"] },
+    { status: "M", paths: ["public/locales/en.json"] },
+    { status: "M", paths: ["public/locales/fr.json"] },
+    { status: "M", paths: ["public/overview.js"] },
+    { status: "M", paths: ["tests/flow-editor.test.mjs"] },
+    { status: "M", paths: ["tests/p2-shell-ui.test.mjs"] },
+  ], options);
+  assert.equal(ui.classification, "full-required");
+  assert.equal(ui.browserNeeded, false);
+  assert.ok(ui.predictedSeconds > checkedIn.budgetSeconds);
+  assert.ok(ui.tests.includes("tests/flow-editor.test.mjs"));
+  assert.ok(ui.tests.includes("tests/p2-shell-ui.test.mjs"));
 });
 
 test("the historical composer regression cannot receive a narrow green result", () => {

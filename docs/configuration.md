@@ -3002,11 +3002,14 @@ across more than one computer, this is the paragraph to come back to.
 ## Schedules that repeat, and ones that keep failing
 
 `schedules.create` writes down a reminder, a task, a check or an evaluation with a due moment, and
-optionally an interval (`intervalMs`, at least a minute) or a daily time in a timezone (`dailyAt` plus
-`timezone`). It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook
-(`webhook`), and be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns
-while the app was closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list`
-do what they say, and each schedule keeps the last fifty turns with what happened on each.
+optionally one recurrence: an interval (`intervalMs`, at least a minute), a wall-clock time in a
+timezone (`dailyAt` plus `timezone`), selected local weekdays (`weekdays`, Sunday 0 through Saturday
+6), a local day of the month (`monthDay`), or a numeric five-field `cron` expression. Months without
+the chosen date and local times skipped by a daylight-saving jump are skipped rather than shifted.
+It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook (`webhook`), and
+be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns while the app was
+closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list` do what they say,
+and each schedule keeps the last fifty turns with what happened on each.
 
 A repeating job that **fails** a turn now moves on to its next turn rather than stopping for good, and
 the failures in a row are counted on the record as `consecutiveFailures`. After three in a row the job
