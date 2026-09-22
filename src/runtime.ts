@@ -954,8 +954,13 @@ ${run.output.slice(0, 6000)}`;
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else {
       // The files themselves are kept first: a message may only carry a reference to something real.
+      // Where a file lives is decided by the conversation, not by the message that brought it. Only the
+      // first message of a temporary conversation ever says "temporary", so taking the message's word
+      // for it put every follow-up's file in the lasting folder while the conversation went on looking
+      // in the temporary one: on disk, and unreachable.
       const attached = options.attachments?.length && this.attachments
-        ? await this.attachments.keep(run.sessionId, options.attachments, { temporary: Boolean(options.temporary) })
+        ? await this.attachments.keep(run.sessionId, options.attachments,
+          { temporary: this.store.sessionTemporary(run.sessionId) })
         : [];
       this.store.message(run.sessionId, {
         role: "user",
