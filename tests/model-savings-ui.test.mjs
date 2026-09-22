@@ -22,12 +22,17 @@ const homes = {
   "savings-mixtures-card": "#lx-models-second",
   "savings-round-chart-card": "#lx-page-appearance",
 };
-const fake = (name) => ({ name, async complete() { return { content: "Done.", toolCalls: [], usage: { input: 700, output: 20, cachedInput: 500 } }; } });
+const reportedUsage = { input: 700, output: 20, cachedInput: 500 };
+/** A model whose answers report `usages` in turn; one without `cachedInput` never said what the cache served. */
+const fake = (name, usages = [reportedUsage]) => {
+  let at = 0;
+  return { name, async complete() { return { content: "Done.", toolCalls: [], usage: usages[at++ % usages.length] }; } };
+};
 
-async function openApp(t, width = 1280) {
+async function openApp(t, width = 1280, usages = undefined) {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-savings-ui-"));
-  const presets = [{ id: "main", name: "Main", provider: fake("main"), model: "m" }, { id: "second", name: "Second", provider: fake("second"), model: "s" }];
+  const presets = [{ id: "main", name: "Main", provider: fake("main", usages), model: "m" }, { id: "second", name: "Second", provider: fake("second"), model: "s" }];
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
@@ -132,5 +137,32 @@ test("R17-049 the round-by-round chart appears in the meter's popover only when 
   await page.evaluate(() => window.branchTokenMeter.refresh());
   await page.waitForTimeout(300);
   assert.equal(await page.locator("#meter-popover #round-chart svg").count(), 1);
+  assert.deepEqual(errors, []);
+});
+
+test("a round whose service never reported the cache is said to be unknown, never drawn or counted as none", async (t) => {
+  const { app, page, errors } = await openApp(t, 1280, [{ input: 700, output: 20 }, reportedUsage]);
+  saveSavings(app.store, "local", "roundChart", { mode: "on" });
+  const first = await app.runtime.run({ prompt: "hello" });
+  const summaryAfter = async () => {
+    await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, first.sessionId);
+    await page.evaluate(() => window.branchModelSavings.refresh());
+    await page.evaluate(() => window.branchTokenMeter.refresh());
+    await page.locator("#meter-row").waitFor({ state: "visible" });
+    if (!await page.locator("#meter-popover").isVisible()) await page.locator("#meter-button").click();
+    await page.locator("#round-chart svg rect").first().waitFor();
+    return page.locator("#round-chart-summary").textContent();
+  };
+  // Only an unreported round: no cache figure at all, and its input is drawn faded.
+  const only = await summaryAfter();
+  assert.match(only, /1 rounds, 700 tokens in, the cache was not reported, 0 summaries/);
+  assert.doesNotMatch(only, /0 served from the cache/);
+  assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1);
+  // One reported round beside it: the figure is a floor, and says how many rounds did not say.
+  await app.runtime.run({ prompt: "again", sessionId: first.sessionId });
+  await page.locator("#meter-button").click();
+  const both = await summaryAfter();
+  assert.match(both, /2 rounds, 1,400 tokens in, at least 500 served from the cache \(1 rounds did not say\), 0 summaries/);
+  assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1, "only the unreported round is faded");
   assert.deepEqual(errors, []);
 });
