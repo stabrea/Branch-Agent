@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { readdirSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
@@ -123,17 +123,38 @@ export async function attachmentForWindow(
     { temporary: parts.temporaryConversation(wanted.session) });
 }
 
+/**
+ * Writes a conversation's listing and makes sure it has really reached the disk before saying so.
+ * Without the flush the rename can land while the words are still in the operating system's hands,
+ * and a machine that loses power there comes back with a name pointing at nothing.
+ */
+async function flushToFile(path: string, text: string): Promise<void> {
+  const handle = await open(path, "w", 0o600);
+  try {
+    await handle.writeFile(text, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 export class Attachments {
   /**
-   * The second argument exists so a test can hold the folder listing still. It is not part of the
-   * app's own surface: `createBranch` builds this with one argument and gets `readdirSync`.
+   * The second and third arguments exist so a test can hold the folder listing still and make the
+   * listing's own write fail. Neither is part of the app's own surface: `createBranch` builds this
+   * with one argument and gets `readdirSync` and a real flushed write.
    */
   constructor(
     readonly root: string,
     private readonly listFolders: (path: string) => string[] = readdirSync,
+    private readonly writeListing: (path: string, text: string) => Promise<void> = flushToFile,
   ) {}
   /** One queue per conversation, so its listing is never written by two turns at once. */
   private readonly turns = new Map<string, Promise<void>>();
+  /** Only for tests: how many conversations still have a turn waiting or running. */
+  get queuedTurns(): number {
+    return this.turns.size;
+  }
 
   private folder(sessionId: string, temporary = false): string {
     return join(this.root, folderFor(sessionId, temporary));
@@ -163,14 +184,22 @@ export class Attachments {
       await mkdir(folder, { recursive: true, mode: 0o700 });
       const kept = await this.listing(folder);
       const written: AttachmentRef[] = [];
+      // The listing is never written over in place. It goes to a file of its own beside it, is flushed,
+      // and is then renamed on top — one step the file system either takes or does not. A write that
+      // fails half way through the old way would have left the conversation with a listing naming
+      // nothing, and every file it already held unreachable.
+      const beingWritten = join(folder, `kept.json.${randomBytes(6).toString("hex")}.part`);
       try {
         for (const one of ready) {
           await writeFile(join(folder, one.ref.id), one.bytes, { mode: 0o600 });
           written.push(one.ref);
         }
-        await writeFile(join(folder, "kept.json"), JSON.stringify([...kept, ...written]), { mode: 0o600 });
+        await this.writeListing(beingWritten, JSON.stringify([...kept, ...written]));
+        await rename(beingWritten, join(folder, "kept.json"));
       } catch (error) {
-        // Nothing half-written is left lying about, even when the disk is what failed.
+        // Nothing half-written is left lying about, even when the disk is what failed: not the bytes
+        // of this turn's files, and not the listing that was being built.
+        await rm(beingWritten, { force: true }).catch(() => undefined);
         for (const ref of written) await rm(join(folder, ref.id), { force: true }).catch(() => undefined);
         throw error;
       }
@@ -181,7 +210,14 @@ export class Attachments {
   private inTurn<T>(sessionId: string, temporary: boolean | undefined, work: () => Promise<T>): Promise<T> {
     const key = folderFor(sessionId, temporary);
     const next = (this.turns.get(key) ?? Promise.resolve()).then(work, work);
-    this.turns.set(key, next.then(() => undefined, () => undefined));
+    const settled = next.then(() => undefined, () => undefined);
+    this.turns.set(key, settled);
+    // A finished turn takes its own place in the queue away again, or an app answering conversations
+    // all day would keep one entry per conversation for as long as it runs. Only its own: by the time
+    // this runs another turn may have queued behind it, and that one is not this one's to remove.
+    void settled.then(() => {
+      if (this.turns.get(key) === settled) this.turns.delete(key);
+    });
     return next;
   }
   /** One file checked and decoded, with nothing written yet. */
