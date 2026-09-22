@@ -342,6 +342,44 @@ test("a correction is weighed by the name the page keeps, not the one the caller
   assert.equal(bytesOf(door), maximumPageBytes, "the longer spelling was never what was measured");
 });
 
+test("what a call would touch is worked out for the owner alone, so a refusal cannot name a page", async (t) => {
+  const { app, wiki } = await branch(t);
+  wiki.write(owner, { title: "Private", body: "The safe code is 1234." });
+  wiki.write(owner, { title: "Index", body: "Everything worth knowing: [[Private]]." });
+  addPolicyRule(app.store, owner, { tool: "wiki.*", match: "wiki/private", decision: "deny", remember: "always" });
+
+  // A task as the runtime writes one down, started for somebody else at this computer.
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  const started = (over) => {
+    const run = app.store.createRun(app.runtime.owner, "a task");
+    app.store.event(run.id, "run.started", { source: "owner", parentRunId: null, ...over });
+    return app.runtime.context({ runId: run.id });
+  };
+
+  // Working out what the call would touch reads the owner's page to resolve its links. For anybody but
+  // the owner that must not happen at all: the refusal itself would otherwise say the page's name.
+  const theirs = started({ personProfileId: sam.id });
+  assert.deepEqual(app.registry.targetsOf("wiki.read", { title: "Index", follow: true }, theirs),
+    [{ kind: "read", path: "wiki/index" }], "only the name they typed themselves comes back");
+  const judged = app.runtime.checkPolicy("wiki.read", { title: "Index", follow: true }, theirs);
+  assert.doesNotMatch(judged.reason ?? "", /private/i, "and no refusal names a page they may not know exists");
+
+  // The same at the policy boundary for a task a chat message started, and for a short-lived key.
+  const fromChat = started({ source: "channel" });
+  assert.deepEqual(app.registry.targetsOf("wiki.read", { title: "Index", follow: true }, fromChat),
+    [{ kind: "read", path: "wiki/index" }], "a chat cannot prove who is typing, so it learns nothing either");
+  assert.doesNotMatch(app.runtime.checkPolicy("wiki.read", { title: "Index", follow: true }, fromChat).reason ?? "", /private/i);
+
+  const asOwner = started({});
+  const withKey = underShortLivedKey(() => app.registry.targetsOf("wiki.read", { title: "Index", follow: true }, asOwner));
+  assert.deepEqual(withKey, [{ kind: "read", path: "wiki/index" }], "a script's own key learns nothing either");
+
+  // And the owner's own call is judged on everything it really reads, exactly as before.
+  assert.deepEqual(app.registry.targetsOf("wiki.read", { title: "Index", follow: true }, asOwner),
+    [{ kind: "read", path: "wiki/index" }, { kind: "read", path: "wiki/private" }]);
+  assert.equal(app.runtime.checkPolicy("wiki.read", { title: "Index", follow: true }, asOwner).decision, "deny");
+});
+
 test("every wiki tool says what it touches, by page or by the whole wiki", async (t) => {
   const { app } = await branch(t);
   const context = { owner: app.runtime.owner, workspace: ".", runId: "targets", permissions: new Set(), depth: 0 };

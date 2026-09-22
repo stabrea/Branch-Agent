@@ -329,6 +329,15 @@ function onlyTheOwner(store: Store, context: ToolContext): void {
   if (startedWithShortLivedKey() || origin?.shortLivedKey) throw new Error(shortLivedWikiRefusal);
   if (startedFromChat(context, store)) throw new Error(chatWikiRefusal);
 }
+/**
+ * The same question, asked without throwing, for the one place that runs **before** a tool does: working
+ * out what a call would touch. That step reads the owner's page to resolve its links, so for anybody but
+ * the owner it must not run at all — otherwise a refusal could name a page they were never allowed to
+ * know the name of, and the refusal would be the leak.
+ */
+function ownerIsAsking(store: Store, context: ToolContext): boolean {
+  try { onlyTheOwner(store, context); return true; } catch { return false; }
+}
 
 export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, store: Store): void {
   registry.register({
@@ -340,7 +349,12 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
       follow: z.boolean().default(false),
     }).strict(),
     target: (input) => `wiki/${sameNameAs(input.title)}`,
-    targets: (input) => readTargets(wiki, owner, input.title, input.follow),
+    // Only the owner's own call gets the precise answer, because working it out reads their pages.
+    // For anybody else the call names the page they asked for and nothing else — which is their own
+    // words back — and the guard inside the tool refuses them a moment later anyway.
+    targets: (input, context) => ownerIsAsking(store, context)
+      ? readTargets(wiki, owner, input.title, input.follow)
+      : pageTarget("read", input.title),
     execute: async (input, context) => {
       onlyTheOwner(store, context);
       return wiki.read(owner, input.title, { follow: input.follow });
