@@ -104,6 +104,29 @@ test("on a fresh install, switching on a Trunks part from the page makes it work
   assert.equal(app.store.get("settings", owner, "trunks-messages").data.mode, "when-needed", "its own choice is kept");
 });
 
+test("switching from this page takes effect at once: the tool appears, goes, and switching off cleans up", async (t) => {
+  const { app, call } = await fixture(t);
+  const cancelled = [];
+  const cancel = app.autonomy.runner.cancel.bind(app.autonomy.runner);
+  app.autonomy.runner.cancel = (...args) => { cancelled.push(true); return cancel(...args); };
+  assert.equal(app.registry.names().includes("orders.list"), false, "off as it ships");
+  assert.equal((await call({ key: "autonomy-orders", on: true })).body.on, true);
+  assert.equal(app.registry.names().includes("orders.list"), true, "its tool is in the running registry, no restart");
+  await call({ key: "autonomy-orders", on: false });
+  assert.equal(app.registry.names().includes("orders.list"), false, "and gone again");
+  assert.deepEqual(cancelled, [true], "switching off ran the module's own cleanup");
+});
+
+test("a part that needs Trunks switches Trunks on through Trunks' own setter, and its tool appears", async (t) => {
+  const { app, call } = await fixture(t);
+  const calls = [];
+  const setMode = app.trunks.setMode.bind(app.trunks);
+  app.trunks.setMode = (part, input) => { calls.push([part, input.mode]); return setMode(part, input); };
+  await call({ key: "trunks-messages", on: true });
+  assert.deepEqual(calls, [["trunks", "when-needed"], ["messages", "when-needed"]], "the root first, by its own setter");
+  assert.equal(app.registry.names().includes("trunk.message"), true);
+});
+
 test("Lockdown keeps what it covers off, and a short-lived key changes nothing", async (t) => {
   const { app, call, owner } = await fixture(t);
   app.store.save("settings", owner, "lockdown", { on: true });
@@ -126,7 +149,7 @@ test("a household profile can neither read nor switch what the assistant can do"
   assert.notEqual((await call({ key: "web-pages", on: true })).status, 200);
   // The route's own guard (it names itself) is what stays if the outer table is ever refactored.
   for (const method of ["GET", "POST"])
-    await assert.rejects(capabilitiesRoute(app.store, owner, method, async () => ({ key: "web-pages", on: true }), () => null),
+    await assert.rejects(capabilitiesRoute(app.store, owner, app, method, async () => ({ key: "web-pages", on: true }), () => null),
       /^Error: What the assistant can do belongs to the owner/);
   assert.equal(app.store.get("settings", owner, "web-pages")?.data?.mode ?? "off", "off", "nothing changed");
 });

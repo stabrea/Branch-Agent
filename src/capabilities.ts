@@ -4,7 +4,7 @@ import type { FeatureMode } from "./feature-switches.js";
 import { lockdownActive, lockdownOverrides } from "./lockdown.js";
 import { addOnMode, addOnParts, saveAddOnSettings, type AddOnPart } from "./add-ons/settings.js";
 import { contextFileSettings, saveContextFileSettings, switchFor, type SlotKey } from "./context-files.js";
-import { capabilities, labelKeyOf, type Capability, type CapabilityGroupName } from "./capabilities-table.js";
+import { capabilities, labelKeyOf, type Capability, type CapabilityGroupName, type LiveModules } from "./capabilities-table.js";
 
 /**
  * Owner item 17: the Capabilities page. Everything the assistant can do (src/capabilities-table.ts),
@@ -56,8 +56,14 @@ export function capabilityRows(store: Store, owner: string): CapabilityRow[] {
 const SetSchema = z.object({ key: z.string().min(1).max(80), on: z.boolean() }).strict();
 const next = (current: unknown, on: boolean): FeatureMode => (!on ? "off" : current === "on" ? "on" : "when-needed");
 
-/** Writes one capability's switch, keeping a record's other fields and a legacy "on". */
-function write(store: Store, owner: string, id: string, on: boolean): void {
+/**
+ * Writes one capability's switch. A switch with a running side goes through its live module, so the
+ * change takes effect now (tools registered or removed, work cancelled, connections closed); the rest
+ * are saved, keeping a record's other fields and a legacy "on".
+ */
+async function write(store: Store, owner: string, live: LiveModules, entry: Capability, on: boolean): Promise<void> {
+  const id = entry.id;
+  if (entry.live) { await entry.live(live, next(entry.effective(store, owner), on)); return; }
   if (id.startsWith("context-files:")) {
     const slot = id.slice("context-files:".length) as SlotKey;
     saveContextFileSettings(store, owner, { files: { [slot]: next(switchFor(contextFileSettings(store, owner), slot), on) } });
@@ -75,25 +81,26 @@ function write(store: Store, owner: string, id: string, on: boolean): void {
 }
 
 /** `GET|POST /api/capabilities`: the owner's alone, checked here so the guard moves with the route. */
-export async function capabilitiesRoute(store: Store, owner: string, method: string, body: () => Promise<unknown>, toolLoading: () => unknown): Promise<unknown> {
+export async function capabilitiesRoute(store: Store, owner: string, live: LiveModules, method: string, body: () => Promise<unknown>, toolLoading: () => unknown): Promise<unknown> {
   store.profiles.requireOwner("What the assistant can do");
-  if (method === "POST") return setCapability(store, owner, await body());
+  if (method === "POST") return setCapability(store, owner, live, await body());
   if (method !== "GET") throw new Error("Use GET or POST");
   return { toolLoading: toolLoading(), rows: capabilityRows(store, owner) };
 }
 
 /** Switches one capability on or off. On also switches on what it needs, so it works at once. */
-export function setCapability(store: Store, owner: string, input: unknown): CapabilityRow {
+export async function setCapability(store: Store, owner: string, live: LiveModules, input: unknown): Promise<CapabilityRow> {
   const { key, on } = SetSchema.parse(input);
   const entry = byId.get(key);
   if (!entry) throw new Error("There is no capability with that name.");
   const row = rowFor(store, owner, entry, lockdownActive(store, owner));
   if (on && row.locked) throw new Error("Lockdown is on, so this stays off until Lockdown is switched off.");
   if (on && row.needs) {
-    const root = rowFor(store, owner, byId.get(row.needs.key)!, lockdownActive(store, owner));
+    const rootEntry = byId.get(row.needs.key)!;
+    const root = rowFor(store, owner, rootEntry, lockdownActive(store, owner));
     if (root.locked) throw new Error("Lockdown is on, so this stays off until Lockdown is switched off.");
-    write(store, owner, root.key, true);
+    await write(store, owner, live, rootEntry, true); // through the root's own setter too
   }
-  write(store, owner, key, on);
+  await write(store, owner, live, entry, on);
   return rowFor(store, owner, entry, lockdownActive(store, owner));
 }

@@ -24,6 +24,21 @@ import { contextFileSettings, slots, switchFor } from "./context-files.js";
  */
 type Reader = Pick<Store, "get">;
 export type CapabilityGroupName = CapabilityGroup | "files";
+type Setter = { setMode(part: string, input: unknown): unknown };
+/**
+ * The running modules, each switched through its own setter so the change takes effect at once: its
+ * tools come and go in the live registry, and switching off runs its cleanup (cancelling work,
+ * disconnecting, stopping). These are the objects `createBranch` hands back.
+ */
+export interface LiveModules {
+  trunks: Setter; interop: Setter; asks: Setter; autonomy: Setter; safetyExtras: Setter; flowsBoards: Setter; learningMore: Setter;
+  coding: { setMode(part: string, mode: FeatureMode): unknown };
+  personal: { setMode(part: string, input: unknown): Promise<unknown> };
+  reachParts: { setMode(part: string, input: unknown): Promise<unknown> };
+  addOns: { save(input: unknown): unknown };
+  learn: { save(input: unknown): unknown };
+  devices: { setMode(input: unknown): unknown };
+}
 export interface Capability {
   /** The row's key: the settings record, `record#field`, `add-ons:<part>` or `context-files:<slot>`. */
   id: string;
@@ -35,6 +50,8 @@ export interface Capability {
   needs?: string;
   /** What is in use: the module's own reader, so dependencies and Lockdown are counted. */
   effective: (store: Reader, owner: string) => FeatureMode;
+  /** Switches it through the live module; absent for a switch that is only ever read fresh per task. */
+  live?: (modules: LiveModules, mode: FeatureMode) => unknown | Promise<unknown>;
 }
 
 /** The key a capability's name has in the language files. */
@@ -43,6 +60,7 @@ export const labelKeyOf = (id: string): string => `capabilities.label.${id.toLow
 interface PartsModule<P extends string> {
   parts: readonly P[]; key: (part: P) => string; labels: Record<P, string>;
   mode: (store: Reader, owner: string, part: P) => FeatureMode; group: CapabilityGroupName; root?: P;
+  live: (modules: LiveModules, part: P, mode: FeatureMode) => unknown | Promise<unknown>;
 }
 const toolsOf = new Map(toolFeatures.map((feature) => [feature.field && feature.field !== "mode" ? `${feature.key}#${feature.field}` : feature.key, feature.tools]));
 
@@ -53,22 +71,23 @@ function fromModule<P extends string>(module: PartsModule<P>): Capability[] {
       id, group: module.group, label: module.labels[part], tools: toolsOf.get(id) ?? [],
       ...(module.root && part !== module.root ? { needs: module.key(module.root) } : {}),
       effective: (store: Reader, owner: string) => module.mode(store, owner, part),
+      live: (modules: LiveModules, mode: FeatureMode) => module.live(modules, part, mode),
     };
   });
 }
 
 const modules = [
-  fromModule({ parts: trunkParts, key: trunkKey, labels: trunkLabels, mode: trunkMode, group: "trunks", root: "trunks" }),
-  fromModule({ parts: interopParts, key: interopKey, labels: interopLabels, mode: interopMode, group: "agents" }),
-  fromModule({ parts: askParts, key: askKey, labels: askLabels, mode: askMode, group: "helpers" }),
-  fromModule({ parts: autonomyParts, key: autonomyKey, labels: autonomyLabels, mode: autonomyMode, group: "automations" }),
-  fromModule({ parts: codingParts, key: codingKey, labels: codingLabels, mode: codingMode, group: "work" }),
-  fromModule({ parts: personalParts, key: personalKey, labels: personalLabels, mode: personalMode, group: "accounts" }),
-  fromModule({ parts: reachParts, key: reachKey, labels: reachLabels, mode: reachMode, group: "reach" }),
-  fromModule({ parts: safetyParts, key: safetyKey, labels: safetyLabels, mode: safetyMode, group: "safety" }),
-  fromModule({ parts: boardParts, key: boardKey, labels: boardLabels, mode: boardMode, group: "flows" }),
-  fromModule({ parts: learningParts, key: learningKey, labels: learningLabels, mode: learningMode, group: "memory" }),
-  fromModule({ parts: addOnParts, key: (part) => `add-ons:${part}`, labels: addOnLabels, mode: addOnMode, group: "add-ons" }),
+  fromModule({ parts: trunkParts, key: trunkKey, labels: trunkLabels, mode: trunkMode, group: "trunks", root: "trunks", live: (m, part, mode) => m.trunks.setMode(part, { mode }) }),
+  fromModule({ parts: interopParts, key: interopKey, labels: interopLabels, mode: interopMode, group: "agents", live: (m, part, mode) => m.interop.setMode(part, { mode }) }),
+  fromModule({ parts: askParts, key: askKey, labels: askLabels, mode: askMode, group: "helpers", live: (m, part, mode) => m.asks.setMode(part, { mode }) }),
+  fromModule({ parts: autonomyParts, key: autonomyKey, labels: autonomyLabels, mode: autonomyMode, group: "automations", live: (m, part, mode) => m.autonomy.setMode(part, { mode }) }),
+  fromModule({ parts: codingParts, key: codingKey, labels: codingLabels, mode: codingMode, group: "work", live: (m, part, mode) => m.coding.setMode(part, mode) }),
+  fromModule({ parts: personalParts, key: personalKey, labels: personalLabels, mode: personalMode, group: "accounts", live: (m, part, mode) => m.personal.setMode(part, { mode }) }),
+  fromModule({ parts: reachParts, key: reachKey, labels: reachLabels, mode: reachMode, group: "reach", live: (m, part, mode) => m.reachParts.setMode(part, { mode }) }),
+  fromModule({ parts: safetyParts, key: safetyKey, labels: safetyLabels, mode: safetyMode, group: "safety", live: (m, part, mode) => m.safetyExtras.setMode(part, { mode }) }),
+  fromModule({ parts: boardParts, key: boardKey, labels: boardLabels, mode: boardMode, group: "flows", live: (m, part, mode) => m.flowsBoards.setMode(part, { mode }) }),
+  fromModule({ parts: learningParts, key: learningKey, labels: learningLabels, mode: learningMode, group: "memory", live: (m, part, mode) => m.learningMore.setMode(part, { mode }) }),
+  fromModule({ parts: addOnParts, key: (part) => `add-ons:${part}`, labels: addOnLabels, mode: addOnMode, group: "add-ons", live: (m, part, mode) => m.addOns.save({ modes: { [part]: mode } }) }),
 ].flat();
 
 /** A tool switch of its own ("page notes are switched on") named the way the page names it. */
@@ -77,10 +96,16 @@ const nameOf = (reason: string): string => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 const inModules = new Set(modules.map((entry) => entry.id));
+/** The single switches with a running side (the rest are read fresh by every task, so saving is all). */
+const singleSetters: Record<string, (modules: LiveModules, mode: FeatureMode) => unknown> = {
+  "devices-book": (m, mode) => m.devices.setMode({ mode }),
+  learn: (m, mode) => m.learn.save({ mode }),
+};
 const singles: Capability[] = toolFeatures
   .map((feature) => ({ feature, id: feature.field && feature.field !== "mode" ? `${feature.key}#${feature.field}` : feature.key }))
   .filter(({ id }) => !inModules.has(id))
-  .map(({ feature, id }) => ({ id, group: feature.group, label: nameOf(feature.reason), tools: feature.tools, effective: feature.mode }));
+  .map(({ feature, id }) => ({ id, group: feature.group, label: nameOf(feature.reason), tools: feature.tools, effective: feature.mode,
+    ...(singleSetters[id] ? { live: singleSetters[id] } : {}) }));
 
 const files: Capability[] = slots.map((slot) => ({
   id: `context-files:${slot.key}`, group: "files", label: `${slot.names[0]}: ${slot.about}`, tools: [],

@@ -1226,7 +1226,7 @@ async function api(
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   // Owner item 17: the Capabilities page, every switch as one on/off toggle (src/capabilities.ts).
   if (path === "/api/capabilities")
-    return capabilitiesRoute(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request), () => toolLoadingCost(app, app.runtime.owner));
+    return capabilitiesRoute(app.store, app.runtime.owner, app, request.method ?? "GET", () => readBody(request), () => toolLoadingCost(app, app.runtime.owner));
   // Owner item 17: the one Tool loading switch, and what switching it off would cost for this model.
   if (path === "/api/tool-loading") {
     // The owner's alone, checked here so the guard moves with the route.
