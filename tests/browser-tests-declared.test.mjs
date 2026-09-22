@@ -357,9 +357,12 @@ test("a file that makes a browser and hides the name it gives it is refused", as
        an ordinary way to write real code, and tests/browser.test.mjs writes it five times. */
     "tests/comma.test.mjs": ["const probe = observeLaunch(), browser = new BranchBrowser({});",
       "await browser.close();"],
-    /* A construction that is prose, and one that is a fixture. Neither is a construction. */
-    "tests/prose.test.mjs": ["// const browser = new BranchBrowser({});", "assert.equal(1, 1);"],
-    "tests/fixture.test.mjs": ['const written = ["const x = new BranchBrowser({});"];', "assert.ok(written);"],
+    /* A construction that is prose, and one that is a fixture. Neither is a construction -- and both
+       are written in the *hidden* shape on purpose, because a readable one would be allowed either way
+       and would prove nothing about reading code alone. This file is full of exactly these. */
+    "tests/prose.test.mjs": ["// let hidden; hidden = new BranchBrowser({});", "assert.equal(1, 1);"],
+    "tests/fixture.test.mjs": ['const written = ["let hidden;", "hidden = new BranchBrowser({});"];',
+      "assert.ok(written);"],
   };
   const judged = await judgeFiles(Object.keys(written), async (file) => written[file].join(NL), names, methods);
 
