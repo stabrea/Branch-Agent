@@ -5,10 +5,11 @@ import { utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DiagnosticLog, DiagnosticLogSettingsSchema, crashReporterOptions, makeRedactor, redactFields, watchProcessCrashes, componentOf,
+  DiagnosticLog, DiagnosticLogSettingsSchema, crashReporterOptions, makeRedactor, redactFields, watchProcessCrashes, componentOf, diagnose,
 } from "../dist/diagnostic-log.js";
 import { gatherReport, issueUrl, keptItems, reportZip } from "../dist/diagnostic-report.js";
-import { diagnosticApi, handlesDiagnosticPath } from "../dist/diagnostic-api.js";
+import { diagnosticApi, handlesDiagnosticPath, startDiagnosticLog } from "../dist/diagnostic-api.js";
+import { createBranch } from "../dist/index.js";
 import { zipRead } from "../dist/skill-package.js";
 import { offLimitsToHousehold, offLimitsToShortLivedKeys } from "../dist/server.js";
 
@@ -73,6 +74,23 @@ test("D4 off writes nothing; when needed writes only warnings and errors", async
   log.write({ level: "warn", component: "engine", message: "loud" });
   assert.deepEqual(log.read().map((line) => line.message), ["loud"]);
   assert.equal(log.breadcrumbs().length, 3, "breadcrumbs are kept in memory whatever the mode");
+});
+
+test("D4a an opted-in reporter can observe the already-clean error even while the local log is off", async (t) => {
+  const dir = await folder(t);
+  const seen = [];
+  const log = new DiagnosticLog({
+    dir,
+    settings: settings({ mode: "off" }),
+    clean,
+    onLine: (line) => seen.push(line),
+  });
+  log.write({ level: "error", component: "updater", message: "failed for alice@example.com" });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].component, "updater");
+  assert.doesNotMatch(seen[0].message, /alice@example\.com/);
+  assert.deepEqual(await readdir(dir).catch(() => []), [], "the independent activity-log switch remains off");
 });
 
 test("D5 the log rotates at its size cap and keeps at most five files", async (t) => {
@@ -182,7 +200,8 @@ test("D12 nothing in the new code sends anything by itself", async () => {
 /* ---------------------------------------------------------------- 5. who may use it */
 
 test("D13 short-lived keys and household profiles are refused, reading included", () => {
-  for (const path of ["/api/diagnostics/log", "/api/diagnostics/report", "/api/diagnostics/log/settings"]) {
+  for (const path of ["/api/diagnostics/log", "/api/diagnostics/report", "/api/diagnostics/log/settings",
+    "/api/diagnostics/report/automatic", "/api/diagnostics/report/automatic/preview"]) {
     assert.match(offLimitsToShortLivedKeys("GET", path) ?? "", /short-lived key/);
     assert.match(offLimitsToShortLivedKeys("POST", path) ?? "", /short-lived key/);
     assert.match(offLimitsToHousehold("GET", path) ?? "", /belongs to the owner/);
@@ -310,4 +329,64 @@ test("D20 a crash after the database has closed is still written, and the handle
   assert.equal(log.crashes(5).length, 1, "switched on: the note is written without the database");
   assert.equal(log.read().length, 0, "with no readable settings the log behaves as shipped: off");
   assert.doesNotThrow(() => log.prune());
+});
+
+test("D21 automatic problem reports can be enabled only for an owner destination that is still linked", async (t) => {
+  const dataDir = await folder(t);
+  const app = fakeApp();
+  const rows = new Map();
+  app.store.get = (_table, owner, key) => rows.get(`${owner}:${key}`);
+  app.store.save = (_table, owner, key, data) => rows.set(`${owner}:${key}`, { data });
+  app.channels = { summary: () => ({ chats: [{ channel: "discord", chatId: "owner-room", title: "Problems" }] }) };
+  app.registry = { names: () => [] };
+  const call = (method, input) => diagnosticApi(
+    { app, dataDir, installType: "x", startedAt: 0 }, method, "/api/diagnostics/report/automatic",
+    new URL("http://local/api/diagnostics/report/automatic"), async () => input,
+  );
+
+  await assert.rejects(call("POST", { mode: "on", destination: { kind: "channel", channel: "discord", chatId: "stranger" } }),
+    /no longer linked/);
+  assert.equal(rows.size, 0, "an unlinked destination is refused before consent is stored");
+  const saved = await call("POST", { mode: "on", destination: { kind: "channel", channel: "discord", chatId: "owner-room" } });
+  assert.equal(saved.settings.mode, "on");
+  assert.equal(saved.settings.destination.chatId, "owner-room");
+  const read = await call("GET", {});
+  assert.deepEqual(read.settings, saved.settings);
+  assert.deepEqual(read.destinations.channels, [{ channel: "discord", chatId: "owner-room", title: "Problems" }]);
+});
+
+test("D22 an opted-in update problem reaches the linked owner chat redacted and leaves a receipt", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-diag-report-"));
+  const dataDir = join(root, "data");
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir });
+  const sent = [];
+  const adapter = {
+    id: "problem-reports", kind: "problem-reports", botName: () => "Branch",
+    async start() {}, async stop() {},
+    async send(chatId, text) { sent.push({ chatId, text }); return "sent-1"; },
+  };
+  await app.channels.attach(adapter, { activation: "always", pairing: true, allowlist: ["owner"] });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  app.channels.link(app.runtime.owner, { channel: adapter.id, chatId: "owner-room", sessionId });
+  app.store.save("settings", app.runtime.owner, "automatic-problem-reports", {
+    mode: "on",
+    destination: { kind: "channel", channel: adapter.id, chatId: "owner-room" },
+    events: ["update"],
+    items: ["about"],
+  });
+  const stop = startDiagnosticLog(app, dataDir, "package", Date.now());
+  t.after(async () => { stop(); await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  diagnose("updater", "error", "Update failed for alice@example.com");
+  for (let tries = 0; tries < 100 && sent.length === 0; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, "owner-room");
+  assert.match(sent[0].text, /Branch Agent noticed an update problem/);
+  assert.doesNotMatch(sent[0].text, /alice@example\.com/);
+  const [receipt] = app.store.audit.list(app.runtime.owner, { action: "data.exported" })
+    .filter((entry) => entry.actor === "automatic problem reports");
+  assert.equal(receipt?.outcome, "sent");
+  assert.match(receipt?.subject ?? "", /problem-reports:owner-room/);
 });

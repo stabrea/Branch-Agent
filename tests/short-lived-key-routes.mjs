@@ -186,6 +186,8 @@ export const ROUTES = {
   "/api/diagnostics/log/clear": "owner POST",
   "/api/diagnostics/window-error": "owner POST",
   "/api/diagnostics/report": "owner POST",
+  "/api/diagnostics/report/automatic": "owner GET,POST",
+  "/api/diagnostics/report/automatic/preview": "owner POST",
   "/api/diagnostics/report/save": "owner POST",
   "/api/diagnostics/report/issue": "owner POST",
   "/api/documents": "other POST",
