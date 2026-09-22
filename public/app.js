@@ -496,13 +496,15 @@ function renderProcedures() {
     "Turn a repeatable workflow into a recipe with checked results.",
   );
 }
-const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const weekdayName = (day) => t(`schedule.weekday.${day}`);
 function scheduleRhythm(data) {
-  if (data.cron) return `Cron ${data.cron} (${data.timezone})`;
-  if (data.monthDay) return `Every month on day ${data.monthDay} at ${data.dailyAt} (${data.timezone})`;
-  if (data.weekdays) return `Every ${data.weekdays.map((day) => weekdayNames[day]).join(", ")} at ${data.dailyAt} (${data.timezone})`;
-  if (data.dailyAt) return `Every day at ${data.dailyAt} (${data.timezone})`;
-  if (data.intervalMs) return `Repeats every ${data.intervalMs / 60000} minutes`;
+  if (data.cron) return t("schedule.rhythm.cron", { cron: data.cron, timezone: data.timezone });
+  if (data.monthDay) return t("schedule.rhythm.monthly", { day: data.monthDay, time: data.dailyAt, timezone: data.timezone });
+  if (data.weekdays) return t("schedule.rhythm.weekdays", {
+    days: data.weekdays.map(weekdayName).join(", "), time: data.dailyAt, timezone: data.timezone,
+  });
+  if (data.dailyAt) return t("schedule.rhythm.daily", { time: data.dailyAt, timezone: data.timezone });
+  if (data.intervalMs) return t("schedule.rhythm.interval", { minutes: data.intervalMs / 60000 });
   return null;
 }
 function renderSchedules() {
@@ -2047,6 +2049,7 @@ function showScheduleRecurrenceFields() {
   $("schedule-daily").required = usesTime;
   $("schedule-weekday-field").hidden = mode !== "weekly";
   $("schedule-month-day-field").hidden = mode !== "monthly";
+  $("schedule-month-day").required = mode === "monthly";
   $("schedule-cron-field").hidden = mode !== "cron";
   $("schedule-cron").required = mode === "cron";
 }
@@ -2112,6 +2115,7 @@ $("appearance-shortcut").addEventListener("click", () => {
 });
 $("schedule-timezone").value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 $("schedule-repeat").addEventListener("change", showScheduleRecurrenceFields);
+document.addEventListener("branch-language", () => { if (state) renderSchedules(); });
 showScheduleRecurrenceFields();
 if (token || desktop) refresh().catch((e) => toast(e.message));
 function modelConnectionFields() {

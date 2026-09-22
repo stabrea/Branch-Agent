@@ -61,11 +61,11 @@ function openRun(run) {
 /* ---------- this computer ---------- */
 function schedulesWords(schedule) {
   const data = schedule.data ?? schedule;
-  if (data.cron) return `Cron ${data.cron} (${data.timezone})`;
-  if (data.monthDay) return `Every month on day ${data.monthDay} at ${data.dailyAt}`;
+  if (data.cron) return say("schedule.rhythm.cron", "Cron {cron} ({timezone})", data);
+  if (data.monthDay) return say("schedule.overview.monthly", "Every month on day {day} at {time}", { day: data.monthDay, time: data.dailyAt });
   if (data.weekdays) {
-    const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    return `Every ${data.weekdays.map((day) => names[day]).join(", ")} at ${data.dailyAt}`;
+    const days = data.weekdays.map((day) => say(`schedule.weekday.${day}`, ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day])).join(", ");
+    return say("schedule.overview.weekdays", "Every {days} at {time}", { days, time: data.dailyAt });
   }
   if (data.dailyAt) return say("ov.daily", "Every day at {time}", { time: data.dailyAt });
   if (data.intervalMs) return say("ov.every", "Every {n} min", { n: Math.round(data.intervalMs / 60000) });

@@ -146,12 +146,17 @@ test("F3 the rhythm picker says in plain words what it would do", async (t) => {
   /* And the same rhythm as the schedules understand it: a clock time, or a gap, never both. */
   const shapes = await page.evaluate(async () => {
     const { rhythmAsSchedule } = await import("/flow-editor.js");
-    return { weekday: rhythmAsSchedule("weekday", "09:00"), hourly: rhythmAsSchedule("hourly", "09:00") };
+    return {
+      weekday: rhythmAsSchedule("weekday", "09:00"),
+      weekly: rhythmAsSchedule("weekly", "09:00", 3),
+      hourly: rhythmAsSchedule("hourly", "09:00"),
+    };
   });
   assert.equal(shapes.weekday.dailyAt, "09:00");
   assert.deepEqual(shapes.weekday.weekdays, [1, 2, 3, 4, 5]);
   assert.ok(shapes.weekday.timezone, "a daily time was given with no timezone, which the app refuses");
   assert.equal(shapes.weekday.intervalMs, undefined, "a daily time came with a gap as well");
+  assert.deepEqual(shapes.weekly.weekdays, [3], "weekly keeps the chosen local weekday");
   assert.equal(shapes.hourly.intervalMs, 3_600_000);
   assert.equal(shapes.hourly.dailyAt, undefined);
   assert.deepEqual(errors, []);
@@ -180,6 +185,7 @@ test("the schedule form saves weekly, monthly and cron recurrence without stale 
   await page.locator("#schedule-repeat").selectOption("monthly");
   assert.equal(await page.locator("#schedule-weekday-field").isVisible(), false);
   assert.equal(await page.locator("#schedule-month-day-field").isVisible(), true);
+  assert.equal(await page.locator("#schedule-month-day").getAttribute("required"), "");
   await page.locator("#schedule-month-day").fill("31");
   await save(2);
 

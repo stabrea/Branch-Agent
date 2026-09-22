@@ -32,6 +32,7 @@ test("the schedule shape rejects ambiguous or incomplete recurrence", () => {
   assert.throws(() => ScheduleSchema.parse({ ...base, dailyAt: "09:30", cron: "30 9 * * 1" }), /one recurrence/i);
   assert.throws(() => ScheduleSchema.parse({ ...base, timezone: undefined, cron: "30 9 * * 1" }), /timezone/i);
   assert.throws(() => ScheduleSchema.parse({ ...base, cron: "99 9 * * 1" }), /cron/i);
+  assert.throws(() => ScheduleSchema.parse({ ...base, cron: "0 0 31 2 *" }), /cron/i);
   assert.doesNotThrow(() => ScheduleSchema.parse({ ...base, dailyAt: "09:30", weekdays: [1, 3, 5] }));
   assert.doesNotThrow(() => ScheduleSchema.parse({ ...base, cron: "0 8 1 * *" }));
 });

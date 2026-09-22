@@ -298,7 +298,7 @@ $("editor-resume")?.addEventListener("click", () => { void runFlow("resume"); })
 $("repeat-every")?.addEventListener("change", previewRhythm);
 $("repeat-at")?.addEventListener("input", previewRhythm);
 $("repeat-use")?.addEventListener("click", () => {
-  const wanted = rhythmAsSchedule($("repeat-every").value, $("repeat-at").value, Number($("schedule-weekday")?.value ?? 1));
+  const wanted = rhythmAsSchedule($("repeat-every").value, $("repeat-at").value, new Date().getDay());
   /* The schedules screen owns the boxes; this only fills them in with the chosen rhythm. */
   if (wanted.dailyAt && $("schedule-daily")) $("schedule-daily").value = wanted.dailyAt;
   if (wanted.weekdays?.length === 5) $("schedule-repeat").value = "weekdays";

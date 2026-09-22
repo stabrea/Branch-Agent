@@ -77,7 +77,7 @@ function parseCron(expression: string): CronParts {
 }
 
 export function validCron(expression: string): boolean {
-  try { parseCron(expression); return true; } catch { return false; }
+  try { return cronHasCalendarDay(parseCron(expression)); } catch { return false; }
 }
 
 function cronDayMatches(cron: CronParts, day: Pick<WallParts, "month" | "day" | "weekday">): boolean {
@@ -86,6 +86,20 @@ function cronDayMatches(cron: CronParts, day: Pick<WallParts, "month" | "day" | 
   if (cron.monthDay.wildcard) return week;
   if (cron.weekday.wildcard) return date;
   return date || week;
+}
+
+/** A full Gregorian cycle proves that a syntactically valid cron can actually select a day. */
+function cronHasCalendarDay(cron: CronParts): boolean {
+  for (let year = 2000; year < 2400; year++) {
+    for (const month of cron.month.values) {
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      for (let day = 1; day <= lastDay; day++) {
+        const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+        if (cronDayMatches(cron, { month, day, weekday })) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** The next instant selected by a numeric five-field cron expression in a named timezone. */
