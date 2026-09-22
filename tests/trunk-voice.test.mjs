@@ -157,6 +157,11 @@ test("in the window: a Trunk's answer is read in its voice, chosen in the studio
   await page.locator("#prompt").press("Enter");
   for (let i = 0; i < 100 && !spoken.length; i++) await new Promise((r) => setTimeout(r, 100));
   assert.equal(spoken.at(-1)?.voice, "Test Voice", "the Trunk's own voice");
+  // Pressing Read aloud on the answer, and hold-to-talk, go through the same reading: its voice too.
+  const manual = spoken.length;
+  await page.getByRole("button", { name: "Read aloud" }).last().click();
+  for (let i = 0; i < 50 && spoken.length === manual; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(spoken.at(-1)?.voice, "Test Voice", "Read aloud uses the Trunk's voice");
 
   // A conversation that is not a Trunk's is read in yours: no voice is sent, so Settings › Voice decides.
   await page.locator("#rail-new").click();
@@ -166,6 +171,10 @@ test("in the window: a Trunk's answer is read in its voice, chosen in the studio
   await page.locator("#prompt").press("Enter");
   for (let i = 0; i < 100 && spoken.length === before; i++) await new Promise((r) => setTimeout(r, 100));
   assert.equal(spoken.at(-1)?.voice, undefined, "your own voice");
+  const plain = spoken.length;
+  await page.getByRole("button", { name: "Read aloud" }).last().click();
+  for (let i = 0; i < 50 && spoken.length === plain; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(spoken.at(-1)?.voice, undefined, "and Read aloud there uses yours");
   assert.deepEqual(errors, []);
 });
 

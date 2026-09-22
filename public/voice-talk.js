@@ -33,12 +33,23 @@ let playing = null;
  * the one that comes with Windows. If the server cannot, the browser's own voice has a go, so the
  * button never simply does nothing.
  */
-globalThis.branchSpeak = async function branchSpeak(text) {
+/** The voice of the Trunk whose conversation is on screen, or "" (the owner's own) for any other. */
+async function trunkVoice() {
+  const sessionId = $("conversation")?.dataset.sessionId;
+  if (!sessionId) return "";
+  try {
+    const response = await fetch(`/api/trunks/conversations/${encodeURIComponent(sessionId)}`, { headers: { authorization: bearer() } });
+    return response.ok ? String((await response.json())?.trunk?.voice ?? "") : "";
+  } catch { return ""; }
+}
+/* `voice` left out means the conversation's own: a Trunk's answers are read in that Trunk's voice. */
+globalThis.branchSpeak = async function branchSpeak(text, voice) {
   globalThis.branchStopSpeaking();
+  const chosen = voice ?? await trunkVoice();
   try {
     const response = await fetch("/api/voice/speak", {
       method: "POST", headers: { authorization: bearer(), "content-type": "application/json" },
-      body: JSON.stringify({ text: String(text).slice(0, 4000) }),
+      body: JSON.stringify({ text: String(text).slice(0, 4000), ...(chosen ? { voice: chosen } : {}) }),
     });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Reading aloud did not work");
     const audio = new Audio(URL.createObjectURL(await response.blob()));
@@ -46,7 +57,7 @@ globalThis.branchSpeak = async function branchSpeak(text) {
     await audio.play();
     return new Promise((done) => { audio.onended = done; audio.onerror = done; });
   } catch (error) {
-    if ("speechSynthesis" in window) { globalThis.speakWithBrowserSynthesis?.(text); return; }
+    if ("speechSynthesis" in window) { globalThis.speakWithBrowserSynthesis?.(text, chosen); return; }
     say(error.message);
   }
 };
@@ -228,7 +239,7 @@ async function saveVoicePlan() {
 function wireVoiceSettings() {
   $("voice-settings-save")?.addEventListener("click", () => void saveVoicePlan());
   $("voice-test-speak")?.addEventListener("click", () =>
-    void globalThis.branchSpeak("This is how Branch Agent will read your replies aloud."));
+    void globalThis.branchSpeak("This is how Branch Agent will read your replies aloud.", ""));
   $("voice-test-record")?.addEventListener("click", async () => {
     if (state !== "idle") return;
     await press();
