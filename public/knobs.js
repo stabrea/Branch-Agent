@@ -11,6 +11,23 @@ import { segmented, dropdown } from "/control-makers.js";
 
 const $ = (id) => document.getElementById(id);
 let shown = null;
+let stateVersion = 0;
+let writesInFlight = 0;
+const cardWriteVersions = new Map();
+
+function beginWrite(card) {
+  const version = (cardWriteVersions.get(card) ?? 0) + 1;
+  cardWriteVersions.set(card, version);
+  stateVersion += 1;
+  writesInFlight += 1;
+  return version;
+}
+const writeIsCurrent = (card, version) => cardWriteVersions.get(card) === version;
+function finishWrite() {
+  writesInFlight -= 1;
+  stateVersion += 1;
+  if (!writesInFlight) void refresh();
+}
 
 async function api(body, path = "knobs") {
   const response = await fetch("/api/" + path, {
@@ -176,15 +193,25 @@ function actions(spec, controls, status) {
   const row = document.createElement("div");
   row.className = "identity-actions";
   const send = async (values, done) => {
+    const version = beginWrite(spec.id);
     const outside = spec.fields.filter((field) => field.outside);
     const inside = Object.fromEntries(Object.entries(values).filter(([name]) => !outside.some((field) => field.name === name)));
     const extra = Object.fromEntries(outside.map((field) => [field.name, values[field.name]]));
-    try { shown = { ...shown, view: await api({ card: spec.card, values: inside, ...extra }) }; status.textContent = t(done); status.dataset.t = done; }
-    catch (error) { status.textContent = error.message; delete status.dataset.t; }
+    try {
+      const view = await api({ card: spec.card, values: inside, ...extra });
+      if (!writeIsCurrent(spec.id, version)) return;
+      shown = { ...shown, view }; clearSavedControlDrafts(`#knobs-${spec.id}-card`, controls, values);
+      status.textContent = t(done); status.dataset.t = done;
+    } catch (error) {
+      if (!writeIsCurrent(spec.id, version)) return;
+      status.textContent = error.message; delete status.dataset.t;
+    } finally {
+      finishWrite();
+    }
   };
   const save = keyed("button", "knobs.action.save");
   save.type = "button";
-  save.addEventListener("click", () => send(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs.saved"));
+  save.addEventListener("click", () => send(visibleControlValues(controls), "knobs.saved"));
   const reset = keyed("button", "knobs.action.reset", "quiet-button");
   reset.type = "button";
   reset.addEventListener("click", () => {
@@ -239,7 +266,7 @@ function launchControls(file) {
     .map((field) => {
       const value = field.section === "commands" ? editable.commands[field.name] : editable.browserSites;
       const c = control({ ...field, name: `launch-${field.name}` }, value, { launched: {}, connections: [], leakKinds: [] });
-      return [field, c];
+      return [{ ...field, controlName: `launch-${field.name}` }, c];
     });
 }
 function launchCard(file) {
@@ -258,10 +285,20 @@ function launchCard(file) {
   const save = keyed("button", "knobs.action.save-for-next-start");
   save.type = "button";
   save.addEventListener("click", async () => {
+    const card = "launch-file";
+    const version = beginWrite(card);
+    const values = visibleControlValues(controls);
     try {
-      await api(Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])), "knobs/launch-file");
+      await api(values, "knobs/launch-file");
+      if (!writeIsCurrent(card, version)) return;
+      clearSavedControlDrafts("#knobs-launch-file-card", controls, values);
       status.textContent = t("knobs.launch.saved"); status.dataset.t = "knobs.launch.saved";
-    } catch (error) { status.textContent = error.message; delete status.dataset.t; }
+    } catch (error) {
+      if (!writeIsCurrent(card, version)) return;
+      status.textContent = error.message; delete status.dataset.t;
+    } finally {
+      finishWrite();
+    }
   });
   card.append(save, status);
   return card;
@@ -271,20 +308,76 @@ function place(card) {
   const existing = $(card.id);
   if (existing) existing.replaceWith(card); else document.body.append(card);
 }
-function draw() {
+const knobControlSelector = 'input[id^="knobs-"], select[id^="knobs-"], textarea[id^="knobs-"]';
+const controlNodes = (nodes) => nodes.flatMap((node) => node.matches?.(knobControlSelector)
+  ? [node] : [...(node.querySelectorAll?.(knobControlSelector) ?? [])]);
+function visibleControlValues(controls) {
+  return Object.fromEntries(controls.map(([field, control]) => {
+    for (const submitted of controlNodes(control.nodes)) {
+      const visible = $(submitted.id);
+      if (!visible || visible === submitted) continue;
+      submitted.value = visible.value;
+      if (submitted.type === "checkbox") submitted.checked = visible.checked;
+    }
+    return [field.name, control.read()];
+  }));
+}
+const sameControlValue = (left, right) => left?.value === right?.value
+  && (left?.type !== "checkbox" || left.checked === right.checked);
+function clearSavedControlDrafts(card, controls, values) {
+  for (const [field, control] of controls) {
+    if (JSON.stringify(control.read()) !== JSON.stringify(values[field.name])) continue;
+    const prefix = `knobs-${field.controlName ?? field.name}`;
+    const submitted = controlNodes(control.nodes).filter((node) => node.id === prefix || node.id.startsWith(prefix + "-"));
+    const live = [...document.querySelectorAll(`${card} ${knobControlSelector}`)]
+      .filter((node) => node.id === prefix || node.id.startsWith(prefix + "-"));
+    if (live.length !== submitted.length || live.some((node) => !sameControlValue(node, submitted.find((old) => old.id === node.id)))) continue;
+    for (const node of live) delete node.dataset.knobDirty;
+  }
+}
+function controlDrafts() {
+  const active = document.activeElement;
+  return {
+    active: active?.id ?? "",
+    selection: active && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : null,
+    values: [...document.querySelectorAll(knobControlSelector)]
+      .filter((node) => node === active || node.dataset.knobDirty === "true")
+      .map((node) => [node.id, { value: node.value, checked: node.type === "checkbox" ? node.checked : null,
+        dirty: node.dataset.knobDirty === "true" }]),
+  };
+}
+function restoreControlDrafts(drafts) {
+  for (const [id, saved] of drafts.values) {
+    const node = $(id);
+    if (!node) continue;
+    node.value = saved.value;
+    if (saved.checked !== null) node.checked = saved.checked;
+    if (saved.dirty) node.dataset.knobDirty = "true"; else delete node.dataset.knobDirty;
+  }
+  const active = $(drafts.active);
+  if (!active) return;
+  active.focus({ preventScroll: true });
+  if (drafts.selection?.every(Number.isInteger) && typeof active.setSelectionRange === "function")
+    active.setSelectionRange(...drafts.selection);
+}
+function draw(preserveDrafts = false) {
   if (!shown) return;
+  const drafts = preserveDrafts ? controlDrafts() : null;
   for (const spec of CARDS) place(buildCard(spec, shown.view));
   if (shown.file) place(launchCard(shown.file));
+  if (drafts) restoreControlDrafts(drafts);
 }
 const allCardsAreDrawn = () => CARDS.every((spec) => $(`knobs-${spec.id}-card`)) && $("knobs-launch-file-card");
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
+  const version = stateVersion;
   try {
     const [view, file] = await Promise.all([api(), api(undefined, "knobs/launch-file")]);
+    if (version !== stateVersion || writesInFlight) return;
     const next = { view, file };
     if (shown && allCardsAreDrawn() && JSON.stringify(next) === JSON.stringify(shown)) return;
     shown = next;
-    draw();
+    draw(true);
   } catch { /* signed out or offline: the next look tries again */ }
 }
 async function afterSignIn(tries = 20) {
@@ -294,8 +387,15 @@ async function afterSignIn(tries = 20) {
 }
 
 if (typeof document !== "undefined") {
+  const markDirty = (event) => {
+    if (!event.target?.matches?.(knobControlSelector)) return;
+    event.target.dataset.knobDirty = "true";
+    stateVersion += 1;
+  };
+  document.addEventListener("input", markDirty, true);
+  document.addEventListener("change", markDirty, true);
   void refresh();
-  document.addEventListener("branch-language", draw);
+  document.addEventListener("branch-language", () => draw(true));
   const signedIn = $("workspace");
   if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) void afterSignIn(); }).observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
   window.branchKnobs = { refresh };

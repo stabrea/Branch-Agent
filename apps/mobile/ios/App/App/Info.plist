@@ -60,6 +60,8 @@
 	<string>Branch uses the microphone only while you hold the Talk button.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Branch asks for Face ID only when you switch on locking.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Branch connects only to the Branch Agent computer you choose on your local network.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.keepoak.branchagent.check</string>

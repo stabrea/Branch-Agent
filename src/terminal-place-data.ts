@@ -2,8 +2,10 @@ import type { createBranch } from "./index.js";
 import { readPolicy, policyPresets } from "./policy.js";
 import { lockdownState } from "./lockdown.js";
 import { assistantIdentity } from "./identity.js";
+import { trunksFor } from "./trunks/index.js";
 import type { Words } from "./terminal-words.js";
 import { learnMode } from "./learn/settings.js"; // mac7/learn
+import { embedSettings } from "./embeds.js";
 
 /**
  * What each place and tab holds, read from the same stores the window's screens read. Every row is
@@ -12,7 +14,7 @@ import { learnMode } from "./learn/settings.js"; // mac7/learn
  */
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 export type PlaceApp = Pick<Branch, "store" | "runtime" | "triggers" | "webhooks" | "hooks" | "documents" | "artifacts"
-  | "plugins" | "mcpConnections" | "channels" | "runQueue" | "version">;
+  | "plugins" | "mcpConnections" | "channels" | "runQueue" | "version" | "devices" | "personal">;
 export interface Row {
   title: string;
   detail?: string;
@@ -77,12 +79,59 @@ function taskRows(app: PlaceApp, since: number): Row[] {
       sessionId: run.sessionId,
     }));
 }
+function overviewRows(app: PlaceApp, words: Words): Row[] {
+  const owner = app.store.profiles.isOwner(), scope = app.store.profiles.scope();
+  const trunkChats = new Set((owner ? trunksFor(app.runtime)?.records.list() ?? [] : [])
+    .flatMap((trunk) => [trunk.chatSessionId, ...trunk.retiredChats]));
+  const latest = new Map<string, ReturnType<PlaceApp["store"]["runs"]>[number]>();
+  for (const run of [...app.store.runs(scope), ...app.store.activeRuns(scope)])
+    if (!latest.has(run.sessionId)) latest.set(run.sessionId, run);
+  const visible = [...latest.values()].filter((run) => !trunkChats.has(run.sessionId));
+  const active = visible.filter((run) => run.status === "running" || run.status === "needs_input");
+  const recent = visible.filter((run) => run.status !== "running" && run.status !== "needs_input")
+    .slice(0, Math.max(0, 12 - active.length));
+  const runs = [...active, ...recent];
+  if (!runs.length) return [{ title: words.t("ov.calm", "Nothing waiting"),
+    detail: words.t("ov.now.none", "Nothing is running right now."), tone: "ok" }];
+  return runs.map((run) => ({ title: clip(run.prompt), detail: `${run.status.replace(/_/g, " ")} · ${day(run.updatedAt)}`,
+    tone: run.status === "running" ? "ok" : run.status === "failed" ? "bad" : run.status === "needs_input" ? "warn" : "muted",
+    sessionId: run.sessionId }));
+}
+function peopleRows(app: PlaceApp, words: Words): Row[] {
+  const profiles = app.store.profiles;
+  const active = profiles.active();
+  const visible = profiles.isOwner() ? profiles.list() : active ? [active] : [];
+  const rows = visible.map((profile) => {
+      const grant = app.runtime.roles.get(profile.id);
+      const role = words.t(`household.role.${grant.role}`, grant.role === "child" ? "Child" : "Adult");
+      const used = profile.lastUsedAt ? day(profile.lastUsedAt) : words.t("household.never", "Has not used Branch yet");
+      return { title: profile.name, detail: `${role} · ${used}` };
+    });
+  return profiles.isOwner()
+    ? [{ title: words.t("household.owner", "The owner"), detail: words.t("household.role.owner", "Owner"), tone: "ok" }, ...rows]
+    : rows;
+}
 const recordRows = (app: PlaceApp, table: "schedules" | "procedures" | "specialists", name: string[]): Row[] =>
   app.store.list(table, app.runtime.owner).map((record) => {
     const data = record.data as Record<string, unknown>;
     const title = name.map((key) => data[key]).find((value) => typeof value === "string" && value) ?? record.id;
     return { title: clip(title), detail: clip([data.status, data.dueAt, data.description].filter(Boolean).join(" · ")) || record.id };
   });
+
+function specialistRows(app: PlaceApp, words: Words): Row[] {
+  const trunkService = trunksFor(app.runtime);
+  const trunks = (!app.store.profiles.isOwner() || trunkService?.modes().trunks === "off" ? [] : trunkService?.records.list() ?? []).map((trunk) => ({
+    title: clip(trunk.name),
+    detail: clip(`${words.t("strip.kind.trunk", "Trunk")} · @${trunk.handle}${trunk.title ? ` · ${trunk.title}` : ""}`),
+    tone: trunk.hidden ? "muted" as const : undefined,
+    sessionId: trunk.chatSessionId,
+  }));
+  const specialists = recordRows(app, "specialists", ["name"]).map((row) => ({
+    ...row,
+    detail: clip(`${words.t("place.customize.specialists", "Specialists")} · ${row.detail ?? ""}`),
+  }));
+  return [...trunks, ...specialists];
+}
 
 function triggers(app: PlaceApp, words: Words): Row[] {
   const on = (enabled: boolean): string => enabled ? words.t("terminal.state.on", "on") : words.t("terminal.state.off", "off");
@@ -106,10 +155,47 @@ async function plugins(app: PlaceApp, words: Words): Promise<Row[]> {
 }
 function channels(app: PlaceApp, words: Words): Row[] {
   const summary = app.channels.summary();
-  return [...summary.channels.map((channel) => ({
+  const chats = summary.channels.map((channel) => ({
     title: `${channel.id}`, detail: `${channel.kind} · ${String((channel.health as { state?: string }).state ?? "")}`,
     tone: (channel.health as { state?: string }).state === "connected" ? "ok" as const : "warn" as const,
-  })), channelSetupRow(words)]; // mac7/connect
+  }));
+  if (!app.store.profiles.isOwner()) return [...chats, channelSetupRow(words)];
+  const devices = app.devices.book.devices().map((device) => ({
+    title: device.name,
+    detail: `${words.t(`devices.platform.${device.platform}`, device.platform)} · ${app.devices.hub.connected(device.id)
+      ? words.t("devices.device.connected", "Connected now") : words.t("devices.device.never", "Not connected yet")}`,
+    tone: app.devices.hub.connected(device.id) ? "ok" as const : "muted" as const,
+  }));
+  const embeds = embedSettings(app.store, app.runtime.owner);
+  const pageRows = embeds.widget || embeds.extension || embeds.widgetSites.length ? [{
+    title: words.t("embeds.title", "Reaching Branch from other pages"),
+    detail: clip([embeds.widget ? words.t("field.let-a-page-of-mine", "Small ask box") : "",
+      embeds.extension ? words.t("field.let-the-browser-extension-send", "Browser extension") : "",
+      ...embeds.widgetSites].filter(Boolean).join(" · "), 140),
+  }] : [];
+  return [...chats, ...devices, ...pageRows, channelSetupRow(words)]; // mac7/connect
+}
+
+async function connectionRows(app: PlaceApp, words: Words): Promise<Row[]> {
+  const mcp = app.mcpConnections.health().map((server) => ({
+    title: server.id, detail: `${server.state}${server.lastError ? " · " + clip(server.lastError, 60) : ""}`,
+    tone: server.lastError ? "bad" as const : undefined,
+  }));
+  if (!app.store.profiles.isOwner()) return mcp;
+  const modes = app.personal.modes();
+  const accounts = await Promise.all(Object.entries(app.personal.signIns).map(async ([service, signIn]) => {
+    const settings = signIn.settings(), status = await signIn.status();
+    if (modes[service as keyof typeof modes] === "off" && !settings.clientId && !status.signedIn) return null;
+    const name = words.t(`personal.${service}.name`, service);
+    return { title: name, detail: words.t(status.signedIn ? "personal.signin.yes" : "personal.signin.no",
+      status.signedIn ? "Signed in." : "Not signed in yet."), tone: status.signedIn ? "ok" as const : "muted" as const };
+  }));
+  const local = [
+    ["x-search", "personal.x.title", "Searching posts on X"],
+    ["home-control", "personal.home.title", "Your Home Assistant"],
+  ].filter(([part]) => modes[part as keyof typeof modes] !== "off")
+    .map(([, key, english]) => ({ title: words.t(key!, english!), detail: words.t("terminal.state.on", "on"), tone: "muted" as const }));
+  return [...mcp, ...accounts.filter((row): row is NonNullable<typeof row> => row !== null), ...local];
 }
 /** mac7/connect: the one command that sets up a chat app, shown where the chat apps are. */
 function channelSetupRow(words: Words): Row {
@@ -119,6 +205,8 @@ function channelSetupRow(words: Words): Row {
 
 /** Every tab's rows, by its home. */
 export const PLACE_ROWS: Record<string, RowReader> = {
+  "overview:here": overviewRows,
+  "household:people": peopleRows,
   "inbox:needs": needsYou,
   "inbox:finished": (app) => taskRows(app, Date.now() - WEEK),
   "inbox:history": (app) => taskRows(app, 0),
@@ -145,12 +233,9 @@ export const PLACE_ROWS: Record<string, RowReader> = {
     title: skill.name, detail: clip(`${skill.activeVersion ? "" : words.t("terminal.state.off", "off") + " · "}${skill.description}`),
     tone: skill.activeVersion ? undefined : "muted" as const,
   })),
-  "customize:specialists": (app) => recordRows(app, "specialists", ["name"]),
+  "customize:specialists": specialistRows,
   "customize:plugins": plugins,
-  "customize:connections": (app) => app.mcpConnections.health().map((server) => ({
-    title: server.id, detail: `${server.state}${server.lastError ? " · " + clip(server.lastError, 60) : ""}`,
-    tone: server.lastError ? "bad" as const : undefined,
-  })),
+  "customize:connections": connectionRows,
   "customize:channels": channels,
 };
 

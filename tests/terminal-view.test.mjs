@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,11 +14,15 @@ import { textWidth } from "../dist/terminal-canvas.js";
 import { loadThemeCatalogue, paletteFor } from "../dist/terminal-theme.js";
 import { loadWords } from "../dist/terminal-words.js";
 import { glyphsFor, resolveStyle, stripAnsi } from "../dist/terminal-style.js";
-import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, allHomes, homeOf, parseRoute } from "../dist/terminal-places.js";
+import { MODEL_TABS, PANE_TABS, PLACES, SETTINGS_PAGES, allHomes, homeOf, parseRoute, placeById } from "../dist/terminal-places.js";
 import { ESC, ScreenWriter } from "../dist/terminal-output.js";
 import { LineEditor, takeMouse } from "../dist/terminal-input.js";
 import { Tui } from "../dist/terminal-tui.js";
+import { routeMouse } from "../dist/terminal-keys.js";
 import { paletteItems } from "../dist/terminal-palette.js";
+import { PLACE_ROWS } from "../dist/terminal-place-data.js";
+import { offeredOn } from "../dist/devices/capabilities.js";
+import { saveEmbedSettings } from "../dist/embeds.js";
 
 const DOCS = new URL("../docs/places.md", import.meta.url);
 const LAYOUT = new URL("../public/layout.js", import.meta.url);
@@ -44,7 +48,7 @@ test("the places, tabs, Settings pages and Models tabs match the window's own li
     for (const tab of place.tabs) assert.ok(layout.includes(`["${tab.id}", "${tab.key}", "${tab.english}"`), `${place.id}:${tab.id}`);
   }
   const pages = [...layout.matchAll(/^  \["([a-z]+)", "settings\.page\.\1", "([^"]+)"/gm)].map((match) => [match[1], match[2]]);
-  assert.deepEqual(SETTINGS_PAGES.map((page) => [page.id, page.english]), pages, "twelve pages, in the window's order");
+  assert.deepEqual(SETTINGS_PAGES.map((page) => [page.id, page.english]), pages, "Settings pages match the window's order");
   for (const tab of MODEL_TABS) assert.ok(layout.includes(`["${tab.id}", "${tab.key}", "${tab.english}"]`), `models:${tab.id}`);
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
   const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
@@ -66,9 +70,18 @@ test("a place is found by its id, its English name or its French name", () => {
   assert.deepEqual(parseRoute("Computer & browser"), { settings: "computer", sub: "" });
   assert.deepEqual(parseRoute("settings"), { settings: "general", sub: "" });
   assert.deepEqual(parseRoute("Bibliothèque", french), { place: "library", tab: "memory" });
+  assert.deepEqual(parseRoute("overview"), { place: "overview", tab: "here" });
+  assert.deepEqual(parseRoute("household people"), { place: "household", tab: "people" });
   assert.deepEqual(parseRoute("parametres apparence", french), { settings: "appearance", sub: "" });
   assert.equal(parseRoute("nowhere at all"), null);
   for (const home of allHomes()) assert.equal(homeOf(parseRoute(home)), home, `${home} goes where it says`);
+});
+
+test("Ctrl+K includes the Overview and People strip homes", () => {
+  const overview = paletteItems(loadWords("en"), [], "overview");
+  const people = paletteItems(loadWords("en"), [], "people");
+  assert.ok(overview.some((item) => item.run === "/go overview"), "Overview is directly discoverable");
+  assert.ok(people.some((item) => item.run === "/go household"), "People is directly discoverable");
 });
 
 /* ---------- the drawing ---------- */
@@ -164,19 +177,40 @@ test("each view says where it is: the page in the head, the place on the tab row
   const palette = paletteFor(table, "nord", "light", "more");
   for (const home of allHomes()) {
     const route = parseRoute(home);
-    const frame = renderScreen(model(route), { columns: 80, rows: 24 }, palette, "ansi16");
+    const frame = renderScreen(model(route), { columns: 120, rows: 24 }, palette, "ansi16");
     const head = frame.plain[0];
     if ("settings" in route) {
       const page = SETTINGS_PAGES.find((entry) => entry.id === route.settings);
       assert.match(head, new RegExp(`Settings › ${page.english.replace(/&/g, "&")}`), home);
     } else {
-      const place = PLACES.find((entry) => entry.id === route.place);
+      const place = placeById(route.place);
       assert.ok(head.includes(place.english), `${home}: ${head}`);
       const tab = place.tabs.find((entry) => entry.id === route.tab);
       if (tab) assert.ok(frame.plain.some((line) => line.includes(tab.english)), `${home} shows its tab`);
     }
     assert.match(frame.plain[1], /1 Conversation +2 Inbox 2 +3 Automations +4 Library +5 Customize/);
   }
+});
+
+test("every Settings page stays visible and clickable in a 120 by 24 terminal", async () => {
+  const table = await loadThemeCatalogue();
+  const palette = paletteFor(table, "forest", "dark");
+  for (const page of SETTINGS_PAGES) {
+    const frame = renderScreen(model({ settings: page.id, sub: page.id === "models" ? "connection" : "" }),
+      { columns: 120, rows: 24 }, palette, "none");
+    assert.ok(frame.plain.some((line) => line.includes(`› ${page.english}`)), `${page.english} has a visible current-page marker`);
+    assert.ok(frame.hits.some((hit) => hit.action === `page:${page.id}`), `${page.english} can be selected with the mouse`);
+  }
+});
+
+test("the mouse wheel over Settings navigation reaches pages outside the first window", () => {
+  const steps = [];
+  const tui = { route: { settings: "general", sub: "" }, overlay: undefined, rows: [], selected: 0,
+    step: (by) => steps.push(by), requestDraw() {} };
+  const hits = [{ x: 3, y: 2, width: 22, height: 1, action: "page:general" }];
+  routeMouse(tui, { kind: "wheel-down", x: 4, y: 2, button: 65 }, hits);
+  routeMouse(tui, { kind: "wheel-up", x: 4, y: 2, button: 64 }, hits);
+  assert.deepEqual(steps, [1, -1], "wheel navigation moves through every Settings page instead of its body rows");
 });
 
 test("French is drawn in French, and ASCII is drawn when the terminal cannot show more", async () => {
@@ -266,6 +300,134 @@ async function running(t, env = {}) {
 }
 const frameOf = (tui) => renderScreen(tui.model(), tui.size(), tui.palette, "none").plain.join("\n");
 
+test("the terminal computer overview excludes Trunk conversations", async (t) => {
+  const { app } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  const trunk = app.trunks.create({ name: "Ada" });
+  const ownerRun = app.store.createRun(app.runtime.owner, "Owner task");
+  app.store.finish(ownerRun.id, "completed", "done");
+  const retiredRun = app.store.createRun(app.runtime.owner, "Retired Trunk task", trunk.chatSessionId);
+  app.store.finish(retiredRun.id, "completed", "done");
+  const current = app.trunks.retireChat(trunk.id);
+  const trunkRun = app.store.createRun(app.runtime.owner, "Current Trunk task", current.chatSessionId);
+  app.store.finish(trunkRun.id, "completed", "done");
+  const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.ok(rows.some((row) => row.title === "Owner task"), "this computer's work remains visible");
+  assert.ok(rows.every((row) => !/Trunk task/.test(row.title)), "current and retired Trunk work stays in that Trunk");
+});
+
+test("the terminal overview reads only the active household profile's work", async (t) => {
+  const { app } = await running(t);
+  const ownerRun = app.store.createRun(app.runtime.owner, "Owner private task");
+  app.store.finish(ownerRun.id, "completed", "done");
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const samRun = app.store.createRun(app.store.profiles.scope(), "Sam task");
+  app.store.finish(samRun.id, "completed", "done");
+  const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.deepEqual(rows.map((row) => row.title), ["Sam task"]);
+  assert.deepEqual(rows.map((row) => row.sessionId), [samRun.sessionId]);
+});
+
+test("the terminal overview keeps authoritative active work ahead of more than 100 newer runs", async (t) => {
+  const { app } = await running(t);
+  const active = app.store.createRun(app.runtime.owner, "Still running");
+  for (let index = 0; index < 101; index++) {
+    const finished = app.store.createRun(app.runtime.owner, `Finished ${index}`);
+    app.store.finish(finished.id, "completed", "done");
+  }
+  const rows = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.equal(rows.length, 12, "active work takes one of the recent-work slots");
+  assert.equal(rows[0]?.sessionId, active.sessionId, "active work is never hidden behind newer finished tasks");
+  assert.ok(rows.some((row) => row.title === "Still running"));
+
+  const stale = app.store.createRun(app.runtime.owner, "Old question");
+  app.store.finish(stale.id, "needs_input", "Answer me");
+  const answered = app.store.createRun(app.runtime.owner, "Newer answer", stale.sessionId);
+  app.store.finish(answered.id, "completed", "done");
+  const tiedAt = new Date(Date.now() + 1000).toISOString();
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id IN (?,?)")
+    .run(tiedAt, stale.id, answered.id);
+  assert.deepEqual(app.store.runs(app.runtime.owner)
+    .filter((run) => run.sessionId === stale.sessionId).map((run) => run.id), [answered.id, stale.id],
+    "when timestamps tie, the later database row is still the newer run");
+  const after = await PLACE_ROWS["overview:here"](app, loadWords("en"));
+  assert.ok(after.every((row) => row.title !== "Old question"),
+    "an older waiting run is not authoritative when its timestamp ties the newer completion");
+});
+
+test("the terminal People page shows a household profile only itself", async (t) => {
+  const { app } = await running(t);
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.create({ name: "Alex", pin: "1357" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const rows = await PLACE_ROWS["household:people"](app, loadWords("en"));
+  assert.deepEqual(rows.map((row) => row.title), ["Sam"]);
+});
+
+test("the Trunks Settings row opens the live Trunks roster, not specialist records", async (t) => {
+  const { app, tui, settle } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  app.trunks.create({ name: "Ada", title: "Keeps the live roster" });
+  app.store.save("specialists", app.runtime.owner, "specialist-only", { name: "Specialist only" });
+  await tui.command("/go settings trunks");
+  await settle();
+  assert.equal(tui.rows[0]?.command, "/go customize specialists");
+  await tui.command(tui.rows[0].command);
+  await settle();
+  assert.equal(homeOf(tui.route), "customize:specialists");
+  assert.ok(tui.rows.some((row) => row.title === "Ada" && row.detail?.startsWith("Trunk ·")),
+    "the real named Trunk appears from the live roster");
+  assert.ok(tui.rows.some((row) => row.title === "Specialist only" && row.detail?.startsWith("Specialists ·")),
+    "saved specialist templates remain visible but are not presented as Trunks");
+});
+
+test("the terminal hides owner Trunks from a household profile", async (t) => {
+  const { app } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  const trunk = app.trunks.create({ name: "Ada" });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const rows = await PLACE_ROWS["customize:specialists"](app, loadWords("en"));
+  assert.ok(rows.every((row) => row.title !== "Ada" && row.sessionId !== trunk.chatSessionId));
+});
+
+test("the terminal hides Trunk roster rows while Trunks are switched off", async (t) => {
+  const { app } = await running(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  app.trunks.create({ name: "Ada" });
+  app.store.save("specialists", app.runtime.owner, "specialist-only", { name: "Specialist only" });
+  app.trunks.setMode("trunks", { mode: "off" });
+  const rows = await PLACE_ROWS["customize:specialists"](app, loadWords("en"));
+  assert.ok(rows.every((row) => row.title !== "Ada"), "a disabled Trunk is not exposed in the terminal");
+  assert.ok(rows.some((row) => row.title === "Specialist only"), "ordinary specialist templates remain visible");
+});
+
+test("terminal Channels and Connections include devices, page bridges, and app accounts", async (t) => {
+  const { app } = await running(t);
+  app.devices.setMode({ mode: "on" });
+  const pair = generateKeyPairSync("ed25519");
+  const publicKey = pair.publicKey.export({ format: "der", type: "spki" }).toString("base64");
+  const offer = app.devices.book.invite();
+  const request = app.devices.book.redeem({ offer: offer.id, code: offer.code, name: "Kitchen Mac",
+    platform: "darwin", publicKey, offers: offeredOn("darwin") });
+  app.devices.book.decide(request.requestId, true);
+  saveEmbedSettings(app.store, app.runtime.owner, { widget: true, extension: true,
+    widgetSites: ["https://notes.example.com"] });
+  await app.personal.setMode("google", { mode: "when-needed" });
+  app.personal.signIns.google.save({ clientId: "branch-terminal-test" });
+
+  const channels = await PLACE_ROWS["customize:channels"](app, loadWords("en"));
+  assert.ok(channels.some((row) => row.title === "Kitchen Mac" && /Mac computer/.test(row.detail)),
+    "the paired device is visible at the destination advertised by Settings");
+  assert.ok(channels.some((row) => row.title === "Reaching Branch from other pages" && /notes\.example\.com/.test(row.detail)),
+    "the configured widget and extension are visible there too");
+
+  const connections = await PLACE_ROWS["customize:connections"](app, loadWords("en"));
+  assert.ok(connections.some((row) => /^Google/.test(row.title) && /Not signed in yet/.test(row.detail)),
+    "an app account does not disappear merely because no MCP server exists");
+});
+
 test("every place, tab and Settings page in docs/places.md opens from the terminal, by command and by key", async (t) => {
   const { tui, input, settle } = await running(t);
   for (const home of allHomes()) {
@@ -275,7 +437,7 @@ test("every place, tab and Settings page in docs/places.md opens from the termin
     const frame = frameOf(tui);
     const route = parseRoute(home);
     const name = "settings" in route ? SETTINGS_PAGES.find((page) => page.id === route.settings).english
-      : PLACES.find((place) => place.id === route.place).english;
+      : placeById(route.place).english;
     assert.ok(frame.includes(name), `${home} shows ${name}`);
     if ("settings" in route && route.settings === "models") assert.ok(frame.includes(MODEL_TABS.find((tab) => tab.id === route.sub).english));
   }
@@ -307,6 +469,21 @@ test("every place, tab and Settings page in docs/places.md opens from the termin
   await delay(600);
   await settle();
   assert.equal(homeOf(tui.route), "customize:plugins", "Escape closes Settings onto the place it opened over");
+});
+
+test("Permissions explains the current Lockdown state", async (t) => {
+  const { tui, settle } = await running(t);
+  const lockdownRow = () => tui.rows.find((row) => row.command?.startsWith("/lockdown "));
+  await tui.command("/go settings:permissions");
+  await settle();
+  assert.match(frameOf(tui), /Lockdown: off/);
+  assert.equal(lockdownRow()?.detail, "Lockdown is off. Commands follow the permission rules above.");
+  assert.doesNotMatch(frameOf(tui), /Lockdown is on\./);
+
+  await tui.command("/lockdown on");
+  await settle();
+  assert.match(frameOf(tui), /Lockdown: on/);
+  assert.equal(lockdownRow()?.detail, "Lockdown is on. Commands are refused; all else asks you.");
 });
 
 test("the theme changed in the terminal is the one saved for the window, and the side pane opens on demand", async (t) => {

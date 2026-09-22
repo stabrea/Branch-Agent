@@ -75,7 +75,8 @@ export async function prepare(runner = run) {
   await runner(process.execPath, [join(MOBILE, "scripts", "build-web.mjs")], { cwd: MOBILE });
   await runner(process.execPath, [join(MOBILE, "scripts", "native-files.mjs")], { cwd: MOBILE });
   await runner(process.execPath, [join(MOBILE, "scripts", "icons.mjs")], { cwd: MOBILE });
-  await runner(join(MOBILE, "node_modules", ".bin", "cap"), ["sync"], { cwd: MOBILE });
+  const capacitor = join(MOBILE, "node_modules", "@capacitor", "cli", "bin", "capacitor");
+  await runner(process.execPath, [capacitor, "sync"], { cwd: MOBILE });
   // cap sync copies its own config beside the page; ours is made above and copied again here.
   await runner(process.execPath, [join(MOBILE, "scripts", "native-files.mjs")], { cwd: MOBILE });
 }

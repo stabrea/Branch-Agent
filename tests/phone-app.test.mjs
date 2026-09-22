@@ -342,6 +342,21 @@ test("the release signs the Android app once and every desktop download carries 
   assert.match(publish, /if: github\.event_name == 'push' && startsWith\(github\.ref, 'refs\/tags\/v'\)/);
 });
 
+test("pull request phone builds never receive the release key and Gradle is checksum pinned", async () => {
+  const validation = await readFile(new URL("../.github/workflows/mobile.yml", import.meta.url), "utf8");
+  const release = await readFile(new URL("../.github/workflows/package.yml", import.meta.url), "utf8");
+  const wrapper = await readFile(new URL("../apps/mobile/android/gradle/wrapper/gradle-wrapper.properties", import.meta.url), "utf8");
+
+  assert.doesNotMatch(validation, /secrets\.ANDROID_|BRANCH_ANDROID_KEYSTORE|HAS_ANDROID_KEY/,
+    "code from a pull request must never run with the Android release key");
+  assert.match(validation, /Build the Android app \(unsigned\)/,
+    "validation artifacts must say plainly that they are unsigned");
+  assert.match(release, /secrets\.ANDROID_KEYSTORE_BASE64/,
+    "release signing remains confined to the tag publication workflow");
+  assert.match(wrapper, /^distributionSha256Sum=ed1a8d686605fd7c23bdf62c7fc7add1c5b23b2bbc3721e661934ef4a4911d7c$/m,
+    "the Gradle bootstrap archive must be verified before it executes");
+});
+
 /* ---------- who may open it ---------- */
 
 test("only the owner in the app window opens it, never under Lockdown or a short-lived key", async (t) => {

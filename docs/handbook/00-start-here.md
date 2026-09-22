@@ -8,7 +8,7 @@ about programming, and you will never have to type a command to use Branch.
 
 ## In one minute
 
-- Download two files from the release page, double-click **Install Branch Agent.cmd**, and open Branch.
+- Download the three Windows files from the release page, double-click **Install Branch Agent.cmd**, and open Branch.
 - Connect a model — see [Connect a model](01-connect-a-model.md). Nothing useful happens until you do.
 - Type what you want in the box at the bottom and press Enter.
 - The left rail is where everything lives. The right pane tells you what is happening now.
@@ -17,12 +17,14 @@ about programming, and you will never have to type a command to use Branch.
 
 ## Installing
 
-Go to the project's **latest release** page and download two files into the same folder:
+Go to the project's **latest release** page and download three files into the same folder:
 
 - `Branch-Agent-windows-x64.zip`
+- `Branch-Agent-windows-x64.zip.sha256`
 - `Install Branch Agent.cmd`
 
-Double-click **Install Branch Agent.cmd**. It unpacks the download, puts Branch Agent in your own
+Double-click **Install Branch Agent.cmd**. It checks that the download matches its published
+checksum, refuses unsafe archive paths, then unpacks it and puts Branch Agent in your own
 programs folder, adds it to the Start menu and to **Add or remove programs**, and keeps the version
 that was there before in case you want it back. Nothing else has to be installed first, and the
 installer downloads nothing.

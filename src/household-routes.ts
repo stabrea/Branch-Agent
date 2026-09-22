@@ -206,6 +206,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/tools/forget"),
     own("/api/tools/notes/:id", "DELETE"),
     own("/api/trunks/:id/seen"),
+    own("/api/trunks/rooms/:id/artifacts"),
     own("/api/webhooks/:id/preview"),
     own("/api/workflows"),
     own("/api/workflows/:id/remove"),
