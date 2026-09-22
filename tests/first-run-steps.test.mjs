@@ -64,7 +64,7 @@ test("Set it up opens the owner's own accounts, where email and calendar are sig
   await page.locator("#personal-accounts-card").waitFor({ state: "visible", timeout: 30000 });
 });
 
-test("a backup comes back into a Branch with no conversations, and is refused plainly where there are some", async (t) => {
+test("a backup comes back only after a plain yes, as a replace, and Branch is started again rather than reloaded", async (t) => {
   const source = await fixture(t);
   const session = source.app.store.createSession(source.app.runtime.owner);
   const file = join(source.root, "branch-backup.json");
@@ -77,9 +77,9 @@ test("a backup comes back into a Branch with no conversations, and is refused pl
   const card = page.locator("#first-run-steps");
   await card.getByRole("heading", { name: "Bring back your Branch" }).waitFor();
   const sent = [];
-  page.on("request", (request) => { if (request.url().endsWith("/api/restore")) sent.push(request.url()); });
+  page.on("request", (request) => { const url = new URL(request.url()); if (url.pathname === "/api/restore") sent.push(url.search); });
   await page.setInputFiles("#first-run-restore-file", file);
-  await card.getByText("Bring back branch-backup.json? This replaces the settings and data already in this Branch with the ones in the file.").waitFor();
+  await card.getByText("Bring back branch-backup.json? The Branch data in this file replaces what is here now. Sign-ins and keys are never in a backup, so the ones on this computer stay.").waitFor();
   await card.getByRole("button", { name: "Cancel" }).click();
   await card.locator("[role=status]", { hasText: "Nothing was changed." }).waitFor();
   assert.equal(sent.length, 0, "nothing is sent before the yes");
@@ -87,20 +87,44 @@ test("a backup comes back into a Branch with no conversations, and is refused pl
   await page.setInputFiles("#first-run-restore-file", junk);
   await card.getByRole("button", { name: "Yes, replace it" }).click();
   await card.locator("[role=status]", { hasText: "That file is not a Branch backup. Nothing was changed." }).waitFor();
+  /* Saved connections are only read when Branch starts, so the desktop app is asked to start it again. */
+  await page.evaluate(() => {
+    globalThis.stillThisPage = true;
+    globalThis.branchDesktop = { ...globalThis.branchDesktop, restartBranch: async () => { globalThis.restarted = true; } };
+  });
   await page.setInputFiles("#first-run-restore-file", file);
   await card.getByRole("button", { name: "Yes, replace it" }).click();
-  await card.locator("[role=status]", { hasText: /Brought back \d+ items/ }).waitFor();
-  assert.equal(sent.length, 1, "one restore, sent after the yes");
+  await card.locator("[role=status]", { hasText: /Brought back \d+ items\. Restart Branch to finish\./ }).waitFor();
+  assert.deepEqual(sent, ["?replace=1"], "one restore, sent only after the yes, asking to replace");
   assert.equal(app.store.ownsSession(app.runtime.owner, session), true, "the conversation from the backup is here");
-  await page.waitForLoadState("load");
+  await card.getByRole("button", { name: "Restart Branch" }).click();
+  await page.waitForFunction(() => globalThis.restarted === true);
+  await page.waitForTimeout(1500);
+  assert.equal(await page.evaluate(() => globalThis.stillThisPage), true, "the page was not simply loaded again");
   assert.deepEqual(errors, []);
 
-  const full = await fixture(t);
-  full.app.store.createSession(full.app.runtime.owner);
-  await finishFirstRun(full.page);
-  await full.page.setInputFiles("#first-run-restore-file", file);
-  await full.page.locator("#first-run-steps").getByRole("button", { name: "Yes, replace it" }).click();
-  await full.page.locator("#first-run-steps [role=status]", { hasText: "already has conversations, so nothing was changed" }).waitFor();
+  const browser = await fixture(t);
+  await finishFirstRun(browser.page);
+  await browser.page.setInputFiles("#first-run-restore-file", file);
+  await browser.page.locator("#first-run-steps").getByRole("button", { name: "Yes, replace it" }).click();
+  await browser.page.locator("#first-run-steps [role=status]", { hasText: "Close Branch and start it again to finish." }).waitFor();
+  assert.equal(await browser.page.locator("#first-run-steps").getByRole("button", { name: "Restart Branch" }).count(), 0,
+    "a browser cannot start Branch again, so it offers no button that would only reload the page");
+});
+
+/* Codex's server half makes this pass: `/api/restore?replace=1` must clear what the file does not hold. */
+test("a confirmed restore replaces: a setting here that the backup lacks is gone afterwards", async (t) => {
+  const source = await fixture(t);
+  const file = join(source.root, "branch-backup.json");
+  await writeFile(file, JSON.stringify(source.app.store.backup("test")));
+  const { app, page } = await fixture(t);
+  await finishFirstRun(page);
+  app.store.save("settings", app.runtime.owner, "first-run-steps-replace-probe", { here: true });
+  await page.setInputFiles("#first-run-restore-file", file);
+  await page.locator("#first-run-steps").getByRole("button", { name: "Yes, replace it" }).click();
+  await page.locator("#first-run-steps [role=status]", { hasText: /Brought back \d+ items/ }).waitFor();
+  assert.equal(app.store.get("settings", app.runtime.owner, "first-run-steps-replace-probe") ?? undefined, undefined,
+    "the setting that was only here is gone, as the confirmation said");
 });
 
 test("a failed try offers again, then another way, with the raw words behind Details", async (t) => {

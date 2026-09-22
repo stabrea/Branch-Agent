@@ -116,7 +116,7 @@ async function emailStep() {
   return step;
 }
 
-/** Sent only after the owner said yes; the route also refuses a Branch that already has conversations. */
+/** Sent only after the owner said yes. What the file holds replaces the same kinds of data here; sign-ins stay. */
 async function bringBack(file, status) {
   status.textContent = say("first-run-steps.restore-working", "Bringing it back…");
   let archive;
@@ -125,15 +125,34 @@ async function bringBack(file, status) {
     return;
   }
   try {
-    const result = await api("restore", archive);
-    status.textContent = sayWith("first-run-steps.restore-done", "Brought back {count} items. Opening it now…", { count: result.rows });
+    const result = await api("restore?replace=1", archive); // replaces the backed-up data (Codex, 2026-09-22)
     try { localStorage.setItem(STEPS_SEEN, "1"); } catch { /* shown again, harmless */ }
-    setTimeout(() => location.reload(), 1200);
+    showRestartNeeded(status, result.rows);
   } catch (error) {
     status.textContent = /already has/.test(error.message)
       ? say("first-run-steps.restore-has-state", "This Branch already has conversations, so nothing was changed. A backup can only go into a Branch that has none yet.")
       : say("first-run-steps.restore-not-backup", "That file is not a Branch backup. Nothing was changed.");
   }
+}
+
+/**
+ * Saved model connections and local models are only read when Branch starts (`createBranch`), so a
+ * page reload would show the restored rows over the old running setup. Branch must start again.
+ */
+function showRestartNeeded(status, rows) {
+  const restart = globalThis.branchDesktop?.restartBranch;
+  if (!restart) {
+    status.textContent = sayWith("first-run-steps.restore-done-browser",
+      "Brought back {count} items. Close Branch and start it again to finish.", { count: rows });
+    return;
+  }
+  const button = action("first-run-steps.restore-restart", "Restart Branch", async () => {
+    button.disabled = true;
+    try { await restart(); } catch { button.disabled = false; }
+  }, true);
+  status.replaceChildren(
+    el("span", undefined, sayWith("first-run-steps.restore-done", "Brought back {count} items. Restart Branch to finish.", { count: rows })),
+    el("span", undefined, " "), button);
 }
 
 function restoreStep() {
@@ -153,7 +172,7 @@ function restoreStep() {
   });
   step.append(el("h3", "first-run-steps.restore-title", "Bring back your Branch"),
     el("p", "first-run-steps.restore-purpose",
-      "Have a backup file from before? Put your conversations, memory and settings back. Passwords and keys are never in a backup, so add those again.", "subtle"),
+      "Have a backup file from before? Put your conversations, memory and settings back. Sign-ins and keys are never in a backup: the ones on this computer stay, and others you add again.", "subtle"),
     file, action("first-run-steps.restore-go", "Choose the backup file", () => file.click()), confirm, status);
   return step;
 }
@@ -167,7 +186,7 @@ function askFirst(confirm, chosen, status) {
     action("first-run-steps.restore-no", "Cancel", () => { confirm.replaceChildren(); status.textContent = say("first-run-steps.restore-cancelled", "Nothing was changed."); }));
   confirm.replaceChildren(
     el("p", undefined, sayWith("first-run-steps.restore-confirm",
-      "Bring back {name}? This replaces the settings and data already in this Branch with the ones in the file.", { name: chosen.name })),
+      "Bring back {name}? The Branch data in this file replaces what is here now. Sign-ins and keys are never in a backup, so the ones on this computer stay.", { name: chosen.name })),
     choices);
 }
 
