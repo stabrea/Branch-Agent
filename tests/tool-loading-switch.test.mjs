@@ -138,6 +138,7 @@ test("Settings can read what Tool loading off would cost, and switch it; a short
   assert.equal((await call({ mode: "sideways" })).status, 400);
   const key = app.sessionTokens.create(app.runtime.owner, { name: "phone", scope: "run" }).token;
   assert.ok([401, 403].includes((await call({ mode: "deferred" }, key)).status));
+  assert.ok([401, 403].includes((await call(undefined, key)).status), "nor read it");
   assert.equal(toolLoading(app.store, app.runtime.owner), "eager", "the key changed nothing");
 });
 

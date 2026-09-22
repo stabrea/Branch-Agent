@@ -978,6 +978,7 @@ export const ROUTES = {
   "/api/todos/:id": "other POST",
   "/api/todos/:id/done": "other POST",
   "/api/todos/:id/remind": "other POST",
+  "/api/tool-loading": "owner GET,POST", // owner item 17: the one Tool loading switch and what it costs
   "/api/tools": "look",
   "/api/tools/catalog": "look",
   "/api/tools/forget": "other POST",

@@ -4028,6 +4028,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
+  // Owner item 17: how the assistant loads its tools, and what that costs, is the owner's to read and change.
+  if (path === "/api/tool-loading")
+    return "A short-lived key cannot read or change how the assistant loads its tools. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered
