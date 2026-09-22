@@ -96,6 +96,35 @@ test("the version a Branch answers with is not the version written down beside i
   assert.notEqual(joined.version, joined.instance.version, "which is the whole point of keeping both");
 });
 
+test("with nothing stubbed, the wait believes the running Branch and not the note", async (t) => {
+  // The default way of asking is the one production uses: `attachToRunning`, with this computer's own
+  // saved key. This drives it for real — a real server, a real note on disk — and makes the note claim
+  // the version we are waiting for while the Branch answering says something else.
+  const root = await mkdtemp(join(tmpdir(), "branch-return-real-"));
+  const dataDir = join(root, "data");
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir,
+    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  const server = await startServer(app, { dataDir, port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+
+  const started = await readRunning(dataDir);
+  const before = { pid: 1, startedAt: "2000-01-01T00:00:00.000Z" };
+  const clock = () => 0;
+  const patient = { sleep: async () => undefined, now: clock, waitMs: 0 };
+
+  // The note says it is the service on 2.0.0, started long after the one that was closed. Everything
+  // on disk agrees. The Branch on the port does not.
+  await writeRunning(dataDir, { ...started, mode: "daemon", version: "2.0.0", startedAt: "2030-01-01T00:00:00.000Z" });
+  assert.equal(await waitForReturn(dataDir, before, { version: "2.0.0" }, patient), null,
+    "a note that says 2.0.0 is not a Branch running 2.0.0");
+
+  // And when what is asked for is what it really answers, it is accepted.
+  await writeRunning(dataDir, { ...started, mode: "daemon", version: app.version, startedAt: "2030-01-01T00:00:00.000Z" });
+  const back = await waitForReturn(dataDir, before, { version: app.version }, patient);
+  assert.ok(back, "the Branch that is really there, on the version it really is");
+  assert.equal(back.pid, started.pid);
+});
+
 test("the wait is for the service, on the right version, started since — and it has to answer", async () => {
   // What coming back looks like: the service, version 2.0.0, started after the one that was closed,
   // and answering on its own port with this computer's key.
