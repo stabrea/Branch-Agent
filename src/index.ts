@@ -346,7 +346,10 @@ export async function createBranch(options: {
   // A stop at the wrong moment must not turn a temporary conversation's files into permanent ones.
   // The list of what to sweep is read here, before anything else can start, and only those folders are
   // removed — so even a slow sweep that outlives this line cannot touch a conversation begun later.
-  const sweeping = attachments.sweepTemporary().catch(() => 0);
+  const sweeping = attachments.sweepTemporary()
+    // And the folders of conversations that are gone whose delete did not work last time.
+    .then(async (swept) => swept + await attachments.sweepForgotten())
+    .catch(() => 0);
   await Promise.race([sweeping, new Promise((resolve) => setTimeout(resolve, 5000).unref())]);
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();

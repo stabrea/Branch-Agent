@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { createReadStream, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { createReadStream, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -168,6 +168,49 @@ test("an id that points outside the store is not a file of this conversation, wh
   // The real one still works, so this is a gate and not a wall.
   assert.ok(store.bytesOf("a-conversation", kept.id).equals(png));
 });
+
+
+test("a delete that failed is tried again at the next start, and nothing else is", async (t) => {
+  // Saying so in the log is not the same as the bytes going. A folder whose delete failed is marked
+  // as one the owner has already finished with, and only a folder carrying that mark is ever tried
+  // again — so a conversation somebody still has cannot be reached by this, whatever anything else
+  // says.
+  const scratch = await mkdtemp(join(tmpdir(), "branch-retry-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+  mkdirSync(root, { recursive: true });
+  const log = await listening(t, scratch);
+
+  let locked = true;
+  const store = new Attachments(root, readdirSync, undefined,
+    (path) => locked && path.endsWith("forgotten") ? Promise.reject(new Error("EBUSY")) : rmSync(path, { recursive: true, force: true }) ?? Promise.resolve());
+  for (const name of ["forgotten", "a-conversation-in-use"]) {
+    mkdirSync(join(root, name), { recursive: true });
+    writeFileSync(join(root, name, "kept.json"), "[]");
+  }
+
+  assert.equal(await store.forget("forgotten"), false, "the delete really did fail");
+  assert.deepEqual(readdirSync(join(root, "forgotten")).sort(), [".gone", "kept.json"],
+    "and the folder is marked as one that is finished with");
+
+  // Nothing is retried while the mark is all there is: the sweep is what tries again.
+  assert.equal(readdirSync(root).includes("a-conversation-in-use"), true);
+
+  locked = false;
+  assert.equal(await store.sweepForgotten(), 1, "the marked one goes");
+  assert.deepEqual(readdirSync(root), ["a-conversation-in-use"],
+    "and the conversation nobody asked to delete is untouched");
+
+  // A retry that fails again says so rather than reporting the bytes as gone.
+  mkdirSync(join(root, "forgotten"), { recursive: true });
+  writeFileSync(join(root, "forgotten", ".gone"), "2026-09-22T00:00:00.000Z");
+  locked = true;
+  assert.equal(await store.sweepForgotten(), 0);
+  const line = log.read({ component: "attachments" }).find((one) => /still here/.test(one.message));
+  assert.ok(line, "the owner can find out that they are still there");
+  assert.equal(line.fields.left, 1);
+});
+
 
 test("one part of a file is read as that part, not sliced out of a copy of the whole thing", async (t) => {
   // Asking for the first kilobyte of a thirty-megabyte film cost thirty megabytes: the file was read

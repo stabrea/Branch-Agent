@@ -58,6 +58,8 @@ export function kindOf(mediaType: string): AttachmentKind {
   if (documentTypes.has(type) || type.startsWith("text/")) return "document";
   throw new Error(`Branch does not take ${type} files. Pictures, sounds, videos and ordinary documents can be attached.`);
 }
+/** Left in a folder whose delete did not work, so the next start knows to try it again. */
+const forgottenMark = ".gone";
 /** A conversation's folder name; a temporary one is marked so it can be swept away later. */
 export function folderFor(sessionId: string, temporary = false): string {
   const plain = sessionId.replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 40);
@@ -424,10 +426,36 @@ export class Attachments {
       await this.remove(folder);
       return true;
     } catch (error) {
+      // The folder is marked as one the owner has already finished with, so the next start tries
+      // again. Only a folder marked here is ever retried, so nothing can reason its way into
+      // deleting a conversation somebody still has — the decision was made once, here, and the
+      // retry only carries it out.
+      try { writeFileSync(join(folder, forgottenMark), new Date().toISOString(), { mode: 0o600 }); }
+      catch { /* a folder that will not even take a mark is only reported */ }
       diagnose("attachments", "error", "A conversation's files could not be deleted",
         { fields: { folder, reason: error instanceof Error ? error.message : String(error) } });
       return false;
     }
+  }
+  /**
+   * Folders whose conversation is gone and whose delete did not work, tried again. Nothing is
+   * decided here: a folder is only touched if a delete already failed on it and left its mark, so a
+   * conversation the owner still has can never be reached by this, whatever the database says.
+   */
+  async sweepForgotten(): Promise<number> {
+    let folders: string[] = [];
+    try { folders = this.listFolders(this.root); } catch { return 0; }
+    const marked = folders.filter((name) => {
+      try { return statSync(join(this.root, name, forgottenMark)).isFile(); } catch { return false; }
+    });
+    let swept = 0, left = 0;
+    for (const name of marked) {
+      try { await this.remove(join(this.root, name)); swept += 1; }
+      catch { left += 1; }
+    }
+    if (left) diagnose("attachments", "error",
+      "Files of conversations that are gone are still here", { fields: { left, swept } });
+    return swept;
   }
   /**
    * Temporary conversations leave nothing behind. Closing one sweeps its folder; this sweeps any that
