@@ -105,6 +105,94 @@ test("each skill in the list has an Always follow switch that is saved", async (
   assert.deepEqual(errors, []);
 });
 
+/** Signs in to the page and opens Skills; answers the page and the Always follow switch for one skill. */
+async function skillsPage(t, server, skillId, beforeLoad = async () => {}) {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await beforeLoad(page);
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await openPlace(page, "customize:skills").catch(async () => { await page.evaluate(() => document.getElementById("skills-list")?.scrollIntoView()); });
+  const card = () => page.locator(`#skills-list [data-skill-id="${skillId}"]`);
+  await card().waitFor({ state: "attached" });
+  return { page, errors, card, toggle: () => card().getByRole("switch", { name: "Always follow" }) };
+}
+
+test("the switch agrees with what every task follows: through disable, a reload and re-enable", async (t) => {
+  const { app, server, skillId, prompts } = await fixture(t);
+  const owner = app.runtime.owner;
+  const { page, errors, card, toggle } = await skillsPage(t, server, skillId);
+  await page.waitForFunction((id) => !document.querySelector(`#skills-list [data-skill-id="${id}"] [role="switch"]`)?.disabled, skillId);
+  await toggle().evaluate((node) => node.click());
+  await page.waitForFunction(() => true);
+  for (let i = 0; i < 50 && !(app.store.get("settings", owner, "skills-always")?.data?.ids ?? []).includes(skillId); i++) await new Promise((r) => setTimeout(r, 100));
+  const follows = async () => { await app.runtime.run({ prompt: "Do my homework", permissions: ["skills.read"] }); return prompts.at(-1).includes("ALWAYS press Submit"); };
+  assert.equal(await follows(), true);
+  // Disabled from the page: the switch shows it is no longer followed, and it is not.
+  await card().getByRole("button", { name: "Open skill" }).click();
+  await page.locator("#skill-disable").click();
+  await page.waitForFunction((id) => document.querySelector(`#skills-list [data-skill-id="${id}"] [role="switch"]`)?.checked === false, skillId);
+  assert.equal(await follows(), false);
+  // A reload, then enabled again: it is followed again, and the switch says so.
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 }).catch(async () => {
+    await page.getByLabel("Session token", { exact: true }).fill(server.token);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  });
+  await openPlace(page, "customize:skills").catch(() => undefined);
+  await card().waitFor({ state: "attached" });
+  await page.waitForFunction((id) => document.querySelector(`#skills-list [data-skill-id="${id}"] [role="switch"]`)?.checked === false, skillId);
+  await card().getByRole("button", { name: "Open skill" }).click();
+  await page.locator("#skill-version").selectOption("1");
+  await page.locator("#skill-activate").click();
+  await page.waitForFunction((id) => document.querySelector(`#skills-list [data-skill-id="${id}"] [role="switch"]`)?.checked === true, skillId);
+  assert.equal(await follows(), true, "switch and task agree");
+  assert.deepEqual(errors, []);
+});
+
+test("an older look at the list never overwrites a newer choice, and nothing can be pressed before the first answer", async (t) => {
+  const { app, server, skillId } = await fixture(t);
+  const owner = app.runtime.owner;
+  let release, looks = 0;
+  const held = new Promise((resolve) => { release = resolve; });
+  const { page, errors, toggle } = await skillsPage(t, server, skillId, (page) => page.route("**/api/skills/always", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    looks++;
+    if (looks === 1) { await held; return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ids: [] }) }); }
+    return route.continue();
+  }));
+  assert.equal(await toggle().isDisabled(), true, "not pressable while the first answer is on its way");
+  // The owner's choice reaches Branch by another way (another window) while this look is held.
+  release();
+  await page.waitForFunction((id) => !document.querySelector(`#skills-list [data-skill-id="${id}"] [role="switch"]`)?.disabled, skillId);
+  await toggle().evaluate((node) => node.click());
+  for (let i = 0; i < 50 && !(app.store.get("settings", owner, "skills-always")?.data?.ids ?? []).includes(skillId); i++) await new Promise((r) => setTimeout(r, 100));
+  // A later look that was already on its way answers with the old list: it must not undo the choice.
+  let releaseLate;
+  const heldLate = new Promise((resolve) => { releaseLate = resolve; });
+  await page.unroute("**/api/skills/always");
+  await page.route("**/api/skills/always", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await heldLate; return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ids: [] }) });
+  });
+  await page.evaluate(() => void globalThis.branchLoadAlways?.());
+  const looking = page.evaluate(() => globalThis.branchLoadAlways?.());
+  await toggle().evaluate((node) => node.click()); // off…
+  await toggle().evaluate((node) => node.click()); // …and on again: the newest choice
+  releaseLate();
+  await looking;
+  await page.evaluate(() => globalThis.branchRenderSkills()); // drawn again from what the page now holds
+  assert.equal(await toggle().isChecked(), true, "the newest choice stands");
+  assert.deepEqual(errors, []);
+});
+
 /** An installable skill whose whole text is about `size` characters, with a marker that proves it arrived. */
 const bigSkill = (name, size) => `---\nname: ${name}\ndescription: A long standing instruction.\n---\n\nMARKER-${name}-START\n${"Follow this carefully. ".repeat(Math.ceil(size / 23))}\nMARKER-${name}-END\n`;
 

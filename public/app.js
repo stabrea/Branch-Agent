@@ -1170,17 +1170,35 @@ form("models-form", async () => {
   });
   await refresh();
 });
-/* Owner item 17: skills whose full instructions go into every task. Read once, then kept in step here. */
-let alwaysSkillIds = null;
+/* Owner item 17: skills whose full instructions go into every task. Read from Branch again after
+   every change to a skill, and never overwritten by an answer older than the newest change: every
+   look and every switch takes a number, and only the newest one's answer is kept. Until the first
+   answer the switches are shown but cannot be pressed, so nothing is decided on a guess. */
+let alwaysSkillIds = null; // null: not known yet
+let alwaysAsked = 0, alwaysLoading = false;
+async function loadAlways() {
+  const asked = ++alwaysAsked;
+  alwaysLoading = true;
+  try {
+    const value = await api("skills/always");
+    if (asked === alwaysAsked) alwaysSkillIds = new Set(value.ids);
+  } catch { /* stays unknown; asked again at the next drawing */ }
+  finally { if (asked === alwaysAsked) { alwaysLoading = false; renderSkills(); } }
+}
 function alwaysFollowSwitch(skillId) {
   const label = el("label", undefined, "check skill-always");
   const box = el("input");
   box.type = "checkbox";
   box.setAttribute("role", "switch");
   box.checked = Boolean(alwaysSkillIds?.has(skillId));
+  box.disabled = alwaysSkillIds === null;
   box.addEventListener("change", async () => {
-    try { alwaysSkillIds = new Set((await api("skills/always", { id: skillId, always: box.checked })).ids); }
-    catch (error) { box.checked = !box.checked; toast(error.message); }
+    const asked = ++alwaysAsked; // a look still on its way is now out of date
+    alwaysLoading = false;
+    try {
+      const ids = (await api("skills/always", { id: skillId, always: box.checked })).ids;
+      if (asked === alwaysAsked) alwaysSkillIds = new Set(ids);
+    } catch (error) { box.checked = !box.checked; toast(error.message); }
   });
   const words = el("span", t("skills.always.label"));
   words.dataset.t = "skills.always.label";
@@ -1192,10 +1210,7 @@ function alwaysFollowSwitch(skillId) {
   return holder;
 }
 function renderSkills() {
-  if (alwaysSkillIds === null) {
-    alwaysSkillIds = new Set();
-    void api("skills/always").then((value) => { alwaysSkillIds = new Set(value.ids); renderSkills(); }, () => undefined);
-  }
+  if (alwaysSkillIds === null && !alwaysLoading) void loadAlways();
   if (document.activeElement !== $("skill-policy")) $("skill-policy").value = state.skillPolicy || "block";
   const names = new Map((state.skills || []).map((s) => [s.id, s.name]));
   list("set-aside-list", state.setAside || [], (x) => {
@@ -1260,6 +1275,8 @@ async function mutateSkill(operation, extra = {}) {
   selectSkill(operation === "remove" ? null : result);
   if (operation === "activate" || operation === "disable") $("skill-document").value = draft;
   await refresh();
+  // Switching a skill off, on or away changes whether it is followed: ask Branch again.
+  if (operation === "activate" || operation === "disable" || operation === "remove") await loadAlways();
 }
 $("skill-form").addEventListener("submit", event => {
   event.preventDefault(); void skillOperation(async () => {
@@ -1790,6 +1807,8 @@ globalThis.branchRunSpoken = async (text) => {
 /* Wave 8: a live conversation belongs to the conversation on screen, and what was said on either
    side goes into it as an ordinary message. public/voice-live.js calls these two. */
 globalThis.branchSessionId = () => sessionId;
+globalThis.branchLoadAlways = () => loadAlways(); // tests: a look at the Always follow list on demand
+globalThis.branchRenderSkills = () => renderSkills(); // tests: the Skills list drawn again from what the page holds
 globalThis.branchAdoptSession = (id) => { if (!sessionId && id) { sessionId = id; $("temporary-toggle").disabled = true; } };
 globalThis.branchAddSpokenMessage = (role, text) => { if (text) message(role, text); };
 
