@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
+import { openPlace } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -156,5 +157,85 @@ test("bringing a second Trunk into a Trunk's conversation makes a room and opens
   await f.page.waitForFunction(() => document.getElementById("conversation").dataset.room);
   assert.match(await f.page.locator("#who-button").getAttribute("aria-label"), /Scout, Ledger/);
   assert.equal(await f.page.locator("#thread-name").innerText(), "Scout and Ledger");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a private room shows its people and shared artifacts in the conversation", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const room = (await f.call("/api/trunks/rooms", {
+    name: "Private bench", members: [f.scout.id, f.ledger.id], people: [sam.id],
+  })).room;
+  await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "brief.txt", content: "private oak plan" });
+  await f.page.evaluate(async () => globalThis.branchRooms.refresh());
+  assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
+  const card = f.page.locator(".rooms-artifacts");
+  await card.waitFor({ state: "visible" });
+  assert.match(await card.innerText(), /People here: Sam[\s\S]*brief\.txt[\s\S]*Shared by Owner[\s\S]*private oak plan/);
+  await card.locator(".rooms-artifact-name").fill("notes.txt");
+  await card.locator(".rooms-artifact-content").fill("only this room");
+  await card.getByRole("button", { name: "Share", exact: true }).click();
+  await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("only this room"));
+  assert.equal(await card.locator(".rooms-artifact-name").inputValue(), "", "sharing clears the artifact name");
+  assert.equal(await card.locator(".rooms-artifact-content").inputValue(), "", "sharing clears the artifact content");
+  assert.deepEqual(f.errors, []);
+});
+
+test("an idle open room refreshes when another participant shares an artifact", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const room = (await f.call("/api/trunks/rooms", { name: "Live bench", members: [f.scout.id, f.ledger.id] })).room;
+  await f.page.evaluate(async () => globalThis.branchRooms.refresh());
+  assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
+  await f.page.waitForFunction(() => document.getElementById("conversation")?.dataset.room);
+  const name = f.page.locator(".rooms-artifact-name"), content = f.page.locator(".rooms-artifact-content");
+  await name.fill("unfinished.txt");
+  await content.fill("still writing this");
+  await content.focus();
+  await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "from-sam.txt", content: "shared while idle" });
+  await f.page.waitForFunction(() => document.querySelector(".rooms-artifacts")?.textContent?.includes("shared while idle"), null, { timeout: 5000 });
+  assert.equal(await name.inputValue(), "unfinished.txt", "a live update keeps the local artifact name draft");
+  assert.equal(await content.inputValue(), "still writing this", "a live update keeps the local artifact content draft");
+  assert.equal(await content.evaluate((node) => document.activeElement === node), true, "a live update keeps the typing focus");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the owner can revoke a person's access to an existing room", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const room = (await f.call("/api/trunks/rooms", {
+    name: "Private bench", members: [f.scout.id, f.ledger.id], people: [sam.id],
+  })).room;
+  await openPlace(f.page, "customize:specialists");
+  await f.page.evaluate(async () => (await import("/trunks.js")).draw());
+  const roomRow = f.page.locator(".trunks-room-row").filter({ hasText: "Private bench" });
+  await roomRow.getByText("Change who may enter", { exact: true }).click();
+  const samAccess = roomRow.getByRole("checkbox", { name: "Sam" });
+  assert.equal(await samAccess.isChecked(), true);
+  await samAccess.uncheck();
+  await roomRow.getByRole("button", { name: "Save room access", exact: true }).click();
+  let view;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    view = await f.call(`/api/trunks/rooms/${room.id}`);
+    if (!view.people.length) break;
+    await f.page.waitForTimeout(25);
+  }
+  assert.deepEqual(view.people, []);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a named household member can open only a room they belong to in the real window", async (t) => {
+  const f = await fixture(t, ["conversations", "rooms"]);
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const room = (await f.call("/api/trunks/rooms", {
+    name: "Sam's room", members: [f.scout.id, f.ledger.id], people: [sam.id],
+  })).room;
+  await f.call(`/api/trunks/rooms/${room.id}/artifacts`, { name: "brief.txt", content: "members only" });
+  await f.call("/api/profiles/switch", { profileId: sam.id, pin: "1234" });
+  await f.page.evaluate(async () => globalThis.branchRooms.refresh());
+  assert.equal(await f.page.evaluate((id) => globalThis.branchOpenRoom(id), room.id), true);
+  await f.page.waitForFunction(() => document.getElementById("conversation")?.dataset.room);
+  assert.match(await f.page.locator(".rooms-artifacts").innerText(), /People here: Sam[\s\S]*members only/);
+  await send(f.page, "@scout hello from Sam");
+  await f.page.waitForFunction(() => document.querySelector("#conversation .message.user small")?.textContent === "Sam");
   assert.deepEqual(f.errors, []);
 });

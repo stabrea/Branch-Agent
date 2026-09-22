@@ -300,12 +300,36 @@ function moreSection(trunk) {
 
 /* ---------- rooms ---------- */
 let roomTimer = null;
-function roomsSection(roster) {
+function roomPersonPicks(room, people) {
+  return people.map((person) => {
+    const entry = tick(`trunks-room-${room?.id ?? "new"}-person-${person.id}`, "", "", room?.people?.includes(person.id) ?? false);
+    entry.label.append(plain("span", person.name));
+    entry.box.value = person.id;
+    return entry;
+  });
+}
+function roomRow(room, people) {
+  const item = document.createElement("div");
+  item.className = "trunks-room-row";
+  item.append(row(plain("span", `${room.name}${room.needsYou ? ` · ${say("trunks.needsYou", "needs you")}` : ""}`),
+    button("trunks.room.open", "Open", () => openRoom(room.id))));
+  if (!people.length) return item;
+  const access = document.createElement("details"), picks = roomPersonPicks(room, people);
+  access.append(make("summary", "", "trunks.room.people.manage", "Change who may enter"),
+    make("p", "field-note", "trunks.room.people", "People allowed into this private room"), ...picks.map((entry) => entry.label),
+    row(button("trunks.room.people.save", "Save room access", async () => {
+      await api(`trunks/rooms/${room.id}`, { people: picks.filter((entry) => entry.box.checked).map((entry) => entry.box.value) });
+      saved();
+      await draw();
+    })));
+  item.append(access);
+  return item;
+}
+function roomsSection(roster, people) {
   const node = section("trunks.rooms", "Rooms");
   node.append(make("p", "subtle", "trunks.rooms.purpose", "Two to six Trunks and you in one conversation. Only those you @mention answer; nobody mentioned means everyone."));
   for (const room of roster.rooms)
-    node.append(row(plain("span", `${room.name}${room.needsYou ? ` · ${say("trunks.needsYou", "needs you")}` : ""}`),
-      button("trunks.room.open", "Open", () => openRoom(room.id))));
+    node.append(roomRow(room, people));
   const name = field("input");
   const picks = roster.trunks.map((trunk) => {
     const entry = tick(`trunks-room-pick-${trunk.id}`, "", "", false);
@@ -313,9 +337,13 @@ function roomsSection(roster) {
     entry.box.value = trunk.id;
     return entry;
   });
+  const personPicks = roomPersonPicks(null, people);
   node.append(...labelled("trunks-room-name", "trunks.room.name", "Room name", name), ...picks.map((entry) => entry.label),
+    ...(personPicks.length ? [make("p", "field-note", "trunks.room.people", "People allowed into this private room"),
+      ...personPicks.map((entry) => entry.label)] : []),
     row(button("trunks.room.create", "Open a room", async () => {
-      const room = await api("trunks/rooms", { name: name.value.trim(), members: picks.filter((p) => p.box.checked).map((p) => p.box.value) });
+      const room = await api("trunks/rooms", { name: name.value.trim(), members: picks.filter((p) => p.box.checked).map((p) => p.box.value),
+        people: personPicks.filter((p) => p.box.checked).map((p) => p.box.value) });
       await draw();
       await openRoom(room.room.id);
     })));
@@ -393,7 +421,7 @@ async function card() {
     make("p", "", "trunks.purpose", "Assistants of your own, each with a name, its own conversation, memory and settings."));
   statusLine = make("p", "subtle");
   statusLine.setAttribute("role", "status");
-  const roster = await api("trunks");
+  const [roster, profiles] = await Promise.all([api("trunks"), api("profiles")]);
   const modes = roster.modes;
   const switches = document.createElement("div");
   for (const part of Object.keys(PARTS)) if (part === "trunks" || modes.trunks !== "off") switches.append(...switchFor(part, modes));
@@ -406,7 +434,7 @@ async function card() {
     const editor = document.createElement("div"), room = document.createElement("div");
     editor.id = "trunks-editor"; editor.hidden = true;
     room.id = "trunks-room"; room.hidden = true;
-    node.append(trunks, editor, createForm(), ...(modes.rooms !== "off" ? [roomsSection(roster), room] : []), bringSection());
+    node.append(trunks, editor, createForm(), ...(modes.rooms !== "off" ? [roomsSection(roster, profiles.profiles ?? []), room] : []), bringSection());
   }
   node.append(statusLine);
   return node;

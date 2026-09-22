@@ -109,6 +109,21 @@
       "tests": ["tests/approvals.test.mjs", "tests/settings-grown.test.mjs"]
     },
     {
+      "paths": [
+        "public/jev-decisions.js",
+        "public/settings-buckets.js",
+        "public/settings-index.js"
+      ],
+      "tests": [
+        "tests/jev-decisions-ui.test.mjs",
+        "tests/settings-grown.test.mjs"
+      ]
+    },
+    {
+      "paths": ["src/jev-decisions.ts"],
+      "tests": ["tests/jev-decisions.test.mjs"]
+    },
+    {
       "paths": ["public/asks.js"],
       "tests": ["tests/asks-ui.test.mjs"]
     },

@@ -646,7 +646,7 @@ $("prompt").addEventListener("keydown", (event) => {
 /* ---------- the composer floats, so the column keeps room for it ---------- */
 const dock = $("composer-dock");
 const measureDock = () =>
-  document.documentElement.style.setProperty("--composer-h", `${Math.ceil(dock.offsetHeight)}px`);
+  document.documentElement.style.setProperty("--composer-h", `${Math.round(dock.getBoundingClientRect().height)}px`);
 new ResizeObserver(measureDock).observe(dock);
 measureDock();
 

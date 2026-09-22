@@ -401,7 +401,7 @@ One button takes a computer with nothing on it to a model that answers: install 
 
 ### Updates
 
-The packaged Windows app checks `https://api.github.com/repos/stabrea/Branch-Agent/releases/latest`, downloads `Branch-Agent-windows-x64.zip`, verifies it against the published `.sha256`, unpacks it next to the install, then restarts through a small script that mirrors the new files into place. A checkout installed from Git updates with `node dist/cli.js update` (`git pull --ff-only`, `npm ci`, `npm run build`).
+The packaged Windows app checks `https://api.github.com/repos/stabrea/Branch-Agent/releases/latest`, accepts only a final `vX.Y.Z` tag, downloads `Branch-Agent-windows-x64.zip`, and verifies it against the published `.sha256`. Before it backs up data or writes a hand-over script, the embedded `package.json` must identify `branch-agent` at that exact release version and the canary engine must report the same version. It then unpacks beside the install and restarts through a small script that mirrors the new files into place. A checkout installed from Git updates with `node dist/cli.js update` (`git pull --ff-only`, `npm ci`, `npm run build`).
 
 **Updates replace the whole app, and always will.** Binary delta updates — shipping only the bytes that changed and patching the installed copy — are ruled out on macOS, and not by preference. A macOS signature seals every file in the bundle into `Contents/_CodeSignature/CodeResources`; writing into any of them afterwards breaks that seal and macOS reports the app as damaged. Patching without re-signing destroys the signature, so the identity the owner's microphone, screen recording and accessibility permissions are attached to no longer matches and every one of them is asked for again — worse than today. Re-signing on the person's own computer is not an alternative, because it would mean shipping the private signing key inside the download, which makes it public and worth nothing. The same wall is why Sparkle refuses a delta when the code signing information differs and why electron-updater's differential download does not work for a macOS zip. So the signed `.app` is immutable between releases: it is replaced whole, with `ditto` into a scratch folder and an atomic swap, or not at all. Anything that should vary without a full release belongs outside the bundle, fetched into the user data folder, not patched into the app.
 
@@ -2255,6 +2255,33 @@ through `match` (`"npm *"`) covers plain commands only. A `*` in any rule now al
 **macOS and Linux.** Both work the same on every system. A program's folder is read whether it is
 written with `/` or `\`.
 
+## Optional JEV decision support
+
+Branch can ask an owner-installed [JEV](https://github.com/okooo5km/jev) program one bounded
+`yes`, `pick`, or `score` question through the `decisions.judge` tool. This is an optional external
+Apache-2.0 project; Branch does not bundle it, depend on it at startup, or claim affiliation with it.
+The setting is under **For developers → JEV decision support** and ships **Off**. **When needed**
+makes the tool available to the model, while **On** also puts it in the model's initial tool list.
+Neither mode lets a JEV answer execute an action by itself.
+
+`GET|POST /api/jev { mode, command, args, provider, model, timeoutMs, retries, minConfidence }`
+is owner-only. A household profile and a short-lived key cannot read or change it. Branch has no JEV
+credential field: configure the provider in JEV itself with `jev auth set`. The bounded state is sent
+to JEV over standard input (`-s -`) rather than in the process arguments, and Branch starts the
+program with the same stripped environment used for other local CLI agents. A malformed response,
+timeout, failed process, or unavailable program is an error, never an inferred answer.
+
+JEV's native Windows support is not currently documented upstream. To use a JEV installation inside
+WSL, set the program to `wsl.exe` and put `--exec` and `jev` on separate argument lines. Provider may
+be `auto` (JEV's configured default), `typesafe`, or `openrouter`. A result below the configured
+minimum confidence is returned with `gate: "review"`; one at or above it returns `gate: "ready"`.
+Those labels describe decision confidence only. They do not override Branch permissions, approvals,
+folder trust, Lockdown, or the tool gate.
+
+JEV is not used for routing, learning promotion, approvals, or autonomous policy decisions. Promotion
+to any of those roles requires a fixed, labelled, held-out evaluation with accuracy, calibration,
+latency, cost, retries, provider and model recorded as described in `docs/experiments.md`.
+
 ## Teams, linked chats, registries and evaluation
 
 `POST /api/teams { name, purpose, members: [{ specialistId, role, brief }] }` creates a team with a room; `POST /api/teams/:id/run { prompt }` fans the task out to every member and appends answers to the room (`GET /api/teams/:id/room`). `POST /api/channels/link { channel, chatId, sessionId }` makes a chat continue an existing conversation. `POST /api/registry/browse { url }` and `POST /api/registry/install { url, skillId }` work with a `branch-skill-registry` JSON index; installed skills stay disabled until activated. `POST /api/evaluation` (empty body for the standard suite) or `branch eval` records accuracy, latency and cost; energy is reported unavailable.
@@ -2825,7 +2852,7 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 - **The tab row** holds the five places in the window's order and with the window's names — Conversation, Inbox (with a count of what waits for your yes), Automations, Library, Customize.
 - **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. Each answer is headed with the assistant's own name. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
 - **Every other place** reads as the window's places do: its name, one sentence saying what it holds, its tabs, and its rows, each a title and one plain line. An empty tab says what the tab is for and what to do next. The ask box at the foot sends a question straight to the conversation.
-- **Settings** opens as a window over the place you were in, with its twelve pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
+- **Settings** opens as a window over the place you were in, with its named pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
 - **Ctrl+K** (or **/** in an empty composer) opens the palette: every place and tab, every Settings page, the top actions, recent conversations and every slash command. Typing narrows it; Enter goes.
 
 **Keys.** On a terminal of 30 rows or more the conversation's foot adds the window's key line (Enter sends, Alt+Enter adds a line, Up recalls, Ctrl+E shows step details, Ctrl+C stops the task, Ctrl+D leaves). **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
@@ -4202,11 +4229,12 @@ installs or switches anything on. The Skills screen shows all of the above, and 
 
 ## How Branch runs on this computer: installing, starting and reaching it from a phone
 
-**Installing.** The release carries two files: `Branch-Agent-windows-x64.zip` and `Install Branch
-Agent.cmd`. The script unpacks the zip with the `tar.exe` that ships with Windows (PowerShell's
-`Expand-Archive` is the fallback) and then runs `dist/install/install-cli.js` *from inside the
-unpacked app*, using the runtime the download already carries. Nothing has to be installed first and
-nothing is downloaded by the installer itself. It copies the app to
+**Installing.** The release carries three Windows files: `Branch-Agent-windows-x64.zip`, its
+`.sha256`, and `Install Branch Agent.cmd`. The script copies the archive and checksum into a new
+private staging folder, uses the system PowerShell to verify the exact checksum and reject absolute,
+parent-traversal, alternate-stream and link entries, then extracts it. It runs
+`dist/install/install-cli.js` *from inside the unpacked app*, using the runtime the download already
+carries. Nothing has to be installed first and nothing is downloaded by the installer itself. It copies the app to
 `%LOCALAPPDATA%\Programs\Branch Agent`, keeps whatever was there in `…\Branch Agent.previous`,
 writes a Start menu shortcut and (unless `--no-desktop-shortcut`) a desktop one through
 `WScript.Shell`, writes `Uninstall Branch Agent.cmd` next to the app, and registers it under
@@ -4255,7 +4283,7 @@ check, restart, update and remove Branch with one script.
 
 | | macOS and Linux | Windows |
 |---|---|---|
-| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
+| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip and its `.sha256` |
 | Where it goes | Mac: `~/Applications/Branch Agent.app`, or `/Applications` with `--applications`. Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` and the icon in `~/.local/share/icons/hicolor` | `%LOCALAPPDATA%\Programs\Branch Agent` |
 | The `branch` command | `~/.local/bin/branch` | not written yet |
 | Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |

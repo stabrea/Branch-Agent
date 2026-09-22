@@ -46,8 +46,9 @@ async function updaterFor(root, name, extra = {}) {
     repo: "x/y", currentVersion: "1.0.0", installDir, executableName: "Branch Agent.exe",
     assetName: "app.zip", scratchDir: join(root, name), fetch: fakeRelease(),
     extract: async (_archive, into) => {
-      await mkdir(join(into, "app"), { recursive: true });
+      await mkdir(join(into, "app", "resources", "app"), { recursive: true });
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+      await writeFile(join(into, "app", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
     backup: async () => {},
     platform: "win32",

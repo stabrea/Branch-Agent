@@ -185,6 +185,13 @@ test("the Trunks rail stays owner-only", async (t) => {
   const f = await fixture(t);
   await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
   await f.page.locator("#rail-view-trunks").click();
+  const headers = { authorization: `Bearer ${f.server.token}`, "content-type": "application/json" };
+  const person = await fetch(`${f.server.url}/api/profiles`, {
+    method: "POST", headers, body: JSON.stringify({ name: "Sam", pin: "2468" }),
+  }).then((response) => response.json());
+  assert.equal((await fetch(`${f.server.url}/api/profiles/switch`, {
+    method: "POST", headers, body: JSON.stringify({ profileId: person.id, pin: "2468" }),
+  })).status, 200);
   const synchronous = await f.page.evaluate(() => {
     const oldGroup = document.getElementById("trunks-rail");
     oldGroup?.remove();
@@ -199,8 +206,10 @@ test("the Trunks rail stays owner-only", async (t) => {
     document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
       name: "Private Ada", kind: "Private Trunk", status: "Working",
     } }));
+    const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
     document.documentElement.dataset.household = "on";
-    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+    document.documentElement.dataset.profileGeneration = String(generation);
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false, profileGeneration: generation } }));
     return { ownerGroupVisible, group: group.hidden,
       tab: document.getElementById("rail-view-trunks").hidden,
       conversations: document.getElementById("rail-view-conversations").getAttribute("aria-selected"),
@@ -213,7 +222,8 @@ test("the Trunks rail stays owner-only", async (t) => {
   /* A strip refresh that began for the owner may finish after the profile event. It must not put
      owner-only names and actions back into somebody else's window. */
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
-    detail: { profiles: { isOwner: true }, profileGeneration: 0 },
+    detail: { profiles: { isOwner: true },
+      profileGeneration: Number(document.documentElement.dataset.profileGeneration || 0) - 1 },
   })));
   await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
     name: "Stale private Ada", kind: "Private Trunk", status: "Working",

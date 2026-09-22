@@ -11,7 +11,7 @@ import type { RailItem, UsageBar } from "./terminal-everywhere.js"; // phase2/ev
  * The terminal view, drawn from a plain description of what is on screen. It follows
  * `docs/design.md`: a head with the mark and the page, the five places as a tab row, the
  * conversation with a composer at its foot and a side pane that opens on demand, each place as a
- * title, one sentence, its tabs and its rows, and Settings as a window of twelve pages over it.
+ * title, one sentence, its tabs and its rows, and Settings as a window of named pages over it.
  * Nothing here reads the workspace or writes to the terminal: it only draws.
  */
 /** phase2/everywhere: "ask" is the heading of a question a task stopped on, "askline" a line of it; drawn as one card. */

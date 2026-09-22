@@ -119,7 +119,7 @@ scoreboard against Hermes.
 
 ## Settings, and the app itself
 
-Twelve pages, opened over whatever you were doing and closed on Escape, with descriptions, scope chips,
+Named pages, opened over whatever you were doing and closed on Escape, with descriptions, scope chips,
 presets, reset, one settings file and a map of where each setting lives. Any setting can be **pinned**,
 so a household person sees it but cannot change it; pinning is the owner's alone and no preset or
 imported file can undo it. Comfort settings: keyboard shortcuts, vim keys, a status line,

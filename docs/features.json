@@ -3486,17 +3486,24 @@
       "family": "collaboration",
       "name": "Persistent shared rooms for people and agents",
       "acceptance_criterion": "Add human and agent members to a private room and enforce membership on its history and artifacts.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/store.ts",
+          "src/trunks/rooms.ts",
+          "src/trunks/api.ts",
           "src/server.ts",
-          "public/app.js"
+          "src/household-routes.ts",
+          "public/rooms.js",
+          "public/trunks.js"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "p2-rooms.test.mjs: a private room admits named people and Trunks, and removal closes its history and artifacts",
+          "p2-rooms-ui.test.mjs: a private room shows its people and shared artifacts in the conversation",
+          "p2-rooms-ui.test.mjs: a named household member can open only a room they belong to in the real window"
+        ],
+        "detail": "The owner can seat named household profiles beside two to six Trunks in a persistent private room. Members can open the shared transcript, send under their own name, and add bounded text artifacts that are included in agent room context. Non-members and removed members receive no room history, roster, artifact content or conversation metadata; owner-only room controls remain owner-only."
       },
-      "remaining": "Add human and agent members to a private room and enforce membership on its history and artifacts."
+      "remaining": "Live multi-device profile access is outside this local household-profile acceptance criterion."
     },
     {
       "id": "collaboration.unified-search",

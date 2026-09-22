@@ -91,6 +91,7 @@ import { liveScores, liveScoreSummary, liveScoringSettings, saveLiveScoringSetti
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
+import { JevDecisions, registerJevDecisions, type JevRunner } from "./jev-decisions.js";
 // Wave mac5 (local models): one-click models on this computer, restored and resumed at start.
 import { localKitFor, startLocalModels } from "./local-kit.js";
 import type { Provider } from "./contracts.js";
@@ -282,6 +283,8 @@ export async function createBranch(options: {
   dictation?: { speech?: SpeechStreamRunner; sound?: SoundStreamRunner; present?: ProgramPresent; platform?: string };
   /** Test-only: clock function for deterministic rate limiting. Normal production uses Date.now. */
   clock?: () => number;
+  /** Test-only: a JEV process double. Production runs the owner's configured JEV command. */
+  jev?: { runner?: JevRunner };
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -461,6 +464,8 @@ export async function createBranch(options: {
     options.reliability,
     options.clock,
   );
+  const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
+  registerJevDecisions(registry, decisions);
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
   files.walkRules = (outside) => {
@@ -1246,6 +1251,8 @@ export async function createBranch(options: {
     learningMore,
     /** mac7/learn: the map and the tour (src/learn/); ships off. */
     learn,
+    /** Optional, owner-controlled typed judgments from JEV; off until explicitly enabled. */
+    decisions,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

@@ -1374,7 +1374,7 @@ async function probeServer() {
   const timeout = setTimeout(() => aborter.abort(), 8000);
   let reached = true;
   try {
-    await fetch("/api/health", { cache: "no-store", signal: aborter.signal });
+    await api("alive", undefined, undefined, aborter.signal);
   } catch {
     reached = false;
   } finally {

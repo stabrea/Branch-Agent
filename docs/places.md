@@ -213,7 +213,7 @@ the terminal does not list them among its places.
    `openSettingFor`), never by calling `branchLayout` directly.
 
 A new place in the sidebar, a new Settings page, or a new pane tab needs the owner's approval
-first. Four places and twelve pages is the point of the design.
+first. The places and named Settings pages are the point of the design.
 
 ## What the five references taught
 

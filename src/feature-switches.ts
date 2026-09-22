@@ -115,6 +115,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
   // w911 (A0374) hook: fixing a failed command (src/troubleshoot.ts; the name is written here to avoid an import loop).
   { reason: "fixing failed commands is switched on", tools: ["troubleshoot.run"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "troubleshoot") },
+  // Optional JEV judgments send the bounded state to the provider the owner configured in JEV.
+  { reason: "JEV decision support is switched on", tools: ["decisions.judge"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "jev-decisions") },
   // w911 (A2144) hook: page notes.
   { reason: "page notes are switched on", tools: pageNotesTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "page-notes") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──

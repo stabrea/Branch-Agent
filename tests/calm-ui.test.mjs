@@ -218,7 +218,11 @@ test("with no model, the window says so exactly once, and says nothing about its
   assert.deepEqual(sayings, ["Practice mode"], "the missing model is said once");
   assert.equal(await visible(f.page, "#connection"), false, "\"Connected\" is not said while all is well");
   /* When the window can no longer reach Branch, it says so plainly and offers a restart. */
-  await f.page.route("**/api/health", (route) => route.abort());
+  let healthAuthorization = "";
+  await f.page.route("**/api/alive", (route) => {
+    healthAuthorization = route.request().headers().authorization ?? "";
+    return route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' });
+  });
   /* A ten-second background probe may already be in flight. The first call can join it, so make
      three calls to guarantee the product observes its required two consecutive misses. */
   await f.page.evaluate(async () => {
@@ -226,9 +230,10 @@ test("with no model, the window says so exactly once, and says nothing about its
     await globalThis.branchLayout.checkServer();
     await globalThis.branchLayout.checkServer();
   });
+  assert.equal(healthAuthorization, `Bearer ${f.server.token}`, "the liveness check uses the signed-in session");
   assert.equal(await f.page.locator("#connection").innerText(), "Branch stopped responding");
   assert.equal(await visible(f.page, "#lx-restart"), true);
-  await f.page.unroute("**/api/health");
+  await f.page.unroute("**/api/alive");
   await f.page.evaluate(() => globalThis.branchLayout.checkServer());
   assert.equal(await visible(f.page, "#connection"), false);
   assert.equal(await visible(f.page, "#lx-restart"), false);
@@ -397,13 +402,18 @@ test("calm: the empty screen is the question over the box in the middle, over th
 
 test("calm: Restart asks the desktop app to start Branch again, and a browser loads the page again", async (t) => {
   const f = await fixture(t, { onboarded: true });
-  await f.page.route("**/api/health", (route) => route.abort());
+  let refused = 0;
+  await f.page.route("**/api/alive", (route) => route.abort());
   const lose = () => f.page.evaluate(async () => {
-    await globalThis.branchLayout.checkServer();
-    await globalThis.branchLayout.checkServer();
-    await globalThis.branchLayout.checkServer();
+    const restart = document.getElementById("lx-restart");
+    /* A ten-second background check may already be in flight. The first call can legitimately join
+       that one, so drive fresh checks until two refused probes have actually made Restart visible. */
+    for (let tries = 0; tries < 5 && restart.hidden; tries++) await globalThis.branchLayout.checkServer();
+    return !restart.hidden;
   });
-  await lose();
+  f.page.on("requestfailed", (request) => { if (request.url().includes("/api/alive")) refused++; });
+  assert.equal(await lose(), true, "two failed health probes reveal Restart");
+  assert.ok(refused >= 2, `only ${refused} health probes were refused`);
   await f.page.evaluate(() => { globalThis.branchDesktop = { restartBranch: async () => { globalThis.restartAsked = true; return true; } }; });
   await f.page.locator("#lx-restart").click();
   assert.equal(await f.page.evaluate(() => globalThis.restartAsked), true, "the desktop app was asked");
@@ -418,7 +428,7 @@ test("calm: a health request that never answers times out and reveals Restart", 
     const originalFetch = globalThis.fetch;
     const originalSetTimeout = globalThis.setTimeout;
     globalThis.fetch = (input, init = {}) => {
-      if (!String(input).includes("/api/health")) return originalFetch(input, init);
+      if (!String(input).includes("/api/alive")) return originalFetch(input, init);
       return new Promise((resolve, reject) => {
         const stop = () => reject(new DOMException("The operation was aborted.", "AbortError"));
         if (init.signal?.aborted) stop();
