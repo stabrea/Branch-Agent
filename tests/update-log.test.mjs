@@ -15,7 +15,7 @@ import { startServer } from "../dist/server.js";
 import { zipRead } from "../dist/skill-package.js";
 import { activationJournalName, openActivationJournal, settleActivation } from "../dist/never-break/activation.js";
 import { openSettingFor } from "./places.mjs";
-import { updateFailureApi, updateLogItem, withoutControlCharacters } from "../dist/update-failure.js";
+import { readableUpdateLog, updateFailureApi, updateLogItem, withoutControlCharacters } from "../dist/update-failure.js";
 
 const secret = "sk-ant-api03-" + "x".repeat(48);
 const steps = ["[10:00:01] app closed", "[10:00:02] keeping previous version", `[10:00:03] copying with ${secret}`, "[10:00:04] copy failed; putting the previous version back"];
@@ -63,6 +63,63 @@ async function updateLog(t, lines) {
   return dir;
 }
 const escape = String.fromCharCode(27);
+
+
+test("a secret with an escape sequence hidden inside it is still taken out", async (t) => {
+  // The order is the whole finding. Cleaning the text *after* looking for secrets means an escape in the
+  // middle of a key breaks the shape the redactor looks for, the key goes through untouched, and then the
+  // escape is helpfully removed — leaving the key in plain sight in the file the owner is told to send.
+  const broken = (text) => text.slice(0, 20) + escape + "[0m" + text.slice(20);
+  const dir = await updateLog(t, [
+    `authorization: Bearer ${broken("sk-ant-api03-NOTAREALKEY-abcdefghijklmnopqrstuv")}`,
+    `config {"apiKey":"${broken("sk-proj-abcdefghij1234567890")}"}`,
+    `owner email: ${"someone@example.com".slice(0, 4)}${escape}[1m${"someone@example.com".slice(4)}`,
+    "step 9: failed to move the folder",
+  ]);
+  const item = await updateLogItem(dir);
+
+  assert.equal(/sk-ant-api03/.test(item.text), false, `the key is gone whole (${item.text.slice(0, 200)})`);
+  assert.equal(/sk-proj-/.test(item.text), false, "and so is the one inside the JSON");
+  assert.equal(item.text.includes("example.com"), false, "and the address, which the escape had split");
+  assert.match(item.text, /step 9: failed to move the folder/);
+});
+
+test("a bare carriage return, which writes over the line before it, does not survive", async (t) => {
+  // A carriage return on its own is not a newline: it sends the cursor back to the start of the line, so
+  // what follows overwrites what was there. Keeping it because it looks like a line ending would let a
+  // line hide another one in a file somebody opens.
+  const carriageReturn = String.fromCharCode(13);
+  const dir = await updateLog(t, [
+    `step 4: everything is fine${carriageReturn}step 4: nothing is fine`,
+    "step 9: failed to move the folder",
+  ]);
+  const item = await updateLogItem(dir);
+
+  assert.equal(item.text.includes(carriageReturn), false, "no bare carriage return reaches the file");
+  assert.match(item.text, /everything is fine/, "both halves are still readable, one after the other");
+  assert.match(item.text, /nothing is fine/);
+});
+
+test("a log with no newlines at all keeps a real ending, not the start of a piece of the middle", async (t) => {
+  // Only the last 256 KiB of a log is read. When that whole window is one line, keeping its first 2,000
+  // characters hands back the beginning of a fragment cut out of the middle of a file and calls it the
+  // end of the update.
+  const dir = await updateLog(t, [`the start of it all ${"x".repeat(400_000)} step 9: failed to move the folder`]);
+  const item = await updateLogItem(dir);
+
+  assert.match(item.text, /step 9: failed to move the folder$/, "where it stopped is the last thing in it");
+  assert.ok(item.text.length <= 2000, `and it is still bounded (${item.text.length})`);
+});
+
+test("a long last line keeps both of its ends, so the step's name and its ending both survive", () => {
+  const line = `[step 599] ${"y".repeat(5000)} and then it stopped`;
+  const kept = readableUpdateLog(`[step 598] fine\n${line}`).split("\n").at(-1);
+  assert.match(kept, /^\[step 599\]/, "which step it was");
+  assert.match(kept, /and then it stopped$/, "and where it got to");
+  assert.ok(kept.includes("[...]"), "with the missing middle said out loud");
+  assert.ok(kept.length <= 2000);
+});
+
 
 test("what a terminal would obey is taken out of the file the owner is asked to send", async (t) => {
   // The hand-over script echoes what the shell and the archive tools said, so a name inside a downloaded

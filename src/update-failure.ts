@@ -49,7 +49,7 @@ export const updateItemIds = ["about", "updates", "log", "crashes", "disk"] as c
  * the cursor and overwrites what is above it is the other end.
  */
 export function withoutControlCharacters(text: string): string {
-  const escape = 27, bell = 7, tab = 9, newline = 10, carriageReturn = 13, deleteChar = 127, highest = 159;
+  const escape = 27, bell = 7, tab = 9, newline = 10, deleteChar = 127, highest = 159;
   let out = "";
   for (let at = 0; at < text.length; at += 1) {
     const code = text.charCodeAt(at);
@@ -59,7 +59,10 @@ export function withoutControlCharacters(text: string): string {
       at = endOfEscape(text, at);
       continue;
     }
-    if (code === tab || code === newline || code === carriageReturn) { out += text[at]; continue; }
+    // A bare carriage return is not a newline: it moves the cursor back to the start of the line, so
+    // whatever follows writes over what was already there. That is a way to hide a line in plain
+    // sight, so it goes with the rest. Tabs and newlines stay, because they are what a person reads.
+    if (code === tab || code === newline) { out += text[at]; continue; }
     if (code < 32 || (code >= deleteChar && code <= highest)) continue;
     out += text[at];
   }
@@ -92,10 +95,34 @@ export function withoutControlCharacters(text: string): string {
  * folder and putting the owner's real log back afterwards. `createBranch` and the routes call it with
  * no argument and get the real one.
  */
+/**
+ * The last line of a log that is longer than the room it has, kept from both ends.
+ *
+ * Its beginning says which step it was — `[step 599] …` — and its end is where the update actually
+ * stopped. A log with no newlines in it at all is one enormous last line, so keeping only the beginning
+ * would hand back the start of a piece cut out of the middle of a file and call it the ending.
+ */
+function bothEndsOf(line: string): string {
+  const gap = " [...] ";
+  const half = Math.floor((updateLogLineChars - gap.length) / 2);
+  return `${line.slice(0, half)}${gap}${line.slice(-half)}`;
+}
+
+export function readableUpdateLog(log: string): string {
+  // Control characters come out FIRST, and the order is the whole point. An escape sequence sitting in the
+  // middle of a key breaks the shape the redactor is looking for, so the key goes through untouched — and
+  // then taking the escape out afterwards leaves that key in plain sight, in the one file the owner is
+  // told to send on. Clean text first, then look for secrets in it.
+  const plain = withoutControlCharacters(log);
+  const lines = plain.split(/\r?\n/).slice(-updateLogLines);
+  const cut = lines.map((line, at) => line.length <= updateLogLineChars ? line
+    : at === lines.length - 1 ? bothEndsOf(line) : line.slice(0, updateLogLineChars));
+  return redactForLog(cut.join("\n"));
+}
+
 export async function updateLogItem(scratchDir: string = updateScratchDir()): Promise<ReportItem> {
   const text = await tailOf(join(scratchDir, "apply-update.log")).then(
-    (log) => withoutControlCharacters(redactForLog(
-      log.split(/\r?\n/).slice(-updateLogLines).map((line) => line.slice(0, updateLogLineChars)).join("\n"))),
+    readableUpdateLog,
     () => "No update has written its steps on this computer since it last started.");
   return { id: "update-log", title: "What the last update did", why: "Each step the update took, in order, up to where it stopped.", text };
 }
