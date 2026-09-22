@@ -66,7 +66,8 @@ async function takeStoreDown(dataDir: string, to: number): Promise<{ backup: str
   } finally { store.close(); }
 }
 
-const launcher = (target: string, executableName: string): void => {
+/** Opens the installed app, detached (also used when an update stopped after closing it). */
+export const launchInstalled = (target: string, executableName: string): void => {
   const file = process.platform === "darwin" ? "/usr/bin/open" : join(target, executableName);
   const args = process.platform === "darwin" ? [target] : [];
   spawn(file, args, { detached: true, stdio: "ignore" }).unref();
@@ -126,7 +127,7 @@ async function runRollback(entry: ActivationEntry, journal: ActivationJournal, i
       if (!wasRunning) return;
       // A background service comes back as the service, not as a window it never had.
       if (was.mode === "daemon") return (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
-      (deps.launch ?? launcher)(entry.target, entry.executableName);
+      (deps.launch ?? launchInstalled)(entry.target, entry.executableName);
     },
   });
 }

@@ -17,6 +17,8 @@ import { resolveDataLocation } from "../install/layout.js";
 import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
+import { drainRunning, undrainRunning } from "../install/quit.js";
+import { restartService } from "../install/service-return.js";
 import { installedAppRoot } from "./install-root.js";
 import { minimizedFlag, startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
@@ -264,7 +266,11 @@ async function start(): Promise<void> {
   if (running)
     return createWindow(running.url, running.token, settings, {
       backup: () => requestUpdateBackup(running.url, running.token),
-      stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
+      stopDaemon: () => stopBackgroundEngine(dataDir).then(({ pid, stopped }) => ({ pid, stopped })),
+      drain: () => drainRunning(dataDir),
+      undrain: () => undrainRunning(dataDir),
+      // The engine this window joined was closed for the update; the update stopped, so it comes back.
+      revive: () => restartService(),
       canary: desktopCanary(dataDir, () => engineSnapshot(running.url, running.token)), // mac3/never-break
       ...desktopRecord(dataDir), // mac7/safe-rollback
     });
@@ -324,6 +330,9 @@ async function start(): Promise<void> {
         writeUpdateBackup(dataDir, branch.store.backup(branch.version), branch.version).then(() => undefined),
       // mac3/never-break: the new version is tried on a copy of this data before it is used.
       canary: desktopCanary(dataDir, () => snapshotData({ dataDir, database: branch.store.sqlite, journal: branch.neverBreak.journal.database })),
+      // This window runs the engine itself: its tasks finish, or are marked to be offered back, before it quits.
+      drain: async () => { await branch.scheduler.stop(); return branch.runtime.drain(30000); },
+      undrain: async () => { branch.runtime.undrain(); branch.scheduler.start(); },
       ...desktopRecord(dataDir), // mac7/safe-rollback
     });
   } catch (error) {

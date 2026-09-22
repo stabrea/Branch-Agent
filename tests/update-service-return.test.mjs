@@ -80,6 +80,7 @@ async function updateSetup(t, { mode = "daemon" } = {}) {
     snapshot: async () => join(root, "snapshot"),
     quit: async () => { events.push("quit"); return { stopped: true, wasRunning: true, pid: 4242, message: "" }; },
     runScript: (...args) => { events.push(["script", ...args]); return 0; },
+    drain: async () => { events.push("drain"); },
     restartService: async () => { events.push("restart"); },
     rollback: async () => { events.push("rollback"); return 0; },
   };
@@ -97,6 +98,7 @@ test("a Branch working in the background comes back by itself on the new version
   const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: quick([{ pid: 5151, mode: "daemon" }]) } });
   assert.equal(code, 0, s.lines.join("\n"));
   assert.ok(s.events.includes("restart"), "the service was started again through its manager");
+  assert.ok(s.events.indexOf("drain") >= 0 && s.events.indexOf("drain") < s.events.indexOf("quit"), "it let Branch finish its work before closing it");
   assert.ok(!s.events.includes("rollback"));
   assert.match(s.lines.at(-1), /working in the background again, on version 2\.0\.0/);
   assert.ok(!s.lines.some((line) => /start it again with `branch start`/.test(line)), "the owner is no longer told to do it themselves");
@@ -152,4 +154,58 @@ test("branch rollback brings a background service back as the service, not as a 
   assert.equal(code, 0, said.join("\n"));
   assert.equal(restarted, 1);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "1.0.0", "the version before is back");
+});
+
+test("a running Branch that cannot be drained stops the update before anything is closed", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, drain: async () => { s.events.push("drain"); throw new Error("Branch is running but could not be asked to finish its work first (refused), so nothing was changed."); } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.includes("drain") && !s.events.includes("quit") && !s.events.some((event) => Array.isArray(event)), "nothing closed, nothing swapped");
+  assert.match(s.lines.join("\n"), /could not be asked to finish its work first/);
+});
+
+test("a Branch that was drained and then would not close gets its work back at once", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    quit: async () => { s.events.push("quit"); return { stopped: false, wasRunning: true, pid: 4242, message: "Branch Agent did not close." }; },
+    undrain: async () => { s.events.push("undrain"); } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.indexOf("undrain") > s.events.indexOf("quit"), "given back after the refusal to close");
+  assert.ok(!s.events.some((event) => Array.isArray(event)), "nothing swapped");
+});
+
+test("a drain that happened but whose answer was lost is taken back, and nothing is closed", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    drain: async () => { s.events.push("drained"); throw new Error("the answer was lost on the way back"); },
+    undrain: async () => { s.events.push("undrain"); } } });
+  assert.equal(code, 1);
+  assert.deepEqual(s.events.filter((event) => typeof event === "string" && ["drained", "undrain", "quit"].includes(event)), ["drained", "undrain"], "taken back, never closed");
+});
+
+test("closed for the update and then stopped before the swap: a service is started again", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  // Writing the hand-over script fails after Branch was closed: a folder sits where the script goes.
+  const extract = async (file, into) => { await s.deps.extract(file, into); await mkdir(join(s.deps.scratchDir, "apply-update.sh"), { recursive: true }); };
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, extract, undrain: async () => { s.events.push("undrain"); } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.indexOf("restart") > s.events.indexOf("quit"), "the closed service was started again");
+  assert.ok(!s.events.includes("undrain"), "a closed engine is brought back, not sent an undo it cannot hear");
+});
+
+test("closed for the update and then stopped before the swap: a window is opened again", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t, { mode: "app" });
+  const extract = async (file, into) => { await s.deps.extract(file, into); await mkdir(join(s.deps.scratchDir, "apply-update.sh"), { recursive: true }); };
+  const opened = [];
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, extract, launchApp: (target) => opened.push(target) } });
+  assert.equal(code, 1);
+  assert.deepEqual(opened, [s.input.installRoot], "the app it closed is opened again");
+  assert.ok(!s.events.includes("restart"), "a window is not started as a service");
+});
+
+test("a hand-over that fails and leaves a service closed starts it again", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, runScript: (...args) => { s.events.push(["script", ...args]); return 1; } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.includes("restart"), "the version before is running again as the service");
 });

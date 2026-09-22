@@ -2,7 +2,7 @@ import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from
 import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
 import { join } from "node:path";
-import { Updater } from "./updater.js";
+import { Updater, type EngineStop } from "./updater.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
 import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
@@ -32,7 +32,13 @@ const settingsPages = new Set<string>(process.platform === "darwin" ? Object.val
  */
 export interface UpdateHooks {
   backup: () => Promise<void>;
-  stopDaemon?: () => Promise<number | null>;
+  stopDaemon?: () => Promise<EngineStop>;
+  /** Lets the engine finish what it is doing before it is closed for the swap (src/runtime.ts `drain`). */
+  drain?: () => Promise<unknown>;
+  /** Takes the drain back when the update stops before the hand-over is running. */
+  undrain?: () => Promise<void>;
+  /** Starts the background engine again when it was closed and the update then stopped. */
+  revive?: () => Promise<void>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
   canary?: (stagedDir: string, version: string) => Promise<void>;
   /**
@@ -55,6 +61,9 @@ export function registerUpdaterIpc(
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
+    ...(hooks?.drain ? { drain: hooks.drain } : {}),
+    ...(hooks?.undrain ? { undrain: hooks.undrain } : {}),
+    ...(hooks?.revive ? { revive: hooks.revive } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
   });
   const authorized = (event: IpcMainInvokeEvent) => {
@@ -85,14 +94,21 @@ export function registerUpdaterIpc(
     });
     // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
     // because this process quits into the hand-over and never sees how it went.
-    if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
-    // The background engine is already closed by this point, so say so if the hand-over cannot start.
-    await launchHandOver(script, process.pid).catch((error: unknown) => {
-      const why = error instanceof Error ? error.message : String(error);
-      throw new Error(hooks?.stopDaemon
-        ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
-        : `The update could not be started: ${why}.`);
-    });
+    try {
+      if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
+      // The background engine is already closed by this point, so say so if the hand-over cannot start.
+      await launchHandOver(script, process.pid).catch((error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        throw new Error(hooks?.stopDaemon
+          ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
+          : `The update could not be started: ${why}.`);
+      });
+    } catch (error) {
+      // Nothing was swapped: a background engine the update closed is started again, and this
+      // window's own work, drained for the update, is given back.
+      await updater.giveBack();
+      throw error;
+    }
     const status = updater.applying();
     setTimeout(requestQuit, 750);
     // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.
