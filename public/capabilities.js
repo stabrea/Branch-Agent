@@ -73,7 +73,9 @@ function rowFor(entry) {
   const id = "capability-" + entry.key.replace(/[^a-z0-9]+/gi, "-");
   const label = document.createElement("label");
   label.htmlFor = id;
-  label.textContent = entry.label;
+  // Its name in the language chosen; the server's English name only if a language file lacks it.
+  label.textContent = t(entry.labelKey) === entry.labelKey ? entry.label : t(entry.labelKey);
+  label.dataset.t = entry.labelKey;
   const status = document.createElement("p");
   status.className = "field-note";
   status.setAttribute("role", "status");
@@ -84,10 +86,12 @@ function rowFor(entry) {
   control.disabled = entry.locked;
   row.append(label, control);
   // One short line saying what switching it on brings, and why it cannot be switched when it cannot.
-  const what = entry.group === "files" ? worded("p", "capabilities.row.file", "field-note")
-    : worded("p", entry.tools === 1 ? "capabilities.row.tool" : "capabilities.row.tools", "field-note", { tools: formatNumber(entry.tools) });
-  const notes = [what];
+  const notes = [entry.group === "files" ? worded("p", "capabilities.row.file", "field-note")
+    : entry.tools ? worded("p", entry.tools === 1 ? "capabilities.row.tool" : "capabilities.row.tools", "field-note", { tools: formatNumber(entry.tools) })
+    // A switch with no tools of its own (Trunks, Rooms …): what switching it does, not a tool count.
+    : worded("p", "capabilities.row.no-tools", "field-note")];
   if (entry.locked) notes.push(worded("p", "capabilities.row.locked", "field-note"));
+  else if (entry.needs) notes.push(worded("p", "capabilities.row.needs", "field-note", { name: t(entry.needs.labelKey) }));
   else if (entry.always) notes.push(worded("p", "capabilities.row.always", "field-note"));
   notes.forEach((note, at) => { note.id = `${id}-note-${at}`; });
   control.setAttribute("aria-describedby", notes.map((note) => note.id).join(" "));

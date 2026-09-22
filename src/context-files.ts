@@ -120,7 +120,7 @@ export type ContextFileSettings = z.infer<typeof ContextFileSettingsSchema>;
 
 const settingsKey = "context-files";
 
-export function contextFileSettings(store: Store, owner: string): ContextFileSettings {
+export function contextFileSettings(store: Pick<Store, "get">, owner: string): ContextFileSettings {
   const saved = ContextFileSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
   return saved.success ? saved.data : ContextFileSettingsSchema.parse({});
 }

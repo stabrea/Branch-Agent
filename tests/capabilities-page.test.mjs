@@ -12,7 +12,24 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettings } from "./places.mjs";
+import { openPlace, openSettings } from "./places.mjs";
+import { readFile } from "node:fs/promises";
+import { toolFeatures } from "../dist/feature-switches.js";
+import { slots } from "../dist/context-files.js";
+import { labelKeyOf } from "../dist/capabilities-table.js";
+import { trunkMode } from "../dist/trunks/settings.js";
+
+/** Every parts module, read from its own lists: each part is a capability the page must show. */
+const partsModules = await Promise.all([
+  ["trunks", "trunkParts", "trunkKey"], ["interop", "interopParts", "interopKey"], ["asks", "askParts", "askKey"],
+  ["autonomy", "autonomyParts", "autonomyKey"], ["coding", "codingParts", "codingKey"], ["personal", "personalParts", "personalKey"],
+  ["reach", "reachParts", "reachKey"], ["safety-extras", "safetyParts", "safetyKey"], ["flows-boards", "boardParts", "boardKey"],
+  ["learning-more", "learningParts", "learningKey"], ["add-ons", "addOnParts", null],
+].map(async ([dir, parts, key]) => {
+  const module = await import(`../dist/${dir}/settings.js`);
+  return module[parts].map((part) => (key ? module[key](part) : `add-ons:${part}`));
+}));
+const LOCALES = join(import.meta.dirname, "..", "public", "locales");
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-capabilities-"));
@@ -32,8 +49,7 @@ test("every switch is one row, and switching writes the three-way value without 
   const { app, call, owner } = await fixture(t);
   const view = (await call()).body;
   assert.equal(view.toolLoading.mode, "deferred");
-  assert.ok(view.rows.length >= 70, `about 70 tool switches plus the context files (${view.rows.length})`);
-  assert.deepEqual(row(view, "web-pages"), { key: "web-pages", label: "Reading and crawling web pages", group: "research", on: false, always: false, tools: 2, locked: false });
+  assert.deepEqual(row(view, "web-pages"), { key: "web-pages", label: "Reading and crawling web pages", labelKey: "capabilities.label.web-pages", group: "research", on: false, always: false, tools: 2, locked: false });
   assert.equal((await call({ key: "web-pages", on: true })).body.on, true);
   assert.equal(app.store.get("settings", owner, "web-pages").data.mode, "when-needed", "on writes when needed");
   await call({ key: "web-pages", on: false });
@@ -51,6 +67,42 @@ test("every switch is one row, and switching writes the three-way value without 
   assert.equal((await call({ key: "made-up", on: true })).status, 400);
 });
 
+test("the page shows every capability it promises, each once and nothing else, named in every language", async (t) => {
+  const { call } = await fixture(t);
+  const keys = (await call()).body.rows.map((entry) => entry.key);
+  const promised = new Set([
+    ...partsModules.flat(), // every part of every parts module, tool-less ones too (Trunks itself, Rooms …)
+    ...toolFeatures.map((feature) => (feature.field && feature.field !== "mode" ? `${feature.key}#${feature.field}` : feature.key)),
+    ...slots.map((slot) => `context-files:${slot.key}`),
+  ]);
+  assert.equal(keys.length, new Set(keys).size, "each once");
+  assert.deepEqual([...keys].sort(), [...promised].sort(), "exactly what is promised");
+  for (const must of ["trunks-trunks", "trunks-rooms", "trunks-routines", "trunks-teach", "trunks-conversations", "autonomy-session-commands"])
+    assert.ok(keys.includes(must), `${must} is on the page`);
+  for (const language of ["en", "fr"]) {
+    const words = JSON.parse(await readFile(join(LOCALES, `${language}.json`), "utf8"));
+    const missing = keys.map(labelKeyOf).filter((key) => !words[key]);
+    assert.deepEqual(missing, [], `every capability is named in ${language}`);
+  }
+});
+
+test("on a fresh install, switching on a Trunks part from the page makes it work, Trunks included", async (t) => {
+  const { app, call, owner } = await fixture(t);
+  const before = row((await call()).body, "trunks-messages");
+  assert.deepEqual(before.needs, { key: "trunks-trunks", labelKey: "capabilities.label.trunks-trunks" }, "it says what it needs");
+  const after = (await call({ key: "trunks-messages", on: true })).body;
+  assert.equal(after.on, true, "the row reads on");
+  assert.equal(after.needs, undefined);
+  assert.notEqual(trunkMode(app.store, owner, "messages"), "off", "and it is in effect");
+  assert.notEqual(trunkMode(app.store, owner, "trunks"), "off", "because Trunks itself was switched on too");
+  // Trunks switched off: the part reads off where it is used and on the page, and keeps what it was set to.
+  await call({ key: "trunks-trunks", on: false });
+  const orphan = row((await call()).body, "trunks-messages");
+  assert.deepEqual([orphan.on, orphan.needs?.key], [false, "trunks-trunks"]);
+  assert.equal(trunkMode(app.store, owner, "messages"), "off");
+  assert.equal(app.store.get("settings", owner, "trunks-messages").data.mode, "when-needed", "its own choice is kept");
+});
+
 test("Lockdown keeps what it covers off, and a short-lived key changes nothing", async (t) => {
   const { app, call, owner } = await fixture(t);
   app.store.save("settings", owner, "lockdown", { on: true });
@@ -61,6 +113,16 @@ test("Lockdown keeps what it covers off, and a short-lived key changes nothing",
   const key = app.sessionTokens.create(owner, { name: "phone", scope: "run" }).token;
   assert.ok([401, 403].includes((await call({ key: "web-pages", on: true }, key)).status));
   assert.equal(app.store.get("settings", owner, "web-pages")?.data?.mode ?? "off", "off");
+});
+
+test("a household profile can neither read nor switch what the assistant can do", async (t) => {
+  const { app, call, owner } = await fixture(t);
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  assert.notEqual((await call()).status, 200);
+  assert.notEqual((await call({ key: "web-pages", on: true })).status, 200);
+  assert.equal(app.store.get("settings", owner, "web-pages")?.data?.mode ?? "off", "off", "nothing changed");
 });
 
 test("the Capabilities page shows the Tool loading switch with its cost, and a switch that saves", async (t) => {
@@ -88,5 +150,14 @@ test("the Capabilities page shows the Tool loading switch with its cost, and a s
   await page.getByRole("switch", { name: "Load tools only when a task needs them" }).uncheck();
   for (let i = 0; i < 50 && app.store.get("settings", owner, "tool-loading")?.data?.mode !== "eager"; i++) await new Promise((r) => setTimeout(r, 100));
   assert.equal(app.store.get("settings", owner, "tool-loading").data.mode, "eager");
+  // In French the capabilities are named in French, not only the words around them.
+  const fr = JSON.parse(await readFile(join(LOCALES, "fr.json"), "utf8"));
+  await openPlace(page, "settings:appearance");
+  await page.locator("#appearance-language").selectOption("fr");
+  await openSettings(page, "capabilities");
+  const rooms = page.locator('#lx-page-capabilities [data-key="trunks-rooms"] label');
+  await page.waitForFunction((words) => document.querySelector('#lx-page-capabilities [data-key="trunks-rooms"] label')?.textContent === words, fr["capabilities.label.trunks-rooms"]);
+  assert.notEqual(await rooms.textContent(), "Rooms where Trunks talk together");
+  assert.match(await page.locator('#lx-page-capabilities [data-key="trunks-rooms"] + p').innerText(), new RegExp(fr["capabilities.row.no-tools"].slice(0, 20)));
   assert.deepEqual(errors, []);
 });

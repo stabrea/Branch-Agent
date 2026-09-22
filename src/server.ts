@@ -1226,11 +1226,12 @@ async function api(
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   // Owner item 17: the Capabilities page, every switch as one on/off toggle (src/capabilities.ts).
   if (path === "/api/capabilities") {
+    // The owner's alone, checked here so the guard moves with the route.
+    app.store.profiles.requireOwner("What the assistant can do");
     const owner = app.runtime.owner;
     if (request.method === "POST") return setCapability(app.store, owner, await readBody(request));
     if (request.method !== "GET") throw new HttpError(405, "Use GET or POST");
-    return { toolLoading: eagerCost(app.store, owner, app.registry.descriptions(new Set(app.registry.permissions())), knobs.contextWindow(app.store, owner, contextLimit)),
-      rows: capabilityRows(app.store, owner) };
+    return { toolLoading: toolLoadingCost(app, owner), rows: capabilityRows(app.store, owner) };
   }
   // Owner item 17: the one Tool loading switch, and what switching it off would cost for this model.
   if (path === "/api/tool-loading") {
