@@ -28,6 +28,9 @@ import { testGroups } from "../scripts/run-tests.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 
+/** How a browser is made, and how a name is given to one that already exists. */
+const MADE_HERE = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:await\s+)?new\s+BranchBrowser\b/g;
+const RENAMED = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*;/g;
 /** How the product writes a tool's name where it registers it, in any of the three quote styles. */
 const NAME_DECLARATION = /name:\s*["'`]((?:browser|computer)\.[A-Za-z_]+)["'`]/g;
 /** How a method of the browser object is written, with `private` captured so it can be left out. */
@@ -73,6 +76,25 @@ export async function browserMethods(read = (file) => readFile(join(ROOT, file),
 }
 
 /**
+ * What a file calls the browser it made. `browser` is the usual name and is always one of them, but a
+ * file is free to call it anything — `const driver = new BranchBrowser(...)` — and a reader that only
+ * knew the usual name would let every call on it through. A name given to one that already exists
+ * counts too, one hop, which is how a helper hands one back into a test.
+ *
+ * **What this does not follow, said rather than left to be discovered:** a method pulled off the
+ * object on its own (`const { navigate } = browser`), a browser handed in as an argument and named
+ * by the parameter, and one made by a factory rather than by `new`. Each of those is invisible here,
+ * and a test that does one is an offender nobody will be told about until the lane goes red. They are
+ * worth catching the day one appears; none exists today, which is why this stops where it does.
+ */
+export function receiversIn(source) {
+  const found = new Set(["browser"]);
+  for (const made of source.matchAll(MADE_HERE)) found.add(made[1]);
+  for (const renamed of source.matchAll(RENAMED)) if (found.has(renamed[2])) found.add(renamed[1]);
+  return [...found].sort();
+}
+
+/**
  * Every line of a test that makes one of those tools run. Deliberately generous about *how*: through
  * the registry, through the runtime's own dispatch, as a tool call a scripted model makes, or straight
  * at a browser object. What it does not do is guess which of those is "really" a launch — that
@@ -83,7 +105,7 @@ export async function browserMethods(read = (file) => readFile(join(ROOT, file),
  * took one line at a time could not see one. The line reported is the line the call starts on, which
  * is the line an excuse quotes.
  */
-export function callsitesIn(source, names, methods = []) {
+export function callsitesIn(source, names, methods = [], receivers = receiversIn(source)) {
   // Every character that is not a letter, a digit or an underscore is escaped one at a time. A
   // character class would do the same job in one line and is exactly the kind of line that arrives
   // here with a backslash missing.
@@ -97,7 +119,7 @@ export function callsitesIn(source, names, methods = []) {
   const patterns = [
     new RegExp(`(?:execute|executeTool|call|run)${gap}\\(${gap}${quote}(?:${anyName})${quote}`, "g"),
     new RegExp(`name:${gap}${quote}(?:${anyName})${quote}`, "g"),
-    new RegExp(`\\bbrowser\\.(?:${anyMethod})${gap}\\(`, "g"),
+    new RegExp(`\\b(?:${receivers.map(escaped).join("|") || "(?!)"})\\.(?:${anyMethod})${gap}\\(`, "g"),
   ];
   const lines = source.split(/\r?\n/);
   const startOf = [];
@@ -287,6 +309,33 @@ test("the detector notices every way one of these tools can be made to run", asy
   assert.equal(seen("await browser.extractShaped(shape, context);"), 1, "including one with a capital in it");
   assert.equal(seen(OVER_TWO_LINES), 1,
     "and a dispatch laid out over more than one line, which reading a line at a time could not see");
+
+  // A file is free to call its browser anything. Only knowing the usual name let every call on one
+  // with another name walk straight past.
+  const RENAMED_RECEIVER = ["const driver = new BranchBrowser({ allowedOrigins: [] });",
+    "await driver.navigate(\"https://example.org/\", context);"].join(String.fromCharCode(10));
+  assert.equal(seen(RENAMED_RECEIVER), 1, "a browser called something other than `browser`");
+  assert.deepEqual(receiversIn(RENAMED_RECEIVER), ["browser", "driver"],
+    "the names come from the file: the usual one, and the one it gave the browser it made");
+
+  const HANDED_ON = ["const driver = new BranchBrowser({});", "const other = driver;",
+    "await other.pdf(context);"].join(String.fromCharCode(10));
+  assert.equal(seen(HANDED_ON), 1, "and one more name given to the same browser, which is how a helper hands one back");
+
+  // Where this stops, asserted rather than left to be discovered. Each of these is a real way to
+  // reach a browser that nothing here can see; none exists in the repository today, which is why it
+  // stops here. If one of these starts being seen, this assertion is what says so — widen the note
+  // above `receiversIn` rather than quietly deleting the line.
+  const limits = {
+    "a method pulled off the object on its own":
+      ["const { navigate } = new BranchBrowser({});", "await navigate(url, context);"],
+    "a browser handed in and named by the parameter":
+      ["async function drive(engine) { await engine.pdf(context); }"],
+    "a browser made by a factory rather than by `new`":
+      ["const made = buildBrowser();", "await made.snapshot(context);"],
+  };
+  for (const [what, source] of Object.entries(limits))
+    assert.equal(seen(source.join(String.fromCharCode(10))), 0, `still not seen, and known: ${what}`);
 
   // The methods come from the class, so the next one added is covered the day it is written.
   assert.ok(methods.includes("annotate") && methods.includes("extractShaped") && methods.includes("navigate"),
