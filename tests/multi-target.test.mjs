@@ -227,7 +227,10 @@ test("only the tools that touch several things declare them; every other tool is
   }).sort();
   const expected = ["channels.broadcast", "code.change_set", "code.patch", "documents.compare", "documents.edit", "files.patch", "knowledge.add", "knowledge.create",
     "git.branch", "git.commit", "git.diff", "git.log", "git.status", "git.worktree_add", "git.worktree_list", "git.worktree_remove",
-    "plans.diff", "plans.merge", "plans.try", "research.run"];
+    "plans.diff", "plans.merge", "plans.try", "research.run",
+    // The wiki: a page is named like a path so a rule can be written about one page or about all of
+    // them, and a read that follows links names every page it would hand a piece of back (src/wiki.ts).
+    "wiki.history", "wiki.read", "wiki.search", "wiki.write"];
   // git.push / git.pull / github.publish_repo are registered only when the owner switches them on.
   assert.deepEqual(declared.filter((name) => !expected.includes(name)), [], "no other tool declares targets");
   assert.deepEqual(expected.filter((name) => !declared.includes(name)), [], "every multi-target tool declares them");
