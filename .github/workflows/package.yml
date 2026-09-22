@@ -71,11 +71,11 @@ jobs:
       - name: Say the downloads will not include the phone app
         if: env.HAS_ANDROID_KEY != 'true'
         run: echo "::warning::There is no Android signing key (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD), so these downloads will not include the phone app."
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.HAS_ANDROID_KEY == 'true'
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: env.HAS_ANDROID_KEY == 'true'
         with:
           node-version: '24'
@@ -124,7 +124,7 @@ jobs:
       - name: Remove the Android signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/branch-agent.jks"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.phone-app.outputs.built == 'true'
         with:
           name: phone-app
@@ -154,10 +154,10 @@ jobs:
       MAC_SIGNING_REQUIRED: ${{ vars.MAC_SIGNING_REQUIRED == 'true' }}
       HAS_ANY_MAC_SIGNING_SECRET: ${{ secrets.MAC_SIGNING_P12_BASE64 != '' || secrets.MAC_SIGNING_P12_PASSWORD != '' || secrets.MAC_SIGNING_SHA1 != '' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           cache: npm
@@ -165,7 +165,7 @@ jobs:
       # The one signed Android app, where scripts/package-desktop.mjs copies it into phone/ from.
       - name: Fetch the phone app
         if: needs.android.outputs.built == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: phone-app
           path: release/mobile
@@ -265,7 +265,7 @@ jobs:
           test "$(ls -1 branch-agent-*.tgz | wc -l)" -eq 1
           name="$(ls -1 branch-agent-*.tgz)"
           sha256sum "$name" > "$name.sha256"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: runner.os == 'Linux'
         with:
           name: download-phone
@@ -274,7 +274,7 @@ jobs:
             release/branch-agent-*.tgz.sha256
           if-no-files-found: error
           retention-days: 7
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: download-${{ runner.os }}
           path: |
@@ -292,11 +292,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: source
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: downloads
           merge-multiple: true
