@@ -1038,6 +1038,7 @@ async function renderUpdates() {
   showVersions(null);
   // An update that did not go through is said on any install, with or without the desktop app.
   void showUpdateFailure();
+  void showKeeper();
   if (!window.branchDesktop) return;
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
 }
@@ -1102,6 +1103,33 @@ async function showUpdateFailure() {
   sayFailure(recorded);
 }
 document.addEventListener("branch-language", () => { if (failureSaid) sayFailure(failureSaid); });
+/* ---------- Fix update: the Trunk that looks after updates (owner item 21) ---------- */
+/* The report goes to that Trunk's own conversation as the owner's message, through the ordinary
+   message box, so what it was given is on screen and it remembers every update it looked at. */
+$("updates-failed-fix").addEventListener("click", async () => {
+  const button = $("updates-failed-fix");
+  button.disabled = true;
+  try {
+    const fix = await api("updates/fix", {});
+    if (fix.trunksSwitchedOn) toast(t("updates.fix.trunks-on", { name: fix.name }));
+    else if (fix.made) toast(t("updates.fix.made", { name: fix.name }));
+    await openConversation(fix.sessionId);
+    $("prompt").value = fix.prompt;
+    $("chat-form").requestSubmit();
+  } catch (e) { toast(e.message); }
+  finally { button.disabled = false; }
+});
+async function showKeeper() {
+  const select = $("updates-keeper");
+  const answer = await api("updates/keeper").catch(() => null);
+  if (!answer) return;
+  select.replaceChildren(select.options[0]);
+  for (const trunk of answer.trunks) select.append(new Option(trunk.name, trunk.id));
+  select.value = answer.trunkId ?? "";
+}
+$("updates-keeper").addEventListener("change", async (event) => {
+  try { await api("updates/keeper", { trunkId: event.target.value || null }); } catch (e) { toast(e.message); await showKeeper(); }
+});
 $("updates-failed-log").addEventListener("click", async () => {
   const note = $("updates-failed-saved");
   try {

@@ -559,6 +559,8 @@ export const ROUTES = {
   // sites they belong to — a map of where their passwords are, so it is not read with a key either.
   "/api/updates/failure": "owner GET", // owner item 19: an update that did not go through, and its file
   "/api/updates/failure-report": "owner POST", // owner item 19: an update that did not go through, and its file
+  "/api/updates/fix": "owner POST", // owner item 21: Fix update and the Trunk that does it
+  "/api/updates/keeper": "owner GET,POST", // owner item 21: Fix update and the Trunk that does it
   "/api/vault-autofill": "prefix",
   "/api/vault-autofill/settings": "secret-read",
   "/api/knobs": "owner POST", // R17-S-B

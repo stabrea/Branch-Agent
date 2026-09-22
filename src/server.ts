@@ -195,6 +195,7 @@ import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { handlesUpdateFailurePath, updateFailureApi } from "./update-failure.js";
+import { handlesUpdateFixPath, updateFixApi } from "./update-fix.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -1694,6 +1695,9 @@ async function api(
     return diagnosticApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt },
       request.method ?? "GET", path, new URL(request.url ?? "/", "http://local"), () => readBody(request, 8 * 1024 * 1024));
   // Owner item 19: an update that did not go through, and its file (src/update-failure.ts), the owner's alone.
+  // Owner item 21: Fix update and who does it (src/update-fix.ts), the owner's alone.
+  if (handlesUpdateFixPath(path))
+    return updateFixApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt }, request.method ?? "GET", path, () => readBody(request));
   if (handlesUpdateFailurePath(path))
     return updateFailureApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt }, request.method ?? "GET", path);
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
@@ -4015,6 +4019,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
+  if (handlesUpdateFixPath(path))
+    return "A short-lived key cannot fix an update or choose who does. Do that in the app window.";
   if (handlesUpdateFailurePath(path))
     return "A short-lived key cannot read an update's problem or make its file. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);

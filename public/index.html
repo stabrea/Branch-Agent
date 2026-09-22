@@ -1378,10 +1378,17 @@
             <div id="updates-failed" class="updates-busy" hidden>
               <p id="updates-failed-text" role="status"></p>
               <div class="identity-actions">
-                <button id="updates-failed-log" type="button" data-t="updates.failed.download">Download what happened</button>
+                <button id="updates-failed-fix" type="button" data-t="updates.fix.button">Fix update</button>
+                <button id="updates-failed-log" type="button" class="quiet" data-t="updates.failed.download">Download what happened</button>
               </div>
               <p id="updates-failed-saved" class="subtle" data-t="updates.failed.send">Send the file to us yourself, on Discord for example. Nothing is sent by itself.</p>
             </div>
+            <!-- Owner item 21: the Trunk that looks after updates (src/update-fix.ts). -->
+            <label for="updates-keeper" data-t="updates.fix.keeper">Who fixes updates</label>
+            <select id="updates-keeper" aria-describedby="updates-keeper-note">
+              <option value="" data-t="updates.fix.keeper-default">Update keeper, made the first time it's needed</option>
+            </select>
+            <p id="updates-keeper-note" class="field-note" data-t="updates.fix.keeper-note">A Trunk with its own memory that looks at what happened and says how to fix it. It never changes anything without asking.</p>
             <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
           <form id="projects-form" class="card">
