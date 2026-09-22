@@ -945,6 +945,17 @@ function state(app: Branch): unknown {
 }
 /** mac7/diagnostics: what kind of install this engine is, and when it started, for the report. */
 const diagnosticInstall = { type: "package", startedAt: Date.now() };
+
+/** Restores owner data with the profile guard attached to the operation, not only its current route. */
+export async function restoreBackup(
+  app: Pick<Branch, "store">,
+  read: () => Promise<unknown>,
+  replaceExisting: boolean,
+): Promise<unknown> {
+  app.store.profiles.requireOwner("Restoring a backup");
+  return app.store.restore(await read(), { replaceExisting });
+}
+
 async function api(
   app: Branch,
   request: IncomingMessage,
@@ -1473,9 +1484,8 @@ async function api(
     return app.store.backup(app.version);
   }
   if (request.method === "POST" && path === "/api/restore") {
-    app.store.profiles.requireOwner("Restoring a backup");
     const replaceExisting = new URL(request.url ?? "/", "http://local").searchParams.get("replace") === "1";
-    return app.store.restore(await readBody(request, maximumBackupBytes), { replaceExisting });
+    return restoreBackup(app, () => readBody(request, maximumBackupBytes), replaceExisting);
   }
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
