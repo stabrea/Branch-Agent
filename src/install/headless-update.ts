@@ -57,6 +57,8 @@ export interface HeadlessUpdateDeps {
   returnWait?: ReturnDeps;
   /** Goes back to the version before; answers with an exit code. */
   rollback?: (restart: () => Promise<void>) => Promise<number>;
+  /** Writes down what this update is about to change; a test makes it fail after the stop. */
+  record?: typeof recordActivation;
 }
 
 /** The safety copies this data folder holds, newest last, so a refusal can name one. */
@@ -204,10 +206,18 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
   // mac7/safe-rollback: what this update changes is written down before anything moves.
   let activation: Awaited<ReturnType<typeof recordActivation>> | null = null;
   try {
-    activation = await recordActivation({ dataDir: input.dataDir, installRoot: input.installRoot, stagedDir,
+    activation = await (deps.record ?? recordActivation)({ dataDir: input.dataDir, installRoot: input.installRoot, stagedDir,
       fromVersion: input.version, toVersion: to, executableName: appEntryName(platform) });
   } catch (error) {
     input.print(`${error instanceof Error ? error.message : String(error)} Nothing was changed.`);
+    // Nothing on disk was changed — but the service was already stopped to make the change, and
+    // writing down what an update would do is a disk write like any other. Leaving here is the exact
+    // down-service condition the rest of this file exists to prevent, arrived at through the one
+    // door that had no recovery behind it.
+    if (stopped.report?.wasRunning && note?.mode === "daemon")
+      await serviceBack(input, note, input.version,
+        join(deps.scratchDir ?? join(tmpdir(), "branch-agent-update"), "apply-update.log"));
+    // The service being back is the least this owes them, never a successful update.
     return 1;
   }
   // The stop already happened (and was waited for) in the updater, so the script waits for nothing.

@@ -9,6 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -198,6 +199,11 @@ test("an undo whose restart fails is a failure, whatever else went right", async
 
 async function fakeApp(dir, version) {
   await mkdir(join(dir, "resources", "app", "dist"), { recursive: true });
+  // The update refuses a download that cannot identify itself as this program at this version, so a
+  // stand-in without one is refused before any of this file's tests reach what they are about. It was
+  // missing, and every test that runs a real update stopped on "did not contain a readable Branch
+  // Agent package identity" -- on every system, not only on a Mac.
+  await writeFile(join(dir, "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version }));
   await writeFile(join(dir, "branch-agent"), `#!/bin/sh\necho ${version}\n`);
   await writeFile(join(dir, "resources", "app", "dist", "cli.js"), `// ${version}\n`);
   await writeFile(join(dir, "resources", "version.txt"), version);
@@ -252,6 +258,38 @@ const cameBack = (over = {}) => {
 };
 /** Nothing comes back at all, and nothing answers. */
 const neverBack = () => ({ running: async () => null, attach: async () => null, sleep: async () => undefined, waitMs: 0 });
+
+
+test("a record that cannot be written puts the service back, and still calls the update failed", async (t) => {
+  // The stop has already happened by the time what the update will change is written down, and
+  // writing it down is a disk write like any other. Returning there left the owner on the version
+  // they had with nothing running it -- the one outcome this whole path exists to prevent, reached
+  // through the one door that had no recovery behind it.
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    record: async () => { throw new Error("the disk is full"); },
+    returnWait: cameBack({ version: "1.0.0" }),
+  } });
+
+  assert.ok(s.events.includes("restart"), "the service was started again after the record could not be written");
+  assert.match(s.lines.join(NEWLINE), /the disk is full/, "and the owner is told why the update stopped");
+  assert.match(s.lines.join(NEWLINE), /working in the background again, on version 1\.0\.0/,
+    "and that it really came back, on the version that is still installed");
+  assert.equal(code, 1, "recovering the service is the least this owes them, never a successful update");
+  assert.equal(s.events.includes(["script"].toString()), false);
+});
+
+test("a record that cannot be written says so plainly when the service will not come back either", async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    record: async () => { throw new Error("the disk is full"); },
+    returnWait: neverBack(),
+  } });
+
+  assert.equal(code, 1);
+  assert.ok(s.events.includes("rollback"), "the way back is taken when the service will not come up");
+  assert.match(s.lines.join(NEWLINE), /did not come back up/, "and the owner is told, rather than left to find out");
+});
 
 test("a Branch working in the background comes back by itself on the new version", { skip: posixOnly }, async (t) => {
   const s = await updateSetup(t);
@@ -432,6 +470,35 @@ test("a Branch that answers with the version we undid is not the version we put 
 
   assert.equal(code, 1, "a Branch on the version we just undid does not count as the undo working");
   assert.match(undo.told(), /could not be started again/, undo.told());
+});
+
+
+test("an undo that put the files back and could not start Branch can be finished later", async (t) => {
+  // The undo records that the files are back -- they are -- and then tries to start the service. If
+  // that fails, running the whole undo again is refused, and rightly: the installed program is no
+  // longer the version the record says it replaced. So what is left undone is the service, and the
+  // service is the only thing this route does. No file is moved a second time.
+  const undo = await undoSetup(t);
+  assert.equal(await undo.run(neverBack()), 1, "the first attempt fails at the start, as it should");
+  const versionAfterFirst = await readFile(join(undo.target, "resources", "version.txt"), "utf8");
+  assert.equal(versionAfterFirst, "1.0.0", "and the files are already back");
+
+  // Now finish it. Nothing on disk may move, and the service must really answer.
+  const finished = await undo.run(cameBack({ version: "1.0.0" }));
+  assert.equal(finished, 0, undo.told());
+  assert.match(undo.told(), /working in the background again, on version 1\.0\.0/);
+  assert.deepEqual(undo.events, ["restart", "restart"], "asked the manager again, and nothing else");
+  assert.equal(await readFile(join(undo.target, "resources", "version.txt"), "utf8"), "1.0.0",
+    "the same files, not swapped a second time");
+  assert.equal(await readFile(join(`${undo.target}.failed`, "resources", "version.txt"), "utf8"), "2.0.0",
+    "and the version that was undone is still parked beside it, not swapped back in");
+});
+
+test("a second attempt that still cannot start Branch says so again, rather than reporting it done", async (t) => {
+  const undo = await undoSetup(t);
+  assert.equal(await undo.run(neverBack()), 1);
+  assert.equal(await undo.run(neverBack()), 1, "still not started, still said");
+  assert.match(undo.told(), /could not be started again/);
 });
 
 test("an update whose hand-over fails does not leave a service down", { skip: posixOnly }, async (t) => {
