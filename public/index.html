@@ -31,7 +31,7 @@
     <link rel="stylesheet" href="/control-styles.css" /><!-- batch1/controls: switch, segmented, glass dropdown styling -->
     <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/favicon-64.png" type="image/png" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   </head>
   <body>
@@ -43,7 +43,8 @@
     <aside class="rail" id="conversation-rail" aria-label="Sidebar">
       <div class="rail-head">
         <button id="app-switcher" class="app-switcher" type="button" aria-haspopup="true" aria-expanded="false">
-          <span class="brand-icon"><img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" /><img class="oak-normal" src="/assets/keepoak-mark.png" alt="" /></span>
+          <!-- Branch Agent's own face: the mascot. KeepOak's oak stays at the foot, as the maker. -->
+          <span class="brand-icon"><img class="mascot-mark" src="/assets/mascot-128.png" alt="" /></span>
           <span class="brand"><span id="brand-name">Branch Agent</span></span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
         </button>
@@ -243,7 +244,10 @@
             <div id="live-ask-slot"></div>
           </div>
           <div class="welcome">
-            <h2 id="greeting">What do you want done?</h2>
+            <div class="welcome-head">
+              <img class="welcome-mascot" src="/assets/mascot-128.png" alt="" aria-hidden="true" />
+              <h2 id="greeting">What do you want done?</h2>
+            </div>
             <p>Ask for anything, or start from one of these.</p>
             <div class="chips" id="suggestions">
               <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
@@ -1356,7 +1360,7 @@
           </section>
           <section id="updates-card" class="card" hidden>
             <h2 data-t="settings.card.updates">Updates</h2>
-            <p id="updates-version" class="subtle"></p>
+            <img class="about-mascot" src="/assets/mascot-128.png" alt="" aria-hidden="true" />            <p id="updates-version" class="subtle"></p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
             <p id="updates-status" role="status"></p>

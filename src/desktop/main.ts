@@ -61,8 +61,13 @@ let runningNow: () => number = () => 0;
 let joinedBackground = false;
 let askingToQuit = false;
 
+/** Branch Agent's mascot, as the window's icon; the tray gets the small cut, or its outline on a Mac menu bar. */
 function markPath(): string {
-  return fileURLToPath(new URL("../../public/assets/keepoak-mark.png", import.meta.url));
+  return fileURLToPath(new URL("../../public/assets/mascot-512.png", import.meta.url));
+}
+function trayMarkPath(): string {
+  const file = isTemplateTrayIcon(process.platform) ? "mascot-template.png" : "mascot-tray.png";
+  return fileURLToPath(new URL(`../../public/assets/${file}`, import.meta.url));
 }
 
 /**
@@ -80,7 +85,7 @@ function branchIcon(): NativeImage {
  * macOS a template image so the system colours it for a light or a dark menu bar (see icon-sizes.ts).
  */
 function trayIcon(): NativeImage {
-  const source = nativeImage.createFromPath(markPath());
+  const source = nativeImage.createFromPath(trayMarkPath());
   const side = trayIconSize(process.platform);
   const image = source.resize({ width: side, height: side, quality: "best" });
   for (const scale of trayIconScales(process.platform)) {

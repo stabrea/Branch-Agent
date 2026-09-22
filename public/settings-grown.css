@@ -36,10 +36,7 @@
   height: 28px;
   flex: none;
   content: "";
-  background: center / contain no-repeat url("/assets/keepoak-mark-reversed.png");
-}
-:root[data-theme="daylight"] .lx-settings-title::before {
-  background-image: url("/assets/keepoak-mark.png");
+  background: center / contain no-repeat url("/assets/mascot-128.png");
 }
 .lx-settings-version {
   margin-top: 0;
