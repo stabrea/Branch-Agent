@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/mascot-night.png">
+    <img src="docs/images/mascot.png" alt="Branch Agent's mascot: a small round green sprout with big green eyes, standing on root feet, with copper branches that end in glowing lanterns." width="280">
+  </picture>
+</p>
+
 # Branch Agent
 
 Branch Agent is a personal assistant that runs on your own Windows computer. You ask for something in
