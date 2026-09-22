@@ -15,7 +15,7 @@ import { startServer } from "../dist/server.js";
 import { zipRead } from "../dist/skill-package.js";
 import { activationJournalName, openActivationJournal, settleActivation } from "../dist/never-break/activation.js";
 import { openSettingFor } from "./places.mjs";
-import { updateFailureApi } from "../dist/update-failure.js";
+import { updateFailureApi, updateLogItem, withoutControlCharacters } from "../dist/update-failure.js";
 
 const secret = "sk-ant-api03-" + "x".repeat(48);
 const steps = ["[10:00:01] app closed", "[10:00:02] keeping previous version", `[10:00:03] copying with ${secret}`, "[10:00:04] copy failed; putting the previous version back"];
@@ -53,6 +53,84 @@ const call = (server, path, body, key = server.token) => fetch(server.url + "/ap
   headers: { authorization: `Bearer ${key}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
+
+
+/** A log the way the hand-over writes one: the end is what matters, so that is where the trouble is. */
+async function updateLog(t, lines) {
+  const dir = await mkdtemp(join(tmpdir(), "branch-update-log-"));
+  t.after(() => discardTemp(dir));
+  await writeFile(join(dir, "apply-update.log"), lines.join("\n"), "utf8");
+  return dir;
+}
+const escape = String.fromCharCode(27);
+
+test("what a terminal would obey is taken out of the file the owner is asked to send", async (t) => {
+  // The hand-over script echoes what the shell and the archive tools said, so a name inside a downloaded
+  // archive can put escape sequences in here. Colour is the harmless end; moving the cursor and writing
+  // over what is above it is the other end, and this is the one file the owner is told to open and pass on.
+  const dir = await updateLog(t, [
+    "step 1: unpacking",
+    `${escape}[31mstep 2: a name from the archive${escape}[0m`,
+    `a bell${String.fromCharCode(7)} and a backspace${String.fromCharCode(8)} in the middle`,
+    "step 9: failed to move the folder",
+  ]);
+  const item = await updateLogItem(dir);
+
+  assert.equal(item.text.includes(escape), false, "no escape sequences reach the file the owner opens");
+  assert.equal(item.text.includes(String.fromCharCode(7)), false, "nor a bell");
+  assert.equal(item.text.includes(String.fromCharCode(8)), false, "nor a backspace");
+  assert.match(item.text, /step 2: a name from the archive/, "the words themselves are still there");
+  assert.match(item.text, /step 9: failed to move the folder/, "and so is what went wrong");
+  assert.match(item.text, /\n/, "newlines are not control characters for this purpose");
+});
+
+test("the end of the log is kept, because that is where an update stops", async (t) => {
+  // Believing the opposite is easy: a check written against the first lines of a long log passes while
+  // proving nothing, because those lines are exactly the ones that are dropped.
+  const dir = await updateLog(t, [
+    "the very first line, long ago",
+    ...Array.from({ length: 900 }, (_unused, index) => `filler line ${index}`),
+    "the last line, where it stopped",
+  ]);
+  const item = await updateLogItem(dir);
+  const kept = item.text.split("\n");
+
+  assert.equal(kept.length, 400, "four hundred lines, no more");
+  assert.equal(kept.at(-1), "the last line, where it stopped");
+  assert.equal(item.text.includes("the very first line, long ago"), false, "the beginning is what goes");
+});
+
+test("secrets, addresses and the owner's own folder do not reach the file either", async (t) => {
+  const dir = await updateLog(t, [
+    "authorization: Bearer sk-ant-api03-NOTAREALKEY-abcdefghijklmnop",
+    'config {"apiKey":"sk-proj-abcdef1234567890"}',
+    "owner email: someone@example.com",
+    `a very long line: ${"x".repeat(6000)}`,
+    "step 9: failed to move the folder",
+  ]);
+  const item = await updateLogItem(dir);
+
+  assert.equal(item.text.includes("sk-ant-api03-NOTAREALKEY"), false);
+  assert.equal(item.text.includes("sk-proj-abcdef1234567890"), false);
+  assert.equal(item.text.includes("someone@example.com"), false);
+  assert.ok(Math.max(...item.text.split("\n").map((line) => line.length)) <= 2000,
+    "and no single line runs away with the file");
+  assert.match(item.text, /step 9: failed to move the folder/);
+});
+
+test("with no log at all it says so, rather than failing", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "branch-update-none-"));
+  t.after(() => discardTemp(dir));
+  const item = await updateLogItem(dir);
+  assert.match(item.text, /No update has written its steps/);
+});
+
+test("taking control characters out keeps everything a person reads", () => {
+  assert.equal(withoutControlCharacters(`a${escape}[1mb`), "ab");
+  assert.equal(withoutControlCharacters("one\ttwo\nthree"), "one\ttwo\nthree", "tabs and newlines stay");
+  assert.equal(withoutControlCharacters("plain words"), "plain words");
+});
+
 
 test("a failed update is known after the restart, and its file holds only what explains it, cleaned", async (t) => {
   const { app, server, dataDir } = await failedUpdate(t);

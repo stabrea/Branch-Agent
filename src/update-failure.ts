@@ -39,10 +39,63 @@ export async function tailOf(path: string): Promise<string> {
 /** Report a problem's items that explain an update, and nothing else: only these are gathered. */
 export const updateItemIds = ["about", "updates", "log", "crashes", "disk"] as const;
 
-/** The last update's own steps, the end only, cleaned like every report item. */
-export async function updateLogItem(): Promise<ReportItem> {
-  const text = await tailOf(join(updateScratchDir(), "apply-update.log")).then(
-    (log) => redactForLog(log.split(/\r?\n/).slice(-updateLogLines).map((line) => line.slice(0, updateLogLineChars)).join("\n")),
+/**
+ * Takes out the characters a terminal obeys rather than prints, keeping tabs and newlines.
+ *
+ * The log is written by the hand-over script echoing what the shell and the archive tools said, so a
+ * name inside a downloaded archive can put escape sequences into it. This file is then the one thing
+ * the owner is asked to open and send on, and everything else on those lines — keys, addresses, their
+ * home folder — is already cleaned. Colour codes are the harmless end of that; a sequence that moves
+ * the cursor and overwrites what is above it is the other end.
+ */
+export function withoutControlCharacters(text: string): string {
+  const escape = 27, bell = 7, tab = 9, newline = 10, carriageReturn = 13, deleteChar = 127, highest = 159;
+  let out = "";
+  for (let at = 0; at < text.length; at += 1) {
+    const code = text.charCodeAt(at);
+    if (code === escape) {
+      // The whole sequence goes, not only the escape that starts it: leaving `[31m` behind would be safe
+      // but would litter the file with the rubbish it was hiding.
+      at = endOfEscape(text, at);
+      continue;
+    }
+    if (code === tab || code === newline || code === carriageReturn) { out += text[at]; continue; }
+    if (code < 32 || (code >= deleteChar && code <= highest)) continue;
+    out += text[at];
+  }
+  return out;
+
+  /** The last position of the escape sequence starting at `at`, or `at` itself when it is a stray escape. */
+  function endOfEscape(line: string, at: number): number {
+    const next = line[at + 1];
+    if (next === "[") {
+      // A control sequence: parameters, then any number of spacers, then one letter or symbol ends it.
+      let cursor = at + 2;
+      while (cursor < line.length && /[0-?]/.test(line[cursor]!)) cursor += 1;
+      while (cursor < line.length && /[ -/]/.test(line[cursor]!)) cursor += 1;
+      return cursor < line.length ? cursor : line.length;
+    }
+    if (next === "]") {
+      // An operating-system command: runs until a bell or another escape.
+      let cursor = at + 2;
+      while (cursor < line.length && line.charCodeAt(cursor) !== bell && line.charCodeAt(cursor) !== escape) cursor += 1;
+      return cursor < line.length ? cursor : line.length;
+    }
+    return next === undefined ? at : at + 1;
+  }
+}
+
+/**
+ * The last update's own steps, the end only, cleaned like every report item.
+ *
+ * The folder is an argument so a test can drive this without writing into the machine's own temporary
+ * folder and putting the owner's real log back afterwards. `createBranch` and the routes call it with
+ * no argument and get the real one.
+ */
+export async function updateLogItem(scratchDir: string = updateScratchDir()): Promise<ReportItem> {
+  const text = await tailOf(join(scratchDir, "apply-update.log")).then(
+    (log) => withoutControlCharacters(redactForLog(
+      log.split(/\r?\n/).slice(-updateLogLines).map((line) => line.slice(0, updateLogLineChars)).join("\n"))),
     () => "No update has written its steps on this computer since it last started.");
   return { id: "update-log", title: "What the last update did", why: "Each step the update took, in order, up to where it stopped.", text };
 }
