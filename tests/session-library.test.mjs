@@ -90,24 +90,36 @@ test("an archive that was written by somebody else does not get to choose what l
     return copy;
   };
 
+  // Each of these must be stopped by the rule it is aimed at, and the message is what says which
+  // rule stopped it. Asking only "did it throw" let a case be caught by the wrong check, which is
+  // how a missing digest check can sit behind a passing test.
+  const swapped = Buffer.from(bytes);
+  swapped[40] = swapped[40] ^ 0xff;   // same length, still begins like a PNG: only the digest knows
   const hostile = [
-    ["a file the messages do not name", changed((one) => { one.files.push({ ...one.files[0], id: "00112233445566aa" }); })],
-    ["a message naming a file that is not there", changed((one) => { one.files = []; })],
-    ["the same file twice", changed((one) => { one.files.push({ ...one.files[0] }); })],
-    ["bytes that are not the digest", changed((one) => { one.files[0].data = Buffer.from("something else entirely").toString("base64"); one.files[0].bytes = 23; })],
-    ["a size that is not the size", changed((one) => { one.files[0].bytes = 1; })],
-    ["a name that is a path", changed((one) => { one.files[0].name = "../../escaped.png"; one.files[0].sha256 = digest(bytes); })],
-    ["a kind that is not the type", changed((one) => { one.files[0].kind = "document"; })],
-    ["a picture that is not one", changed((one) => {
-      const pretend = Buffer.from("MZ this is a program, not a picture");
-      one.files[0].data = pretend.toString("base64");
-      one.files[0].bytes = pretend.length;
-      one.files[0].sha256 = digest(pretend);
-    })],
+    ["a file the messages do not name", /carries a file no message/,
+      changed((one) => { one.files.push({ ...one.files[0], id: "00112233445566aa" }); })],
+    ["a message naming a file that is not there", /names a file the archive does not carry/,
+      changed((one) => { one.files = []; })],
+    ["the same file twice", /names one of its files twice/,
+      changed((one) => { one.files.push({ ...one.files[0] }); })],
+    ["bytes that are not the ones the digest is of", /is not the file the archive says it is/,
+      changed((one) => { one.files[0].data = swapped.toString("base64"); })],
+    ["a size that is not the size", /is not the size the archive says it is/,
+      changed((one) => { one.files[0].bytes = 1; })],
+    ["a name that is a path", /has a name that is a path/,
+      changed((one) => { one.files[0].name = "../../escaped.png"; })],
+    ["a kind that is not the type", /one kind of thing and another/,
+      changed((one) => { one.files[0].kind = "document"; })],
+    ["a picture that is not one", /not the kind of picture it says it is/,
+      changed((one) => {
+        const pretend = Buffer.alloc(bytes.length, 0x41);
+        one.files[0].data = pretend.toString("base64");
+        one.files[0].sha256 = digest(pretend);
+      })],
   ];
   const before = counts(app.store.db);
-  for (const [why, input] of hostile)
-    assert.throws(() => app.store.importSession("local", input), undefined, why);
+  for (const [why, message, input] of hostile)
+    assert.throws(() => app.store.importSession("local", input), message, why);
   assert.deepEqual(counts(app.store.db), before, "and none of them wrote anything");
   assert.equal(typeof app.store.importSession("local", good).sessionId, "string", "the real one still lands");
 });
