@@ -14,6 +14,7 @@ import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
+import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
@@ -578,6 +579,7 @@ async function staticFile(
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (tool-safety): the card for the second look before an approval.
     "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
+    "/jev-decisions.js": ["jev-decisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (os-sandbox): the card for the wall around programs.
     "/os-sandbox.js": ["os-sandbox.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
@@ -1079,6 +1081,13 @@ async function api(
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Optional JEV decisions are the owner's: even reading this card names a local program and provider.
+  if (path === "/api/jev") {
+    app.store.profiles.requireOwner("JEV decision support");
+    if (request.method === "GET") return app.decisions.settings();
+    if (request.method === "POST") return app.decisions.configure(await readBody(request, 16 * 1024));
+    throw new HttpError(405, "Use GET or POST here.");
+  }
   // ── R17-S-A (understandable settings): presets, putting settings back, one settings file, and the files you write. ──
   if (handlesSettingsKitPath(path))
     return settingsKitApi({
@@ -1455,6 +1464,7 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/terminal") return terminalReadApi(app, request);
   // ── end mac7/smoke-fixes (B4) ─────────────────────────────────────────────────────────────────
+  if (request.method === "GET" && path === "/api/alive") return { ok: true, version: app.version };
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") {
@@ -1809,7 +1819,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
       return app.runtime.followUp(match[1]!, prompt, windowCaller(app).person ?? null);
     }
   }
-  if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
+  if (match && request.method === "GET" && !match[2]) {
+    const person = app.store.profiles.active();
+    const shared = person && app.trunks.rooms.forPerson(person.id).some((room) => room.sessionId === match[1]);
+    return app.store.sessionView(shared ? app.runtime.owner : owner, match[1]!);
+  }
   if (match && match[2] === "skill") {
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     const key = `pinned-skill:${match[1]}`;
@@ -3021,7 +3035,9 @@ export async function startServer(
   const token = await sessionToken(options.dataDir);
   diagnosticInstall.type = installTypeOf({ installRoot: options.installRoot ?? null, presence: options.presence ?? "app", packageRoot: packageRootHere() });
   diagnosticInstall.startedAt = Date.now();
-  const stopDiagnosticLog = startDiagnosticLog(app, options.dataDir); // mac7/diagnostics
+  const stopDiagnosticLog = startDiagnosticLog(
+    app, options.dataDir, diagnosticInstall.type, diagnosticInstall.startedAt,
+  ); // mac7/diagnostics
   let url = "";
   // The same count the waiting line uses, so the two together never run more than this computer is
   // meant to handle.
@@ -3338,8 +3354,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // ---- end of the r17-d block ----
         // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
         if (handlesTrunksPath(path)) {
-          app.store.profiles.requireOwner("Trunks");
-          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+          const active = app.store.profiles.active();
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET",
+            readBody: () => readBody(request, 524288), person: active ? { id: active.id, name: active.name } : null,
+            requireOwner: (what) => app.store.profiles.requireOwner(what) }, path)
             .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
           send(response, 200, answer);
           return;
@@ -3459,18 +3477,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     } catch (e) {
       // mac7/diagnostics: every failed request is one line in the activity log, with an id of its own.
       // An unexpected failure carries the same id back, so what the window saw can be found in the log.
+      const shapeError = isRequestShapeError(e);
+      const expected = e instanceof HttpError || e instanceof PinnedSettingError || shapeError;
       const status = e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400;
       const requestId = newRequestId();
-      diagnose("gateway", status >= 500 || !(e instanceof HttpError) ? "warn" : "info", `${request.method ?? "GET"} ${new URL(request.url ?? "/", "http://local").pathname} failed (${status})`,
-        { requestId, fields: { error: errorText(e).slice(0, 300) } });
+      diagnose("gateway", status >= 500 || !expected ? "warn" : "info", `${request.method ?? "GET"} ${new URL(request.url ?? "/", "http://local").pathname} failed (${status})`,
+        { requestId, fields: { error: requestErrorText(e).slice(0, 300) } });
       if (!response.headersSent)
         // mac7/wake-pins: a setting the owner pinned is refused the way every other thing of
         // theirs is, in the same words and with the same 403, wherever the write came from.
         send(response, e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400, {
           // A saved password or key can never travel back out in a failure message.
-          error: app.runtime.hideSecrets(errorText(e)),
+          error: app.runtime.hideSecrets(requestErrorText(e)),
           // Only on unexpected failures: a refusal (a wrong key, say) must read the same every time.
-          ...(e instanceof HttpError ? {} : { requestId }),
+          ...(expected ? {} : { requestId }),
         });
       else response.end();
     }

@@ -16,6 +16,7 @@ import { zipWrite } from "./skill-package.js";
  * link only opens a page in the owner's browser, and the zip is attached by the owner, by hand.
  */
 export interface ReportItem { id: string; title: string; why: string; text: string }
+export const reportItemIds = ["about", "health", "services", "settings", "log", "crashes", "updates", "tasks", "disk", "network"] as const;
 
 export interface ReportSources {
   version: string;
@@ -120,22 +121,38 @@ export function updateHistory(dataDir: string): unknown {
   } finally { db?.close(); }
 }
 
-/** Every item, gathered only when the owner asks. */
-export async function gatherReport(sources: ReportSources): Promise<ReportItem[]> {
+/** Every chosen item, gathered only when the owner asks. Unchosen sources are never read. */
+export async function gatherReport(sources: ReportSources, include: readonly string[] = reportItemIds): Promise<ReportItem[]> {
   const item = async (id: string, title: string, why: string, work: () => unknown): Promise<ReportItem> =>
     ({ id, title, why, text: pretty(await safely(work)) });
-  return [
-    aboutItem(sources),
-    await item("health", "Health checks", "The same checks as Settings › Advanced › Health check.", sources.health),
-    await item("services", "What is running", "Each part of Branch — the engine, chat apps, outside AI-tool servers, models on this computer — and how it is doing.", sources.services),
-    await item("settings", "Settings (secrets removed)", "Which features are switched on. Keys and passwords are never included.", sources.settings),
-    logItem(sources),
-    crashItem(sources),
-    await item("updates", "Updates and rollbacks", "Which versions were installed or rolled back, and how each went.", () => updateHistory(sources.dataDir)),
-    await item("tasks", "Recent tasks (shape only)", "What recent tasks did and how each ended — never your messages, replies or files.", sources.events),
-    await diskItem(sources.dataDir),
-    await networkItem(sources),
-  ];
+  const chosen = new Set(include);
+  const items: ReportItem[] = [];
+  if (chosen.has("about")) items.push(aboutItem(sources));
+  if (chosen.has("health")) items.push(await item(
+    "health", "Health checks", "The same checks as Settings › Advanced › Health check.", sources.health,
+  ));
+  if (chosen.has("services")) items.push(await item(
+    "services", "What is running",
+    "Each part of Branch — the engine, chat apps, outside AI-tool servers, models on this computer — and how it is doing.",
+    sources.services,
+  ));
+  if (chosen.has("settings")) items.push(await item(
+    "settings", "Settings (secrets removed)",
+    "Which features are switched on. Keys and passwords are never included.", sources.settings,
+  ));
+  if (chosen.has("log")) items.push(logItem(sources));
+  if (chosen.has("crashes")) items.push(crashItem(sources));
+  if (chosen.has("updates")) items.push(await item(
+    "updates", "Updates and rollbacks", "Which versions were installed or rolled back, and how each went.",
+    () => updateHistory(sources.dataDir),
+  ));
+  if (chosen.has("tasks")) items.push(await item(
+    "tasks", "Recent tasks (shape only)",
+    "What recent tasks did and how each ended — never your messages, replies or files.", sources.events,
+  ));
+  if (chosen.has("disk")) items.push(await diskItem(sources.dataDir));
+  if (chosen.has("network")) items.push(await networkItem(sources));
+  return items;
 }
 
 /** The items the owner kept. */

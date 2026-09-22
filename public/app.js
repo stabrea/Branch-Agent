@@ -59,9 +59,11 @@ function el(tag, text, className) {
 }
 /* `method` is only given where the route needs something other than the usual GET-or-POST rule —
    PUT to save a flow, DELETE to take a line off the to-do list. */
-async function api(path, body, method) {
+async function api(path, body, method, signal) {
   const response = await fetch("/api/" + path, {
     method: method ?? (body === undefined ? "GET" : "POST"),
+    cache: "no-store",
+    signal,
     headers: {
       authorization: "Bearer " + token,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
@@ -84,11 +86,15 @@ async function api(path, body, method) {
 export function ownerAtWindow() {
   return document.documentElement.dataset.household !== "on";
 }
+export function noteWindowProfile(owner, { force = false } = {}) {
+  if (!force && ownerAtWindow() === owner) return;
+  const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
+  document.documentElement.dataset.household = owner ? "off" : "on";
+  document.documentElement.dataset.profileGeneration = String(generation);
+  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner, profileGeneration: generation } }));
+}
 function noteProfile(profile) {
-  const household = !!profile && profile.isOwner === false;
-  if (ownerAtWindow() === !household) return;
-  document.documentElement.dataset.household = household ? "on" : "off";
-  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: !household } }));
+  noteWindowProfile(!profile || profile.isOwner !== false);
 }
 window.addEventListener("unhandledrejection", (event) => {
   if (event.reason?.household === true) event.preventDefault();
@@ -1640,6 +1646,7 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
     globalThis.branchContextFilesReady?.();
+    globalThis.branchHeartbeatReady?.();
     /* mac3/security-check: the security check card reads its switches once you are in. */
     globalThis.branchSecurityCheckReady?.();
     globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2

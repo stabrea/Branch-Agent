@@ -328,7 +328,9 @@ test("a Mac update fetches the Mac download, finds the app bundle and writes the
     scratchDir: join(root, "scratch"), fetch: fetcher, platform: "darwin",
     extract: async (_archive, into) => {
       await mkdir(join(into, "Branch Agent.app", "Contents", "MacOS"), { recursive: true });
+      await mkdir(join(into, "Branch Agent.app", "Contents", "Resources", "app"), { recursive: true });
       await writeFile(join(into, "Branch Agent.app", "Contents", "MacOS", "Branch Agent"), "new");
+      await writeFile(join(into, "Branch Agent.app", "Contents", "Resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
     stopDaemon: async () => 5150,
   });
@@ -352,8 +354,9 @@ test("a Linux update finds the program folder inside the download", async (t) =>
     repo: "x/y", currentVersion: "1.0.0", installDir: join(root, "Branch-Agent-linux-x64"), executableName: "branch-agent",
     assetName: asset, scratchDir: join(root, "scratch"), fetch: releaseFor(asset).fetcher, platform: "linux",
     extract: async (_archive, into) => {
-      await mkdir(join(into, "Branch-Agent-linux-x64"), { recursive: true });
+      await mkdir(join(into, "Branch-Agent-linux-x64", "resources", "app"), { recursive: true });
       await writeFile(join(into, "Branch-Agent-linux-x64", "branch-agent"), "new");
+      await writeFile(join(into, "Branch-Agent-linux-x64", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
   });
   const { script, stagedDir } = await updater.install();
@@ -469,37 +472,39 @@ test("packaging, the release workflow and the updater agree on every download na
   assert.equal(appEntryName("darwin"), `${mac.MAC_APP_NAME}.app`);
   assert.equal(macAppBundleName, `${mac.MAC_APP_NAME}.app`);
   const workflow = await readFile(new URL("../.github/workflows/package.yml", import.meta.url), "utf8");
-  // bucket 22: the same list is checked, then attached; the attach step walks it name by name.
+  const publication = await import("../scripts/publish-release.mjs");
+  const published = publication.releaseFiles("v9.8.7");
+  // The workflow checks the archives before the publication script independently inventories every file.
   const loops = [...workflow.matchAll(/for name in ([^;]+);/g)].map((match) => match[1].trim().split(/\s+/));
-  assert.equal(loops.length, 2, "one loop checks the downloads, one attaches them");
-  for (const loop of loops) assert.deepEqual(loop, releaseAssets.map(({ name }) => name), "the workflow checks and attaches exactly these downloads");
-  const attach = workflow.slice(workflow.indexOf("- name: Attach to the release"));
-  assert.ok(attach.includes('gh release upload "$TAG" "$name" "$name.sha256"'), "each download goes up together with its checksum");
+  assert.equal(loops.length, 1, "one workflow loop verifies the downloads before publication");
+  assert.deepEqual(loops[0], releaseAssets.map(({ name }) => name), "the workflow verifies exactly these downloads");
+  for (const { name } of releaseAssets) {
+    assert.ok(published.includes(name), `${name} is published`);
+    assert.ok(published.includes(`${name}.sha256`), `${name} is published with its checksum`);
+  }
   assert.equal(`${releaseAssets[0].name}.sha256`, checksumAssetName(releaseAssets[0].name), "the checksum is named the way the updater looks for it");
-  assert.match(attach, /for script in "Install Branch Agent\.cmd" install-branch-agent\.sh;/, "both installer scripts are attached");
+  assert.ok(published.includes("Install Branch Agent.cmd") && published.includes("install-branch-agent.sh"), "both installer scripts are attached");
   // mac7/reach-leftovers: the phone download (the packed command) goes up with the checksum the
   // Termux script insists on, named after the version in the tag.
   assert.match(workflow, /cli="branch-agent-\$\{TAG#v\}\.tgz"/, "the phone download is named after the tag");
-  assert.match(attach, /gh release upload "\$TAG" "\$cli" "\$cli\.sha256"/, "the phone download goes up with its checksum");
+  assert.ok(published.includes("branch-agent-9.8.7.tgz") && published.includes("branch-agent-9.8.7.tgz.sha256"), "the phone download goes up with its checksum");
   assert.match(workflow, /sha256sum "\$name" > "\$name\.sha256"/, "its checksum is written beside it, in the format the Termux script reads");
-  const check = workflow.slice(workflow.indexOf("- name: Check every download is there"), workflow.indexOf("- name: Attach to the release"));
+  const check = workflow.slice(workflow.indexOf("- name: Check every download is there"), workflow.indexOf("- name: Publish the complete reviewed release"));
   assert.match(check, /sha256sum --check "\$cli\.sha256"/, "the phone download is checked before the release is touched");
   assert.match(workflow, /release\/install-branch-agent\.sh/, "the macOS and Linux builds hand over their installer script");
 });
 
 test("the release workflow never replaces a download that is already attached (bucket 22)", async () => {
   const workflow = await readFile(new URL("../.github/workflows/package.yml", import.meta.url), "utf8");
-  assert.ok(!workflow.includes("--clobber"), "no upload overwrites what is there (a hand-built Windows zip once was)");
-  const attach = workflow.slice(workflow.indexOf("- name: Attach to the release"));
-  assert.match(attach, /attached="\$\(gh release view "\$TAG" --json assets --jq '\.assets\[\]\.name'\)"/, "it first reads what is already attached");
-  assert.match(attach, /if on_release "\$name"; then\n\s+echo "\$name is already on the release; it and its checksum are kept/, "a download that is there is kept, with its checksum");
-  assert.equal([...attach.matchAll(/gh release upload/g)].length, 3, "only the three guarded uploads remain (downloads, the phone download, the scripts)");
-  assert.match(attach, /if on_release "\$cli"; then\n\s+echo "\$cli is already on the release; it and its checksum are kept/, "a phone download that is there is kept");
-  // The skip is still decided by an exact name, so a partial name never counts as "already there" —
-  // but GitHub renames an asset with spaces (Install Branch Agent.cmd becomes Install.Branch.Agent.cmd),
-  // so the name is put through that same rewrite before it is compared.
-  assert.match(attach, /grep -Fxq -- "\$\(as_attached "\$1"\)"/);
-  assert.match(attach, /as_attached\(\)/, "the rewrite GitHub applies to an asset name is named once");
+  const script = await readFile(new URL("../scripts/publish-release.mjs", import.meta.url), "utf8");
+  assert.ok(!workflow.includes("--clobber") && !script.includes("--clobber"), "no upload overwrites what is there");
+  assert.match(script, /readRelease\(gh, tag, repo\)/, "it first reads what is already attached");
+  assert.match(script, /present > 0 && present < group\.length/, "a partial archive/checksum pair is refused");
+  assert.match(script, /return present === 0/, "a complete attached group is kept rather than uploaded again");
+  assert.match(script, /replace\(\/\[\^A-Za-z0-9\._-\]\/g, "\."\)/,
+    "the exact GitHub rewrite is used for installer names containing spaces");
+  assert.match(script, /"--draft=false", "--prerelease=false"/, "the final complete inventory is published as stable");
+  assert.doesNotMatch(script, /"--latest"/, "rerunning an older stable release cannot move Latest backwards");
 });
 
 test("on macOS and Linux the update folder must belong to this person and is closed to others", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {

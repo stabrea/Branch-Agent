@@ -119,7 +119,7 @@ test("2 (routes). Answer and Not now are the owner's routes under /api/trunks/me
   const calls = [];
   const trunks = { messages: { answer: (id) => (calls.push(["answer", id]), { id, armed: true }), decline: (id) => (calls.push(["decline", id]), { declined: true }) } };
   const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
-  const post = (path) => trunksApi({ trunks, method: "POST", readBody: async () => ({}) }, path);
+  const post = (path) => trunksApi({ trunks, method: "POST", readBody: async () => ({}), person: null, requireOwner: () => undefined }, path);
   assert.deepEqual(await post(`/api/trunks/messages/${id}/answer`), { waiting: { id, armed: true } });
   assert.deepEqual(await post(`/api/trunks/messages/${id}/decline`), { declined: true });
   assert.deepEqual(calls, [["answer", id], ["decline", id]]);

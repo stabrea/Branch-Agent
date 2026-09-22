@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// off it only says how to turn it on; "when needed" asks for a note first; "on" sends at once.
 /// The layout follows OpenClaw's share extension (MIT, see THIRD_PARTY_NOTICES.md).
 final class ShareViewController: UIViewController {
+    private static let maxSharedBytes = 20 * 1024 * 1024
     private let titleLabel = UILabel()
     private let status = UILabel()
     private let note = UITextView()
@@ -13,6 +14,7 @@ final class ShareViewController: UIViewController {
     private let cancel = UIButton(type: .system)
     private var texts: [String] = []
     private var files: [(name: String, type: String, data: Data)] = []
+    private var remainingFileBytes = ShareViewController.maxSharedBytes
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -75,23 +77,44 @@ final class ShareViewController: UIViewController {
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
                let url = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL {
-                if url.isFileURL, let data = try? Data(contentsOf: url) { files.append((url.lastPathComponent, mimeType(url), data)) }
+                if url.isFileURL, let file = Self.boundedFile(url, name: url.lastPathComponent,
+                                                              type: mimeType(url), limit: remainingFileBytes) { keep(file) }
                 else { texts.append(url.absoluteString) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
                       let text = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String {
                 texts.append(text)
-            } else if let type = provider.registeredTypeIdentifiers.first, let file = await loadFile(provider, type: type) {
-                files.append(file)
+            } else if let type = provider.registeredTypeIdentifiers.first,
+                      let file = await loadFile(provider, type: type, limit: remainingFileBytes) {
+                keep(file)
             }
         }
     }
 
-    private func loadFile(_ provider: NSItemProvider, type: String) async -> (name: String, type: String, data: Data)? {
+    private func keep(_ file: (name: String, type: String, data: Data)) {
+        guard file.data.count <= remainingFileBytes else { return }
+        remainingFileBytes -= file.data.count
+        files.append(file)
+    }
+
+    private static func boundedFile(_ url: URL, name: String, type: String, limit: Int)
+        -> (name: String, type: String, data: Data)? {
+        let bound = min(maxSharedBytes, limit)
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]), let size = values.fileSize,
+              size >= 0, size <= min(maxSharedBytes, limit),
+              let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: bound + 1), data.count == size else { return nil }
+        return (name, type, data)
+    }
+
+    private func loadFile(_ provider: NSItemProvider, type: String, limit: Int) async
+        -> (name: String, type: String, data: Data)? {
         await withCheckedContinuation { done in
-            provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+            provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
                 let uttype = UTType(type)
                 let name = (provider.suggestedName ?? "Shared file") + (uttype?.preferredFilenameExtension.map { ".\($0)" } ?? "")
-                done.resume(returning: data.map { (name, uttype?.preferredMIMEType ?? "application/octet-stream", $0) })
+                done.resume(returning: url.flatMap { Self.boundedFile($0, name: name,
+                    type: uttype?.preferredMIMEType ?? "application/octet-stream", limit: limit) })
             }
         }
     }

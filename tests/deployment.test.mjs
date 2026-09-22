@@ -89,8 +89,16 @@ test("a dry-run install lays out the folders, writes shortcuts and registers Uni
 
 test("the installer script and the Uninstall entry say what they will do", () => {
   const script = bootstrapperScript({ assetName: "Branch-Agent-windows-x64.zip", executableName: "Branch Agent.exe" });
-  assert.match(script, /tar\.exe -xf "%ZIP%"/, "unpacks with the tar that ships with Windows");
-  assert.match(script, /Expand-Archive/, "falls back to PowerShell when tar is missing");
+  assert.match(script, /Branch-Agent-windows-x64\.zip\.sha256/, "requires the published checksum beside the archive");
+  assert.match(script, /copy \/b "%ZIP%" "%ARCHIVE%"/, "checks and extracts a private staged copy");
+  assert.match(script, /System32\\WindowsPowerShell\\v1\.0\\powershell\.exe/, "uses the system PowerShell, never PATH");
+  assert.match(script, /Get-FileHash/, "verifies the staged archive before extraction");
+  assert.match(script, /\$actual -ne \$match\.Groups\[1\]\.Value/, "PowerShell accepts the lowercase digest published by Branch");
+  assert.match(script, /OpenRead/, "preflights every archive entry before extraction");
+  assert.match(script, /ExternalAttributes/, "refuses archive links instead of following them");
+  assert.match(script, /Expand-Archive/, "extracts only after verification and preflight");
+  assert.doesNotMatch(script, /tar\.exe|(?<!WindowsPowerShell\\v1\.0\\)powershell\.exe/i,
+    "a planted tar or PowerShell on PATH cannot replace a system tool");
   assert.match(script, /ELECTRON_RUN_AS_NODE/, "runs the installer with the runtime inside the download");
   assert.match(script, /dist\\install\\install-cli\.js/);
   assert.ok(!/Invoke-WebRequest|curl|http/i.test(script), "the installer downloads nothing of its own");
@@ -122,6 +130,52 @@ test("the installer script and the Uninstall entry say what they will do", () =>
   const withIcon = uninstallEntries({ installRoot: "C:\\App", executableName: "Branch Agent.exe", version: "1.2.3", uninstaller: "u", icon: "C:\\App\\k.ico" });
   assert.equal(Object.fromEntries(withIcon.map((entry) => [entry.name, entry.value])).DisplayIcon, "C:\\App\\k.ico");
   assert.ok(defaultInstallRoot({ LOCALAPPDATA: "C:\\L" }).endsWith(join("Programs", "Branch Agent")));
+});
+
+test("the Windows bootstrapper refuses missing, changed and traversal downloads before extraction", { skip: !windows && "Windows only" }, async (t) => {
+  const root = await scratch(t, "branch-bootstrap-");
+  const temp = join(root, "temp");
+  await mkdir(temp);
+  const assetName = "Branch-Agent-windows-x64.zip";
+  const archive = join(root, assetName);
+  const checksum = `${archive}.sha256`;
+  const script = join(root, "Install Branch Agent.cmd");
+  await writeFile(script, bootstrapperScript({ assetName, executableName: "Branch Agent.exe" }));
+  const invoke = async (message) => assert.rejects(
+    run(process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe", ["/d", "/c", script, "/quiet"], {
+      env: { ...process.env, TEMP: temp }, windowsHide: true,
+    }),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(`${error.stdout ?? ""}${error.stderr ?? ""}`, message);
+      return true;
+    },
+  );
+
+  await writeFile(archive, "changed download");
+  await invoke(/Put this file.*\.sha256/);
+  await writeFile(checksum, "not a checksum\n");
+  await invoke(/checksum file is not valid|download was not opened/i);
+  await writeFile(checksum, `${"0".repeat(64)}  ${assetName}\n`);
+  await invoke(/did not match the published checksum|download was not opened/i);
+
+  const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  await rm(archive, { force: true });
+  await run(powershell, ["-NoProfile", "-NonInteractive", "-Command",
+    "Add-Type -AssemblyName System.IO.Compression; Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::Open($env:ARCHIVE_TO_BUILD,[IO.Compression.ZipArchiveMode]::Create); $e=$z.CreateEntry('../outside.txt'); $w=[IO.StreamWriter]::new($e.Open()); $w.Write('bad'); $w.Dispose(); $z.Dispose()"],
+  { env: { ...process.env, ARCHIVE_TO_BUILD: archive }, windowsHide: true });
+  const digest = createHash("sha256").update(await readFile(archive)).digest("hex");
+  await writeFile(checksum, `${digest}  ${assetName}\n`);
+  await invoke(/unsafe path|download was not opened/i);
+  await assert.rejects(stat(join(temp, "outside.txt")), /ENOENT/, "the traversal entry was never extracted");
+
+  await rm(archive, { force: true });
+  await run(powershell, ["-NoProfile", "-NonInteractive", "-Command",
+    "Add-Type -AssemblyName System.IO.Compression; Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::Open($env:ARCHIVE_TO_BUILD,[IO.Compression.ZipArchiveMode]::Create); $e=$z.CreateEntry('link'); $e.ExternalAttributes=-1577123840; $w=[IO.StreamWriter]::new($e.Open()); $w.Write('outside.txt'); $w.Dispose(); $z.Dispose()"],
+  { env: { ...process.env, ARCHIVE_TO_BUILD: archive }, windowsHide: true });
+  const linkDigest = createHash("sha256").update(await readFile(archive)).digest("hex");
+  await writeFile(checksum, `${linkDigest}  ${assetName}\n`);
+  await invoke(/unsafe link|download was not opened/i);
 });
 
 test("portable mode keeps everything beside the program; otherwise it lives with the person's other apps", async (t) => {
@@ -449,8 +503,9 @@ test("an update takes a safety copy first, keeps three, and stops when the copy 
     repo: "x/y", currentVersion: "1.0.0", installDir: install, executableName: "Branch Agent.exe",
     assetName: "app.zip", scratchDir: join(root, `scratch-${taken.length}-${randomUUID()}`),
     fetch: fakeRelease(), extract: async (_archive, into) => {
-      await mkdir(join(into, "app"), { recursive: true });
+      await mkdir(join(into, "app", "resources", "app"), { recursive: true });
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+      await writeFile(join(into, "app", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
     backup, platform: "win32",
   });
@@ -670,8 +725,8 @@ test("B4 the terminal door runs the commands that only look, and refuses the res
   const { server } = await openBranch(t);
   const { readOnlyTerminalCommands } = await import("../dist/terminal-cli.js");
   assert.deepEqual([...readOnlyTerminalCommands].sort(), [
-    "automations", "channels", "customize", "inbox", "library", "mcp", "memory", "places",
-    "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
+    "automations", "channels", "customize", "household", "inbox", "library", "mcp", "memory",
+    "overview", "places", "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
   ], "the list of terminal commands a second terminal may run is pinned; changing it is deliberate");
 
   const ask = (query) => fetch(`${server.url}/api/terminal?${query}`, { headers: { authorization: `Bearer ${server.token}` } });

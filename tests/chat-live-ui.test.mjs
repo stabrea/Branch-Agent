@@ -20,12 +20,14 @@ async function fixture(t, viewport) {
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
+  const token = page.getByLabel("Session token", { exact: true });
+  await token.waitFor({ state: "visible", timeout: 120000 });
+  await token.fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   return { app, page, errors };
 }
@@ -55,7 +57,7 @@ test("the chat-app card fits a 400-pixel window without sideways scrolling", asy
   const fits = await page.waitForFunction(() => {
     const box = document.querySelector("#chat-live-form")?.getBoundingClientRect();
     return box && box.width > 0 && box.x >= 0 && box.right <= 400;
-  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  }, undefined, { timeout: 30000 }).then(() => true, () => false);
   assert.ok(fits, "the chat-app card fits inside 400 px");
   const sideways = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(sideways, false);

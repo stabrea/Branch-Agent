@@ -1,6 +1,6 @@
-/* Redesign phase 1: every select opens a glass list, and every icon-only button has glass hover help.
-   The native select stays the source of truth, so its label, its value and its change event are the
-   ones everything else already uses. Headless only. */
+/* Redesign phase 1: every select opens a glass list, and owner-facing controls reuse their accessible
+   descriptions as glass hover help. The native select stays the source of truth, so its label, value and
+   change event are the ones everything else already uses. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
@@ -150,6 +150,189 @@ test("an icon-only button explains itself in glass on hover, once, and never sho
   assert.deepEqual(f.errors, []);
 });
 
+test("a described control reuses its live English and French help without changing its accessibility link", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  const control = f.page.locator("#policy-preset"), tip = f.page.locator("#glass-tip");
+  const description = async () => control.evaluate((node) => (node.getAttribute("aria-describedby") || "")
+    .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(" "));
+  const linked = await control.getAttribute("aria-describedby");
+  const english = await description();
+  assert.ok(english, "the real setting has explanatory words");
+
+  await control.hover();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), english, "hover help reuses the accessible sentence");
+  assert.equal(await control.getAttribute("aria-describedby"), linked, "the existing accessibility link is unchanged");
+
+  await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  const french = await description();
+  assert.ok(french && french !== english, "the source sentence changed with the language");
+  assert.equal(await tip.innerText(), french, "open help refreshes as soon as its source language changes");
+  await f.page.mouse.down();
+  await f.page.mouse.up();
+  await tip.waitFor({ state: "hidden" });
+  await f.page.mouse.move(10, 10);
+  await control.hover();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), french, "the tooltip reads the current sentence instead of copying one");
+  assert.equal(await control.getAttribute("aria-describedby"), linked);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a described text button moves its native title so only the glass help appears", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const button = document.createElement("button");
+    button.id = "described-button-probe";
+    button.textContent = "Check now";
+    button.title = "Checks the connection";
+    button.setAttribute("aria-description", "Checks the connection without changing it.");
+    document.getElementById("workspace").append(button);
+  });
+  const button = f.page.locator("#described-button-probe"), tip = f.page.locator("#glass-tip");
+  await button.dispatchEvent("pointerover", { pointerType: "mouse" });
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Checks the connection without changing it.");
+  assert.equal(await button.getAttribute("title"), null, "the browser cannot show a second tooltip");
+  assert.equal(await button.getAttribute("data-native-tip"), "Checks the connection");
+  assert.deepEqual(f.errors, []);
+});
+
+test("keyboard focus shows the same help and Escape closes it", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#appearance-language");
+  /* Focus help is synchronous. Read it and close it in the same browser turn so the Settings
+     background refresh cannot replace the focused control between separate Playwright packets. */
+  const state = await f.page.evaluate(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    const node = document.getElementById("appearance-language");
+    const tip = document.getElementById("glass-tip");
+    node.focus();
+    const describedBy = node.getAttribute("aria-describedby") || "";
+    const linkedWords = describedBy.split(/\s+/)
+      .some((id) => document.getElementById(id)?.textContent?.trim());
+    const beforeEscape = {
+      focused: document.activeElement === node,
+      described: Boolean(describedBy),
+      linkedWords,
+      visible: !tip.hidden,
+      words: tip.textContent.trim(),
+    };
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return { ...beforeEscape, hiddenAfterEscape: tip.hidden };
+  });
+  assert.equal(state.focused, true, "keyboard focus landed before the next background refresh");
+  assert.equal(state.described, true, "the control has help to show");
+  assert.equal(state.linkedWords, true, "the linked help has words");
+  assert.match(state.words, /language of this window/i);
+  assert.equal(state.visible, true, "keyboard focus shows its help immediately");
+  assert.equal(state.hiddenAfterEscape, true, "Escape closes the help");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a mouse-focused text field keeps delayed help while keyboard focus is immediate", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const input = document.createElement("input");
+    input.id = "modality-help-probe";
+    input.setAttribute("aria-description", "Words for the modality probe.");
+    document.getElementById("workspace").prepend(input);
+  });
+  const input = f.page.locator("#modality-help-probe"), tip = f.page.locator("#glass-tip");
+  await input.click();
+  await f.page.waitForTimeout(500);
+  assert.equal(await tip.isVisible(), false, "click focus is not mistaken for keyboard navigation");
+  await f.page.keyboard.press("Tab");
+  await input.focus();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Words for the modality probe.");
+  assert.deepEqual(f.errors, []);
+});
+
+test("hover help covers the text of a wrapping control label", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const label = document.createElement("label");
+    label.id = "wrapping-help-label";
+    label.innerHTML = '<input type="checkbox" aria-description="Help across the whole label."> Label words';
+    document.getElementById("workspace").prepend(label);
+    label.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+  });
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Help across the whole label.");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a segmented control shows the description linked to its native source", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const note = document.createElement("p");
+    note.id = "hover-segment-note";
+    note.textContent = "Choose how often Branch may do this.";
+    const control = globalThis.branchControlMakers.segmented({ id: "hover-segment" });
+    control.querySelector("select").setAttribute("aria-describedby", note.id);
+    document.getElementById("workspace").append(control, note);
+  });
+  const source = f.page.locator("#hover-segment");
+  const control = f.page.locator(".segmented-control:has(#hover-segment)");
+  const words = await source.evaluate((node) => (node.getAttribute("aria-describedby") || "").split(/\s+/)
+    .map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(" "));
+  assert.ok(words, "the native source has real explanatory words");
+  await control.hover();
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), words);
+  assert.deepEqual(f.errors, []);
+});
+
+test("keyboard help for a segmented source is anchored to its visible control", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const note = document.createElement("p");
+    note.id = "keyboard-segment-note";
+    note.textContent = "Choose how Branch should ask.";
+    const control = globalThis.branchControlMakers.segmented({ id: "keyboard-segment" });
+    control.querySelector("select").setAttribute("aria-describedby", note.id);
+    document.getElementById("workspace").prepend(control, note);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    control.querySelector("select").focus();
+    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Tab", bubbles: true }));
+  });
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible" });
+  const position = await f.page.evaluate(() => {
+    const wrapper = document.querySelector(".segmented-control:has(#keyboard-segment)").getBoundingClientRect();
+    const source = document.getElementById("keyboard-segment").getBoundingClientRect();
+    return { tipTop: Number.parseFloat(document.getElementById("glass-tip").style.top),
+      wrapperBottom: wrapper.bottom, sourceBottom: source.bottom };
+  });
+  assert.ok(Math.abs(position.tipTop - (position.wrapperBottom + 8)) < 1,
+    "the tooltip sits below the visible segmented control");
+  assert.ok(Math.abs(position.tipTop - (position.sourceBottom + 8)) > 1,
+    "the clipped native source is not used as the anchor");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a disabled segmented control shows no hover help", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const note = document.createElement("p");
+    note.id = "disabled-segment-note";
+    note.textContent = "This setting is unavailable.";
+    const control = globalThis.branchControlMakers.segmented({ id: "disabled-segment" });
+    control.querySelector("select").setAttribute("aria-describedby", note.id);
+    control.disabled = true;
+    document.getElementById("workspace").append(control, note);
+  });
+  const control = f.page.locator(".segmented-control:has(#disabled-segment)");
+  await control.hover();
+  await f.page.waitForTimeout(700);
+  assert.equal(await f.page.locator("#glass-tip").isVisible(), false);
+  assert.deepEqual(f.errors, []);
+});
+
 test("on a touch-only phone the select keeps its own picker and no hover help appears", async (t) => {
   const f = await fixture(t, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);
@@ -160,6 +343,25 @@ test("on a touch-only phone the select keeps its own picker and no hover help ap
   await f.page.locator("#lx-plus").tap().catch(() => undefined);
   await f.page.waitForTimeout(600);
   assert.equal(await f.page.locator("#glass-tip").isVisible(), false, "no hover help from a touch");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a touch-primary device still shows help for a hardware keyboard", async (t) => {
+  const f = await fixture(t, { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
+  assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);
+  await f.page.evaluate(() => {
+    const button = document.createElement("button");
+    button.id = "touch-keyboard-help";
+    button.textContent = "Check now";
+    button.setAttribute("aria-description", "Checks without changing anything.");
+    document.getElementById("workspace").prepend(button);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    button.focus();
+    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Tab", bubbles: true }));
+  });
+  const tip = f.page.locator("#glass-tip");
+  await tip.waitFor({ state: "visible", timeout: 1000 });
+  assert.equal(await tip.innerText(), "Checks without changing anything.");
   assert.deepEqual(f.errors, []);
 });
 
@@ -269,9 +471,14 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   await f.page.evaluate(() => globalThis.branchApprovals.render());
   assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "41",
     "a draft survives even when its input event raced the listener");
-  await f.page.locator("#policy-tool-limit").fill("42");
-  await f.page.evaluate(() => globalThis.branchApprovals.render());
-  assert.equal(await f.page.locator("#policy-tool-limit").inputValue(), "42", "the ceiling being typed is still theirs");
+  const ceiling = await f.page.evaluate(async () => {
+    const box = document.getElementById("policy-tool-limit");
+    box.value = "42";
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "2" }));
+    await globalThis.branchApprovals.render();
+    return box.value;
+  });
+  assert.equal(ceiling, "42", "the ceiling being typed is still theirs");
 
   /* The category rows used to be thrown away and made again every 3 s, which shut an open list under
      the person and threw the keyboard out of it. A mark of our own survives only if the row does. */
@@ -297,20 +504,54 @@ test("phase2/settings integration: a list opened while the Settings window is st
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   await f.page.locator(".lx-settings-close").click();
-  /* Opened and pressed in one go, the way a quick tap lands while the window rises for a fifth of a second. */
+  /* A busy renderer can hold the window at its starting position before it begins to rise. This
+     delayed animation deterministically covers that case instead of relying on runner speed. */
   const rising = await f.page.evaluate(() => {
     globalThis.branchLayout.go("settings:permissions");
-    const moving = document.querySelector(".lx-settings-win").getAnimations().some((animation) => animation.playState === "running");
+    const window = document.querySelector(".lx-settings-win");
+    for (const animation of window.getAnimations()) animation.cancel();
+    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+      { delay: 300, duration: 220, easing: "ease", fill: "both" });
     document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
-    return moving;
+    return animation.playState;
   });
-  assert.equal(rising, true, "the window was still rising when the select was pressed");
+  assert.equal(rising, "running", "the delayed rise was active when the select was pressed");
   await f.page.locator("#glass-list").waitFor({ state: "visible" });
-  await f.page.waitForTimeout(500);
+  await f.page.waitForTimeout(700);
   const gap = await f.page.evaluate(() => {
     const select = document.getElementById("policy-preset").getBoundingClientRect(), list = document.getElementById("glass-list").getBoundingClientRect();
     return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
   });
   assert.ok(Math.abs(gap) <= 2, `the list was left where the select was while it moved (gap ${gap})`);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a moving window settles its open list even when the browser misses placement frames", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.locator(".lx-settings-close").click();
+  await f.page.evaluate(async () => {
+    globalThis.branchLayout.go("settings:permissions");
+    const window = document.querySelector(".lx-settings-win");
+    for (const animation of window.getAnimations()) animation.cancel();
+    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+      { duration: 120, easing: "ease", fill: "both" });
+    /* A timeout does not prove a Web Animation has begun: a loaded macOS runner can leave it pending
+       at localTime 0. Start it at a known moving position before suppressing page callbacks. */
+    await animation.ready;
+    animation.currentTime = 30;
+    globalThis.requestAnimationFrame = () => 0;
+    globalThis.setInterval = () => 0;
+    const picker = document.getElementById("policy-preset");
+    picker.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+  });
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(250);
+  const gap = await f.page.evaluate(() => {
+    const select = document.getElementById("policy-preset").getBoundingClientRect();
+    const list = document.getElementById("glass-list").getBoundingClientRect();
+    return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
+  });
+  assert.ok(Math.abs(gap) <= 2, `the settled list kept its stale moving position (gap ${gap})`);
   assert.deepEqual(f.errors, []);
 });

@@ -149,13 +149,18 @@ export class DiagnosticLog {
   private readonly settings: () => DiagnosticLogSettings;
   private readonly clean: (text: string) => string;
   private readonly now: () => Date;
+  private readonly onLine: ((line: LogLine) => void) | undefined;
   private readonly crumbs: LogLine[] = [];
 
-  constructor(options: { dir: string; settings: () => DiagnosticLogSettings; clean?: (text: string) => string; now?: () => Date }) {
+  constructor(options: {
+    dir: string; settings: () => DiagnosticLogSettings; clean?: (text: string) => string;
+    now?: () => Date; onLine?: (line: LogLine) => void;
+  }) {
     this.dir = options.dir;
     this.settings = options.settings;
     this.clean = options.clean ?? redactForLog;
     this.now = options.now ?? (() => new Date());
+    this.onLine = options.onLine;
   }
 
   get file(): string { return join(this.dir, "branch.jsonl"); }
@@ -166,6 +171,7 @@ export class DiagnosticLog {
     const line = this.shape(entry);
     this.crumbs.push(line);
     if (this.crumbs.length > breadcrumbCount) this.crumbs.shift();
+    try { this.onLine?.(line); } catch { /* observing a problem must never become another problem */ }
     const { mode, maxMegabytes } = this.currentSettings();
     if (mode === "off") return;
     if (rank[line.level] < (mode === "on" ? rank.info : rank.warn)) return;

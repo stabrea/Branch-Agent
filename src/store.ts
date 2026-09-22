@@ -358,10 +358,20 @@ export class Store {
   runs(owner: string): Run[] {
     return this.db
       .prepare(
-        "SELECT * FROM tasks WHERE owner=? ORDER BY created_at DESC LIMIT 100",
+        "SELECT * FROM tasks WHERE owner=? ORDER BY created_at DESC, rowid DESC LIMIT 100",
       )
       .all(owner)
       .map((row) => this.toRun(row));
+  }
+  /** Running or waiting work that is still the newest task in its conversation. */
+  activeRuns(owner: string): Run[] {
+    return this.db.prepare(`SELECT current.* FROM tasks current
+      WHERE current.owner=? AND current.status IN ('running','needs_input')
+        AND NOT EXISTS (SELECT 1 FROM tasks newer
+          WHERE newer.owner=current.owner AND newer.session_id=current.session_id
+            AND (newer.created_at > current.created_at
+              OR (newer.created_at = current.created_at AND newer.rowid > current.rowid)))
+      ORDER BY current.created_at DESC`).all(owner).map((row) => this.toRun(row));
   }
   finish(id: string, status: RunStatus, output: string): Run {
     const run = this.run(id);

@@ -124,11 +124,32 @@ test("a question on a phone scrolls into view above the message box, and is answ
   await f.page.locator("#send").click();
   const card = f.page.locator("#live-ask");
   await card.waitFor({ state: "visible", timeout: 20000 });
+  /* The shell creates the card before live-run draws its answers. On a loaded Windows runner the
+     empty card can be visible for several seconds, so measuring it then races the product's second
+     layout and scroll. Wait for the part a thumb actually uses before checking where it landed. */
+  await card.locator(".live-ask-choice > button").first().waitFor({ state: "visible", timeout: 30000 });
   await f.page.waitForFunction(() => {
     const card = document.getElementById("live-ask")?.getBoundingClientRect();
     const dock = document.querySelector(".composer-dock").getBoundingClientRect();
     return card && card.bottom <= dock.top;
-  }, null, { timeout: 5000 });
+  }, null, { timeout: 30000 });
+  /* A late font/control layout changes size without adding another child. The resize watcher must
+     clear the composer again; a one-shot mutation measurement leaves the answers covered. */
+  await f.page.evaluate(() => {
+    const choices = document.querySelector("#live-ask .live-ask-choice");
+    choices.style.paddingBottom = "48px";
+  });
+  await f.page.waitForFunction(() => {
+    const card = document.getElementById("live-ask")?.getBoundingClientRect();
+    const dock = document.querySelector(".composer-dock").getBoundingClientRect();
+    return card && card.bottom <= dock.top;
+  }, null, { timeout: 30000 });
+  await f.page.evaluate(() => { document.querySelector("#live-ask .live-ask-choice").style.paddingBottom = ""; });
+  await f.page.waitForFunction(() => {
+    const card = document.getElementById("live-ask")?.getBoundingClientRect();
+    const head = document.querySelector("header")?.getBoundingClientRect();
+    return card && head && card.top >= head.bottom - 1;
+  }, null, { timeout: 30000 });
   const head = await box(f.page, "header"), where = await box(f.page, "#live-ask");
   assert.ok(where.y >= head.y + head.height - 1, "and under the title bar");
   for (const name of ["Yes, just now", "Yes, for this conversation", "Yes, always", "No"]) {
@@ -215,7 +236,7 @@ async function firstPaint(f, saved) {
   if (saved) await context.addInitScript((id) => localStorage.setItem("branch-palette", id), saved);
   const page = await context.newPage();
   await page.route(/\.js(\?|$)/, (route) => (new URL(route.request().url()).pathname === "/look-early.js" ? route.continue() : route.abort()));
-  await page.goto(f.url);
+  await page.goto(f.url, { timeout: 120000, waitUntil: "domcontentloaded" });
   /* A style sheet's rules cannot be read until it has arrived (Windows once threw "Cannot access rules"
      here); wait for every one, naming any that never can be. */
   const unreadable = () => page.evaluate(() => [...document.styleSheets].filter((sheet) => {

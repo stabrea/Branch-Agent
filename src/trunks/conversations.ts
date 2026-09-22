@@ -86,6 +86,15 @@ export class TrunkConversations {
     };
   }
 
+  /** The room shape a named household member may see, without the owner's other Trunks. */
+  sharedRoomInfo(room: Room) {
+    return {
+      sessionId: room.sessionId, kind: "room" as const, trunk: null,
+      room: { id: room.id, name: room.name, members: this.deps.rooms.roster(room).map((member) => brief(this.deps.records.get(member.id))) },
+      authors: [], memberOf: null, trunks: [],
+    };
+  }
+
   private trunkIdOf(sessionId: string, kind: ConversationKind): string | null | undefined {
     return kind === "trunk" ? this.saved(sessionId)!.trunkId
       : kind === "trunk-chat" ? this.deps.records.list().find((t) => t.chatSessionId === sessionId || t.retiredChats.includes(sessionId))?.id

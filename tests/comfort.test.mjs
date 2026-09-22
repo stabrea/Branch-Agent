@@ -30,6 +30,7 @@ import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js"
 import { openMcp } from "../dist/integrations/mcp.js";
 import { comfortRows, switchComfort } from "../dist/comfort/terminal.js";
 import { settingsRows } from "../dist/terminal-settings.js";
+import { parseRoute } from "../dist/terminal-places.js";
 import { loadWords } from "../dist/terminal-words.js";
 import { Tui } from "../dist/terminal-tui.js";
 import { renderScreen } from "../dist/terminal-screen.js";
@@ -396,6 +397,14 @@ test("R17-S21: the terminal's Settings pages carry real controls, /switch change
   const state = { look: {}, mode: "dark", themeName: "Forest", switches: {} };
   for (const page of ["general", "notifications", "voice", "computer", "advanced", "about"])
     assert.ok(settingsRows(branch, english, page, "", state).some((row) => row.command?.startsWith("/switch ")), `${page} has a control`);
+  for (const page of ["trunks", "channels", "connections", "skills", "memory", "automations"]) {
+    const directoryRows = settingsRows(branch, english, page, "", state);
+    assert.ok(directoryRows.length > 0, `${page} has real destinations`);
+    assert.ok(directoryRows.every((row) => row.command), `${page} has no dead-end terminal row`);
+    assert.ok(directoryRows.every((row) => row.command.startsWith("/go ") && parseRoute(row.command.slice(4))),
+      `${page} routes every row to a terminal home`);
+    assert.ok(directoryRows.every((row) => !row.title.includes("rest of this page")), `${page} is not a window-only placeholder`);
+  }
   assert.equal(switchComfort(branch.store, "local", "sound", "", english), "Sound: chime");
   assert.equal(switchComfort(branch.store, "local", "mcpTimeout", "45", english), "Seconds a server may take to start: 45");
   assert.equal(switchComfort(branch.store, "local", "statusLine", "model,cost", english), "Status line: Model, Cost so far");

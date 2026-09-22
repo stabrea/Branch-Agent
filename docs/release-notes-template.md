@@ -41,8 +41,9 @@ service, say that here rather than leaving it to be discovered.
 **Fixed.** What used to go wrong, in plain words; one clause each.
 
 **Install**
-Download `Branch-Agent-windows-x64.zip`, unzip it, and run `Branch Agent.exe`. From 0.7.3 onward the
-in-app update is silent. The checksum is in `Branch-Agent-windows-x64.zip.sha256`.
+Download `Branch-Agent-windows-x64.zip`, `Branch-Agent-windows-x64.zip.sha256` and
+`Install Branch Agent.cmd` into the same folder, then run the installer. It verifies the checksum
+before unpacking. From 0.7.3 onward the in-app update is silent.
 ```
 
 ## A worked example

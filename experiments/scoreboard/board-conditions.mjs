@@ -10,7 +10,43 @@
  * The contestant is not a field here on purpose: it is the one thing the board varies, and the
  * refusal exists to catch anything *else* that moved.
  */
-import { combinedBasis } from "../../dist/evaluation-honesty.js";
+import { combinedBasis, scorerDigest } from "../../dist/evaluation-honesty.js";
+import { readFileSync } from "node:fs";
+import { relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** Reads each local static import once, so shared helpers and runner logic are part of the proof. */
+export function scorerSourceGraph(entries, rootUrl) {
+  const root = fileURLToPath(rootUrl), found = new Map(), pending = [...entries];
+  while (pending.length) {
+    const url = pending.pop();
+    if (url.protocol !== "file:") continue;
+    const file = fileURLToPath(url), name = relative(root, file).split(sep).join("/");
+    if (name.startsWith("../") || found.has(name)) continue;
+    const source = readFileSync(file, "utf8");
+    found.set(name, source);
+    for (const match of source.matchAll(/(?:import|export)\s+(?:[^"']*?\s+from\s+)?["'](\.[^"']+)["']/g))
+      pending.push(new URL(match[1], url));
+  }
+  return [...found].sort(([a], [b]) => a.localeCompare(b)).map(([name, source]) => `${name}\0${source}`).join("\n");
+}
+
+/** Fingerprints the programs that decide pass/fail, including shared marking helpers when supplied. */
+export function programScorerDigest(tasks, markingSource = "") {
+  const scorers = tasks.map((task) => ({
+    id: task.id,
+    kind: "program",
+    readOnly: !!task.readOnly,
+    restoreVerify: !!task.restoreVerify,
+    checkSource: Function.prototype.toString.call(task.check),
+  }));
+  if (markingSource) scorers.push({ id: "task-module", kind: "program-source", checkSource: markingSource });
+  return scorerDigest({
+    scorers,
+    judgeModel: null,
+    benchmarkJudge: "the harness runs a program; no model marks anything",
+  });
+}
 
 export function conditionsOf(rows) {
   const one = (pick, name) => {
