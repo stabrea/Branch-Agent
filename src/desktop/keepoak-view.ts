@@ -124,6 +124,8 @@ export class KeepOakView {
     this.stopChecking = (this.deps.every ?? everyMs)(recheckMs, check);
     // Offline or KeepOak down: the window still opens, showing the browser's own page for that.
     await window.loadURL(keepOakHome).catch(() => undefined);
+    // Switched off (or signed out) while it was loading: that window is gone, and nothing is shown.
+    if (this.window !== window || window.isDestroyed()) return;
     window.show();
     window.focus();
   }

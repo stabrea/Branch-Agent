@@ -138,6 +138,30 @@ test("switched off anywhere, an open window closes when looked at or within a mi
   assert.equal(made[1].destroyed, true, "not looked at: the minute's check closes it");
 });
 
+test("switched off while KeepOak is still loading, nothing is shown and the Open does not fail", async () => {
+  let finish;
+  const loading = new Promise((resolve) => { finish = resolve; });
+  const made = [];
+  const view = new KeepOakView({
+    makeWindow: () => {
+      const window = fakeWindow();
+      window.loadURL = async (url) => { window.loads.push(url); await loading; };
+      // Electron throws once a window is destroyed, and so does this.
+      window.show = () => { if (window.destroyed) throw new Error("Object has been destroyed"); window.shown++; };
+      window.focus = () => { if (window.destroyed) throw new Error("Object has been destroyed"); window.focused++; };
+      made.push(window);
+      return window;
+    },
+    openOutside: () => undefined, confirmOutside: async () => false, clearSession: async () => undefined,
+    stillAllowed: async () => true, every: () => () => undefined,
+  });
+  const opening = view.open();
+  view.close(); // Off arrives while the page is loading
+  finish();
+  await opening; // no rejection
+  assert.deepEqual([made[0].destroyed, made[0].shown, made[0].focused], [true, 0, 0], "nothing shown on a closed window");
+});
+
 test("offline, the window still opens rather than failing silently", async () => {
   const { view, made } = viewWith({ loadFails: true });
   await view.open();
@@ -188,6 +212,19 @@ test("the real wiring: KeepOak's session alone, nothing granted or downloaded, a
   await electronKeepOakView(async () => true, again);
   await electronKeepOakView(async () => true, again);
   assert.deepEqual(counted, { request: 1, check: 1, download: 1 }, "hardened once per session");
+  // A setup that fails part-way leaves the session unmarked, so the next view hardens it fully.
+  const tries = { request: 0, check: 0, download: 0 };
+  let failOnce = true;
+  const shaky = { ...kept,
+    setPermissionRequestHandler: () => tries.request++,
+    setPermissionCheckHandler: () => { tries.check++; if (failOnce) { failOnce = false; throw new Error("not ready"); } },
+    on: () => tries.download++ };
+  const shakyElectron = { ...electron, session: { fromPartition: () => shaky } };
+  await assert.rejects(electronKeepOakView(async () => true, shakyElectron), /not ready/);
+  await electronKeepOakView(async () => true, shakyElectron);
+  assert.deepEqual(tries, { request: 2, check: 2, download: 1 }, "tried again after the failure, then complete");
+  await electronKeepOakView(async () => true, shakyElectron);
+  assert.deepEqual(tries, { request: 2, check: 2, download: 1 }, "and not again once complete");
 });
 
 /** A stand-in for ipcMain (which refuses a second handler, as Electron does) and Branch's own window. */

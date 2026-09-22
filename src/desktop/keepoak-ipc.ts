@@ -95,11 +95,12 @@ export async function electronKeepOakView(stillAllowed: () => Promise<boolean>, 
   const { BrowserWindow: Window, session, shell, dialog } = electron ?? (await import("electron") as unknown as KeepOakElectron);
   const kept = session.fromPartition(keepOakPartition);
   if (!hardened.has(kept)) {
-    hardened.add(kept);
-    // Nothing the page asks of this computer is granted, and nothing is downloaded.
+    // Nothing the page asks of this computer is granted, and nothing is downloaded. Marked as
+    // hardened only once all three are in place, so a setup that failed part-way is tried again.
     kept.setPermissionRequestHandler((_contents, permission, callback) => callback(keepOakMayUse(permission)));
     kept.setPermissionCheckHandler((_contents, permission) => keepOakMayUse(permission));
     kept.on("will-download", (event) => event.preventDefault());
+    hardened.add(kept);
   }
   const deps: ViewDeps = {
     makeWindow: (options) => new Window({ ...options, webPreferences: { ...options.webPreferences } }) as ReturnType<ViewDeps["makeWindow"]>,
