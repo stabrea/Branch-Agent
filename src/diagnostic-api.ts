@@ -9,6 +9,12 @@ import {
 } from "./diagnostic-log.js";
 import { dnsResolve, gatherReport, issueUrl, keptItems, reportZip, type ReportItem, type ReportSources } from "./diagnostic-report.js";
 import { redactEvent, redactSpan } from "./diagnostics.js";
+import {
+  AutomaticProblemOutbox, AutomaticProblemReportSettingsSchema, AutomaticProblemReports,
+  automaticProblemReportSettings, problemReportPreview, saveAutomaticProblemReportSettings,
+  type AutomaticProblemReportSettings,
+} from "./automatic-problem-reports.js";
+import { audit } from "./audit.js";
 import { levelFor } from "./log-bridge.js";
 import { lockdownActive } from "./lockdown.js";
 import { healthReport } from "./health.js";
@@ -30,10 +36,30 @@ export const handlesDiagnosticPath = (path: string): boolean =>
 export interface DiagnosticContext { app: Branch; dataDir: string; installType: string; startedAt: number }
 
 /** Sets up the one log for this engine: the folder, the owner's mode, the task events and crashes. */
-export function startDiagnosticLog(app: Branch, dataDir: string): () => void {
+export function startDiagnosticLog(
+  app: Branch,
+  dataDir: string,
+  installType = "package",
+  startedAt = Date.now(),
+): () => void {
   // The owner's own saved keys and passwords are hidden too, whatever shape they have.
   const clean = (text: string): string => app.runtime.hideSecrets(redactForLog(text));
-  const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => diagnosticLogSettings(app.store, app.runtime.owner), clean });
+  let reporter: AutomaticProblemReports | null = null;
+  let stopped = false;
+  const outbox = new AutomaticProblemOutbox(
+    join(dataDir, "logs"), () => automaticProblemReportSettings(app.store, app.runtime.owner),
+  );
+  const log = new DiagnosticLog({
+    dir: join(dataDir, "logs"),
+    settings: () => diagnosticLogSettings(app.store, app.runtime.owner),
+    clean,
+    onLine: (line) => {
+      if (stopped || !reporter) return;
+      if (outbox.capture(line)) void outbox.flush(reporter).catch(() => undefined);
+    },
+  });
+  reporter = automaticProblemReporter({ app, dataDir, installType, startedAt }, log);
+  void outbox.flush(reporter).catch(() => undefined);
   setDiagnosticLog(log);
   // mac7/coding-next: the desktop app reads the crash-capture switch from this file at its next start.
   writeCrashCaptureMark(dataDir, diagnosticLogSettings(app.store, app.runtime.owner).crashCapture === "on");
@@ -49,7 +75,34 @@ export function startDiagnosticLog(app: Branch, dataDir: string): () => void {
   const prune = setInterval(() => log.prune(), 6 * 3_600_000);
   prune.unref();
   diagnose("engine", "info", "Branch started", { fields: { version: app.version } });
-  return () => { clearInterval(prune); stopEvents(); stopCrashes(); setDiagnosticLog(null); };
+  return () => { stopped = true; clearInterval(prune); stopEvents(); stopCrashes(); setDiagnosticLog(null); };
+}
+
+function automaticProblemReporter(ctx: DiagnosticContext, log: DiagnosticLog): AutomaticProblemReports {
+  const { app } = ctx;
+  const owner = app.runtime.owner;
+  return new AutomaticProblemReports({
+    settings: () => automaticProblemReportSettings(app.store, owner),
+    linkedChannels: () => app.channels.summary().chats.map(({ channel, chatId }) => ({ channel, chatId })),
+    gather: (items) => gatherReport(reportSources(ctx, log), items),
+    deliverChannel: (channel, chatId, text, key) => app.channels.deliver(channel, chatId, text, key),
+    createGitHubIssue: async (repository, title, body) => {
+      await app.runtime.executeTool(
+        "github.create_issue",
+        { repo: repository, title, body },
+        { mode: "owner", source: "trigger", approvalKey: "automatic-problem-reports" },
+      );
+    },
+    record: (entry) => audit(app.store, owner, {
+      action: "data.exported",
+      actor: "automatic problem reports",
+      subject: entry.destination,
+      reason: `${entry.kind}: ${entry.items.join(", ")}${entry.reason ? `; ${entry.reason}` : ""}`,
+      source: "system",
+      origin: "system",
+      outcome: entry.outcome,
+    }),
+  });
 }
 
 /**
@@ -68,6 +121,11 @@ async function chosenItems(ctx: DiagnosticContext, log: DiagnosticLog, input: z.
 const WindowErrorSchema = z.object({
   message: z.string().max(2000), stack: z.string().max(8000).default(""), where: z.string().max(200).default(""),
   kind: z.enum(["error", "unhandledrejection"]).default("error"),
+}).strict();
+const AutomaticPreviewSchema = z.object({
+  settings: AutomaticProblemReportSettingsSchema,
+  kind: z.enum(["crash", "update"]),
+  summary: z.string().max(500).default(""),
 }).strict();
 
 export async function diagnosticApi(ctx: DiagnosticContext, method: string, path: string, url: URL, body: () => Promise<unknown>): Promise<unknown> {
@@ -92,12 +150,50 @@ export async function diagnosticApi(ctx: DiagnosticContext, method: string, path
     return { recorded: diagnosticLogSettings(app.store, app.runtime.owner).mode !== "off" };
   }
   if (method === "POST" && path === "/api/diagnostics/report") return { items: await gatherReport(reportSources(ctx, log)) };
+  if (method === "POST" && path === "/api/diagnostics/report/automatic/preview") {
+    const input = AutomaticPreviewSchema.parse(await body());
+    if (input.settings.mode === "on") requireLinkedDestination(app, input.settings);
+    return problemReportPreview(input.settings, input.kind, input.summary,
+      await gatherReport(reportSources(ctx, log), input.settings.items));
+  }
+  if (path === "/api/diagnostics/report/automatic") return automaticReportSettingsApi(ctx, method, body);
   if (method === "POST" && path === "/api/diagnostics/report/save") return saveReport(ctx, log, await body());
   if (method === "POST" && path === "/api/diagnostics/report/issue") {
     const input = RemoveSchema.parse(await body());
     return { url: issueUrl(await chosenItems(ctx, log, input), input.summary) };
   }
   throw new Error("That is not something Branch can do with the activity log");
+}
+
+async function automaticReportSettingsApi(ctx: DiagnosticContext, method: string, body: () => Promise<unknown>): Promise<unknown> {
+  const { app } = ctx, owner = app.runtime.owner;
+  if (method === "GET") return { settings: automaticProblemReportSettings(app.store, owner), destinations: automaticDestinations(app) };
+  if (method !== "POST") throw new Error("That is not something Branch can do with automatic problem reports");
+  const raw = await body();
+  const input = AutomaticProblemReportSettingsSchema.partial().parse(raw);
+  const sent = raw && typeof raw === "object" ? Object.keys(raw) : [];
+  const changed = Object.fromEntries(Object.entries(input).filter(([key]) => sent.includes(key)));
+  const candidate = AutomaticProblemReportSettingsSchema.parse({ ...automaticProblemReportSettings(app.store, owner), ...changed });
+  requireLinkedDestination(app, candidate);
+  return { settings: saveAutomaticProblemReportSettings(app.store, owner, raw), destinations: automaticDestinations(app) };
+}
+
+function automaticDestinations(app: Branch): { channels: { channel: string; chatId: string; title: string }[]; github: boolean } {
+  const channels = app.channels.summary().chats.map((chat) => ({
+    channel: chat.channel, chatId: chat.chatId, title: chat.title,
+  }));
+  return { channels, github: app.registry.names().includes("github.create_issue") };
+}
+
+function requireLinkedDestination(app: Branch, settings: AutomaticProblemReportSettings): void {
+  if (settings.mode !== "on") return;
+  const destination = settings.destination;
+  if (!destination) throw new Error("Choose an owner destination before automatic problem reports are switched on.");
+  if (destination.kind === "github" && !app.registry.names().includes("github.create_issue"))
+    throw new Error("GitHub is no longer linked, so it cannot receive automatic problem reports.");
+  if (destination.kind === "channel" && !app.channels.summary().chats.some((chat) =>
+    chat.channel === destination.channel && chat.chatId === destination.chatId))
+    throw new Error("That owner chat is no longer linked, so it cannot receive automatic problem reports.");
 }
 
 function currentLog(ctx: DiagnosticContext): DiagnosticLog {
