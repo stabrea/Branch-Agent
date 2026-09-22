@@ -1386,10 +1386,12 @@ function message(role, content, source) {
   node.append(by);
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
   if (role === "user") node.append(document.createTextNode(content));
-  /* The files that came with this message, shown whenever the conversation is read — including after
-     it is reopened, which is the whole point of keeping them (src/attachments.ts). */
-  if (source?.attachments?.length) node.append(attachedFiles(source.attachments));
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
+  /* The files that came with this message, shown whenever the conversation is read — including after
+     it is reopened, which is the whole point of keeping them (src/attachments.ts). The cards are
+     appended on their own: what was said is decided by who said it, and never by whether a file
+     came with it. */
+  if (source?.attachments?.length) node.append(attachedFiles(source.attachments));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
      through the voice service so the free Windows voice works with no key and no internet. */
   if (role === "assistant" && !source?.toolCalls?.length) {
