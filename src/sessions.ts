@@ -26,6 +26,8 @@ export interface ConversationFiles {
   bytesOf(sessionId: string, id: string): Buffer;
   /** What a conversation's files weigh, or null when that cannot be answered. */
   bytesHeld(sessionId: string): number | null;
+  /** Throws away everything written for a copy whose database work did not go through. */
+  discard(sessionId: string): void;
 }
 /**
  * Gives every message in a copy its own references, by copying the files the originals name into the

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync,
+} from "node:fs";
 import type { Readable } from "node:stream";
 import { join, sep } from "node:path";
 import {
@@ -249,22 +251,32 @@ export class Attachments {
    * followed.
    */
   /**
+   * Where one file of a conversation is, or nothing. **The only way any part of this class turns an
+   * id into a path.** Everything it checks was already checked in one place and then walked around
+   * by two callers that built the path themselves: an id must be sixteen plain hex characters, and
+   * the path it names must really be inside the store — `realpath.native` because on Windows a plain
+   * one does not resolve a junction, so a folder that is a link to somewhere else would be followed
+   * straight out of it.
+   */
+  private contained(folder: string, id: string): string | null {
+    if (!/^[a-f0-9]{16}$/.test(id)) return null;
+    const file = trueName(join(folder, id));
+    const root = trueName(this.root);
+    if (!file || !root || !(file === root || file.startsWith(root + sep))) return null;
+    return file;
+  }
+
+  /**
    * Where a kept file really is, and how big it really is, after every check reading it makes. The
    * path is what lets one second of a film be sent without the whole film being held in memory
    * first; the size is the file's own, not the number written down when it arrived.
    */
   async locate(sessionId: string, id: string, options: { temporary?: boolean } = {}):
     Promise<{ ref: AttachmentRef; path: string; size: number }> {
-    if (!/^[a-f0-9]{16}$/.test(id)) throw new Error("That file is not attached to this conversation");
     const folder = this.folder(sessionId, options.temporary);
     const ref = (await this.listing(folder)).find((one) => one.id === id);
-    if (!ref) throw new Error("That file is not attached to this conversation");
-    // realpath.native, because on Windows a junction is not resolved by the plain one, and a folder
-    // that is really a link to somewhere else would otherwise be followed out of the store.
-    const file = trueName(join(folder, ref.id));
-    const root = trueName(this.root);
-    if (!file || !root || !(file === root || file.startsWith(root + sep)))
-      throw new Error("That file is not attached to this conversation");
+    const file = ref && this.contained(folder, ref.id);
+    if (!ref || !file) throw new Error("That file is not attached to this conversation");
     return { ref, path: file, size: (await stat(file)).size };
   }
   async read(sessionId: string, id: string, options: { temporary?: boolean } = {}): Promise<{ ref: AttachmentRef; bytes: Buffer }> {
@@ -302,8 +314,9 @@ export class Attachments {
    * the bytes themselves have to travel; everything else reads a part at a time.
    */
   bytesOf(sessionId: string, id: string): Buffer {
-    if (!/^[a-f0-9]{16}$/.test(id)) throw new Error("That file is not attached to this conversation");
-    return readFileSync(join(this.folder(sessionId, false), id));
+    const file = this.contained(this.folder(sessionId, false), id);
+    if (!file) throw new Error("That file is not attached to this conversation");
+    return readFileSync(file);
   }
   copyInto(from: string, to: string, refs: readonly AttachmentRef[]): AttachmentRef[] {
     if (!refs.length) return [];
@@ -311,8 +324,9 @@ export class Attachments {
     mkdirSync(target, { recursive: true, mode: 0o700 });
     const made: AttachmentRef[] = [];
     for (const ref of refs) {
-      if (!/^[a-f0-9]{16}$/.test(ref.id)) throw new Error("That file is not attached to this conversation");
-      const bytes = readFileSync(join(source, ref.id));
+      const file = this.contained(source, ref.id);
+      if (!file) throw new Error("That file is not attached to this conversation");
+      const bytes = readFileSync(file);
       made.push({ ...ref, id: randomBytes(8).toString("hex"), bytes: bytes.byteLength });
       writeFileSync(join(target, "." + made[made.length - 1]!.id), bytes, { mode: 0o600 });
     }
@@ -353,14 +367,38 @@ export class Attachments {
    * which is not the same thing and must not be treated as none.
    */
   bytesHeld(sessionId: string): number | null {
+    const folder = this.folder(sessionId, false);
+    let listing: AttachmentRef[];
     try {
-      const listing = z.array(AttachmentRefSchema)
-        .parse(JSON.parse(readFileSync(join(this.folder(sessionId, false), "kept.json"), "utf8")));
-      return listing.reduce((sum, ref) => sum + ref.bytes, 0);
+      listing = z.array(AttachmentRefSchema).parse(JSON.parse(readFileSync(join(folder, "kept.json"), "utf8")));
     } catch (error) {
       // No folder and no listing is a conversation that was never given a file. Anything else is a
       // question this cannot answer, and saying 0 would make it look small enough to keep.
       return (error as NodeJS.ErrnoException).code === "ENOENT" ? 0 : null;
+    }
+    // The files themselves, not what the listing says about them. The listing records what each file
+    // weighed when it arrived; it is not re-read when one changes, so adding those numbers up answers
+    // for a conversation as it used to be. A file swapped for a bigger one reported its old size and
+    // said the number had been checked.
+    let total = 0;
+    for (const ref of listing) {
+      const file = this.contained(folder, ref.id);
+      if (!file) return null;
+      try { total += statSync(file).size; } catch { return null; }
+    }
+    return total;
+  }
+  /**
+   * Throws away everything written for a conversation that is not going to exist. Synchronous and
+   * best effort, because the one caller is a database transaction rolling back: the bytes were put
+   * on disk before the row that would have pointed at them, and a copy that did not happen must not
+   * leave a folder of files behind that nothing will ever name or delete.
+   */
+  discard(sessionId: string): void {
+    try { rmSync(this.folder(sessionId, false), { recursive: true, force: true }); }
+    catch (error) {
+      diagnose("attachments", "error", "Files of a copy that did not happen could not be removed",
+        { fields: { sessionId, reason: error instanceof Error ? error.message : String(error) } });
     }
   }
   /** Everything attached to one conversation, oldest first. */

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
@@ -40,6 +40,71 @@ const askedIn = (messages) => messages.find((message) => message.role === "user"
 
 
 const opens = async (app, sessionId, ref) => (await app.attachments.read(sessionId, ref.id)).bytes;
+
+
+
+test("one file described two different ways in the same conversation is refused, not guessed at", async (t) => {
+  // Two mentions of one id that disagree about what the file is are not one file mentioned twice,
+  // and nothing here can tell which description is true. Copying the first and calling the second
+  // the same file would write one of the two descriptions into a conversation it does not belong to.
+  const provider = { name: "attachment-fixture", async complete() { return { content: "Looked at it.", toolCalls: [] }; } };
+  const { app } = await fixture(t, provider);
+  const run = await app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  const ref = askedIn(app.store.messages(run.sessionId)).attachments[0];
+  app.store.message(run.sessionId, { role: "user", content: "and again",
+    attachments: [{ ...ref, name: "something-else.png" }] });
+
+  assert.throws(() => app.store.duplicateSession("local", run.sessionId),
+    /describes one of its files in two different ways/);
+});
+
+test("one file named by two messages is copied once, and every mention points at that one copy", async (t) => {
+  // Copying per message wrote the bytes again for every mention and left all but the last pointing
+  // at the newest copy. The earlier ones were files nothing named and nothing would ever delete: a
+  // conversation naming one picture ten times became ten pictures on disk.
+  const provider = { name: "attachment-fixture", async complete() { return { content: "Looked at it.", toolCalls: [] }; } };
+  const { app, root } = await fixture(t, provider);
+  const run = await app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  const ref = askedIn(app.store.messages(run.sessionId)).attachments[0];
+  app.store.message(run.sessionId, { role: "user", content: "and again", attachments: [ref] });
+
+  const twin = app.store.duplicateSession("local", run.sessionId);
+  const mentions = app.store.sessionView("local", twin.sessionId).messages
+    .flatMap((message) => message.attachments ?? []);
+  assert.equal(mentions.length, 2, "both messages still say what they were given");
+  assert.equal(new Set(mentions.map((one) => one.id)).size, 1, "and both name the same copy");
+
+  const folder = join(root, "private", "attachments", twin.sessionId.replace(/[^a-z0-9]/gi, ""));
+  const written = (await readdir(folder)).filter((name) => name !== "kept.json");
+  assert.deepEqual(written, [mentions[0].id], "one file on disk, and it is the one they name");
+  assert.ok((await app.attachments.read(twin.sessionId, mentions[0].id)).bytes.equals(Buffer.from(onePixel, "base64")));
+});
+
+test("a copy whose database work fails leaves no files behind", async (t) => {
+  // The bytes go on disk before the rows that point at them, because a row pointing at a file that
+  // is not there is worse than a file nothing points at yet. That ordering is only safe if the files
+  // go when the rows do not -- otherwise a conversation that was never made leaves a folder nothing
+  // names, nothing counts and nothing will ever delete.
+  const provider = { name: "attachment-fixture", async complete() { return { content: "Looked at it.", toolCalls: [] }; } };
+  const { app, root } = await fixture(t, provider);
+  const run = await app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  const attachments = join(root, "private", "attachments");
+  const before = (await readdir(attachments)).sort();
+
+  // The failure has to land *after* the files are written, or this proves nothing: dropping a table
+  // the copy reads first makes it throw before it has touched the disk at all, which is a green test
+  // with no claim behind it. A trigger on the messages insert fails at the right moment.
+  app.store.db.exec("CREATE TRIGGER refuse_messages BEFORE INSERT ON messages "
+    + "BEGIN SELECT RAISE(ABORT, 'no room'); END");
+  t.after(() => { try { app.store.db.exec("DROP TRIGGER IF EXISTS refuse_messages"); } catch { /* closed */ } });
+  assert.throws(() => app.store.duplicateSession("local", run.sessionId), /no room/);
+
+  assert.deepEqual((await readdir(attachments)).sort(), before,
+    "no folder for a conversation that does not exist");
+});
 
 test("a copy of a conversation gets its own copy of the files, and still opens them once the original is gone", async (t) => {
   // One picture used to make a conversation permanently un-exportable: the archive schema is strict

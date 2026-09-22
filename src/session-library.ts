@@ -355,19 +355,42 @@ export class SessionLibrary {
     // A duplicate copies from the conversation beside it; an archive carries its own bytes, already
     // measured and checked against their digests.
     const bound = new Map<string, AttachmentRef>();
-    if (source !== undefined)
+    if (source !== undefined) {
+      // One file, one copy, however many messages name it. Copying per message wrote the bytes again
+      // for every mention and left every mention but the last pointing at the newest copy, so the
+      // earlier ones were files nothing named and nothing would ever delete — a conversation that
+      // names one picture ten times became ten pictures on disk.
+      const once = new Map<string, AttachmentRef>();
       for (const message of messages)
-        for (const ref of message.attachments ?? [])
-          bound.set(ref.id, files.copyInto(source, sessionId, [ref])[0]!);
-    else
+        for (const ref of message.attachments ?? []) {
+          const first = once.get(ref.id);
+          // The same id described two different ways is not one file mentioned twice, and this
+          // cannot tell which description is true.
+          if (first && (first.name !== ref.name || first.mediaType !== ref.mediaType
+            || first.kind !== ref.kind || first.bytes !== ref.bytes))
+            throw new Error("This conversation describes one of its files in two different ways");
+          if (!first) once.set(ref.id, ref);
+        }
+      const wanted = [...once.values()];
+      if (wanted.length > maximumArchiveFiles)
+        throw new Error(`A conversation carries up to ${maximumArchiveFiles} files`);
+      const weight = wanted.reduce((sum, ref) => sum + ref.bytes, 0);
+      if (weight > maximumArchiveFileBytes)
+        throw new Error(`This conversation's files come to more than the ${maximumArchiveFileBytes / 1048576} MB a copy carries`);
+      for (const ref of wanted) bound.set(ref.id, files.copyInto(source, sessionId, [ref])[0]!);
+    } else {
       for (const one of filesFrom(archive))
         bound.set(one.ref.id, files.writeInto(sessionId, [one])[0]!);
+    }
     return messages.map((message) => message.attachments?.length
       ? { ...message, attachments: message.attachments.map((ref) => bound.get(ref.id)!) }
       : message);
   }
   private copy(owner: string, archive: Archive, imported: boolean, source?: string) {
     const sessionId = randomUUID(), now = new Date().toISOString();
+    // The bytes go on disk before the rows that point at them, because a row pointing at a file that
+    // is not there is worse than a file nothing points at yet. That ordering is only safe if the
+    // files go too when the rows do not, which is what the catch below is for.
     this.db.exec("BEGIN");
     try {
       this.db.prepare("INSERT INTO sessions(id,owner,created_at) VALUES(?,?,?)").run(sessionId, owner, now);
@@ -381,7 +404,14 @@ export class SessionLibrary {
       this.db.prepare("INSERT INTO session_origins VALUES(?,?,?,?)")
         .run(sessionId, Number(imported), source ?? null, now);
       this.db.exec("COMMIT");
-    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      // The conversation does not exist, so neither may its files. Without this the database went
+      // back and the folder stayed: bytes on disk belonging to a conversation that was never made,
+      // which nothing names, nothing counts and nothing will ever delete.
+      this.files()?.discard(sessionId);
+      throw error;
+    }
     return { sessionId, copiedMessages: archive.messages.length };
   }
 }

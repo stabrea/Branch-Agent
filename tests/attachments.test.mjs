@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createReadStream, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +88,47 @@ async function listening(t, scratch) {
   return log;
 }
 
+
+
+test("what a conversation weighs is what its files weigh now, not what the listing remembers", async (t) => {
+  // The listing records what each file weighed when it arrived and is not re-read when one changes,
+  // so adding those numbers up answers for a conversation as it used to be. A seventy-byte file
+  // replaced by a megabyte still reported seventy -- and said `measured`, which is the word that
+  // means the number was checked.
+  const { app, root, post } = await branch(t);
+  const run = await post("/api/run", { prompt: "Keep this.", attachments: [FOUR[0]] });
+  const sessionId = run.body.sessionId;
+  const ref = app.store.messages(sessionId).find((one) => one.role === "user").attachments[0];
+  const folder = join(root, "data", "attachments", sessionId.replace(/[^a-z0-9]/gi, ""));
+  assert.equal(app.attachments.bytesHeld(sessionId), png.length);
+
+  await writeFile(join(folder, ref.id), Buffer.alloc(1048576, 7));
+  assert.equal(app.attachments.bytesHeld(sessionId), 1048576, "the file that is there now is the one counted");
+
+  // And a file the listing names that is not there at all cannot be counted as nothing.
+  await rm(join(folder, ref.id));
+  assert.equal(app.attachments.bytesHeld(sessionId), null, "unreadable is not the same as none");
+});
+
+test("an id that points outside the store is not a file of this conversation, whichever way it is read", async (t) => {
+  // locate() checks that an id really names a file inside the store -- sixteen hex characters, and a
+  // real path that stays inside after links are followed. Two other readers built the path themselves
+  // and never asked: the one that reads bytes for an archive, and the one that copies them.
+  const scratch = await mkdtemp(join(tmpdir(), "branch-contained-"));
+  t.after(() => discardTemp(scratch));
+  const root = join(scratch, "attachments");
+  mkdirSync(join(root, "a-conversation"), { recursive: true });
+  const store = new Attachments(root);
+  const [kept] = await store.keep("a-conversation", [{ name: "one.png", mediaType: "image/png", data: png.toString("base64") }]);
+
+  for (const wrong of ["../secret", "0123456789abcdeZ", "0123456789abcde", "", "0123456789abcdef0"]) {
+    assert.throws(() => store.bytesOf("a-conversation", wrong), /not attached to this conversation/, `bytesOf(${wrong})`);
+    assert.throws(() => store.copyInto("a-conversation", "elsewhere", [{ ...kept, id: wrong }]),
+      /not attached to this conversation/, `copyInto(${wrong})`);
+  }
+  // The real one still works, so this is a gate and not a wall.
+  assert.ok(store.bytesOf("a-conversation", kept.id).equals(png));
+});
 
 test("one part of a file is read as that part, not sliced out of a copy of the whole thing", async (t) => {
   // Asking for the first kilobyte of a thirty-megabyte film cost thirty megabytes: the file was read
