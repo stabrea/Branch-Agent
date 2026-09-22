@@ -355,13 +355,21 @@ test("S9 every page is grouped, and a card no group names still shows under More
   assert.ok(order.slice(firstHead + 1, projects).every((item) => item === "general:start"), "a card stands under the wrong heading");
   /* Settled, the groups do not keep writing to the page (a write that sets off another write loops forever). */
   const churn = await f.page.evaluate(() => new Promise((done) => {
-    const count = [];
-    const watch = new MutationObserver((records) => { for (const r of records) if (r.target.closest?.(".sg-head") || r.target.parentElement?.closest(".sg-head")) count.push(`${r.type} ${r.attributeName ?? ""} on ${r.target.className || r.target.nodeName}`); });
+    const count = new Map();
+    const watch = new MutationObserver((records) => {
+      for (const record of records) {
+        const head = record.target.closest?.(".sg-head") ?? record.target.parentElement?.closest(".sg-head");
+        if (!head) continue;
+        const key = `${head.dataset.bucket}:${record.type}:${record.attributeName ?? ""}:${record.target.className || record.target.nodeName}`;
+        count.set(key, (count.get(key) ?? 0) + 1);
+      }
+    });
     watch.observe(document.getElementById("settings-window"), { subtree: true, childList: true, attributes: true, characterData: true });
-    setTimeout(() => { watch.disconnect(); done(count); }, 1500);
+    setTimeout(() => { watch.disconnect(); done([...count]); }, 1500);
   }));
-  /* A card arriving late may rightly change a heading once or twice; a loop rewrites it every frame. */
-  assert.ok(churn.length < 10, `the group headings keep rewriting themselves: ${churn.slice(0, 5).join("; ")}`);
+  /* Separate cards may arrive late together on a slow runner. A loop repeats the same write every frame. */
+  const repeating = churn.filter(([, writes]) => writes >= 4);
+  assert.deepEqual(repeating, [], `the same group-heading write keeps repeating: ${JSON.stringify(repeating.slice(0, 5))}`);
   await f.page.evaluate(() => {
     const card = document.createElement("section");
     card.className = "card";

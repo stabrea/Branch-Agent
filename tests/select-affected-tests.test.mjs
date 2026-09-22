@@ -155,6 +155,18 @@ test("glass list behavior has its exact browser contract inside the fast budget"
   assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
 });
 
+test("the measured Settings audit cannot be started in the five-minute lane", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const result = selectImpact([{ status: "M", paths: ["tests/settings-grown.test.mjs"] }], {
+    config: checkedIn,
+    weights,
+  });
+  assert.equal(result.classification, "full-required");
+  assert.ok(result.predictedSeconds > checkedIn.budgetSeconds);
+  assert.match(result.reasons.join("\n"), new RegExp(`above the ${checkedIn.budgetSeconds}s budget`));
+});
+
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
   const result = selectImpact([{ status: "M", paths: ["public/composer-grown.js"] }], {
