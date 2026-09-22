@@ -6,6 +6,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+/** One newline, written by its number, because a literal one does not survive every editor. */
+const newline = String.fromCharCode(10);
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,6 +67,36 @@ async function updateLog(t, lines) {
 const escape = String.fromCharCode(27);
 
 
+
+test("a key whose label is cut out of the middle of a line does not leave its tail behind", () => {
+  // The last line of an oversized log keeps both of its ends and drops the middle. Shortening it
+  // before looking for secrets let the shortening decide what the redactor was allowed to read: a
+  // key whose label sat in the discarded middle arrived with nothing beside it to recognise.
+  // Measured on this exact shape before the order was changed: 24 characters of the key, in plain
+  // sight, at the end of the one file the owner is told to send on.
+  const tail = "ZZTAILOFTHEKEY9876543210";
+  const key = "sk-ant-api03-" + "Q".repeat(2500) + tail;  // not-a-real-secret
+  const line = "step 9: " + "filler ".repeat(600) + "authorization: Bearer " + key;
+  const last = readableUpdateLog("step 1 fine" + String.fromCharCode(10) + "" + line).split(newline).at(-1);
+
+  assert.equal(last.includes(tail), false, `the end of the key is gone (${last.slice(-80)})`);
+  assert.equal(/Q{20}/.test(last), false, "and so is the middle of it");
+  assert.match(last, /authorization: .removed./, "what is left says a key was there and was taken out");
+});
+
+test("a value the line limit cuts short does not leave the front of a key in plain sight", () => {
+  // Every line but the last keeps its beginning and drops the rest. Cutting before looking for
+  // secrets means the redactor is handed a value that has already lost its end, so the shape it
+  // knows how to recognise is not there any more and what it does not recognise it leaves alone.
+  // Measured at this exact offset before the order was changed: "apiKey=sk-proj-ab" survived, at
+  // the end of the line, in the file the owner is told to send on.
+  const line = "step 4: " + "z".repeat(1975) + "apiKey=sk-proj-abcdefghij1234567890 and then it stopped";  // not-a-real-secret
+  const first = readableUpdateLog(line + "" + newline + "step 5 done").split(newline)[0];
+
+  assert.equal(first.includes("sk-proj-"), false, `no part of the key is left (${first.slice(-40)})`);
+  assert.match(first, /apiKey=/, "the line still says a key was there");
+  assert.ok(first.length <= 2000, `and the line is still bounded (${first.length})`);
+});
 test("a secret with an escape sequence hidden inside it is still taken out", async (t) => {
   // The order is the whole finding. Looking for secrets *before* cleaning the text means an escape in the
   // middle of a key breaks the shape the redactor looks for, so the key goes through — and then the escape

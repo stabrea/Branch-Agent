@@ -114,10 +114,15 @@ export function readableUpdateLog(log: string): string {
   // then taking the escape out afterwards leaves that key in plain sight, in the one file the owner is
   // told to send on. Clean text first, then look for secrets in it.
   const plain = withoutControlCharacters(log);
-  const lines = plain.split(/\r?\n/).slice(-updateLogLines);
+  // Then each whole line has its secrets taken out, and only after that is anything shortened.
+  // The other way round, shortening decides what the redactor is allowed to read: a long line
+  // keeps its two ends and drops the middle, so a key whose label sat in that middle arrives with
+  // nothing beside it to recognise, and its tail goes into the one file the owner is told to send
+  // on. Measured before this changed: 24 characters of a key, in plain sight, at the end of it.
+  const lines = plain.split(/\r?\n/).slice(-updateLogLines).map((line) => redactForLog(line));
   const cut = lines.map((line, at) => line.length <= updateLogLineChars ? line
     : at === lines.length - 1 ? bothEndsOf(line) : line.slice(0, updateLogLineChars));
-  return redactForLog(cut.join("\n"));
+  return cut.join("\n");
 }
 
 export async function updateLogItem(scratchDir: string = updateScratchDir()): Promise<ReportItem> {
