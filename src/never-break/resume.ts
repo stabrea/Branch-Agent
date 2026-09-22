@@ -298,7 +298,7 @@ export function cutByUpdate(store: Store): Set<string> {
 async function recoverUpdateCut(input: RecoveryInput & { nextTurn: (data: Record<string, unknown>, now: Date) => string }): Promise<RecoveredRun[]> {
   const only = cutByUpdate(input.store);
   if (!only.size) return [];
-  releaseInterruptedSchedules(input.store, input.nextTurn);
+  releaseInterruptedSchedules(input.store, input.nextTurn, new Date(), only);
   return recoverAfterRestart({ ...input, mode: "when-needed", askOnly: true, only });
 }
 
@@ -315,12 +315,15 @@ export function lateNote(dueAt: unknown, now: Date, graceMs = 120_000): string |
  * A repeating job whose turn was cut off by the restart goes back on the list for its next turn,
  * instead of staying stuck as "interrupted" for ever. The cut-off turn itself is settled with its task.
  */
-export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Record<string, unknown>, now: Date) => string, now = new Date()): number {
+export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Record<string, unknown>, now: Date) => string, now = new Date(),
+  only?: ReadonlySet<string>): number {
   const rows = store.sqlite.prepare("SELECT id, owner, data FROM schedules WHERE json_extract(data,'$.status')='interrupted'").all();
   let released = 0;
   for (const row of rows) {
     const data = JSON.parse(String(row.data)) as Record<string, unknown>;
     if (typeof data.intervalMs !== "number" && typeof data.dailyAt !== "string") continue;
+    // With `only`, a job goes back only when the task its turn had started is one of those.
+    if (only && !(typeof data.activeRunId === "string" && only.has(data.activeRunId))) continue;
     store.save("schedules", String(row.owner), String(row.id), { ...data, status: "pending", dueAt: nextTurn(data, now),
       lastInterruption: { at: now.toISOString(), note: "Branch was restarted during this job's turn. That turn is settled with its task; the job carries on at its next turn." } });
     released++;

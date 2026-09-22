@@ -3438,7 +3438,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           if (request.method !== "POST") throw new HttpError(405, "Ask with POST.");
           if (!(await localWithMasterKey(request, { dataDir: options.dataDir, viaRemote })))
             throw new HttpError(403, "Only a program on this computer holding Branch's own key can prepare it for an update.");
-          const { budgetMs } = z.object({ budgetMs: z.number().int().min(0).max(120000).default(30000) }).strict().parse(await readBody(request));
+          const { budgetMs, undo } = z.object({ budgetMs: z.number().int().min(0).max(120000).default(30000), undo: z.literal(true).optional() }).strict().parse(await readBody(request));
+          // An update that stopped before closing Branch takes its drain back at once.
+          if (undo) { if (app.runtime.draining) { app.runtime.undrain(); app.scheduler.start(); } send(response, 200, { undone: true }); return; }
           await app.scheduler.stop();
           const report = await app.runtime.drain(budgetMs);
           // An update that stops before Branch closes must never leave it refusing work.

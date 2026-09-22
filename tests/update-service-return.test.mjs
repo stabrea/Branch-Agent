@@ -155,3 +155,21 @@ test("branch rollback brings a background service back as the service, not as a 
   assert.equal(restarted, 1);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "1.0.0", "the version before is back");
 });
+
+test("a running Branch that cannot be drained stops the update before anything is closed", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, drain: async () => { s.events.push("drain"); throw new Error("Branch is running but could not be asked to finish its work first (refused), so nothing was changed."); } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.includes("drain") && !s.events.includes("quit") && !s.events.some((event) => Array.isArray(event)), "nothing closed, nothing swapped");
+  assert.match(s.lines.join("\n"), /could not be asked to finish its work first/);
+});
+
+test("a Branch that was drained and then would not close gets its work back at once", { skip: posixOnly }, async (t) => {
+  const s = await updateSetup(t);
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    quit: async () => { s.events.push("quit"); return { stopped: false, wasRunning: true, pid: 4242, message: "Branch Agent did not close." }; },
+    undrain: async () => { s.events.push("undrain"); } } });
+  assert.equal(code, 1);
+  assert.ok(s.events.indexOf("undrain") > s.events.indexOf("quit"), "given back after the refusal to close");
+  assert.ok(!s.events.some((event) => Array.isArray(event)), "nothing swapped");
+});

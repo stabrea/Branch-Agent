@@ -35,6 +35,8 @@ export interface UpdateHooks {
   stopDaemon?: () => Promise<number | null>;
   /** Lets the engine finish what it is doing before it is closed for the swap (src/runtime.ts `drain`). */
   drain?: () => Promise<unknown>;
+  /** Takes the drain back when the update stops before the hand-over is running. */
+  undrain?: () => Promise<void>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
   canary?: (stagedDir: string, version: string) => Promise<void>;
   /**
@@ -58,6 +60,7 @@ export function registerUpdaterIpc(
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
     ...(hooks?.drain ? { drain: hooks.drain } : {}),
+    ...(hooks?.undrain ? { undrain: hooks.undrain } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
   });
   const authorized = (event: IpcMainInvokeEvent) => {
@@ -88,14 +91,20 @@ export function registerUpdaterIpc(
     });
     // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
     // because this process quits into the hand-over and never sees how it went.
-    if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
-    // The background engine is already closed by this point, so say so if the hand-over cannot start.
-    await launchHandOver(script, process.pid).catch((error: unknown) => {
-      const why = error instanceof Error ? error.message : String(error);
-      throw new Error(hooks?.stopDaemon
-        ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
-        : `The update could not be started: ${why}.`);
-    });
+    try {
+      if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
+      // The background engine is already closed by this point, so say so if the hand-over cannot start.
+      await launchHandOver(script, process.pid).catch((error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        throw new Error(hooks?.stopDaemon
+          ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
+          : `The update could not be started: ${why}.`);
+      });
+    } catch (error) {
+      // Nothing was swapped: this window's own work, drained for the update, is given back.
+      await updater.undrain();
+      throw error;
+    }
     const status = updater.applying();
     setTimeout(requestQuit, 750);
     // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.

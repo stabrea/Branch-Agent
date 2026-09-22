@@ -45,6 +45,8 @@ export interface UpdaterOptions {
    * a short wait, the rest marked so the next version offers it back). Never stops the update.
    */
   drain?: () => Promise<unknown>;
+  /** Takes the drain back when the update stops after it and before Branch is closed. */
+  undrain?: () => Promise<void>;
   /**
    * mac3/never-break: tries the unpacked version on a copy of the owner's data before anything is
    * swapped. Throws a plain sentence when the new version did not pass; the update then stops.
@@ -147,9 +149,12 @@ export class Updater {
       await this.safetyCopy();
       if (this.options.drain) {
         this.set("unpacking", "Letting Branch finish what it is doing before the update…", null, release);
-        await this.options.drain().catch(() => undefined);
+        // A drain that cannot be proved stops the update here, before anything is closed or swapped.
+        await this.options.drain();
       }
-      const script = await this.writeScript(stagedDir, await this.stopBackground());
+      let script: string;
+      try { script = await this.writeScript(stagedDir, await this.stopBackground()); }
+      catch (error) { await this.undrain(); throw error; }
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };
     } catch (error) {
@@ -186,6 +191,10 @@ export class Updater {
    * process id so the hand-over waits for it as well. A refusal never stops the update: the hand-over
    * script ends that process itself if it has to.
    */
+  /** Gives Branch its work back after a drain the update did not follow through (never throws). */
+  async undrain(): Promise<void> {
+    await this.options.undrain?.().catch(() => undefined);
+  }
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);

@@ -13,7 +13,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { cutByUpdate } from "../dist/never-break/resume.js";
-import { drainPath, drainRunning } from "../dist/install/quit.js";
+import { drainPath, drainRunning, undrainRunning } from "../dist/install/quit.js";
 import { writeRunning } from "../dist/install/running.js";
 
 /** A model that answers `quick` at once and otherwise waits until the task is stopped. */
@@ -108,10 +108,52 @@ test("the drain door opens only for this computer with Branch's own key, and ans
   assert.deepEqual(await drainRunning(dataDir, 0), { finished: 0, stillRunning: 0 });
 });
 
-test("with no Branch running, or one that cannot be asked, an update carries on without a drain", async (t) => {
+test("with no Branch running there is nothing to drain; a running one that cannot be asked stops the update", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-drain-none-"));
   t.after(() => discardTemp(root));
-  assert.equal(await drainRunning(root, 0), null);
+  assert.equal(await drainRunning(root, 0), null, "nothing running: nothing to finish");
   await writeRunning(root, { pid: process.pid, mode: "daemon", port: 9, url: "http://127.0.0.1:9", version: "1.0.0" });
-  assert.equal(await drainRunning(root, 0, { fetch: async () => { throw new Error("refused"); } }), null);
+  await assert.rejects(drainRunning(root, 0, { fetch: async () => { throw new Error("refused"); } }), /running but could not be asked to finish its work first[\s\S]*nothing was changed/,
+    "a live Branch that cannot be drained is never closed as if it had been");
+});
+
+test("a drain the update did not follow through is taken back at once", async (t) => {
+  const { app, dataDir } = await fixture(t);
+  const server = await startServer(app, { dataDir, port: 0 });
+  t.after(() => server.close());
+  await writeRunning(dataDir, { pid: process.pid, mode: "app", port: Number(new URL(server.url).port), url: server.url, version: "1.0.0" });
+  await drainRunning(dataDir, 0);
+  assert.equal(app.runtime.draining, true);
+  await undrainRunning(dataDir);
+  assert.equal(app.runtime.draining, false, "work is taken again, without waiting two minutes");
+  const done = await app.runtime.run({ prompt: "quick", permissions: [] });
+  assert.equal(done.status, "completed");
+});
+
+test("the next start puts back only the repeating jobs whose turn the update cut off", async (t) => {
+  const { app, dataDir } = await fixture(t);
+  const owner = app.runtime.owner;
+  const cut = app.store.createRun(owner, "cut by the update");
+  app.store.event(cut.id, "run.cut-by-update", { waitedMs: 30000 });
+  app.store.finish(cut.id, "interrupted", "stopped for the update");
+  const crashed = app.store.createRun(owner, "cut by a crash");
+  app.store.finish(crashed.id, "interrupted", "Process stopped before completion");
+  const job = (id, runId) => app.store.save("schedules", owner, id, { prompt: "check", intervalMs: 3600000, status: "interrupted", activeRunId: runId, dueAt: new Date().toISOString() });
+  job("job-update", cut.id);
+  job("job-crash", crashed.id);
+  await app.neverBreak.recoverOnStart(dataDir);
+  assert.equal(app.store.get("schedules", owner, "job-update").data.status, "pending", "the update's job carries on at its next turn");
+  assert.equal(app.store.get("schedules", owner, "job-crash").data.status, "interrupted", "a crash's job is left as the switch-off Branch always left it");
+});
+
+test("a schedule's turn writes down its task as soon as it starts", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  app.store.save("schedules", owner, "job", { prompt: "a long job", intervalMs: 3600000, status: "pending", dueAt: new Date(0).toISOString(), permissions: [] });
+  const ticking = app.scheduler.tick(new Date()).catch(() => []);
+  let saved;
+  for (let i = 0; i < 200 && !(saved = app.store.get("schedules", owner, "job").data).activeRunId; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(typeof saved.activeRunId === "string" && app.store.run(saved.activeRunId), "the running turn names its task");
+  await app.runtime.shutdown();
+  await ticking;
 });

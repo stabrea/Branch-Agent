@@ -287,7 +287,12 @@ export class Scheduler {
       const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
         source: data.fromChat === true ? "channel" : "schedule", ...route?.options,
-        onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
+        onStarted: (started) => {
+          entry.runId = started.id;
+          // Written down at once, so a restart that cuts this turn off knows which task it was.
+          this.store.save("schedules", record.owner, record.id, { ...data, status: "running", activeRunId: started.id, history: [...history, entry] });
+          if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late });
+        },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });

@@ -43,17 +43,28 @@ export const drainPath = "/api/never-break/drain";
 export interface DrainReport { finished: number; stillRunning: number }
 export async function drainRunning(dataDir: string, budgetMs = 30000, deps: QuitDeps = {}): Promise<DrainReport | null> {
   const note = await runningNow(dataDir, deps.alive ?? stillAlive);
-  if (!note) return null;
-  try {
-    if (new URL(note.url).hostname !== "127.0.0.1") return null;
-    const token = await savedToken(dataDir);
-    if (!token) return null;
-    const response = await (deps.fetch ?? globalThis.fetch)(`${note.url}${drainPath}`, {
-      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ budgetMs }), signal: AbortSignal.timeout(budgetMs + 10000),
-    });
-    return response.ok ? (await response.json()) as DrainReport : null;
-  } catch { return null; }
+  if (!note) return null; // nothing is running, so there is nothing to finish
+  // A Branch is running: the update goes on only once it has been asked and has answered, so no task
+  // it has is cut off without being marked to be offered back.
+  const refused = (why: string) => new Error(`Branch is running but could not be asked to finish its work first (${why}), so nothing was changed. Close Branch, or try again.`);
+  const token = await savedToken(dataDir);
+  if (new URL(note.url).hostname !== "127.0.0.1" || !token) throw refused("it is not reachable on this computer");
+  const response = await (deps.fetch ?? globalThis.fetch)(`${note.url}${drainPath}`, {
+    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ budgetMs }), signal: AbortSignal.timeout(budgetMs + 10000),
+  }).catch((error: unknown) => { throw refused(error instanceof Error ? error.message : String(error)); });
+  if (!response.ok) throw refused(`it answered ${response.status}`);
+  return (await response.json()) as DrainReport;
+}
+/** Takes a drain back when the update stopped before Branch was closed. Never throws. */
+export async function undrainRunning(dataDir: string, deps: QuitDeps = {}): Promise<void> {
+  const note = await runningNow(dataDir, deps.alive ?? stillAlive).catch(() => null);
+  const token = await savedToken(dataDir);
+  if (!note || !token || new URL(note.url).hostname !== "127.0.0.1") return;
+  await (deps.fetch ?? globalThis.fetch)(`${note.url}${drainPath}`, {
+    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ undo: true }), signal: AbortSignal.timeout(10000),
+  }).catch(() => undefined);
 }
 
 /**
