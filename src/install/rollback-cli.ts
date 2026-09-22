@@ -103,6 +103,11 @@ export async function rollbackCommand(input: RollbackCliInput): Promise<number> 
   try {
     const entry = journal.current();
     if (!entry) {
+      // Before refusing: an undo may have put the files back and failed only to start Branch again.
+      // That is not "nothing to go back from" — it is one step short of done, and it is the step the
+      // owner cannot do for themselves as a background service.
+      const pending = startPending(journal);
+      if (pending) return await startAgainOnly(pending, journal, input);
       const nothing = assessRollback(null, { current: null, previous: null, store: null, runnerKnows: 0 });
       input.print(nothing.ok ? "There is nothing to go back from." : nothing.message);
       return 1;
@@ -116,6 +121,54 @@ export async function rollbackCommand(input: RollbackCliInput): Promise<number> 
     input.print(report.message);
     return report.ok ? 0 : 1;
   } finally { journal.close(); }
+}
+
+/**
+ * A rollback that put the files back and then could not start Branch again. The swap is done and
+ * written down, so running the whole undo a second time would be refused — the installed program is
+ * no longer the version the record says it replaced — and it would be wrong anyway: the files need
+ * nothing. What is left undone is the service, so that is the only thing this route does.
+ *
+ * It is read from the ledger rather than from a new state, because the state is not a lie: the files
+ * really are back. What the ledger says is that the last thing the undo tried, and the only thing
+ * still outstanding, is starting Branch again.
+ */
+export function startPending(journal: ActivationJournal): ActivationEntry | null {
+  const [newest] = journal.recent(1);
+  if (!newest || newest.state !== "rolled-back") return null;
+  const starts = journal.ledger(newest.id).filter((line) => line.step === "started Branch again");
+  const last = starts.at(-1);
+  return last && !last.ok ? newest : null;
+}
+
+/**
+ * Starts the service again for an undo that swapped the files and got no further, and waits for the
+ * version that was put back to answer for itself. Nothing on disk is moved: the only thing this can
+ * do is start Branch, and the only thing it reports is whether that worked.
+ */
+async function startAgainOnly(entry: ActivationEntry, journal: ActivationJournal, input: RollbackCliInput): Promise<number> {
+  const deps = input.deps ?? {};
+  if (!input.yes) {
+    input.print(`Version ${entry.fromVersion} is already back in place; Branch was not started again. `
+      + "Run `branch rollback --yes` to start it.");
+    return 0;
+  }
+  const was = deps.wasRunning ?? await runningNow(input.dataDir, deps.quit?.alive);
+  try {
+    await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
+    const back = await waitForReturn(input.dataDir, { pid: was?.pid ?? null, startedAt: was?.startedAt ?? null },
+      { version: entry.fromVersion }, deps.returnWait);
+    if (!back) throw new Error(`version ${entry.fromVersion} did not come back up in the background`);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    journal.step(entry.id, "started Branch again", false, why);
+    input.print(`Version ${entry.fromVersion} is back in place, but Branch could not be started again (${why}). `
+      + "Start it with `branch start`; nothing else was left half done.");
+    return 1;
+  }
+  journal.step(entry.id, "started Branch again", true, `on version ${entry.fromVersion}`);
+  input.print(`Branch is working in the background again, on version ${entry.fromVersion}.`);
+  return 0;
 }
 
 async function runRollback(entry: ActivationEntry, journal: ActivationJournal, input: RollbackCliInput): Promise<RollbackReport> {
