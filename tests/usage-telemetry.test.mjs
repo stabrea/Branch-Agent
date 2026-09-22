@@ -7,6 +7,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, afterTaskMetrics, bridgeLogs, change, executionMetricsDeps, executionMetricsSettings, levelFor, money, rollUp,
@@ -32,7 +33,7 @@ async function served(t, steps = [say("done")], serverOptions = {}) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted(steps),
     web: { allowPrivateAddresses: true },
   });
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, ...serverOptions });
+  const server = await startServer(app, { dataDir: join(root, "data"), ...serverOptions, port: 0 });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {
@@ -289,7 +290,6 @@ test("U7: every word the two cards show is on file in English and in real French
 });
 
 test("U8: the report card lives in Data and the counters card in Advanced, at 400 pixels with no page errors", async (t) => {
-  const { chromium } = await import("playwright");
   const { openPlace } = await import("./places.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-ui14-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted([say("done")]) });
