@@ -67,7 +67,7 @@ async function temp(t, name) {
   list.push(async () => {
     // A test that made a folder unwritable must not leave it that way, or it cannot be tidied up.
     for (const entry of ["", "d", "w"]) await chmod(join(root, entry), 0o700).catch(() => undefined);
-    await discardTemp(root);
+    await discardTemp(root, { tries: 80, pause: 100 });
   });
   return root;
 }
