@@ -513,6 +513,34 @@ test("a file too big for its kind, or of a kind Branch does not take, is refused
   assert.equal(kindOf("application/pdf"), "document");
 });
 
+test("a follow-up in a temporary conversation puts its file where the conversation keeps them", async (t) => {
+  const { app, root, post, fetchFile } = await branch(t);
+
+  // Only the first message says "temporary" — it is what the conversation is, not what each message is.
+  const first = await post("/api/run", { prompt: "Keep this for now.", temporary: true, attachments: [FOUR[0]] });
+  const sessionId = first.body.sessionId;
+  assert.equal(app.store.sessionTemporary(sessionId), true, "this really is a temporary conversation");
+
+  // The follow-up says nothing about it, the way the window sends one.
+  const second = await post("/api/run", { prompt: "And this one.", sessionId, attachments: [FOUR[3]] });
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+
+  // Both files open. Taking the message's word for it put the second one in the lasting folder while the
+  // conversation went on looking in the temporary one: on disk, and unreachable.
+  const messages = app.store.messages(sessionId).filter((one) => one.role === "user");
+  assert.equal(messages.length, 2);
+  for (const message of messages) {
+    const ref = message.attachments[0];
+    const answer = await fetchFile(`session=${sessionId}&id=${ref.id}`);
+    assert.equal(answer.status, 200, `${ref.name} is still reachable`);
+  }
+
+  // And they are in one folder, not two.
+  const folders = await readdir(join(root, "data", "attachments")).catch(() => []);
+  assert.deepEqual(folders, [`tmp-${sessionId.replace(/[^a-z0-9]/gi, "")}`],
+    `one folder, the conversation's own (${folders.join(", ")})`);
+});
+
 test("a conversation's files go when the conversation does", async (t) => {
   const { app, post } = await branch(t);
   const run = await post("/api/run", { prompt: "Keep this.", attachments: [FOUR[0]] });
