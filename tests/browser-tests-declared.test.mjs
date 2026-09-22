@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import ts from "typescript";
 import { testGroups } from "../scripts/run-tests.mjs";
 
 /**
@@ -92,30 +93,41 @@ export const makesOne = (source) => MAKES_ONE.test(source);
  * is refused.
  */
 /**
- * The lines of a file that are code, for counting purposes: a comment is prose and a construction
- * written inside a quoted string is a fixture. This file is full of both — it explains the shapes it
- * refuses and holds them as test data — and counting those as real constructions would have it refuse
- * itself. Only the counting uses this; nothing else reads it.
+ * The parts of a file that are code, for counting purposes: a comment is prose and a construction
+ * written inside a string is a fixture. This file is full of both — it explains the shapes it refuses
+ * and holds them as test data — and counting those as real constructions would have it refuse itself.
+ * Only the counting uses this; nothing else reads it.
+ *
+ * **The order is the whole of it, and the first version had it backwards.** Taking comments out first
+ * let a string that *contains* a comment opener win: `"https://x"` truncated the rest of its line, and
+ * `"/*"` opened a block comment that swallowed every line after it until something happened to contain
+ * a closer. Either way a construction vanished and its calls went unseen — a fail-open in the check
+ * whose whole job is to fail closed.
+ *
+ * So the literals are taken out **first, by a real parse**, which is also the only way to know that
+ * `/["\']/` is a regular expression and not the start of a string. Only then are comments removed, by
+ * which point a `//` can only be a real one. `${…}` inside a template is left alone, because it is code.
  */
 export function codeLines(source) {
-  const out = [];
-  let inBlock = false;
-  for (const raw of source.split(/\r?\n/)) {
-    let line = raw;
-    if (inBlock) {
-      const ends = line.indexOf("*/");
-      if (ends < 0) { out.push(""); continue; }
-      line = line.slice(ends + 2);
-      inBlock = false;
-    }
-    const opens = line.indexOf("/*");
-    if (opens >= 0) { inBlock = !line.includes("*/", opens); line = line.slice(0, opens); }
-    const slashes = line.indexOf("//");
-    if (slashes >= 0) line = line.slice(0, slashes);
-    // A construction sitting inside a quoted string is test data, not a construction.
-    out.push(line.replace(/(["'\`])(?:\\.|(?!\1)[^\\])*\1/g, (quoted) => " ".repeat(quoted.length)));
-  }
-  return out.join("\n");
+  const out = source.split("");
+  /* Blanked with a character that is not whitespace, so nothing can read *through* what was removed:
+     spaces let `const t = ${new BranchBrowser(...)}` look like a plain declaration once the template
+     text either side of it was gone, which attributed an anonymous browser to the string holding it. */
+  const blank = (from, to) => { for (let at = from; at < to && at < out.length; at++) if (out[at] !== "\n") out[at] = "~"; };
+  const tree = ts.createSourceFile("source.mjs", source, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  const literals = new Set([
+    ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.RegularExpressionLiteral, ts.SyntaxKind.TemplateHead,
+    ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail,
+  ]);
+  const walk = (node) => {
+    if (literals.has(node.kind)) blank(node.getStart(tree), node.getEnd());
+    node.forEachChild(walk);
+  };
+  tree.forEachChild(walk);
+  return out.join("")
+    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, "~"))
+    .replace(/\/\/[^\n]*/g, (comment) => "~".repeat(comment.length));
 }
 
 export function unreadableConstructions(source) {
@@ -357,6 +369,19 @@ test("a file that makes a browser and hides the name it gives it is refused", as
        an ordinary way to write real code, and tests/browser.test.mjs writes it five times. */
     "tests/comma.test.mjs": ["const probe = observeLaunch(), browser = new BranchBrowser({});",
       "await browser.close();"],
+    /* Codex's second exact-head review: taking comments out before masking strings let a string that
+       contained a comment opener win, and a construction after it disappeared. Each of these hides one
+       behind a literal, and each must still be refused. The last is a regular expression, which only a
+       real parse can tell from the start of a string. */
+    "tests/quoted-url.test.mjs": ['const u = "https://x.test";', "let h;", "h = new BranchBrowser({});",
+      "await h.pdf(context);"],
+    "tests/quoted-opener.test.mjs": ['const s = "/*";', "let h;", "h = new BranchBrowser({});",
+      "await h.pdf(context);"],
+    "tests/regex-then.test.mjs": ["const q = /[\"']/;", "let h;", "h = new BranchBrowser({});",
+      "await h.pdf(context);"],
+    /* And one inside a template's `${}`, which is code and so must be seen -- but which has no name,
+       so it is refused for having none rather than allowed for being visible. */
+    "tests/template-hole.test.mjs": ["const t = `a ${new BranchBrowser({})} b`;", "assert.ok(t);"],
     /* A construction that is prose, and one that is a fixture. Neither is a construction -- and both
        are written in the *hidden* shape on purpose, because a readable one would be allowed either way
        and would prove nothing about reading code alone. This file is full of exactly these. */
@@ -368,8 +393,13 @@ test("a file that makes a browser and hides the name it gives it is refused", as
 
   assert.deepEqual(judged.unreadable,
     ["tests/hidden-later.test.mjs", "tests/hidden-array.test.mjs", "tests/hidden-property.test.mjs",
-      "tests/mixed.test.mjs"],
+      "tests/mixed.test.mjs", "tests/quoted-url.test.mjs", "tests/quoted-opener.test.mjs",
+      "tests/regex-then.test.mjs", "tests/template-hole.test.mjs"],
     "each of these makes a browser and keeps it where the name cannot be read");
+  /* The three literal cases are the fail-open: reading comments first made the construction after the
+     literal invisible, so the file passed and the calls on it were never counted. */
+  for (const hiding of ["tests/quoted-url.test.mjs", "tests/quoted-opener.test.mjs", "tests/regex-then.test.mjs"])
+    assert.equal(unreadableConstructions(written[hiding].join(NL)), 1, `${hiding}: the construction must still be counted`);
   // The decision is per construction: one readable one does not answer for a hidden one beside it.
   assert.equal(unreadableConstructions(written["tests/mixed.test.mjs"].join(NL)), 1,
     "exactly the hidden one of the two is refused");
