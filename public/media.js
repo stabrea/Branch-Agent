@@ -11,8 +11,33 @@ const limits = {
   /** Everything on one message added up, the same budget the server holds to. */
   totalBytes: 32 * 1024 * 1024,
 };
+/**
+ * The files this message will really carry. A still taken out of a film is not one of them: it goes
+ * as a picture for the model to look at, and the film it came from is already being sent. Counting
+ * the stills as files meant a film and its four stills used five of the six a message may have, so
+ * the next perfectly legal file was refused for room that was never being spent.
+ */
+const sendableFiles = () => attached.filter((item) => item.keep !== false);
 /** What the files already on this message weigh, so the next one can be refused before it is read. */
-const attachedBytes = () => attached.reduce((sum, item) => sum + (item.bytes ?? 0), 0);
+const attachedBytes = () => sendableFiles().reduce((sum, item) => sum + (item.bytes ?? 0), 0);
+/**
+ * The two rules every file on a message must pass, in one place so a picture cannot go round them.
+ * It did: a picture was pushed with no `bytes` at all, so four 5 MB pictures added up to nothing and
+ * the page would hand a server that takes 32 MB a message weighing 52.
+ */
+function roomFor(file, mostBytes) {
+  if (sendableFiles().length >= limits.files) throw new Error(`Up to ${limits.files} files can go with one message.`);
+  if (file.size > mostBytes)
+    throw new Error(`${file.name} is larger than ${mostBytes / 1048576} MB, so it was skipped.`);
+  // The whole message has a budget as well as each file: two films can each be allowed and still be
+  // too much together. Refused here, before the file is read, so nothing long happens for nothing.
+  if (attachedBytes() + file.size > limits.totalBytes) {
+    const room = Math.max(0, limits.totalBytes - attachedBytes());
+    throw new Error(`Everything on one message can add up to ${limits.totalBytes / 1048576} MB. `
+      + `${file.name} needs ${Math.round(file.size / 1048576)} MB and there is `
+      + `${Math.round(room / 1048576)} MB left — send it in a message of its own.`);
+  }
+}
 const pictureKinds = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 let attached = [];
 
@@ -146,17 +171,7 @@ async function keptOnly(file) {
 }
 /** Keeps the file as it arrived, so the conversation can hand it back later. */
 async function keepAsIs(file, kind, mostBytes) {
-  if (attached.length >= limits.files) throw new Error(`Up to ${limits.files} files can go with one message.`);
-  if (file.size > mostBytes)
-    throw new Error(`${file.name} is larger than ${mostBytes / 1048576} MB, so it was skipped.`);
-  // The whole message has a budget as well as each file: two films can each be allowed and still be
-  // too much together. Refused here, before the file is read, so nothing long happens for nothing.
-  if (attachedBytes() + file.size > limits.totalBytes) {
-    const room = Math.max(0, limits.totalBytes - attachedBytes());
-    throw new Error(`Everything on one message can add up to ${limits.totalBytes / 1048576} MB. `
-      + `${file.name} needs ${Math.round(file.size / 1048576)} MB and there is `
-      + `${Math.round(room / 1048576)} MB left — send it in a message of its own.`);
-  }
+  roomFor(file, mostBytes);
   attached.push({ kind, name: file.name, mediaType: file.type || "application/octet-stream",
     bytes: file.size, data: await asBase64(file) });
   renderAttachments();
@@ -177,7 +192,10 @@ async function addFiles(files) {
         say(`Showed ${file.name} in the live conversation.`);
         continue;
       }
-      attached.push({ kind: "picture", ...picture });
+      // Asked after the live branch, because a picture shown in a live conversation is not on the
+      // message at all and has no budget to spend.
+      roomFor(file, limits.pictureBytes);
+      attached.push({ kind: "picture", bytes: file.size, ...picture });
       renderAttachments();
       continue;
     }
