@@ -122,7 +122,12 @@ export function readableUpdateLog(log: string): string {
   const lines = plain.split(/\r?\n/).slice(-updateLogLines).map((line) => redactForLog(line));
   const cut = lines.map((line, at) => line.length <= updateLogLineChars ? line
     : at === lines.length - 1 ? bothEndsOf(line) : line.slice(0, updateLogLineChars));
-  return cut.join("\n");
+  // And once more over the whole thing, because splitting decides what the redactor may read
+  // just as shortening does. A line on its own cannot show a label on one line and its value on
+  // the next, which is exactly how an update server's refusal arrives: a pretty-printed 401 with
+  // "cookie": above its session value. Cleaning each line stops a cut hiding a label; cleaning
+  // the joined result stops a newline hiding one. Both, or one of the two gets through.
+  return redactForLog(cut.join("\n"));
 }
 
 export async function updateLogItem(scratchDir: string = updateScratchDir()): Promise<ReportItem> {

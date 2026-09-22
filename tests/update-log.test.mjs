@@ -68,6 +68,31 @@ const escape = String.fromCharCode(27);
 
 
 
+
+test("a label on one line and its value on the next is still found", () => {
+  // Splitting decides what the redactor is allowed to read, exactly as shortening does. Cleaning
+  // each line on its own cannot see a label above its value -- and that is not a contrived shape,
+  // it is what a failed update writes when the update server refuses it: a pretty-printed 401 with
+  // "cookie": on one line and the session on the next. Cleaning each line stops a cut hiding a
+  // label from the redactor; cleaning the joined result stops a newline hiding one. Both are needed,
+  // and a version with only the first of them let this through whole.
+  const refusal = [
+    "step 8: the update server refused us (401):",
+    "  {",
+    '    "cookie":',
+    '      "session=9f8e7d6c5b4a39281706",',
+    '    "authorization":',
+    '      "Bearer abcdefghijklmnop1234"',
+    "  }",
+    "step 9: failed to move the folder",
+  ].join(newline);
+  const out = readableUpdateLog(refusal);
+
+  assert.equal(out.includes("9f8e7d6c5b4a39281706"), false, `the session is gone (${out})`);
+  assert.equal(out.includes("abcdefghijklmnop1234"), false, "and so is what came after the authorization line");
+  assert.match(out, /step 9: failed to move the folder/, "and the step it stopped on is still readable");
+});
+
 test("a key whose label is cut out of the middle of a line does not leave its tail behind", () => {
   // The last line of an oversized log keeps both of its ends and drops the middle. Shortening it
   // before looking for secrets let the shortening decide what the redactor was allowed to read: a
