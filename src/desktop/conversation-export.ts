@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises';
-import { maximumArchiveBytes, parseConversationArchive } from '../session-library.js';
+import { archiveBodyLimit, parseConversationArchive } from '../session-library.js';
 import { maximumMemoryArchiveBytes, parseMemoryArchive } from '../memory.js';
 import { maximumBackupBytes, parseBackupArchive } from "../backup.js";
 
@@ -7,7 +7,7 @@ export async function saveConversationExport(
   input: unknown,
   choosePath: () => Promise<string | undefined>,
 ): Promise<{ saved: boolean }> {
-  return saveArchive(input, choosePath, maximumArchiveBytes, parseConversationArchive);
+  return saveArchive(input, choosePath, archiveBodyLimit, parseConversationArchive);
 }
 
 export async function saveBackupExport(

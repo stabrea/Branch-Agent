@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { Message } from "./contracts.js";
+import type { AttachmentRef, Message } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -13,16 +13,36 @@ type BranchInput = z.input<typeof BranchSessionSchema>;
 const sessionIdSchema = z.string().uuid();
 const maximumMessages = 1000, maximumBytes = 4 * 1024 * 1024;
 
-/** A message as a copy of it may keep it: everything except the references to files that stay behind. */
-function withoutFiles(message: Message): Message {
-  if (!message.attachments) return message;
-  const { attachments, ...rest } = message;
-  return rest;
+/**
+ * What a copy of a conversation needs from the file store. Only the part that copies, so nothing
+ * here can read or delete a conversation's files.
+ */
+export interface ConversationFiles {
+  /** The same bytes in another conversation's folder, under names that conversation chooses itself. */
+  copyInto(from: string, to: string, refs: readonly AttachmentRef[]): AttachmentRef[];
+  /** Bytes that came from outside, written into a conversation's folder under names made here. */
+  writeInto(to: string, files: readonly { ref: AttachmentRef; bytes: Buffer }[]): AttachmentRef[];
+  /** One file a conversation holds, read back whole, for putting into an archive. */
+  bytesOf(sessionId: string, id: string): Buffer;
+}
+/**
+ * Gives every message in a copy its own references, by copying the files the originals name into the
+ * new conversation's folder under names it chooses itself. A message naming files with nothing to
+ * copy them stops the copy: a conversation full of cards that cannot open is worse than not making
+ * it, and the owner is told which of the two happened.
+ */
+export function withCopiedFiles(messages: Message[], from: string, to: string, files: ConversationFiles | null): Message[] {
+  if (!messages.some((message) => message.attachments?.length)) return messages;
+  if (!files)
+    throw new Error("This conversation has files attached, and this copy cannot be given its own copy of them");
+  return messages.map((message) => message.attachments?.length
+    ? { ...message, attachments: files.copyInto(from, to, message.attachments) }
+    : message);
 }
 
 /** Conversation copies use new source IDs; workspace state is shared. */
 export class SessionBranches {
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync, private readonly files: () => ConversationFiles | null = () => null) {
     db.exec(`CREATE TABLE IF NOT EXISTS session_branches(
       session_id TEXT PRIMARY KEY REFERENCES sessions(id),
       parent_session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -47,12 +67,12 @@ export class SessionBranches {
     try {
       this.db.prepare("INSERT INTO sessions(id,owner,created_at) VALUES(?,?,?)").run(sessionId, owner, createdAt);
       const insert = this.db.prepare("INSERT INTO messages(session_id,body) VALUES(?,?)");
-      // Same rule as an export: a copy carries the words, not the files. An attachment's id names a
-      // file inside the parent's own folder, which this conversation does not have and never will,
-      // so copying the reference across would put a card here that cannot be opened — and would tie
-      // this conversation's cards to the lifetime of the one it came off. What was attached stays
-      // readable in the message's own text, where the runtime wrote it.
-      for (const row of rows) insert.run(sessionId, JSON.stringify(withoutFiles(JSON.parse(String(row.body)) as Message)));
+      // The branch gets its own copy of every file, in its own folder, under its own names. Copying
+      // the parent's references instead would have put cards here that cannot open, and would have
+      // tied this conversation's files to the lifetime of the one it came off.
+      const copied = withCopiedFiles(rows.map((row) => JSON.parse(String(row.body)) as Message),
+        parentSessionId, sessionId, this.files());
+      for (const message of copied) insert.run(sessionId, JSON.stringify(message));
       this.db.prepare("INSERT INTO session_branches VALUES(?,?,?,?)")
         .run(sessionId, parentSessionId, messageId, createdAt);
       this.db.exec("COMMIT");

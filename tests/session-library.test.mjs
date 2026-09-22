@@ -4,10 +4,11 @@ import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
+import { createHash } from "node:crypto";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { parseConversationArchive, maximumArchiveBytes } from "../dist/session-library.js";
+import { archiveBodyLimit, parseConversationArchive, maximumArchiveBytes } from "../dist/session-library.js";
 
 const archive = (messages = [{ role: "user", content: "Original cedar 🌳" }]) => ({
   format: "branch-agent-conversation", version: 1, exportedAt: "2026-09-15T00:00:00.000Z", messages,
@@ -37,42 +38,78 @@ function counts(db) {
 const onePixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const askedIn = (messages) => messages.find((message) => message.role === "user");
 
-test("a conversation that was given a file can still be exported, and every copy of it keeps the words without the file", async (t) => {
-  // One picture used to be enough to make a conversation permanently un-exportable: the archive
-  // schema is strict and did not know the key, so export, import and duplicate all answered 400.
+
+const opens = async (app, sessionId, ref) => (await app.attachments.read(sessionId, ref.id)).bytes;
+
+test("a copy of a conversation gets its own copy of the files, and still opens them once the original is gone", async (t) => {
+  // One picture used to make a conversation permanently un-exportable: the archive schema is strict
+  // and did not know the key. It is known now, and an archive carries the bytes as well as the
+  // words, because a copy that points back into the conversation it came from is a copy that breaks
+  // the day that conversation is deleted.
   const provider = { name: "attachment-fixture", async complete() { return { content: "Looked at it.", toolCalls: [] }; } };
   const original = await fixture(t, provider), target = await fixture(t, provider);
   const run = await original.app.runtime.run({ prompt: "What is in this?",
     attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
   assert.equal(run.status, "completed", run.output);
-  assert.equal(askedIn(original.app.store.messages(run.sessionId)).attachments.length, 1,
-    "the conversation really is holding a reference to a kept file");
+  const source = askedIn(original.app.store.messages(run.sessionId)).attachments[0];
 
   const exported = original.app.store.exportSession("local", run.sessionId);
-  const carried = askedIn(exported.messages);
-  assert.equal("attachments" in carried, false,
-    "an archive never names bytes that did not travel with it");
-  assert.match(carried.content, /\[attached file: chart\.png \(picture\)\]/,
-    "and what the message was given is still readable in its own words");
+  assert.equal(exported.files.length, 1, "the archive carries the file itself");
+  assert.equal(exported.files[0].sha256,
+    createHash("sha256").update(Buffer.from(onePixel, "base64")).digest("hex"), "with a digest of it");
 
   const imported = target.app.store.importSession("local", JSON.parse(JSON.stringify(exported)));
-  assert.equal(askedIn(target.app.store.sessionView("local", imported.sessionId).messages).attachments, undefined);
-
-  // An archive is a file somebody can write. Left to itself it could name files of its own
-  // choosing inside the folder of whatever conversation it lands in.
-  const smuggled = { ...exported, messages: exported.messages.map((message) => message.role === "user"
-    ? { ...message, attachments: [{ id: "0123456789abcdef", kind: "picture",
-        mediaType: "image/png", name: "someone-elses.png", bytes: 70 }] }
-    : message) };
-  const injected = target.app.store.importSession("local", smuggled);
-  assert.equal(askedIn(target.app.store.sessionView("local", injected.sessionId).messages).attachments, undefined,
-    "an archive does not get to point a new conversation at files it chose");
+  const landed = askedIn(target.app.store.sessionView("local", imported.sessionId).messages).attachments[0];
+  assert.notEqual(landed.id, source.id, "under a name of its own, never the one the archive chose");
+  assert.equal(landed.name, "chart.png");
+  assert.ok((await opens(target.app, imported.sessionId, landed)).equals(Buffer.from(onePixel, "base64")));
 
   const twin = original.app.store.duplicateSession("local", run.sessionId);
-  assert.equal(askedIn(original.app.store.sessionView("local", twin.sessionId).messages).attachments, undefined,
-    "a duplicate has no card it cannot open");
-  assert.equal(askedIn(original.app.store.messages(run.sessionId)).attachments.length, 1,
-    "and the conversation it was copied from still has its own");
+  const copied = askedIn(original.app.store.sessionView("local", twin.sessionId).messages).attachments[0];
+  assert.notEqual(copied.id, source.id, "a duplicate has its own name for it too");
+  assert.ok((await opens(original.app, twin.sessionId, copied)).equals(Buffer.from(onePixel, "base64")));
+
+  // The whole point: the copy is not a pointer into the conversation it came from.
+  await original.app.attachments.forget(run.sessionId);
+  await assert.rejects(opens(original.app, run.sessionId, source), "the original's own file is gone");
+  assert.ok((await opens(original.app, twin.sessionId, copied)).equals(Buffer.from(onePixel, "base64")),
+    "and the duplicate still opens");
+});
+
+test("an archive that was written by somebody else does not get to choose what lands on this computer", async (t) => {
+  const provider = { name: "attachment-fixture", async complete() { return { content: "Looked at it.", toolCalls: [] }; } };
+  const { app } = await fixture(t, provider);
+  const run = await app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  const good = app.store.exportSession("local", run.sessionId);
+  const bytes = Buffer.from(onePixel, "base64");
+  const digest = (buffer) => createHash("sha256").update(buffer).digest("hex");
+  const changed = (change) => {
+    const copy = JSON.parse(JSON.stringify(good));
+    change(copy);
+    return copy;
+  };
+
+  const hostile = [
+    ["a file the messages do not name", changed((one) => { one.files.push({ ...one.files[0], id: "00112233445566aa" }); })],
+    ["a message naming a file that is not there", changed((one) => { one.files = []; })],
+    ["the same file twice", changed((one) => { one.files.push({ ...one.files[0] }); })],
+    ["bytes that are not the digest", changed((one) => { one.files[0].data = Buffer.from("something else entirely").toString("base64"); one.files[0].bytes = 23; })],
+    ["a size that is not the size", changed((one) => { one.files[0].bytes = 1; })],
+    ["a name that is a path", changed((one) => { one.files[0].name = "../../escaped.png"; one.files[0].sha256 = digest(bytes); })],
+    ["a kind that is not the type", changed((one) => { one.files[0].kind = "document"; })],
+    ["a picture that is not one", changed((one) => {
+      const pretend = Buffer.from("MZ this is a program, not a picture");
+      one.files[0].data = pretend.toString("base64");
+      one.files[0].bytes = pretend.length;
+      one.files[0].sha256 = digest(pretend);
+    })],
+  ];
+  const before = counts(app.store.db);
+  for (const [why, input] of hostile)
+    assert.throws(() => app.store.importSession("local", input), undefined, why);
+  assert.deepEqual(counts(app.store.db), before, "and none of them wrote anything");
+  assert.equal(typeof app.store.importSession("local", good).sessionId, "string", "the real one still lands");
 });
 
 
@@ -216,8 +253,15 @@ test("session HTTP endpoints round trip Unicode archives above 64 KiB with owner
   assert.equal((await fetch(base + "/export")).status, 401);
   const malformed = await rawPost(server.url + "/api/sessions/import", server.token, [Buffer.from('{"x":"'), Buffer.from([0xff]), Buffer.from('"}')]);
   assert.equal(malformed.status, 400);
-  const oversized = await fetch(server.url + "/api/sessions/import", { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: " ".repeat(maximumArchiveBytes + 1) });
+  // The ceiling on a body moved when an archive began carrying the files as well as the words; that
+  // it is still a ceiling is what this checks.
+  const oversized = await fetch(server.url + "/api/sessions/import", { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: Buffer.alloc(archiveBodyLimit + 1, 0x20) });
   assert.equal(oversized.status, 413);
+  // And the words keep the ceiling they always had, whatever room the files leave over.
+  const wordy = await rawPost(server.url + "/api/sessions/import", server.token,
+    [Buffer.from(JSON.stringify(archive([{ role: "user", content: "x".repeat(maximumArchiveBytes) }])))]);
+  assert.equal(wordy.status, 400);
+  assert.match(wordy.body.error, /4 MiB/);
   const foreign = seed(app.store, "Other", "other");
   assert.equal((await fetch(server.url + "/api/sessions/" + foreign + "/export", { headers })).status, 400);
 });

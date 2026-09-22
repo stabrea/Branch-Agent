@@ -146,7 +146,7 @@ import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/ap
 import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
 import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
-import { maximumArchiveBytes } from "./session-library.js";
+import { archiveBodyLimit } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
@@ -1792,7 +1792,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   if (request.method === "POST" && path === "/api/sessions/search")
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
-    return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
+    return app.store.importSession(owner, await readBody(request, archiveBodyLimit));
   const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note))?$/.exec(path);
   // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
   if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);

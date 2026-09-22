@@ -332,6 +332,10 @@ export async function createBranch(options: {
    * and neither suits a video or a document. A conversation's files go when the conversation does.
    */
   const attachments = new Attachments(join(dataDir, "attachments"));
+  // A copy of a conversation — a branch, a duplicate, an archive read back — is given its own copy
+  // of every file the original holds. The store is opened before this folder is, so it is handed
+  // over here rather than built with it.
+  store.useFiles(attachments);
   store.onSessionClosed((sessionId) => {
     // A listener may not throw and is never awaited, so a delete that fails cannot be retried from
     // here. It is no longer thrown away in silence either: `forget` writes what happened and says

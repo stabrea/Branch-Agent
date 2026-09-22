@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { createReadStream, readdirSync, realpathSync } from "node:fs";
+import { createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import type { Readable } from "node:stream";
 import { join, sep } from "node:path";
 import {
@@ -283,6 +283,69 @@ export class Attachments {
     // How big it is has to be known before which part was asked for can be worked out, so the part
     // is chosen afterwards — without looking the file up a second time.
     return { ref, size, open: (wanted) => this.openRange(path, wanted) };
+  }
+  /**
+   * Gives a second conversation its own copy of files the first one holds: the same bytes, written
+   * into the second conversation's own folder, under **new** names of its own.
+   *
+   * The new names are the point. Handing the copy the source's own ids would leave two conversations
+   * pointing at one folder, so deleting the first would quietly break the second — and an id that
+   * came from outside this computer would be a name somebody else chose, used as a path. Nothing
+   * from a message is trusted here: an id that is not sixteen plain hex characters never reaches the
+   * file system, and a file that is missing stops the whole copy rather than leaving half of one.
+   *
+   * Synchronous on purpose: the one caller copies a conversation inside a database transaction, and
+   * a half-written copy either rolls back with it or does not happen at all.
+   */
+  /**
+   * One file a conversation holds, read back whole. For putting a conversation into an archive, where
+   * the bytes themselves have to travel; everything else reads a part at a time.
+   */
+  bytesOf(sessionId: string, id: string): Buffer {
+    if (!/^[a-f0-9]{16}$/.test(id)) throw new Error("That file is not attached to this conversation");
+    return readFileSync(join(this.folder(sessionId, false), id));
+  }
+  copyInto(from: string, to: string, refs: readonly AttachmentRef[]): AttachmentRef[] {
+    if (!refs.length) return [];
+    const source = this.folder(from, false), target = this.folder(to, false);
+    mkdirSync(target, { recursive: true, mode: 0o700 });
+    const made: AttachmentRef[] = [];
+    for (const ref of refs) {
+      if (!/^[a-f0-9]{16}$/.test(ref.id)) throw new Error("That file is not attached to this conversation");
+      const bytes = readFileSync(join(source, ref.id));
+      made.push({ ...ref, id: randomBytes(8).toString("hex"), bytes: bytes.byteLength });
+      writeFileSync(join(target, "." + made[made.length - 1]!.id), bytes, { mode: 0o600 });
+    }
+    return this.commitCopies(target, made);
+  }
+  /**
+   * Writes files a copy is to keep into its folder, under the names it will know them by, and adds
+   * them to its listing. Each file is written beside its final name first and moved into place only
+   * once every one of them has been written, so a conversation is never left holding a listing that
+   * names a file that is not there.
+   */
+  private commitCopies(target: string, made: AttachmentRef[]): AttachmentRef[] {
+    for (const ref of made) renameSync(join(target, "." + ref.id), join(target, ref.id));
+    let kept: AttachmentRef[] = [];
+    try { kept = z.array(AttachmentRefSchema).parse(JSON.parse(readFileSync(join(target, "kept.json"), "utf8"))); }
+    catch { /* a folder with no listing yet is an empty one */ }
+    writeFileSync(join(target, "kept.json"), JSON.stringify([...kept, ...made]), { mode: 0o600 });
+    return made;
+  }
+  /**
+   * The same, for files that arrived in an archive rather than from a conversation on this computer:
+   * the bytes are given, and the names they will be known by are made here.
+   */
+  writeInto(to: string, files: readonly { ref: AttachmentRef; bytes: Buffer }[]): AttachmentRef[] {
+    if (!files.length) return [];
+    const target = this.folder(to, false);
+    mkdirSync(target, { recursive: true, mode: 0o700 });
+    const made = files.map((one) => {
+      const ref = { ...one.ref, id: randomBytes(8).toString("hex"), bytes: one.bytes.byteLength };
+      writeFileSync(join(target, "." + ref.id), one.bytes, { mode: 0o600 });
+      return ref;
+    });
+    return this.commitCopies(target, made);
   }
   /** Everything attached to one conversation, oldest first. */
   async list(sessionId: string, options: { temporary?: boolean } = {}): Promise<AttachmentRef[]> {
