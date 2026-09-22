@@ -49,7 +49,7 @@ export function parseNameStatus(output) {
 
 function defaultBrowserTest(file) {
   const source = readFileSync(join(root, file), "utf8");
-  return /from\s+["']playwright["']|from\s+["']electron["']|require\(["']electron["']\)/.test(source);
+  return /from\s+["'](?:playwright|electron)["']|import\(\s*["'](?:playwright|electron)["']\s*\)|require\(["']electron["']\)/.test(source);
 }
 
 function requireFull(state, reason) {
