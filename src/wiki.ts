@@ -36,8 +36,15 @@ export const maximumSnippet = 240;
 export const WikiWriteSchema = z.object({
   /** What the page is called, as the person writing it chose to spell it. */
   title: z.string().trim().min(1).max(200),
-  /** The page itself. `[[Another page]]` anywhere in it is a link. */
-  body: z.string().max(maximumPageBytes),
+  /**
+   * The page itself. `[[Another page]]` anywhere in it is a link.
+   *
+   * What a page may hold is counted in UTF-8 bytes, by `write()`, which says so in a sentence a
+   * person can act on. The number here is only a backstop against something absurd arriving before
+   * that check is reached; it is deliberately well above the real limit so the plain refusal is the
+   * one people see.
+   */
+  body: z.string().max(maximumPageBytes * 8),
   /** Why this replaces what was there. Required to write over a page that already exists. */
   why: z.string().trim().min(1).max(500).optional(),
 }).strict();
@@ -103,11 +110,12 @@ export class Wiki {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS wiki_pages(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
       title TEXT NOT NULL, same_name TEXT NOT NULL, body TEXT NOT NULL, why TEXT,
-      version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      bytes INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS wiki_pages_name ON wiki_pages(owner, same_name);
       CREATE TABLE IF NOT EXISTS wiki_history(page_id TEXT NOT NULL, owner TEXT NOT NULL,
         version INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, why TEXT,
-        written_at TEXT NOT NULL, PRIMARY KEY(page_id, version));`);
+        bytes INTEGER NOT NULL, written_at TEXT NOT NULL, PRIMARY KEY(page_id, version));`);
   }
 
   /** The page with that name, whatever way it is spelled. */
@@ -125,13 +133,16 @@ export class Wiki {
     return Number((this.db.prepare("SELECT COUNT(*) AS n FROM wiki_pages WHERE owner=?")
       .get(owner) as { n: number }).n);
   }
-  /** Everything this owner's pages weigh now, kept versions included. */
+  /**
+   * Everything this owner's pages weigh now, kept versions included. Each row carries its own size,
+   * so asking costs a sum over numbers rather than reading every page back out of the database —
+   * a refusal that has to happen before a write must be cheap enough to make on every write.
+   */
   weight(owner: string): number {
-    const pages = (this.db.prepare("SELECT title, body FROM wiki_pages WHERE owner=?").all(owner) as
-      { title: string; body: string }[]).reduce((sum, one) => sum + weighs(one.title, one.body), 0);
-    const kept = (this.db.prepare("SELECT title, body FROM wiki_history WHERE owner=?").all(owner) as
-      { title: string; body: string }[]).reduce((sum, one) => sum + weighs(one.title, one.body), 0);
-    return pages + kept;
+    const of = (table: "wiki_pages" | "wiki_history"): number =>
+      Number((this.db.prepare(`SELECT COALESCE(SUM(bytes),0) AS n FROM ${table} WHERE owner=?`)
+        .get(owner) as { n: number }).n);
+    return of("wiki_pages") + of("wiki_history");
   }
 
   /**
@@ -153,10 +164,9 @@ export class Wiki {
     if (!existing && this.count(owner) >= maximumPages)
       throw new Error(`The wiki already holds ${maximumPages} pages. Remove one before adding another.`);
 
-    // What the wiki would weigh afterwards: this page instead of the one it replaces, and the
-    // version being kept beside it.
-    const after = this.weight(owner) - (existing ? weighs(existing.title, existing.body) : 0)
-      + weight + (existing ? weighs(existing.title, existing.body) : 0);
+    // What the wiki would weigh afterwards. A correction does not take the old words away: they move
+    // to the kept versions and sit beside the new ones, so either way this write only ever adds.
+    const after = this.weight(owner) + weight;
     if (after > maximumOwnerBytes)
       throw new Error(`The wiki may hold ${maximumOwnerBytes / 1048576} MB altogether, and this would put it past that. Nothing was written.`);
 
@@ -164,9 +174,9 @@ export class Wiki {
     if (!existing) {
       const page: WikiPage = { id: randomUUID(), title: wanted.title, body: wanted.body,
         why: wanted.why ?? null, version: 1, createdAt: now, updatedAt: now };
-      this.db.prepare(`INSERT INTO wiki_pages(id,owner,title,same_name,body,why,version,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,1,?,?)`)
-        .run(page.id, owner, page.title, sameNameAs(page.title), page.body, page.why, now, now);
+      this.db.prepare(`INSERT INTO wiki_pages(id,owner,title,same_name,body,why,bytes,version,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,1,?,?)`)
+        .run(page.id, owner, page.title, sameNameAs(page.title), page.body, page.why, weight, now, now);
       return { page, replaced: false, oldestVersionDropped: null };
     }
 
@@ -175,11 +185,12 @@ export class Wiki {
     this.db.exec("BEGIN");
     let dropped: number | null = null;
     try {
-      this.db.prepare(`INSERT INTO wiki_history(page_id,owner,version,title,body,why,written_at)
-        VALUES(?,?,?,?,?,?,?)`)
-        .run(existing.id, owner, existing.version, existing.title, existing.body, existing.why, existing.updatedAt);
-      this.db.prepare("UPDATE wiki_pages SET body=?, why=?, version=?, updated_at=? WHERE owner=? AND id=?")
-        .run(wanted.body, wanted.why ?? null, existing.version + 1, now, owner, existing.id);
+      this.db.prepare(`INSERT INTO wiki_history(page_id,owner,version,title,body,why,bytes,written_at)
+        VALUES(?,?,?,?,?,?,?,?)`)
+        .run(existing.id, owner, existing.version, existing.title, existing.body, existing.why,
+          weighs(existing.title, existing.body), existing.updatedAt);
+      this.db.prepare("UPDATE wiki_pages SET body=?, why=?, bytes=?, version=?, updated_at=? WHERE owner=? AND id=?")
+        .run(wanted.body, wanted.why ?? null, weight, existing.version + 1, now, owner, existing.id);
       const kept = this.db.prepare("SELECT version FROM wiki_history WHERE owner=? AND page_id=? ORDER BY version ASC")
         .all(owner, existing.id) as { version: number }[];
       if (kept.length > maximumHistory) {

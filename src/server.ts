@@ -4010,7 +4010,7 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   // The wiki is what the owner and the assistant have written down together; a script's key may
   // neither read it nor write a page in it.
-  if (handlesWikiPath(path)) return "The wiki is the owner's";
+  if (handlesWikiPath(path)) return "A short-lived key cannot read or write the wiki. Do that in the app window.";
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
   if (handlesWorkspaceEditorPath(path))
