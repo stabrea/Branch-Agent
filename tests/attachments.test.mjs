@@ -46,7 +46,7 @@ const FOUR = [
   attached("roof.md", "text/markdown", markdown),
 ];
 
-async function branch(t) {
+async function branch(t, provider) {
   const scratch = join(tmpdir(), "Codex-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-attachments-"));
@@ -54,7 +54,7 @@ async function branch(t) {
   t.after(async () => { for (const close of closing.reverse()) await close(); await discardTemp(root); });
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
-    provider: { name: "scripted", async complete() { return { content: "Got them.", toolCalls: [] }; } },
+    provider: provider ?? { name: "scripted", async complete() { return { content: "Got them.", toolCalls: [] }; } },
   });
   closing.push(() => app.close());
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -195,6 +195,51 @@ test("handing a file back checks who is asking, before it looks anything up", as
   await assert.rejects(attachmentForWindow(parts, { session: sessionId, id: ref.id }),
     "somebody else at this computer is refused by the delivery itself");
   app.store.profiles.switch({ profileId: null });
+});
+
+test("four pictures that each fit are kept together; sending each of them twice is not", async (t) => {
+  const { app, post } = await branch(t);
+
+  // Each is just inside what a picture may be. Four of them are about 27 MB once base64'd, which a
+  // run may carry. The page used to send every picture twice — once for the model to look at and once
+  // to be kept — and four pictures that broke no stated limit came to about 53 MB and were refused by
+  // the reader with a 413 no stated limit explained. What the model then does with pictures that big
+  // is a separate matter, and the ordinary context budget answers it; this is about the weight of the
+  // message on the wire.
+  const big = (name) => {
+    const bytes = Buffer.alloc(attachmentLimits.picture - 1024, 7);
+    png.copy(bytes, 0);
+    return attached(name, "image/png", bytes);
+  };
+  const four = ["one.png", "two.png", "three.png", "four.png"].map(big);
+
+  const run = await post("/api/run", { prompt: "Look at these.", attachments: four });
+  assert.equal(run.status, 200, `four pictures that each fit are not refused together (${run.status})`);
+  const message = app.store.messages(run.body.sessionId).find((one) => one.role === "user");
+  assert.deepEqual(message.attachments.map((one) => one.name), ["one.png", "two.png", "three.png", "four.png"],
+    "each is kept once, as the file it is");
+  assert.deepEqual(message.attachments.map((one) => one.bytes),
+    four.map(() => attachmentLimits.picture - 1024), "whole, not a copy of a copy");
+
+  // The old shape, measured rather than remembered: the same four sent in both places are too heavy.
+  const twice = await post("/api/run", { prompt: "Look at these.", images: four, attachments: four });
+  assert.equal(twice.status, 413, "sending each picture twice is past what a message may weigh");
+});
+
+test("a still taken out of a film reaches the model beside a picture that was attached", async (t) => {
+  const seen = [];
+  const { post } = await branch(t, {
+    name: "seeing", acceptsImages: true, supportsImages: () => true,
+    async complete(request) { seen.push(request.messages); return { content: "Got them.", toolCalls: [] }; },
+  });
+  // A still is not a file anybody attached: the page sends it only to be looked at. It must not push
+  // out the photograph that came with the message, and the photograph must not push out the still.
+  const still = { mediaType: "image/png", data: png.toString("base64"), name: "still-1.png" };
+  const run = await post("/api/run", { prompt: "What is happening here?", images: [still], attachments: [FOUR[0]] });
+  assert.equal(run.status, 200, JSON.stringify(run.body));
+  const shown = seen.at(-1)?.findLast((one) => one.role === "user")?.images ?? [];
+  assert.deepEqual(shown.map((one) => one.name), ["still-1.png", "photo.png"],
+    "both reach the model: the one to look at, and the one that was kept");
 });
 
 test("the route is written down as the owner's, so it cannot quietly become anybody's", () => {
