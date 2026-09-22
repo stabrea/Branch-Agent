@@ -433,6 +433,11 @@ async function staticFile(
     "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
     "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
+    // Branch Agent's mascot, its face in the app, the favicon and the installed-app icons.
+    "/assets/mascot-512.png": ["assets/mascot-512.png", "image/png"],
+    "/assets/mascot-128.png": ["assets/mascot-128.png", "image/png"],
+    "/assets/favicon-64.png": ["assets/favicon-64.png", "image/png"],
+    "/assets/icon-maskable-512.png": ["assets/icon-maskable-512.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],

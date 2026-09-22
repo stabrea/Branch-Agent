@@ -96,7 +96,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
 
 async function verifyArtwork(page) {
   await page.waitForFunction(() => [...document.querySelectorAll(".brand-icon img")]
-    .every((image) => image.complete && image.naturalWidth === 1024));
+    .every((image) => image.complete && image.naturalWidth === 128 && image.src.endsWith("/assets/mascot-128.png")));
   await page.waitForFunction(() => {
     const canvas = document.getElementById("keepoak-acorn");
     return canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height)

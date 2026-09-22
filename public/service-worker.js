@@ -11,6 +11,7 @@ const SHELL = [
   "/markdown.js", "/i18n.js", "/inspector.js", "/live-run.js", "/token-meter.js",
   "/locales/en.json", "/manifest.webmanifest",
   "/assets/keepoak-mark.png", "/assets/keepoak-mark-reversed.png",
+  "/assets/mascot-512.png", "/assets/mascot-128.png", "/assets/favicon-64.png", "/assets/icon-maskable-512.png",
 ];
 
 self.addEventListener("install", (event) => {

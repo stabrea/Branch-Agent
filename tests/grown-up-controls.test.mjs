@@ -198,7 +198,7 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
       navWidth: nav.getBoundingClientRect().width,
       pageMax: getComputedStyle(page).maxWidth,
       titleSize: getComputedStyle(title).fontSize,
-      settingsMark: getComputedStyle(settingsTitle, "::before").backgroundImage.includes("keepoak-mark-reversed.png"),
+      settingsMark: getComputedStyle(settingsTitle, "::before").backgroundImage.includes("mascot-128.png"),
       footerOrder: level.compareDocumentPosition(version) & Node.DOCUMENT_POSITION_FOLLOWING ? "level-version" : "wrong",
       versionAlign: getComputedStyle(version).textAlign,
       levelRadius: getComputedStyle(level).borderRadius,

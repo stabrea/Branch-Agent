@@ -154,13 +154,12 @@ function brand() {
   const node = make("button", "strip-brand");
   node.type = "button";
   node.setAttribute("aria-label", say("strip.overview", "Overview of this computer"));
-  for (const [kind, src] of [["oak-reversed", "/assets/keepoak-mark-reversed.png"], ["oak-normal", "/assets/keepoak-mark.png"]]) {
-    const img = document.createElement("img");
-    img.className = kind;
-    img.alt = "";
-    img.src = src;
-    node.append(img);
-  }
+  // Branch Agent's own face, the mascot, on every theme.
+  const img = document.createElement("img");
+  img.className = "mascot-mark";
+  img.alt = "";
+  img.src = "/assets/mascot-128.png";
+  node.append(img);
   node.addEventListener("click", () => showOverview("here"));
   return node;
 }
