@@ -105,7 +105,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     await page.screenshot({ path: join(home, "model-settings.png"), fullPage: true });
     console.log(`Model settings screenshot: ${join(home, "model-settings.png")}`);
     assert.deepEqual(await page.evaluate(() => Object.keys(window.branchDesktop).sort()),
-      ["checkForUpdates", "exportBackup", "exportConversation", "exportMemory", "installUpdate", "modelSettings", "openExternal", "restartBranch", "saveModelSettings", "updateStatus"]);
+      ["checkForUpdates", "disconnectKeepOak", "exportBackup", "exportConversation", "exportMemory", "installUpdate", "modelSettings", "openExternal", "openKeepOak", "restartBranch", "saveModelSettings", "updateStatus"]);
     await verifyOtherWindowDenied(electron, page.url());
     await electron.close();
     assert.equal(firstChild.exitCode, 0);

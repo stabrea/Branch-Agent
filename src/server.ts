@@ -194,6 +194,7 @@ import { browserContainerApi, handlesBrowserContainer } from "./browser-containe
 import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { keepOakRoute } from "./keepoak.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -564,6 +565,7 @@ async function staticFile(
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
     "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
+    "/keepoak.js": ["keepoak.js", "text/javascript; charset=utf-8"], // issue #105
     // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
     "/thinking-levels.js": ["thinking-levels.js", "text/javascript; charset=utf-8"],
     "/brand-marks.js": ["brand-marks.js", "text/javascript; charset=utf-8"],
@@ -1688,6 +1690,9 @@ async function api(
     return traceSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/trace/settings")
     return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
+  // Issue #105: whether KeepOak shows inside Branch (src/keepoak.ts), the owner's alone.
+  if (path === "/api/keepoak")
+    return keepOakRoute(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   // mac7/diagnostics: the activity log and "Report a problem" (src/diagnostic-api.ts), the owner's alone.
   if (handlesDiagnosticPath(path))
     return diagnosticApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt },
@@ -4009,6 +4014,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
+  if (path === "/api/keepoak")
+    return "A short-lived key cannot read or change whether KeepOak shows inside Branch. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered

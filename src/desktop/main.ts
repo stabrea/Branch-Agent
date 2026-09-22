@@ -34,6 +34,7 @@ import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
 import { ipcMain } from "electron";
 import { registerRestartIpc } from "./restart-ipc.js";
+import { electronKeepOakView, keepOakSwitchedOn, registerKeepOakIpc } from "./keepoak-ipc.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
 // mac2/desktop-ui: the Stop notice for screen control on macOS and Linux is a window of this app's own.
 import { screen } from "electron";
@@ -158,6 +159,8 @@ async function createWindow(
     quitReason = "restart";
     app.quit();
   });
+  // Issue #105: KeepOak in a locked window of its own, only when the owner switched it on.
+  registerKeepOakIpc(ipcMain, window, url, await electronKeepOakView(), keepOakSwitchedOn(url, token));
   // Redesign phase 1 (integration review): Windows ending the session never waits for the quit question.
   window.on("query-session-end", () => { quitReason = "system"; });
   window.on("session-end", () => { quitReason = "system"; });

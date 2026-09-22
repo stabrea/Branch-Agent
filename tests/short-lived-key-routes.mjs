@@ -258,6 +258,7 @@ export const ROUTES = {
   "/api/interop/switch": "owner POST",
   // ---- mac7/r17-g: the safety extras (src/safety-extras/api.ts). A run key may read, check the record,
   // try the command check, press the emergency stop and type a code; every other change is the owner's. ----
+  "/api/keepoak": "owner GET,POST", // issue #105: KeepOak inside Branch, off as it ships
   "/api/safety-extras": "look",
   "/api/safety-extras/": "prefix",
   "/api/safety-extras/activity": "look",
