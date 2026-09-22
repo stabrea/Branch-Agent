@@ -3836,7 +3836,7 @@
   "schedule.repeat.monthly": "Chaque mois",
   "schedule.repeat.weekdays": "Chaque jour de semaine",
   "schedule.repeat.weekly": "Chaque semaine",
-  "schedule.rhythm.cron": "Cron {cron} ({timezone})",
+  "schedule.rhythm.cron": "Planification cron {cron} ({timezone})",
   "schedule.rhythm.daily": "Chaque jour à {time} ({timezone})",
   "schedule.rhythm.interval": "Se répète toutes les {minutes} minutes",
   "schedule.rhythm.monthly": "Chaque mois, le {day}, à {time} ({timezone})",
