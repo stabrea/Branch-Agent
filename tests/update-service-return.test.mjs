@@ -315,14 +315,23 @@ test("branch rollback brings a background service back as the service, not as a 
   await writeRunning(dataDir, { pid: process.pid, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787", version: "2.0.0" });
   let restarted = 0;
   const said = [];
+  // The service coming back is now part of what "brought back" means, so this has to say what came
+  // back. Before, the manager accepting was the whole proof and this test needed nothing -- which is
+  // why, once the product asked for a real return, it sat on the real sixty-second deadline and then
+  // failed. The stub records being asked, so this still fails if the undo ever stops asking.
+  let looked = 0;
+  const answered = cameBack({ version: "1.0.0" });
+  const returnWait = { ...answered, running: async (dir) => { looked += 1; return answered.running(dir); } };
   const code = await rollbackCommand({ dataDir, version: "2.0.0", yes: true, platform: "linux", print: (line) => said.push(line),
     deps: {
       quit: { alive: () => true, stopEngine: async () => ({ stopped: true, message: "" }) },
       restartService: async () => { restarted += 1; },
+      returnWait,
       launch: () => assert.fail("a service is never brought back as a window"),
     } });
   assert.equal(code, 0, said.join("\n"));
   assert.equal(restarted, 1);
+  assert.ok(looked > 0, "the undo waited for the version it put back, rather than taking the manager's word");
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "1.0.0", "the version before is back");
 });
 
