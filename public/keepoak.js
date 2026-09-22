@@ -1,8 +1,9 @@
 /**
  * Issue #105, slice 1: KeepOak inside Branch. One card under Settings › Accounts with one switch,
  * off as it ships. On (in the desktop app) there is a KeepOak entry in the sidebar that opens
- * keepoak.com in a locked window of its own (src/desktop/keepoak-view.ts); switching it off, or
- * Sign out, forgets the KeepOak sign-in on this computer. Nothing here talks to keepoak.com.
+ * keepoak.com in a locked window of its own (src/desktop/keepoak-view.ts). Switching it off closes
+ * that window; only Sign out forgets the KeepOak sign-in on this computer. Nothing here talks to
+ * keepoak.com.
  */
 import { t } from "/i18n.js";
 import { switchControl } from "/control-makers.js";
@@ -67,10 +68,13 @@ function card() {
   const control = switchControl({ id: "keepoak-on", checked: on, onChange: async (next) => {
     try {
       on = (await api({ on: next })).on;
-      // Off leaves nothing behind: the KeepOak sign-in on this computer goes too.
-      if (!on) await desktop()?.disconnectKeepOak?.().catch(() => undefined);
       render();
       $("keepoak-on")?.focus(); // drawn again, so the keyboard stays on the switch
+      // Off closes KeepOak's window at once; a window that could not be closed is said, not hidden.
+      if (!on) await desktop()?.closeKeepOak?.().catch((error) => {
+        const said = $("keepoak-card")?.querySelector('[role="status"]');
+        if (said) said.textContent = t("keepoak.not-closed", { why: error.message });
+      });
     } catch (error) { control.checked = !next; status.textContent = error.message; }
   } });
   control.setAttribute("aria-describedby", note.id);

@@ -16,4 +16,5 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   // Issue #105: the locked KeepOak window (src/desktop/keepoak-ipc.ts); Branch checks the switch itself.
   openKeepOak: () => ipcRenderer.invoke("branch:keepoak-open"),
   disconnectKeepOak: () => ipcRenderer.invoke("branch:keepoak-disconnect"),
+  closeKeepOak: () => ipcRenderer.invoke("branch:keepoak-close"),
 }));

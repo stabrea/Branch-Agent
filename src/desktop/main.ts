@@ -160,7 +160,7 @@ async function createWindow(
     app.quit();
   });
   // Issue #105: KeepOak in a locked window of its own, only when the owner switched it on.
-  registerKeepOakIpc(ipcMain, window, url, () => electronKeepOakView(), keepOakSwitchedOn(url, token));
+  registerKeepOakIpc(ipcMain, window, url, (stillAllowed) => electronKeepOakView(stillAllowed), keepOakSwitchedOn(url, token));
   // Redesign phase 1 (integration review): Windows ending the session never waits for the quit question.
   window.on("query-session-end", () => { quitReason = "system"; });
   window.on("session-end", () => { quitReason = "system"; });

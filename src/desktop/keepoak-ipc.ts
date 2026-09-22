@@ -4,6 +4,7 @@ import { KeepOakView, keepOakMayUse, keepOakPartition, type ViewDeps } from "./k
 /** The two channels the KeepOak card and the rail entry use (issue #105). */
 export const keepOakOpenChannel = "branch:keepoak-open";
 export const keepOakDisconnectChannel = "branch:keepoak-disconnect";
+export const keepOakCloseChannel = "branch:keepoak-close";
 
 type View = Pick<KeepOakView, "open" | "disconnect" | "close">;
 /** Which registration holds the channels on each ipcMain, so an old window closing never frees a newer one's. */
@@ -20,7 +21,7 @@ export function registerKeepOakIpc(
   ipc: Pick<IpcMain, "handle" | "removeHandler">,
   window: Pick<BrowserWindow, "webContents" | "on">,
   origin: string,
-  makeView: () => Promise<View>,
+  makeView: (stillAllowed: () => Promise<boolean>) => Promise<View>,
   switchedOn: () => Promise<boolean>,
 ): void {
   const authorized = (event: IpcMainInvokeEvent) => {
@@ -30,10 +31,11 @@ export function registerKeepOakIpc(
       throw new Error("KeepOak access denied");
   };
   let viewing: Promise<View> | null = null;
-  const current = () => (viewing ??= makeView());
+  const current = () => (viewing ??= makeView(switchedOn));
   const free = () => {
     ipc.removeHandler(keepOakOpenChannel);
     ipc.removeHandler(keepOakDisconnectChannel);
+    ipc.removeHandler(keepOakCloseChannel);
   };
   free(); // a window made again takes over the channels instead of meeting the old handlers
   const mine = Symbol("keepoak");
@@ -47,6 +49,12 @@ export function registerKeepOakIpc(
   ipc.handle(keepOakDisconnectChannel, async (event) => {
     authorized(event);
     await (await current()).disconnect();
+    return true;
+  });
+  // Switched off in this app: the window closes at once. Nothing is made just to close it.
+  ipc.handle(keepOakCloseChannel, async (event) => {
+    authorized(event);
+    if (viewing) (await viewing).close();
     return true;
   });
   window.on("closed", () => {
@@ -79,14 +87,20 @@ export interface KeepOakSession {
   clearAuthCache(): Promise<void>;
 }
 
+/** Sessions already hardened: a window made again adds no second set of handlers. */
+const hardened = new WeakSet<object>();
+
 /** The real pieces: a window of its own, the person's browser (once they agree), and the KeepOak session. */
-export async function electronKeepOakView(electron?: KeepOakElectron): Promise<KeepOakView> {
+export async function electronKeepOakView(stillAllowed: () => Promise<boolean>, electron?: KeepOakElectron): Promise<KeepOakView> {
   const { BrowserWindow: Window, session, shell, dialog } = electron ?? (await import("electron") as unknown as KeepOakElectron);
   const kept = session.fromPartition(keepOakPartition);
-  // Nothing the page asks of this computer is granted, and nothing is downloaded.
-  kept.setPermissionRequestHandler((_contents, permission, callback) => callback(keepOakMayUse(permission)));
-  kept.setPermissionCheckHandler((_contents, permission) => keepOakMayUse(permission));
-  kept.on("will-download", (event) => event.preventDefault());
+  if (!hardened.has(kept)) {
+    hardened.add(kept);
+    // Nothing the page asks of this computer is granted, and nothing is downloaded.
+    kept.setPermissionRequestHandler((_contents, permission, callback) => callback(keepOakMayUse(permission)));
+    kept.setPermissionCheckHandler((_contents, permission) => keepOakMayUse(permission));
+    kept.on("will-download", (event) => event.preventDefault());
+  }
   const deps: ViewDeps = {
     makeWindow: (options) => new Window({ ...options, webPreferences: { ...options.webPreferences } }) as ReturnType<ViewDeps["makeWindow"]>,
     openOutside: (url) => shell.openExternal(url),
@@ -99,6 +113,7 @@ export async function electronKeepOakView(electron?: KeepOakElectron): Promise<K
       await kept.clearCache();
       await kept.clearAuthCache();
     },
+    stillAllowed,
   };
   return new KeepOakView(deps);
 }

@@ -10,9 +10,12 @@
  *   - no new windows: a link that asks for one is refused;
  *   - no preload, no Node, context isolation and the sandbox on: the page cannot reach Branch;
  *   - closing it only hides it, so switching back and forth keeps both where they were;
- *   - Disconnect closes it and clears that session: cookies, storage, cache and saved sign-ins.
+ *   - switched off (from anywhere: this app, a browser, the API), it closes: at once from this app,
+ *     and otherwise the next time it is focused or within a minute. Switching off does not forget
+ *     the sign-in; only Sign out (`disconnect`) clears the session: cookies, storage, cache and
+ *     saved sign-ins.
  *
- * Nothing here runs unless the owner switched KeepOak on (src/keepoak.ts); the Electron pieces are
+ * Nothing here opens unless the owner switched KeepOak on (src/keepoak.ts); the Electron pieces are
  * handed in, so the rules are tested without starting Electron.
  */
 export const keepOakHome = "https://keepoak.com/";
@@ -53,6 +56,7 @@ export interface ViewWindow {
   destroy(): void;
   isDestroyed(): boolean;
   on(event: "close", listener: (event: { preventDefault(): void }) => void): void;
+  on(event: "focus", listener: () => void): void;
   webContents: {
     on(event: "will-navigate" | "will-redirect", listener: (event: { preventDefault(): void }, url: string) => void): void;
     setWindowOpenHandler(handler: (details: { url: string }) => { action: "allow" | "deny" }): void;
@@ -66,7 +70,17 @@ export interface ViewDeps {
   confirmOutside: (url: string) => Promise<boolean>;
   /** Clears everything the `persist:keepoak` session holds. */
   clearSession: () => Promise<void>;
+  /** Whether the owner still has KeepOak switched on (asked on focus and once a minute while open). */
+  stillAllowed: () => Promise<boolean>;
+  /** Runs `check` every `ms` until the answer is called (a stand-in in tests). */
+  every?: (ms: number, check: () => void) => () => void;
 }
+const recheckMs = 60_000;
+const everyMs = (ms: number, check: () => void): (() => void) => {
+  const timer = setInterval(check, ms);
+  timer.unref?.();
+  return () => clearInterval(timer);
+};
 
 export const keepOakWindowOptions = Object.freeze({
   width: 1280, height: 860, minWidth: 700, minHeight: 500, title: "KeepOak", show: false, autoHideMenuBar: true,
@@ -79,6 +93,7 @@ export const keepOakWindowOptions = Object.freeze({
 export class KeepOakView {
   private window: ViewWindow | null = null;
   private leaving = false;
+  private stopChecking: (() => void) | null = null;
   constructor(private readonly deps: ViewDeps) {}
 
   /** Opens the KeepOak window, or brings back the one already open where it was. */
@@ -103,6 +118,10 @@ export class KeepOakView {
       event.preventDefault(); // closing only hides it, so it keeps its place
       window.hide();
     });
+    // Switched off somewhere else: it closes the next time it is looked at, or within a minute.
+    const check = () => void this.deps.stillAllowed().catch(() => false).then((on) => { if (!on && this.window === window) this.close(); });
+    window.on("focus", check);
+    this.stopChecking = (this.deps.every ?? everyMs)(recheckMs, check);
     // Offline or KeepOak down: the window still opens, showing the browser's own page for that.
     await window.loadURL(keepOakHome).catch(() => undefined);
     window.show();
@@ -115,18 +134,19 @@ export class KeepOakView {
     if (await this.deps.confirmOutside(url).catch(() => false)) await this.deps.openOutside(url);
   }
 
-  /** Closes the window and forgets the KeepOak sign-in on this computer. */
+  /** Sign out: closes the window and forgets the KeepOak sign-in on this computer. */
   async disconnect(): Promise<void> {
-    if (this.window && !this.window.isDestroyed()) { this.leaving = true; this.window.destroy(); }
-    this.window = null;
-    this.leaving = false;
+    this.close();
     await this.deps.clearSession();
   }
 
-  /** Branch is quitting: let the window go without hiding it. */
+  /** Closes the window for good (KeepOak switched off, or Branch quitting); the sign-in is kept. */
   close(): void {
+    this.stopChecking?.();
+    this.stopChecking = null;
     this.leaving = true;
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
     this.window = null;
+    this.leaving = false;
   }
 }

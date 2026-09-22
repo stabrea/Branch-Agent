@@ -12,7 +12,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { KeepOakView, keepOakHome, keepOakMayShow, keepOakMayUse, keepOakWindowOptions } from "../dist/desktop/keepoak-view.js";
-import { electronKeepOakView, keepOakDisconnectChannel, keepOakOpenChannel, registerKeepOakIpc } from "../dist/desktop/keepoak-ipc.js";
+import { electronKeepOakView, keepOakCloseChannel, keepOakDisconnectChannel, keepOakOpenChannel, registerKeepOakIpc } from "../dist/desktop/keepoak-ipc.js";
 import { keepOakRoute } from "../dist/keepoak.js";
 import { openSettingFor } from "./places.mjs";
 
@@ -38,6 +38,7 @@ function fakeWindow({ loadFails = false } = {}) {
     show: () => { window.shown++; }, focus: () => { window.focused++; }, hide: () => { window.hidden++; },
     destroy: () => { window.destroyed = true; }, isDestroyed: () => window.destroyed,
     on: (event, listener) => { handlers[event] = listener; },
+    focusNow: () => handlers.focus?.(),
     webContents: { on: (event, listener) => { contents[event] = listener; }, setWindowOpenHandler: (handler) => { window.openHandler = handler; } },
     fire: (event, url) => { const e = { prevented: false, preventDefault() { this.prevented = true; } }; (event === "close" ? handlers.close(e) : contents[event](e, url)); return e.prevented; },
   };
@@ -45,13 +46,17 @@ function fakeWindow({ loadFails = false } = {}) {
 }
 function viewWith(options = {}) {
   const made = [], outside = [], cleared = [], asked = [];
+  const timers = { check: null, stopped: 0 };
+  const state = { on: true };
   const view = new KeepOakView({
     makeWindow: (settings) => { const window = fakeWindow(options); window.settings = settings; made.push(window); return window; },
     openOutside: (url) => { outside.push(url); },
     confirmOutside: async (url) => { asked.push(url); return options.yes ?? true; },
     clearSession: async () => { cleared.push(true); },
+    stillAllowed: async () => state.on,
+    every: (_ms, check) => { timers.check = check; return () => { timers.stopped++; timers.check = null; }; },
   });
-  return { view, made, outside, cleared, asked };
+  return { view, made, outside, cleared, asked, timers, state };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -113,6 +118,26 @@ test("closing only hides it, opening again brings the same one back, and Sign ou
   assert.equal(made.length, 2, "a fresh window after signing out");
 });
 
+test("switched off anywhere, an open window closes when looked at or within a minute; the sign-in is kept", async () => {
+  const { view, made, cleared, timers, state } = viewWith();
+  await view.open();
+  made[0].focusNow();
+  await settle();
+  assert.equal(made[0].destroyed, false, "still on: it stays");
+  state.on = false; // switched off from a browser or the API
+  made[0].focusNow();
+  await settle();
+  assert.equal(made[0].destroyed, true, "looked at while off: it closes");
+  assert.equal(timers.stopped, 1, "and stops checking");
+  assert.deepEqual(cleared, [], "switching off does not forget the sign-in");
+  state.on = true;
+  await view.open();
+  state.on = false;
+  timers.check();
+  await settle();
+  assert.equal(made[1].destroyed, true, "not looked at: the minute's check closes it");
+});
+
 test("offline, the window still opens rather than failing silently", async () => {
   const { view, made } = viewWith({ loadFails: true });
   await view.open();
@@ -134,7 +159,7 @@ test("the real wiring: KeepOak's session alone, nothing granted or downloaded, a
     shell: { openExternal: async (url) => calls.push(["outside", url]) },
     dialog: { showMessageBox: async () => ({ response: answer }) },
   };
-  const view = await electronKeepOakView(electron);
+  const view = await electronKeepOakView(async () => true, electron);
   assert.deepEqual(partitions, ["persist:keepoak"], "only KeepOak's own session is touched");
   for (const permission of ["notifications", "media", "geolocation"]) {
     let granted = null;
@@ -156,6 +181,13 @@ test("the real wiring: KeepOak's session alone, nothing granted or downloaded, a
   assert.deepEqual(calls[1], ["outside", "https://example.com/"], "Open in my browser: it opens there");
   await view.disconnect();
   assert.deepEqual(calls.slice(2), ["storage", "cache", "auth"], "cookies, storage, cache and saved sign-ins go");
+  // Branch's window made again asks for another view on the same session: nothing is added twice.
+  const counted = { request: 0, check: 0, download: 0 };
+  const same = { ...kept, setPermissionRequestHandler: () => counted.request++, setPermissionCheckHandler: () => counted.check++, on: () => counted.download++ };
+  const again = { ...electron, session: { fromPartition: () => same } };
+  await electronKeepOakView(async () => true, again);
+  await electronKeepOakView(async () => true, again);
+  assert.deepEqual(counted, { request: 1, check: 1, download: 1 }, "hardened once per session");
 });
 
 /** A stand-in for ipcMain (which refuses a second handler, as Electron does) and Branch's own window. */
@@ -199,6 +231,19 @@ test("only Branch's own window may open KeepOak, only while the owner has it on,
   await assert.rejects(handlers.get(keepOakDisconnectChannel)({ sender: window.webContents, senderFrame: { url: "https://evil.example/" } }), /access denied/);
   await handlers.get(keepOakDisconnectChannel)(own);
   assert.deepEqual(calls, ["open", "open", "disconnect"]);
+});
+
+test("switching off in the app closes KeepOak's window at once, and makes nothing just to close it", async () => {
+  const origin = "http://127.0.0.1:4321";
+  const { ipc, window, handlers, own } = fakeIpc(origin);
+  const { calls, made, makeView } = fakeViews();
+  registerKeepOakIpc(ipc, window, origin, makeView, async () => true);
+  await handlers.get(keepOakCloseChannel)(own);
+  assert.equal(made.length, 0, "nothing open, nothing made");
+  await handlers.get(keepOakOpenChannel)(own);
+  await handlers.get(keepOakCloseChannel)(own);
+  assert.deepEqual(calls, ["open", "close"]);
+  await assert.rejects(handlers.get(keepOakCloseChannel)({ sender: {}, senderFrame: { url: "https://keepoak.com/" } }), /access denied/);
 });
 
 test("while off, only an explicit Disconnect touches KeepOak's session; a new window takes the channels over; closing twice is harmless", async () => {
@@ -272,6 +317,7 @@ async function page(t, { desktop }) {
       updateStatus: async () => ({ phase: "current", message: "", progress: null }), modelSettings: async () => ({}), openExternal: async () => true,
       openKeepOak: async () => { globalThis.__keepoak.push("open"); return true; },
       disconnectKeepOak: async () => { globalThis.__keepoak.push("disconnect"); return true; },
+      closeKeepOak: async () => { globalThis.__keepoak.push("close"); if (globalThis.__closeFails) throw new Error("the window is stuck"); return true; },
     };
   });
   await tab.goto(branchApp.server.url);
@@ -281,7 +327,7 @@ async function page(t, { desktop }) {
   return { ...branchApp, tab, errors };
 }
 
-test("off, there is no KeepOak entry; on, the sidebar opens it, and off again signs out and takes it away", async (t) => {
+test("off, there is no KeepOak entry; on, the sidebar opens it; Sign out forgets the sign-in; off closes the window and keeps it", async (t) => {
   const { tab, errors } = await page(t, { desktop: true });
   await openSettingFor(tab, "#keepoak-card");
   assert.equal(await tab.locator("#keepoak-on").isChecked(), false, "ships off");
@@ -295,8 +341,15 @@ test("off, there is no KeepOak entry; on, the sidebar opens it, and off again si
   await tab.waitForFunction(() => /Signed out of KeepOak/.test(document.querySelector("#keepoak-card")?.innerText ?? ""));
   await tab.evaluate(() => { globalThis.__keepoak.length = 0; });
   await tab.locator("#keepoak-on").uncheck();
-  await tab.waitForFunction(() => globalThis.__keepoak.includes("disconnect"));
+  await tab.waitForFunction(() => globalThis.__keepoak.includes("close"));
+  assert.deepEqual(await tab.evaluate(() => globalThis.__keepoak), ["close"], "off closes the window; it does not sign out");
   await tab.waitForFunction(() => !document.querySelector("#keepoak-rail"));
+  assert.match(await tab.locator("#keepoak-on-note").innerText(), /Switching this off closes that window; Sign out forgets the sign-in/);
+  // A window that could not be closed is said, not hidden.
+  await tab.locator("#keepoak-on").check();
+  await tab.evaluate(() => { globalThis.__closeFails = true; });
+  await tab.locator("#keepoak-on").uncheck();
+  await tab.waitForFunction(() => /its window could not be closed: the window is stuck/.test(document.querySelector("#keepoak-card")?.innerText ?? ""));
   assert.deepEqual(errors, []);
 });
 
