@@ -26,7 +26,7 @@ const homes = {
   "comfort-network-card": "#lx-page-computer",
 };
 
-async function openApp(t, width = 1280, { mac = false } = {}) {
+async function openApp(t, width = 1280, { mac = false, windows = false } = {}) {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-comfort-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -42,6 +42,11 @@ async function openApp(t, width = 1280, { mac = false } = {}) {
   page.on("pageerror", (error) => errors.push(error.message));
   // A Mac, where Command is the main key and Control is a key of its own.
   if (mac) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel" }));
+  // A Windows computer, where the Windows key belongs to the system and never to us.
+  if (windows) await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "platform", { get: () => "Win32" });
+    Object.defineProperty(Navigator.prototype, "userAgent", { get: () => "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
+  });
   // Nothing may be heard, shown by the computer, or recorded.
   await page.addInitScript(() => {
     globalThis.__sounds = [];
@@ -387,4 +392,32 @@ test("at 400 px the comfort cards fit without sideways scrolling", async (t) => 
     assert.ok(box.scroll <= box.client + 1, `${id} is wider than its card (${box.scroll} > ${box.client})`);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${id} scrolls the page sideways`);
   }
+});
+
+/*
+ * public/comfort.js refuses a press that holds the Windows key, because Win+R, Win+E and Win+L are the
+ * system's and a shortcut written with one could never fire. Nothing held that refusal before: removing
+ * the line left every test green.
+ */
+test("R17-S15 on Windows: the Windows key belongs to the system and cannot be given away", async (t) => {
+  const { app, page, errors } = await openApp(t, 1280, { windows: true });
+  await openSettingFor(page, "#comfort-keys-card");
+  const send = (id, init) => page.locator(id).evaluate((box, i) => {
+    box.focus();
+    box.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...i }));
+    return box.value;
+  }, init);
+  // The cards are drawn again once the window has signed in, so a press is repeated on the box that is there.
+  const into = async (id, init, want) => {
+    let got = "";
+    for (let tries = 0; tries < 5 && got !== want; tries++) got = await send(id, init);
+    return got;
+  };
+  assert.equal(await into("#comfort-newTrunk", { key: "r", code: "KeyR", ctrlKey: true }, "Ctrl+R"), "Ctrl+R", "Ctrl still sets a shortcut here");
+  assert.equal(await send("#comfort-newTrunk", { key: "r", code: "KeyR", metaKey: true }), "Ctrl+R", "Win+R is the system's; it must not replace what is there");
+  assert.equal(await send("#comfort-newTrunk", { key: "e", code: "KeyE", metaKey: true, shiftKey: true }), "Ctrl+R", "Win+Shift+E is the system's too");
+  await page.locator("#comfort-keys-card").getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator("#comfort-keys-card [role=status]").filter({ hasText: "Saved" }).waitFor();
+  assert.equal(readComfort(app.store, "local", "keys").newTrunk, "Ctrl+R", "the Windows key never reached the settings");
+  assert.deepEqual(errors, []);
 });
