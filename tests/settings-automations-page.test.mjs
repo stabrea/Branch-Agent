@@ -79,6 +79,9 @@ test("Automations & inbox: the sample's sections and counts, at every width, bot
   assert.deepEqual(await page.locator("#lx-page-automations .settings-card-title").evaluateAll((nodes) => [...new Set(nodes.map((n) => n.tagName))]),
     ["H3"], "a card is titled below the page title (DG-008)");
   assert.equal(await page.locator("#lx-page-automations .sg-head-title:visible", { hasText: "More on this page" }).count(), 0);
+  /* DG-008: the page's one h2 is its title; sections and cards are titled below it, and nothing sits below them. */
+  assert.deepEqual(await page.locator("#lx-page-automations").evaluate((host) => [...host.querySelectorAll("h1, h2, h4, h5, h6")]
+    .map((node) => `${node.tagName}.${node.className}`)), ["H2.lx-page-title"]);
 
   for (const colorScheme of ["light", "dark"]) for (const width of [1440, 860, 400]) {
     await page.emulateMedia({ colorScheme });
