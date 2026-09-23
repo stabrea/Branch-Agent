@@ -80,7 +80,7 @@ export class TelegramAdapter implements ChannelAdapter {
   async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
     const result = await this.call("sendMessage", {
       chat_id: Number(chatId), text,
-      ...(replyToMessageId ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
+      ...(replyToMessageId && /^\d+$/.test(replyToMessageId) ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
     });
     const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
     return parsed.success ? String(parsed.data.message_id) : undefined;
@@ -167,7 +167,9 @@ export class TelegramAdapter implements ChannelAdapter {
       ...(chat.title ? { chatTitle: chat.title } : {}),
       senderId: String(query.from.id),
       senderName: query.from.username ?? query.from.first_name ?? String(query.from.id),
-      text: query.data, addressed: true, messageId: String(query.message?.message_id ?? query.id),
+      // The message belongs to the *question*, not the press. Distinct presses on the same
+      // keyboard need distinct delivery identities (including a stale-press explanation).
+      text: query.data, addressed: true, messageId: query.id,
     };
   }
   /**
@@ -179,7 +181,7 @@ export class TelegramAdapter implements ChannelAdapter {
     const result = await this.call("sendMessage", {
       chat_id: Number(chatId), text,
       reply_markup: { inline_keyboard: [buttons.map((button) => ({ text: button.label, callback_data: button.value }))] },
-      ...(replyToMessageId ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
+      ...(replyToMessageId && /^\d+$/.test(replyToMessageId) ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
     });
     const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
     return parsed.success ? String(parsed.data.message_id) : undefined;
