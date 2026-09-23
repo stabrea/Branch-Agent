@@ -75,14 +75,13 @@ export const MessageSchema = z.object({
   message: z.string().trim().min(1).max(4000).describe("What you want to say, in your own words"),
 }).strict();
 
-export type MessageRuntime = Pick<Runtime, "followUp">;
+/** Q44: `queueGuard` is optional so a test double with only `followUp` still works. */
+export type MessageRuntime = Pick<Runtime, "followUp"> & Partial<Pick<Runtime, "queueGuard">>;
 
 export class TrunkMessages {
   private readonly stopListening: () => void;
   constructor(private readonly store: Store, private readonly owner: string, private readonly records: TrunkRecords,
-    private readonly runtime: MessageRuntime,
-    /** Q44: throws, in plain words, when the Trunk cannot start here, so its message is refused rather than lost. */
-    private readonly startsHere: (trunk: Trunk) => void = () => undefined) {
+    private readonly runtime: MessageRuntime) {
     this.stopListening = store.onEvent((runId, kind, data) => this.observe(runId, kind, data));
   }
   close(): void { this.stopListening(); }
@@ -109,7 +108,7 @@ export class TrunkMessages {
     const sender = this.senderOf(context);
     const target = this.records.resolve(input.to);
     if (target.id === sender.id) throw new Error("A Trunk cannot send a message to itself");
-    this.startsHere(target); // Q44: refused up front, before any receipt, when it starts on another computer
+    this.runtime.queueGuard?.(target.chatSessionId); // Q44: refused up front, before any receipt, when it starts elsewhere
     const depth = this.depthOf(context.runId);
     if (depth >= maxMessageDepth)
       throw new Error(`These Trunks have already passed messages ${maxMessageDepth} deep. Answer in your own words instead of sending another.`);
@@ -150,7 +149,13 @@ export class TrunkMessages {
     const receipt: Receipt = { id: randomUUID(), kind, from: from.id, to: to.id, sessionId: to.chatSessionId, prompt, status: "queued",
       depth, attempts: 1, runId: null, fromRunId, reply: null, error: null, at: now, updatedAt: now };
     this.save([...this.receipts().reverse(), receipt]);
-    this.runtime.followUp(to.chatSessionId, prompt, null, this.carryFrom(fromRunId));
+    try {
+      this.runtime.followUp(to.chatSessionId, prompt, null, this.carryFrom(fromRunId));
+    } catch (error) {
+      // Q44: refused (its Trunk starts on another computer), so the receipt says so instead of waiting for ever.
+      this.update(receipt.id, { status: "failed", error: errorText(error).slice(0, 500) });
+      throw error;
+    }
     return receipt;
   }
   /**
@@ -230,8 +235,12 @@ export class TrunkMessages {
     }
     if (receipt.attempts < 2 && transient.test(output)) {
       this.update(receipt.id, { status: "queued", attempts: receipt.attempts + 1, runId: null, error: output.slice(0, 500) });
-      this.runtime.followUp(receipt.sessionId, receipt.prompt, null, this.carryFrom(receipt.fromRunId)); // mac7/outside-review
-      return;
+      try {
+        this.runtime.followUp(receipt.sessionId, receipt.prompt, null, this.carryFrom(receipt.fromRunId)); // mac7/outside-review
+        return;
+      } catch (error) {
+        output = errorText(error); // Q44: the retry was refused, so it fails below and the sender is told why
+      }
     }
     this.update(receipt.id, { status: "failed", error: output.slice(0, 500) });
     if (receipt.kind === "message") this.answerBack(receipt, "failure", output);
@@ -242,9 +251,13 @@ export class TrunkMessages {
     const prompt = kind === "reply"
       ? `Reply from ${from.name} (@${from.handle}) to your message:\n${output.slice(0, 4000)}`
       : `Your message to @${from.handle} could not be answered: ${output.slice(0, 300)}`;
-    this.deliver(kind, from, to, prompt, receipt.depth, receipt.runId); // mac7/outside-review: as the task that answered
+    // mac7/outside-review: sent as the task that answered. Q44: this runs as a task finishes, so an answer
+    // refused because the sender now starts on another computer stays a failed receipt and is never thrown.
+    try { this.deliver(kind, from, to, prompt, receipt.depth, receipt.runId); } catch { /* deliver marked it failed */ }
   }
 }
+
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export function registerTrunkMessage(registry: ToolRegistry, messages: TrunkMessages): void {
   registry.register({

@@ -437,6 +437,8 @@ export class Runtime {
    * conversation as an ordinary follow-up message, so the assistant picks the thread back up.
    */
   settleDeferred(id: string, outcome: string): { id: string; sessionId: string; queued: number } {
+    const waiting = this.deferrals.get(id);
+    if (waiting) this.queueGuard(waiting.sessionId); // Q44: refused before the step is marked answered
     const entry = this.deferrals.settle(id, outcome);
     if (entry.runId) this.store.event(entry.runId, "tool.deferred_settled", { id: entry.id, tool: entry.tool });
     // mac7/outside-resume: the answer carries the task that handed the step over on, as that task.
@@ -511,6 +513,9 @@ export class Runtime {
     // profile-audit: queued from the app window switched to a household profile, it runs as them.
     const person = currentPerson()?.profileId ?? windowPerson;
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
+    // Q44: a message that could never start in this conversation is refused here, before anything is saved,
+    // rather than queued and then dropped without a word when the line moves on.
+    this.queueGuard(sessionId);
     // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
@@ -1190,6 +1195,11 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /**
+   * Q44: throws, in plain words, when a message queued for this conversation could never start here
+   * (a Trunk set to start on another computer). `createBranch` connects it; on its own nothing is refused.
+   */
+  queueGuard: (sessionId: string) => void = () => undefined;
   /**
    * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
    * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).

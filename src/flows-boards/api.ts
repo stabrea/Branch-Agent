@@ -3,6 +3,7 @@ import { InputsSchema } from "../recipes.js";
 import type { FlowsBoards } from "./index.js";
 import { boardLabels, BoardModeSchema, BoardOffError, boardParts, BoardPartSchema, requirePart } from "./settings.js";
 import { busyModes } from "./waiting-line.js";
+import { StartsElsewhereError } from "../trunks/starts-in.js"; // Q44
 
 /**
  * The web side of R17-H: the owner's routes under /api/flows-boards/. The server checks the owner's
@@ -149,6 +150,7 @@ export async function flowsBoardsApi(deps: FlowsBoardsHttpDeps, path: string): P
   } catch (error) {
     if (error instanceof FlowsBoardsHttpError) throw error;
     if (error instanceof BoardOffError) throw new FlowsBoardsHttpError(409, error.message);
+    if (error instanceof StartsElsewhereError) throw new FlowsBoardsHttpError(409, error.message); // Q44
     if (error instanceof z.ZodError) throw new FlowsBoardsHttpError(400, error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; "));
     throw new FlowsBoardsHttpError(400, error instanceof Error ? error.message : String(error));
   }

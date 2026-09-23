@@ -22,6 +22,14 @@ export type ComputersPort = () => Computer[];
 /** The platforms a paired device must have to count as a computer (a phone never does). */
 export const computerPlatforms: readonly string[] = ["darwin", "linux", "win32"];
 
+/**
+ * The refusal of a turn that cannot start here because its Trunk starts on another computer. Its own
+ * class, so every route answers it with a 409 in these plain words (src/server.ts, src/flows-boards/api.ts).
+ */
+export class StartsElsewhereError extends Error {
+  readonly status = 409;
+}
+
 /** Where a Trunk's turn starts: here, or on one of the owner's other computers. */
 export type StartTarget = { where: "here" } | { where: "computer"; id: string; name: string };
 
@@ -39,13 +47,13 @@ export function checkStartsIn(value: string | null | undefined, computers: reado
 export function startTarget(trunk: Pick<Trunk, "startsIn">, computers: readonly Computer[]): StartTarget {
   if (!trunk.startsIn) return { where: "here" };
   const computer = computers.find((each) => each.id === trunk.startsIn);
-  if (!computer) throw Object.assign(new Error("This Trunk starts on a computer that is no longer paired. Choose where it starts again in Change look."), { status: 409 });
+  if (!computer) throw new StartsElsewhereError("This Trunk starts on a computer that is no longer paired. Choose where it starts again in Change look.");
   return { where: "computer", id: computer.id, name: computer.name };
 }
 
 /** The plain refusal for a turn meant for another computer when no way to start it there is wired. */
-export const cannotStartThere = (name: string): Error =>
-  Object.assign(new Error(`This Trunk starts on ${name}, and Branch cannot start a Trunk on another computer yet. Choose This computer under Starts in to talk to it here.`), { status: 409 });
+export const cannotStartThere = (name: string): StartsElsewhereError =>
+  new StartsElsewhereError(`This Trunk starts on ${name}, and Branch cannot start a Trunk on another computer yet. Choose This computer under Starts in to talk to it here.`);
 
 /**
  * A turn about to start or be queued here, for a Trunk set to start on another computer, is refused in

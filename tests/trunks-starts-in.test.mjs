@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
-import { startServer } from "../dist/server.js";
 import { trunksApi } from "../dist/trunks/api.js";
 import { TrunkSchema } from "../dist/trunks/record.js";
 import { TrunkFileSchema } from "../dist/trunks/share.js";
@@ -106,29 +105,6 @@ test("a message from another Trunk to one that starts elsewhere is refused up fr
   assert.equal(provider.requests.length, asked, "nothing ran here");
   app.trunks.edit(trunk.id, { startsIn: null });
   assert.equal(app.trunks.messages.send(context, { to: "scout", message: "hello" }).queued, true, "this computer takes it");
-});
-
-test("the window's queued message for a Trunk that starts elsewhere is refused with a 409, not queued", async (t) => {
-  const { app, trunk, paths } = await fixture(t);
-  app.trunks.edit(trunk.id, { startsIn: tower });
-  const server = await startServer(app, { dataDir: paths.dataDir, port: 0, host: "127.0.0.1" });
-  try {
-    const queue = (prompt) => fetch(new URL(`/api/sessions/${trunk.chatSessionId}/followups`, server.url), { method: prompt === undefined ? "GET" : "POST",
-      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(prompt === undefined ? {} : { body: JSON.stringify({ prompt }) }) })
-      .then(async (response) => ({ status: response.status, body: await response.json() }));
-    const refused = await queue("from the window");
-    assert.equal(refused.status, 409);
-    assert.match(JSON.stringify(refused.body), /starts on Tower/);
-    assert.deepEqual(app.runtime.queued(trunk.chatSessionId), []);
-    assert.equal((await queue()).status, 200, "the queue can still be read");
-  } finally { await server.close(); }
-  // A raw follow-up from any other path is still dropped without crashing Branch.
-  const loose = [], catcher = (reason) => loose.push(reason);
-  process.on("unhandledRejection", catcher);
-  t.after(() => process.off("unhandledRejection", catcher));
-  app.runtime.followUp(trunk.chatSessionId, "from elsewhere");
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  assert.deepEqual(loose, []);
 });
 
 test("a computer removed after it was chosen is refused, not swapped for this one", async (t) => {

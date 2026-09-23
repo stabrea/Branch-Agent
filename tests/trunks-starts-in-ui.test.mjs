@@ -11,7 +11,14 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-const scripted = { name: "scripted", async complete() { return { content: "Here it is.", toolCalls: [] }; } };
+/** Answers at once, except that "wait here" is held until the test lets it go, so a Trunk can be seen working. */
+const held = [];
+const scripted = { name: "scripted", async complete(request) {
+  const last = request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+  if (/wait here/.test(last)) await new Promise((resolve) => held.push(resolve));
+  return { content: "Here it is.", toolCalls: [] };
+} };
+const until = async (check) => { for (let i = 0; i < 500 && !(await check()); i++) await new Promise((resolve) => setTimeout(resolve, 20)); assert.ok(await check()); };
 const tower = "a1b2c3d4e5f60718";
 const device = (id, name, platform) => ({ id, name, platform, publicKey: "k".repeat(44), pairedAt: "2026-09-23T00:00:00.000Z",
   lastSeen: null, offers: [], enabled: [], folder: null, sharedWith: [] });
@@ -25,7 +32,7 @@ async function fixture(t, before = async () => undefined, { devicesFail = false 
   assert.equal(app.devices.book.devices().length, 2);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  t.after(async () => { for (const release of held.splice(0)) release(); await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const call = (path, body) => fetch(new URL(path, server.url), {
     method: body === undefined ? "GET" : "POST",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
@@ -133,6 +140,31 @@ test("when the paired devices could not be read, a rename keeps where it starts"
   const saved = (await f.call(`/api/trunks/${f.trunk.id}`)).trunk;
   assert.equal(saved.name, "Scout Two");
   assert.equal(saved.startsIn, tower, "a failed read is not a computer removed");
+});
+
+test("the window's follow-up while a Trunk works goes through busy send, is refused in plain words, and never stops it", async (t) => {
+  const f = await fixture(t, async ({ call }) => {
+    assert.equal((await call("/api/flows-boards/switch", { part: "waiting-line", mode: "on" })).mode, "on");
+    assert.equal((await call("/api/flows-boards/busy", { mode: "interrupt" })).busyMode, "interrupt");
+  });
+  const busySends = [];
+  f.page.on("response", (response) => { if (response.url().endsWith("/api/flows-boards/busy/send")) busySends.push(response.status()); });
+  await f.page.evaluate((id) => import("/strip.js").then((strip) => strip.openTrunk(strip.findTrunk(id))), f.trunk.id);
+  await f.page.locator("#prompt").fill("wait here");
+  await f.page.locator("#send").click();
+  await until(() => held.length === 1);
+  assert.equal((await f.call(`/api/trunks/${f.trunk.id}`, { startsIn: tower })).trunk.startsIn, tower, "moved while it works");
+  // The window knows it is busy; Enter in the message box then sends it as a follow-up, as a person would.
+  await until(() => f.page.locator("#followup-send").evaluate((button) => !button.hidden));
+  await f.page.locator("#prompt").fill("and this too");
+  await f.page.locator("#prompt").press("Enter");
+  await f.page.locator("#toast").filter({ hasText: /starts on Tower/ }).waitFor({ timeout: 15000 });
+  assert.deepEqual(busySends, [409], "busy send itself refused it");
+  assert.equal(await f.page.getByText("this goes next", { exact: false }).count(), 0, "never told it goes next");
+  assert.deepEqual((await f.call(`/api/sessions/${f.trunk.chatSessionId}/followups`)).followUps, [], "nothing queued");
+  held.shift()();
+  await f.page.locator("#conversation").getByText("Here it is.").waitFor({ timeout: 15000 });
+  assert.deepEqual(f.errors, []);
 });
 
 test("in French the control and its choices follow", async (t) => {

@@ -81,12 +81,13 @@ export class Trunks {
       } });
     this.conversations = new TrunkConversations({ store, owner, records: this.records, rooms: this.rooms, changed: () => this.refresh(),
       owns: (sessionId) => store.ownsSession(store.profiles.scope(), sessionId) }); // phase2/rooms
-    this.messages = new TrunkMessages(store, owner, this.records, runtime, (trunk) => requireStartsHere(trunk, this.computers())); // Q44
+    this.messages = new TrunkMessages(store, owner, this.records, runtime);
     this.routines = new TrunkRoutines(store, owner, this.records, scheduler, runtime);
     this.teaching = new TrunkTeaching({ store, owner, records: this.records, routines: this.routines, workflows: deps.workflows,
       scrub: (value) => runtime.hideSecrets(value) });
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
+    runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
     byRuntime.set(runtime, this);
     scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
