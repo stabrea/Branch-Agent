@@ -4958,6 +4958,7 @@
   "trunks.picture.words": "Ou décrivez-en une pour le modèle d'images",
   "trunks.purpose": "Des assistants bien à vous, chacun avec un nom, sa propre conversation, sa mémoire et ses réglages.",
   "trunks.rail": "Troncs",
+  "trunks.rail.here": "Troncs ici",
   "trunks.rail.empty": "Aucun Tronc pour l'instant.",
   "trunks.reasoning.default": "Celle du modèle",
   "trunks.reasoning.high": "Élevée",

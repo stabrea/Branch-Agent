@@ -4957,6 +4957,7 @@
   "trunks.picture.words": "Or describe one for the picture model",
   "trunks.purpose": "Assistants of your own, each with a name, its own conversation, memory and settings.",
   "trunks.rail": "Trunks",
+  "trunks.rail.here": "Trunks here",
   "trunks.rail.empty": "No Trunks yet.",
   "trunks.reasoning.default": "The model's own",
   "trunks.reasoning.high": "High",
