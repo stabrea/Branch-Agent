@@ -134,7 +134,7 @@ function controls(view) {
 function buildCard(view) {
   const card = make("section", "card");
   card.id = "skill-installs-card";
-  card.dataset.home = "customize:skills";
+  card.dataset.home = "settings:skills";
   card.append(make("h2", "", "skillInstalls.card.title", "Install a skill, and what happened"),
     make("p", "", "skillInstalls.card.purpose", "Add or remove a skill while Branch runs, including skills made for other agents, and read every step it took."),
     ...switchRow(view.mode));

@@ -11,7 +11,7 @@
    */
 import { segmented } from "/control-makers.js";
 /*
-   customize:skills             Sending requests where they belong
+   settings:skills              Sending requests where they belong
    customize:connections        Steps for other apps, MCP examples, the app-server protocol */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
@@ -285,9 +285,9 @@ async function hindsightCard(modes) {
   return node;
 }
 
-/* ---------- customize:skills — intents ---------- */
+/* ---------- settings:skills — intents ---------- */
 async function intentsCard(modes) {
-  const { node, status } = card("asks-intents-card", "customize:skills", "asks.intents.title", "Sending requests where they belong",
+  const { node, status } = card("asks-intents-card", "settings:skills", "asks.intents.title", "Sending requests where they belong",
     "asks.intents.purpose", "Name the kinds of request you make and where each goes: a skill, a specialist, a flow or an instruction.");
   node.append(...switchFor("intent-pipeline", modes, status));
   if (modes["intent-pipeline"] !== "off") {

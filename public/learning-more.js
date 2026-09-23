@@ -5,7 +5,7 @@
    library:memory     Memory blocks, the timeline, finding conversations by meaning, lessons from
                       failed evaluation tasks, preferences from Claude Code and Codex, expiring and
                       labelled memories, reading note edits back, outside memory services
-   customize:skills   How often each skill is used, and merging look-alikes */
+   settings:skills    How often each skill is used, and merging look-alikes */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
 import { segmented, dropdown } from "/control-makers.js";
@@ -115,7 +115,7 @@ function blocksCard(state) {
 
 /* ---------- Curator ---------- */
 async function curatorCard(state) {
-  const built = card("lmore-curator-card", "customize:skills", "curator", state, ["lmore.curator.title", "How often each skill is used"],
+  const built = card("lmore-curator-card", "settings:skills", "curator", state, ["lmore.curator.title", "How often each skill is used"],
     ["lmore.curator.purpose", "Counts from recent tasks, and skills that say much the same thing, which you can merge after seeing what would change."]);
   if (!built.on) return finish(built);
   const report = await api("learning-more/curator");

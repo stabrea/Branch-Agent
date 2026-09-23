@@ -3,10 +3,10 @@
    saying what it does (aria-describedby).
 
    settings:computer         Other computers side by side; using apps in the background; USB devices
-   customize:specialists     Trunks on other computers
+   settings:skills           Trunks on other computers
    settings:models:media     Making videos
    customize:channels        The chat relay; sending and pausing chat apps
-   customize:skills          Sharing the assistant through git; skill bundles
+   settings:skills           Sharing the assistant through git; skill bundles
    library:documents         Notes
    settings:models:second    Model arena */
 import { api } from "/app.js";
@@ -134,9 +134,9 @@ async function machinesCard(state) {
   return node;
 }
 
-/* ---------- customize:specialists — Trunks on other computers ---------- */
+/* ---------- settings:skills — Trunks on other computers ---------- */
 async function trunksCard(state) {
-  const { node, status } = card("reach-trunks-card", "customize:specialists", "reach.trunks.title", "Trunks on other computers",
+  const { node, status } = card("reach-trunks-card", "settings:skills", "reach.trunks.title", "Trunks on other computers",
     "reach.trunks.purpose", "Your other computers share the names and titles of their Trunks, and a Trunk here can send one a message. Nothing else is shared.");
   node.append(...switchFor("remote-trunks", state.modes, status));
   if (state.modes["remote-trunks"] !== "off") {
@@ -306,7 +306,7 @@ async function chatsCard(state) {
   return node;
 }
 
-/* ---------- customize:skills — sharing through git ---------- */
+/* ---------- settings:skills — sharing through git ---------- */
 function sourceRow(source, status) {
   const item = plain("li", `${source.url} (${source.ref}) ${source.commit.slice(0, 8)}`);
   const [update, updateHint] = button(`reach-git-update-${source.id}`, "reach.git.update", "Update", "reach.git.updateHint", "Brings in a newer version; what you changed is kept.",
@@ -318,7 +318,7 @@ function sourceRow(source, status) {
 }
 
 async function shareCard(state) {
-  const { node, status } = card("reach-share-card", "customize:skills", "reach.git.title", "Sharing the assistant through git",
+  const { node, status } = card("reach-share-card", "settings:skills", "reach.git.title", "Sharing the assistant through git",
     "reach.git.purpose", "Write your specialists, procedures and skills into a folder you can commit, or follow somebody's repository. Rules, model choices, memory and secrets never travel.");
   node.append(...switchFor("agent-git", state.modes, status));
   if (state.modes["agent-git"] !== "off") {
@@ -338,9 +338,9 @@ async function shareCard(state) {
   return node;
 }
 
-/* ---------- customize:skills — bundles ---------- */
+/* ---------- settings:skills — bundles ---------- */
 async function bundlesCard(state) {
-  const { node, status } = card("reach-bundles-card", "customize:skills", "reach.bundles.title", "Skill bundles",
+  const { node, status } = card("reach-bundles-card", "settings:skills", "reach.bundles.title", "Skill bundles",
     "reach.bundles.purpose", "Several skills in one file, to hand on or bring in. Every skill that arrives is checked and starts switched off.");
   node.append(...switchFor("skill-bundles", state.modes, status));
   if (state.modes["skill-bundles"] !== "off") {

@@ -139,9 +139,15 @@ export const BUCKETS = {
     ["open", "swap", "Connections", "Open the real Connections place to manage them.",
       [["settings-directory-connections-connections", R]]],
   ],
+  /* DG-196: the sample's Skills & plugins page. Its cards came here from Customize; Customize keeps the skills themselves. */
   skills: [
-    ["open", "spark", "Skills, specialists and plugins", "Open the real place for each kind of capability.",
-      [["settings-directory-skills-skills", R], ["settings-directory-skills-specialists", R], ["settings-directory-skills-plugins", R]]],
+    ["skills", "spark", "Skills", "Pages of instructions for one kind of work.",
+      [["skill-policy-card", A], ["reach-share-card", R], ["reach-bundles-card", R], ["skill-installs-card", A],
+        ["context-tools-file", A], ["learning-new-skills", A], ["autonomy-readiness-card", A]]],
+    ["addons", "spark", "Add-ons other people wrote", "Packages, lists and filters from other people.",
+      [["add-ons-card", R]]],
+    ["under", "wrench", "Under the hood", "Counters, retries, limits and plumbing. Rarely needed.",
+      [["asks-intents-card", T], ["lmore-curator-card", T], ["reach-trunks-card", T], ["interop-modes-card", T]]],
   ],
   memory: [
     ["open", "memory", "Memory, documents and things made", "Open the real Library page for each kind of item.",
