@@ -169,6 +169,9 @@ async function ciControls(status) {
     row(button("coding.ci.make", "Write the lines to paste", write)), out];
 }
 
+/* DG-191: the parts whose own settings the approved sample always draws as rows, whatever the part's switch says. */
+const ALWAYS_DRAWN = new Set(["format-on-edit", "shell-snapshot", "worktrees"]);
+
 const CONTROLS = { "format-on-edit": formatControls, "shell-snapshot": shellControls, worktrees: worktreeControls,
   "path-rules": rulesControls, "review-checks": checksControls, ci: ciControls,
   init: async () => [make("p", "field-note", "coding.init.how", "Type /init in the message box.")] };
@@ -184,7 +187,7 @@ async function buildCard() {
   status.setAttribute("role", "status");
   for (const part of Object.keys(PARTS)) {
     node.append(...switchFor(part, modes, status));
-    if (modes[part] !== "off" && CONTROLS[part]) node.append(...await CONTROLS[part](status).catch((error) => [plain("p", error.message, "field-note")]));
+    if (CONTROLS[part] && (modes[part] !== "off" || ALWAYS_DRAWN.has(part))) node.append(...await CONTROLS[part](status).catch((error) => [plain("p", error.message, "field-note")]));
   }
   node.append(status);
   return { node, modes };
