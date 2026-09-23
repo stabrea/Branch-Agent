@@ -1,16 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "./store.js";
-import type { Runtime } from "./runtime.js";
+import type { FanoutOutcome, Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
-import type { Message, Run } from "./contracts.js";
+import type { Message, Run, ToolContext } from "./contracts.js";
 import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
-import { dispatchHeld, finishTeamTask, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import { describeMemberRuns, dispatchHeld, finishTeamTask, holdDispatch, memberRuns, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import type { FanoutTask } from "./delegation.js";
+import { subtaskLimits } from "./knobs/apply.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
  * to every member with its role attached, and every result lands in the room's conversation in
  * order, so the history is one place people and members can read after a restart.
+ * A team holds up to 8 members, but the runtime starts only so many helpers of one run at once
+ * (the owner's `parallelSubtasks`), so the members are sent in batches of that size (Q66).
  */
 export const TeamMemberSchema = z.object({
   specialistId: z.string().uuid(),
@@ -101,7 +105,7 @@ export class Teams {
   private settleThrown(claim: TeamTaskClaim, turn: TurnProgress, message: string): void {
     try {
       if (turn.recorded) return;
-      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim, `Stopped while the members were working: ${message}`);
+      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim, `Stopped while the members were working: ${message}. ${describeMemberRuns(memberRuns(this.store, turn.parentRunId))}`);
       else settleUnfinished(this.store, this.tasks, claim, turn.parentRunId, message);
     } catch { /* the claim is already gone, so this caller writes nothing */ }
   }
@@ -137,9 +141,11 @@ export class Teams {
     this.store.message(team.roomSessionId, { role: "user", content: prompt });
     const tasks = team.members.map((member, index) => ({ id: `m${index}`, prompt: `Your role in team "${team.name}": ${member.role}. ${member.brief}\n\nTask: ${prompt}`, dependsOn: [] as string[] }));
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
+    // The plan names every member before any starts, so reconcile can say which never ran.
+    this.store.event(parent.id, "team.members.planned", { members: team.members.map((member, index) => ({ member: `m${index}`, role: member.role })) });
     turn.membersStarted = true;
-    const outcome = await runtime.fanout(context, tasks, (taskId) => specs.get(taskId)!);
-    const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcome.tasks[`m${index}`]! }));
+    const outcomes = await this.fanOutInBatches(runtime, context, tasks, (taskId) => specs.get(taskId)!);
+    const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcomes[`m${index}`]! }));
     const result: TeamRunResult = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
     // Kept on the task first, so a crash before the finish below can still be finished from it without running anything.
     this.tasks.recordOutcome(claim, result);
@@ -147,6 +153,28 @@ export class Teams {
     // The finished task and the room's answers are written together, or not at all.
     finishTeamTask(this.store, this.tasks, claim, result);
     return { ...result, taskId: claim.taskId, requestId: this.tasks.get(claim.scope, claim.taskId)!.requestId, state: "completed" as const };
+  }
+  /**
+   * Q66: sends the members in batches no bigger than the number of helpers the runtime lets one run
+   * start at once, in member order; each batch finishes before the next one starts. The limit is
+   * read again before every batch, as the runtime reads it for every helper it starts, so a change
+   * the owner makes mid-turn is followed rather than refused. A member whose run fails is an answer
+   * like any other and the next batch still goes; a throw stops here, and later batches never start.
+   * Every batch runs under the same parent run, so reconcile finds all of their member runs, and the
+   * runtime writes each batch's "delegation.fanout" record on that run, naming each member's run.
+   * Nothing partial is recorded as the task's result: a crash between batches leaves no result, so
+   * the task needs a person, and the members that did not run are never sent again on their own.
+   */
+  private async fanOutInBatches(runtime: Runtime, context: ToolContext, tasks: FanoutTask[], resolve: Parameters<Runtime["fanout"]>[2]) {
+    const outcomes: FanoutOutcome["tasks"] = {};
+    for (let next = 0; next < tasks.length;) {
+      const atOnce = Math.max(1, subtaskLimits(this.store, this.owner).atOnce);
+      const batch = tasks.slice(next, next + atOnce);
+      this.store.event(context.runId, "team.batch.started", { members: batch.map((task) => task.id) });
+      Object.assign(outcomes, (await runtime.fanout(context, batch, resolve)).tasks);
+      next += batch.length;
+    }
+    return outcomes;
   }
   /**
    * Starts the parent run. First the task names a new conversation for it (a fenced write, so a

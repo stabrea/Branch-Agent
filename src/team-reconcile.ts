@@ -23,7 +23,15 @@ export interface TeamRunResult {
 export interface TurnEffect { runId: string; toolCallId: string; name: string; outcome: "completed" | "failed" | "unknown" | "asked_owner" }
 export interface ReconcileReport {
   taskId: string; state: TeamTaskState; parentRunId: string | null; effects: TurnEffect[]; note: string;
+  /** Q66: every member of the turn and how far it got, across all of the turn's batches. */
+  members: TeamMemberRun[];
 }
+/**
+ * One member of a team turn: the run it answered in and that run's status, or "started" (its batch
+ * began but the run was not recorded against it) or "not_started". A member run under the turn that
+ * cannot be matched to a member is listed with no member or role.
+ */
+export interface TeamMemberRun { member: string | null; role: string | null; runId: string | null; status: string }
 
 /**
  * Team tasks this process is working on right now, per open store; reconciling leaves these alone.
@@ -121,6 +129,50 @@ function runEffects(store: Store, runId: string): TurnEffect[] {
   return effects;
 }
 
+/** The parent run's records of one kind written after the event with this id, oldest first. */
+function recordsAfter(store: Store, runId: string, kind: string, afterId: number): { id: number; data: Record<string, unknown> }[] {
+  return store.sqlite.prepare("SELECT id, data FROM events WHERE run_id=? AND kind=? AND id>? ORDER BY id").all(runId, kind, afterId)
+    .map((row) => ({ id: Number(row.id), data: JSON.parse(String(row.data)) as Record<string, unknown> }));
+}
+
+/**
+ * Q66: every member of a team turn and how far it got, read from the record, across every batch.
+ * The turn names its members before any starts ("team.members.planned"), notes each batch as it
+ * starts ("team.batch.started"), and the runtime notes each batch's member runs when it finishes
+ * ("delegation.fanout"). Only records after the plan are read, so a fan-out the team's own turn made
+ * earlier is not taken for a member's. Runs started under the turn that no record names are listed too.
+ * A member run is created before it does anything, so a member with no run under the turn did nothing.
+ */
+export function memberRuns(store: Store, parentRunId: string | null): TeamMemberRun[] {
+  if (!parentRunId) return [];
+  const plan = recordsAfter(store, parentRunId, "team.members.planned", 0).at(-1);
+  const planned = (plan?.data.members ?? []) as { member: string; role: string }[];
+  const after = plan?.id ?? 0;
+  const started = new Set(recordsAfter(store, parentRunId, "team.batch.started", after).flatMap((record) => record.data.members as string[]));
+  const ran = new Map<string, string>();
+  for (const record of recordsAfter(store, parentRunId, "delegation.fanout", after))
+    for (const [member, outcome] of Object.entries((record.data.tasks ?? {}) as Record<string, { runId: string }>)) ran.set(member, outcome.runId);
+  // A member run carried on after a restart is reported by the run that carried it on.
+  const statusOf = (runId: string) => store.run(latestCarryOn(store, runId))?.status ?? "unknown";
+  const named = new Set(ran.values());
+  const unnamed = store.sqlite.prepare("SELECT run_id FROM events WHERE kind='run.started' AND json_extract(data,'$.parentRunId')=? ORDER BY id").all(parentRunId)
+    .map((row) => String(row.run_id)).filter((runId) => !named.has(runId));
+  // A member of a batch that began, with no run named for it, may be one of the unnamed runs; with none, it never got a run.
+  const listed: TeamMemberRun[] = planned.map(({ member, role }) => {
+    const runId = ran.get(member) ?? null;
+    return { member, role, runId, status: runId ? statusOf(runId) : started.has(member) && unnamed.length ? "started" : "not_started" };
+  });
+  return [...listed, ...unnamed.map((runId) => ({ member: null, role: null, runId, status: statusOf(runId) }))];
+}
+
+/** The member listing in words, for the reason a task needs a person. */
+export function describeMemberRuns(members: TeamMemberRun[]): string {
+  if (!members.length) return "";
+  const ran = members.filter((m) => m.runId).map((m) => `${m.role ?? "an unnamed member"} (${m.status}, run ${m.runId})`);
+  const rest = members.filter((m) => !m.runId).map((m) => `${m.role} (${m.status === "started" ? "started, run not recorded" : "not started"})`);
+  return `Members that ran: ${ran.join(", ") || "none"}. Not run: ${rest.join(", ") || "none"}.`;
+}
+
 /**
  * Finishes the task and writes the members' answers to the room in one transaction, then tells
  * listeners once it is committed. Used by a live turn and by reconciliation alike.
@@ -177,19 +229,15 @@ function membersAnswered(store: Store, parentRunId: string | null): number {
  */
 export function settleUnfinished(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, parentRunId: string | null, why: string): TeamTaskState {
   const effects = parentRunId ? turnEffects(store, parentRunId) : [];
-  if (effects.length) {
-    tasks.markNeedsReconciliation(claim, `Stopped after ${effects.length} tool call(s) whose effects must be checked before this is tried again: ${why}`);
+  // Q66: the reason names which members ran and which never started, whichever batch it stopped in.
+  const needs = (reason: string): TeamTaskState => {
+    tasks.markNeedsReconciliation(claim, `${reason}: ${why}. ${describeMemberRuns(memberRuns(store, parentRunId))}`.trim());
     return "needs_reconciliation";
-  }
+  };
+  if (effects.length) return needs(`Stopped after ${effects.length} tool call(s) whose effects must be checked before this is tried again`);
   const answered = membersAnswered(store, parentRunId);
-  if (answered) {
-    tasks.markNeedsReconciliation(claim, `${answered} member(s) finished an answer that was never recorded; check them before trying again: ${why}`);
-    return "needs_reconciliation";
-  }
-  if (mayStillAct(store, parentRunId)) {
-    tasks.markNeedsReconciliation(claim, `Its run was cut off and can still be carried on, so it may yet act; check it before trying again: ${why}`);
-    return "needs_reconciliation";
-  }
+  if (answered) return needs(`${answered} member(s) finished an answer that was never recorded; check them before trying again`);
+  if (mayStillAct(store, parentRunId)) return needs("Its run was cut off and can still be carried on, so it may yet act; check it before trying again");
   tasks.markFailed(claim, `Nothing was done: ${why}`);
   return "failed";
 }
@@ -220,7 +268,7 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   if (!task) throw new Error("Team task not found");
   const root = turnRoot(store, task);
   const report = (state: TeamTaskState, note: string): ReconcileReport =>
-    ({ taskId, state, parentRunId: task.parentRunId, effects: root ? turnEffects(store, root) : [], note });
+    ({ taskId, state, parentRunId: task.parentRunId, effects: root ? turnEffects(store, root) : [], note, members: memberRuns(store, root) });
   if (task.state !== "claimed") return report(task.state, "This task is already settled.");
   if (working(store).has(taskId)) return report("claimed", "This task is still running here.");
   // Handed to a person (src/team-handoff.ts): they hold it, not a process, so there is nothing to settle.
