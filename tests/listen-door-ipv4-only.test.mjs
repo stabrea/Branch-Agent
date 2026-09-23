@@ -170,15 +170,27 @@ test("private IPv6 addresses beside private IPv4 networks open the door as they 
 
 /* ---------- Branch starting on such a computer ---------- */
 
+/** Branch started on a computer with these addresses, and the lines it printed while starting. */
 async function started(t, addresses) {
   const root = await mkdtemp(join(tmpdir(), "branch-door-ipv4-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   saveListenSettings(app.store, app.runtime.owner, { where: "private-network" });
   const tailscale = async () => { throw new Error("Tailscale is not asked in these tests"); };
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, listenAddresses: addresses, tailscale });
+  const printed = [];
+  const log = t.mock.method(console, "log", (...parts) => { printed.push(parts.join(" ")); });
+  let server;
+  try {
+    server = await startServer(app, { dataDir: join(root, "data"), port: 0, listenAddresses: addresses, tailscale });
+  } finally {
+    log.mock.restore();
+  }
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
-  return { app, server };
+  return { app, server, printed };
 }
+
+/** The line a wide door that is not on private IPv4 networks only prints as Branch starts. */
+const everyAddressLine = "Branch Agent is listening on every address this computer answers on, not only this computer."
+  + " Anyone who can reach it still needs the local session token.";
 
 const view = (server) => fetch(`${server.url}/api/listen`, { headers: { authorization: `Bearer ${server.token}` } })
   .then((response) => response.json());
@@ -202,8 +214,11 @@ function askOverV6(server) {
 }
 
 test("Branch on a computer with a global IPv6 address listens on private IPv4 only, and says so", async (t) => {
-  const { app, server } = await started(t, [loopback, loopback6, home, outward(global6)]);
+  const { app, server, printed } = await started(t, [loopback, loopback6, home, outward(global6)]);
   assert.equal(server.listeningOn(), "0.0.0.0");
+  assert.ok(printed.some((line) => /Branch Agent: .*2001:db8::5.*private IPv4 networks only.*local session token/.test(line)),
+    `the start-up line names the address left out and says the door is on private IPv4 networks only: ${printed.join(" | ")}`);
+  assert.ok(!printed.includes(everyAddressLine), "the start-up line does not say every address");
   const seen = await view(server);
   assert.equal(seen.beyondThisComputer, true);
   assert.equal(seen.refusal, null);
@@ -219,10 +234,20 @@ test("Branch on a computer with a global IPv6 address listens on private IPv4 on
   assert.equal(locked.ipv4Only, null);
 });
 
+test("Branch on a computer whose every address is private prints the usual line for the wider door", async (t) => {
+  const { server, printed } = await started(t, [loopback, loopback6, home, outward("fd00::5")]);
+  assert.equal(server.listeningOn(), "0.0.0.0");
+  assert.ok(printed.includes(everyAddressLine), `the start-up line: ${printed.join(" | ")}`);
+  assert.ok(!printed.some((line) => /IPv4 networks only/.test(line)), "nothing was left out, so nothing says so");
+});
+
 test("Branch on a computer with a public IPv4 address beside a global IPv6 one stays on this computer", async (t) => {
-  const { server } = await started(t, [loopback, home, outward(global6), outward("203.0.113.7")]);
+  const { server, printed } = await started(t, [loopback, home, outward(global6), outward("203.0.113.7")]);
   assert.equal(server.listeningOn(), "127.0.0.1");
   const seen = await view(server);
   assert.match(seen.refusal, /203\.0\.113\.7/);
   assert.equal(seen.ipv4Only ?? null, null);
+  assert.ok(printed.some((line) => /^Branch Agent: This computer answers on 203\.0\.113\.7, which is not a private address/.test(line)),
+    `the start-up line gives the refusal: ${printed.join(" | ")}`);
+  assert.ok(!printed.some((line) => line === everyAddressLine || /IPv4 networks only/.test(line)), "and no line for a wider door");
 });
