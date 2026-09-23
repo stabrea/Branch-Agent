@@ -6,6 +6,7 @@ import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
 import { applyLanguage, t } from "/i18n.js";
+import { taskWhen, taskWords } from "/task-state.js"; // Q51
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 /* One notice area, one timer. A second notice inside the six seconds has to cancel the first
@@ -1403,6 +1404,11 @@ function conversationButton(label, handler) {
 }
 let pendingFollowUps = 0;
 /** A message typed while the assistant is busy waits its turn in the same conversation. */
+/** Q58: the reply to a message that waits its turn, in the owner's language. */
+function queuedReply(position) {
+  if (position <= 1) return t("queue.reply.next");
+  return position === 2 ? t("queue.reply.afterOne") : t("queue.reply.afterMany", { n: position - 1 });
+}
 async function queueFollowUp(prompt) {
   try {
     // r17-h: wait, pass it on, or stop and go next, as the owner chose (public/flows-boards.js); null keeps the plain queue.
@@ -1410,7 +1416,7 @@ async function queueFollowUp(prompt) {
     const result = busy ?? await api(`sessions/${sessionId}/followups`, { prompt });
     $("prompt").value = "";
     message("user", prompt);
-    message("assistant", busy && busy.mode !== "queue" ? busy.message : result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    message("assistant", busy && busy.mode !== "queue" ? busy.message : queuedReply(result.position));
     if (busy?.mode === "steer") return;
     pendingFollowUps++;
   } catch (e) { toast(e.message); }
@@ -1925,7 +1931,10 @@ function watchActivity(prompt) {
   const box = $("activity");
   const marks = { done: "✓", failed: "✗", stopped: "⏱", working: "…" };
   const render = (item) => {
-    box.replaceChildren(el("strong", item.current || "Finishing up"));
+    /* Q51: waiting for you, for a service, or blocked, in words, before what it last did. */
+    box.replaceChildren(el("strong", taskWords(item.task) || item.current || "Finishing up"));
+    const when = taskWhen(item.task);
+    if (when) box.append(el("p", when, "meta task-when"));
     const steps = item.steps.slice(-6);
     if (steps.length) box.append(el("p", steps.map((s) => `${marks[s.status] || ""} ${s.label}`).join("  ·  "), "meta"));
     if (item.followUps) box.append(el("p", `${item.followUps} message(s) waiting to be answered next`, "meta"));
@@ -1933,6 +1942,7 @@ function watchActivity(prompt) {
   };
   const poll = async () => {
     try {
+      /* Its own task is running while this polls; one that stops to ask ends the reply, so running tasks suffice. */
       const running = await api("activity");
       const mine = running.find((r) => (sessionId ? r.sessionId === sessionId : r.prompt === prompt));
       if (mine) render(mine); else if (!box.hidden) box.replaceChildren(el("strong", "Finishing up"));

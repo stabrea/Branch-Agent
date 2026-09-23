@@ -2,6 +2,7 @@
    Model in use, tasks running now, the receipts this conversation produced, and
    the memory it can draw on. No marketing copy. */
 import { api } from "/app.js";
+import { taskWhen, taskWords } from "/task-state.js"; // Q51
 import { setActivityCount } from "/shell.js";
 /* Wave 7: what this conversation is allowed to do right now, with a way to take it back. */
 import { drawAllowed } from "/allowed.js";
@@ -46,11 +47,19 @@ function drawTasks(running) {
   rows(
     "context-tasks",
     running.map((item) => {
-      const node = row(item.prompt?.slice(0, 80) || "Task", item.current || "Working");
+      /* Q51: the state in words when it is not simply working, and when it last recorded anything. */
+      const words = taskWords(item.task);
+      const node = row(item.prompt?.slice(0, 80) || "Task", words || item.current || "Working");
+      node.dataset.taskState = item.task?.state ?? "working";
       if (item.sessionId === here) node.append(el("span", "this conversation", "meta"));
-      const bar = el("div", undefined, "progress indeterminate");
-      bar.append(el("div", undefined, "progress-bar"));
-      node.append(bar);
+      const when = taskWhen(item.task);
+      if (when) node.append(el("span", when, "meta task-when"));
+      /* A bar that moves says it is working; a task waiting or blocked gets none. */
+      if (!words) {
+        const bar = el("div", undefined, "progress indeterminate");
+        bar.append(el("div", undefined, "progress-bar"));
+        node.append(bar);
+      }
       return node;
     }),
     "Nothing running.",
@@ -141,8 +150,10 @@ async function draw() {
   busy = true;
   try {
     /* The count beside Activity is kept up to date even when the pane is folded away. */
-    const running = await api("activity").catch(() => []);
-    setActivityCount(running.length);
+    /* Q51: the list also shows tasks waiting for you; the count beside Activity stays the running ones. */
+    /* Q58: queued tasks are listed but not counted as busy. */
+    const running = await api("activity?waiting=1").catch(() => []);
+    setActivityCount(running.filter((item) => item.status === "running" && item.task?.state !== "queued").length);
     /* public/layout.js says whether the pane is on screen (lx-aside): nothing is fetched for a pane
        nobody can see, and the calm window can still show it while work runs after a fold by hand. */
     const shownByLayout = document.body.classList.contains("lx");
