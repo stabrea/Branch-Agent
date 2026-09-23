@@ -133,6 +133,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/memory/tidy"),
     own("/api/memory/tidy/all"),
     own("/api/memory/versions/restore"),
+    own("/api/models/fixture"), // FQ-models.hosted-local: the same kind of check as /api/models/test
     own("/api/models/probe"),
     own("/api/models/profiles/preview"),
     own("/api/models/test"),

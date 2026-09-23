@@ -683,6 +683,7 @@ export const ROUTES = {
   "/api/metrics": "look",
   "/api/models": "owner POST",
   "/api/models/gemini-signin": "owner POST",
+  "/api/models/fixture": "other POST", // FQ-models.hosted-local: runs every connection, like /api/models/test
   "/api/models/probe": "other POST",
   "/api/models/profiles": "owner POST",
   "/api/models/profiles/preview": "other POST",
