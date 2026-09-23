@@ -31,6 +31,7 @@ case "$1" in
   switch|push|--literal-pathspecs|merge-base) exit 0;;
   diff) cat '${diffOut}'; exit 0;;
   log) exit 0;;
+  rev-parse) pwd -P; echo "$(pwd -P)/../../.git"; exit 0;;
   ls-files) exit 0;;
   *) exit 1;;
 esac
@@ -61,7 +62,7 @@ async function branchWith(t, permissions, options = {}) {
   app.registry.register({ name: "github.open_pull_request", permission: "github.manage", description: "stand-in for GitHub",
     parameters: z.object({}).passthrough(), execute: async (args) => { opened.push(args); return { number: 7, draft: args.draft }; } });
   app.store.projects.save(owner, { id: "branch-agent-remove-button", name: "Branch Agent: remove-button", instructions: "",
-    modelPreset: null, repository: "stabrea/Branch-Agent", folder: worktree, profile: null, knowledgeBases: [], branch: "" });
+    modelPreset: null, repository: "stabrea/Branch-Agent", folder: options.folder ?? worktree, profile: null, knowledgeBases: [], branch: "" });
   app.store.projects.setActive(owner, { active: "branch-agent-remove-button" });
   await mkdir(join(workspace, worktree, "src", "ui"), { recursive: true });
   await writeFile(join(workspace, worktree, "src", "ui", "button.ts"), "export {};\n");
@@ -134,4 +135,14 @@ test("with the step listed and every change inside the contract, the hook sends 
   const outcome = await hookOutcome(app, run.id);
   assert.equal(outcome.kind, "pull_request.opened", JSON.stringify(outcome.data));
   assert.equal(opened.length, 1);
+});
+
+test("a pull request is never made from a folder below the worktree's root (a repository could be planted there)",
+  { skip: process.platform === "win32" && "the stand-in git is a /bin/sh script" }, async (t) => {
+  const { app, owner, opened, failed, git: log } = await branchWith(t,
+    ["files.write", "github.pull_request_from_changes", "github.open_pull_request"], { folder: `${worktree}/src/ui` });
+  assert.match(failed.join("\n"), /Git runs in Branch's own source only at a self-development worktree's root/);
+  assert.deepEqual((await log()).filter((line) => /^(switch|push|--literal-pathspecs)/.test(line)), []);
+  assert.deepEqual(opened, []);
+  assert.equal(app.store.audit.list(owner, { action: "self_development.contract" }).filter((entry) => entry.outcome === "refused").length, 1);
 });

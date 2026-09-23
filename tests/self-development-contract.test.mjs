@@ -218,7 +218,12 @@ function guardWith(git, contract = {}, workspace = "/w") {
     terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes", "git.push", "git.pull", "git.commit"], ...contract } });
   const calls = [];
   const guard = contractGuard({ store: { audit: log }, owner: "local", workspace, registry, book,
-    git: async (options) => { calls.push(options.args.join(" ")); return git(options.args); } });
+    git: async (options) => {
+      calls.push(options.args.join(" "));
+      // Like a real worktree: its own folder at the top, sharing the source checkout's repository.
+      if (options.args[0] === "rev-parse" && !git.ownRevParse) return answer(`${options.cwd}\n${join(options.cwd, "..", "..", ".git")}\n`);
+      return git(options.args);
+    } });
   return { guard, calls, log };
 }
 const answer = (stdout = "", status = "completed") => ({ status, stdout, stderr: "", exitCode: status === "completed" ? 0 : 1, command: "git" });
@@ -442,4 +447,16 @@ test("git.commit of named files is judged by those files; with none named it com
   await assert.rejects(guard.guard("git.commit", { folder: ".", paths: ["package.json"] }, { runId: "r", signal: signal() }),
     /package\.json is outside the contract's allowed paths/);
   await assert.rejects(guard.guard("git.commit", { folder: "." }, { runId: "r", signal: signal() }), /git\.commit works on the whole of the worktree/);
+});
+
+test("a push is refused below the worktree's root, and from any repository that is not the worktree's own", async () => {
+  const nested = guardWith(() => answer(""));
+  await assert.rejects(nested.guard("git.push", { folder: "src/ui/nested" }, { runId: "r", signal: signal() }),
+    /Git runs in Branch's own source only at a self-development worktree's root/);
+  assert.equal(nested.calls.length, 0, "refused before Git is asked anything");
+  const planted = (args) => (args[0] === "rev-parse" ? answer("/w/elsewhere\n/w/elsewhere/.git\n") : answer(""));
+  planted.ownRevParse = true;
+  const other = guardWith(planted);
+  await assert.rejects(other.guard("git.push", { folder: "." }, { runId: "r", signal: signal() }), /is not the worktree's own/);
+  assert.ok(!other.calls.some((call) => call.startsWith("log")), "nothing is walked in the wrong repository");
 });

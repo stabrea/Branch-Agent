@@ -324,6 +324,11 @@ const namesInLog = (text: string): string[] =>
 async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, ref = "HEAD"): Promise<string | null> {
   const cwd = resolve(deps.workspace, contract.worktreePath);
   const git = (args: string[]) => deps.git({ cwd, args, timeoutMs: 60_000, maxOutputBytes: 4_194_304 }, signal);
+  // The repository Git finds here must be the worktree's own, sharing the source checkout's, not one planted in it.
+  const found = await git(["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"]);
+  const [top = "", common = ""] = found.stdout.trim().split("\n");
+  if (found.status !== "completed" || !top || onDisk(resolve(top)) !== onDisk(cwd) || onDisk(resolve(cwd, common)) !== onDisk(resolve(deps.workspace, sourceFolder, ".git")))
+    return `The repository Git finds in ${contract.worktreePath} is not the worktree's own, so nothing is sent from it.`;
   if ((await git(["merge-base", "--is-ancestor", contract.sourceSha, ref])).status !== "completed")
     return `${ref === "HEAD" ? "This worktree" : ref} no longer starts from the contract's source commit ${contract.sourceSha.slice(0, 12)}.`;
   const walked = await git(["log", "--no-renames", "-m", "--name-status", "--format=", `${contract.sourceSha}..${ref}`]);
@@ -486,6 +491,8 @@ export async function pushRefusal(input: {
   const worktree = worktreeOf(where), context = { runId: input.runId ?? "" };
   try {
     if (!worktree) refuse(input, context, pullRequestTool, "", "The protected Branch Agent source checkout is never sent directly; work in a self-development worktree.");
+    if (where !== worktree)
+      refuse(input, context, pullRequestTool, worktree, `Git runs in Branch's own source only at a self-development worktree's root, never in ${where}, so nothing is sent from it.`);
     let contract: SelfDevelopmentContract | null;
     try { contract = new ContractBook(input.store.sqlite).current(input.owner, worktree); } catch (error) { refuse(input, context, pullRequestTool, worktree, (error as Error).message); }
     if (!contract) refuse(input, context, pullRequestTool, worktree, `no contract: ${worktree} has no self-development contract, so nothing in it may be sent.`);

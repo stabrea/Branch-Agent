@@ -33,6 +33,7 @@ case "$1" in
   remote) echo https://github.com/stabrea/Branch-Agent.git; exit 0;;
   symbolic-ref) echo refs/remotes/origin/main; exit 0;;
   switch|push|--literal-pathspecs|merge-base|log|ls-files) exit 0;;
+  rev-parse) pwd -P; echo "$(pwd -P)/../../.git"; exit 0;;
   diff) printf 'src/ui/button.ts\\0package.json\\0'; exit 0;;
   *) exit 1;;
 esac
