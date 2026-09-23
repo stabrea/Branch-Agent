@@ -39,7 +39,8 @@ function pinField(id, key, english) {
   return input;
 }
 const formatWhen = (iso) => formatDate(iso, { dateStyle: "medium", timeStyle: "short" });
-const grantOf = (id) => shell.profiles?.roles?.find((entry) => entry.profileId === id)?.grant ?? { role: "adult", projects: [], dailySpendLimit: 0 };
+const roleOf = (id) => shell.profiles?.roles?.find((entry) => entry.profileId === id) ?? null;
+const grantOf = (id) => roleOf(id)?.grant ?? { role: "adult", projects: [], dailySpendLimit: 0 };
 const ownerSpec = () => personSpec({ name: say("household.owner", "The owner") });
 async function switchTo(profileId, pin) {
   await api("profiles/switch", { profileId, ...(pin ? { pin } : {}) });
@@ -126,11 +127,13 @@ export async function showPerson(id) {
   card.scrollIntoView({ block: "nearest" });
   card.focus({ preventScroll: true });
 }
-/** What only the owner may read: each person's sign-ins and effective grant, and which Trunks they may reach. */
+/** What only the owner may read (each person's sign-ins), or, for a person, the Trunks they may reach. */
 async function ownerFacts() {
   if (!isOwner()) {
+    // Their own view of /api/trunks has no Trunk list, only their rooms, each naming its Trunks.
     const mine = await api("trunks").catch(() => null);
-    return { people: new Map(), trunks: (mine?.rooms ?? []).map((room) => room.name) };
+    const names = (mine?.rooms ?? []).flatMap((room) => (room.roster ?? []).map((trunk) => trunk.name));
+    return { people: new Map(), trunks: [...new Set(names)] };
   }
   const settings = await api("people/settings").catch(() => null);
   return { people: new Map((settings?.people ?? []).map((person) => [person.id, person])), trunks: null };
@@ -249,9 +252,10 @@ function trunksOf(id, facts) {
   return [...ids].map((trunk) => names.get(trunk)).filter(Boolean);
 }
 function personCard(person, owner, facts) {
-  const grant = grantOf(person.id), held = facts.people.get(person.id);
-  const effective = held?.grant ?? grant;
-  const allowed = effective.categories ?? shell.profiles?.roles?.find((entry) => entry.profileId === person.id)?.categories ?? [];
+  // The ticks, projects and allowance come from the grant Branch enforces (role caps and groups
+  // applied on the server), never from the saved grant's own list of kinds.
+  const grant = grantOf(person.id), held = facts.people.get(person.id), entry = roleOf(person.id);
+  const effective = entry?.effective ?? grant, allowed = entry?.categories ?? [];
   const card = newCard(person.id, person.name), trunks = trunksOf(person.id, facts);
   const rows = [["household.trunks", "Trunks", trunks.length ? trunks.join(", ") : say("household.allowance.none", "None")],
     ["household.projects", "Projects", effective.projects.length ? effective.projects.join(", ") : say("household.projects.all", "All of them")],
@@ -376,8 +380,7 @@ async function addPerson(name, pin, problem) {
   problem.textContent = slip ? say(...slip) : "";
   if (slip) return void (slip[0] === "household.invite.noName" ? name : pin).focus();
   try {
-    const made = await api("profiles", { name: said, pin: pin.value });
-    if (invite.role !== "adult") await api(`profiles/${made.id}/role`, { role: invite.role });
+    await api("profiles", { name: said, pin: pin.value, role: invite.role });
   } catch (error) {
     delete problem.dataset.t;
     problem.textContent = error.message ?? String(error);

@@ -144,6 +144,9 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
   return notCollab;
 }
 
+/** The role somebody new may be given as they are added; the owner's own is not one of them. */
+const NewPersonRoleSchema = z.enum(["adult", "child"]).default("adult");
+
 async function profilesApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const profiles = app.store.profiles;
   if (request.method === "GET" && path === "/api/profiles")
@@ -152,7 +155,13 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
       roles: app.runtime.roles.all(profiles.list().map((profile) => profile.id)), roleLabels };
   if (request.method === "POST" && path === "/api/profiles") {
     profiles.requireOwner("Adding somebody to this computer");
-    return profiles.create(await body());
+    // The role comes with the name and PIN, and is checked before anybody is added, so a Child is
+    // never left behind as an Adult by a second call that failed.
+    const { role, ...person } = (await body() ?? {}) as { role?: unknown };
+    const chosen = NewPersonRoleSchema.parse(role);
+    const made = profiles.create(person);
+    if (chosen !== "adult") app.runtime.roles.save(made.id, { role: chosen });
+    return made;
   }
   if (request.method === "POST" && path === "/api/profiles/switch") {
     const switched = profiles.switch(await body());
