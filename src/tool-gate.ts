@@ -44,6 +44,8 @@ export interface ToolGateOptions {
    * ran: the task's own permissions. Only tools they cover run; the call's context is narrowed to them.
    */
   within?: readonly string[];
+  /** FQ-routing.isolated-agents: the agent executing this tool, for scope-aware memory and fact writes. */
+  agent?: string;
 }
 
 export interface ToolGateHost {

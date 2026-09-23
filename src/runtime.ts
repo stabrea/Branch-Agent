@@ -469,6 +469,8 @@ export class Runtime {
       /** mac7/tests-unattended: see ToolContext.unattended and ToolContext.allowProjectTests. */
       unattended?: boolean;
       allowProjectTests?: boolean;
+      /** FQ-routing.isolated-agents: the agent executing this context, for scope-aware memory and fact writes. */
+      agent?: string;
     } = {},
   ): ToolContext {
     return {
@@ -486,6 +488,7 @@ export class Runtime {
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
       ...(options.unattended ? { unattended: true } : {}),
       ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
+      ...(options.agent ? { agent: options.agent } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -658,6 +661,8 @@ export class Runtime {
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
       // mac7/lockdown-fix: work a task set going keeps to that task's permissions.
       ...(options.within ? { permissions: this.registry.permissions().filter((p) => options.within!.includes(p)) } : {}),
+      // FQ-routing.isolated-agents: pass the agent from executeTool options to memory.put and other scope-aware tools.
+      ...(options.agent ? { agent: options.agent } : {}),
     });
     this.store.event(run.id, "tool.started", { name, manual: true });
     let result: unknown;
