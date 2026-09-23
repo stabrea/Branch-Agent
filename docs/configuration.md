@@ -9436,21 +9436,23 @@ smaller asks), so the change takes effect at once and is recorded. While Lockdow
 changed from here. Every route is the owner's: a household profile gets 400 (the same status as every other "belongs to the owner" refusal). A short-lived key may read
 the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
 
-**Your assistant's files** (Settings → Assistant; it was "Which file does what" on General until
+**Your assistant's files** (Settings → Instructions & personality; it was "Which file does what" on General until
 redesign phase 2) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY and HEARTBEAT: what each is
-for, whether it is kept with your own things or in the project, and whether it is read right now.
-"Change it here" opens an editor (Write and Preview, a counter against the 8,000 bytes the loader
-carries, Save refused above it, and a starter for an empty file). It reads the file through the loader
-in `src/context-files.ts` and replaces it whole; a file longer than the loader carries, a link, a file
-with a second name (hard link), or a file in an untrusted project folder is not edited here, and a
-project's file is checked against the never-break guard before it is written. **Undo the last save**
-(`POST /api/settings-kit/files/undo { slot }`) puts back what the file held before the last save made
-here, or takes the file away again when that save made it; only while the file still holds exactly what
-was saved, so a change made since in another editor or by a task is never overwritten, and only while it is
-still the file Branch reads for that slot and may be written here (a project that changed or lost its trust is refused). One save per
-file is kept for this (`settings-kit-file-undo-<slot>` setting, with the earlier text; a backup copies it with the
-other settings, and neither the settings file nor the diagnostics report ever does). The card is
-marked for the Advanced level of detail (`data-level="advanced"`) for the Settings level control.
+for, its first line, its Off / When needed / On switch (saved as it is pressed), and at Technical where it
+is kept and whether it is read right now. **Edit** opens the editor as a dialog (DG-182): a starter (a blank
+page, or the usual shape for that file), the text beside its preview (Write and Preview tabs on a narrow
+window), Cancel and Save. Save is refused, with a line saying so, above the 8,000 bytes the loader carries.
+For AGENTS.md, **Write it for me** (`POST /api/settings-kit/files/draft { slot: "agents" }`) fills the editor
+with the same plain draft `/init` makes from the project's own files, without a model; nothing is written
+until Save. It reads the file through the loader in `src/context-files.ts` and replaces it whole; a file
+longer than the loader carries, a link, a file with a second name (hard link), or a file in an untrusted
+project folder is not edited here, and a project's file is checked against the never-break guard before it
+is written. **History (N)** lists what the file held before each of the last ten saves made here (the
+`history` of `GET /api/settings-kit/files/:slot`, kept in the `settings-kit-file-history-<slot>` setting;
+a backup copies it with the other settings, and neither the settings file nor the diagnostics report ever
+does). Only versions of the file Branch reads for that slot today are offered. **Put this back** only
+fills the editor; Save writes it, with every check above. A switch saved on another page's card for one of
+these files shows in this list at once.
 
 After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
 each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)

@@ -1,7 +1,8 @@
 // Redesign phase 2 (accounts, critique #40): the assistant's own files, read and changed in the window.
 // SOUL.md, IDENTITY.md, USER.md, AGENTS.md, TOOLS.md, SOP.md, MEMORY.md and HEARTBEAT.md: what each
-// is for, where it is kept, whether it is read, and an editor with a preview, a size counter, a clear
-// Save and an undo of the last save. It replaces R17-S05's "Which file does what" list and uses its
+// is for, where it is kept, whether it is read, and (DG-182) the sample's editor dialog: a starter, Write
+// beside its Preview, History with "Put this back", and a clear Save that waits while the text is too long.
+// It replaces R17-S05's "Which file does what" list and uses its
 // routes (src/settings-kit/file-map.ts): the owner's alone, never a household person's or a chat
 // app's (the server refuses the reads and writes to anybody else; there is no tool for them).
 import { api, ownerAtWindow } from "/app.js";
@@ -83,86 +84,175 @@ function fileRow(entry, open, choose) {
   return row;
 }
 
-/** The size line under the text: how much of what Branch reads is used, and whether Save may go. */
-function counter(text, limit, line, save) {
+/* ---------- DG-182: the editor, a dialog as in the sample ---------- */
+
+/** Over the most Branch reads, the line under the text says so and Save waits. Quiet until then, as in the sample. */
+function sizeGuard(text, limit, line, save) {
   const used = bytesOf(text);
-  line.textContent = say("agent-files.size", `${used} of ${limit} bytes`, { used: used.toLocaleString(), limit: limit.toLocaleString() });
-  line.dataset.over = String(used > limit);
-  if (used > limit) line.textContent += ` ${say("agent-files.too-long", "Too long: shorten it before saving.")}`;
-  save.disabled = used > limit;
+  const over = used > limit;
+  line.hidden = !over;
+  line.textContent = over ? `${say("agent-files.size", `${used} of ${limit} bytes`, { used: used.toLocaleString(), limit: limit.toLocaleString() })} ${say("agent-files.too-long", "Too long: shorten it before saving.")}` : "";
+  save.disabled = over;
 }
 
-function tabs(write, preview, textarea) {
-  const bar = el("div", undefined, undefined, "agent-files-tabs");
+/** Write and Preview sit side by side; on a narrow window the two tabs choose which one shows. */
+function tabs(pane) {
+  const bar = el("div", undefined, undefined, "seg agent-file-tabs");
   bar.setAttribute("role", "group");
   bar.setAttribute("aria-label", say("agent-files.view", "Write or preview"));
-  const pick = (showPreview) => {
-    write.setAttribute("aria-pressed", String(!showPreview));
-    previewButton.setAttribute("aria-pressed", String(showPreview));
-    textarea.hidden = showPreview;
-    preview.hidden = !showPreview;
-    if (showPreview) fillMarkdown(preview, textarea.value || say("agent-files.nothing", "Nothing written yet."));
+  const pick = (show) => {
+    pane.dataset.show = show;
+    for (const option of bar.children) option.setAttribute("aria-pressed", String(option.dataset.v === show));
   };
-  const previewButton = button("agent-files.preview", "Preview", () => pick(true));
-  write.addEventListener("click", () => pick(false));
-  bar.append(write, previewButton);
-  pick(false);
+  for (const [value, key, english] of [["write", "agent-files.write", "Write"], ["preview", "agent-files.preview", "Preview"]]) {
+    const option = button(key, english, () => pick(value), "segmented-option");
+    option.dataset.v = value;
+    bar.append(option);
+  }
+  pick("write");
   return bar;
 }
 
-async function openEditor(area, list, slot, refresh) {
-  let file;
-  try { file = await api(`settings-kit/files/${slot}`); } catch (error) { area.replaceChildren(el("p", undefined, error.message, "subtle")); return; }
-  list.hidden = true;
-  area.hidden = false;
-  const close = button("agent-files.back", "Back to all files", () => { area.hidden = true; list.hidden = false; void refresh(); });
-  const head = el("div", undefined, undefined, "agent-files-head");
-  head.append(el("h4", undefined, file.name), close);
-  area.replaceChildren(head, el("p", `settings-kit.slot.${slot}`, ABOUT[slot] ?? "", "subtle"));
-  if (!file.editable) { area.append(el("p", ...(WHY[file.why] ?? ["settings-kit.why.other", "This file cannot be changed here. Open it in your own editor."]), "field-note")); return; }
-  area.append(...editorParts(file, slot, () => openEditor(area, list, slot, refresh)));
-  area.querySelector("textarea")?.focus();
+/** "Start from a starter": a blank page, or the usual shape for this file. */
+function starterPicker(file, slot, textarea) {
+  const select = el("select", undefined, undefined, "agent-file-starter");
+  select.setAttribute("aria-label", say("agent-files.starter", "Start from a starter"));
+  const prompt = el("option", "agent-files.starter", "Start from a starter");
+  prompt.value = "";
+  prompt.disabled = true;
+  const blank = el("option", "agent-files.starter.blank", "A blank page");
+  blank.value = "blank";
+  const usual = el("option", "agent-files.starter.usual", "The usual shape for this file");
+  usual.value = "usual";
+  select.append(prompt, blank, usual);
+  select.value = "";
+  select.addEventListener("change", () => {
+    textarea.value = select.value === "blank" ? `# ${file.name.replace(/\.md$/i, "")}\n\n`
+      : say(`agent-files.starter.${slot}`, say("agent-files.starter.default", "# \n\n- \n"));
+    textarea.dispatchEvent(new Event("input"));
+    select.value = "";
+  });
+  return select;
 }
 
-function editorParts(file, slot, reopen) {
+/** "Write it for me": AGENTS.md drafted from what is in this workspace, into the editor only. */
+function writeForMe(textarea, status) {
+  const write = button("agent-files.write-for-me", "Write it for me", async () => {
+    write.disabled = true;
+    try {
+      textarea.value = (await api("settings-kit/files/draft", { slot: "agents" })).text;
+      textarea.dispatchEvent(new Event("input"));
+      status.textContent = say("agent-files.written-for-you", "Written from what is in this workspace. Read it before you save.");
+    } catch (error) { status.textContent = error.message; }
+    finally { write.disabled = false; }
+  });
+  return write;
+}
+
+function when(at) {
+  const date = new Date(at);
+  const language = document.documentElement.lang || undefined;
+  const time = date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === new Date().toDateString()) return say("agent-files.today", `Today ${time}`, { time });
+  return `${date.toLocaleDateString(language, { day: "numeric", month: "short" })} ${time}`;
+}
+
+/** History (N): what the file held before each save here. "Put this back" fills the editor; Save keeps it. */
+function historyList(versions, textarea, status) {
+  const details = el("details", undefined, undefined, "agent-file-history");
+  details.append(el("summary", undefined, say("agent-files.history", `History (${versions.length})`, { count: versions.length })));
+  if (!versions.length) details.append(el("p", "agent-files.history-none", "Nothing saved before.", "meta"));
+  for (const version of versions) {
+    const row = el("div", undefined, undefined, "agent-file-version");
+    const lines = version.text.split("\n").length;
+    const back = button("agent-files.put-back", "Put this back", () => {
+      textarea.value = version.text;
+      textarea.dispatchEvent(new Event("input"));
+      status.textContent = say("agent-files.put-back-done", "Put back in the editor. Save to keep it.");
+    });
+    back.setAttribute("aria-label", say("agent-files.put-back-named", `Put back the version from ${when(version.at)}`, { when: when(version.at) }));
+    row.append(el("small", undefined, `${when(version.at)} · ${say("agent-files.lines", `${lines} lines`, { count: lines })}`, "meta"), back);
+    details.append(row);
+  }
+  return details;
+}
+
+/** The tools above the text, the text beside its preview, and the foot: History, where it is kept, Cancel and Save. */
+function editorParts(file, slot, dialog, saved) {
+  const status = el("p", undefined, undefined, "meta agent-file-dialog-status");
+  status.setAttribute("role", "status");
   const textarea = el("textarea", undefined, undefined, "agent-files-text");
   textarea.id = "agent-files-text";
   textarea.value = file.text;
-  textarea.rows = 12;
   textarea.spellcheck = true;
   const label = el("label", "settings-kit.field.file-text", "What the file says", "sr-only");
   label.htmlFor = textarea.id;
   const preview = el("div", undefined, undefined, "agent-files-preview");
   preview.setAttribute("aria-label", say("agent-files.preview", "Preview"));
+  const pane = el("div", undefined, undefined, "agent-file-ed");
+  pane.append(label, textarea, preview);
   const size = el("p", undefined, undefined, "field-note agent-files-size");
   size.id = "agent-files-size";
   size.setAttribute("aria-live", "polite");
   textarea.setAttribute("aria-describedby", size.id);
-  const status = el("p", undefined, undefined, "meta");
-  status.setAttribute("role", "status");
-  const save = button("settings-kit.save-file", "Save this file", async () => {
+  const save = button("action.save", "Save", async () => {
     save.disabled = true;
-    try { await api("settings-kit/files", { slot, text: textarea.value }); await reopen(); document.querySelector(".agent-files-editor [role=status]").textContent = say("settings-kit.file-saved", "Saved. It is read from your next task."); }
+    try { await api("settings-kit/files", { slot, text: textarea.value }); dialog.close(); await saved(); }
     catch (error) { status.textContent = error.message; save.disabled = false; }
   }, "");
-  const undo = button("agent-files.undo", "Undo the last save", async () => {
-    undo.disabled = true;
-    try { await api("settings-kit/files/undo", { slot }); await reopen(); document.querySelector(".agent-files-editor [role=status]").textContent = say("agent-files.undone", "The last save was undone."); }
-    catch (error) { status.textContent = error.message; undo.disabled = false; }
-  });
-  undo.disabled = !file.lastSave;
-  const starter = button("agent-files.starter", "Start from the usual shape", () => {
-    textarea.value = say(`agent-files.starter.${slot}`, say("agent-files.starter.default", "# \n\n- \n"));
-    textarea.dispatchEvent(new Event("input"));
-  });
-  starter.hidden = Boolean(file.text.trim());
-  textarea.addEventListener("input", () => { counter(textarea.value, file.limit, size, save); starter.hidden = Boolean(textarea.value.trim()); });
-  counter(textarea.value, file.limit, size, save);
-  const actions = el("div", undefined, undefined, "agent-files-actions");
-  actions.append(save, undo, starter);
-  const parts = [tabs(button("agent-files.write", "Write", () => {}), preview, textarea), label, textarea, preview, size, actions, status];
-  if (file.setting === "off") parts.push(el("p", "settings-kit.file-off", "This file is switched off, so it is not read yet.", "field-note"));
-  return parts;
+  const show = () => { fillMarkdown(preview, textarea.value || say("agent-files.nothing", "Nothing written yet.")); sizeGuard(textarea.value, file.limit, size, save); };
+  textarea.addEventListener("input", show);
+  show();
+  const tools = el("div", undefined, undefined, "agent-file-tools");
+  tools.append(starterPicker(file, slot, textarea));
+  if (slot === "agents") tools.append(writeForMe(textarea, status));
+  tools.append(el("span", undefined, undefined, "agent-file-grow"), tabs(pane));
+  const foot = el("div", undefined, undefined, "agent-file-foot");
+  foot.append(historyList(file.history ?? [], textarea, status));
+  if (file.where) { const where = el("small", undefined, file.where, "meta agent-file-path"); where.dataset.level = "technical"; foot.append(where); }
+  const actions = el("div", undefined, undefined, "agent-file-actions");
+  actions.append(button("agent-files.cancel", "Cancel", () => dialog.close()), save);
+  foot.append(actions);
+  return [tools, pane, size, status, foot];
+}
+
+/** The X of the dialog's corner, drawn in the text colour. */
+function crossIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M6 6l12 12M18 6 6 18");
+  svg.append(path);
+  return svg;
+}
+
+/** The assistant's name, as its identity card has it. */
+const assistantName = () => document.getElementById("identity-name")?.value.trim() || "Branch";
+
+/** Opens one file in the editor dialog. It lives inside the card, so leaving the owner's profile takes it away too. */
+async function openEditor(section, slot, saved, listStatus) {
+  let file;
+  try { file = await api(`settings-kit/files/${slot}`); } catch (error) { listStatus.textContent = error.message; return; }
+  section.querySelector(".agent-file-dialog")?.remove();
+  const dialog = el("dialog", undefined, undefined, "agent-file-dialog");
+  const title = el("h2", undefined, say("agent-files.dialog-title", `${file.name} — ${assistantName()}`, { name: file.name, assistant: assistantName() }), "agent-file-dialog-title");
+  title.id = "agent-file-dialog-title";
+  dialog.setAttribute("aria-labelledby", title.id);
+  const close = button(undefined, undefined, () => dialog.close(), "quiet-button agent-file-dialog-x");
+  close.setAttribute("aria-label", say("agent-files.close", "Close"));
+  close.append(crossIcon());
+  const head = el("div", undefined, undefined, "agent-file-dialog-head");
+  head.append(title, close);
+  const body = el("div", undefined, undefined, "agent-file-dialog-body");
+  body.append(el("p", `settings-kit.slot.${slot}`, ABOUT[slot] ?? "", "agent-file-dialog-about"));
+  dialog.append(head, body);
+  if (file.editable) body.append(...editorParts(file, slot, dialog, saved));
+  else body.append(el("p", ...(WHY[file.why] ?? ["settings-kit.why.other", "This file cannot be changed here. Open it in your own editor."]), "field-note"));
+  dialog.addEventListener("close", () => dialog.remove());
+  section.append(dialog);
+  dialog.showModal();
+  dialog.querySelector("textarea")?.focus();
 }
 
 /** Draws the real file editor on Settings › Instructions & personality. */
@@ -182,16 +272,15 @@ export async function drawAgentFiles() {
   section.append(el("h3", "agent-files.title", "Its files", "settings-card-title sr-only"),
     el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do.", "sr-only"));
   const list = el("ul", undefined, undefined, "agent-files-list");
-  const area = el("div", undefined, undefined, "agent-files-editor");
-  area.hidden = true;
   const status = el("p", undefined, undefined, "meta agent-files-status");
   status.setAttribute("role", "status");
-  const fill = (files) => list.replaceChildren(...files.map((entry) => fileRow(entry, (slot) => openEditor(area, list, slot, refresh), choose)));
+  const fill = (files) => list.replaceChildren(...files.map((entry) => fileRow(entry, (slot) => openEditor(section, slot, saved, status), choose)));
   const refresh = async () => { try { fill((await api("settings-kit/files")).files); } catch { /* the list stays as it was */ } };
   const choose = chooser(refresh, status);
+  const saved = async () => { status.textContent = say("settings-kit.file-saved", "Saved. It is read from your next task."); await refresh(); };
   redrawList = refresh;
   fill(map.files);
-  section.append(list, area, el("p", "agent-files.footnote", FOOTNOTE, "subtle agent-files-foot"), status);
+  section.append(list, el("p", "agent-files.footnote", FOOTNOTE, "subtle agent-files-foot"), status);
   document.body.append(section);
 }
 
@@ -215,7 +304,7 @@ function chooser(refresh, status) {
 
 if (typeof document !== "undefined") {
   globalThis.branchAgentFiles = { draw: drawAgentFiles, refresh: () => redrawList?.() };
-  document.addEventListener("branch-language", () => { if (!document.querySelector(".agent-files-editor:not([hidden])")) void drawAgentFiles(); });
+  document.addEventListener("branch-language", () => { if (!document.querySelector(".agent-file-dialog[open]")) void drawAgentFiles(); });
   document.addEventListener("branch-profile", (event) => {
     drawGeneration += 1;
     document.getElementById("agent-files")?.remove();

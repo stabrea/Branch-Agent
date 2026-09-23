@@ -5,7 +5,9 @@ import { lockedDown } from "../lockdown.js";
 import { settingsCatalogue } from "./catalogue.js";
 import { applyWithPins, changesFor, currentValue, resetProposals, type Proposal, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
-import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
+import { fileHistory, fileMap, fileWhere, openFile, saveFile, SlotSchema } from "./file-map.js";
+import { draftInstructions, projectFacts } from "../coding/init.js"; // DG-182: "Write it for me"
+import { WorkspaceFiles } from "../files.js";
 import { perFileBytes } from "../context-files.js"; // phase2/accounts
 import { presetFor, presets } from "./presets.js";
 import { exportSettings, maximumSettingsFileBytes, readSettingsFile } from "./transfer.js";
@@ -128,6 +130,20 @@ function apply(deps: SettingsKitDeps, input: unknown) {
   return { applied, skipped, overview: overview(deps) };
 }
 
+/**
+ * DG-182: "Write it for me" in the editor. AGENTS.md drafted from this workspace's own files, the same plain
+ * draft /init makes without a model (src/coding/init.ts), so it spends nothing. Only handed back, never
+ * written: the owner reads it in the editor and Save writes it with every check. Only where the file may be
+ * changed here, so an untrusted project folder is not read for it.
+ */
+const FileDraftSchema = z.object({ slot: z.literal("agents") }).strict();
+async function draft(deps: SettingsKitDeps, input: unknown): Promise<{ text: string }> {
+  const { slot } = FileDraftSchema.parse(input);
+  if (!openFile(deps.store, deps.owner, deps.workspace, slot).editable)
+    throw new SettingsKitError(400, "This file cannot be changed here, so nothing was drafted for it.");
+  return { text: `${draftInstructions(await projectFacts(new WorkspaceFiles(deps.workspace)))}\n` };
+}
+
 export async function settingsKitApi(deps: SettingsKitDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
   // The switches, the settings file and the text of the owner's own files are the owner's alone.
   ownerOnly(deps, "Settings");
@@ -138,8 +154,9 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   if (method === "GET" && slot) {
     const key = SlotSchema.safeParse(slot[1]);
     if (!key.success) throw new SettingsKitError(404, "There is no such file.");
-    // phase2/accounts: whether the last save here can be undone, and the most Branch reads.
-    return { ...openFile(deps.store, deps.owner, deps.workspace, key.data), lastSave: lastSave(deps.store, deps.owner, key.data), limit: perFileBytes };
+    // DG-182: its History (what it held before each save here), where it is kept, and the most Branch reads.
+    return { ...openFile(deps.store, deps.owner, deps.workspace, key.data), history: fileHistory(deps.store, deps.owner, deps.workspace, key.data),
+      where: fileWhere(deps.store, deps.owner, deps.workspace, key.data), limit: perFileBytes };
   }
   if (method !== "POST") throw new SettingsKitError(404, "Not found");
   if (path === "/api/settings-kit/preview") {
@@ -153,10 +170,6 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
     try { return saveFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }
     catch (error) { throw error instanceof z.ZodError ? error : new SettingsKitError(400, (error as Error).message); }
   }
-  if (path === "/api/settings-kit/files/undo") { // phase2/accounts: undo of the last save made here
-    const input = await body();
-    try { return undoFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }
-    catch (error) { throw error instanceof z.ZodError ? error : new SettingsKitError(409, (error as Error).message); }
-  }
+  if (path === "/api/settings-kit/files/draft") return draft(deps, await body());
   throw new SettingsKitError(404, "Not found");
 }

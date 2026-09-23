@@ -1,6 +1,6 @@
 /**
  * The assistant's own files in Settings › Instructions & personality, with
- * an editor, a preview, the size limit Branch reads, and an undo of the last save. The owner's alone:
+ * an editor dialog with a preview, the size limit Branch reads, and a History of earlier saves (DG-182). The owner's alone:
  * a household profile and a short-lived key are refused the text and every change.
  */
 import test from "node:test";
@@ -30,59 +30,68 @@ async function served(t) {
   return { app, server, call, root };
 }
 
-test("F1 undo puts back the text before the last save, and removes a file the save made", async (t) => {
+test("F1 each save here keeps what the file held before in its History, newest first, and ten at most", async (t) => {
   const { app, call } = await served(t);
   const soul = join(app.store.folder, "SOUL.md");
   assert.equal((await call("POST", "/api/settings-kit/files", { slot: "soul", text: "Be brief." })).status, 200);
   assert.equal(await readFile(soul, "utf8"), "Be brief.\n");
-  assert.ok((await call("GET", "/api/settings-kit/files/soul")).body.lastSave, "a save here can be undone");
+  assert.deepEqual((await call("GET", "/api/settings-kit/files/soul")).body.history, [], "a file the save made had nothing before it");
   assert.equal((await call("POST", "/api/settings-kit/files", { slot: "soul", text: "Be very brief." })).status, 200);
-  const undone = await call("POST", "/api/settings-kit/files/undo", { slot: "soul" });
-  assert.equal(undone.status, 200);
-  assert.equal(await readFile(soul, "utf8"), "Be brief.\n", "only the last save is undone");
-  assert.equal((await call("GET", "/api/settings-kit/files/soul")).body.lastSave, null, "one undo, then nothing waits");
-  assert.equal((await call("POST", "/api/settings-kit/files/undo", { slot: "soul" })).status, 409);
-  await call("POST", "/api/settings-kit/files", { slot: "user", text: "Call me Taofik." });
-  assert.ok(existsSync(join(app.store.folder, "USER.md")));
-  assert.equal((await call("POST", "/api/settings-kit/files/undo", { slot: "user" })).status, 200);
-  assert.equal(existsSync(join(app.store.folder, "USER.md")), false, "a file the save made is taken away again");
+  assert.equal((await call("POST", "/api/settings-kit/files", { slot: "soul", text: "Be very brief." })).status, 200);
+  const opened = (await call("GET", "/api/settings-kit/files/soul")).body;
+  assert.deepEqual(opened.history.map((version) => version.text), ["Be brief.\n"], "saving the same words again keeps nothing new");
+  assert.ok(!Number.isNaN(Date.parse(opened.history[0].at)));
+  assert.equal(opened.where, soul);
+  for (let index = 0; index < 12; index += 1) await call("POST", "/api/settings-kit/files", { slot: "soul", text: `Version ${index}.` });
+  const history = (await call("GET", "/api/settings-kit/files/soul")).body.history;
+  assert.equal(history.length, 10);
+  assert.equal(history[0].text, "Version 10.\n", "the newest first");
+  assert.equal((await call("POST", "/api/settings-kit/files/undo", { slot: "soul" })).status, 404, "History replaced the one undo");
 });
 
-test("F2 a change made elsewhere since the save is never overwritten, and the size limit holds", async (t) => {
-  const { app, call } = await served(t);
-  await call("POST", "/api/settings-kit/files", { slot: "soul", text: "First." });
-  await writeFile(join(app.store.folder, "SOUL.md"), "Changed in another editor.\n");
-  const refused = await call("POST", "/api/settings-kit/files/undo", { slot: "soul" });
-  assert.equal(refused.status, 409);
-  assert.match(refused.body.error, /changed after it was saved here/);
-  assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "Changed in another editor.\n");
+test("F2 the size limit holds", async (t) => {
+  const { call } = await served(t);
   const long = await call("POST", "/api/settings-kit/files", { slot: "soul", text: "x".repeat(8001) });
   assert.equal(long.status, 400);
   assert.equal((await call("GET", "/api/settings-kit/files/soul")).body.limit, 8000);
 });
 
-test("F3 a household profile and a short-lived key get neither the text nor the undo", async (t) => {
+test("F3 a household profile and a short-lived key get neither the text, its History nor a draft", async (t) => {
   const { app, call } = await served(t);
   const first = await call("POST", "/api/settings-kit/files", { slot: "memory", text: "The NAS backs up at two." });
   assert.equal(first.status, 200, first.body.error);
+  await call("POST", "/api/settings-kit/files", { slot: "memory", text: "The NAS backs up at three." });
   const run = app.sessionTokens.create(app.runtime.owner, { name: "script", scope: "run", minutes: 5 }).token;
   assert.equal((await call("GET", "/api/settings-kit/files/memory", undefined, run)).status, 401);
-  assert.equal((await call("POST", "/api/settings-kit/files/undo", { slot: "memory" }, run)).status, 401);
+  assert.equal((await call("POST", "/api/settings-kit/files/draft", { slot: "agents" }, run)).status, 401);
   const sam = (await call("POST", "/api/profiles", { name: "Sam", pin: "2468" })).body;
   assert.equal((await call("POST", "/api/profiles/switch", { profileId: sam.id, pin: "2468" })).status, 200);
   const read = await call("GET", "/api/settings-kit/files/memory");
   assert.equal(read.status, 400);
-  assert.ok(!JSON.stringify(read.body).includes("NAS"), "not a word of the file reaches a household person");
-  assert.equal((await call("POST", "/api/settings-kit/files/undo", { slot: "memory" })).status, 400);
+  assert.ok(!JSON.stringify(read.body).includes("NAS"), "not a word of the file or its History reaches a household person");
+  assert.equal((await call("POST", "/api/settings-kit/files/draft", { slot: "agents" })).status, 400);
   assert.equal((await call("POST", "/api/profiles/switch", { profileId: null })).status, 200);
-  const owners = await call("POST", "/api/settings-kit/files/undo", { slot: "memory" });
-  assert.equal(owners.status, 200, `the owner still can: ${owners.body.error}`);
+  const owners = await call("GET", "/api/settings-kit/files/memory");
+  assert.equal(owners.body.history[0].text, "The NAS backs up at two.\n", "the owner still can");
   const tools = [...app.runtime.registry?.list?.() ?? []].map((tool) => tool.name ?? tool);
   assert.ok(!tools.some((name) => /context\.(write|save|edit)/.test(name)), "no tool writes these files, so no chat app can");
 });
 
-test("F4 the card: eight files, an editor with a preview and a counter, Save, and Undo the last save", async (t) => {
-  const { app, server } = await served(t);
+test("F3b Write it for me drafts AGENTS.md from this workspace without writing it, and only for AGENTS.md", async (t) => {
+  const { app, call } = await served(t);
+  await writeFile(join(app.runtime.workspace, "package.json"), JSON.stringify({ name: "shop-notes", scripts: { build: "tsc", test: "node --test" } }));
+  const drafted = await call("POST", "/api/settings-kit/files/draft", { slot: "agents" });
+  assert.equal(drafted.status, 200, drafted.body.error);
+  assert.match(drafted.body.text, /^# shop-notes/);
+  assert.match(drafted.body.text, /npm run build/);
+  assert.equal(existsSync(join(app.runtime.workspace, "AGENTS.md")), false, "a draft is only handed back");
+  assert.equal((await call("POST", "/api/settings-kit/files/draft", { slot: "soul" })).status, 400);
+});
+
+test("F4 the editor dialog: a starter, the text beside its preview, History with Put this back, Cancel and Save", async (t) => {
+  const { app, server, call } = await served(t);
+  await call("POST", "/api/settings-kit/files", { slot: "heartbeat", text: "# Before" });
+  await call("POST", "/api/settings-kit/files", { slot: "heartbeat", text: "# Now" });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   for (const width of [1440, 390]) {
@@ -99,27 +108,84 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
     assert.equal(await card.evaluate((node) => node.closest(".lx-page")?.id), "lx-page-instructions");
     assert.equal(await card.locator(".agent-file").count(), 8);
     await card.getByRole("button", { name: "Edit HEARTBEAT.md" }).click();
-    const text = card.getByLabel("What the file says");
-    await card.getByRole("button", { name: "Start from the usual shape" }).click();
+    const dialog = page.getByRole("dialog", { name: /^HEARTBEAT\.md — / });
+    await dialog.waitFor();
+    assert.equal(await dialog.evaluate((node) => node.matches(":modal")), true, "a dialog, not an editor in the list");
+    assert.equal(await dialog.locator(".agent-file-dialog-about").innerText(), "What it checks on by itself when it wakes on a schedule.");
+    const text = dialog.getByLabel("What the file says");
+    const current = await readFile(join(app.runtime.workspace, "HEARTBEAT.md"), "utf8");
+    assert.equal(await text.inputValue(), current);
+    await dialog.getByLabel("Start from a starter").selectOption("usual");
     assert.match(await text.inputValue(), /On each scheduled wake/);
+    await dialog.getByLabel("Start from a starter").selectOption("blank");
+    assert.equal(await text.inputValue(), "# HEARTBEAT\n\n");
+    assert.equal(await dialog.getByRole("button", { name: "Write it for me" }).count(), 0, "drafting is for AGENTS.md");
     await text.fill("# Morning\n\n- Is the backup done?");
-    assert.match(await card.locator("#agent-files-size").innerText(), /of 8,000 bytes/);
-    await card.getByRole("button", { name: "Preview" }).click();
-    await card.locator(".agent-files-preview h1, .agent-files-preview h2, .agent-files-preview h3", { hasText: "Morning" }).first().waitFor();
-    await card.getByRole("button", { name: "Write" }).click();
+    const preview = dialog.locator(".agent-files-preview");
+    const heading = preview.locator("h1, h2, h3", { hasText: "Morning" }).first();
+    if (width > 760) {
+      assert.equal(await heading.isVisible(), true, "the preview sits beside the text");
+      assert.equal(await dialog.getByRole("button", { name: "Preview", exact: true }).isVisible(), false, "wide: no tabs");
+    }
+    else {
+      assert.equal(await preview.isVisible(), false, "narrow: one at a time");
+      await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+      await heading.waitFor();
+      await dialog.getByRole("button", { name: "Write", exact: true }).click();
+    }
+    assert.equal(await dialog.locator("#agent-files-size").isVisible(), false, "no counter until the text is too long");
     await text.fill("x".repeat(8001));
-    assert.equal(await card.getByRole("button", { name: "Save this file" }).isDisabled(), true, "too long cannot be saved");
-    await text.fill(`# Morning ${width}`);
-    await card.getByRole("button", { name: "Save this file" }).click();
-    await card.locator("[role=status]", { hasText: "Saved" }).waitFor();
-    assert.equal(await readFile(join(app.runtime.workspace, "HEARTBEAT.md"), "utf8"), `# Morning ${width}\n`);
-    await card.getByRole("button", { name: "Undo the last save" }).click();
-    await card.locator("[role=status]", { hasText: "undone" }).waitFor();
-    assert.equal(existsSync(join(app.runtime.workspace, "HEARTBEAT.md")), false);
+    assert.match(await dialog.locator("#agent-files-size").innerText(), /of 8,000 bytes/);
+    assert.equal(await dialog.getByRole("button", { name: "Save", exact: true }).isDisabled(), true, "too long cannot be saved");
+    await dialog.locator(".agent-file-history summary").click();
+    assert.match(await dialog.locator(".agent-file-history summary").innerText(), /^History \(\d+\)$/);
+    await dialog.locator(".agent-file-version").last().getByRole("button", { name: /^Put back the version from / }).click();
+    assert.equal(await text.inputValue(), "# Before\n");
+    await dialog.getByRole("status").filter({ hasText: "Save to keep it" }).waitFor();
+    assert.equal(await readFile(join(app.runtime.workspace, "HEARTBEAT.md"), "utf8"), current, "Put this back only fills the editor");
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await dialog.waitFor({ state: "detached" });
+    await card.getByRole("button", { name: "Edit HEARTBEAT.md" }).click();
+    await dialog.getByLabel("What the file says").fill(`Check the backup at ${width}.`);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.waitFor({ state: "detached" });
+    await card.locator(".agent-files-status", { hasText: "Saved" }).waitFor();
+    assert.equal(await readFile(join(app.runtime.workspace, "HEARTBEAT.md"), "utf8"), `Check the backup at ${width}.\n`);
+    assert.equal(await card.locator(".agent-file", { hasText: "HEARTBEAT.md" }).locator(".agent-file-first").innerText(), `Check the backup at ${width}.`, "the list is drawn again");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
     assert.deepEqual(errors, []);
     await page.close();
   }
+});
+
+test("F4a Write it for me fills the AGENTS.md editor with the workspace's draft, in French too", async (t) => {
+  const { app, server } = await served(t);
+  await writeFile(join(app.runtime.workspace, "package.json"), JSON.stringify({ name: "shop-notes", scripts: { test: "node --test" } }));
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
+  await openSettings(page, "instructions");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.locator("#agent-files .agent-files-foot", { hasText: "Chaque fichier" }).waitFor();
+  await page.locator("#agent-files").getByRole("button", { name: "Modifier AGENTS.md" }).click();
+  const dialog = page.getByRole("dialog", { name: /^AGENTS\.md — / });
+  await dialog.getByRole("button", { name: "L’écrire pour moi" }).click();
+  await dialog.getByRole("status").filter({ hasText: "Relisez-le avant d’enregistrer" }).waitFor();
+  assert.match(await dialog.getByRole("textbox").inputValue(), /^# shop-notes/);
+  assert.equal(existsSync(join(app.runtime.workspace, "AGENTS.md")), false, "nothing is written until Save");
+  assert.equal(await dialog.locator(".agent-file-history summary").innerText(), "Historique (0)");
+  assert.equal(await dialog.getByRole("button", { name: "Annuler", exact: true }).isVisible(), true);
+  assert.equal(await dialog.getByRole("button", { name: "Enregistrer", exact: true }).isVisible(), true);
+  assert.equal(await dialog.getByRole("button", { name: "Fermer" }).isVisible(), true);
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  assert.deepEqual(errors, []);
 });
 
 test("F4b switching profiles clears an open owner-only editor before it can be read", async (t) => {
@@ -188,28 +254,17 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').evaluate((node) => node.checkVisibility()), true);
 });
 
-// Integration review: undo re-checks where the file is and whether it may be written, and the saved
-// texts never reach the diagnostics summary.
-test("F5 undo refuses once the file moved or its folder lost trust, and the diagnostics summary holds no text", async (t) => {
+// DG-182: History belongs to the file Branch reads today, and the kept texts never reach the diagnostics summary.
+test("F5 History is only offered for the file Branch reads today, and the diagnostics summary holds no text", async (t) => {
   const { app, call } = await served(t);
   const { settingsSummary } = await import("../dist/diagnostic-api.js");
-  const { saveFolderTrustSettings, decideFolder } = await import("../dist/folder-trust.js");
   await writeFile(join(app.store.folder, "SOUL.md"), "calm");
   assert.equal((await call("POST", "/api/settings-kit/files", { slot: "soul", text: "Be kind." })).status, 200);
+  assert.equal((await call("GET", "/api/settings-kit/files/soul")).body.history[0].text, "calm");
   assert.ok(!JSON.stringify(settingsSummary(app)).includes("calm"), "the text before a save is not in the diagnostics summary");
-  // A SOUL.md now in the project is the one Branch reads, so the saved one is no longer "this file".
+  // A SOUL.md now in the project is the one Branch reads, so the saved one's History is not this file's.
   await writeFile(join(app.runtime.workspace, "SOUL.md"), "Project soul.\n");
-  const moved = await call("POST", "/api/settings-kit/files/undo", { slot: "soul" });
-  assert.equal(moved.status, 409);
-  assert.match(moved.body.error, /no longer where it was saved/);
-  assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "Be kind.\n");
-  assert.equal(await readFile(join(app.runtime.workspace, "SOUL.md"), "utf8"), "Project soul.\n");
-  // A project file saved while the folder was trusted is not put back after the owner distrusts it.
-  const saved = await call("POST", "/api/settings-kit/files", { slot: "tools", text: "Use the NAS." });
-  assert.equal(saved.status, 200, saved.body.error);
-  saveFolderTrustSettings(app.store, app.runtime.owner, { mode: "on" });
-  decideFolder(app.store, app.runtime.owner, app.runtime.workspace, { folder: "", decision: "distrust" });
-  const distrusted = await call("POST", "/api/settings-kit/files/undo", { slot: "tools" });
-  assert.equal(distrusted.status, 409);
-  assert.equal(await readFile(join(app.runtime.workspace, "TOOLS.md"), "utf8"), "Use the NAS.\n", "nothing written in a folder that is not trusted");
+  const moved = (await call("GET", "/api/settings-kit/files/soul")).body;
+  assert.equal(moved.where, join(app.runtime.workspace, "SOUL.md"));
+  assert.deepEqual(moved.history, []);
 });

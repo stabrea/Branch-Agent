@@ -90,8 +90,10 @@ test("DG-182: each file's row has the sample's words, its first line, Off / When
   await page.waitForFunction(() => document.getElementById("context-switch-soul")?.value === "when-needed");
   await card.locator(".agent-file", { hasText: "SOUL.md" }).getByRole("button", { name: "Edit SOUL.md" }).click();
   await card.getByLabel("What the file says").waitFor();
+  assert.equal(await card.locator(".agent-file-dialog .agent-file-path").isVisible(), false, "the editor's path waits for Technical");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
-  await card.getByRole("button", { name: "Back to all files" }).click();
+  await card.locator(".agent-file-dialog .agent-file-path").waitFor();
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.equal(await card.locator(".agent-file", { hasText: "SOUL.md" }).locator(".agent-file-where").isVisible(), true);
   await page.evaluate(() => globalThis.branchSettingsLevel.set("regular"));
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

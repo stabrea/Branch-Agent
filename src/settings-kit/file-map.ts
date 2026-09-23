@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import type { Store } from "../store.js";
@@ -121,11 +121,11 @@ export function saveFile(store: Store, owner: string, workspace: string, input: 
   if (place.exists && !lstatSync(place.path).isFile()) throw new Error("That is not a plain file, so nothing was written.");
   const refused = resolve(dirname(place.path)) === resolve(store.folder) ? null : guard?.(place.path);
   if (refused) throw new Error(refused);
-  // phase2/accounts: what the file held before, so the last save here can be undone (`undoFile`).
+  // DG-182: what the file held before, kept in its History so the editor can put it back (`fileHistory`).
   const before = place.exists ? readFileSync(place.path, "utf8") : null;
   const after = text.endsWith("\n") || !text ? text : `${text}\n`;
   writeWhole(place.path, place.exists, after);
-  store.save("settings", owner, undoKey(slot), { path: place.path, at: new Date().toISOString(), text: { before, after } } satisfies UndoRecord);
+  if (before !== null && before !== after) keepVersion(store, owner, slot, { path: place.path, at: new Date().toISOString(), text: before });
   return openFile(store, owner, workspace, slot);
 }
 function writeWhole(path: string, exists: boolean, text: string): void {
@@ -136,44 +136,40 @@ function writeWhole(path: string, exists: boolean, text: string): void {
   } finally { closeSync(handle); }
 }
 
-/* ---------- phase2/accounts (critique #40): undo of the last save made here ---------- */
+/* ---------- DG-182: History, what each file held before the saves made here ---------- */
 
 /**
- * Integration review: the two texts sit one level down, so the diagnostics summary (which keeps only a
- * record's top-level switch-like values, src/diagnostic-api.ts) never copies a word of the file.
+ * The versions sit one level down (in a list), so the diagnostics summary (which keeps only a record's
+ * top-level switch-like values, src/diagnostic-api.ts) never copies a word of a file.
  */
-interface UndoRecord { path: string; at: string; text: { before: string | null; after: string } }
-const undoKey = (slot: SlotKey): string => `settings-kit-file-undo-${slot}`;
-export const FileUndoSchema = z.object({ slot: SlotSchema }).strict();
+interface Version { path: string; at: string; text: string }
+interface HistoryRecord { versions: Version[] }
+const historyKey = (slot: SlotKey): string => `settings-kit-file-history-${slot}`;
+/** How many earlier versions of one file are kept. */
+export const historyLength = 10;
 
-/** When the last save here was made, while it can still be undone; null when there is nothing to undo. */
-export function lastSave(store: Store, owner: string, slot: SlotKey): string | null {
-  const record = store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined;
-  return record?.text ? record.at : null;
+function keepVersion(store: Store, owner: string, slot: SlotKey, version: Version): void {
+  const record = store.get("settings", owner, historyKey(slot))?.data as HistoryRecord | undefined;
+  const versions = [version, ...(record?.versions ?? [])].slice(0, historyLength);
+  store.save("settings", owner, historyKey(slot), { versions } satisfies HistoryRecord);
 }
 
+export interface FileVersion { at: string; text: string }
+
 /**
- * Puts back what the file held before the last save here: the old text, or no file at all when the
- * save made it. Only while the file still holds exactly what was saved, so a change made since (in
- * another editor, by a task) is never overwritten; the same plain-file and never-break checks apply.
+ * The earlier versions of the file Branch reads for this slot today, newest first. A version kept while
+ * another file of the slot was read (a project's SOUL.md that has since appeared or gone) is not offered:
+ * it was a different file. Putting one back only fills the editor; Save writes it, with every check.
  */
-export function undoFile(store: Store, owner: string, workspace: string, input: unknown, guard?: (target: string) => string | null): OpenedFile {
-  const { slot } = FileUndoSchema.parse(input);
-  const record = store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined;
-  if (!record?.text) throw new Error("There is no save here to undo.");
-  // Integration review: only where this file is today, and only while it may be written here (the
-  // project folder or its trust may have changed since the save).
+export function fileHistory(store: Store, owner: string, workspace: string, slot: SlotKey): FileVersion[] {
   const place = placeFor(store, owner, workspace, slot);
-  if (!place || resolve(place.path) !== resolve(record.path) || !openFile(store, owner, workspace, slot).editable)
-    throw new Error("This file is no longer where it was saved, or may no longer be changed here, so nothing was undone.");
-  const { before, after } = record.text;
-  const found = lstatSync(record.path, { throwIfNoEntry: false });
-  if (!found?.isFile() || found.nlink > 1 || readFileSync(record.path, "utf8") !== after)
-    throw new Error("The file changed after it was saved here, so nothing was undone.");
-  const refused = resolve(dirname(record.path)) === resolve(store.folder) ? null : guard?.(record.path);
-  if (refused) throw new Error(refused);
-  if (before === null) unlinkSync(record.path);
-  else writeWhole(record.path, true, before);
-  store.delete("settings", owner, undoKey(slot));
-  return openFile(store, owner, workspace, slot);
+  if (!place) return [];
+  const record = store.get("settings", owner, historyKey(slot))?.data as HistoryRecord | undefined;
+  return (record?.versions ?? []).filter((version) => resolve(version.path) === resolve(place.path))
+    .map(({ at, text }) => ({ at, text }));
+}
+
+/** DG-182: where the slot's file is, or where a new one would be written; null when its folder is not trusted. */
+export function fileWhere(store: Store, owner: string, workspace: string, slot: SlotKey): string | null {
+  return placeFor(store, owner, workspace, slot)?.path ?? null;
 }
