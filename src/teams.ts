@@ -167,7 +167,7 @@ export class Teams {
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
     // The plan names every member before any starts, so reconcile can say which never ran.
     this.store.event(parent.id, "team.members.planned", { members: team.members.map((member, index) => ({ member: `m${index}`, role: member.role })) });
-    // Written on the team's own run before any member starts, so reconcile knows members were sent even if their conversations are deleted.
+    // Written on the team's own run before any member starts, as a record of how many were sent.
     this.store.event(parent.id, membersSentKind, { members: tasks.length });
     turn.membersStarted = true;
     const outcomes = await this.fanOutInBatches(runtime, context, tasks, (taskId) => specs.get(taskId)!);

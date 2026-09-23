@@ -1,6 +1,6 @@
 import type { Store } from "./store.js";
 import type { RunStatus } from "./contracts.js";
-import { StaleTeamTaskClaimError, type TeamTaskClaim, type TeamTaskScope, type TeamTaskState, type TeamTasks } from "./team-tasks.js";
+import { StaleTeamTaskClaimError, type TeamTask, type TeamTaskClaim, type TeamTaskScope, type TeamTaskState, type TeamTasks } from "./team-tasks.js";
 
 /**
  * Team turn lineage (Q63): what a team task's turn did, read back from the runtime's own record.
@@ -204,8 +204,8 @@ export function finishTeamTask(store: Store, tasks: TeamTasks, claim: TeamTaskCl
 
 /**
  * The parent-side record that the members were sent out, written on the team's own run before the
- * fanout starts. Member runs live in conversations of their own, which the owner may delete; this
- * record and the runtime's "delegation.fanout" (which names each member's run) stay with the parent.
+ * fanout starts. It is a record only: whether a member's conversation was deleted is marked by the
+ * delete itself (markDeletedTurnParts), never inferred from how many member runs are left.
  */
 export const membersSentKind = "team.members_sent";
 
@@ -415,7 +415,7 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   const finished = finishFromRecord(store, tasks, claim, task.result as (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null);
   if (finished) return report(finished.state, finished.note);
   // The owner deleted the turn's own conversation or a member's: what it did cannot be read back, so it is never "nothing was done".
-  const deleted = recordDeleted(store, task, root);
+  const deleted = recordDeleted(store, task);
   if (deleted) {
     tasks.markNeedsReconciliation(claim, deleted);
     return report("needs_reconciliation", deleted);
@@ -427,37 +427,21 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
 }
 
 /**
- * Why the turn's record is incomplete because the owner deleted part of it, or null: the task names a
- * turn run or conversation that no longer exists, or the parent's own record names members whose runs are gone.
+ * Why the turn's record is incomplete because the owner deleted part of it, or null. The task names a
+ * turn run or conversation that no longer exists, or the store marked the task as the owner deleted a
+ * conversation holding part of its turn (markDeletedTurnParts, src/team-tasks.ts, written in the same
+ * transaction as the delete). Nothing is inferred by counting runs: a crash before any member started
+ * leaves no mark, so it is settled by what the record shows.
  */
-function recordDeleted(store: Store, task: { parentRunId: string | null; parentSessionId: string | null }, root: string | null): string | null {
+function recordDeleted(store: Store, task: TeamTask): string | null {
   const own = (task.parentRunId && !store.run(task.parentRunId))
     || (!!task.parentSessionId && !store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(task.parentSessionId));
-  if (own) return "Its record was deleted, so what it did cannot be known; check before trying again.";
-  if (root && lineageRuns(store, root).some((runId) => membersMissing(store, runId)))
+  if (own || task.deletedParts?.turn) return "Its record was deleted, so what it did cannot be known; check before trying again.";
+  if (task.deletedParts?.member)
     return "Its record is incomplete: a member's conversation was deleted, so what it did cannot be known; check before trying again.";
+  if (task.deletedParts?.room)
+    return "The team's room was deleted while this turn was open, so its answers have nowhere to go; check before trying again.";
   return null;
-}
-
-/**
- * True when this run's own record says it sent members out and not all of them are still on record:
- * its "delegation.fanout" names a member run that is gone, or (cut off before that was written) it
- * sent more members than there are runs still started under it.
- */
-function membersMissing(store: Store, runId: string): boolean {
-  const recorded = (kind: string) => store.sqlite.prepare("SELECT data FROM events WHERE run_id=? AND kind=?").all(runId, kind)
-    .map((row) => JSON.parse(String(row.data)) as { tasks?: Record<string, { runId?: unknown }>; members?: unknown });
-  const fanouts = recorded("delegation.fanout");
-  if (fanouts.some((fanout) => memberRunGone(store, Object.values(fanout.tasks ?? {}).map((member) => member.runId)))) return true;
-  if (fanouts.length) return false;
-  const startedRuns = Number(store.sqlite.prepare("SELECT COUNT(*) AS n FROM events WHERE kind='run.started' AND json_extract(data,'$.parentRunId')=?").get(runId)?.n ?? 0);
-  // Q66: members go in batches, so before the first batch's record only that batch was sent, not the
-  // whole team. Later batches are covered above: once a batch is recorded, its members answered, and a
-  // turn whose members answered already needs a person.
-  const batches = recorded("team.batch.started");
-  const sent = batches.length ? batches.flatMap((batch) => (Array.isArray(batch.members) ? batch.members : [])).length
-    : Math.max(0, ...recorded(membersSentKind).map((record) => Number(record.members ?? 0)));
-  return startedRuns < sent;
 }
 
 function waitingReport(report: (state: TeamTaskState, note: string) => ReconcileReport, state: TeamTaskState): ReconcileReport {
