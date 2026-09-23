@@ -138,6 +138,13 @@ export class TeamTasks {
     this.fenced(claim, "state='needs_reconciliation', error=?", [error.slice(0, 2000)]);
   }
   /**
+   * Ends a task whose recorded answers had nowhere to go because the owner deleted a conversation
+   * they belonged in: a person must check, and the answers go too, keeping only that they were deleted.
+   */
+  markAnswersDeleted(claim: TeamTaskClaim, error: string): void {
+    this.fenced(claim, "state='needs_reconciliation', error=?, result=?", [error.slice(0, 2000), JSON.stringify(deletedResult)]);
+  }
+  /**
    * Finishes a claimed task and writes `alongside` (the room's new messages) in one transaction:
    * either both land or neither does. It never waits on anything, so no transaction spans a model call.
    */
@@ -205,4 +212,17 @@ export function forgetTeamResults(db: Store["sqlite"], sessionId: string): numbe
     WHERE parent_session_id=?1 OR json_extract(result,'$.roomSessionId')=?1 OR parent_run_id IN (${runsHere})
       OR EXISTS (SELECT 1 FROM json_each(team_tasks.result,'$.answers') AS a WHERE json_extract(a.value,'$.runId') IN (${runsHere}))`)
     .run(sessionId, JSON.stringify(deletedResult), new Date().toISOString()).changes);
+}
+
+/**
+ * Conversations a claimed team task still needs: its team's room and its turn's own conversation.
+ * The answers are written to the room when the turn ends, so deleting either mid-turn leaves them
+ * nowhere to go. The retention rule leaves these out until the task is settled.
+ */
+export function teamWorkSessions(db: Store["sqlite"], owner: string): Set<string> {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_tasks'").get()) return new Set();
+  const rows = db.prepare(`SELECT json_extract(g.data,'$.roomSessionId') AS id FROM team_tasks t
+      JOIN governance g ON g.owner=t.owner AND g.id='team:' || t.team_id WHERE t.owner=?1 AND t.state='claimed'
+    UNION SELECT parent_session_id FROM team_tasks WHERE owner=?1 AND state='claimed' AND parent_session_id IS NOT NULL`).all(owner);
+  return new Set(rows.map((row) => String(row.id)));
 }
