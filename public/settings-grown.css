@@ -564,7 +564,7 @@
   margin: 0;
   border-radius: 0 0 14px 14px;
   background: var(--surface);
-  box-shadow: 0 10px 16px -14px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--strip-edge-shadow);
 }
 .sg-strip {
   display: flex;
@@ -656,7 +656,7 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--ground);
-  box-shadow: 0 12px 30px -18px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--raised-shadow);
 }
 .sg-mirror-box {
   position: relative;
@@ -682,8 +682,8 @@
   z-index: 2;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  background: var(--on-picture-bg);
+  color: var(--on-picture-ink);
   font: 500 11px/1 var(--body);
   white-space: nowrap;
 }

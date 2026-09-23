@@ -49,7 +49,7 @@ for (const width of [1440, 860, 400]) {
     const ids = await page.evaluate(async () => (await import("/theme-catalogue.js")).THEMES.map(([id]) => id));
     assert.ok(ids.length >= 44, "the real theme catalogue loaded");
     for (const mode of ["dark", "light"]) {
-      await page.locator(`#lx-mode [data-t="look.mode.${mode}"]`).click();
+      await page.locator(`#lx-mode [data-t="look.${mode === "dark" ? "moonlight" : "daylight"}"]`).click(); // DG-160's words
       await page.waitForFunction((value) => document.documentElement.dataset.theme === value,
         mode === "dark" ? "forest" : "daylight");
       for (const contrast of [false, true]) {

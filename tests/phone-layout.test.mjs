@@ -303,7 +303,7 @@ test("the first paint is already Slate for somebody who never chose, colour for 
 test("the Slate first paint in tokens.css is the catalogue's Slate, dark and light, and cannot drift from it", async (t) => {
   const f = await fixture(t, { connect: false });
   const report = await f.page.evaluate(async () => {
-    const { themeById, tokensFor, solid, BRIDGE } = await import("/theme-bridge.js");
+    const { themeById, tokensFor, surfaceOf, BRIDGE } = await import("/theme-bridge.js");
     const css = await (await fetch("/tokens.css")).text();
     const block = (selector) => {
       const at = css.indexOf(`${selector} {`);
@@ -313,7 +313,7 @@ test("the Slate first paint in tokens.css is the catalogue's Slate, dark and lig
     const expected = (mode) => {
       const tokens = tokensFor(themeById("slate"), mode);
       for (const [name, from] of Object.entries(BRIDGE)) if (tokens[from]) tokens[name] = tokens[from];
-      tokens["--surface"] = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55);
+      tokens["--surface"] = surfaceOf(tokens, mode); // the page's own blend, never a copy of it
       return tokens;
     };
     return {

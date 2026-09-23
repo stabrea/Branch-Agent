@@ -511,6 +511,11 @@ const SHARED_WITH_FRENCH = new Set([
   "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
   // The password managers are called what their makers call them, in either language.
   "1Password", "Bitwarden", "Trunks",
+  // What each chat service and theme family is called by its maker, in either language (Settings' channel list, the theme filters).
+  "Branch", "KeepOak", "IRC", "Gotify", "iMessage", "Microsoft Teams (bot)", "Webex", "Synology Chat", "Flock", "Pumble",
+  "Mastodon", "Bluesky", "Reddit", "Discourse", "Twist", "Nextcloud Talk", "ntfy", "Pushover", "Threema Gateway",
+  "Home Assistant", "XMPP (Jabber)", "MQTT", "Keybase", "SimpleX Chat", "Delta Chat", "Nostr", "VK", "Guilded", "Revolt",
+  "Mumble", "KOOK",
   // phase2/delight: the near-impossible achievements' rank is written the same way in French.
   "SSS+",
 ]);

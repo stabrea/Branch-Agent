@@ -93,7 +93,9 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#vault-autofill :is(p, label, button, span, h2, h3)")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t
-      && node.id !== "vault-autofill-status" && !node.closest(".card-list-row"))
+      && node.id !== "vault-autofill-status" && !node.closest(".card-list-row")
+      // DG-073: Settings' own "N more" line for the section may sit at the end of this card; it is counted words, said by settings-grown.js.
+      && !node.closest(".sg-more-line"))
     .map((node) => node.textContent.trim()));
   assert.deepEqual(unkeyed, [], "every word on the card has a key");
 

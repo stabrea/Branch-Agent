@@ -26,6 +26,12 @@ export function solid(ground, toward, amount) {
   if (!from || !to) return ground;
   return `rgb(${from.map((value, index) => Math.round(value + (to[index] - value) * amount)).join(", ")})`;
 }
+/** The one opaque surface every menu and card shares: this much of the text colour over a dark ground, of white over a
+    light one (the approved sample's blend). tokens.css writes the result down for the first paint, so a test holds
+    the two together; both read it from here. */
+export function surfaceOf(tokens, mode) {
+  return solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.045 : 0.62);
+}
 /** Writes a theme's tokens and their Branch names onto the page, and marks which theme it is. */
 export function wearTokens(root, family, tokens) {
   for (const [name, value] of Object.entries(tokens)) root.style.setProperty(name, value);

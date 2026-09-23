@@ -7,7 +7,7 @@
    The tiles' words (Default, High contrast, Easy in daylight) are the sample's, drawn in layout.js. The eye
    beside Day or night clears the view to show the background. Nothing here changes a setting by itself. */
 import { t } from "/i18n.js";
-import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
+import { solid, surfaceOf, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { seasonToday } from "/grove.js";
 
 const $ = (id) => document.getElementById(id);
@@ -112,7 +112,7 @@ function drawStrip(family) {
   const thumb = strip.querySelector(".sg-strip-thumb");
   thumb.style.background = tokens["--ground"];
   thumb.querySelector("u").style.background = mode === "dark" ? solid(tokens["--ground"], "#000000", 0.4) : solid(tokens["--text"], tokens["--ground"], 0.08);
-  thumb.querySelector("i").style.background = mode === "dark" ? solid(tokens["--ground"], tokens["--text"], 0.045) : solid(tokens["--ground"], "#ffffff", 0.62);
+  thumb.querySelector("i").style.background = surfaceOf(tokens, mode);
   strip.querySelector("b").textContent = family === chosen() ? theme[1] : say("look.previewing", "{name} (preview)").replace("{name}", theme[1]);
   strip.querySelector("small").textContent = `${lightWord(mode)} · ${seasonWord()}`;
 }
@@ -197,7 +197,7 @@ function dress(doc, mode, family) {
   const contrast = $("lx-contrast")?.checked ? "more" : "standard";
   const theme = themeById(family), tokens = tokensFor(theme, mode, contrast);
   wearTokens(html, theme, tokens);
-  html.style.setProperty("--surface", solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55));
+  html.style.setProperty("--surface", surfaceOf(tokens, mode)); // the window's own blend, so the mirror shows what the window will
   doc.body.className = document.body.className.replace(/\blx-settings-open\b/g, "");
 }
 function drawMirror(figure, family) {

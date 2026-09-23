@@ -81,7 +81,8 @@ test("the cards sit in their homes, every control says what it does, a note is k
   const report = await page.evaluate((ids) => ids.map((id) => {
     const card = document.getElementById(id);
     if (!card) return { id, missing: true };
-    const controls = [...card.querySelectorAll("input, select, textarea, button")];
+    // DG-073: Settings' own "N more" line for the section may sit at the end of the card; it is not one of its controls.
+    const controls = [...card.querySelectorAll("input, select, textarea, button")].filter((c) => !c.closest(".sg-more-line"));
     const undescribed = controls.filter((c) => {
       const hint = document.getElementById(c.getAttribute("aria-describedby") ?? "");
       return !hint || !hint.textContent.trim();

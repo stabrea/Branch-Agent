@@ -12,7 +12,7 @@ import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
-import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
+import { DEFAULT_THEME, solid, surfaceOf, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
 import { popover } from "/popover.js";
 import { installGrownComposer } from "/composer-grown.js";
@@ -104,8 +104,7 @@ function applyLook() {
   const family = themeById(look.family), mode = modeNow();
   const tokens = tokensFor(family, mode, look.contrast);
   wearTokens(root, family, tokens);
-  const surface = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.045 : 0.62);
-  root.style.setProperty("--surface", surface);
+  root.style.setProperty("--surface", surfaceOf(tokens, mode));
   paintGrove({ mode, season: look.season || seasonToday() });
   drawLookControls();
 }

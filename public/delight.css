@@ -275,12 +275,12 @@
   margin-right: 5px;
   border-radius: 50%;
 }
-.delight-tier-dot.t-bronze { background: #b0793f; }
-.delight-tier-dot.t-silver { background: #aeb6bd; }
-.delight-tier-dot.t-gold { background: #d9a82e; }
-.delight-tier-dot.t-diamond { background: #6fc8ea; }
-.delight-tier-dot.t-godly { background: conic-gradient(#f7c56b, #f07ab8, #8f8cf5, #6fd6e8, #f7c56b); }
-.delight-tier-dot.t-sssp { background: linear-gradient(90deg, #ff2d6f, #2de1ff); }
+.delight-tier-dot.t-bronze { background: var(--tier-dot-bronze); }
+.delight-tier-dot.t-silver { background: var(--tier-dot-silver); }
+.delight-tier-dot.t-gold { background: var(--tier-dot-gold); }
+.delight-tier-dot.t-diamond { background: var(--tier-dot-diamond); }
+.delight-tier-dot.t-godly { background: var(--tier-dot-godly); }
+.delight-tier-dot.t-sssp { background: var(--tier-dot-sssp); }
 .delight-ach-count,
 .delight-bg-name {
   min-width: 0;
