@@ -60,18 +60,27 @@ export function rowOf(control, card, others = []) {
   return pieces;
 }
 const controlOf = (card, id, selector) => {
-  const node = document.getElementById(id) ?? (selector ? card.querySelector(selector) : null);
+  const node = (id ? document.getElementById(id) : null) ?? (selector ? card.querySelector(selector) : null);
   return node && card.contains(node) ? node : null;
 };
+/**
+ * DG-193: a Settings card that holds its own copy of settings whose home is another place names them in
+ * data-sg-mirrors, and each control carries data-sg-mirror with its setting's id; its rows then level and count
+ * as the sample's do. A card with its own index rows never reads this.
+ */
+function mirrored(card) {
+  const ids = (card.dataset.sgMirrors ?? "").split(" ").filter((id) => ROW_LEVELS[id]);
+  return { rows: ids.map((id) => [id, `[data-sg-mirror="${CSS.escape(id)}"]`, WORD[ROW_LEVELS[id]]]), partial: false, mirror: true };
+}
 
 /** Every setting of the card the sample levels, with the pieces of its row found now (modules redraw theirs), or none. */
 export function rowsIn(card) {
-  const entry = BY_CARD.get(card.id);
+  const entry = BY_CARD.get(card.id) ?? (card.dataset.sgMirrors ? mirrored(card) : null);
   if (!entry) return { rows: [], partial: false };
   /* One control is one setting's: two index rows that name the same control (a shared selector) leave the second to its card. */
   const claimed = new Set();
   const found = entry.rows.map(([id, selector, level]) => {
-    const control = controlOf(card, id, selector);
+    const control = controlOf(card, entry.mirror ? null : id, selector);
     if (control && claimed.has(control)) return { id, level, control: null };
     if (control) claimed.add(control);
     return { id, level, control };

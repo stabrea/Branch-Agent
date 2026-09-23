@@ -169,9 +169,14 @@ export const BUCKETS = {
     ["over", "warn", "Removing Branch", "Taking Branch and what it installed off this computer.",
       [["danger-zone", A]]],
   ],
+  /* DG-193: the sample's three sections, each one card of public/settings-trunks.js; its rows decide what shows. */
   trunks: [
-    ["open", "people", "Trunks, computers and people", "Open the real places where you manage each one.",
-      [["settings-directory-trunks-trunks", R], ["settings-directory-trunks-overview", R], ["settings-directory-trunks-people", R]]],
+    ["trunks", "trunks", "Trunks", "Assistants of your own, each with a name, its own conversation, memory and settings.",
+      [["settings-trunks-switches", R]]],
+    ["edit", "trunks", "Edit Trunk", "Every setting of one Trunk.",
+      [["settings-trunk-edit", R]]],
+    ["person", "person", "A person's card", "What one person here may do.",
+      [["settings-person-card", R]]],
   ],
   channels: [
     ["open", "bell", "Chat apps and devices", "Open the real Channels place to set them up.",
