@@ -29,7 +29,7 @@ function memoryDouble() {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://x");
     let raw = ""; for await (const chunk of request) raw += chunk;
-    requests.push({ method: request.method, path: url.pathname, search: url.search, body: raw ? JSON.parse(raw) : undefined });
+    requests.push({ method: request.method, path: url.pathname, search: url.search, headers: request.headers, body: raw ? JSON.parse(raw) : undefined });
     const send = (status, body) => { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify(body)); };
     const custom = double.respond?.(request.method, url.pathname.split("/").filter(Boolean).map(decodeURIComponent));
     if (custom) return send(...custom);
@@ -262,4 +262,54 @@ test("the card says what is switched on in the reader's language and names no so
     .filter(([key]) => key.startsWith("memprovider."));
   assert.deepEqual(words.filter(([, text]) => /\bsrc\/|\.ts\b/.test(text)), [], "no source file is named to the owner");
   assert.doesNotMatch(card.replace(/\/\*[\s\S]*?\*\//g, ""), /src\/[\w-]+\.ts/, "nor in the card's own English fallbacks");
+});
+
+test("the outside service's key comes from the locker at each request, in the owner's header, and never sits in the settings", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  const key = "Bearer mem-key-4d2c9a7e1f";
+  await app.store.locker.set("local", "default", "MEMORY_KEY", key);
+  await app.memory.backend.configure("local", { mode: "outside", url: base, header: "X-Memory-Key", secret: "MEMORY_KEY" });
+  await app.registry.execute("memory.put", { text: "The boiler is serviced in March", source: "owner" }, context);
+  await app.registry.execute("memory.search", { query: "boiler" }, context);
+  assert.ok(double.requests.length >= 2);
+  for (const request of double.requests) assert.equal(request.headers["x-memory-key"], key, `${request.method} ${request.path} carried the key`);
+  const stored = JSON.stringify(app.store.get("settings", "local", "memory-provider"));
+  assert.doesNotMatch(stored, /mem-key-4d2c9a7e1f/, "the settings record holds the key's name only");
+  assert.match(stored, /MEMORY_KEY/);
+  assert.doesNotMatch(JSON.stringify(app.memory.backend.view("local")), /mem-key-4d2c9a7e1f/);
+
+  await assert.rejects(async () => app.memory.backend.configure("local", { secret: "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" }), /locker/);
+  await assert.rejects(async () => app.memory.backend.configure("local", { secret: "my key" }), /locker/);
+  await assert.rejects(async () => app.memory.backend.configure("local", { header: "Host" }), /header/i);
+  await assert.rejects(async () => app.memory.backend.configure("local", { header: "X-Key: injected" }), /header/i);
+  assert.equal(app.memory.backend.view("local").settings.secret, "MEMORY_KEY", "a refused change leaves the saved one alone");
+});
+
+test("plain http is refused unless the service is on this computer, or on the owner's own network when private addresses are allowed", async (t) => {
+  const { app, context } = await fixture(t, [say("ok")], { allowPrivate: false });
+  const save = (url) => app.memory.backend.configure("local", { mode: "outside", url });
+  await assert.rejects(async () => save("http://memory.example.com"), /https/);
+  await assert.rejects(async () => save("http://203.0.113.9:4600"), /https/);
+  await assert.rejects(async () => save("http://192.168.1.20:4600"), /network rules/);
+  await assert.rejects(async () => save("http://nas.local:4600"), /network rules/);
+  for (const allowed of ["https://memory.example.com", "http://127.0.0.1:4600", "http://localhost:4600", "http://[::1]:4600"])
+    assert.equal(save(allowed).url, allowed);
+  app.web.policy.configure({ allowPrivateAddresses: true });
+  assert.equal(save("http://192.168.1.20:4600").url, "http://192.168.1.20:4600", "the owner's own network, once private addresses are allowed");
+  await assert.rejects(async () => save("http://memory.example.com"), /https/, "allowing private addresses does not open plain http to the internet");
+
+  // A setting saved before this rule existed is refused at the moment of the call, before the
+  // network rules are asked (which would look the name up) and before the key is read.
+  app.store.save("settings", "local", "memory-provider", { mode: "outside", url: "http://memory.example.com", timeoutMs: 8000, header: "Authorization", secret: "MEMORY_KEY" });
+  let asked = 0, read = 0;
+  app.web.policy.assertAllowed = async () => { asked++; };
+  const resolve = app.store.secrets.resolve.bind(app.store.secrets);
+  app.store.secrets.resolve = async (...args) => { read++; return resolve(...args); };
+  await assert.rejects(() => app.registry.execute("memory.put", { text: "Sent in the open?", source: "owner" }, context), /https/);
+  await assert.rejects(() => app.registry.execute("memory.search", { query: "open" }, context), /https/);
+  assert.equal(asked, 0, "nothing was looked up or fetched");
+  assert.equal(read, 0, "the key was never read out of the locker");
 });

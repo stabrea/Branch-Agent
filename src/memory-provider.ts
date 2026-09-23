@@ -1,6 +1,9 @@
+import { isIP } from "node:net";
 import { z } from "zod";
+import { SecretName } from "./learning-more/providers.js";
 import type { MemoryBackend } from "./memory-backend.js";
 import { MemoryDataSchema, visibleTo, type MemoryRecord } from "./memory.js";
+import { isPrivateAddress } from "./network-policy.js";
 import type { Store } from "./store.js";
 
 // FQ-memory.providers: an outside memory service the owner can switch on to replace the built-in
@@ -15,6 +18,10 @@ export const MemoryProviderSettingsSchema = z.object({
   url: z.string().trim().max(500).default(""),
   /** Longest one request to the outside service may take before it is given up on. */
   timeoutMs: z.number().int().min(500).max(30000).default(8000),
+  /** The request header the outside service reads its key from, such as "Authorization" or "X-API-Key". */
+  header: z.string().trim().max(64).regex(/^[A-Za-z0-9-]*$/, "A header name is letters, digits and dashes only").default("Authorization"),
+  /** The name of a key in the locker, never the key itself; its value is sent in `header` on every request. Empty sends none. */
+  secret: SecretName.default(""),
 }).strict();
 export type MemoryProviderSettings = z.infer<typeof MemoryProviderSettingsSchema>;
 
@@ -27,15 +34,41 @@ export function memoryProviderSettings(store: Reader, owner: string): MemoryProv
   return saved.success ? saved.data : MemoryProviderSettingsSchema.parse({});
 }
 
+const localSuffixes = [".local", ".internal", ".lan", ".home.arpa"];
+const loopback = (host: string): boolean =>
+  host === "localhost" || host.endsWith(".localhost") || (isIP(host) === 4 ? host.startsWith("127.") : host === "::1" || host.startsWith("::ffff:127."));
+
+/**
+ * Plain http sends every fact, and the key, in the open. It is kept to this computer, or to another
+ * computer on the owner's own network once the owner's network rules allow private addresses;
+ * anything further away must use https. Returns the reason for a refusal, or nothing.
+ */
+export function plainHttpRefusal(url: URL, allowPrivate: boolean): string | undefined {
+  if (url.protocol !== "http:") return undefined;
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (loopback(host)) return undefined;
+  const onNetwork = isIP(host) ? isPrivateAddress(host) : localSuffixes.some((suffix) => host.endsWith(suffix));
+  if (onNetwork && allowPrivate) return undefined;
+  return onNetwork
+    ? "Plain http to another computer on your network needs private addresses allowed in your network rules. Otherwise use https."
+    : "An outside memory service that is not on this computer must use https, so facts and its key are not sent in the open.";
+}
+
+const reservedHeaders = new Set(["host", "content-type", "content-length", "connection", "transfer-encoding", "cookie"]);
+
 /** Saves the owner's choice; fields left out keep what was there. Refuses "outside" with no usable address. */
-export function saveMemoryProviderSettings(store: Store, owner: string, input: unknown): MemoryProviderSettings {
+export function saveMemoryProviderSettings(store: Store, owner: string, input: unknown, allowPrivate = false): MemoryProviderSettings {
   const merged = { ...memoryProviderSettings(store, owner), ...(input && typeof input === "object" ? input : {}) };
   const value = MemoryProviderSettingsSchema.parse(merged);
+  if (value.secret && !value.header) throw new Error("Say which header the key is sent in");
+  if (reservedHeaders.has(value.header.toLowerCase())) throw new Error(`The key cannot be sent in the ${value.header} header`);
   if (value.mode === "outside") {
     if (!value.url) throw new Error("An outside memory service needs an address before it can be switched on");
     let parsed: URL;
     try { parsed = new URL(value.url); } catch { throw new Error("That is not a usable web address"); }
     if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("An outside memory service address must be http or https");
+    const refusal = plainHttpRefusal(parsed, allowPrivate);
+    if (refusal) throw new Error(refusal);
   }
   store.save("settings", owner, settingsKey, value);
   return value;
@@ -57,6 +90,10 @@ export interface RemoteMemoryConfig {
   timeoutMs: number;
   /** Already guarded against the owner's network rules; see `MemoryProvider.guardedFetch` below. */
   fetch: typeof fetch;
+  /** Whether the owner's network rules allow private addresses, which is what lets plain http reach the local network. */
+  allowPrivate: boolean;
+  /** The header the key goes in, and the key itself, read from the locker at the moment of each request. */
+  auth?: { header: string; key: () => Promise<string> };
 }
 
 /**
@@ -90,12 +127,17 @@ export class RemoteMemoryBackend implements MemoryBackend {
   constructor(private readonly config: RemoteMemoryConfig) {}
   private base(): string { return this.config.url.replace(/\/+$/, ""); }
   private async request(method: string, path: string, body?: unknown): Promise<Response> {
+    const url = `${this.base()}${path}`;
+    const refusal = plainHttpRefusal(new URL(url), this.config.allowPrivate);
+    if (refusal) throw new Error(refusal); // checked before anything, the key included, leaves this computer
+    const headers: Record<string, string> = {};
+    if (this.config.auth) headers[this.config.auth.header] = await this.config.auth.key();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
-    const init: RequestInit = { method, redirect: "error", signal: controller.signal };
-    if (body !== undefined) { init.headers = { "content-type": "application/json" }; init.body = JSON.stringify(body); }
+    const init: RequestInit = { method, redirect: "error", signal: controller.signal, headers };
+    if (body !== undefined) { headers["content-type"] = "application/json"; init.body = JSON.stringify(body); }
     try {
-      return await this.config.fetch(`${this.base()}${path}`, init);
+      return await this.config.fetch(url, init);
     } catch (error) {
       throw new Error(`The outside memory service could not be reached: ${error instanceof Error ? error.message : String(error)}`);
     } finally { clearTimeout(timer); }
@@ -134,7 +176,13 @@ export class RemoteMemoryBackend implements MemoryBackend {
 }
 
 /** Refuses an address the owner's network settings do not allow. The same guard every outside call in Branch answers to. */
-export interface MemoryProviderGuard { assertAllowed(url: URL, description: string): Promise<void> }
+export interface MemoryProviderGuard {
+  assertAllowed(url: URL, description: string): Promise<void>;
+  settings(): { allowPrivateAddresses: boolean };
+}
+/** Reads a named key from the locker at the moment it is needed. */
+export type MemoryProviderSecret = (name: string) => Promise<string>;
+const noLocker: MemoryProviderSecret = async () => { throw new Error("There is no locker to read the outside memory service's key from"); };
 
 /**
  * What the rest of Branch reaches for instead of `SqliteMemoryBackend` directly: on every call it
@@ -151,12 +199,15 @@ export class MemoryProvider implements MemoryBackend {
     private readonly builtIn: MemoryBackend,
     private readonly guard: MemoryProviderGuard,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
+    private readonly secret: MemoryProviderSecret = noLocker,
   ) {}
   /** What is switched on right now ("built-in" or "outside"), and the setting behind it, for the Memory screen. */
   view(owner: string): { settings: MemoryProviderSettings; active: MemoryProviderSettings["mode"] } {
     return { settings: memoryProviderSettings(this.store, owner), active: this.isOutside(owner) ? "outside" : "built-in" };
   }
-  configure(owner: string, input: unknown): MemoryProviderSettings { return saveMemoryProviderSettings(this.store, owner, input); }
+  configure(owner: string, input: unknown): MemoryProviderSettings {
+    return saveMemoryProviderSettings(this.store, owner, input, this.guard.settings().allowPrivateAddresses);
+  }
   private guardedFetch(): typeof fetch {
     const guard = this.guard, base = this.fetchImpl;
     return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -168,7 +219,10 @@ export class MemoryProvider implements MemoryBackend {
   private current(owner: string): MemoryBackend {
     const settings = memoryProviderSettings(this.store, owner);
     if (settings.mode !== "outside" || !settings.url) return this.builtIn;
-    return new RemoteMemoryBackend({ url: settings.url, timeoutMs: settings.timeoutMs, fetch: this.guardedFetch() });
+    const name = settings.secret;
+    return new RemoteMemoryBackend({ url: settings.url, timeoutMs: settings.timeoutMs, fetch: this.guardedFetch(),
+      allowPrivate: this.guard.settings().allowPrivateAddresses,
+      ...(name ? { auth: { header: settings.header, key: () => this.secret(name) } } : {}) });
   }
   read(owner: string, id: string): Promise<MemoryRecord | undefined> { return this.current(owner).read(owner, id); }
   list(owner: string): Promise<MemoryRecord[]> { return this.current(owner).list(owner); }

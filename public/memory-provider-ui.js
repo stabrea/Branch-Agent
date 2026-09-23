@@ -71,9 +71,13 @@ function build(view) {
   const active = view.active === "outside"
     ? make("p", "meta", "memprovider.activeOutside", "Right now: an outside memory service")
     : make("p", "meta", "memprovider.activeBuiltin", "Right now: this computer's database");
-  const urlField = described("memprovider-url", ["memprovider.url", "Outside service address"], ["memprovider.urlHint", "Needed once you switch to an outside service; your network rules apply."], url);
+  const urlField = described("memprovider-url", ["memprovider.url", "Outside service address"], ["memprovider.urlHint", "Needed once you switch to an outside service. Use https unless it is on this computer or your own network; your network rules apply."], url);
   const timeoutField = described("memprovider-timeout", ["memprovider.timeout", "Give up after (milliseconds)"], ["memprovider.timeoutHint", "How long one request to the outside service may take before Branch stops waiting."], timeout);
-  const outsideOnly = [...urlField, ...timeoutField];
+  const header = input(view.settings.header ?? "Authorization");
+  const secret = input(view.settings.secret ?? "");
+  const headerField = described("memprovider-header", ["memprovider.header", "Key header"], ["memprovider.headerHint", "The request header the service reads its key from, such as Authorization or X-API-Key."], header);
+  const secretField = described("memprovider-secret", ["memprovider.secret", "Key name in the locker"], ["memprovider.secretHint", "The name of a key you keep in the locker, such as MEMORY_KEY, never the key itself. It is sent exactly as stored, so store \"Bearer …\" for an Authorization header. Leave empty to send none."], secret);
+  const outsideOnly = [...urlField, ...timeoutField, ...secretField, ...headerField];
   const sync = () => { for (const field of outsideOnly) field.hidden = mode.value !== "outside"; };
   mode.addEventListener("change", sync);
   sync();
@@ -81,7 +85,8 @@ function build(view) {
     ...outsideOnly, active,
     ...button(["memprovider.save", "Save"], ["memprovider.saveHint", "An outside service needs a usable address before it can be switched on."], async () => {
       try {
-        await api("memory/provider", { mode: mode.value, url: url.value.trim(), timeoutMs: Number(timeout.value) || undefined });
+        await api("memory/provider", { mode: mode.value, url: url.value.trim(), timeoutMs: Number(timeout.value) || undefined,
+          header: header.value.trim(), secret: secret.value.trim() });
         done(status);
         await draw();
       } catch (error) { tell(status, error); }

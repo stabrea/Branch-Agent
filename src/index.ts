@@ -562,7 +562,8 @@ export async function createBranch(options: {
   // computer's database for the assistant's remember/recall/forget loop, not only sits beside it —
   // src/memory-provider.ts reads the owner's choice fresh on every call, and web.policy is the same
   // guard every other outside address in Branch is checked against.
-  memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch);
+  memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch,
+    async (name) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "an outside memory service" }))[name]!);
   // An accepted put/update/delete suggestion in the Memory review screen goes wherever memory.put/
   // update/delete themselves would go right now, rather than always landing in this computer's
   // database — see the comment on `MemoryReview.provider`.
