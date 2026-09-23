@@ -446,6 +446,8 @@ async function staticFile(
     // Help in the app: the owner's handbook, opened in the pane on the right.
     "/help.js": ["help.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    // FQ-collaboration: the seek-to-comment hook, for a media player screen to wire in.
+    "/media-comments.js": ["media-comments.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     // Bucket 17: the video programs card and the speech plug-ins card.
@@ -1218,6 +1220,9 @@ async function api(
   }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // FQ-collaboration: a comment pinned to a moment in a media file (video today), so it can be
+  // reopened at the same position later.
+  if (path.startsWith("/api/media-comments")) return mediaCommentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
   if (path.startsWith("/api/knowledge")) {
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
@@ -2701,6 +2706,25 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   }
   const one = /^\/api\/documents\/([a-f0-9-]{36})$/.exec(path);
   if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
+  throw new HttpError(404, "Endpoint not found");
+}
+/**
+ * FQ-collaboration: comments pinned to a moment in a media file. `GET ?fileId=` lists them for one
+ * file, earliest first; `POST` adds one. There is no video player screen yet to open them from, so
+ * this is the data side only — see `public/media-comments.js` for the small hook a future player
+ * would call to seek to one.
+ */
+async function mediaCommentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, comments = app.store.mediaComments;
+  if (request.method === "GET" && path === "/api/media-comments") {
+    const fileId = new URL(request.url ?? "/", "http://local").searchParams.get("fileId") ?? "";
+    if (!fileId) throw new HttpError(400, "fileId is required");
+    return { comments: comments.list(owner, fileId) };
+  }
+  if (request.method === "POST" && path === "/api/media-comments")
+    return comments.add(owner, owner, await readBody(request));
+  const one = /^\/api\/media-comments\/([a-f0-9-]{36})$/.exec(path);
+  if (one && request.method === "DELETE") return comments.remove(owner, one[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
 /**
