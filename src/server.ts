@@ -172,6 +172,7 @@ import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
 import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
+import { uiPreferencesApi } from "./ui-preferences.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
@@ -432,6 +433,7 @@ async function staticFile(
     "/delight-background.js": ["delight-background.js", "text/javascript; charset=utf-8"],
     "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
     "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
+    "/ui-prefs.js": ["ui-prefs.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
@@ -1299,6 +1301,10 @@ async function api(
   // Wave mac3 (terminal): the theme `branch theme` and Settings › Appearance share (src/terminal-theme.ts).
   if (path === "/api/look" && request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Use GET or POST");
   if (path === "/api/look") return lookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
+  // Q45: the window's own choices (which side list, folded panes, focus view), kept in the data folder.
+  if (path === "/api/ui-preferences" || path === "/api/ui-preferences/import")
+    return uiPreferencesApi({ store: app.store, owner: app.runtime.owner, isOwner: app.store.profiles.isOwner() },
+      request.method ?? "GET", path, () => readBody(request, 16 * 1024));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);

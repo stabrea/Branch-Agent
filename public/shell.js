@@ -7,6 +7,7 @@ import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
 import { face } from "/faces.js";
+import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -95,7 +96,7 @@ const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
   document.querySelector('.rail-group[data-group="sections"]'),
   document.querySelector('.rail-group[data-group="projects"]'),
   document.querySelector('.rail-group[data-group="recents"]')].filter(Boolean);
-let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
+let railView = choice(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
 let railCanManageTrunks = false;
 let railProfileOwner = null;
 let railProfileGeneration = Number(document.documentElement.dataset.profileGeneration || 0);
@@ -118,7 +119,7 @@ function syncRailView() {
 }
 function chooseRailView(next, focus = false) {
   railView = next === "trunks" ? "trunks" : "conversations";
-  localStorage.setItem(RAIL_VIEW_KEY, railView);
+  keepChoice(RAIL_VIEW_KEY, railView);
   syncRailView();
   if (focus) $(`rail-view-${railView}`)?.focus();
 }
@@ -199,14 +200,14 @@ syncRailView();
 /* ---------- the two panes that fold away ---------- */
 const overlayRail = () => globalThis.innerWidth < 700; // phase2/everywhere: a tablet held upright keeps the side list docked
 function pane(key, toggleId, className, onToggle) {
-  const open = localStorage.getItem(key) !== "closed";
+  const open = choice(key) !== "closed";
   document.body.classList.toggle(className, !open);
   $(toggleId).setAttribute("aria-pressed", String(open));
   $(toggleId).addEventListener("click", () => {
     if (onToggle?.()) return;
     const closed = document.body.classList.toggle(className);
     $(toggleId).setAttribute("aria-pressed", String(!closed));
-    localStorage.setItem(key, closed ? "closed" : "open");
+    keepChoice(key, closed ? "closed" : "open");
   });
 }
 /* On a narrow window the rail slides over the page instead of taking a column. */
