@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { stat, realpath } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

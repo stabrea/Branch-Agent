@@ -9,9 +9,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createBranch } from "../dist/index.js";
 import { GitRunner, gitEnvironment, hardening } from "../dist/integrations/git-run.js";
 import { ContractBook } from "../dist/self-development-contract.js";
@@ -120,43 +120,68 @@ test("the owner's own Git sign-in is left alone: a credential helper they set is
   assert.equal(gitEnvironment(process.env).GIT_CONFIG_NOSYSTEM, undefined, "the computer-wide config (where macOS keeps its keychain helper) is read");
 });
 
-test("Q12: push/pull refuse a bare repository planted under an allowed folder with a local remote named after it", { skip: posixOnly }, async (t) => {
+/**
+ * Q12: a held command can turn an allowed folder (here `src/`) into a bare repository with no `.git`
+ * name anywhere. Git then reads a remote name nobody configured, "src", as that folder, and the
+ * planted repository's hooks run outside the wall. Each guard is tested on its own.
+ */
+async function plantedBare(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-self-bare-repo-"));
   const workspace = join(root, "workspace");
   const app = await createBranch({ workspace, dataDir: join(root, "data") });
   t.after(async () => { await app.close(); await discardTemp(root); });
-  
-  // Create a worktree path inside Branch's source (must match the pattern)
-  const wtPath = "branch-agent-source/.branch-worktrees/self-bare";
-  await mkdir(join(workspace, wtPath), { recursive: true });
-  
-  // Initialize it as a git repo
-  const git = (...args) => execFileSync("git", args, { cwd: join(workspace, wtPath), stdio: "ignore" });
-  git("init", "-q");
+  const folder = "branch-agent-source/.branch-worktrees/self-bare";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", args, { cwd, stdio: "pipe" });
+  git("init", "-q", "-b", "feature");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
-  
-  // Create a bare repository in the worktree's allowed folder (src)
-  const bareRepoPath = join(workspace, wtPath, "src");
-  await mkdir(bareRepoPath, { recursive: true });
-  execFileSync("git", ["init", "--bare", "-q"], { cwd: bareRepoPath });
-  
-  // Add a pre-receive hook that touches a marker file
-  const markerFile = join(root, "EXPLOITED");
-  const hookPath = join(bareRepoPath, "hooks", "pre-receive");
-  await mkdir(join(bareRepoPath, "hooks"), { recursive: true });
-  await writeFile(hookPath, `#!/bin/sh\necho ran >> '${markerFile}'\nexit 0\n`);
-  await chmod(hookPath, 0o755);
-  
-  // Configure a remote named "src" pointing to the bare repo
-  git("remote", "add", "src", bareRepoPath);
-  
-  // Call push directly on GitTools, which now validates remote URLs in source
-  await assert.rejects(
-    app.git.push({ folder: wtPath, remote: "src", branch: "master" }, AbortSignal.timeout(10_000)),
-    /Remote URL must use https|ssh|scp-like format|not configured|transport/,
-    "push should refuse local path remotes in Branch source"
-  );
-  
-  // Verify the hook was never run
-  assert.equal(existsSync(markerFile), false, "the bare repo hook never executed");
+  execFileSync("git", ["init", "--bare", "-q", join(cwd, "src")]);
+  const marker = join(root, "hook-ran");
+  const hook = join(cwd, "src", "hooks", "pre-receive");
+  await writeFile(hook, `#!/bin/sh\necho ran >> '${marker}'\nexit 0\n`);
+  await chmod(hook, 0o755);
+  return { app, folder, cwd, marker };
+}
+
+test("Q12 control: without Branch's pins, a push to the unconfigured name \"src\" runs the planted hook", { skip: posixOnly }, async (t) => {
+  const { cwd, marker } = await plantedBare(t);
+  execFileSync("git", ["push", "-q", "src", "HEAD:refs/heads/x"], { cwd, stdio: "pipe" });
+  assert.equal(existsSync(marker), true, "the setup is the real attack: plain Git runs the hook");
+});
+
+test("Q12: the source pins alone stop Git's local transport, so the planted hook never runs", { skip: posixOnly }, async (t) => {
+  const { cwd, marker } = await plantedBare(t);
+  assert.ok(hardening(cwd).includes("protocol.file.allow=never"));
+  assert.throws(() => execFileSync("git", [...hardening(cwd), "push", "-q", "src", "HEAD:refs/heads/x"], { cwd, stdio: "pipe" }),
+    (error) => /transport 'file' not allowed/.test(String(error.stderr)));
+  assert.equal(existsSync(marker), false);
+});
+
+test("Q12: git.push and git.pull in source refuse a remote nobody configured, before Git runs", { skip: posixOnly }, async (t) => {
+  const { app, folder, marker } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  await assert.rejects(app.git.push({ folder, remote: "src", branch: "feature" }, signal), /Remote "src" is not configured/);
+  await assert.rejects(app.git.pull({ folder, remote: "src", branch: "feature" }, signal), /Remote "src" is not configured/);
+  assert.equal(existsSync(marker), false);
+});
+
+test("Q12: git.push and git.pull in source refuse a configured remote that is a folder or a file:// address", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd, marker } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "near", join(cwd, "src")], { cwd });
+  execFileSync("git", ["remote", "add", "far", `file://${join(cwd, "src")}`], { cwd });
+  for (const remote of ["near", "far"]) {
+    await assert.rejects(app.git.push({ folder, remote, branch: "feature" }, signal), /Remote URL must use https/, remote);
+    await assert.rejects(app.git.pull({ folder, remote, branch: "feature" }, signal), /Remote URL must use https/, remote);
+  }
+  assert.equal(existsSync(marker), false);
+});
+
+test("Q12: a link to Branch's source still gets the source pins", { skip: posixOnly }, async (t) => {
+  const { cwd } = await plantedBare(t);
+  const link = join(await mkdtemp(join(tmpdir(), "branch-self-link-")), "elsewhere");
+  t.after(() => discardTemp(dirname(link)));
+  await symlink(cwd, link);
+  assert.ok(hardening(link).includes("protocol.file.allow=never"), "decided on the real path, not the link's name");
 });

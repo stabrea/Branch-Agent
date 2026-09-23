@@ -199,27 +199,15 @@ export class GitTools {
    * Refuses file://, plain paths, ext::, and other transports that could execute code.
    */
   private async validateRemoteURL(cwd: string, remote: string, signal: AbortSignal): Promise<string | void> {
-    // Only validate remotes when run inside Branch's source
     if (!inBranchSource(cwd)) return;
-    
-    // Check if remote is configured
-    const checkOutcome = await this.run(cwd, ["remote", "get-url", "--push", remote], signal, { timeoutMs: 10_000 });
-    if (checkOutcome.status !== "completed") {
-      return `Remote "${remote}" is not configured in this repository.`;
-    }
-    
-    // Get all push URLs
-    const urlOutcome = await this.run(cwd, ["remote", "get-url", "--push", "--all", remote], signal, { timeoutMs: 10_000 });
-    if (urlOutcome.status !== "completed") return;
-    
-    // Validate each URL
-    const urls = urlOutcome.stdout.trim().split("\n").filter(Boolean);
-    for (const url of urls) {
-      // Accept https://, ssh://, and scp-like user@host:path
-      if (!(/^https:\/\//.test(url) || /^ssh:\/\//.test(url) || /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:[a-zA-Z0-9._\/-]+$/.test(url))) {
+    // Git reads a name nobody configured as a folder; only a configured network remote may be used here.
+    const read = await this.runner.run({ cwd, args: ["remote", "get-url", "--push", "--all", remote], timeoutMs: 10_000 }, signal);
+    if (read.status !== "completed") return `Remote "${remote}" is not configured in this repository, so nothing was sent.`;
+    const urls = read.stdout.trim().split("\n").filter(Boolean);
+    if (!urls.length) return `Remote "${remote}" has no address, so nothing was sent.`;
+    for (const url of urls)
+      if (!(/^https:\/\//.test(url) || /^ssh:\/\//.test(url) || /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:[a-zA-Z0-9._\/-]+$/.test(url)))
         return `Remote URL must use https://, ssh://, or scp-like format (user@host:path), but got: ${url}`;
-      }
-    }
   }
 
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
