@@ -814,3 +814,9 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {
   display: none;
 }
+
+/* DG-185: on Models › Connection, ChatGPT account and Check your connections are each a section of one card, as in
+   the sample, so the section's heading is the card's; search shows no section headings and keeps the card's own. */
+body:not(.lx-settings-searching) :is(#chatgpt-card, #model-probe-card)[data-sg-bucket] > h2 {
+  display: none;
+}
