@@ -63,3 +63,15 @@ test("in the real app, preparing a change to Branch is no longer refused by the 
   assert.notEqual(verdict.decision, "deny", verdict.reason);
   assert.doesNotMatch(verdict.reason ?? "", stops);
 });
+
+test("a global reinstall or removal of Branch through a package manager is refused, by name, tarball or folder", () => {
+  for (const line of [
+    "npm install -g branch-agent@latest", "npm i -g ./branch-agent-2.0.0.tgz", "pnpm add -g branch-agent@latest",
+    "yarn global add branch-agent", "bun add -g branch-agent@2.0.0", "npm install -g ../branch-agent", "npm install branch-agent --global",
+    "npm uninstall -g branch-agent", "npm update -g branch-agent",
+    // The termux installer's own spelling: the package only through a variable, named earlier in the same command.
+    'PACKAGE=./branch-agent-2.0.0.tgz; npm install -g "$PACKAGE"',
+  ]) assert.match(sh(line) ?? "", stops, line);
+  for (const line of ["npm install -g typescript", "npm install", "npm i -D @types/node", "npm test --prefix branch-agent-source"])
+    assert.equal(sh(line), null, line);
+});

@@ -349,8 +349,21 @@ function killsSelf(text: string, areas: ProtectedAreas): boolean {
   });
 }
 
+/**
+ * Q12: a global install, reinstall, update or removal of Branch through a JavaScript package manager
+ * (npm, pnpm, yarn, bun), whether it names branch-agent by name and version, by a tarball or by a
+ * folder. A package named through a variable set in the same command is read after the variable is
+ * filled in (`PACKAGE=./branch-agent-2.0.0.tgz; npm install -g "$PACKAGE"`, as the termux installer does).
+ */
+function reinstallsBranch(text: string): boolean {
+  const names = /branch[-_]agent/i;
+  return text.split(/[;|&\n]+/).some((part) => /(^|[\s/])(npm|pnpm|yarn|bun)(\.cmd|\.exe)?(\s|$)/i.test(part)
+    && /(^|\s)(-g|--global|global)(\s|$)/i.test(part)
+    && names.test(part));
+}
+
 function stopsBranch(text: string, areas: ProtectedAreas): boolean {
-  if (selfService.some((pattern) => pattern.test(text)) || killsSelf(text, areas)) return true;
+  if (selfService.some((pattern) => pattern.test(text)) || killsSelf(text, areas) || reinstallsBranch(text)) return true;
   if (serviceTool.test(text) && serviceVerb.test(text) && (namesBranch.test(text) || unresolved(text))) return true;
   const port = process.env.BRANCH_PORT ?? "3210";
   return /\b(lsof|fuser|netstat|ss|Get-NetTCPConnection)\b/i.test(text) && /\b(kill|Stop-Process|taskkill)\b|\s-k\b/i.test(text)
