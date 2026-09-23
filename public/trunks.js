@@ -452,7 +452,8 @@ function railTrunk(trunk) {
   open.type = "button";
   open.className = "rail-row trunk-rail-row";
   open.dataset.trunk = trunk.id;
-  const text = document.createElement("span");
+  open.setAttribute("aria-current", String(`trunk:${trunk.id}` === railPicked));
+  const text = plain("span", "", "trunk-rail-words");
   text.append(plain("strong", trunk.name), " ", plain("small", `${trunk.latest ? trunk.latest.text : ""} · ${ago(trunk.at)}`));
   open.append(avatar(trunk, 22), text);
   if (trunk.unread) {
@@ -484,10 +485,11 @@ async function drawRail() {
     group.className = "rail-group";
     group.id = "trunks-rail";
     group.dataset.group = "trunks";
-    const head = document.createElement("h2");
-    head.append(make("span", "", "trunks.rail", "Trunks"));
+    // DG-102: a small heading over the Trunks on this computer, as the approved side panel has it.
+    const head = make("h2", "trunks-rail-chip", "trunks.rail.here", "Trunks here");
     group.append(head, Object.assign(document.createElement("div"), { id: "trunks-rail-rows", className: "rail-rows" }));
     recents.before(group);
+    group.addEventListener("keydown", moveInRoster);
   }
   if (!group) return;
   const visible = roster.trunks.filter((trunk) => !trunk.hidden);
@@ -497,6 +499,23 @@ async function drawRail() {
   if (!rows.length && !roster.rooms.length) $("trunks-rail-rows").append(make("p", "rail-empty", "trunks.rail.empty", "No Trunks yet."));
   drawNeeds(roster.rooms.filter((room) => room.needsYou));
 }
+
+/** Up and down move between the rows, Home and End to the first and last. */
+function moveInRoster(event) {
+  const rows = [...document.querySelectorAll("#trunks-rail-rows .rail-row")];
+  const at = rows.indexOf(document.activeElement);
+  const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[event.key];
+  if (at < 0 || to === undefined) return;
+  event.preventDefault();
+  rows[Math.max(0, Math.min(rows.length - 1, to))]?.focus();
+}
+/* The row of the Trunk whose conversation is open is marked, following the strip's own choice. */
+let railPicked = "";
+document.addEventListener("branch-strip-selection", (event) => {
+  railPicked = String(event.detail?.id ?? "");
+  for (const row of document.querySelectorAll("#trunks-rail-rows [data-trunk]"))
+    row.setAttribute("aria-current", String(`trunk:${row.dataset.trunk}` === railPicked));
+});
 
 /* ---------- Inbox › Needs you: rooms that asked for the owner ---------- */
 function drawNeeds(rooms) {
