@@ -24,6 +24,14 @@ const system32 = join(process.env.SystemRoot ?? "C:/Windows", "System32");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Every process that owns a top-level window right now, by process id. */
+/**
+ * Only programs that host a console window count. This machine is shared — the owner, other agents'
+ * test browsers, notifications — and counting every new window on the desktop failed this test once
+ * when nothing of ours had appeared. A task started through the Task Scheduler is not a child of this
+ * process, so windows cannot be matched to it by process tree; but the only window a leaked console can
+ * appear in is one of these hosts, and the first test below proves such a window is still seen.
+ */
+const consoleHosts = new Set(["conhost", "openconsole", "windowsterminal", "cmd", "wscript", "cscript", "powershell", "pwsh"]);
 function windowsOnScreen() {
   const ask = "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } |"
     + " Select-Object -Property Id,ProcessName | ConvertTo-Json -Compress";
@@ -31,7 +39,9 @@ function windowsOnScreen() {
     ["-NoProfile", "-NonInteractive", "-Command", ask],
     { encoding: "utf8", windowsHide: true, maxBuffer: 1 << 22 }).trim();
   const rows = printed ? JSON.parse(printed) : [];
-  return new Map((Array.isArray(rows) ? rows : [rows]).map((row) => [row.Id, row.ProcessName]));
+  return new Map((Array.isArray(rows) ? rows : [rows])
+    .filter((row) => consoleHosts.has(String(row.ProcessName).toLowerCase()))
+    .map((row) => [row.Id, row.ProcessName]));
 }
 
 /** Runs `start`, then watches the screen for as long as the work can take. */
