@@ -467,11 +467,20 @@ function attention(item) {
 
 let updateTimer = null;
 let updateAttempt = false;
+function scheduleUpdate() {
+  clearTimeout(updateTimer);
+  const notify = view?.values.notify;
+  if (!notify || notify.autoUpdate === "off" || !window.branchDesktop) return;
+  const interval = notify.autoUpdate === "install" ? 30_000
+    : notify.releaseChannel === "beta" ? 5 * 60 * 1000 : 60 * 60 * 1000;
+  updateTimer = setTimeout(() => void autoUpdate(), interval);
+}
 async function autoUpdate() {
   const desktop = window.branchDesktop;
   /* Until the owner's choice has been read, treat it as off: never go looking for an update
      before we know it was wanted. */
   if (updateAttempt || !desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  clearTimeout(updateTimer);
   updateAttempt = true;
   try {
     let status = await desktop.updateStatus();
@@ -484,7 +493,13 @@ async function autoUpdate() {
     if (plan.step === "install") await desktop.installUpdate();
     else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
-  finally { updateAttempt = false; }
+  finally {
+    updateAttempt = false;
+    // The server records completion, so start the next delay after that response, not on a
+    // fixed tick that can arrive just before the check is due. Read the latest owner choice:
+    // a refresh while this attempt was pending must not revive an old channel or an off timer.
+    scheduleUpdate();
+  }
 }
 
 /* ---------- R17-S18: push-to-talk and the longest recording ---------- */
@@ -513,13 +528,9 @@ function apply() {
   if (box) vimIndicator(box);
   if (!view?.values.keys.vim) vim.mode = "insert";
   void refreshStatus();
-  clearInterval(updateTimer);
+  clearTimeout(updateTimer);
   if (view?.values.notify.autoUpdate !== "off" && window.branchDesktop) {
     void autoUpdate();
-    const notify = view.values.notify;
-    const interval = notify.autoUpdate === "install" ? 30_000
-      : notify.releaseChannel === "beta" ? 5 * 60 * 1000 : 60 * 60 * 1000;
-    updateTimer = setInterval(() => void autoUpdate(), interval);
   }
 }
 async function refresh() {

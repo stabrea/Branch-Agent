@@ -2,7 +2,7 @@
 
 **Choose Stable or Beta.** Updates & about now lets the owner choose a release channel. Stable stays the default. Beta offers newer, tested preview builds as they are published, so you can follow development without installing Git or building the app yourself. Returning to Stable waits for a newer Stable release; it does not silently downgrade your installation.
 
-**Check for progress more often.** Automatic updates remain off until you enable them. With automatic checks enabled, Beta looks every five minutes while the desktop app is open; Stable checks daily. Check for updates still works on demand. Publication, downloading and installation take additional time; five minutes is the checking interval, not a guaranteed delivery time.
+**Check for progress more often.** Automatic updates remain off until you enable them. With automatic checks enabled, Beta schedules its next look five minutes after the previous attempt finishes while the desktop app is open; Stable checks daily. Check for updates still works on demand. Slow requests do not skip alternating check cycles. Publication, downloading and installation take additional time; five minutes is the waiting interval, not a guaranteed delivery time.
 
 **Wait for current tasks.** Automatic installation waits while tasks are running or waiting for an answer. The desktop app checks readiness again before handing over, retries a waiting update, and refuses overlapping installation attempts. This release does not claim that every possible background activity or new-task race has been proven interruption-free.
 
