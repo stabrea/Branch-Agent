@@ -325,6 +325,36 @@ test("a preset with an unreadable voice record makes every other change, writes 
   assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice, "the unreadable record is left alone");
 });
 
+test("put-back: a loosening change asks for confirmLoosening and is refused without it", async (t) => {
+  const { store, owner, call } = await served(t);
+  // Unreadable voice record with keepAudioOnThisComputer:true (a guard field turned "up")
+  const unreadableWithGuardUp = { systemVoice: "on", autoReadAloud: "yes", keepAudioOnThisComputer: true, replyWithVoiceOnChannels: true };
+  store.save("settings", owner, "voice", unreadableWithGuardUp);
+  // Put-back without confirmLoosening: should be refused because keeping audio is a protection (guard)
+  const withoutConfirm = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(withoutConfirm.status, 409, `Expected 409 but got ${withoutConfirm.status}: ${JSON.stringify(withoutConfirm.body)}`);
+  const errorMsg = withoutConfirm.body.error || withoutConfirm.body.message || String(withoutConfirm.body);
+  assert.match(errorMsg, /less careful/i);
+  // Record should not change
+  assert.deepEqual(store.get("settings", owner, "voice").data, unreadableWithGuardUp);
+  // Put-back with confirmLoosening: should succeed
+  const withConfirm = await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true });
+  assert.equal(withConfirm.status, 200, JSON.stringify(withConfirm.body));
+  assert.deepEqual(voiceSettings(store, owner), (await import("../dist/voice.js")).VoiceSettingsSchema.parse({}));
+});
+
+test("put-back: a tightening or neutral change does not ask for confirmLoosening", async (t) => {
+  const { store, owner, call } = await served(t);
+  // Unreadable voice record with systemVoice="invalid" (unreadable) but all guard fields set to less careful
+  // replyWithVoiceOnChannels:false is the initial value for the reach field, so it's not loosening
+  const unreadableTightening = { systemVoice: "invalid", autoReadAloud: "maybe", keepAudioOnThisComputer: false, replyWithVoiceOnChannels: false };
+  store.save("settings", owner, "voice", unreadableTightening);
+  // Put-back without confirmLoosening should succeed because putting back to false from false is not loosening
+  const result = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.deepEqual(voiceSettings(store, owner), (await import("../dist/voice.js")).VoiceSettingsSchema.parse({}));
+});
+
 test("the way out: an unreadable voice record is put back as shipped, then voice reads and its own card saves again", async (t) => {
   const { store, owner, call } = await served(t);
   store.save("settings", owner, "voice", brokenVoice);
@@ -333,7 +363,8 @@ test("the way out: an unreadable voice record is put back as shipped, then voice
   assert.match(before.refused, /Put voice settings back as shipped/);
   assert.equal(before.canPutBack, true);
   assert.equal((await call("/api/settings-kit/put-back", { key: "loop_guard" })).status, 404, "only a setting with a way back");
-  const back = await call("/api/settings-kit/put-back", { key: "voice" });
+  // brokenVoice has keepAudioOnThisComputer:true, which is looser than the shipped false, so confirmLoosening is required
+  const back = await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true });
   assert.equal(back.status, 200, JSON.stringify(back.body));
   assert.equal(back.body.overview.settings.find((spec) => spec.key === "voice").refused, null);
   assert.deepEqual(voiceSettings(store, owner), (await import("../dist/voice.js")).VoiceSettingsSchema.parse({}));
@@ -350,7 +381,7 @@ test("the way out: an unreadable voice record is put back as shipped, then voice
   // Not while Lockdown holds the settings.
   store.save("settings", owner, "voice", brokenVoice);
   setLockdown(store, owner, { on: true });
-  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 409);
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true })).status, 409);
   assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice);
 });
 

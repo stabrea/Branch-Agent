@@ -3,7 +3,7 @@ import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { lockedDown } from "../lockdown.js";
 import { settingsCatalogue } from "./catalogue.js";
-import { applyWithPins, changesFor, currentValue, resetProposals, type Proposal, type Writer } from "./changes.js";
+import { acceptValue, applyWithPins, changesFor, currentValue, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
 import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
 import { perFileBytes } from "../context-files.js"; // phase2/accounts
@@ -134,15 +134,36 @@ function apply(deps: SettingsKitDeps, input: unknown) {
  * Q65 review: the way out for a setting whose saved record cannot be read (voice): the whole record is put
  * back to how Branch ships, because neither the kit nor the setting's own card can change a record they
  * cannot read. The owner's alone, like every route here, and not while Lockdown holds the settings.
+ * Q83 review: putting back the shipped value must ask for confirmLoosening if it is looser than the
+ * actual saved values in the unreadable record (or than the setting's careful direction if the record can't be read).
  */
-const PutBackBody = z.object({ key: z.string().max(80) }).strict();
+const PutBackBody = z.object({ key: z.string().max(80), confirmLoosening: z.boolean().default(false) }).strict();
+const readPathRaw = (data: Record<string, unknown>, field: string): unknown =>
+  field.split(".").reduce<unknown>((node, part) => (node && typeof node === "object" ? (node as Record<string, unknown>)[part] : undefined), data);
+
 function putBack(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
-  const spec = settingsCatalogue.find((entry) => entry.key === PutBackBody.parse(input).key);
+  const body = PutBackBody.parse(input);
+  const spec = settingsCatalogue.find((entry) => entry.key === body.key);
   if (!spec?.putBack) throw new SettingsKitError(404, "That setting has no way to be put back as shipped.");
   // Only a record that cannot be read: a readable one is changed through the kit or its card, where a
   // loosening asks and a pin holds (a stale button in another window must not wipe what the owner just set).
   if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
+  // Q83: check if putting back to shipped values is loosening by comparing actual saved record values
+  // to the shipped defaults. Use raw saved values, not the app's parsed reading.
+  const raw = (deps.store.get("settings", deps.owner, spec.key)?.data ?? {}) as Record<string, unknown>;
+  const loosenings: string[] = [];
+  for (const field of spec.fields) {
+    const rawValue = readPathRaw(raw, field.field);
+    const acceptedValue = acceptValue(field, rawValue);
+    const shipped = field.initial as Value;
+    // Only check if we have an actual saved value different from undefined and it's valid for this field
+    if (acceptedValue !== undefined && acceptedValue !== shipped && loosens(field, acceptedValue, shipped, spec)) {
+      loosenings.push(field.label);
+    }
+  }
+  if (loosenings.length && !body.confirmLoosening)
+    throw new SettingsKitError(409, `${loosenings.length} of these make Branch less careful (${loosenings.join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
   spec.putBack(deps.store, deps.owner);
   audit(deps.store, deps.owner, { action: "policy.changed", actor: deps.owner, subject: `${spec.name}: put back as shipped`,
     reason: "The saved record could not be read, so the whole of it was started again from how Branch ships", outcome: "saved" });
