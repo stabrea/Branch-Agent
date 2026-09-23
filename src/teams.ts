@@ -5,6 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message } from "./contracts.js";
 import { TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
+import { beginTeamTurn } from "./team-handoff.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -71,12 +72,16 @@ export class Teams {
     const task = this.tasks.observe(scope, team.id, requestId, teamRequestFingerprint({ teamId: team.id, prompt, ...team }));
     const claim = task.state === "pending" ? this.tasks.claim(scope, task.taskId) : null;
     if (!claim) return this.observed(scope, task.taskId);
+    // Q62: while this turn runs, nobody can offer the task away or accept an offer for it.
+    const turnEnded = beginTeamTurn(this.store, claim.taskId);
     try {
       return await this.dispatch(runtime, knowledge, team, prompt, claim);
     } catch (error) {
       // The run may have done things before it threw, so the task is left uncertain and never replayed.
       try { this.tasks.markUncertain(claim, error instanceof Error ? error.message : String(error)); } catch { /* the claim is already gone */ }
       throw error;
+    } finally {
+      turnEnded();
     }
   }
   /** What a caller that did not win the claim sees: the recorded result, or only the task's state. */

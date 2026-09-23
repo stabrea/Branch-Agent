@@ -13,6 +13,8 @@ import { TeamTasks, type TeamTaskClaim, type TeamTaskScope } from "./team-tasks.
  * refused from then on. Rejecting leaves the task where it was and keeps the reason. An offer that
  * is not answered in time expires; that is checked whenever an offer is read or answered, with no
  * timer. Everything lives in the store, so an open offer is still there after a restart.
+ * While the task's turn is running (Teams.run holds it), it can be neither offered nor accepted,
+ * and at accept the recipient must still be on the team or still exist, or the offer lapses.
  *
  * Who is answering is always decided by the caller from the signed-in context, never taken from a
  * request body. Conversation sharing (src/interop/handoff.ts) is a different thing and is untouched.
@@ -31,6 +33,26 @@ const longestOfferMs = 7 * 24 * 60 * 60 * 1000;
 const longestReason = 500;
 type Row = Record<string, unknown>;
 type Outcome<T> = { value: T } | { refusal: string };
+const turnRunning = "The task's current turn is still running; wait until the current turn finishes. The offer stays open.";
+
+/**
+ * Team tasks whose turn is running in this process right now. Teams.run adds a task when it wins
+ * the claim and removes it when the turn ends, however it ends. The store is only ever open in one
+ * process, so this is every running turn there is. Handing a task over mid-turn would strand it:
+ * the turn's own completion would be refused and its result lost.
+ */
+const turnsInFlight = new WeakMap<Store, Set<string>>();
+/** Marks a team task's turn as running; call the returned function when the turn ends. */
+export function beginTeamTurn(store: Store, taskId: string): () => void {
+  const running = turnsInFlight.get(store) ?? new Set<string>();
+  turnsInFlight.set(store, running);
+  running.add(taskId);
+  return () => { running.delete(taskId); };
+}
+/** Whether a team task's turn is running right now. */
+export function teamTurnInFlight(store: Store, taskId: string): boolean {
+  return turnsInFlight.get(store)?.has(taskId) ?? false;
+}
 
 export class TeamHandoffs {
   constructor(private readonly store: Store, private readonly now: () => number = Date.now) {
@@ -54,7 +76,8 @@ export class TeamHandoffs {
       this.expire("task_id=?", [claim.taskId], now);
       const task = this.heldTask(claim);
       if (!task) return { refusal: "Only the task's current claimant can offer it, and this claim no longer holds it." };
-      const refusal = this.recipientRefusal(claim.scope.owner, String(task.team_id), String(task.claimant), to);
+      if (teamTurnInFlight(this.store, claim.taskId)) return { refusal: turnRunning.replace(" The offer stays open.", "") };
+      const refusal = to === String(task.claimant) ? "This recipient already holds the task." : this.recipientGone(claim.scope.owner, String(task.team_id), to);
       if (refusal) return { refusal };
       if (this.openOffer(claim.taskId)) return { refusal: "This task already has an open offer; wait for an answer or for it to expire." };
       const offerId = randomUUID();
@@ -76,14 +99,17 @@ export class TeamHandoffs {
     const now = this.now();
     return settle(this.transaction((): Outcome<TeamTaskClaim> => {
       this.expire("offer_id=?", [offerId], now);
+      if (this.turnRunningFor(who, offerId)) return { refusal: turnRunning };
       const offer = this.store.sqlite.prepare(`UPDATE team_task_handoffs SET state='accepted', decided_at=?
         WHERE offer_id=? AND owner=? AND offered_to=? AND state='offered' AND expires_at>? RETURNING *`)
         .get(iso(now), offerId, who.owner, who.id, iso(now));
       if (!offer) return { refusal: this.whyNot(who, offerId) };
+      const gone = this.recipientGone(who.owner, String(offer.team_id), who.id);
+      if (gone) return this.lapse(offerId, now, `The recipient could no longer take the task: ${gone}`);
       const moved = this.store.sqlite.prepare(`UPDATE team_tasks SET claimant=?, generation=generation+1, updated_at=?
         WHERE owner=? AND source=? AND task_id=? AND claimant=? AND generation=? AND state='claimed' RETURNING generation`)
         .get(who.id, iso(now), String(offer.owner), String(offer.source), String(offer.task_id), String(offer.offered_by), Number(offer.from_generation));
-      if (!moved) return this.lapse(offerId, now);
+      if (!moved) return this.lapse(offerId, now, "The one who offered this task no longer holds it, so the offer lapsed and nothing moved.");
       const scope: TeamTaskScope = { owner: String(offer.owner), source: String(offer.source) };
       return { value: { scope, taskId: String(offer.task_id), claimant: who.id, generation: Number(moved.generation) } };
     }));
@@ -131,9 +157,8 @@ export class TeamHandoffs {
       .get(claim.scope.owner, claim.scope.source, claim.taskId, claim.claimant, claim.generation);
   }
 
-  /** A recipient must be a member of the task's team or an existing household profile, and not the holder. */
-  private recipientRefusal(owner: string, teamId: string, holder: string, to: string): string | null {
-    if (to === holder) return "This recipient already holds the task.";
+  /** Why a recipient cannot hold the task: it must be on the task's team or an existing household profile. */
+  private recipientGone(owner: string, teamId: string, to: string): string | null {
     const [kind, id] = [to.slice(0, to.indexOf(":")), to.slice(to.indexOf(":") + 1)];
     if (kind === "member") {
       const team = this.store.get("governance", owner, `team:${teamId}`)?.data as { members?: { specialistId: string }[] } | undefined;
@@ -157,11 +182,21 @@ export class TeamHandoffs {
     return "This offer expired before it was accepted, so the task stays with the one who offered it.";
   }
 
-  /** The recipient said yes but the offerer had already finished or lost the task: the offer lapses. */
-  private lapse(offerId: string, now: number): { refusal: string } {
+  /** An open offer to this recipient whose task has a turn running right now. */
+  private turnRunningFor(who: TeamHandoffActor, offerId: string): boolean {
+    const row = this.store.sqlite.prepare("SELECT task_id FROM team_task_handoffs WHERE offer_id=? AND owner=? AND offered_to=? AND state='offered'")
+      .get(offerId, who.owner, who.id);
+    return !!row && teamTurnInFlight(this.store, String(row.task_id));
+  }
+
+  /**
+   * The recipient said yes but the offer can no longer be carried out (the offerer finished or lost
+   * the task, or the recipient left the team or was removed): the offer lapses and nothing moves.
+   */
+  private lapse(offerId: string, now: number, why: string): { refusal: string } {
     this.store.sqlite.prepare("UPDATE team_task_handoffs SET state='expired', decided_at=?, decision_reason=? WHERE offer_id=?")
-      .run(iso(now), "The offerer no longer held the task when it was accepted", offerId);
-    return { refusal: "The one who offered this task no longer holds it, so the offer lapsed and nothing moved." };
+      .run(iso(now), why, offerId);
+    return { refusal: why };
   }
 
   /** Marks overdue open offers as expired. This is the only way an offer times out; there is no timer. */

@@ -8,7 +8,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { TeamTasks, StaleTeamTaskClaimError } from "../dist/team-tasks.js";
-import { TeamHandoffs, TeamHandoffRefusedError } from "../dist/team-handoff.js";
+import { TeamHandoffs, TeamHandoffRefusedError, beginTeamTurn } from "../dist/team-handoff.js";
 
 // Q62: an acknowledged handoff of a claimed team task. The claimant offers the task to a named
 // recipient; the claimant stays responsible until the recipient accepts, and once it does, every
@@ -221,4 +221,83 @@ test("over HTTP the recipient is whoever signed in: a body naming someone is ref
   assert.deepEqual(accepted.body, { offerId: offer.offerId, taskId: claim.taskId, state: "accepted", generation: claim.generation + 1 });
   assert.equal(row().claimant, household.id);
   assert.equal((await call("POST", `/${offer.offerId}/accept`, {})).status, 409, "a second accept loses");
+});
+
+/** A team runtime whose member fanout waits for `hold`; `started` settles once the turn is under way. */
+function heldRuntime(store, owner, hold) {
+  let started;
+  return {
+    started: new Promise((resolve) => { started = resolve; }),
+    async run() { return { id: store.createRun(owner, "team parent").id }; },
+    context: ({ runId }) => ({ runId }),
+    async fanout(_context, tasks) {
+      started();
+      await hold;
+      return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `answer ${index}`, runId: `child-${index}` }])) };
+    },
+  };
+}
+
+test("while a team turn is running its task cannot be offered away, and the turn completes with its result", async (t) => {
+  const { state, owner, team, planner } = await fixture(t);
+  const app = state.app, scope = { owner, source: "window" }, tasks = new TeamTasks(app.store);
+  let release; const hold = new Promise((resolve) => { release = resolve; });
+  const runtime = heldRuntime(app.store, owner, hold);
+  const requestId = randomUUID();
+  const running = app.teams.run(runtime, { activeSpecialist: () => ({}) }, team.id, "ship it", { requestId });
+  await runtime.started;
+  const { task_id: taskId } = app.store.sqlite.prepare("SELECT task_id FROM team_tasks WHERE request_id=?").get(requestId);
+  const held = tasks.get(scope, taskId);
+  assert.equal(held.state, "claimed");
+  assert.ok(held.parentRunId, "the parent run is already linked, yet the members are still working");
+  // In-process code can rebuild the running claim from the row; the turn must still be protected.
+  const inFlight = { scope, taskId, claimant: held.claimant, generation: held.generation };
+  const handoffs = new TeamHandoffs(app.store);
+  let refusal = null;
+  try {
+    const offer = handoffs.offer(inFlight, planner.id, "take it mid-turn");
+    handoffs.accept(planner, offer.offerId);
+  } catch (error) { refusal = error; }
+  release();
+  const done = await running.catch((error) => error);
+  assert.equal(done.state, "completed", `the turn's own result is kept (${done.message ?? ""})`);
+  assert.deepEqual(done.answers.map((a) => a.output), ["answer 0", "answer 1"]);
+  assert.deepEqual(tasks.get(scope, taskId).result.answers, done.answers);
+  assert.ok(refusal instanceof TeamHandoffRefusedError);
+  assert.match(refusal.message, /wait until the current turn finishes/);
+  assert.equal(handoffs.waiting(scope, taskId), null, "no offer was left behind");
+  // A finished task is no longer held by anyone, so it cannot be offered at all.
+  assert.throws(() => handoffs.offer(inFlight, planner.id, "after the turn"), /no longer holds/);
+});
+
+test("an accept is refused while the task's turn runs, the offer stays open, and it can be accepted after the turn", async (t) => {
+  const { state, claim, planner, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, planner.id, "after this turn");
+  const turnEnded = beginTeamTurn(state.app.store, claim.taskId);
+  const before = row();
+  assert.throws(() => handoffs.accept(planner, offer.offerId), /wait until the current turn finishes/);
+  assert.equal(handoffs.get(planner.owner, offer.offerId).state, "offered");
+  assert.deepEqual(row(), before);
+  turnEnded();
+  assert.equal(handoffs.accept(planner, offer.offerId).generation, claim.generation + 1);
+});
+
+test("at accept the recipient is checked again: a member who left the team or a removed profile cannot take the task", async (t) => {
+  const { state, owner, team, tasks, claim, reviewer, household, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const toReviewer = handoffs.offer(claim, reviewer.id, "review it");
+  state.app.teams.save({ id: team.id, name: team.name, members: team.members.filter((m) => `member:${m.specialistId}` !== reviewer.id) });
+  const before = row();
+  assert.throws(() => handoffs.accept(reviewer, toReviewer.offerId), /could no longer take the task: .*not a member/);
+  assert.equal(handoffs.get(owner, toReviewer.offerId).state, "expired");
+  assert.match(handoffs.get(owner, toReviewer.offerId).decisionReason, /not a member/);
+  assert.deepEqual(row(), before);
+  const toSam = handoffs.offer(claim, household.id, "Sam then");
+  state.app.store.profiles.remove(household.id.slice("profile:".length));
+  assert.throws(() => handoffs.accept(household, toSam.offerId), /could no longer take the task: .*does not exist/);
+  assert.equal(handoffs.get(owner, toSam.offerId).state, "expired");
+  assert.deepEqual(row(), before);
+  tasks.linkParentRun(claim, "still the offerer's");
+  assert.equal(row().parentRunId, "still the offerer's");
 });
