@@ -520,8 +520,13 @@ test("a panel closed long ago in the full window still opens from the switch in 
   await f.page.keyboard.press("ArrowLeft");
   const mine = await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w"));
   assert.ok(mine, "the owner's width is set");
-  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } })));
-  assert.equal(await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w")), "", "a household person starts from the normal width");
+  /* A real household profile: widths are kept by the engine per person (Q45, paneWidths), so the window reads
+     the person's own once it notices the switch, as its regular refresh does. */
+  const person = f.app.store.profiles.create({ name: "Sam", pin: "1234" });
+  f.app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  await f.page.waitForFunction(() => document.documentElement.dataset.household === "on");
+  await f.page.waitForFunction(() => document.documentElement.style.getPropertyValue("--aside-w") === "", null, { timeout: 10000 })
+    .catch(() => assert.fail("a household person starts from the normal width"));
   assert.deepEqual(f.errors, []);
 });
 
