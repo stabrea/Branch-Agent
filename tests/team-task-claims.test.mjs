@@ -33,11 +33,13 @@ async function fixture(t) {
 }
 /** A runtime that counts dispatches, can be held open, can throw after dispatch and can fail members. */
 function inertRuntime(store, owner, options = {}) {
-  const runtime = { dispatches: 0, async run() {
+  const runtime = { dispatches: 0, async run(runOptions) {
     runtime.dispatches++;
     const parent = store.createRun(owner, "team parent");
+    // Q63: like the real runtime, the run is announced before it does anything, and settles as completed.
+    runOptions.onStarted?.(parent);
     if (options.hold) await options.hold;
-    return { id: parent.id };
+    return { id: parent.id, status: "completed", output: "" };
   }, context: ({ runId }) => ({ runId }), async fanout(_context, tasks) {
     if (options.throwAfterDispatch) throw new Error("the connection dropped after the members started");
     return { tasks: Object.fromEntries(tasks.map((task, index) => {
@@ -134,7 +136,7 @@ test("a wrong claimant or an old generation cannot finish a task, and the row is
   assert.equal(state.app.teams.room(team.id).length, room);
 });
 
-test("a throw after dispatch leaves the task uncertain across a restart, and a retry never runs it again", async (t) => {
+test("a throw after dispatch leaves the task needing reconciliation across a restart, and a retry never runs it again", async (t) => {
   const { state, owner, team, reopen } = await fixture(t);
   const requestId = randomUUID();
   const runtime = inertRuntime(state.app.store, owner, { throwAfterDispatch: true });
@@ -142,11 +144,11 @@ test("a throw after dispatch leaves the task uncertain across a restart, and a r
   const app = await reopen();
   const retry = inertRuntime(app.store, owner);
   const seen = await app.teams.run(retry, knowledge, team.id, "deploy", { requestId });
-  assert.equal(seen.state, "uncertain");
+  assert.equal(seen.state, "needs_reconciliation");
   assert.equal(seen.answers, undefined);
   assert.equal(retry.dispatches, 0);
   const task = new TeamTasks(app.store).get({ owner, source: "window" }, seen.taskId);
-  assert.ok(task.parentRunId, "the parent run is linked so the uncertain task can be traced");
+  assert.ok(task.parentRunId, "the parent run is linked so the unsettled task can be traced");
   assert.match(task.error, /connection dropped/);
 });
 

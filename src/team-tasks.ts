@@ -7,12 +7,14 @@ import type { Store } from "./store.js";
  * A request is known by who owns it, the trusted source it came from (the app window, a household
  * profile, a person's key or a short-lived key, never a body field), the team and the caller's
  * request id. The first caller to claim it runs it; everybody else only observes it. A claimed task
- * stays claimed across a restart, and a task whose run threw is "uncertain": its effects may have
- * happened, so it is never run again on its own. Every write after the claim names the owner, the
- * source, the task, the claimant and the generation, so a stale or wrong claimant changes nothing.
- * Nothing here expires a claim or lets another caller take it over.
+ * stays claimed across a restart. A task that stopped before anything was done is "failed" (a new
+ * request id may try again); one that stopped after something may have been done is
+ * "needs_reconciliation": a person has to check what happened, and it is never run again on its own.
+ * Every write after the claim names the owner, the source, the task, the claimant and the
+ * generation, so a stale or wrong claimant changes nothing. Nothing here expires a claim or lets
+ * another caller take it over.
  */
-export type TeamTaskState = "pending" | "claimed" | "completed" | "uncertain";
+export type TeamTaskState = "pending" | "claimed" | "completed" | "failed" | "needs_reconciliation";
 export interface TeamTaskScope { owner: string; source: string }
 export interface TeamTask {
   taskId: string; owner: string; source: string; teamId: string; requestId: string; fingerprint: string;
@@ -37,7 +39,7 @@ export class TeamTasks {
   constructor(private readonly store: Store) {
     this.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS team_tasks(
       task_id TEXT PRIMARY KEY, owner TEXT NOT NULL, source TEXT NOT NULL, team_id TEXT NOT NULL, request_id TEXT NOT NULL,
-      fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','uncertain')),
+      fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','failed','needs_reconciliation')),
       claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, parent_run_id TEXT, result TEXT, error TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner, source, team_id, request_id))`);
   }
@@ -67,13 +69,26 @@ export class TeamTasks {
     const row = this.store.sqlite.prepare("SELECT * FROM team_tasks WHERE owner=? AND source=? AND task_id=?").get(scope.owner, scope.source, taskId);
     return row ? toTask(row) : undefined;
   }
-  /** Notes the parent run once it is known, so an uncertain task can be traced to it. */
+  /** The claim as it stands in the store, for reconciling a task whose claimant is gone; null unless still claimed. */
+  standingClaim(scope: TeamTaskScope, taskId: string): TeamTaskClaim | null {
+    const task = this.get(scope, taskId);
+    return task?.state === "claimed" && task.claimant ? { scope, taskId, claimant: task.claimant, generation: task.generation } : null;
+  }
+  /** Notes the parent run the moment it exists and before it does anything, so the task can always be traced to it. */
   linkParentRun(claim: TeamTaskClaim, parentRunId: string): void {
     this.fenced(claim, "parent_run_id=?", [parentRunId]);
   }
-  /** Marks a claimed task uncertain: its run threw, so its effects are unknown and it is not run again. */
-  markUncertain(claim: TeamTaskClaim, error: string): void {
-    this.fenced(claim, "state='uncertain', error=?", [error.slice(0, 2000)]);
+  /** Keeps the finished result on the still-claimed task, so it can be finished from it after a crash. */
+  recordOutcome(claim: TeamTaskClaim, result: unknown): void {
+    this.fenced(claim, "result=?", [boundedResult(result)]);
+  }
+  /** Ends a task that stopped before anything was done; the same request id is not run again. */
+  markFailed(claim: TeamTaskClaim, error: string): void {
+    this.fenced(claim, "state='failed', error=?", [error.slice(0, 2000)]);
+  }
+  /** Ends a task whose effects may have happened: a person must check them; it is never run again on its own. */
+  markNeedsReconciliation(claim: TeamTaskClaim, error: string): void {
+    this.fenced(claim, "state='needs_reconciliation', error=?", [error.slice(0, 2000)]);
   }
   /**
    * Finishes a claimed task and writes `alongside` (the room's new messages) in one transaction:

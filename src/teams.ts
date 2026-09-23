@@ -3,8 +3,9 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
-import type { Message } from "./contracts.js";
-import { TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
+import type { Message, Run } from "./contracts.js";
+import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
+import { finishTeamTask, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -71,13 +72,33 @@ export class Teams {
     const task = this.tasks.observe(scope, team.id, requestId, teamRequestFingerprint({ teamId: team.id, prompt, ...team }));
     const claim = task.state === "pending" ? this.tasks.claim(scope, task.taskId) : null;
     if (!claim) return this.observed(scope, task.taskId);
+    const turn: TurnProgress = { parentRunId: null, membersStarted: false, recorded: false };
+    holdDispatch(claim.taskId);
     try {
-      return await this.dispatch(runtime, knowledge, team, prompt, claim);
+      return await this.dispatch(runtime, knowledge, team, prompt, claim, turn);
     } catch (error) {
-      // The run may have done things before it threw, so the task is left uncertain and never replayed.
-      try { this.tasks.markUncertain(claim, error instanceof Error ? error.message : String(error)); } catch { /* the claim is already gone */ }
+      this.settleThrown(claim, turn, error instanceof Error ? error.message : String(error));
       throw error;
+    } finally {
+      releaseDispatch(claim.taskId);
     }
+  }
+  /** Settles a claimed task by what the record says it did, for a claimant that is gone (after a restart, say). */
+  reconcile(taskId: string, source = "window"): ReconcileReport {
+    return reconcileTeamTask(this.store, this.tasks, { owner: this.owner, source }, taskId);
+  }
+  /**
+   * A throw ends the task by how far its turn got. Before the parent run existed, or before its
+   * first tool call, nothing was done: failed. Once members started, some may still be working
+   * when the throw arrives, so the record cannot prove nothing happened: it needs a person.
+   * A recorded result is left for reconcile to finish.
+   */
+  private settleThrown(claim: TeamTaskClaim, turn: TurnProgress, message: string): void {
+    try {
+      if (turn.recorded) return;
+      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim, `Stopped while the members were working: ${message}`);
+      else settleUnfinished(this.store, this.tasks, claim, turn.parentRunId, message);
+    } catch { /* the claim is already gone, so this caller writes nothing */ }
   }
   /** What a caller that did not win the claim sees: the recorded result, or only the task's state. */
   private observed(scope: { owner: string; source: string }, taskId: string) {
@@ -85,24 +106,46 @@ export class Teams {
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
     return task.state === "completed" ? { ...(task.result as object), ...identity } : { teamId: task.teamId, ...identity };
   }
-  private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim) {
-    const parent = await runtime.run({ prompt: `Team ${team.name}: ${prompt}` });
-    this.tasks.linkParentRun(claim, parent.id);
+  private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress) {
+    const parent = await this.startParent(runtime, team, prompt, claim, turn);
+    if (parent.status !== "completed") return this.stopBeforeMembers(claim, parent);
     const context = runtime.context({ runId: parent.id });
     this.store.message(team.roomSessionId, { role: "user", content: prompt });
     const tasks = team.members.map((member, index) => ({ id: `m${index}`, prompt: `Your role in team "${team.name}": ${member.role}. ${member.brief}\n\nTask: ${prompt}`, dependsOn: [] as string[] }));
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
+    turn.membersStarted = true;
     const outcome = await runtime.fanout(context, tasks, (taskId) => specs.get(taskId)!);
     const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcome.tasks[`m${index}`]! }));
-    const result = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
+    const result: TeamRunResult = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
+    // Kept on the task first, so a crash before the finish below can still be finished from it without running anything.
+    this.tasks.recordOutcome(claim, result);
+    turn.recorded = true;
     // The finished task and the room's answers are written together, or not at all.
-    // Listeners hear about the event only after the commit, so none can see or break a half-written task.
-    let announce = () => {};
-    this.tasks.complete(claim, result, () => {
-      for (const answer of answers) this.store.message(team.roomSessionId, { role: "assistant", content: `[${answer.role}] ${answer.output || `(no answer: ${answer.status})`}` });
-      announce = this.store.eventUnannounced(parent.id, "team.ran", { teamId: team.id, roomSessionId: team.roomSessionId, answers: answers.map((a) => ({ role: a.role, status: a.status, runId: a.runId })) });
-    });
-    announce();
+    finishTeamTask(this.store, this.tasks, claim, result);
     return { ...result, taskId: claim.taskId, requestId: this.tasks.get(claim.scope, claim.taskId)!.requestId, state: "completed" as const };
   }
+  /**
+   * Starts the parent run. The runtime calls onStarted after it has created the run and just before
+   * its first model call, so the task names its run before the run can do anything. If that write
+   * is refused (the claim went stale), the runtime ends the run there and nothing is written here.
+   */
+  private async startParent(runtime: Runtime, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress): Promise<Run> {
+    const parent = await runtime.run({ prompt: `Team ${team.name}: ${prompt}`, onStarted: (run) => {
+      this.tasks.linkParentRun(claim, run.id);
+      turn.parentRunId = run.id;
+    } });
+    if (turn.parentRunId !== parent.id) throw new StaleTeamTaskClaimError("The team's run could not be linked to this task, so it was stopped before it did anything.");
+    return parent;
+  }
+  /** The parent turn did not complete, so the members are not started; the task ends by what the turn did. */
+  private stopBeforeMembers(claim: TeamTaskClaim, parent: Run) {
+    const why = `the team's own turn ended ${parent.status}: ${parent.output.slice(0, 500)}`;
+    if (runStopped(parent.status)) settleUnfinished(this.store, this.tasks, claim, parent.id, why);
+    // A run waiting on a question may still act once it is answered, so a person has to look.
+    else this.tasks.markNeedsReconciliation(claim, why);
+    return { ...this.observed(claim.scope, claim.taskId), parentRunId: parent.id };
+  }
 }
+
+/** How far a team turn got, so a throw can be settled honestly. */
+interface TurnProgress { parentRunId: string | null; membersStarted: boolean; recorded: boolean }
