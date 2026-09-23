@@ -619,3 +619,18 @@ test("a recorded result that still cannot be written when reconciled settles for
   assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId })).state, "needs_reconciliation");
   assert.equal(runtime.dispatches, 1);
 });
+
+test("reconcile leaves a turn alone between its parent run completing and its members answering", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const { runtime, started, release } = gatedTurn(state, owner, "answer");
+  const requestId = randomUUID();
+  const live = state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  await started;
+  const task = taskRow(state.app, requestId);
+  assert.equal(state.app.store.run(task.parent_run_id).status, "completed", "the parent run is done; only the members are working");
+  assert.equal(state.app.teams.reconcile(task.task_id).state, "claimed");
+  assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId })).state, "claimed", "a repeat mid-turn only observes");
+  release();
+  assert.equal((await live).state, "completed");
+  assert.equal(runtime.dispatches, 1);
+});
