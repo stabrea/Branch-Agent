@@ -571,16 +571,17 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("Ctrl+Shift+K folds the context pane away and back", async (t) => {
+test("Ctrl+Shift+K opens the side panel and folds it away again", async (t) => {
   const f = await fixture(t);
   const open = () => f.page.locator("#context-panel").isVisible();
-  assert.equal(await open(), true);
+  /* DG-114: the side panel is a card, closed until asked for. */
+  assert.equal(await open(), false, "closed until asked for");
   await f.page.keyboard.press("Control+Shift+K");
   await f.page.waitForTimeout(150);
-  assert.equal(await open(), false, "the pane folds away");
+  assert.equal(await open(), true, "the keys open it");
   await f.page.keyboard.press("Control+Shift+K");
   await f.page.waitForTimeout(150);
-  assert.equal(await open(), true, "and comes back");
+  assert.equal(await open(), false, "and fold it away");
   assert.equal(await f.page.locator("#cmd-input").count(), 0, "the palette stays shut");
   assert.deepEqual(f.errors, []);
 });
@@ -648,6 +649,7 @@ test("a folded Projects group stays folded, remembered for this workspace", asyn
 test("with nothing connected the context pane offers one thing to do", async (t) => {
   const f = await fixture(t);
   assert.equal(await f.page.locator("#context-panel").getAttribute("data-connected"), "false");
+  await f.page.locator("#aside-toggle").click(); // DG-114: the side panel is a card, closed until asked for
   await f.page.locator("#context-connect").waitFor({ state: "visible" });
   assert.equal(await f.page.locator("#context-change-model").isVisible(), false);
   await f.page.locator("#context-connect").click();
