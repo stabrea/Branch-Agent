@@ -36,6 +36,7 @@
   letter-spacing: normal;
 }
 .studio-field input,
+.studio-field select,
 .pair-join input,
 .person-add input,
 .who-pin input,
@@ -178,6 +179,7 @@
   font-size: 13px;
 }
 .studio-field input,
+.studio-field select,
 .studio-emoji input,
 .person-add input,
 .who-pin input {

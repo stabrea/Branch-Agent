@@ -6,6 +6,7 @@ import { SpecialistStyleSchema } from "../specialist-styles.js";
 import type { Store } from "../store.js";
 import { AvatarSchema, settleAvatar } from "./avatar.js";
 import { TrunkLookSchema } from "./look.js"; // phase2/shell
+import { StartsInSchema } from "./starts-in.js"; // Q44
 
 /**
  * R17-001 (T-01): the Trunk record. A Trunk is a named, long-lived agent that belongs to the owner.
@@ -26,6 +27,12 @@ export const TrunkSchema = TrunkCreateSchema.extend({
   avatar: AvatarSchema.optional(),
   /** phase2/shell: its colour, face, shape and movement (src/trunks/look.ts); absent looks as it always did. */
   look: TrunkLookSchema.optional(),
+  /**
+   * Q44: the computer it starts in, by its id in the device book; null or absent means this computer.
+   * Optional so a record saved before it existed reads as it always did, and an older build, which
+   * only picks the fields it knows, carries it over untouched (src/trunks/starts-in.ts).
+   */
+  startsIn: StartsInSchema.optional(),
   /** The model preset it answers with; empty follows the conversation, then the owner's default. */
   model: z.string().trim().max(64).default(""),
   reasoning: z.enum(reasoningEfforts).nullable().default(null),
