@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, ownerMember, publishGitPatch, gitPatchKind } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { householdRefusal } from "../dist/household-routes.js";
 import { canonical } from "../dist/receipts.js";
 import { createHmac } from "node:crypto";
 
@@ -146,4 +147,14 @@ test("the patch route itself refuses a repository that is not one of the owner's
   assert.equal(refused.status, 400);
   assert.deepEqual((await events.list(owner)).events, [], "nothing was signed or stored");
   assert.equal((await post("/api/collab/git-patches", patch("garden-app", "Garden fix", "one"))).status, 200);
+});
+
+test("a household profile cannot publish a patch: repositories are the owner's", async (t) => {
+  const { app, owner, ada, events } = await fixture(t);
+  const post = await web(t, app);
+  assert.equal((await post("/api/profiles/switch", { profileId: ada.id, pin: "1234" })).status, 200);
+  const refused = await post("/api/collab/git-patches", patch("garden-app", "Garden fix", "one"));
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body.error, householdRefusal);
+  assert.deepEqual((await events.list(owner)).events, [], "nothing was signed or stored");
 });
