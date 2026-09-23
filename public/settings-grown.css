@@ -799,3 +799,8 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {
   display: none;
 }
+/* DG-186: on Voice the section heading names what its cards hold, as in the approved sample, whose sections draw
+   their settings without a title per card. The titles stay in the page for search and for the Technical line. */
+#lx-page-voice > .card > :is(h2, h3, h4):first-child {
+  display: none;
+}
