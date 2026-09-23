@@ -214,12 +214,14 @@ function startsInField() {
     option.value = choice.id;
     select.append(option);
   }
-  const known = choices.some((choice) => choice.id === (d.startsIn ?? ""));
-  select.value = known ? d.startsIn ?? "" : "";
+  const listed = (id) => choices.some((choice) => choice.id === (id ?? ""));
+  // A computer no longer paired shows as This computer, so the draft says so too and Save sends null.
+  if (!listed(d.startsIn)) d.startsIn = null;
+  select.value = d.startsIn ?? "";
   select.addEventListener("change", () => { d.startsIn = select.value || null; drawForm(); });
   label.append(make("span", "", "studio.startsIn", "Starts in"), select);
   const notes = [];
-  if (!known) notes.push(make("p", "studio-note", "studio.startsIn.gone", "It was set to start on a computer that is no longer paired. Choose where it starts now."));
+  if (!d.startsIn && !listed(d.savedStartsIn)) notes.push(make("p", "studio-note", "studio.startsIn.gone", "It was set to start on a computer that is no longer paired. Choose where it starts now."));
   else if (d.startsIn) notes.push(make("p", "studio-note", "studio.startsIn.later", "Branch cannot start a Trunk on another computer yet, so it will not answer until you choose This computer."));
   return [label, ...notes];
 }

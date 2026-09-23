@@ -47,6 +47,15 @@ export function startTarget(trunk: Pick<Trunk, "startsIn">, computers: readonly 
 export const cannotStartThere = (name: string): Error =>
   Object.assign(new Error(`This Trunk starts on ${name}, and Branch cannot start a Trunk on another computer yet. Choose This computer under Starts in to talk to it here.`), { status: 409 });
 
+/**
+ * A turn about to start or be queued here, for a Trunk set to start on another computer, is refused in
+ * the plain words above (or the unpaired one's words), so nothing waits here for a start that never comes.
+ */
+export function requireStartsHere(trunk: Pick<Trunk, "startsIn">, computers: readonly Computer[]): void {
+  const target = startTarget(trunk, computers);
+  if (target.where === "computer") throw cannotStartThere(target.name);
+}
+
 /** How a turn would be handed to another computer; nothing in this build provides one. */
 export type StartElsewhere = (target: { id: string; name: string }, trunk: Trunk, text: string) =>
   Promise<{ runId?: string; output?: string; status?: string }>;

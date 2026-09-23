@@ -1800,6 +1800,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {
       const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
+      // Q44: a Trunk that starts on another computer would never read it, so it is refused, not queued.
+      try { app.trunks.requireQueueable(match[1]!); } catch (error) { throw new HttpError(409, (error as Error).message); }
       return app.runtime.followUp(match[1]!, prompt, windowCaller(app).person ?? null);
     }
   }

@@ -7,7 +7,7 @@ import { pictureAddress } from "./avatar.js";
 import { TrunkMessages, registerTrunkMessage } from "./messages.js";
 import { setSharedFacts, trunkAgent } from "./memory-scope.js";
 import { TrunkCreateSchema, TrunkEditSchema, TrunkRecords, TrunkSchema, type Trunk } from "./record.js";
-import { StartsInSchema, cannotStartThere, checkStartsIn, startTarget, type Computer, type ComputersPort, type StartElsewhere } from "./starts-in.js"; // Q44
+import { StartsInSchema, cannotStartThere, checkStartsIn, requireStartsHere, startTarget, type Computer, type ComputersPort, type StartElsewhere } from "./starts-in.js"; // Q44
 import { TrunkRooms } from "./rooms.js";
 import { TrunkConversations } from "./conversations.js"; // phase2/rooms
 
@@ -81,7 +81,7 @@ export class Trunks {
       } });
     this.conversations = new TrunkConversations({ store, owner, records: this.records, rooms: this.rooms, changed: () => this.refresh(),
       owns: (sessionId) => store.ownsSession(store.profiles.scope(), sessionId) }); // phase2/rooms
-    this.messages = new TrunkMessages(store, owner, this.records, runtime);
+    this.messages = new TrunkMessages(store, owner, this.records, runtime, (trunk) => requireStartsHere(trunk, this.computers())); // Q44
     this.routines = new TrunkRoutines(store, owner, this.records, scheduler, runtime);
     this.teaching = new TrunkTeaching({ store, owner, records: this.records, routines: this.routines, workflows: deps.workflows,
       scrub: (value) => runtime.hideSecrets(value) });
@@ -135,6 +135,11 @@ export class Trunks {
   trunkForConversation(sessionId: string): Owned | undefined {
     return this.owned.get(sessionId);
   }
+  /** Q44: a message queued in a Trunk's conversation (its own or a room member's) must be able to start here. */
+  requireQueueable(sessionId: string): void {
+    const trunk = this.records.find(this.owned.get(sessionId)?.trunkId ?? "");
+    if (trunk) requireStartsHere(trunk, this.computers());
+  }
 
   /** The runtime's hook: a task in a Trunk's conversation, or a routine it owns, runs as that Trunk. */
   shapeOf(options: RunOptions): TrunkRunShape | null {
@@ -144,9 +149,7 @@ export class Trunks {
     const trunkId = options.trunkId ?? owned?.trunkId;
     const trunk = trunkId ? this.records.find(trunkId) : undefined;
     if (!trunk) return null;
-    // Q44: a Trunk that starts on another computer is never quietly run here.
-    const target = startTarget(trunk, this.computers());
-    if (target.where === "computer") throw cannotStartThere(target.name);
+    requireStartsHere(trunk, this.computers()); // Q44: a Trunk that starts on another computer is never quietly run here.
     const { runtime, registry } = this.deps;
     const sessionModel = options.sessionId ? !!runtime.models.session(this.owner, options.sessionId).preset : false;
     return shapeFor(trunk, this.records.list(), { available: registry.permissions(), caller: options.permissions,

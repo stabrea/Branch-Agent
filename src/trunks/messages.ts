@@ -80,7 +80,9 @@ export type MessageRuntime = Pick<Runtime, "followUp">;
 export class TrunkMessages {
   private readonly stopListening: () => void;
   constructor(private readonly store: Store, private readonly owner: string, private readonly records: TrunkRecords,
-    private readonly runtime: MessageRuntime) {
+    private readonly runtime: MessageRuntime,
+    /** Q44: throws, in plain words, when the Trunk cannot start here, so its message is refused rather than lost. */
+    private readonly startsHere: (trunk: Trunk) => void = () => undefined) {
     this.stopListening = store.onEvent((runId, kind, data) => this.observe(runId, kind, data));
   }
   close(): void { this.stopListening(); }
@@ -107,6 +109,7 @@ export class TrunkMessages {
     const sender = this.senderOf(context);
     const target = this.records.resolve(input.to);
     if (target.id === sender.id) throw new Error("A Trunk cannot send a message to itself");
+    this.startsHere(target); // Q44: refused up front, before any receipt, when it starts on another computer
     const depth = this.depthOf(context.runId);
     if (depth >= maxMessageDepth)
       throw new Error(`These Trunks have already passed messages ${maxMessageDepth} deep. Answer in your own words instead of sending another.`);

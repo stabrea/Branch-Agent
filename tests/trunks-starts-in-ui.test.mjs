@@ -16,7 +16,8 @@ const tower = "a1b2c3d4e5f60718";
 const device = (id, name, platform) => ({ id, name, platform, publicKey: "k".repeat(44), pairedAt: "2026-09-23T00:00:00.000Z",
   lastSeen: null, offers: [], enabled: [], folder: null, sharedWith: [] });
 
-async function fixture(t) {
+/** `before` runs once the Trunk is made and before the window connects, which is when it reads the paired devices. */
+async function fixture(t, before = async () => undefined) {
   const root = await mkdtemp(join(tmpdir(), "branch-starts-in-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted });
   app.store.save("settings", app.runtime.owner, "devices-book", { mode: "on", requests: [],
@@ -34,6 +35,7 @@ async function fixture(t) {
   await call("/api/deployment/suggestion", { id: "updates", answer: "never" }).catch(() => undefined);
   await call("/api/trunks/switch", { part: "trunks", mode: "on" });
   const { trunk } = await call("/api/trunks", { name: "Scout", title: "Watches prices", description: "" });
+  await before({ app, call, trunk });
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 950 } })).newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -88,11 +90,34 @@ test("Add a Trunk: choosing another computer saves it and never claims it introd
   assert.match(await dialog.locator("#studio-foot-note").textContent(), /cannot introduce itself/);
   await dialog.getByRole("button", { name: "Create the Trunk", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
-  const toast = await f.page.locator("#toast").textContent();
-  assert.match(toast, /starts on Tower/);
+  // The toast comes after the list is refreshed and the new Trunk opened, so wait for its words.
+  const shown = f.page.locator("#toast").filter({ hasText: /starts on Tower/ });
+  await shown.waitFor({ timeout: 15000 });
+  const toast = await shown.textContent();
   assert.doesNotMatch(toast, /introduces itself/);
   const made = (await f.call("/api/trunks")).trunks.find((one) => one.name === "Gardener");
   assert.equal(made.startsIn, tower, "made with where it starts, so even its first turn is not run here");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a computer no longer paired shows as This computer, and Save without touching the list clears it", async (t) => {
+  const f = await fixture(t, async ({ app, call, trunk }) => {
+    assert.equal((await call(`/api/trunks/${trunk.id}`, { startsIn: tower })).trunk.startsIn, tower);
+    app.store.save("settings", app.runtime.owner, "devices-book", { mode: "on", requests: [], devices: [device("0f1e2d3c4b5a6978", "Pixel", "android")] });
+    assert.equal(app.devices.book.devices().length, 1, "Tower is no longer paired");
+  });
+  const saves = [];
+  f.page.on("request", (request) => { if (request.method() === "POST" && request.url().endsWith(`/api/trunks/${f.trunk.id}`)) saves.push(request.postDataJSON()); });
+  await openChange(f);
+  const dialog = f.page.locator("#studio");
+  assert.deepEqual(await options(f.page), [["", "This computer"]]);
+  assert.equal(await f.page.locator("#studio-starts-in").inputValue(), "");
+  await dialog.getByText("no longer paired").waitFor();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].startsIn, null, "Save sends This computer without the list being touched");
+  assert.equal((await f.call(`/api/trunks/${f.trunk.id}`)).trunk.startsIn, null);
   assert.deepEqual(f.errors, []);
 });
 
