@@ -161,6 +161,70 @@ export function expandVariables(text: string, env: NodeJS.ProcessEnv = process.e
 /** A variable, a command's output or an escape this reading could not resolve. */
 export const unresolved = (text: string): boolean => /\$[{(A-Za-z_]|`|%[A-Za-z_]+%|\$env:/i.test(text);
 
+/** Q12: the most words one brace pattern, or one call, may stand for before the call is refused as unreadable. */
+const braceLimit = 64, callBraceLimit = 256;
+
+/**
+ * Q12: a word with its brace groups spelled out the way bash, zsh and macOS's /bin/sh do it:
+ * `~/.local/share/{branch-agent,x}` is two paths, `branch-agent{,}` is the name twice, and a group
+ * inside a group opens too. A group with no comma is left as written. Null when the word stands for
+ * more than `limit` words, which the caller refuses rather than guess at.
+ */
+export function expandBraces(word: string, limit = braceLimit): string[] | null {
+  for (let open = word.indexOf("{"); open >= 0; open = word.indexOf("{", open + 1)) {
+    let depth = 0, close = -1;
+    const commas: number[] = [];
+    for (let at = open; at < word.length && close < 0; at++) {
+      const char = word[at];
+      if (char === "{") depth++;
+      else if (char === "}" && --depth === 0) close = at;
+      else if (char === "," && depth === 1) commas.push(at);
+    }
+    if (close < 0) return [word];
+    if (!commas.length) continue;
+    const cuts = [open, ...commas, close], out: string[] = [];
+    for (let part = 0; part < cuts.length - 1; part++) {
+      const more = expandBraces(word.slice(0, open) + word.slice(cuts[part]! + 1, cuts[part + 1]) + word.slice(close + 1), limit - out.length);
+      if (!more || out.length + more.length > limit) return null;
+      out.push(...more);
+    }
+    return out;
+  }
+  return [word];
+}
+
+/** A text with every brace pattern in it spelled out, word by word; null past the limits. */
+function bracesSpelledOut(text: string): string | null {
+  if (!text.includes("{")) return text;
+  let count = 0;
+  // A space escaped with a backslash stays inside its word, as the shell keeps it.
+  const words = text.split(/((?<!\\)\s+)/).map((piece) => {
+    const spelled = /^\s+$/.test(piece) ? [piece] : expandBraces(piece);
+    count += spelled?.length ?? callBraceLimit + 1;
+    return spelled?.join(" ") ?? "";
+  });
+  return count > callBraceLimit ? null : words.join("");
+}
+
+/**
+ * A call with brace patterns spelled out in its target and every string it carries; null past the
+ * limits. Only a call that runs a command line goes through a shell: a file tool's path or content
+ * with braces in it (JSON, say) is taken literally, as the tool takes it.
+ */
+function withBracesSpelledOut(call: ProtectedCall): ProtectedCall | null {
+  const args = (call.args ?? {}) as { executable?: unknown; command?: unknown };
+  if (!/^(shell|terminal)\./.test(call.tool) && typeof args.executable !== "string" && typeof args.command !== "string") return call;
+  let refused = false;
+  const spell = (value: unknown, depth = 0): unknown => {
+    if (typeof value === "string") { const spelled = bracesSpelledOut(value); if (spelled === null) refused = true; return spelled ?? value; }
+    if (depth > 8 || !value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((item) => spell(item, depth + 1));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, spell(item, depth + 1)]));
+  };
+  const spelled = { ...call, target: spell(call.target) as string, args: spell(call.args) };
+  return refused ? null : spelled;
+}
+
 /**
  * Splits a command the way a shell would: quotes keep spaces, a backslash escapes the next character
  * (except on Windows, where it separates folders), and `; | & < > ( )` end a word. The value of
@@ -438,7 +502,10 @@ function namedByWord(call: ProtectedCall, places: string[], areas: ProtectedArea
  * place and for commands aimed at Branch's own service or process. When a command removes or moves
  * something it names only through a variable, it is refused too, because it cannot be told apart.
  */
-export function protectedTarget(call: ProtectedCall, areas: ProtectedAreas): string | null {
+export function protectedTarget(written: ProtectedCall, areas: ProtectedAreas): string | null {
+  // Q12: read the call as the shell will run it, with brace patterns spelled out first.
+  const call = withBracesSpelledOut(written);
+  if (!call) return refusal("run a command whose brace patterns stand for more places than Branch can check");
   const platform = areas.platform, paths = pathsOf(platform);
   const home = call.workspace ?? areas.workspace;
   const base = call.cwd && paths.isAbsolute(call.cwd) ? call.cwd : paths.join(home, call.cwd ?? ".");

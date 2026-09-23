@@ -8,11 +8,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { createBranch, savePolicy } from "../dist/index.js";
-import { protectedAreas, protectedTarget } from "../dist/never-break/protected.js";
+import { expandBraces, protectedAreas, protectedTarget } from "../dist/never-break/protected.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 // The same areas the never-break tests use: a Linux install in /opt/branch, Branch's process 4242.
@@ -75,3 +75,48 @@ test("a global reinstall or removal of Branch through a package manager is refus
   for (const line of ["npm install -g typescript", "npm install", "npm i -D @types/node", "npm test --prefix branch-agent-source"])
     assert.equal(sh(line), null, line);
 });
+
+/* Q12: brace patterns are spelled out before anything is checked, as bash, zsh and macOS's /bin/sh do. */
+const home = homedir();
+const layouts = {
+  linux: protectedAreas({ workspace: join(home, "work"), dataDir: join(home, ".local", "share", "branch-agent", "data"),
+    installRoot: join(home, ".local", "share", "branch-agent", "app"), platform: "linux", selfPids: [4242],
+    extra: [join(home, ".config", "systemd", "user", "branch-agent.service"), "/tmp/branch-agent-update"] }),
+  darwin: protectedAreas({ workspace: join(home, "work"), dataDir: join(home, "Library", "Application Support", "Branch Agent"),
+    installRoot: "/Applications/Branch Agent.app", platform: "darwin", selfPids: [4242],
+    extra: [join(home, "Library", "LaunchAgents", "com.keepoak.branch-agent.plist"), "/tmp/branch-agent-update", "/opt/branch"] }),
+};
+const shIn = (areas, line) => protectedTarget({ tool: "shell.execute", readOnly: false, args: { executable: "sh", args: ["-c", line] }, target: "" }, areas);
+
+test("brace patterns are spelled out the way the shell does", () => {
+  assert.deepEqual(expandBraces("~/.local/share/{branch-agent,x}"), ["~/.local/share/branch-agent", "~/.local/share/x"]);
+  assert.deepEqual(expandBraces("branch-agent{,}"), ["branch-agent", "branch-agent"]);
+  assert.deepEqual(expandBraces("a{b,c{d,e}}f"), ["abf", "acdf", "acef"]);
+  assert.deepEqual(expandBraces("{plain}"), ["{plain}"], "a group with no comma is left as written");
+  assert.equal(expandBraces("{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}"), null, "past 64 words it is refused, not guessed at");
+});
+
+const reinstalls = ["npm install -g {branch-agent,x}@latest", "pnpm add -g branch-{agent,x}@latest", "npm i -g ./branch-agent-2.0.0.tgz",
+  "pnpm add -g branch-agent@latest", "npm uninstall -g branch-agent"];
+const spellings = {
+  linux: [
+    "rm -rf ~/.local/share/{branch-agent,x}", "rm -rf ~/.local/share/branch-agent{,}", "rm -rf ~/.local/share/branch-agent/{app,x}",
+    "rm -rf /tmp/{branch-agent-update,x}", "rm ~/.config/systemd/user/{branch-agent.service,x}",
+    "mv ~/.config/systemd/user/branch-agent.service{,.off}",
+  ],
+  darwin: [
+    "rm -rf /Applications/{Branch\\ Agent.app,x}", "rm -rf ~/Library/Application\\ Support/{Branch\\ Agent,x}",
+    "rm -rf /tmp/{branch-agent-update,x}", "rm -rf /opt/{branch,x}", 'rm -rf "/opt/"{branch,x}',
+    "mv ~/Library/LaunchAgents/com.keepoak.branch-agent.plist{,.off}", "launchctl bootout gui/501/com.keepoak.{branch-agent,x}",
+  ],
+};
+for (const [name, areas] of Object.entries(layouts)) {
+  test(`every brace spelling of Branch's own places is refused (${name} layout)`, () => {
+    for (const line of [...spellings[name], ...reinstalls]) assert.notEqual(shIn(areas, line), null, `${name}: ${line}`);
+    assert.match(shIn(areas, "echo {a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}") ?? "", /brace patterns stand for more places than Branch can check/);
+    assert.equal(shIn(areas, "echo {one,two}.txt"), null, "an ordinary brace pattern is fine");
+    const json = JSON.stringify(Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`key${index}`, index])));
+    assert.equal(protectedTarget({ tool: "files.write", readOnly: false, args: { path: "notes/data.json", content: json }, target: "notes/data.json" }, areas),
+      null, "a file tool's JSON is taken literally, not as a brace pattern");
+  });
+}
