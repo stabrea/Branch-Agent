@@ -2659,3 +2659,21 @@ select.glass[aria-expanded="true"] {
 .glass-tip[hidden] {
   display: none;
 }
+
+/* DG-051: Settings › Computer & browser, one line per paired device: its name and state, then Remove. */
+.devices-paired {
+  display: grid;
+  gap: 8px;
+}
+.devices-paired-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.devices-paired-words {
+  display: grid;
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
