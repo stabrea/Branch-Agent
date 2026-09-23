@@ -33,6 +33,8 @@ async function api(path, body) {
   if (!response.ok) throw new Error(data.error || "Request failed");
   return data;
 }
+/** A key's words, or the English given while the language file does not have them. */
+const say = (key, words) => (t(key) === key ? words : t(key));
 function field(id, key, words, control) {
   control.id = id;
   const label = keyed("label", key, words);
@@ -103,9 +105,13 @@ function switchSection(state, act) {
   hours.type = "number"; hours.min = "1"; hours.max = "168";
   hours.value = String(Math.round(state.settings.sessionMinutes / 60));
   /* DG-180: the switch saves as it changes, as the sample's does, so Regular shows it alone; Save, for the hours and
-     the checks below, shows with them. Only the switch is sent: what is typed below and not saved stays unsaved. */
+     the checks below, shows with them. Only the switch is sent: what is typed below and not saved stays unsaved.
+     A save that fails puts the switch back to what is saved and says so, as DG-181's file switches do. */
   mode.addEventListener("change", async () => {
-    await act("people/settings", { mode: mode.value });
+    await act("people/settings", { mode: mode.value }, () => {
+      mode.value = state.settings.mode;
+      return say("people.admin.mode-not-saved", "That change was not saved, so the switch is back where it was.");
+    });
     document.getElementById("people-admin-mode")?.focus();
   });
   const save = keyed("button", "people.admin.save", "Save");
@@ -262,9 +268,10 @@ function buildCard(state, sessions) {
   card.dataset.home = "settings:general";
   const said = el("p", undefined, "meta");
   said.setAttribute("aria-live", "polite");
-  const act = async (path, body) => {
+  /** Sends a change and draws the card again from what was saved; a failure is said, after what `failed` puts back. */
+  const act = async (path, body, failed) => {
     try { await api(path, body); await drawPeopleAdmin(); }
-    catch (error) { said.textContent = error.message; }
+    catch (error) { said.textContent = failed ? `${failed()} ${error.message}` : error.message; }
   };
   /* DG-180: the section's heading and line above say the card's title and purpose word for word, and the sample says
      them once: the title is read aloud only (a screen-reader-only h2, as DG-183's cards), and the card has no sentence. */

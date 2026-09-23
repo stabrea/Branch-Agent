@@ -2923,6 +2923,7 @@
   "people.admin.method.passkey": "A passkey on their device",
   "people.admin.method.pin": "Their PIN",
   "people.admin.mode": "Let people sign in from their own device",
+  "people.admin.mode-not-saved": "That change was not saved, so the switch is back where it was.",
   "people.admin.mode-note": "They open this computer's address followed by /people. Each person sees only their own conversations and what you share.",
   "people.admin.nobody": "Nobody else uses this computer yet. Add somebody under People first.",
   "people.admin.people": "People",

@@ -60,6 +60,36 @@ test("P1 the card is in Settings → General, starts off, has one filled button,
   assert.deepEqual(f.errors, []);
 });
 
+test("P1b a switch whose save fails goes back to what is saved, and says so", async (t) => {
+  const f = await fixture(t);
+  await connect(f);
+  await openPlace(f.page, "settings:general");
+  const card = f.page.locator("#people-signin-admin");
+  await card.waitFor({ state: "visible", timeout: 10000 });
+  await f.page.route("**/api/people/settings", (route) => (route.request().method() === "POST"
+    ? route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"Saving is unavailable."}' })
+    : route.continue()));
+  await card.locator("#people-admin-mode").selectOption("on");
+  const said = card.locator("[aria-live=polite]").first(); // the switch's own line, right under it
+  await said.filter({ hasText: "not saved" }).waitFor();
+  assert.equal(await card.locator("#people-admin-mode").inputValue(), "off", "the switch shows what is kept");
+  assert.match(await said.innerText(), /back where it was\. Saving is unavailable\./);
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "people-admin-mode", "the keyboard stays on the switch");
+  assert.equal(f.app.people.settings().mode, "off");
+  /* Said in French too. */
+  const english = await card.elementHandle();
+  await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await f.page.waitForFunction((old) => { const now = document.querySelector("#people-signin-admin"); return now && now !== old; }, english); // drawn again in French
+  await card.locator("#people-admin-mode").selectOption("on");
+  await said.filter({ hasText: "pas été enregistré" }).waitFor();
+  assert.equal(await card.locator("#people-admin-mode").inputValue(), "off");
+  await f.page.unroute("**/api/people/settings");
+  await card.locator("#people-admin-mode").selectOption("on");
+  await f.page.waitForFunction(() => document.querySelector("#people-admin-mode")?.value === "on" && !document.querySelector("#people-signin-admin [aria-live=polite]")?.textContent);
+  assert.equal(f.app.people.settings().mode, "on");
+  assert.deepEqual(f.errors, []);
+});
+
 test("P2 at 400 px the card fits and every word has a key with real French", async (t) => {
   const f = await fixture(t, 400);
   await connect(f);

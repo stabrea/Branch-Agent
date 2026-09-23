@@ -2924,6 +2924,7 @@
   "people.admin.method.passkey": "Une clé d'accès sur son appareil",
   "people.admin.method.pin": "Son code PIN",
   "people.admin.mode": "Permettre aux personnes de se connecter depuis leur propre appareil",
+  "people.admin.mode-not-saved": "Ce changement n'a pas été enregistré : l'interrupteur est revenu à sa position.",
   "people.admin.mode-note": "Elles ouvrent l'adresse de cet ordinateur suivie de /people. Chacune ne voit que ses propres conversations et ce que vous partagez.",
   "people.admin.nobody": "Personne d'autre n'utilise encore cet ordinateur. Ajoutez d'abord quelqu'un dans Personnes.",
   "people.admin.people": "Personnes",
