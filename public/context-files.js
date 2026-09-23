@@ -181,7 +181,7 @@ function buildCard(spec, reports, settings, save) {
   card.dataset.home = spec.home;
   // DG-032: a card inside a section of its page does not draw its title again under the section's heading. The
   // heading still belongs to the card -- it is what a screen reader announces -- so it is hidden, not removed.
-  const heading = el(spec.inSection ? "h4" : "h2", spec.title[1]);
+  const heading = el("h2", spec.title[1]);
   heading.dataset.t = spec.title[0];
   if (spec.inSection) heading.className = "sr-only";
   card.append(heading);
@@ -220,7 +220,7 @@ function linkRows() {
   card.dataset.home = "settings:assistant";
   /* Instructions & personality is the owner's page alone, so a household profile has nowhere to be sent. */
   card.hidden = document.documentElement.dataset.household === "on";
-  const heading = el("h4", undefined, "sr-only");
+  const heading = el("h2", undefined, "sr-only"); // read aloud only, as DG-183's cards
   keyed(heading, "settings.card.who-your-assistant-is", "Who your assistant is");
   card.append(heading);
   for (const key of ["soul", "identity", "user"]) {

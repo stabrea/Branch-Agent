@@ -99,8 +99,12 @@ for (const width of [1440, 860, 400]) {
       .map((name) => `${name} | Set in Instructions & personality ›`));
     assert.equal(await page.locator("#lx-page-assistant select[id^=context-switch-]").count(), 0, "the switches are on Instructions");
     assert.deepEqual(advanced.saves, [], "no Save button: everything here is kept as it changes");
-    /* The section's heading is an h3 and the cards' own titles sit under it, read aloud only. */
-    assert.deepEqual(advanced.levels.filter((l) => l.startsWith("H4")), ["H4*", "H4*", "H4*"]);
+    /* The cards' own titles are read aloud only: screen-reader-only h2s, as DG-183's (coordinator ruling), so each
+       card still carries a title (shell-ui Q4). Nothing on the page is an h4. */
+    assert.deepEqual(await page.evaluate(() => ["identity-form", "context-assistant", "autonomy-instructions-card"]
+      .map((id) => document.querySelector(`#${id} > h2.sr-only`)?.textContent.trim() ?? null)),
+    ["Assistant identity", "Who your assistant is", "\"From now on\" instructions"]);
+    assert.deepEqual(advanced.levels.filter((l) => l.startsWith("H4")), []);
     assert.equal(advanced.wide, false);
     assert.deepEqual(errors, []);
   });

@@ -1000,9 +1000,10 @@
             <pre id="doctor-report" class="meta"></pre>
           </section>
           <form id="identity-form" class="card">
-            <!-- DG-181: one section with its rows, as the sample draws it; the card's own title is read aloud, not drawn.
+            <!-- DG-181: one section with its rows, as the sample draws it; the card's own title is read aloud, not drawn
+                 (a screen-reader-only h2, as DG-183's cards).
                  Each field is saved when you leave it (DG-025); Reload shows only after a save did not go through. -->
-            <h4 class="sr-only" data-t="settings.card.assistant-identity">Assistant identity</h4>
+            <h2 class="sr-only" data-t="settings.card.assistant-identity">Assistant identity</h2>
             <fieldset id="identity-fields">
               <label for="identity-name" data-t="field.assistant-name">Assistant name</label>
               <input id="identity-name" maxlength="80" required aria-describedby="identity-name-note" />

@@ -291,9 +291,8 @@ async function instructionsCard(modes) {
   const { node, status } = card("autonomy-instructions-card", "settings:assistant", "autonomy.instructions.title", "\"From now on\" instructions",
     "autonomy.instructions.purpose", "When you say \"from now on\" in a conversation, Branch asks once whether to keep it. Kept ones are given to every later task.");
   /* DG-181: a row of the Assistant page's one section, as in the sample, where its switch already says its name:
-     the title is read aloud under the section's heading (DG-008), not drawn again. */
-  const title = node.querySelector("h2"), heading = make("h4", "sr-only", title.dataset.t, title.textContent);
-  title.replaceWith(heading);
+     the title is read aloud, a screen-reader-only h2 as DG-183's cards (coordinator ruling), not drawn again. */
+  node.querySelector("h2").classList.add("sr-only");
   node.append(...switchFor("instructions", modes, status));
   const { instructions } = await api("autonomy/instructions");
   const list = document.createElement("ul");
