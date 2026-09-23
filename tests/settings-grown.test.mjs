@@ -527,7 +527,7 @@ function sweep() {
   return out;
 }
 
-test("S13 Appearance: two live mirrors of your own window, dark and light, that follow the tile you point at", async (t) => {
+test("S13 Appearance: two live mirrors of your own window, Moonlight and Daylight, that follow the tile you point at", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "appearance");
   const mirrors = () => f.page.evaluate(() => [...document.querySelectorAll(".sg-mirror")].map((figure) => {
@@ -541,15 +541,16 @@ test("S13 Appearance: two live mirrors of your own window, dark and light, that 
   for (const mirror of drawn) {
     assert.ok(mirror.panes >= 2, "the mirror holds the rail and the conversation");
     assert.ok(mirror.prompt, "the mirror is a copy of this window, message box included");
-    assert.match(mirror.caption, /^Slate · (Dark|Light)$/);
   }
+  /* DG-039: the sample's chips name the light, not the theme. */
+  assert.deepEqual(drawn.map(({ caption }) => caption), ["Moonlight", "Daylight"]);
   assert.equal(await f.page.locator("#prompt").count(), 1, "the copy never adds a second message box to the window itself");
-  /* Side by side, and small beside the themes. */
+  /* DG-039: stacked in the sample's preview column beside the themes, Moonlight above Daylight. */
   const boxes = await f.page.locator(".sg-mirror").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
-  assert.ok(Math.abs(boxes[0].top - boxes[1].top) < 2 && boxes[1].left > boxes[0].right - 1, "the two mirrors sit side by side");
-  assert.ok(boxes[0].width < 400, "each mirror is small");
+  assert.ok(boxes[1].top >= boxes[0].bottom - 1 && Math.abs(boxes[0].left - boxes[1].left) < 2, "the two mirrors are stacked");
+  assert.ok(boxes[0].left > (await f.page.locator("#lx-theme-gallery").boundingBox()).x + 200, "beside the themes");
   await f.page.locator('#lx-theme-gallery .lx-tile[data-family="cherry"]').hover();
-  await f.page.waitForFunction(() => document.querySelector(".sg-mirror figcaption").textContent.startsWith("Cherry"));
+  await f.page.waitForFunction(() => document.querySelector(".sg-mirror iframe").contentDocument.documentElement.dataset.palette === "cherry");
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "slate", "pointing at a theme does not choose it");
   /* The sample's words on a few tiles instead of numbers (DG-037). */
   assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .lx-tile-badge').textContent(), /High contrast/);
@@ -723,21 +724,25 @@ test("S17 the second-opinion limits load when Settings opens from the cog, and s
   assert.deepEqual(f.errors, []);
 });
 
-/* ---------- S18: the mirrors stay in sight while the themes scroll (#25) ---------- */
+/* ---------- S18: the preview stays in sight while the themes scroll (#25) ---------- */
+/* DG-039: wide, the two mirrors ride beside the themes; narrower, the sample's strip rides at the top and names the
+   theme you point at, and opening it shows both mirrors. */
 for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
-  test(`S18 at ${width}×${height} the mirrors stay in sight while you scroll down the themes and point at one`, async (t) => {
+  test(`S18 at ${width}×${height} the preview stays in sight while you scroll down the themes and point at one`, async (t) => {
     const f = await fixture(t, { width, height });
     await openSettings(f.page, "appearance");
-    await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
+    const wide = await f.page.evaluate(() => getComputedStyle(document.querySelector(".sg-strip")).display === "none");
+    assert.equal(wide, width >= 1440, "the strip shows only where the page is narrower than the sample's 980px");
+    if (wide) await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
     const last = f.page.locator("#lx-theme-gallery .lx-tile").last();
     await last.scrollIntoViewIfNeeded();
-    const inSight = await f.page.evaluate(() => {
+    const inSight = await f.page.evaluate((isWide) => {
       const body = document.getElementById("lx-settings-body").getBoundingClientRect();
-      const mirrors = document.querySelector(".sg-mirror-pair").getBoundingClientRect();
-      return mirrors.top >= body.top - 2 && mirrors.bottom <= body.bottom + 2;
-    });
-    assert.equal(inSight, true, "scrolling down the themes took the mirrors out of sight");
-    if (width < 1200) {
+      const shown = document.querySelector(isWide ? ".sg-mirror-pair" : ".sg-strip").getBoundingClientRect();
+      return shown.height > 0 && shown.top >= body.top - 2 && shown.bottom <= body.bottom + 2;
+    }, wide);
+    assert.equal(inSight, true, "scrolling down the themes took the preview out of sight");
+    if (!wide) {
       /* Riding along, the strip sits right at the top: no half row of tiles shows above it. */
       const above = await f.page.evaluate(() => document.querySelector(".sg-mirrors").getBoundingClientRect().top - document.getElementById("lx-settings-body").getBoundingClientRect().top);
       assert.ok(Math.abs(above) <= 2, `the strip rides ${above}px below the top of the page`);
@@ -745,16 +750,17 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
     /* The words on the tiles are whole, never cut short. */
     const cut = await f.page.evaluate(() => [...document.querySelectorAll(".lx-tile-badge")].filter((tag) => tag.scrollWidth > tag.clientWidth + 1 || tag.getBoundingClientRect().right > tag.closest(".lx-tile").getBoundingClientRect().right + 1).map((tag) => tag.textContent));
     assert.deepEqual(cut, [], "a tile's tag is cut short");
-    /* The tile you point at is not under the mirrors riding along above it, and they follow it. */
+    /* The tile you point at is not under the preview riding along above it, and the preview follows it. */
     const covered = await last.evaluate((tile) => {
       const box = tile.getBoundingClientRect(), top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
       return !tile.contains(top);
     });
-    assert.equal(covered, false, "the mirrors cover the tile being pointed at");
+    assert.equal(covered, false, "the preview covers the tile being pointed at");
     await last.hover();
     const family = await last.getAttribute("data-family");
     const name = await f.page.evaluate(async (id) => (await import("/theme-bridge.js")).themeById(id)[1], family);
-    await f.page.waitForFunction((words) => document.querySelector(".sg-mirror figcaption").textContent.startsWith(`${words} ·`), name);
+    if (wide) await f.page.waitForFunction((id) => document.querySelector(".sg-mirror iframe").contentDocument.documentElement.dataset.palette === id, family);
+    else await f.page.waitForFunction((words) => document.querySelector(".sg-strip b").textContent === `${words} (preview)`, name);
     assert.deepEqual(f.errors, []);
   });
 }

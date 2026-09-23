@@ -8,15 +8,28 @@
    beside Light and dark clears the view to show the background. Nothing here changes a setting by itself. */
 import { t } from "/i18n.js";
 import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
+import { seasonToday } from "/grove.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
-const MODES = [["dark", "look.mode.dark", "Dark"], ["light", "look.mode.light", "Light"]];
+const MODES = [["dark"], ["light"]];
 let previewing = null;
 
 /* ---------- the mirrors ---------- */
-function mirrorFrame(mode, key, english) {
+/* DG-039: the sample's live preview (its `mirrorsHTML`, which replaces the preview inside its later `lookHTML`):
+   two live mirrors of this window, Moonlight then Daylight, each with a small chip. Wide, they stack beside the
+   choices; narrower, a strip names the theme and opens them side by side; on a phone one shows at a time, with a
+   button to flip to the other. */
+const modeNow = () => (root.dataset.theme === "daylight" ? "light" : "dark");
+const lightWord = (mode) => (mode === "dark" ? say("look.moonlight", "Moonlight") : say("look.daylight", "Daylight"));
+function seasonWord() {
+  let season = null;
+  try { season = localStorage.getItem("branch-season"); } catch { /* a private window forgets */ }
+  season ||= seasonToday();
+  return say(`look.season.${season}`, season).toLowerCase();
+}
+function mirrorFrame(mode) {
   const figure = document.createElement("figure");
   figure.className = "sg-mirror";
   figure.dataset.mode = mode;
@@ -29,26 +42,83 @@ function mirrorFrame(mode, key, english) {
   frame.inert = true;
   frame.title = "";
   box.append(frame);
-  const caption = document.createElement("figcaption");
-  caption.className = "sg-mirror-caption";
-  caption.dataset.mode = key;
-  caption.dataset.english = english;
-  figure.append(box, caption);
+  const chip = document.createElement("figcaption");
+  chip.className = "sg-mirror-caption";
+  chip.textContent = lightWord(mode);
+  figure.append(box, chip);
   return figure;
+}
+/** On a phone one mirror shows at a time; this shows the other. */
+function flipButton(pair) {
+  const flip = document.createElement("button");
+  flip.type = "button";
+  flip.className = "sg-mirror-flip";
+  const word = () => say("look.show", "Show {light}").replace("{light}", lightWord(pair.dataset.show === "light" ? "dark" : "light"));
+  flip.textContent = word();
+  flip.addEventListener("click", () => {
+    pair.dataset.show = pair.dataset.show === "light" ? "dark" : "light";
+    flip.textContent = word();
+    stale = true;
+    drawMirrors();
+  });
+  return flip;
+}
+/** The strip the sample shows on a narrow window: a picture of the theme, its name, its light and season. */
+function previewStrip(aside) {
+  const strip = document.createElement("button");
+  strip.type = "button";
+  strip.className = "sg-strip";
+  strip.setAttribute("aria-expanded", "false");
+  strip.setAttribute("aria-controls", "sg-mirror-pair");
+  const thumb = document.createElement("span");
+  thumb.className = "sg-strip-thumb";
+  thumb.setAttribute("aria-hidden", "true");
+  thumb.append(document.createElement("u"), document.createElement("i"));
+  const words = document.createElement("span");
+  words.className = "sg-strip-name";
+  words.append(document.createElement("b"), document.createElement("small"));
+  const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chevron.setAttribute("viewBox", "0 0 24 24");
+  chevron.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M6 9l6 6 6-6");
+  chevron.append(path);
+  strip.append(thumb, words, chevron);
+  strip.addEventListener("click", () => {
+    const open = !aside.classList.contains("sg-open");
+    aside.classList.toggle("sg-open", open);
+    strip.setAttribute("aria-expanded", String(open));
+    stale = true;
+    drawMirrors();
+  });
+  return strip;
+}
+function drawStrip(family) {
+  const strip = document.querySelector(".sg-strip");
+  if (!strip) return;
+  const mode = modeNow(), theme = themeById(family), tokens = tokensFor(theme, mode);
+  const thumb = strip.querySelector(".sg-strip-thumb");
+  thumb.style.background = tokens["--ground"];
+  thumb.querySelector("u").style.background = mode === "dark" ? solid(tokens["--ground"], "#000000", 0.4) : solid(tokens["--text"], tokens["--ground"], 0.08);
+  thumb.querySelector("i").style.background = mode === "dark" ? solid(tokens["--ground"], tokens["--text"], 0.045) : solid(tokens["--ground"], "#ffffff", 0.62);
+  strip.querySelector("b").textContent = family === chosen() ? theme[1] : say("look.previewing", "{name} (preview)").replace("{name}", theme[1]);
+  strip.querySelector("small").textContent = `${lightWord(mode)} · ${seasonWord()}`;
 }
 function buildMirrors() {
   const aside = document.createElement("aside");
   aside.className = "sg-mirrors";
   aside.id = "sg-mirrors";
-  aside.setAttribute("aria-label", say("settingsGrown.look.mirrors", "Your window in this theme, dark and light"));
-  const title = document.createElement("p");
-  title.className = "sg-mirrors-title";
-  title.dataset.t = "settingsGrown.look.mirrors";
-  title.textContent = say(title.dataset.t, "Your window in this theme, dark and light");
+  aside.dataset.tLabel = "settingsGrown.look.preview";
+  aside.setAttribute("aria-label", say("settingsGrown.look.preview", "Preview"));
+  const wrap = document.createElement("div");
+  wrap.className = "sg-mirrors-wrap";
+  wrap.id = "sg-mirror-pair";
   const pair = document.createElement("div");
   pair.className = "sg-mirror-pair";
-  pair.append(...MODES.map(([mode, key, english]) => mirrorFrame(mode, key, english)));
-  aside.append(title, pair);
+  pair.dataset.show = "dark";
+  pair.append(...MODES.map(([mode]) => mirrorFrame(mode)));
+  wrap.append(pair, flipButton(pair));
+  aside.append(previewStrip(aside), wrap);
   return aside;
 }
 /** A blank frame of the same size as the window, with the same stylesheets, ready for a copy. */
@@ -129,9 +199,6 @@ function drawMirror(figure, family) {
   box.style.height = `${Math.round(Math.min(height * scale, tallest))}px`;
   dress(doc, figure.dataset.mode, family);
   doc.body.replaceChildren(...copyPanes(doc));
-  const caption = figure.querySelector("figcaption");
-  const name = themeById(family)[1];
-  caption.textContent = `${name} · ${say(caption.dataset.mode, caption.dataset.english)}`;
 }
 /** Only a new look: the copy stays, the colours change (for a tile under the pointer). */
 function redress(family) {
@@ -139,9 +206,8 @@ function redress(family) {
     const doc = figure.querySelector("iframe").contentDocument;
     if (!doc?.body?.dataset.ready) continue;
     dress(doc, figure.dataset.mode, family);
-    const caption = figure.querySelector("figcaption");
-    caption.textContent = `${themeById(family)[1]} · ${say(caption.dataset.mode, caption.dataset.english)}`;
   }
+  drawStrip(family);
 }
 const chosen = () => root.dataset.palette || "slate";
 let showing = false, timer = null, stale = true;
@@ -150,6 +216,7 @@ function drawMirrors() {
   if (!showing) { stale = true; return; }
   stale = false;
   for (const figure of document.querySelectorAll(".sg-mirror")) drawMirror(figure, previewing ?? chosen());
+  drawStrip(previewing ?? chosen());
 }
 /** At most once a second, and only while the mirrors are on screen. */
 function soon() {
@@ -210,7 +277,13 @@ function start() {
     new MutationObserver(soon).observe(pane, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "class"] });
   new MutationObserver(() => { previewing = null; soon(); }).observe(root, { attributes: true, attributeFilter: ["data-palette", "data-theme", "style"] });
   addEventListener("resize", soon);
-  document.addEventListener("branch-language", () => { stale = true; soon(); });
+  document.addEventListener("branch-language", () => {
+    for (const chip of document.querySelectorAll(".sg-mirror-caption")) chip.textContent = lightWord(chip.parentElement.dataset.mode);
+    const pair = document.querySelector(".sg-mirror-pair"), flip = document.querySelector(".sg-mirror-flip");
+    if (pair && flip) flip.textContent = say("look.show", "Show {light}").replace("{light}", lightWord(pair.dataset.show === "light" ? "dark" : "light"));
+    stale = true;
+    soon();
+  });
 }
 if (document.body.classList.contains("lx-ready")) start();
 else new MutationObserver((_, observer) => {
