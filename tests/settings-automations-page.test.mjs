@@ -83,8 +83,13 @@ test("Automations & inbox: the sample's sections and counts, at every width, bot
   assert.deepEqual(await page.locator("#lx-page-automations").evaluate((host) => [...host.querySelectorAll("h1, h2, h4, h5, h6")]
     .map((node) => `${node.tagName}.${node.className}`)), ["H2.lx-page-title"]);
 
-  for (const colorScheme of ["light", "dark"]) for (const width of [1440, 860, 400]) {
+  /* Both lights, chosen with the app's own look setting (Daylight and Forest), each a different page ground. */
+  const grounds = new Set();
+  for (const [colorScheme, theme] of [["light", "daylight"], ["dark", "forest"]]) for (const width of [1440, 860, 400]) {
     await page.emulateMedia({ colorScheme });
+    await page.evaluate(async (look) => (await import("/appearance.js")).changeAppearance({ followSystem: false, appearance: look }), theme);
+    await page.waitForFunction((look) => document.documentElement.dataset.theme === look, theme);
+    grounds.add(await page.evaluate(() => getComputedStyle(document.body).backgroundColor));
     await page.setViewportSize({ width, height: 1000 });
     await level("regular");
     assert.deepEqual(await settle(REGULAR), REGULAR, `Regular at ${width} px, ${colorScheme}`);
@@ -94,6 +99,7 @@ test("Automations & inbox: the sample's sections and counts, at every width, bot
     assert.deepEqual(await settle(HEADS), HEADS, `Technical at ${width} px, ${colorScheme}: nothing more to show`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `no sideways scroll at ${width} px`);
   }
+  assert.equal(grounds.size, 2, "the two lights really differ");
   await page.emulateMedia({ colorScheme: "light" });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await level("regular");
