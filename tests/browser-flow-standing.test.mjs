@@ -207,3 +207,88 @@ test('an owner rule allowing flows on *.example.com does not let a click on anot
     {action: 'navigate', url: 'https://docs.example.com/'},
   ]}, context).decision, 'ask', 'each website is weighed on its own: the click on evil.example.org is asked about');
 });
+
+// ------------------------------------------------------------------ FQ-execution.browser: once-only overrule
+
+/**
+ * A model that calls browser.flow with state.model.args, and when asked again, also calls
+ * single-step browser.click with state.model.click arguments.
+ */
+function dualModel() {
+  const model = {name: 'dual', args: null, click: null, calls: 0, async complete() {
+    return model.calls++ % 2 === 0
+      ? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.flow', arguments: JSON.stringify(model.args)}]}
+      : {content: 'done', toolCalls: model.click ? [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify(model.click)}] : []};
+  }};
+  return model;
+}
+
+test('(d) a flow step consumes its "Yes, just now" overrule and a retry then runs the flow; the yes does not cover a second identical click', async (t) => {
+  const state = await harness(t, 'flow-just-now');
+  state.model = dualModel();
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.click', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+
+  state.model.click = {role: 'link', name: 'Next'};
+
+  // First call asks about the flow step (the click on docs.example.com).
+  const first = await turn(state, docs, 'flow-overrule');
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.tool, 'browser.flow');
+  assert.equal(asked.target, 'docs.example.com');
+
+  // User says "Yes, just now" — it should be a once-only overrule for that exact step.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: the flow should run to completion, consuming the once-only overrule.
+  state.did.length = 0;
+  const second = await turn(state, docs, first.sessionId);
+  assert.equal(second.status, 'completed', 'the flow ran to completion after "Yes, just now"');
+  assert.deepEqual(state.did, ['navigate https://docs.example.com/guide', 'click Next on docs.example.com'],
+    'the flow step executed successfully');
+
+  // Third call: model calls single-step browser.click with the same arguments as the flow step.
+  // This should NOT use the same "Yes" because the overrule is bound to the specific flow step,
+  // not to just the tool and arguments.
+  state.did.length = 0;
+  const third = await turn(state, docs, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'the single-step click is asked about independently');
+  const clickAsked = waitingIn(state, third);
+  assert.equal(clickAsked.tool, 'browser.click');
+  assert.equal(clickAsked.target, 'docs.example.com', 'the single-step click is judged on the same website');
+  assert.deepEqual(state.did, [], 'the click was never executed, it was asked about first');
+});
+
+test('(d2) a yes for a flow step on shop.example.com does not cover the same click on docs.example.com', async (t) => {
+  const state = await harness(t, 'flow-cross-host');
+  state.model = dualModel();
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.click', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+
+  // First flow is on shop.example.com
+  const first = await turn(state, shop, 'cross-host');
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.target, 'shop.example.com');
+
+  // User says "Yes, just now" to the shop flow.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: shop flow runs.
+  const second = await turn(state, shop, first.sessionId);
+  assert.equal(second.status, 'completed');
+  assert.deepEqual(state.did, ['navigate https://shop.example.com/cart', 'click Place order on shop.example.com']);
+
+  // Second flow is on docs.example.com with the same click name.
+  state.did.length = 0;
+  const third = await turn(state, docs, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'the docs flow is asked about, not covered by the shop yes');
+  const docsAsked = waitingIn(state, third);
+  assert.equal(docsAsked.target, 'docs.example.com');
+  assert.deepEqual(state.did, [], 'nothing on the docs site ran');
+});

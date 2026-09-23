@@ -725,14 +725,27 @@ export class Runtime {
    * as the model calling `tool` would be — the same rules, the same kept yeses, bound to the step's
    * own bytes — at `target` when the step says where it will be. A refusal or a question is thrown.
    */
-  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string): void {
+  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string, index?: number): void {
+    const argumentBytes = JSON.stringify(args ?? {});
+    // FQ-execution.browser: when a step has an index, use a step-specific fingerprint bound to the
+    // tool, index, target/host, and canonical arguments, so a "Yes, just now" cannot cover another
+    // step or a later single-step call.
+    const fingerprint = index !== undefined
+      ? stepFingerprint(tool, index, target, argumentBytes)
+      : argumentFingerprint(argumentBytes);
+    // Check if there's a once-only overrule for this step, bound to the step's exact parameters.
+    // Use hasOverrule (non-consuming) so the yes is only consumed after all steps pass judgment.
+    const session = context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+    if (fingerprint && this.approvals.hasOverrule(session, fingerprint)) {
+      return;
+    }
     const at = target === undefined ? undefined : { target };
     const host = { store: this.store, owner: this.owner, guards: this.guards,
       checkPolicy: (name: string, sent: unknown, c: ToolContext, fingerprint?: string) => this.checkPolicy(name, sent, c, fingerprint, at),
       permissionOf: (name: string) => this.permissionOf(name),
       wallFor: (name: string, sent: unknown, c: ToolContext, choice: PolicyCheck["sandbox"]) => this.wallFor(name, sent, c, choice) };
     try {
-      gateToolUse(host, tool, args, context, argumentFingerprint(JSON.stringify(args ?? {})));
+      gateToolUse(host, tool, args, context, fingerprint);
     } catch (error) {
       const kind = error instanceof ApprovalRequiredError ? "policy.ask" : "policy.denied";
       // Written on the task's record; a call run with no task behind it has no record to write on.
@@ -3331,4 +3344,14 @@ export function ignoredNote(keys: readonly string[]): string {
 
 export function argumentFingerprint(argumentBytes: string): string {
   return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
+}
+
+/**
+ * FQ-execution.browser: a fingerprint for a browser.flow step that includes the tool, index,
+ * target/host, and canonical arguments, so a "Yes, just now" is bound to that exact step and
+ * cannot cover another step or a later single-step call.
+ */
+function stepFingerprint(tool: string, index: number, target: string | undefined, argumentBytes: string): string {
+  const parts = ["browser.flow step", index, tool, target ?? "", canonicalArguments(argumentBytes)];
+  return createHash("sha256").update(parts.join("\u0000"), "utf8").digest("hex").slice(0, 32);
 }

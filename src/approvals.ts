@@ -317,6 +317,10 @@ export class ApprovalGate {
   takeOverrule(sessionId: string, fingerprint: string | undefined): boolean {
     return fingerprint !== undefined && this.overrules.delete(`${sessionId}\u0000${fingerprint}`);
   }
+  /** Checks whether the owner's one-time overrule for this request exists, without consuming it. */
+  hasOverrule(sessionId: string, fingerprint: string | undefined): boolean {
+    return fingerprint !== undefined && this.overrules.has(`${sessionId}\u0000${fingerprint}`);
+  }
 }
 
 /** A sliding window counter: how many events a key may have inside the window. */

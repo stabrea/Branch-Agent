@@ -244,7 +244,7 @@ export class ToolRegistry {
    * would read right now. Throws `PolicyRefusedError` or `ApprovalRequiredError`. Set by the app;
    * a bare registry judges no call at all, so it judges no step either.
    */
-  judgeStep?: (tool: string, args: unknown, context: ToolContext, target?: string) => void;
+  judgeStep?: (tool: string, args: unknown, context: ToolContext, target?: string, index?: number) => void;
 }
 
 /**

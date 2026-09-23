@@ -121,7 +121,7 @@ async function judgeFlow(registry: ToolRegistry, host: FlowHost, input: z.infer<
   for (const [index, step] of input.steps.entries()) {
     const { tool, args } = toolCall(step);
     const moved = step.action === 'click' || step.action === 'fill';
-    registry.judgeStep?.(tool, args, context, moved ? hosts[index] : undefined);
+    registry.judgeStep?.(tool, args, context, moved ? hosts[index] : undefined, index);
     if (step.action === 'navigate') await host.checkAddress(step.url, context);
   }
   registry.judgeStep?.('browser.screenshot', { fullPage: input.fullPage }, context);
