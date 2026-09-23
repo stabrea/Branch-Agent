@@ -667,6 +667,9 @@ async function staticFile(
     // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
     "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
     "/panels.css": ["panels.css", "text/css; charset=utf-8"],
+    // FQ-surfaces.panes: compare topics side by side (public/topic-panes.js).
+    "/topic-panes.js": ["topic-panes.js", "text/javascript; charset=utf-8"],
+    "/topic-panes.css": ["topic-panes.css", "text/css; charset=utf-8"],
     "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
     "/composer-grown.js": ["composer-grown.js", "text/javascript; charset=utf-8"],
     "/composer-grown.css": ["composer-grown.css", "text/css; charset=utf-8"],
