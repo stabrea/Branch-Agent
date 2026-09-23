@@ -219,8 +219,9 @@ async function boardBody(node, status) {
     ...described("flows-board-notes", "flowsBoards.board.notes", "Notes", "flowsBoards.board.notesNote", "Anything that helps whoever picks it up.", notes),
     ...described("flows-board-who", "flowsBoards.board.assignee", "Who has it", "flowsBoards.board.assigneeNote", "owner, assistant, or a specialist's name.", who),
     row(button("flowsBoards.board.add", "Add card", act(status, () => api("flows-boards/board/cards", { title: title.value, notes: notes.value, assignee: who.value })), false)),
-    ...described("flows-board-stop", "flowsBoards.board.stopAfter", "Stop a card after this many failed tries", "flowsBoards.board.stopAfterNote", "A stopped card waits in Stuck until you reset it.", stop),
-    row(button("flowsBoards.board.saveStop", "Save", act(status, () => api("flows-boards/board/settings", { stopAfter: Number(stop.value) })))));
+    ...described("flows-board-stop", "flowsBoards.board.stopAfter", "Stop a card after this many failed tries", "flowsBoards.board.stopAfterNote", "A stopped card waits in Stuck until you reset it.", stop));
+  /* One number, saved as it changes (DG-025). */
+  stop.addEventListener("change", act(status, () => api("flows-boards/board/settings", { stopAfter: Number(stop.value) })));
 }
 async function boardCard(modes) {
   const { node, status } = card("flows-board-card", "settings:automations", "flowsBoards.board.title", "Shared board",
@@ -248,8 +249,9 @@ async function waitingBody(node, status) {
   const view = await api("flows-boards/waiting");
   const busy = choice([["queue", "flowsBoards.busy.queue", "Wait until it finishes"], ["steer", "flowsBoards.busy.steer", "Pass it on straight away"],
     ["interrupt", "flowsBoards.busy.interrupt", "Stop it and go next"]], view.busyMode);
-  node.append(...described("flows-busy", "flowsBoards.busy.label", "When you type while it works", "flowsBoards.busy.note", "Passing it on uses the same trusted note as Steer; stopping cancels the task that is working.", busy),
-    row(button("flowsBoards.busy.save", "Save", act(status, () => api("flows-boards/busy", { mode: busy.value })), false)));
+  /* One choice, saved as it changes (DG-025). */
+  busy.addEventListener("change", act(status, () => api("flows-boards/busy", { mode: busy.value })));
+  node.append(...described("flows-busy", "flowsBoards.busy.label", "When you type while it works", "flowsBoards.busy.note", "Passing it on uses the same trusted note as Steer; stopping cancels the task that is working.", busy));
   const tasks = document.createElement("ul");
   tasks.append(...view.tasks.map((task) => waitingRow(task.prompt, {
     edit: (prompt) => api(`flows-boards/waiting/queue/${task.id}/edit`, { prompt }),

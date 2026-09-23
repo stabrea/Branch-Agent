@@ -107,7 +107,8 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
     assert.equal(shape.title, title, id);
     assert.equal(shape.headings, 1, id);
     assert.ok(shape.sentence.length > 20, `${id} says what it is for`);
-    assert.equal(shape.filled, 1, `${id} has one filled button`);
+    /* One filled button at most: the waiting line's one choice saves as it changes (DG-025). */
+    assert.ok(shape.filled <= 1 && (shape.filled === 1 || id === "flows-waiting-card"), `${id} has one filled button (${shape.filled})`);
     assert.deepEqual(shape.unnamed, [], `${id}: every control can be named`);
     assert.deepEqual(shape.undescribed, [], `${id}: every control says what it does`);
     assert.deepEqual(shape.keyless, [], `${id}: every word goes through a key`);
@@ -120,6 +121,23 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
   await board.getByRole("button", { name: "Add card" }).click();
   for (let i = 0; i < 100 && app.flowsBoards.kanban.view().lanes.todo.length < 2; i++) await page.waitForTimeout(50);
   assert.ok(app.flowsBoards.kanban.view().lanes.todo.some((card) => card.title === "Sweep the path"));
+
+  /* DG-025: the stop-after limit is saved as it changes, with no Save button; a number it refuses is said in the card. */
+  assert.equal(await board.getByRole("button", { name: "Save", exact: true }).count(), 0);
+  /* The board drawn again after the card was added, before the limit is changed. */
+  await board.getByText("Sweep the path").first().waitFor();
+  await page.evaluate(() => { document.getElementById("flows-board-card").dataset.before = "1"; });
+  await board.locator("#flows-board-stop").fill("5");
+  await board.locator("#flows-board-stop").press("Tab");
+  /* Saved, then the card drawn again from what was saved. */
+  await page.waitForFunction(() => { const card = document.getElementById("flows-board-card"); return card && !card.dataset.before && document.getElementById("flows-board-stop")?.value === "5"; });
+  assert.equal(app.flowsBoards.kanban.view().stopAfter, 5);
+  await page.locator("#flows-board-stop").fill("11");
+  const refused = page.waitForResponse((r) => r.url().includes("board/settings"));
+  await page.locator("#flows-board-stop").press("Tab");
+  assert.equal((await refused).status(), 400);
+  await page.waitForFunction(() => (document.querySelector("#flows-board-card > [role=status]")?.textContent ?? "").trim().length > 0);
+  assert.equal(app.flowsBoards.kanban.view().stopAfter, 5, "a refused number leaves what was saved");
 
   await openAutomations(page);
   const needs = page.locator("#flows-installs-card");
@@ -135,7 +153,6 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
   // hands the message back to the ordinary queue instead of losing it.
   await openAutomations(page);
   await page.locator("#flows-busy").selectOption("steer");
-  await page.locator("#flows-waiting-card").getByRole("button", { name: "Save", exact: true }).click();
   for (let i = 0; i < 100 && app.flowsBoards.waiting.busyMode() !== "steer"; i++) await page.waitForTimeout(50);
   await page.waitForTimeout(200);
   assert.equal(await page.evaluate(() => globalThis.branchBusySend("00000000-0000-4000-8000-000000000000", "hi")), null,

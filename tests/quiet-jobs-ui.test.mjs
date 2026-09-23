@@ -54,12 +54,23 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
     assert.equal(shape.tag, "SECTION");
     assert.equal(shape.headings, 1);
     assert.ok(shape.sentence.length > 10, `${id} says what it is for`);
-    assert.equal(shape.filled, 1, `${id} has one filled button`);
+    /* One filled button at most: a card whose one switch saves as it changes has none (DG-025). */
+    assert.ok(shape.filled <= (id === "quiet-health" ? 0 : 1), `${id} has at most one filled button (${shape.filled})`);
     assert.equal(shape.unnamed, 0, `${id}: every control can be named`);
     assert.equal(shape.keyless, 0, `${id}: every word goes through a key`);
   }
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 0, `no sideways scrolling at 400 px (${wide} px over)`);
+  /* DG-025: whether check scripts may run is saved as it changes, and a refusal leaves what was saved. */
+  await page.route("**/api/heartbeat/switches", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Refused for the test." }) }));
+  await page.locator("#quiet-switch-scripts").selectOption("on");
+  await page.locator("#toast, .toast", { hasText: "Refused for the test." }).first().waitFor({ state: "attached" });
+  await page.waitForFunction(() => document.getElementById("quiet-switch-scripts")?.value === "off");
+  assert.equal((await app.scheduler.overview("local")).switches.scriptGates, "off");
+  await page.unroute("**/api/heartbeat/switches");
+  await page.locator("#quiet-switch-scripts").selectOption("on");
+  for (let i = 0; i < 100 && (await app.scheduler.overview("local")).switches.scriptGates !== "on"; i++) await page.waitForTimeout(50);
+  assert.equal((await app.scheduler.overview("local")).switches.scriptGates, "on");
   await openSettingFor(page, "#quiet-interruptions");
   await page.locator("#quiet-interruptions select").selectOption("when-needed");
   await page.locator("#quiet-interruptions button").click();

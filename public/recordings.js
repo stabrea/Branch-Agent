@@ -72,14 +72,20 @@ function recordingsCard(state) {
   pictureRow.className = "check-row";
   pictureRow.append(pictures, pictureLabel);
   const saved = status();
-  const save = button("action.save", "Save", "", async () => {
+  /* Two separate settings, each saved as it changes (DG-025). The card is drawn again from what was saved, and says
+     "Saved." or why it was refused. */
+  const save = async () => {
+    let words;
     try {
       await api("recordings", { mode: select.value, pictures: pictures.checked });
-      saved.textContent = say("recordings.saved", "Saved.");
-      await drawRecordings();
-    } catch (error) { saved.textContent = error.message; }
-  });
-  card.append(label, select, pictureRow, save, saved);
+      words = say("recordings.saved", "Saved.");
+    } catch (error) { words = error.message; }
+    await drawRecordings();
+    ($("recordings-card")?.querySelector(":scope > [role=status]") ?? saved).textContent = words;
+  };
+  select.addEventListener("change", save);
+  pictures.addEventListener("change", save);
+  card.append(label, select, pictureRow, saved);
   if (state.settings.mode !== "off") card.append(...picker(state.tasks));
   return card;
 }

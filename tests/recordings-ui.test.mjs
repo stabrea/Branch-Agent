@@ -58,7 +58,8 @@ function assertAnatomy(shape, id, home) {
   assert.equal(shape.tag, "SECTION");
   assert.equal(shape.headings, 1);
   assert.ok(shape.sentence.length > 10, `${id} says what it is for`);
-  assert.equal(shape.filled, 1, `${id} has one filled button`);
+  /* The recordings card saves as it changes, so it has nothing filled to press (DG-025). */
+  assert.equal(shape.filled, id.startsWith("recordings-card") ? 0 : 1, `${id} has ${id.startsWith("recordings-card") ? "no" : "one"} filled button`);
   assert.equal(shape.unnamed, 0, `${id}: every control can be named`);
   assert.equal(shape.keyless, 0, `${id}: every word goes through a key`);
 }
@@ -82,9 +83,18 @@ test("Watch a task again: off at first, then a finished task plays back step by 
   assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card", "settings:automations");
   assert.equal(await card.locator("#recordings-task").count(), 0, "nothing to pick while off");
 
+  /* DG-025: the switch is saved as it changes, with no Save button; a refusal is said in the card. */
+  assert.equal(await card.getByRole("button", { name: "Save", exact: true }).count(), 0);
+  await page.route("**/api/recordings", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Refused for the test." }) }) : route.fallback());
+  await card.locator("#recordings-pictures").check();
+  await card.locator("[role=status]", { hasText: "Refused for the test." }).waitFor();
+  assert.equal(await card.locator("#recordings-pictures").isChecked(), false, "drawn again from what was saved");
+  await page.unroute("**/api/recordings");
   await card.locator("#recordings-mode").selectOption("when-needed");
-  await card.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#recordings-task").waitFor({ state: "visible" });
+  const saved = await (await fetch(`${server.url}/api/recordings`, { headers: { authorization: `Bearer ${server.token}` } })).json();
+  assert.equal(saved.settings.mode, "when-needed");
   await page.locator("#recordings-card").getByRole("button", { name: "Play it back" }).click();
   const steps = page.locator("#recordings-card .recording-steps li");
   await steps.first().waitFor({ state: "visible" });

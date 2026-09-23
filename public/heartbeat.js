@@ -169,11 +169,15 @@ function fillHealth(card, schedules, switches) {
     field("schedules.switch.scripts", scripts));
   if (!schedules.length) card.append(node("p", "schedules.health.empty", "subtle"));
   for (const item of schedules) card.append(scheduleRow(item));
-  card.append(button("action.save", async () => {
-    await api("heartbeat/switches", { scriptGates: scripts.value });
-    toast(t("schedules.switch.saved"));
-    await load();
-  }));
+  /* One switch, saved as it changes (DG-025); a refusal is said, and the card is drawn again from what was saved. */
+  scripts.addEventListener("change", async () => {
+    try {
+      await api("heartbeat/switches", { scriptGates: scripts.value });
+      toast(t("schedules.switch.saved"));
+    } catch (error) { toast(error.message); }
+    delete card.dataset.editing;
+    await load().catch(() => {});
+  });
 }
 /* settings:notifications — when background work may interrupt the owner. */
 function fillInterruptions(card, settings, switches) {
