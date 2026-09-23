@@ -226,6 +226,9 @@ const reach: SettingSpec[] = [
   {
     key: "wake-word", name: "A word that starts a turn", t: "settings-kit.name.wake-word", home: "settings:voice",
     read: (store, owner) => inForce(WakeWordSettingsSchema, store.get("settings", owner, wakeWordKey)?.data),
+    // Written onto what is in force, never onto a record the app would not run: a change here cannot bring an
+    // unreadable mode back to life (a stored "on" the app ignores stays ignored).
+    write: (store, owner, patch) => { store.save("settings", owner, wakeWordKey, WakeWordSettingsSchema.parse({ ...inForce(WakeWordSettingsSchema, store.get("settings", owner, wakeWordKey)?.data), ...patch })); },
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
       { field: "sureness", label: "How sure it must be before it answers", t: "settings-kit.field.wake-sureness",
         guard: "guard", initial: 80, kind: { type: "number", min: 50, max: 99 } }],
@@ -236,6 +239,9 @@ const reach: SettingSpec[] = [
   {
     key: "live-dictation", name: "Speak and see the words", t: "settings-kit.name.live-dictation", home: "settings:voice",
     read: (store, owner) => inForce(DictationSettingsSchema, store.get("settings", owner, dictationKey)?.data),
+    // Written onto what is in force, never onto a record the app would not run: a change here cannot bring an
+    // unreadable mode back to life (a stored "on" the app ignores stays ignored).
+    write: (store, owner, patch) => { store.save("settings", owner, dictationKey, DictationSettingsSchema.parse({ ...inForce(DictationSettingsSchema, store.get("settings", owner, dictationKey)?.data), ...patch })); },
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
       { field: "silenceSeconds", label: "How long a quiet room ends it", t: "settings-kit.field.dictation-silence",
         guard: "reach", initial: 4, kind: { type: "number", min: 1, max: 30, fractions: true } }],

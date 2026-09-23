@@ -196,3 +196,24 @@ test("only a setting the app keeps between whole steps is read as a fraction; a 
   app.store.save("settings", owner, "comfort-mcp", { startupTimeoutSeconds: 10.5 });
   assert.equal(await value("comfort-mcp.startupTimeoutSeconds"), 10);
 });
+
+test("a change to a voice setting is written onto what the app runs, so it cannot switch on a mode the app was ignoring", async (t) => {
+  const { app, owner } = await fixture(t);
+  for (const [key, field, to] of [["wake-word", "sureness", 99], ["live-dictation", "silenceSeconds", 10]]) {
+    /* An unreadable record: the app runs its starting values, with the switch off, whatever "on" says. */
+    const bad = key === "wake-word" ? { mode: "on", sureness: 60.5 } : { mode: "on", silenceSeconds: "soon" };
+    app.store.save("settings", owner, key, bad);
+    const [change] = changesFor(app.store, owner, [{ key, field, value: to }]).changes;
+    assert.equal(change?.loosens, key === "live-dictation", `${key}: weighed from what is in force`);
+    applyWithPins(app.store, owner, [change], { accept: [change.id], confirmLoosening: true, why: "test" });
+    const saved = app.store.get("settings", owner, key).data;
+    assert.equal(saved.mode, "off", `${key}: the switch the app was ignoring stays off`);
+    assert.equal(saved[field], to);
+  }
+});
+
+test("a dictation record the app would not accept is shown as the starting values the app runs on", async (t) => {
+  const { app, owner, value } = await fixture(t);
+  app.store.save("settings", owner, "live-dictation", { mode: "bogus", silenceSeconds: 12 });
+  assert.equal(await value("live-dictation.silenceSeconds"), 4, "an unreadable record is not shown as if it were in force");
+});
