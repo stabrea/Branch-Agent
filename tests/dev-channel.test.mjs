@@ -32,7 +32,7 @@ async function folders(t) {
  * `running`: whether the clone knows the running change ("here"), learns it by fetching it ("fetched"), or never ("gone").
  * `shared`: what merge-base answers (the running change when the offered one contains it), or null for a failed check.
  */
-function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false, running = "here", shared = OLD } = {}) {
+function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false, running = "here", shared = OLD, stampless = false } = {}) {
   const calls = [];
   let knows = running === "here";
   const run = async (file, args, options) => {
@@ -56,6 +56,8 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
       // The download carries the version the source was stamped with, as a real one does inside it.
       const { version } = JSON.parse(await readFile(join(options.cwd, "package.json"), "utf8"));
       await mkdir(join(options.cwd, "release"), { recursive: true });
+      await mkdir(join(options.cwd, "dist"), { recursive: true });
+      if (stampless === false) await writeFile(join(options.cwd, "dist", "build-info.json"), JSON.stringify({ commit: NEW, builtAt: "2026-09-23T00:00:00Z" }));
       const zip = join(options.cwd, "release", assetName);
       await writeFile(zip, version);
       const digest = createHash("sha256").update(tamper ? "something else" : version).digest("hex");
@@ -145,6 +147,7 @@ test("a Dev build that fails, lands elsewhere, cannot show it goes forward, or c
     ["the newest change does not contain the running one", { shared: "c".repeat(40) }, /does not include the version running now \(change bbbbbbb\), so installing it would go back/],
     ["the running change cannot be found, even fetched by its id", { running: "gone" }, /could not find the change the version running now was built from \(bbbbbbb\)/],
     ["the history check itself fails", { shared: null }, /would go back/],
+    ["the built app does not say which change it is", { stampless: true }, /does not record which change it was made from/],
   ]) {
     const where = await folders(t), tools = fakeTools(where, options);
     const dev = updater(where, tools);
@@ -152,7 +155,7 @@ test("a Dev build that fails, lands elsewhere, cannot show it goes forward, or c
     await assert.rejects(dev.install(), words, name);
     assert.equal(dev.status.phase, "error", name);
     assert.equal(await readFile(join(where.installDir, exe), "utf8"), "the installed app", name);
-    if (!/npm ci/.test(name) && name !== "the build's checksum does not match")
+    if (!/npm ci/.test(name) && !["the build's checksum does not match", "the built app does not say which change it is"].includes(name))
       assert.equal(tools.calls.includes("npm ci --no-audit --no-fund"), false, `${name}: stopped before building`);
   }
 });

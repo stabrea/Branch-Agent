@@ -62,3 +62,12 @@ test("a remembered port taken since it was checked still starts Branch, on anoth
   assert.notEqual(port, taken);
   assert.equal((await fetch(`${server.url}/`)).status < 500, true, "the fallback port serves the app");
 });
+
+test("the remembered port sits in the data folder, which the assistant may never change; its old place was not", async () => {
+  const { protectedAreas, protectedTarget } = await import("../dist/never-break/protected.js");
+  const home = join(tmpdir(), "branch-user-data"); // the desktop app's own layout: userData/state and userData/workspace
+  const areas = protectedAreas({ workspace: join(home, "workspace"), dataDir: join(home, "state") });
+  const refused = (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target, workspace: areas.workspace }, areas);
+  assert.notEqual(refused(join(home, "state", "local-port.json")), null);
+  assert.equal(refused(join(home, "local-port.json")), null, "the control: beside the data folder, where it was first kept, a task could have changed it");
+});

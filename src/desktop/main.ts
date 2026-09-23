@@ -321,7 +321,7 @@ async function start(): Promise<void> {
     branch.studies.browser = integrations.hosted.browser; // w911 (A1726) hook: MiniWoB studies open their page in this browser
     branch.issues = integrations.hosted.issues ?? null;
     // Q45 leaf 0: the same port as last time when it is free, so the page's own stored choices survive a restart.
-    const portFile = join(app.getPath("userData"), "local-port.json");
+    const portFile = join(dataDir, "local-port.json"); // in the data folder, which the assistant may never change
     const server = await startServer(branch, {
       dataDir, port: await rememberedPort(portFile), anyPortIfTaken: true, presence: "app",
       executable: app.isPackaged ? process.execPath : null,

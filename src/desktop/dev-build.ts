@@ -93,6 +93,11 @@ Promise<{ archive: string; checksumFile: string; version: string }> {
   const version = await stampDevVersion(sourceDir, committedAt, commit);
   onPhase("building");
   await run("npm", ["run", "package:desktop", "--", "--release"], { cwd: sourceDir, timeoutMs: minutes(30) });
+  // The built app must say which change it is, or the next check could not tell it is current and could not see
+  // going back from it (a change older than the Dev channel itself has no such record).
+  const stamped = await readFile(join(sourceDir, "dist", "build-info.json"), "utf8").then((text) => JSON.parse(text)?.commit, () => null);
+  if (stamped !== commit)
+    throw new Error("The Dev build does not record which change it was made from, so nothing was changed. It is offered again once the newest change can say so.");
   return { archive: join(sourceDir, "release", assetName), checksumFile: join(sourceDir, "release", `${assetName}.sha256`), version };
 }
 
