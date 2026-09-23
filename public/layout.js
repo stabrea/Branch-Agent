@@ -884,26 +884,64 @@ function moveInto(id, slot) {
 }
 /* The collaboration panel is drawn again on every refresh, so its parts are sent home each time. */
 function moveCollab() {
-  const homes = { labels: "lx-collab-labels", "days-off": "lx-collab-days-off", shares: "lx-collab-people", people: "lx-collab-people" };
+  const homes = { labels: "lx-collab-labels", "days-off": "lx-collab-days-off", shares: "lx-collab-shares", people: "lx-collab-people",
+    "owner-pin": "lx-collab-owner-pin" };
   const panel = $("collab-container")?.querySelector(".collab-panel");
   if (!panel) return;
   for (const [part, slot] of Object.entries(homes)) {
     const node = panel.querySelector(`:scope > [data-part="${part}"]`);
     const host = $(slot);
-    if (!node || !host) continue;
-    host.querySelector(`:scope > [data-part="${part}"]`)?.remove();
-    host.append(node);
+    if (!host) continue;
+    /* Somebody else's profile has no PIN of the owner's to set: its slot, and the link to it, are out of sight. */
+    if (!node) { if (panel.childElementCount && part === "owner-pin") host.replaceChildren(); }
+    else { host.querySelector(`:scope > [data-part="${part}"]`)?.remove(); host.append(node); }
+    const empty = !host.childElementCount;
+    if (host.hidden !== empty) host.hidden = empty;
+  }
+  for (const row of document.querySelectorAll("#lx-general-links [data-to]")) {
+    const gone = Boolean($(row.dataset.to)?.hidden);
+    if (row.hidden !== gone) row.hidden = gone;
   }
 }
+/* DG-028/029/030, Settings › General as the approved sample has it: the people, the owner's PIN and the shared
+   copies each have a slot of their own (public/settings-buckets.js puts each in its section). */
 function collabSlots() {
-  const labels = make("div", "lx-collab");
-  labels.id = "lx-collab-labels";
-  const people = make("div", "lx-collab");
-  people.id = "lx-collab-people";
-  $("lx-page-general").append(labels, people);
+  const slots = ["lx-collab-labels", "lx-collab-people", "lx-collab-owner-pin", "lx-collab-shares"].map((id) => {
+    const slot = make("div", "lx-collab");
+    slot.id = id;
+    return slot;
+  });
+  $("lx-page-general").append(...slots, generalLinks());
   const days = make("div", "lx-collab");
   days.id = "lx-collab-days-off";
   $("lx-page-notifications").append(days);
+}
+/* DG-030: the sample's cross-links on General, each a real way to the section that sets it. */
+const GENERAL_LINKS = [
+  ["lx-collab-owner-pin", "general.link.ownerPin", "A PIN for switching back to you (the owner)", "general.link.ownerPin.go", "Set in A PIN for switching back to you ›"],
+  ["lx-collab-people", "general.link.people", "People on this computer (list: name and a PIN of 4–8 digits each)", "general.link.people.go", "Set in People on this computer ›"],
+];
+function generalLinks() {
+  const card = make("div", "card lx-general-links");
+  card.id = "lx-general-links";
+  for (const [to, key, english, goKey, goEnglish] of GENERAL_LINKS) {
+    const row = make("div", "lx-link-row");
+    row.dataset.to = to;
+    const go = button("lx-link-go", goKey, goEnglish);
+    go.addEventListener("click", () => goToSlot(to));
+    row.append(worded("span", "lx-link-label", key, english), go);
+    card.append(row);
+  }
+  return card;
+}
+/** Brings the slot's section into view and puts the keyboard on its first control (else on the section's heading). */
+function goToSlot(id) {
+  const slot = $(id), heading = slot && $(`sg-bucket-general-${slot.dataset.sgBucket?.split(":")[1] ?? ""}`);
+  if (!slot) return;
+  (heading ?? slot).scrollIntoView({ block: "start" });
+  const first = slot.querySelector("input, select, textarea, button");
+  if (first) { first.focus({ preventScroll: true }); return; }
+  if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
 }
 
 /* ---------- going somewhere ---------- */

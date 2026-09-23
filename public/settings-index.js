@@ -175,7 +175,7 @@ export const SETTINGS_INDEX = [
   ["project-folder","settings:general","projects-form","Folder inside the workspace (optional)","project.folder",null,"Projects",true],
   ["project-instructions","settings:general","projects-form","Instructions for this project","project.instructions",null,"Projects",true],
   ["project-preset","settings:general","projects-form","Preferred model","project.preset",null,"Projects",true],
-  ["owner-pin","settings:general","lx-collab-people","A PIN for switching back to you (the owner)",null,"[data-part='owner-pin']","General",true],
+  ["owner-pin","settings:general","lx-collab-owner-pin","A PIN for switching back to you (the owner)",null,"[data-part='owner-pin']","General",true],
   ["people-list","settings:general","lx-collab-people","People on this computer (list: name and a PIN of 4–8 digits each)","profiles","#lx-collab-people","General",true],
   ["comfort-palette","settings:general","comfort-keys-card","Find anything","comfort.palette",null,"Keyboard shortcuts",true],
   ["comfort-newConversation","settings:general","comfort-keys-card","New conversation","comfort.newConversation",null,"Keyboard shortcuts",true],

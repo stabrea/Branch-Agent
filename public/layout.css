@@ -639,6 +639,41 @@ body.lx-help .context-panel > .acorn-art {
   border-radius: 16px;
   background: var(--well);
 }
+/* DG-030: the sample's cross-links on Settings › General (`.set-row` with a "Set in … ›" link): the words, then the
+   link in copper, underlined, at the body's size. */
+.lx-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 0;
+}
+.lx-link-row + .lx-link-row {
+  border-top: 1px solid var(--line);
+}
+.lx-link-label {
+  min-width: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+.lx-link-go {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--copper-text);
+  font-size: 14px;
+  font-weight: 400;
+  text-decoration: underline;
+}
+.lx-link-go:hover {
+  background: transparent;
+  opacity: 0.8;
+}
+.collab-owner-pin > .collab-row input {
+  max-width: 260px;
+}
 .lx-panel > .card:last-child {
   border-bottom: 1px solid var(--line);
 }
