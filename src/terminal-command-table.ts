@@ -87,9 +87,10 @@ async function attach(context: CommandContext, argument: string): Promise<void> 
   if (!argument) throw new Error("Name a file: /attach report.pdf");
   const attachment = await readAttachment(argument);
   context.conversation.attachments.push(attachment);
+  const carried = attachment.text !== undefined ? "its words and reference go" : "its reference goes";
   const seen = attachment.kind === "image" || attachment.kind === "text"
     ? "goes with your next message"
-    : `kept as ${attachment.kind} (${attachment.mediaType}); its reference goes with your next message`;
+    : `kept as ${attachment.kind} (${attachment.mediaType}); ${carried} with your next message`;
   context.say("note", `[${attachment.name} ${seen}]`);
 }
 function toggle(name: "plan" | "verify" | "dryRun" | "temporary"): TerminalCommand["run"] {

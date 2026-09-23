@@ -70,10 +70,13 @@ test("an image is also read in for the model; a sound, a video and a document ar
     assert.equal(attachment.image, undefined, `${name}: not treated as a picture`);
     assert.equal(attachment.text, undefined, `${name}: its binary bytes are not decoded as text`);
   }
-  // attachedText only ever carries the text-kind attachments, so a sound or a video file cannot
-  // inject raw binary into the next message the way reading it as UTF-8 used to.
+  // attachedText names every attachment by kind and reference, but a sound or a video file (or a
+  // document no reader could open) never injects its raw binary into the next message.
   const all = await Promise.all(Object.keys(fixtures).map((name) => readAttachment(join(files, name))));
-  assert.equal(attachedText(all), "", "none of image/audio/video/document attachments are text");
+  const text = attachedText(all);
+  for (const [name, entry] of Object.entries(fixtures))
+    assert.ok(text.includes(`--- attached ${entry.kind}: ${name} (${entry.mediaType}) at ${join(files, name)} ---`), `${name}: named in the message`);
+  assert.doesNotMatch(text, /stand-in-(mp3|mp4)-bytes|%PDF-1\.4-stand-in/, "no binary bytes were decoded as words");
 });
 
 test("/attach keeps all four kinds on the conversation at once, through the real terminal command", async (t) => {
