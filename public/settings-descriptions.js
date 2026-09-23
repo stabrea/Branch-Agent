@@ -202,6 +202,11 @@ export const descriptions = [
   ["#move-in-mode", "describe.move-in", "Whether Branch may look in other assistants' folders to bring things over. Off never looks."],
   ["#usage-report-mode", "describe.usage-report", "Whether the usage and cost report is available."],
   ["#asks-switch-analytics", "describe.analytics", "Counts how Branch is used, only with your consent and only to a place you choose."],
+  // DG-197: the Hindsight fields and the list of sources are drawn whatever their switch says.
+  ["#asks-hindsight-address", "describe.hindsight-address", "The address of your own Hindsight server, starting with https. Nothing is sent to it until the switch above is on."],
+  ["#asks-hindsight-bank", "describe.hindsight-bank", "The name of the memory bank on that server where Branch keeps things."],
+  ["#asks-hindsight-secret", "describe.hindsight-secret", "The name of a saved secret holding its key, never the key itself. Leave it empty if the server asks for none."],
+  ["#asks-sources-list", "describe.sources-list", "Each line is one place new items are brought in from. Nothing is brought in until the switch above is on."],
   ["#health-probe", "describe.health-probe", "Also sends a tiny message to your default model to prove it answers. This costs a little."],
   ["#trace-enabled", "describe.trace", "Writes a file for every finished task describing each step. Nothing is sent anywhere."],
   ["#trace-folder", "describe.trace-folder", "Where those files go."],
