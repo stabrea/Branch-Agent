@@ -915,20 +915,41 @@ function fitPaneTabs() {
 /* phase2/panels: the calm window's pane can be shut while work runs; it opens by itself again for the next task. */
 let paneShut = false;
 function togglePane() {
+  if (calm() ? calmPaneWanted() : paneOpen()) return closePane();
+  paneByRun = false;
   if (!calm()) {
-    const opened = document.body.classList.toggle("lx-pane-float");
+    document.body.classList.add("lx-pane-float");
     syncPane();
-    if (opened) document.dispatchEvent(new CustomEvent("branch-pane-draw")); // the fold's own redraw (context-pane.js) is stopped above
+    document.dispatchEvent(new CustomEvent("branch-pane-draw")); // the fold's own redraw (context-pane.js) is stopped above
     return;
-  }
-  if (calmPaneWanted()) {
-    paneAsked = false;
-    paneShut = calmWorking;
-    document.body.classList.remove("lx-pane-float");
-    return syncPane();
   }
   paneShut = false;
   askForPane(paneTab);
+}
+/* DG-118: puts the card away however it was opened (its switch, its close button, Escape, or a task), so the switch
+   in the title bar always says the same as the card. */
+function closePane() {
+  paneByRun = false;
+  if (calm()) {
+    paneAsked = false;
+    paneShut = calmWorking;
+  }
+  document.body.classList.remove("lx-pane-float");
+  syncPane();
+}
+/* DG-116: "Open this by itself while a task works" is on unless it was turned off. A card a task opened is put away
+   again when the work stops; one the owner opened stays. */
+const paneAuto = () => store.get("branch-pane-auto") !== "off";
+let paneByRun = false;
+function followWork(now) {
+  if (calm()) return;
+  if (now && paneAuto() && !narrow.matches && !paneOpen()) {
+    paneByRun = true;
+    document.body.classList.add("lx-pane-float");
+  } else if (!now && paneByRun) {
+    paneByRun = false;
+    document.body.classList.remove("lx-pane-float");
+  }
 }
 function pickPaneTab(id) {
   const open = calm() ? calmPaneWanted() : paneOpen();
@@ -969,20 +990,22 @@ function tagPaneBlocks() {
   const head = make("div", "lx-pane-head");
   head.append(top, paneSeg); // phase2/panels: the tabs sit in the panel's own head
   $("context-panel").prepend(head);
-  /* DG-116: footer with "Open this by itself while a task works" checkbox */
-  const foot = make("label", "pane-foot");
-  const checkbox = make("input");
-  checkbox.type = "checkbox";
-  checkbox.className = "sw";
-  checkbox.id = "pane-auto";
-  checkbox.addEventListener("change", () => {
-    try { localStorage.setItem("branch-pane-auto", String(checkbox.checked)); } catch { /* private window */ }
+  /* DG-116: the card's foot, as the sample's: one switch that lets a task open the panel by itself while it works.
+     On unless turned off; kept in this browser. calmPaneWanted and followWork read it. */
+  const foot = make("label", "lx-pane-foot");
+  foot.id = "lx-pane-foot";
+  const auto = make("input", "sw");
+  auto.type = "checkbox";
+  auto.id = "lx-pane-auto";
+  auto.setAttribute("role", "switch"); // the shared switch look (control-styles.css) over style.css's plain checkbox
+  auto.checked = paneAuto();
+  auto.addEventListener("change", () => {
+    store.set("branch-pane-auto", auto.checked ? null : "off");
+    if (!auto.checked && paneByRun) closePane();
+    syncPane();
   });
-  const span = make("span", "", say("pane.autoOpen", "Open this by itself while a task works"));
-  foot.append(checkbox, span);
+  foot.append(auto, worded("span", "", "pane.autoOpen", "Open this by itself while a task works"));
   $("context-panel").append(foot);
-  /* Restore saved state */
-  try { checkbox.checked = localStorage.getItem("branch-pane-auto") === "true"; } catch { /* private window */ }
 }
 /** The pane belongs to the conversation: shown there when open, or anywhere while help is being read. */
 function syncPane() {
@@ -1171,11 +1194,10 @@ function wireKeys() {
       return;
     }
     /* The floating pane closes, and the keyboard goes back to what opened it. */
-    if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) {
-      const back = $("aside-toggle"); // phase2/panels: the tabs are inside the pane now; its one switch takes the keyboard back
-      if (calm()) paneAsked = false;
-      document.body.classList.remove("lx-pane-float");
-      back?.focus();
+    /* DG-118: also the calm window's card that a task opened, which is shown without the floating class. */
+    if (event.key === "Escape" && !event.defaultPrevented && (calm() ? calmPaneWanted() : paneOpen())) {
+      closePane();
+      $("aside-toggle")?.focus(); // phase2/panels: the tabs are inside the pane now; its one switch takes the keyboard back
     }
   });
   const after = (id, view) => $(id)?.addEventListener("click", () => displayView(view));
@@ -1189,7 +1211,7 @@ function wireKeys() {
   new MutationObserver(syncPane).observe($("context-help"), { attributes: true, attributeFilter: ["hidden"] });
   new MutationObserver(syncPane).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(applyLook).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-  narrow.addEventListener("change", () => { document.body.classList.remove("lx-pane-float"); syncPane(); });
+  narrow.addEventListener("change", () => { paneByRun = false; document.body.classList.remove("lx-pane-float"); syncPane(); });
   $("appearance-follow")?.addEventListener("change", drawLookControls);
   new MutationObserver(() => { if ($("workspace").hidden) closeSettings(); })
     .observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
@@ -1221,7 +1243,7 @@ const goalShowing = () => Boolean($("goal-strip") && !$("goal-strip").hidden);
 /** In the calm window the pane shows while work runs, or when the owner asked for it; a narrow window floats it only when asked. */
 function calmPaneWanted() {
   if (narrow.matches) return paneAsked && document.body.classList.contains("lx-pane-float");
-  return paneAsked || (calmWorking && !paneShut); // phase2/panels: shut with the switch while work runs
+  return paneAsked || (calmWorking && !paneShut && paneAuto()); // phase2/panels: shut with the switch while work runs
 }
 function askForPane(id) {
   /* DG-114: decided by whether the pane is showing, not by the old request: opened on a wide window and then narrowed
@@ -1243,6 +1265,7 @@ function watchCalmWork() {
       calmWorking = now;
       if (!now) paneShut = false; // phase2/panels
       document.body.classList.toggle("lx-calm-working", now);
+      followWork(now);
       if (now) document.dispatchEvent(new CustomEvent("branch-pane-draw"));
       syncPane();
     }, now ? 1200 : 1500);
@@ -1259,6 +1282,7 @@ function watchCalmWork() {
     if (root.dataset.everything === was) return;
     was = root.dataset.everything;
     paneAsked = false;
+    paneByRun = false;
     document.body.classList.remove("lx-pane-float");
     syncPane();
   }).observe(root, { attributes: true, attributeFilter: ["data-everything"] });

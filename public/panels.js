@@ -127,18 +127,44 @@ function footOf(tab) {
   nodes.push(link);
   return nodes;
 }
-/* DG-117: Terminal empty state action to open a terminal */
-function terminalEmptyAction() {
-  const action = make("button", "panels-empty-action", say("panels.terminal.open", "Open a terminal for me"));
-  action.type = "button";
-  action.addEventListener("click", async () => {
-    try {
-      await api("panels/terminal/open");
-    } catch (error) {
-      console.error("Failed to open terminal:", error);
-    }
+/* DG-117: "Open a terminal for me", as the sample's. A page cannot start a terminal on the computer, and Branch adds no
+   new way to run commands, so it gives the one safe way that already exists: `branch chat --attach` joins this same
+   conversation from a terminal, through the same key and the same rules as this window (src/cli-attach.ts). */
+let attachShown = false;
+function worded(tag, className, key, english) {
+  const node = make(tag, className, say(key, english));
+  node.dataset.t = key;
+  return node;
+}
+function terminalAttach() {
+  const row = make("div", "panels-acts");
+  const open = worded("button", "panels-act", "panels.terminal.open", "Open a terminal for me");
+  open.type = "button";
+  open.id = "panels-terminal-open";
+  open.setAttribute("aria-expanded", String(attachShown));
+  open.setAttribute("aria-controls", "panels-terminal-attach");
+  row.append(open);
+  const box = make("div", "panels-attach");
+  box.id = "panels-terminal-attach";
+  box.hidden = !attachShown;
+  const command = `branch chat --attach --session ${sessionNow()}`;
+  const line = make("div", "panels-attach-line");
+  const copy = worded("button", "panels-act panels-act-quiet", "panels.terminal.copy", "Copy");
+  copy.type = "button";
+  copy.addEventListener("click", () => {
+    navigator.clipboard?.writeText(command).then(() => {
+      copy.textContent = say("panels.terminal.copied", "Copied");
+    }, () => undefined);
   });
-  return action;
+  line.append(make("code", "panels-what", command), copy);
+  box.append(worded("p", "panels-attach-note", "panels.terminal.attach",
+    "Run this in a terminal on this computer to carry on this conversation there. It goes through the same rules as this window."), line);
+  open.addEventListener("click", () => {
+    attachShown = !attachShown;
+    box.hidden = !attachShown;
+    open.setAttribute("aria-expanded", String(attachShown));
+  });
+  return [row, box];
 }
 function statusLine(tab, work, entries) {
   const live = entries.some((entry) => entry.state === "running");
@@ -166,11 +192,8 @@ async function draw(tab, work) {
     if (status) nodes.push(status);
     if (tab === "browser") { const shot = await pictureNode(work.browser.picture); if (shot) nodes.push(shot); }
     if (entries.length) nodes.push(...[...entries].reverse().map((entry) => entryRow(tab, entry)));
-    else {
-      nodes.push(make("p", "context-empty", say(TABS[tab].empty[0], TABS[tab].empty[1])));
-      /* DG-117: Terminal empty state has "Open a terminal for me" action */
-      if (tab === "terminal") nodes.push(terminalEmptyAction());
-    }
+    else nodes.push(make("p", "context-empty", say(TABS[tab].empty[0], TABS[tab].empty[1])));
+    if (tab === "terminal") nodes.push(...terminalAttach());
   }
   block.replaceChildren(...nodes, ...footOf(tab));
   markLive(work);
