@@ -68,6 +68,18 @@ test("a second host adapter reads only what is permitted: shared facts, never an
     "the owner's own view is unrestricted, as it already is for every other memory reader");
 });
 
+test("a sentence the chat reader already hid a key-like value in is never ingested", async (t) => {
+  const { app, context } = await fixture(t);
+  const canary = "sk-ant-api03-CANARYCANARYCANARYCANARYCANARYCANARY0123456789"; // not-a-real-secret
+  const log = claudeCodeLog(`Always use the key ${canary} for this.`);
+  const report = await app.registry.execute("memory.ingest_host_log", { host: "claude-code", sessionId: "s1", text: log }, context);
+  assert.equal(report.imported, 0);
+  const viaCodex = await app.registry.execute("memory.host_search", { host: "codex", query: "key" }, context);
+  assert.deepEqual(viaCodex, []);
+  const owner = app.store.searchMemory(context.owner, "key");
+  assert.deepEqual(owner, [], "nothing containing the key reached memory at all");
+});
+
 test("only a supported host's session log is accepted", async (t) => {
   const { app, context } = await fixture(t);
   await assert.rejects(app.registry.execute("memory.ingest_host_log",

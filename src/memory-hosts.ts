@@ -4,9 +4,7 @@ import { redactLeaks } from "./leak-guard.js";
 import { layerForKind } from "./memory-layers.js";
 import { memoryScope, type MemoryRecord } from "./memory.js";
 import { normaliseFact } from "./memory-hygiene.js";
-import { preferenceSentences, sessionSources, type SessionSource } from "./learning-more/session-lessons.js";
-import { readClaudeChat } from "./migrate/claude-code.js";
-import { readCodexChat } from "./migrate/codex.js";
+import { hiddenPrefix, ownerWords, preferenceSentences, sessionSources, type SessionSource } from "./learning-more/session-lessons.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 
@@ -19,9 +17,10 @@ import type { Store } from "./store.js";
  * chat files sitting on this computer, by scanning this computer's own copy of them. A host adapter
  * here takes a session log handed to it directly instead, so a log made on one host reaches Branch
  * wherever it is next reached from — pasted into chat, sent over MCP, read from the CLI — without
- * needing that host's folder to be on this computer at all. It is the same two supported hosts and
- * the same rule for which of the owner's own sentences are worth keeping that session-lessons.ts
- * uses, so a sentence that would be offered there is exactly the one ingested here.
+ * needing that host's folder to be on this computer at all. It is the same two supported hosts, the
+ * same `ownerWords` reader (so tagged program text and compaction summaries are cut the same way),
+ * and the same sentence rule for what is worth keeping, and the same guard against a sentence the
+ * chat reader already hid a key-like value in.
  *
  * What is ingested is saved shared, because a host adapter is only useful if what it brings in can
  * be read back through a different one; a fact meant to stay private to the owner is saved the
@@ -33,13 +32,6 @@ export type HostId = SessionSource;
  *  rules (src/memory.ts) decide what is permitted, the same way they already do for a Trunk. */
 export const hostAgent = (host: HostId): string => `host:${host}`;
 const hostLabel: Record<HostId, string> = { "claude-code": "Claude Code", codex: "Codex" };
-
-/** What the owner typed in one host's session log, read with that host's own format. */
-function ownerSaid(host: HostId, text: string): string[] {
-  if (host === "claude-code")
-    return readClaudeChat(text).messages.filter((m) => m.role === "user").map((m) => m.content);
-  return readCodexChat(text).messages.filter((m) => m.role === "user").map((m) => m.content);
-}
 
 export const IngestSchema = z.object({
   host: HostIdSchema,
@@ -56,9 +48,12 @@ export function ingestSessionLog(store: Store, owner: string, input: z.infer<typ
   const known = new Set((store.list("memory", owner) as MemoryRecord[]).map((record) => normaliseFact(String(record.data.text ?? ""))));
   const seenInThisLog = new Set<string>();
   let imported = 0, duplicates = 0;
-  for (const sentence of ownerSaid(host, text).flatMap(preferenceSentences)) {
+  for (const sentence of ownerWords(host, text).words.flatMap(preferenceSentences)) {
+    // The chat readers already hide key-like values, so a hidden marker counts as a key too (matches
+    // session-lessons.ts's own guard: redactLeaks alone cannot find what a reader already redacted).
+    const redacted = redactLeaks(sentence);
     const key = normaliseFact(sentence);
-    if (!key || seenInThisLog.has(key) || redactLeaks(sentence).kinds.length) continue;
+    if (!key || seenInThisLog.has(key) || redacted.kinds.length || sentence.includes(hiddenPrefix)) continue;
     seenInThisLog.add(key);
     if (known.has(key)) { duplicates++; continue; }
     store.save("memory", owner, randomUUID(), {
