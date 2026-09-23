@@ -4198,6 +4198,7 @@
   "settings-kit.card.history": "Recent changes",
   "settings-kit.card.history-purpose": "Changes made on these cards or in a conversation are written down. Undo one to put back exactly what it changed, or ask why a setting is set the way it is.",
   "settings-kit.field.why": "Setting",
+  "settings-kit.history.confirm-note": "An undo that puts back a value letting Branch do more without asking, or taking a protection away, is only made if this is ticked as well.",
   "settings-kit.history.none": "No changes have been recorded yet.",
   "settings-kit.history.undo": "Undo this change",
   "settings-kit.history.undone": "Undone.",

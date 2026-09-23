@@ -4199,6 +4199,7 @@
   "settings-kit.card.history": "Modifications récentes",
   "settings-kit.card.history-purpose": "Les modifications faites sur ces cartes ou dans une conversation sont notées. Annulez-en une pour remettre exactement ce qu'elle a changé, ou demandez pourquoi un réglage est ainsi.",
   "settings-kit.field.why": "Réglage",
+  "settings-kit.history.confirm-note": "Une annulation qui remet une valeur permettant à Branch d'en faire plus sans demander, ou qui retire une protection, n'est faite que si cette case est aussi cochée.",
   "settings-kit.history.none": "Aucune modification n'a encore été notée.",
   "settings-kit.history.undo": "Annuler cette modification",
   "settings-kit.history.undone": "Annulée.",

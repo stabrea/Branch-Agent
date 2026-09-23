@@ -118,12 +118,12 @@ async function showPlan(holder, plan, status) {
   holder.append(go);
 }
 
-function confirmRow(confirm) {
+function confirmRow(confirm, words = ["settings-kit.confirm-note",
+  "The lines marked above let Branch do more without asking, or take a protection away. They are only changed if this is ticked as well."]) {
   const row = el("label", undefined, undefined, "kit-confirm");
   confirm.id = `kit-confirm-${Math.random().toString(36).slice(2, 8)}`;
   row.append(confirm, el("span", "settings-kit.confirm", "Yes, make it less careful"));
-  const note = el("p", "settings-kit.confirm-note",
-    "The lines marked above let Branch do more without asking, or take a protection away. They are only changed if this is ticked as well.", "field-note");
+  const note = el("p", ...words, "field-note");
   note.id = `${confirm.id}-note`;
   confirm.setAttribute("aria-describedby", note.id);
   return [row, note];
@@ -302,7 +302,8 @@ function historyCard(overview) {
   const list = el("ul", undefined, undefined, "kit-records");
   const confirm = document.createElement("input");
   confirm.type = "checkbox";
-  holder.append(list, ...confirmRow(confirm));
+  holder.append(list, ...confirmRow(confirm, ["settings-kit.history.confirm-note",
+    "An undo that puts back a value letting Branch do more without asking, or taking a protection away, is only made if this is ticked as well."]));
   section.append(...field("kit-why", select, ["settings-kit.field.why", "Setting"],
     ["describe.kit-why", "Says who or what last set it, from what was written down. Nothing is changed."]), ask, answer, holder, status);
   drawRecords(list, fields, confirm, status).catch(() => {});
