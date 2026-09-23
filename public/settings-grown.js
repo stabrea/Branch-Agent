@@ -249,7 +249,7 @@ function arrangeAll() {
 }
 let arranging = 0;
 function watchPages() {
-  const again = () => { if (arranging) return; arranging = requestAnimationFrame(() => { arranging = 0; arrangeAll(); }); };
+  const again = () => { if (arranging) return; arranging = requestAnimationFrame(() => { arranging = 0; arrangeAll(); recountResults(); }); };
   for (const page of Object.keys(BUCKETS)) {
     const host = hostFor(page);
     if (!host) continue;
@@ -347,15 +347,16 @@ function shownBySearch(row) {
 /** Words drawn on the page, in the language it is in (the index holds English). */
 const drawn = (node) => node?.textContent.replace(/\s+/g, " ").trim() || null;
 /**
- * A setting's name: the index's English, or in another language the words beside its control when it is drawn,
- * else (mac7/residuals) the locale files' words for that English, so a control not drawn yet is named too.
+ * A setting's name: the index's English, or in another language (DG-061) the locale files' words for that same
+ * English, as English shows it; only a name with no translation falls back to the words beside its control. The
+ * drawn words come second because some are only a control's own word ("Switch" beside each chat app).
  */
 function labelOf(row) {
-  return language() === "en" ? row[3] : drawn($(row[0])?.labels?.[0]) ?? fromEnglish(row[3]) ?? row[3];
+  return language() === "en" ? row[3] : fromEnglish(row[3]) ?? drawn($(row[0])?.labels?.[0]) ?? row[3];
 }
 function cardTitleOf(row) {
   if (language() === "en" || !row[6]) return row[6];
-  return (row[2] ? drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) : null) ?? fromEnglish(row[6]) ?? row[6];
+  return fromEnglish(row[6]) ?? (row[2] ? drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) : null) ?? row[6];
 }
 /** Settings in the index that match and are not already on show, closest first: the label itself, then its start. */
 function matches(needle) {
@@ -392,12 +393,13 @@ function whyUnseen(row) {
   return ["settingsGrown.found.gate", "Shows once the switch on its card is on."];
 }
 const FOUND_FIRST = 12;
+/** How many were found, beyond the cards on show: every one, not only the first few listed. */
 function drawFound(query) {
   $("sg-found")?.remove();
   const needle = query.trim().toLowerCase();
-  if (needle.length < 2) return;
+  if (needle.length < 2) return 0;
   const found = matches(needle);
-  if (!found.length) return;
+  if (!found.length) return 0;
   $("lx-settings-empty")?.remove();
   const box = make("section", "sg-found");
   box.id = "sg-found";
@@ -409,6 +411,37 @@ function drawFound(query) {
   box.append(title, list);
   if (found.length > FOUND_FIRST) box.append(showAll(list, found));
   $("lx-settings-body").prepend(box);
+  return found.length;
+}
+/** The Settings cards a search left on show (not the pages' own titles, jump links or group heads). */
+const cardsFound = () => [...document.querySelectorAll(".lx-page:not([hidden]) :is(.lx-subpanel > *, .lx-page > *)")]
+  .filter((card) => !card.matches(".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel, .lx-on-this-page, .sg-head, .lx-miss")
+    && card.checkVisibility());
+/**
+ * DG-061: the approved sample's head over search results (design/Branch-Grown-Up.html, `renderSettings`): how many
+ * were found, then what was searched for. It is a status, so a screen reader hears the count as it changes.
+ */
+function drawResultsHead(query, alsoFound) {
+  $("sg-results")?.remove();
+  const needle = query.trim();
+  if (!needle) return;
+  const head = make("div", "sg-results");
+  head.id = "sg-results";
+  head.setAttribute("role", "status");
+  head.dataset.alsoFound = String(alsoFound);
+  const title = make("h2", "lx-page-title", resultsWords(cardsFound().length + alsoFound));
+  head.append(title, make("p", "sg-results-for", say("settingsGrown.results.for", "for “{query}”", { query: needle })));
+  $("lx-settings-body").prepend(head);
+}
+const resultsWords = (count) => new Intl.PluralRules(language()).select(count) === "one"
+  ? say("settingsGrown.results.one", "{count} result", { count })
+  : say("settingsGrown.results.other", "{count} results", { count });
+/** A card that draws itself again during a search changes what is on show, so the count follows (written only when it changes). */
+function recountResults() {
+  const head = $("sg-results"), title = head?.querySelector("h2");
+  if (!title) return;
+  const words = resultsWords(cardsFound().length + Number(head.dataset.alsoFound || 0));
+  if (title.textContent !== words) title.textContent = words;
 }
 function showAll(list, found) {
   const all = make("button", "sg-found-all", say("settingsGrown.found.all", `Show all ${found.length}`, { count: found.length }));
@@ -426,9 +459,14 @@ function searchHeads(query) {
     head.classList.toggle("lx-miss", !hit);
   }
 }
-function onSearch(event) {
-  searchHeads(event.target.value);
-  drawFound(event.target.value);
+/**
+ * DG-061: the results head and "Also found" follow the search itself however it changed: typing, Settings opened
+ * again (which empties the box without typing), a new language (drawn again in its words), or another profile.
+ */
+function redrawSearch() {
+  const query = document.body.classList.contains("lx-settings-searching") ? $("lx-settings-search")?.value ?? "" : "";
+  searchHeads(query);
+  drawResultsHead(query, drawFound(query));
 }
 /** Opens where a setting lives, shows its card even above the level for now, and points at it. */
 function goToSetting(row) {
@@ -569,7 +607,15 @@ function start() {
   watchPages();
   watchPlace();
   watchHold();
-  $("lx-settings-search")?.addEventListener("input", onSearch);
+  $("lx-settings-search")?.addEventListener("input", redrawSearch);
+  /* Search ends without typing when Settings is opened again (layout.js empties the box and the search). */
+  let searching = false;
+  new MutationObserver(() => {
+    const now = document.body.classList.contains("lx-settings-searching");
+    if (now === searching) return;
+    searching = now;
+    if (!now) redrawSearch();
+  }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(applyLevel).observe(root, { attributes: true, attributeFilter: ["data-everything"] });
   $("appearance-everything")?.addEventListener("change", (event) => {
     const level = event.target.checked ? (levelNow() === "technical" ? "technical" : "advanced") : "regular";
@@ -578,15 +624,22 @@ function start() {
   document.addEventListener("branch-place", drawLatePages);
   document.addEventListener("branch-profile", (event) => {
     const owner = event.detail?.owner !== false;
-    $("sg-found")?.remove();
     applyLevel();
+    redrawSearch();
     /* Applying the household level can rearrange the Settings shell after layout handled the same
        event. Reapply the owner-only page guard last so Instructions cannot be exposed again. */
     globalThis.branchLayout?.showOwnerSettings(owner);
     showOwnerPickerPage(owner);
     queueMicrotask(syncPicker);
   });
-  document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
+  document.addEventListener("branch-language", () => {
+    countHidden();
+    namePickerPages();
+    /* A search under way runs again in the new words, cards and all, once they are drawn; its head follows. */
+    const box = $("lx-settings-search");
+    if (document.body.classList.contains("lx-settings-searching") && box?.value) requestAnimationFrame(() => box.dispatchEvent(new Event("input")));
+    else redrawSearch();
+  });
   document.body.classList.add("sg-ready");
 }
 if (document.body.classList.contains("lx-ready")) start();

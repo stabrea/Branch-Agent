@@ -411,6 +411,12 @@
 }
 
 /* ---------- search: what the pages hold, and what sits elsewhere or behind a switch ---------- */
+/* DG-061: the line under the results count, as the sample's page intro (which searching hides on the pages). */
+.sg-results-for {
+  max-width: 60ch;
+  margin: 0 0 18px;
+  color: var(--text-2);
+}
 .sg-found {
   margin: 0 0 20px;
   padding: 14px 16px;
