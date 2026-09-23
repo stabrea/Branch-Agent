@@ -21,6 +21,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the tag to match this package and descend from integration
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/release-lineage.mjs --version "$TAG"
+          git fetch origin refs/heads/mac/cross-platform:refs/remotes/origin/mac/cross-platform
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/mac/cross-platform; then
+            echo "::error::The tagged commit is not in the integration branch; refusing to publish it."
+            exit 1
+          fi
       - name: Require successful CI for this exact commit
         if: github.event_name == 'push'
         env:
@@ -28,27 +44,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           for attempt in $(seq 1 100); do
-            waiting=""
-            evidence=""
             runs="$(gh api --method GET "repos/$GH_REPO/actions/runs" -f head_sha="$GITHUB_SHA" -f per_page=100)"
-            for workflow in pr-fast.yml checks.yml; do
-              run="$(printf '%s' "$runs" | jq -c --arg path ".github/workflows/$workflow" \
-                '[.workflow_runs[] | select(.path == $path and (.event == "push" or .event == "pull_request"))] | sort_by(.created_at) | last // {}')"
-              status="$(printf '%s' "$run" | jq -r '.status // "missing"')"
-              conclusion="$(printf '%s' "$run" | jq -r '.conclusion // ""')"
-              url="$(printf '%s' "$run" | jq -r '.html_url // ""')"
-              evidence="$evidence $workflow=$status${conclusion:+/$conclusion}"
-              if [ "$status" = completed ] && [ "$conclusion" = success ]; then
-                echo "$workflow passed for $GITHUB_SHA: $url"
-                exit 0
-              fi
-              if [ "$status" != completed ] && [ "$status" != missing ]; then waiting=1; fi
-            done
-            if [ -z "$waiting" ] && [ "$attempt" -ge 3 ]; then
-              echo "::error::No successful exact-commit CI result. Nothing will be built or published.$evidence"
+            if printf '%s' "$runs" | node scripts/release-lineage.mjs "$GITHUB_SHA" "$GH_REPO"; then
+              exit 0
+            fi
+            waiting="$(printf '%s' "$runs" | jq -r --arg sha "$GITHUB_SHA" --arg repo "$GH_REPO" \
+              '[.workflow_runs[] | select(.path == ".github/workflows/checks.yml" and .head_sha == $sha and .head_branch == "mac/cross-platform" and .repository.full_name == $repo and .head_repository.full_name == $repo and (.event == "push" or .event == "workflow_dispatch") and .status != "completed")] | length')"
+            if [ "$waiting" -eq 0 ] && [ "$attempt" -ge 3 ]; then
+              echo "::error::No successful trusted integration Checks run for this exact commit. Nothing will be built or published."
               exit 1
             fi
-            echo "Exact-commit CI is not green yet; waiting ($attempt/100).$evidence"
+            echo "Trusted exact-commit integration Checks are not green yet; waiting ($attempt/100)."
             sleep 30
           done
           echo "::error::No successful exact-commit CI result within 50 minutes. Nothing will be built or published."
