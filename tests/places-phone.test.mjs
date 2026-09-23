@@ -43,12 +43,13 @@ test("DG-140: the Inbox's Needs you tab carries the live count, and hides it at 
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchLayout.go("runs"));
   assert.equal(await page.locator('.lx-tab[data-place="inbox"][data-tab="needs"] #lx-needs-tab-count').count(), 1, "one count, on the Needs you tab");
-  /* the badge is set and read in one step, so the Inbox's own redraw cannot land in between */
+  /* the badge is set and read in one step, so the Inbox's own redraw cannot land in between: the count follows by a
+     mutation observer, a microtask, so waiting one microtask (not a timer, which lets a redraw's answer in) reads it */
   const after = (text, hidden) => page.evaluate(async ([text, hidden]) => {
     const badge = document.getElementById("lx-inbox-badge"), count = document.getElementById("lx-needs-tab-count");
     badge.textContent = text;
     badge.hidden = hidden;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
     const s = getComputedStyle(count);
     return { text: count.textContent, hidden: count.hidden, look: [s.fontSize, s.fontWeight, s.marginLeft] };
   }, [text, hidden]);
