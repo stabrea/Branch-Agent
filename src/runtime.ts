@@ -978,7 +978,8 @@ ${run.output.slice(0, 6000)}`;
       // technical text stays in the events and the log, where it belongs.
       output = this.plainEnding(run, error);
       if (error instanceof NeedsInputError) {
-        this.store.event(run.id, "attention.needed", { question: error.question });
+        // The asking call is named, so a record reader never takes another call still open for the one that asked.
+        this.store.event(run.id, "attention.needed", { question: error.question, ...(error.callId ? { callId: error.callId } : {}) });
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
       }
     }
@@ -3162,6 +3163,7 @@ ${run.output.slice(0, 6000)}`;
           source: this.sourceOf(context), remember: e.remember, ...e.asked,
           ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
+      if (e instanceof NeedsInputError) e.callId ??= call.id; // this call is the one that asked
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
         span?.end("error", e instanceof NeedsInputError ? "waiting for the person" : errorText(e));
         throw e;

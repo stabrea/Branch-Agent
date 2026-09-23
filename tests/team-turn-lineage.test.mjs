@@ -11,6 +11,7 @@ import { turnEffects } from "../dist/team-reconcile.js";
 import { recoverAfterRestart } from "../dist/never-break/resume.js";
 import { journalHook } from "../dist/never-break/journal.js";
 import { saveGatewayConfig, GatewayConfigSchema } from "../dist/never-break/gateway-config.js";
+import { ConversationRetention, saveRetentionSettings } from "../dist/retention.js";
 
 // Q63: a team turn names its run before the run does anything, and an outcome nobody saw is
 // settled from the runtime's own record, never by running the turn again. Real runtimes with
@@ -323,7 +324,7 @@ test("a turn waiting on the owner with a step whose outcome is unknown needs rec
   app.store.event(parentRunId, "tool.started", { name: "files.write", id: "w1" });
   app.store.event(parentRunId, "tool.started", { name: "user.ask", id: "q1" });
   app.store.finish(parentRunId, "needs_input", "Which folder?");
-  app.store.event(parentRunId, "attention.needed", { question: "Which folder?" });
+  app.store.event(parentRunId, "attention.needed", { question: "Which folder?", callId: "q1" });
   const report = app.teams.reconcile(taskId);
   assert.equal(report.state, "needs_reconciliation");
   assert.deepEqual(report.effects.map((e) => [e.toolCallId, e.outcome]), [["w1", "unknown"], ["q1", "asked_owner"]]);
@@ -481,6 +482,31 @@ test("a crash after a too-large result was recorded is finished from that record
   assert.equal(retry.dispatches + after.parentCalls + after.memberCalls, 0, "nothing was run again");
 });
 
+test("an older too-large record that kept no answers is finished as it is, and never claims the answers reached the room", async (t) => {
+  /* NAS review of the team stack: finishing such a record said the answers were written to the room. */
+  const provider = scripted();
+  const { state, team, reopen } = await fixture(t, provider);
+  const requestId = randomUUID();
+  const complete = TeamTasks.prototype.complete;
+  TeamTasks.prototype.complete = function skipped() {};
+  t.after(() => { TeamTasks.prototype.complete = complete; });
+  await state.app.teams.run(counted(state.app.runtime), knowledge, team.id, "sum up", { requestId });
+  TeamTasks.prototype.complete = complete;
+  // The record a build from before this change kept: the size only, no answers and no room.
+  state.app.store.sqlite.prepare("UPDATE team_tasks SET result=? WHERE request_id=?").run(JSON.stringify({ teamId: team.id, truncated: true, chars: 600000 }), requestId);
+  const roomBefore = state.app.teams.room(team.id).length;
+  const after = scripted();
+  const app = await reopen(after);
+  const task = row(app, requestId);
+  const report = app.teams.reconcile(task.task_id);
+  assert.equal(report.state, "completed");
+  assert.match(report.note, /older record that kept no answers; nothing was written to the room/);
+  assert.equal(app.teams.room(team.id).length, roomBefore, "nothing was added to the room");
+  const seen = await app.teams.run(counted(app.runtime), knowledge, team.id, "sum up", { requestId });
+  assert.match(seen.note, /not written to the team's room either/);
+  assert.equal(after.parentCalls + after.memberCalls, 0, "nothing was run again");
+});
+
 test("members that finished answering with no tool call, and no outcome recorded, need reconciliation, not failed", async (t) => {
   const provider = scripted();
   const { state, team, reopen } = await fixture(t, provider);
@@ -551,4 +577,143 @@ test("a turn recovery carried on is never 'nothing was done' even when the step 
   const report = app.teams.reconcile(taskId);
   assert.equal(report.state, "needs_reconciliation");
   assert.deepEqual(report.effects.map((e) => [e.name, e.outcome]), [["files.write", "unknown"]]);
+});
+
+/** Both members write a file and finish, then the process "dies" before anything about their result is written. */
+async function crashAfterMemberWrites(t) {
+  let written = 0;
+  const provider = scripted(undefined, [(request) => (JSON.stringify(request.messages).includes('"tool"') ? say("member done") : write(`m${written++}`, `member-${written}.txt`, "once"))]);
+  const fx = await fixture(t, provider);
+  const requestId = randomUUID();
+  const { recordOutcome, complete } = TeamTasks.prototype;
+  TeamTasks.prototype.recordOutcome = function skipped() {};
+  TeamTasks.prototype.complete = function skipped() {};
+  t.after(() => Object.assign(TeamTasks.prototype, { recordOutcome, complete }));
+  const writers = { activeSpecialist: () => ({ permissions: ["files.write"], instructions: "" }) };
+  const lost = await fx.state.app.teams.run(fx.state.app.runtime, writers, fx.team.id, "file the notes", { requestId });
+  Object.assign(TeamTasks.prototype, { recordOutcome, complete });
+  assert.equal(row(fx.state.app, requestId).state, "claimed");
+  const parentSession = fx.state.app.store.run(lost.parentRunId).sessionId;
+  const memberSessions = lost.answers.map((answer) => fx.state.app.store.run(answer.runId).sessionId);
+  assert.ok(memberSessions.every((id) => id !== parentSession), "each member works in a conversation of its own");
+  return { ...fx, requestId, lost, memberSessions };
+}
+
+test("a crash after the members wrote, whose member conversations were then deleted, needs reconciliation, never 'nothing was done'", async (t) => {
+  const { reopen, workspace, requestId, lost, memberSessions } = await crashAfterMemberWrites(t);
+  const app = await reopen(scripted());
+  // Allowed: the member runs are completed, and this is exactly what a retention prune does.
+  for (const sessionId of memberSessions) app.store.forgetSession(app.runtime.owner, sessionId);
+  const report = app.teams.reconcile(lost.taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /a member's conversation was deleted, so what it did cannot be known/);
+  assert.doesNotMatch(row(app, requestId).error, /Nothing was done/);
+  assert.equal(await readFile(join(workspace, "member-1.txt"), "utf8"), "once", "the members' writes are still on disk");
+  assert.equal(await readFile(join(workspace, "member-2.txt"), "utf8"), "once");
+});
+
+test("a crash mid-fanout whose interrupted members' conversations were deleted needs reconciliation, never 'nothing was done'", async (t) => {
+  const provider = scripted();
+  const { state, team, reopen, owner } = await fixture(t, provider);
+  const requestId = randomUUID();
+  const memberSessions = [];
+  // The real parent turn, then members that each write and are cut off, and a fanout that never returns.
+  const cutOff = { run: (o) => state.app.runtime.run(o), context: (o) => state.app.runtime.context(o), fanout(context, tasks) {
+    for (const task of tasks) {
+      const member = state.app.store.createRun(owner, task.prompt);
+      memberSessions.push(member.sessionId);
+      state.app.store.event(member.id, "run.started", { parentRunId: context.runId });
+      state.app.store.event(member.id, "tool.started", { name: "files.write", id: task.id });
+      state.app.store.event(member.id, "tool.completed", { name: "files.write", id: task.id, result: {} });
+      state.app.store.finish(member.id, "interrupted", "Branch is closing");
+    }
+    return new Promise(() => {});
+  } };
+  void state.app.teams.run(cutOff, knowledge, team.id, "file the notes", { requestId });
+  while (memberSessions.length < 2) await new Promise((resolve) => setImmediate(resolve));
+  const task = row(state.app, requestId);
+  assert.ok(memberSessions.every((id) => id !== state.app.store.run(task.parent_run_id).sessionId));
+  const app = await reopen(scripted());
+  for (const sessionId of memberSessions) app.store.forgetSession(app.runtime.owner, sessionId);
+  const report = app.teams.reconcile(task.task_id);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.doesNotMatch(row(app, requestId).error, /Nothing was done/);
+  assert.match(row(app, requestId).error, /cannot be known/);
+});
+
+test("the retention rule leaves out a claimed team task's member conversations, and takes them once it is settled", async (t) => {
+  const { state, owner, lost, memberSessions } = await crashAfterMemberWrites(t);
+  saveRetentionSettings(state.app.store, owner, { enabled: true, keepDays: 1, exportBeforeDeleting: false });
+  const later = new ConversationRetention(state.app.store, owner, () => Date.now() + 30 * 86_400_000);
+  const proposed = () => later.propose().conversations.map((entry) => entry.sessionId);
+  assert.deepEqual(memberSessions.filter((id) => proposed().includes(id)), [], "no member conversation is proposed while the task is claimed");
+  assert.deepEqual(later.prune({ approve: true, sessionIds: memberSessions }).removed, []);
+  assert.equal(state.app.teams.reconcile(lost.taskId).state, "needs_reconciliation");
+  assert.deepEqual(memberSessions.filter((id) => proposed().includes(id)), memberSessions, "once settled, they can go");
+});
+
+test("a member's conversation the owner deletes while the team still works takes its answer with it: nothing is kept, written or handed back", async (t) => {
+  const secret = "PLANNER-SECRET-7731";
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const provider = scripted(undefined, [async (request) => (JSON.stringify(request.messages).includes(": planner.") ? say(secret) : (await gate, say("reviewer done")))]);
+  const { state, owner, team } = await fixture(t, provider);
+  const requestId = randomUUID();
+  const live = state.app.teams.run(state.app.runtime, knowledge, team.id, "plan it", { requestId });
+  const plannerRun = () => state.app.store.sqlite.prepare(`SELECT t.id, t.session_id FROM tasks t JOIN events e ON e.run_id=t.id
+    WHERE e.kind='run.started' AND json_extract(e.data,'$.parentRunId')=? AND t.status='completed' AND t.output=?`).get(row(state.app, requestId)?.parent_run_id ?? "", secret);
+  while (!plannerRun()) await new Promise((resolve) => setImmediate(resolve));
+  const planner = plannerRun();
+  assert.notEqual(planner.session_id, state.app.store.run(row(state.app, requestId).parent_run_id).sessionId, "the planner works in a conversation of its own");
+  assert.equal(state.app.store.forgetSession(owner, String(planner.session_id)).discarded, true, "the reviewer is still working");
+  release();
+  const seen = await live;
+  assert.equal(seen.state, "needs_reconciliation");
+  assert.equal(state.app.teams.room(team.id).filter((m) => m.content.includes(secret)).length, 0, "the room has no planner answer");
+  assert.deepEqual(JSON.parse(row(state.app, requestId).result), { deleted: true }, "the task keeps no answers");
+  assert.match(row(state.app, requestId).error, /member's conversation was deleted/);
+  const again = await state.app.teams.run(state.app.runtime, knowledge, team.id, "plan it", { requestId });
+  assert.equal(again.state, "needs_reconciliation");
+  assert.equal(again.deleted, true);
+  assert.match(again.note, /deleted a conversation/);
+  assert.ok(!JSON.stringify(again).includes(secret), "the repeat does not hand the answer back");
+});
+
+test("a question that names no call never marks a call still open as the one that asked", async (t) => {
+  const { app, taskId, parentRunId } = await crashedTurn(t);
+  // A deferred job handed to the background, still able to act, then a question from the runtime itself (a stuck model, say).
+  app.store.event(parentRunId, "tool.started", { name: "jobs.start", id: "d1" });
+  app.store.finish(parentRunId, "needs_input", "Would you like me to try again?");
+  app.store.event(parentRunId, "attention.needed", { question: "Would you like me to try again?" });
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.toolCallId, e.outcome]), [["d1", "unknown"]]);
+});
+
+test("a member carried on after a restart that finished its answer means reconciliation, never 'nothing was done'", async (t) => {
+  const { app, requestId, taskId, parentRunId } = await crashedTurn(t);
+  app.store.finish(parentRunId, "completed", "parent done");
+  const member = app.store.createRun(app.runtime.owner, "member");
+  app.store.event(member.id, "run.started", { parentRunId });
+  app.store.finish(member.id, "interrupted", "Branch is closing");
+  // As the runtime carries a run on: started with no parent, linked back only by where it came from.
+  const next = app.store.createRun(app.runtime.owner, "member", member.sessionId);
+  app.store.event(next.id, "run.started", { parentRunId: null, resumedFrom: member.id });
+  app.store.event(next.id, "run.resumed", { from: member.id, unknownToolOutcomes: 0 });
+  app.store.finish(next.id, "completed", "member done");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /1 member\(s\) finished an answer/);
+});
+
+test("a turn's run never linked to its task is still read back by reconcile when recovery has not run", async (t) => {
+  const { app, requestId, taskId, sessionId } = await crashedTurn(t, { link: false });
+  assert.equal(row(app, requestId).parent_run_id, null);
+  const [orphan] = app.store.runs(app.runtime.owner).filter((run) => run.sessionId === sessionId);
+  app.store.event(orphan.id, "tool.started", { name: "files.write", id: "w1" });
+  app.store.event(orphan.id, "tool.completed", { name: "files.write", id: "w1", result: {} });
+  app.store.finish(orphan.id, "failed", "stopped");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.runId, e.toolCallId, e.outcome]), [[orphan.id, "w1", "completed"]]);
 });
