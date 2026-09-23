@@ -206,7 +206,7 @@ test("the scroll that brings a question into view favours its answers, and the b
 });
 
 test("a tablet held upright keeps the side list as a column; it still folds away, and a phone gets it as a slide-over", async (t) => {
-  const f = await fixture(t, { width: 820, height: 1180 });
+  const f = await fixture(t, { width: 740, height: 1180 });
   const rail = f.page.locator("body > .rail");
   assert.equal(await rail.isVisible(), true, "the side list shows without being asked");
   assert.equal(await f.page.evaluate(() => getComputedStyle(document.querySelector("body > .rail")).position), "relative", "as a column, not over the page");
@@ -217,7 +217,7 @@ test("a tablet held upright keeps the side list as a column; it still folds away
   await f.page.locator("#rail-toggle").click();
   await f.page.waitForFunction(() => document.body.classList.contains("no-rail"));
   assert.equal(await rail.isVisible(), false, "the toggle folds it away");
-  assert.ok((await box(f.page, "body > main")).width > 780, "and the conversation takes the width");
+  assert.ok((await box(f.page, "body > main")).width > 700, "and the conversation takes the width");
   await f.page.locator("#rail-toggle").click();
   await f.page.waitForFunction(() => !document.body.classList.contains("no-rail"));
   assert.equal(await noSideways(f.page), true);
@@ -346,7 +346,7 @@ test("on a phone with a notch and a home bar nothing sits under either; a comput
   await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, bottom: 0, left: 0, right: 0 } });
   /* the edges the Trunks strip does not take (it takes the left on a computer, the foot on a tablet, the top on a phone) */
   for (const [width, height, sides] of [[1440, 950, { top: "10px", right: "10px", bottom: "10px" }], [1024, 700, { top: "10px", right: "10px", bottom: "10px" }],
-    [820, 1180, { top: "6px", right: "6px", left: "6px" }], [390, 844, { right: "0px", left: "0px", bottom: "0px" }]]) {
+    [740, 1180, { top: "6px", right: "6px", left: "6px" }], [390, 844, { right: "0px", left: "0px", bottom: "0px" }]]) {
     await f.page.setViewportSize({ width, height });
     const pads = await f.page.evaluate((names) => Object.fromEntries(names.map((name) => [name, getComputedStyle(document.body)[`padding${name[0].toUpperCase()}${name.slice(1)}`]])), Object.keys(sides));
     assert.deepEqual(pads, sides, `${width}: the page's margins are the ones it always had`);
@@ -368,20 +368,13 @@ test("at every width from a phone to a wide screen nothing runs off sideways and
         sideways: document.documentElement.scrollWidth > innerWidth,
         covered: !document.querySelector(".composer-dock").contains(top),
         bar: getComputedStyle(document.getElementById("ew-places")).display !== "none",
-        tabletMode: width >= 700 && width <= 760,
         docked: getComputedStyle(rail).position !== "fixed" && rail.getBoundingClientRect().width > 0,
       };
     });
     assert.equal(seen.sideways, false, `${width}: nothing sideways`);
     assert.equal(seen.covered, false, `${width}: the text field is on top`);
     assert.equal(seen.bar, width <= 560, `${width}: the places bar only on a phone`);
-    // At desktop (800px+) the rail should be fixed (sidebar drawer), not docked
-    // At tablet (700-760px) the rail should be docked (side column)
-    if (width >= 800) {
-      assert.equal(seen.docked, false, `${width}: desktop layout keeps rail drawer-style (not docked column)`);
-    } else if (seen.tabletMode) {
-      assert.equal(seen.docked, true, `${width}: tablet mode shows rail as docked column`);
-    }
+    assert.equal(seen.docked, width >= 700, `${width}: the side list is a column from 700 px (the computer's layout from 761 px, as the sample's)`);
   }
   assert.deepEqual(f.errors, []);
 });
@@ -414,7 +407,7 @@ test("on a phone the Trunks strip runs across the top and the places hold the fo
   assert.ok(strip.y + strip.height <= head.y, "the strip sits above the title bar, as in the phone frame");
   assert.ok(Math.abs(bar.y + bar.height - 844) <= 1, "the places bar alone holds the foot");
   assert.ok(prompt.y + prompt.height <= bar.y, "and the message box rides above it");
-  await f.page.setViewportSize({ width: 820, height: 1180 });
+  await f.page.setViewportSize({ width: 740, height: 1180 });
   await f.page.waitForTimeout(100);
   const tablet = await box(f.page, "#trunk-strip");
   assert.ok(Math.abs(tablet.y + tablet.height + 6 - 1180) <= 1, "a tablet keeps the strip at its foot, where the shell puts it");

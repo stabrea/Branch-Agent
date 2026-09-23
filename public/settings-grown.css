@@ -3,7 +3,7 @@
    what shows. */
 
 /* ---------- the window uses the whole screen (#24) ---------- */
-@media (min-width: 861px) {
+@media (min-width: 761px) {
   .lx-settings-win {
     inset: 10px;
     max-width: none;
@@ -346,14 +346,14 @@
   line-height: 1.35;
 }
 
-@media (min-width: 861px) {
+@media (min-width: 761px) {
   #settings-window .lx-settings-nav .sg-level {
     margin-top: auto;
   }
 }
 
 /* ---------- a phone: one choice of page, the search and the level, nothing that scrolls sideways ---------- */
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   .lx-settings-nav {
     flex-wrap: wrap;
     gap: 8px;
@@ -563,7 +563,7 @@
     grid-template-columns: repeat(2, minmax(0, 180px));
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   /* A phone's own window is tall: its mirror shows the top of it. */
   .sg-mirror-box {
     max-height: 120px;
