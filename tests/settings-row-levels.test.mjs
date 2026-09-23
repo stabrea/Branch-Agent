@@ -87,6 +87,8 @@ test("DG-199 each marked row holds one setting and its words, never a title or a
 const onPage = (page, name) => page.evaluate(async (name) => {
   const { SETTINGS_INDEX } = await import("/settings-index.js");
   const { ROW_LEVELS } = await import("/settings-row-levels.js");
+  const { LINKED } = await import("/settings-rows.js"); // rows the sample draws as a "Set in …" link (DG-180)
+  const levelOf = (id) => ROW_LEVELS[id] ?? LINKED[id];
   const rank = { regular: 0, advanced: 1, technical: 2 };
   const now = rank[document.documentElement.dataset.settingsLevel];
   const host = document.getElementById(`lx-page-${name}`);
@@ -94,7 +96,7 @@ const onPage = (page, name) => page.evaluate(async (name) => {
   /* A card's leveled settings, and the rows the sample draws as a link to another page (DG-181), which are marked in
      the card though they are not settings of their own: the sample counts those too. */
   const leveled = (card) => {
-    const ids = new Set(SETTINGS_INDEX.filter((row) => row[2] === card.id && ROW_LEVELS[row[0]]).map((row) => row[0]));
+    const ids = new Set(SETTINGS_INDEX.filter((row) => row[2] === card.id && levelOf(row[0])).map((row) => row[0]));
     for (const piece of card.querySelectorAll("[data-sg-row]")) ids.add(piece.dataset.sgRow);
     return [...ids];
   };

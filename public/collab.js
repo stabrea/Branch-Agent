@@ -17,6 +17,9 @@ export function showCollab(state, given) {
     ["shares", sharesSection(collab.shares ?? [], helpers)],
     ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
   ];
+  /* DG-029: the owner's PIN is a card of its own, in its own section of Settings › General. */
+  const profile = collab.profile ?? { isOwner: true };
+  if (profile.isOwner) parts.push(["owner-pin", ownerPinCard(profile, helpers)]);
   for (const [name, node] of parts) {
     node.dataset.part = name;
     panel.appendChild(node);
@@ -238,7 +241,6 @@ function peopleSection(profile, helpers) {
     }));
     return wrap;
   }
-  wrap.appendChild(ownerPinCard(profile, helpers));
   const name = el("input"); name.placeholder = "Their name"; name.maxLength = 40; name.setAttribute("aria-label", "Their name");
   const newPin = el("input"); newPin.type = "password"; newPin.inputMode = "numeric"; newPin.placeholder = "Four to eight digits"; newPin.setAttribute("aria-label", "Their PIN, four to eight digits");
   const adding = el("div", undefined, "collab-row");
@@ -259,18 +261,33 @@ function pinInput(helpers, label) {
 /** household-followups: the owner's PIN for switching back to them, off until the owner sets one. */
 function ownerPinCard(profile, helpers) {
   const { el, api, toast, refresh } = helpers;
-  const card = el("div", undefined, "collab-card");
-  card.dataset.part = "owner-pin";
-  card.appendChild(el("strong", t("people.owner-pin.title")));
-  card.appendChild(el("p", t(profile.ownerPin ? "people.owner-pin.on" : "people.owner-pin.off"), "collab-meta"));
-  const pin = pinInput(helpers, t("people.owner-pin.field"));
-  card.append(pin, smallButton(helpers, t("people.owner-pin.set"), async () => {
-    await api("/api/profiles/owner-pin", { pin: pin.value }); pin.value = ""; toast("Saved"); await refresh();
-  }));
-  if (profile.ownerPin)
-    card.appendChild(smallButton(helpers, t("people.owner-pin.remove"), async () => {
-      await api("/api/profiles/owner-pin", { pin: null }); toast("Saved"); await refresh();
-    }));
+  /* DG-029: as the approved sample draws it: its section's heading names it, then the field, the buttons, and
+     what the PIN does (or does not do) right now. */
+  const card = el("div", undefined, "collab-section collab-owner-pin");
+  const pin = el("input");
+  Object.assign(pin, { type: "password", inputMode: "numeric", maxLength: 8, autocomplete: "off", id: "owner-pin-field" });
+  pin.placeholder = profile.ownerPin ? "••••" : t("people.owner-pin.not-set");
+  const label = el("label", t("people.owner-pin.field"), "collab-label");
+  label.htmlFor = pin.id;
+  label.dataset.t = "people.owner-pin.field";
+  /* One button, as in the sample: Set this PIN while there is none; with one set, Switch the PIN off, which reads
+     Change the PIN once new digits are typed (the same save as setting it). */
+  const setting = () => !profile.ownerPin || pin.value !== "";
+  const button = smallButton(helpers, "", async () => {
+    await api("/api/profiles/owner-pin", { pin: setting() ? pin.value : null }); pin.value = ""; toast("Saved"); await refresh();
+  });
+  const word = () => {
+    button.dataset.t = !profile.ownerPin ? "people.owner-pin.set" : pin.value ? "people.owner-pin.change" : "people.owner-pin.remove";
+    button.textContent = t(button.dataset.t);
+  };
+  pin.addEventListener("input", word);
+  word();
+  const row = el("div", undefined, "collab-row");
+  row.append(pin, button);
+  const now = el("p", undefined, "collab-meta");
+  now.dataset.t = profile.ownerPin ? "people.owner-pin.on" : "people.owner-pin.off";
+  now.textContent = t(now.dataset.t);
+  card.append(label, row, now);
   return card;
 }
 

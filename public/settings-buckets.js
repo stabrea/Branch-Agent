@@ -9,17 +9,23 @@
 const R = "regular", A = "advanced", T = "technical";
 
 export const BUCKETS = {
+  /* DG-180: the approved sample's sections, in its order. The sample's KeepOak account comes first there; Branch has
+     no KeepOak account to connect yet, so it is not drawn. Labels, starting from a preset and putting settings back
+     have no section in the sample: they stay here, at Technical, until they are given one. */
   general: [
+    ["people", "people", "People on this computer",
+      "Profiles give somebody else a name and a PIN of four to eight digits. While their profile is on, the conversation list, saved conversations and Memory are theirs and not yours.",
+      [["lx-collab-people", R]]],
+    ["pin", "lock", "A PIN for switching back to you", "Whether switching back to you asks for a PIN.",
+      [["lx-collab-owner-pin", R]]],
     ["start", "power", "How Branch starts and keeps running", "Whether it starts with your computer and keeps going when the window is closed.",
       [["deployment-card", R], ["never-break-card", A]]],
     ["projects", "folder", "Your projects", "The folders Branch works in, and what it leaves alone there.",
-      [["projects-form", R], ["context-project", A], ["asks-board-card", A], ["comfort-files-card", A]]],
-    ["people", "people", "People and sharing", "Who else uses Branch here, and what you share with them.",
-      [["lx-collab-people", R], ["lx-collab-labels", R], ["people-signin-admin", A]]],
-    ["keys", "keyboard", "Keys and typed commands", "Shortcuts, and the commands you can type with a slash.",
-      [["comfort-keys-card", A], ["commands-card", A]]],
-    ["whole", "sliders", "All your settings at once", "Start from a preset, put settings back, or keep them in one file.",
-      [["settings-kit-presets", A], ["settings-kit-reset", A]]],
+      [["projects-form", R], ["asks-board-card", A], ["context-project", A], ["comfort-files-card", A], ["lx-collab-labels", T]]],
+    ["keys", "keyboard", "Keys and typed commands", "Shortcuts and the commands you can type with a slash.",
+      [["lx-general-links", R], ["comfort-keys-card", A], ["commands-card", A], ["settings-kit-presets", T], ["settings-kit-reset", T]]],
+    ["signin", "globe", "Signing in from other devices", "Lets the people you added to this computer reach their own conversations from their own phone or laptop, and lets you share a conversation with them.",
+      [["people-signin-admin", A], ["lx-collab-shares", T]]],
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",

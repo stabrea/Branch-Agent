@@ -30,10 +30,13 @@ export const ALWAYS = {
   "desktop-card": null, "reach-background-card": null, "deployment-card": null, "updates-card": null, "comfort-updates-card": null,
 };
 for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: true });
+/* DG-180: rows the sample draws as a "Set in … ›" link to where they are set, which the generated levels skip. The
+   sample shows each at this level and counts it in its section's "N more": AGENTS.md makes Your projects "9 more". */
+export const LINKED = { "context-switch-agents": "A" };
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   if (!card) continue;
   const entry = BY_CARD.get(card) ?? { rows: [], partial: false };
-  const level = WORD[ROW_LEVELS[id]];
+  const level = WORD[ROW_LEVELS[id] ?? LINKED[id]];
   if (level) entry.rows.push([id, selector, level]);
   else entry.partial = true;
   BY_CARD.set(card, entry);
