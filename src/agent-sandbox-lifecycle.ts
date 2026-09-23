@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { mkdir, cp, rm, rename, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import { wallNetworks, type WallNetwork } from "./sandbox.js";
@@ -12,8 +12,9 @@ import { audit } from "./audit.js";
  * FQ-operations.sandbox-lifecycle: create, snapshot, stop and restore a configured agent sandbox.
  *
  * A sandbox is a real folder on this computer (never inside the owner's own workspace) plus a
- * declared network reach and a declared list of the model services it may call. Those two are
- * settled the moment the sandbox is created and never move afterwards — not when it is stopped,
+ * declared network reach and a declared list of the model services it may call. Nothing runs inside
+ * a sandbox yet, so nothing enforces those two today: they are recorded for when a sandbox runs.
+ * They are settled the moment the sandbox is created and never move afterwards — not when it is stopped,
  * not when it is restored. Snapshotting copies the sandbox's files and writes the policy that was
  * declared for it alongside them; restoring refuses if what is on disk no longer says what the
  * sandbox itself says, so a snapshot that was tampered with cannot quietly loosen what a restored
@@ -28,7 +29,7 @@ const NameSchema = z.string().trim().min(1).max(80);
 const ProviderIdSchema = z.string().trim().min(1).max(60).regex(/^[a-z][a-z0-9-]*$/, "A model service id is lowercase, letters, digits and dashes");
 export const NetworkPolicySchema = z.enum(wallNetworks);
 export const InferencePolicySchema = z.object({
-  /** Every model service this sandbox may call; nothing outside this list may be reached. */
+  /** Every model service this sandbox is declared to call. Recorded only: nothing runs inside a sandbox yet. */
   providers: z.array(ProviderIdSchema).min(1).max(16),
 }).strict();
 export type InferencePolicy = z.infer<typeof InferencePolicySchema>;
@@ -86,10 +87,24 @@ function writeState(store: Store, owner: string, state: StateShape): void {
 export function agentSandboxesRoot(store: Store): string {
   return join(store.folder, "agent-sandboxes");
 }
-function sandboxDir(store: Store, id: string): string { return join(agentSandboxesRoot(store), id); }
+/**
+ * A sandbox's folder, rebuilt from its id under agentSandboxesRoot — never taken from a saved path.
+ * An id (or snapshot id) that is not one plain folder name directly inside that root is refused, so
+ * an edited record cannot point a copy or a delete at anything outside Branch's own folder.
+ */
+function oneFolderUnder(parent: string, name: string): string {
+  const root = resolve(parent);
+  const dir = resolve(root, name);
+  const rel = relative(root, dir);
+  if (!rel || isAbsolute(rel) || rel.startsWith("..") || /[\\/]/.test(rel) || rel !== name)
+    throw new AgentSandboxLifecycleError(409, "That sandbox's saved record does not name a folder inside Branch's own sandbox folder; nothing was changed");
+  return dir;
+}
+function sandboxDir(store: Store, id: string): string { return oneFolderUnder(agentSandboxesRoot(store), id); }
 function workspaceDir(store: Store, id: string): string { return join(sandboxDir(store, id), "workspace"); }
+function asideDir(store: Store, id: string): string { return join(sandboxDir(store, id), "workspace.previous"); }
 function snapshotDir(store: Store, id: string, snapshotId: string): string {
-  return join(sandboxDir(store, id), "snapshots", snapshotId);
+  return oneFolderUnder(join(sandboxDir(store, id), "snapshots"), snapshotId);
 }
 function manifestPath(store: Store, id: string, snapshotId: string): string {
   return join(snapshotDir(store, id, snapshotId), "manifest.json");
@@ -148,10 +163,12 @@ export async function snapshotAgentSandbox(store: Store, owner: string, input: u
   const { id, label } = SnapshotSchema.parse(input);
   const state = readState(store, owner);
   const record = findOrThrow(state, id);
+  const workspace = workspaceDir(store, record.id);
+  await recoverWorkspace(store, record.id);
   const snapshotId = randomUUID();
   const dir = snapshotDir(store, id, snapshotId);
   await mkdir(dir, { recursive: true });
-  if (existsSync(record.workspace)) await cp(record.workspace, join(dir, "files"), { recursive: true });
+  if (existsSync(workspace)) await cp(workspace, join(dir, "files"), { recursive: true });
   else await mkdir(join(dir, "files"), { recursive: true });
   const createdAt = new Date().toISOString();
   // The declared policy travels with the snapshot, so a restore can check the sandbox still says
@@ -182,24 +199,60 @@ export async function restoreAgentSandbox(store: Store, owner: string, input: un
   const sameProviders = manifest.inference?.providers?.length === record.inference.providers.length
     && manifest.inference.providers.every((p, i) => p === record.inference.providers[i]);
   if (manifest.network !== record.network || !sameProviders)
-    throw new AgentSandboxLifecycleError(409, "This snapshot's declared network or model services no longer match the sandbox; restoring was refused rather than quietly change what it may reach");
+    throw new AgentSandboxLifecycleError(409, "This snapshot's declared network or model services no longer match the sandbox; restoring was refused rather than quietly change what it is declared to reach");
 
+  const workspace = workspaceDir(store, record.id);
   const filesDir = join(snapshotDir(store, id, snapshotId), "files");
-  const tempDir = `${record.workspace}.restoring-${randomUUID()}`;
-  await mkdir(tempDir, { recursive: true });
-  if (existsSync(filesDir)) await cp(filesDir, tempDir, { recursive: true });
-  if (existsSync(record.workspace)) await rm(record.workspace, { recursive: true, force: true });
-  await rename(tempDir, record.workspace);
+  await recoverWorkspace(store, record.id);
+  const tempDir = join(sandboxDir(store, record.id), `workspace.restoring-${randomUUID()}`);
+  try {
+    await mkdir(tempDir, { recursive: true });
+    if (existsSync(filesDir)) await cp(filesDir, tempDir, { recursive: true });
+    await swapInDirectory(tempDir, workspace, asideDir(store, record.id));
+  } catch (error) {
+    await rm(tempDir, { recursive: true, force: true });
+    throw error;
+  }
 
-  record.status = "running";
+  // Restoring brings the files back; it does not start a stopped sandbox.
+  record.workspace = workspace;
   record.updatedAt = new Date().toISOString();
   writeState(store, owner, state);
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `Agent sandbox "${record.name}" restored`.slice(0, 300),
-    reason: `Restored to snapshot "${found.label || found.id}"; network ${record.network} and its model services were carried over unchanged.`,
+    reason: `Restored to snapshot "${found.label || found.id}" and left ${record.status}; network ${record.network} and its model services were carried over unchanged.`,
     outcome: "saved",
   });
   return record;
+}
+
+interface SwapOps {
+  rename: (from: string, to: string) => Promise<void>;
+  rm: (path: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+}
+
+/**
+ * Puts a fully copied folder in place of `target` without a moment where the old files are already
+ * gone and the new ones not yet there: the old folder is moved aside first, the new one is renamed
+ * in, and only then is the old one deleted. If renaming the new one in fails, the old one goes back.
+ */
+export async function swapInDirectory(fresh: string, target: string, aside: string, ops: SwapOps = { rename, rm }): Promise<void> {
+  await ops.rm(aside, { recursive: true, force: true });
+  const hadTarget = existsSync(target);
+  if (hadTarget) await ops.rename(target, aside);
+  try {
+    await ops.rename(fresh, target);
+  } catch (error) {
+    if (hadTarget) await ops.rename(aside, target);
+    throw error;
+  }
+  await ops.rm(aside, { recursive: true, force: true });
+}
+
+/** After a crash between the two renames above, the old files are still aside: put them back. */
+async function recoverWorkspace(store: Store, id: string): Promise<void> {
+  const workspace = workspaceDir(store, id), aside = asideDir(store, id);
+  if (!existsSync(workspace) && existsSync(aside)) await rename(aside, workspace);
 }
 
 // ------------------------------------------------------------------------------- the HTTP door

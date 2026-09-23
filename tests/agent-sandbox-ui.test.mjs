@@ -78,9 +78,12 @@ test("the Agent sandboxes card creates, snapshots, stops and restores a sandbox 
   assert.doesNotMatch(await row.textContent(), /Running/);
   assert.equal(await row.getByRole("button", { name: "Stop", exact: true }).isVisible(), false, "a stopped sandbox has no Stop button to click again");
 
-  // Restoring from the one snapshot brings it back to Running, network and providers unchanged.
+  // Restoring from the one snapshot brings the files back but leaves a stopped sandbox stopped,
+  // network and providers unchanged.
   await row.getByRole("button", { name: "Restore" }).click();
-  await page.waitForFunction(() => document.querySelector("#agent-sandbox-list .card-row")?.textContent.includes("Running"));
+  await page.waitForFunction(() => document.querySelector("#agent-sandbox-card [role=status]")?.textContent === "Restored.");
+  assert.match(await row.textContent(), /Stopped/);
+  assert.doesNotMatch(await row.textContent(), /Running/);
   assert.match(await row.textContent(), /Sites you allow/);
   assert.match(await row.textContent(), /anthropic, openai/);
 
