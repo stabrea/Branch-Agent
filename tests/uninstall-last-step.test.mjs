@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,10 +24,10 @@ const back = String.fromCharCode(92);
 const windowsPath = (path) => path.split("/").join(back);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function script(installRoot) {
+function script(installRoot, extra = {}) {
   return uninstallScript({
     installRoot, executableName: "Branch Agent.exe", uninstallHive: "HKCU",
-    userDataDir: `${installRoot}-data`, shortcuts: [],
+    userDataDir: `${installRoot}-data`, shortcuts: [], ...extra,
   });
 }
 
@@ -142,4 +142,57 @@ test("a folder name with & ^ ! % or ' still removes only the installed folder", 
     assert.equal(existsSync(neighbour), true, `${parent}: the folder named "${before}" beside it is untouched`);
     assert.equal(existsSync(folders.otherTemp), true, `${parent}: a folder in %TEMP% is untouched`);
   }
+});
+
+/**
+ * The other lines that name a folder. `%` is read by the script's parser even inside quotes, so every
+ * path the uninstaller writes goes through one helper — not only the last step, which was fixed first
+ * (review of 4239a931). And the line telling the owner where their files stay printed the path without
+ * quotes, so an `&` in it ran the rest of the path as a command.
+ */
+test("every path the uninstaller writes has its % doubled and sits inside quotes", () => {
+  const text = uninstallScript({
+    installRoot: "C:\\Users\\100%Done\\Programs\\Branch Agent", executableName: "Branch Agent.exe", uninstallHive: "HKCU",
+    userDataDir: "C:\\Users\\100%Done\\Branch", shortcuts: ["C:\\Users\\100%Done\\Desktop\\Branch Agent.lnk"],
+  });
+  const naming = text.split("\r\n").filter((line) => line.includes("Done"));
+  assert.equal(naming.length, 5, `the five lines that name a folder: ${naming.join(" | ")}`);
+  for (const line of naming) {
+    assert.ok(!/[^%]%Done/.test(line), `no lone % before "Done": ${line}`);
+    // `set "NAME=value"` puts its opening quote before the name, which is how set keeps the value whole.
+    assert.match(line, /"(BRANCH_REMOVE=)?C:\\Users\\100%%Done\\[^"]*"/, `the path is whole and inside quotes: ${line}`);
+  }
+});
+
+function runLines(folders, lines, cwd) {
+  const file = join(folders.root, "lines.cmd");
+  writeFileSync(file, `@echo off\r\nsetlocal\r\n${lines.join("\r\n")}\r\nexit /b 0\r\n`, "utf8");
+  return spawnSync(join(system32, "cmd.exe"), ["/d", "/c", file], { cwd, encoding: "utf8", windowsHide: true,
+    env: { ...process.env, TEMP: windowsPath(folders.temp), TMP: windowsPath(folders.temp) } });
+}
+const lineOf = (text, start) => text.split("\r\n").find((line) => line.startsWith(start));
+
+test("asked to delete their data, an owner under a folder named 100%Done has it deleted", { skip: !onWindows }, async (t) => {
+  const folders = box(t);
+  const account = join(folders.root, "100%Done");
+  const data = join(account, "Branch"), neighbour = join(folders.root, "100");
+  const previous = join(account, "Programs", "Branch Agent.previous"), shortcut = join(account, "Desktop", "Branch Agent.lnk");
+  for (const path of [data, neighbour, previous, join(account, "Desktop")]) { mkdirSync(path, { recursive: true }); writeFileSync(join(path, "keep.txt"), "x"); }
+  writeFileSync(shortcut, "x");
+  const text = script(windowsPath(join(account, "Programs", "Branch Agent")), { userDataDir: windowsPath(data), shortcuts: [windowsPath(shortcut)] });
+  runLines(folders, ['set "DELETE_DATA=1"', lineOf(text, "if defined DELETE_DATA rmdir"), lineOf(text, "rmdir /s /q"), lineOf(text, "del /q")], folders.root);
+  assert.equal(existsSync(data), false, "the conversations and files are gone, as asked");
+  assert.equal(existsSync(previous), false, "the kept previous version is gone");
+  assert.equal(existsSync(shortcut), false, "the shortcut is gone");
+  assert.equal(existsSync(neighbour), true, "a folder named by the part before the % is untouched");
+});
+
+test("the line saying where the files stay prints the path and runs nothing from it", { skip: !onWindows }, async (t) => {
+  const folders = box(t);
+  const data = join(folders.root, "x&md made-by-the-echo", "Branch");
+  const text = script(windowsPath(join(folders.root, "Programs", "Branch Agent")), { userDataDir: windowsPath(data) });
+  const ran = runLines(folders, [lineOf(text, "if not defined DELETE_DATA echo")], folders.root);
+  assert.equal(existsSync(join(folders.root, "made-by-the-echo")), false, "no part of the path was run as a command");
+  assert.ok(ran.stdout.includes(windowsPath(data)), `the whole path is shown: ${ran.stdout.trim()}`);
+  assert.equal(ran.stderr.trim(), "", "and nothing complained");
 });
