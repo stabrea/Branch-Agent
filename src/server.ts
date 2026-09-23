@@ -504,6 +504,7 @@ async function staticFile(
     "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    "/settings-trunks.js": ["settings-trunks.js", "text/javascript; charset=utf-8"], // DG-193
     // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
     "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
     "/faces.css": ["faces.css", "text/css; charset=utf-8"],
