@@ -66,7 +66,10 @@ for (const width of [1440, 860, 400]) {
         assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
         const name = (await heading.textContent()).trim();
         assert.ok(name && !name.startsWith("savings."), `${id} has translated copy`);
-        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        /* On Models › Connection a card inside one of the sample's sections has no heading of its own: the section's
+           names it (DG-008, coordinator ruling 2026-09-23). The title stays an h3, for search to show. */
+        const sectioned = homes[id] === "#lx-models-connection";
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), sectioned ? 0 : 1);
         assert.equal(await card.evaluate((node) => node.closest(".lx-page").querySelectorAll(":scope > h2.lx-page-title").length), 1);
         assert.equal(await card.locator(":scope > h3.settings-card-title + p.subtle + .kit-scope.sr-only").count(), 1);
         assert.deepEqual(await undescribed(page, id), []);
