@@ -4844,6 +4844,7 @@
   "settings.window.memory.intro": "What it remembers, your documents and what it has made.",
   "settings.window.automations.intro": "Work that runs by itself, and how Inbox keeps the record.",
   "terminal.settings.about.intro": "Your version, and updates.",
+  "terminal.settings.builtFrom": "Built from commit: {commit}",
   "terminal.settings.activeProject": "the project in use",
   "terminal.settings.advanced.intro": "Tools for checking and fixing Branch.",
   "terminal.settings.appearance.intro": "Every KeepOak theme, light or dark. Changes show in this terminal and in the window.",

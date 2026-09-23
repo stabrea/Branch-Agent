@@ -4845,6 +4845,7 @@
   "settings.window.memory.intro": "Ce qu’il mémorise, vos documents et ce qu’il a créé.",
   "settings.window.automations.intro": "Le travail qui s’exécute seul et la façon dont la boîte de réception en garde la trace.",
   "terminal.settings.about.intro": "Votre version, et les mises à jour.",
+  "terminal.settings.builtFrom": "Construite depuis le commit : {commit}",
   "terminal.settings.activeProject": "le projet en cours",
   "terminal.settings.advanced.intro": "Des outils pour vérifier et réparer Branch.",
   "terminal.settings.appearance.intro": "Tous les thèmes KeepOak, clairs ou sombres. Les changements s'affichent dans ce terminal et dans la fenêtre.",

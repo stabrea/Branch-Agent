@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const commitShape = /^[0-9a-f]{40}$/;
@@ -21,4 +21,12 @@ export function builtFrom(appPath: string, packaged: boolean, headOf: (appPath: 
   try { commit = JSON.parse(readFileSync(join(appPath, "dist", "build-info.json"), "utf8"))?.commit; } catch { return null; }
   if (typeof commit !== "string" || !commitShape.test(commit)) return null;
   return packaged || headOf(appPath) === commit ? commit : null;
+}
+
+/**
+ * Q55: the commit of the copy at `packageRoot` (the terminal's own). An installed copy has no .git and believes
+ * its stamp, as a packaged window does; a source checkout believes it only while it is still at that commit.
+ */
+export function commitOfCopy(packageRoot: string, headOf: (appPath: string) => string | null = checkoutHead): string | null {
+  return builtFrom(packageRoot, !existsSync(join(packageRoot, ".git")), headOf);
 }
