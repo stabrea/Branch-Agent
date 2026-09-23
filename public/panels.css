@@ -418,23 +418,17 @@ body.lx .composer-dock > * {
 body.lx .composer {
   background: color-mix(in srgb, var(--surface) calc(var(--comp-a, 0.92) * 100%), transparent);
 }
-:root:not([data-everything="on"]) body.lx #chat-form {
+:root body.lx #chat-form {
   padding: 5px 7px;
   background: color-mix(in srgb, var(--surface) calc(var(--comp-a, 0.88) * 100%), transparent);
 }
-:root:not([data-everything="on"]) body.lx #prompt {
+:root body.lx #prompt {
   min-height: 36px;
   padding: 6px 6px;
 }
-/* the full window's box starts at one line and grows as you type, instead of three empty lines */
-:root[data-everything="on"] body.lx #prompt {
-  field-sizing: content;
-  min-height: 44px;
-  max-height: 40vh;
-}
 @media (prefers-reduced-transparency: reduce) {
   body.lx .composer,
-  :root:not([data-everything="on"]) body.lx #chat-form {
+  :root body.lx #chat-form {
     background: var(--surface);
   }
 }

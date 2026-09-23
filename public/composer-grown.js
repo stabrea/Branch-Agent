@@ -151,7 +151,37 @@ function installPlusMenu() {
   old.replaceWith(wrap);
 }
 
+/* ---------- DG-175: the line under the box, as the sample's with Show everything on ---------- */
+function footChip(target, key, fallback) {
+  const chip = element("button", "lx-foot-chip", say(key, fallback));
+  chip.type = "button";
+  chip.dataset.t = key;
+  chip.dataset.target = target;
+  chip.addEventListener("click", () => { $(target)?.click(); syncFootChips(); });
+  return chip;
+}
+function syncFootChips() {
+  for (const chip of document.querySelectorAll(".lx-foot-chip[data-target]"))
+    chip.setAttribute("aria-pressed", String(Boolean($(chip.dataset.target)?.checked)));
+  const who = $("composer-specialist"), chip = document.querySelector(".lx-foot-assistant");
+  if (chip) chip.textContent = who?.selectedOptions[0]?.textContent.trim() || say("composer.assistantItself", "Your assistant");
+}
+function installFootChips() {
+  const foot = document.querySelector(".composer-foot");
+  if (!foot || foot.querySelector(".lx-foot-chips")) return;
+  const chips = element("span", "lx-foot-chips");
+  chips.append(footChip("ask-first-toggle", "more.askFirst", "Ask me questions first"),
+    footChip("temporary-toggle", "composer.chip.temporary", "Temporary"), element("span", "lx-foot-chip lx-foot-assistant"));
+  foot.prepend(chips);
+  document.addEventListener("change", (event) => {
+    if (["ask-first-toggle", "temporary-toggle", "composer-specialist"].includes(event.target?.id)) syncFootChips();
+  });
+  document.addEventListener("branch-language", syncFootChips);
+  syncFootChips();
+}
+
 export function installGrownComposer() {
   installModelPicker();
   installPlusMenu();
+  installFootChips();
 }

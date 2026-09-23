@@ -172,9 +172,15 @@ test("Show everything brings the full window back, and is remembered for this pe
   await openSettingFor(f.page, "#appearance-everything");
   await f.page.locator("#appearance-everything").check();
   await closeSettings(f.page);
-  const back = await shown(f.page, ["#lx-shield", "#aside-toggle", "#composer-attach", "#temporary-toggle",
-    "#ask-first-toggle", "#composer-specialist", "#new-session", "#rail-find", "#owner-menu-button", ".lx-gear"]);
+  const back = await shown(f.page, ["#lx-shield", "#aside-toggle", "#rail-find", "#owner-menu-button", ".lx-gear"]);
   assert.deepEqual(Object.entries(back).filter(([, on]) => !on).map(([selector]) => selector), [], "these did not come back");
+  /* DG-175: the message box stays the sample's slim bar; what the full window used to lay out beside it is in "+". */
+  const inline = await shown(f.page, ["#composer-attach", "#temporary-toggle", "#ask-first-toggle", "#composer-specialist", "#new-session"]);
+  assert.deepEqual(Object.entries(inline).filter(([, on]) => on).map(([selector]) => selector), [], "nothing extra beside the box");
+  await f.page.locator("#lx-plus").click();
+  const plus = await f.page.locator("#lx-plus-menu").innerText();
+  for (const words of ["Attach a document", "Add a picture or a sound", "Ask me questions first", "Temporary"]) assert.match(plus, new RegExp(words));
+  await f.page.keyboard.press("Escape");
   /* DG-114: the side panel is a card over the conversation, closed until asked for, in the full window too. */
   assert.equal(await visible(f.page, "#context-panel"), false, "the side panel waits to be asked for");
   await f.page.locator("#aside-toggle").click();
