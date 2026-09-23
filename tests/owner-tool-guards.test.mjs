@@ -25,6 +25,10 @@ const ownersOnly = /belongs to the owner|Only the owner's own work|only the owne
 
 /** Each guard, where it lives, the tool that meets it, and what switches that tool on. */
 const GUARDS = [
+  // All three settings tools enter ownerHere before reading or planning a change.
+  { file: "src/settings-kit/tools.ts", tool: "settings.list", args: {} },
+  { file: "src/settings-kit/tools.ts", tool: "settings.change", args: { changes: [{ setting: "fly-core.mode", value: "off" }] } },
+  { file: "src/settings-kit/tools.ts", tool: "settings.loosen", args: { changes: [{ setting: "fly-core.mode", value: "on" }] } },
   { file: "src/channels/connectors.ts", tool: "channels.broadcast", args: { text: "hello" } },
   { file: "src/channels/connectors.ts", tool: "channels.digest", args: { channel: "telegram", chatId: "1" } },
   { file: "src/workflows.ts", tool: "workflows.list", args: {} },
