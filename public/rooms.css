@@ -609,7 +609,11 @@ body.lx .composer-dock:has(> .rooms-mentions) {
 }
 .team-task .team-task-handoff,
 .team-task .team-task-blocker,
-.team-task .team-task-note {
+.team-task .team-task-note,
+.team-task .team-task-answer {
   color: var(--text-2);
   overflow-wrap: anywhere;
+}
+.team-task .team-task-answer {
+  white-space: pre-wrap;
 }

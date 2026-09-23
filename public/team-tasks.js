@@ -53,7 +53,7 @@ function resultRows(result) {
   if (result.truncated) return [el("p", "team-task-note", say("teamTasks.truncated", "The answers were too large to keep here. Every answer is in this room."))];
   return (result.answers ?? []).map((answer) => {
     const text = answer.output + (answer.cut ? ` ${say("teamTasks.cut", "(shortened)")}` : "");
-    return el("pre", "team-task-answer", `[${answer.role}] ${text}`);
+    return el("p", "team-task-answer", `[${answer.role}] ${text}`);
   });
 }
 
