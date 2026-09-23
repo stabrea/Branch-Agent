@@ -1167,7 +1167,7 @@ export async function createBranch(options: {
   reachParts.remoteTrunks.useRoster(trunkRoster(trunks, runtime, registry, reachParts)); // R17-077 on R17-A's Trunks
   // ── end r17-i ──
   // ── mac7/r17-g: the safety extras (src/safety-extras/). Every part ships off; the emergency stop is unpressed. ──
-  const safetyExtras = new SafetyExtras({ runtime, registry, dataDir });
+  const safetyExtras = new SafetyExtras({ runtime, registry, dataDir, networkPolicy: web.policy });
   web.policy.emergencyStop = (target) => assertAddressNotStopped(store, runtime.owner, target);
   // ── end mac7/r17-g ──
   // ── r17-h: flows and boards (src/flows-boards/). Every part ships off. ──
