@@ -42,6 +42,19 @@ export function visibleTo(record: { data: { scope?: string } }, agent?: string):
   if (scope === "shared") return readsSharedFacts(agent); // R17-A: a Trunk may be set to keep to itself
   return scope === `agent:${agent}`;
 }
+/**
+ * FQ-routing.isolated-agents: scopes `agent`'s memory.write may change by id (update, delete, keep).
+ * Mirrors what memory.put is already allowed to save under (`writesSharedFacts`): its own agent scope
+ * always, and `shared` only for whatever is not a Trunk (a Trunk never writes shared facts, R17-A). The
+ * owner's own turn (no agent) may reach anything, exactly as before this existed. Read access
+ * (`visibleTo`) is wider than write access on purpose: a Trunk may read a shared fact without being
+ * able to edit or delete it, and never another Trunk's own fact either way.
+ */
+export function writableTo(record: { data: { scope?: string } } | undefined, agent?: string): boolean {
+  if (!record || !agent) return true;
+  const scope = record.data.scope ?? "private";
+  return scope === `agent:${agent}` || (scope === "shared" && writesSharedFacts(agent));
+}
 const NewMemoryDataSchema = MemoryDataSchema.extend({
   text: z.string().trim().min(1).max(4000),
   source: z.string().trim().min(1).max(500).default("Saved by workspace owner"),
@@ -412,7 +425,14 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
     } });
   registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
-    execute: async (value, context) => store.promoteMemory(context.owner, value.id) });
+    execute: async (value, context) => {
+      const owner = memoryScope(store, context);
+      // FQ-routing.isolated-agents: was context.owner, which skipped a household profile's own scope
+      // entirely; now the same scope every other memory tool reads and writes.
+      if (!writableTo(store.get("memory", owner, value.id) as MemoryRecord | undefined, context.agent))
+        throw new Error("That note is no longer saved");
+      return store.promoteMemory(owner, value.id);
+    } });
   registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment, now by default.",
     permission: "memory.read", parameters: AtMemorySchema,
     execute: async (value, context) => store.memoryAt(memoryScope(store, context), value, context.agent) });
@@ -421,8 +441,15 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
     execute: async (value, context) => store.memoryTimeline(memoryScope(store, context), value.entity, context.agent) });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
-    execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
-      ?? store.updateMemory(memoryScope(store, context), value, context.runId) });
+    execute: async (value, context) => {
+      const owner = memoryScope(store, context);
+      // FQ-routing.isolated-agents: checked before staging, so an id outside this agent's own scope
+      // never even reaches the review queue as a proposal.
+      if (!writableTo(store.get("memory", owner, value.id) as MemoryRecord | undefined, context.agent))
+        throw new Error("Memory not found");
+      return staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
+        ?? store.updateMemory(owner, value, context.runId);
+    } });
   registry.register({ name: "memory.search", description: "Search this owner's facts by words and, where the provider allows it, by meaning.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
     execute: async (value, context) => {
@@ -433,7 +460,14 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
     } });
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
-    execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", memoryScope(store, context), value.id) });
+    execute: async (value, context) => {
+      const owner = memoryScope(store, context);
+      // FQ-routing.isolated-agents: an id outside this agent's own scope is refused exactly as a
+      // missing one is (returns false, nothing thrown) — an unauthorised Trunk learns nothing about
+      // whether that id even exists.
+      if (!writableTo(store.get("memory", owner, value.id) as MemoryRecord | undefined, context.agent)) return false;
+      return staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", owner, value.id);
+    } });
 }
 
 function summary(record: MemoryRecord) {
