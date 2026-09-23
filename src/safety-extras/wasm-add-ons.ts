@@ -8,6 +8,7 @@ import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { requireSafety } from "./settings.js";
+import { asCapabilityList, capabilityNames, capabilityRefusal, requestedCapabilities, type CapabilityName } from "./wasm-capabilities.js";
 import { readWasmShape, wasmRefusal } from "./wasm-check.js";
 
 /**
@@ -35,8 +36,11 @@ export const WasmInstallSchema = z.object({
   wasm: z.string().min(8).max(8_000_000),
   maxMemoryMb: z.number().int().min(1).max(256).default(16),
   timeoutMs: z.number().int().min(100).max(30_000).default(5000),
+  /** What this module is granted, chosen per module rather than taken from the one list every
+   * add-on used to share. Left out, it is granted exactly what its own bytes ask for. */
+  capabilities: z.array(z.enum(capabilityNames as [CapabilityName, ...CapabilityName[]])).max(capabilityNames.length).optional(),
 }).strict();
-export interface WasmManifest { name: string; description: string; sha256: string; bytes: number; maxMemoryMb: number; timeoutMs: number; installedAt: string }
+export interface WasmManifest { name: string; description: string; sha256: string; bytes: number; maxMemoryMb: number; timeoutMs: number; capabilities: CapabilityName[]; installedAt: string }
 export const WasmRunSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), input: z.string().max(1_000_000).default("") }).strict();
 export interface WasmRun { ok: boolean; code: number | null; output: string; log: string; error?: string; durationMs: number }
 
@@ -82,9 +86,17 @@ try {
 }
 `;
 
-/** One run in a fresh worker, ended at the time limit. */
-export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: { maxMemoryMb: number; timeoutMs: number }): Promise<WasmRun> {
-  const shape = readWasmShape(bytes), started = Date.now();
+/** One run in a fresh worker, ended at the time limit. When `capabilities` is given, an operation
+ * the module's bytes ask for but that list does not grant refuses the run before a worker even
+ * starts — the per-module manifest, not just the one shared allow-list. Left out, nothing beyond
+ * the shared list is additionally withheld, matching the run this call used to be. */
+export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: { maxMemoryMb: number; timeoutMs: number }, capabilities?: readonly string[]): Promise<WasmRun> {
+  const started = Date.now();
+  if (capabilities) {
+    const refusal = capabilityRefusal(bytes, capabilities);
+    if (refusal) return Promise.resolve({ ok: false, code: null, output: "", log: "", error: refusal, durationMs: Date.now() - started });
+  }
+  const shape = readWasmShape(bytes);
   // A memory the module imports may not be larger than it said, nor than the owner allows.
   const ceiling = Math.min(pages(limits.maxMemoryMb), shape.imported?.max ?? Number.MAX_SAFE_INTEGER);
   const worker = new Worker(workerSource, { eval: true, env: {}, execArgv: [], stdout: true, stderr: true,
@@ -121,14 +133,19 @@ export class WasmAddOns {
     const bytes = new Uint8Array(Buffer.from(value.wasm, "base64"));
     const refusal = wasmRefusal(bytes, pages(value.maxMemoryMb));
     if (refusal) throw new Error(refusal);
+    // Its own manifest: what the owner grants it, never less than its bytes ask for.
+    const capabilities = value.capabilities ?? requestedCapabilities(bytes);
+    const capRefusal = capabilityRefusal(bytes, capabilities);
+    if (capRefusal) throw new Error(capRefusal);
     const manifest: WasmManifest = { name: value.name, description: value.description, sha256: sha(bytes), bytes: bytes.length,
-      maxMemoryMb: value.maxMemoryMb, timeoutMs: value.timeoutMs, installedAt: new Date().toISOString() };
+      maxMemoryMb: value.maxMemoryMb, timeoutMs: value.timeoutMs, capabilities, installedAt: new Date().toISOString() };
     await mkdir(this.folder, { recursive: true, mode: 0o700 });
     await writeFile(this.file(value.name, "wasm"), bytes, { mode: 0o600 });
     await writeFile(this.file(value.name, "json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
-    this.store.save("settings", this.owner, fingerprintKey(value.name), { sha256: manifest.sha256, maxMemoryMb: manifest.maxMemoryMb, timeoutMs: manifest.timeoutMs });
+    this.store.save("settings", this.owner, fingerprintKey(value.name),
+      { sha256: manifest.sha256, maxMemoryMb: manifest.maxMemoryMb, timeoutMs: manifest.timeoutMs, capabilities });
     audit(this.store, this.owner, { action: "policy.changed", actor: this.owner, subject: `WebAssembly add-on ${value.name}`,
-      reason: `Installed, fingerprint ${manifest.sha256.slice(0, 16)}; it runs sealed, with ${value.maxMemoryMb} MB and ${value.timeoutMs} ms`, outcome: "saved" });
+      reason: `Installed, fingerprint ${manifest.sha256.slice(0, 16)}; it runs sealed, with ${value.maxMemoryMb} MB, ${value.timeoutMs} ms, and ${capabilities.join(", ") || "no"} operations`, outcome: "saved" });
     return manifest;
   }
 
@@ -143,11 +160,13 @@ export class WasmAddOns {
     return true;
   }
 
-  /** The kept limits, as the owner installed them; the note beside the file must agree. */
-  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number } }> {
+  /** The kept limits and capability manifest, as the owner installed them; the note beside the file
+   * must agree. Capabilities come from the store, not the note, for the same reason the fingerprint
+   * does: the note beside the file is not on its own proof of what was installed. */
+  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number }; capabilities: CapabilityName[] }> {
     const manifest = (await this.list()).find((entry) => entry.name === name);
     if (!manifest) throw new Error(`There is no WebAssembly add-on called ${name}.`);
-    const kept = this.store.get("settings", this.owner, fingerprintKey(name))?.data as { sha256?: unknown; maxMemoryMb?: unknown; timeoutMs?: unknown } | undefined;
+    const kept = this.store.get("settings", this.owner, fingerprintKey(name))?.data as { sha256?: unknown; maxMemoryMb?: unknown; timeoutMs?: unknown; capabilities?: unknown } | undefined;
     const bytes = new Uint8Array(await readFile(this.file(name, "wasm")));
     const actual = sha(bytes);
     if (actual !== manifest.sha256 || actual !== kept?.sha256)
@@ -155,7 +174,10 @@ export class WasmAddOns {
     const limits = { maxMemoryMb: Math.min(Number(kept.maxMemoryMb) || 16, manifest.maxMemoryMb, 256), timeoutMs: Math.min(Number(kept.timeoutMs) || 5000, manifest.timeoutMs, 30_000) };
     const refusal = wasmRefusal(bytes, pages(limits.maxMemoryMb));
     if (refusal) throw new Error(refusal);
-    return { bytes, limits };
+    const capabilities = asCapabilityList(kept.capabilities);
+    const capRefusal = capabilityRefusal(bytes, capabilities);
+    if (capRefusal) throw new Error(capRefusal);
+    return { bytes, limits, capabilities };
   }
 
   async run(input: z.input<typeof WasmRunSchema>, context?: Pick<ToolContext, "runId">): Promise<WasmRun> {
@@ -164,8 +186,8 @@ export class WasmAddOns {
     if (this.running >= maxRunsAtOnce) throw new Error(`${maxRunsAtOnce} WebAssembly add-ons are already running. Try again when one has finished.`);
     this.running++;
     try {
-      const { bytes, limits } = await this.checked(name);
-      const run = await runWasm(bytes, text, limits);
+      const { bytes, limits, capabilities } = await this.checked(name);
+      const run = await runWasm(bytes, text, limits, capabilities);
       if (context?.runId) this.store.event(context.runId, "wasm.ran", { name, ok: run.ok, durationMs: run.durationMs });
       return run;
     } finally { this.running--; }
