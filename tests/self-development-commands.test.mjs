@@ -109,7 +109,7 @@ test("a command in the worktree, listed in its contract, runs behind the real OS
 });
 
 /** The guard alone with a stand-in sandbox check: `confinement` is a test double for "this computer can hold writes to one folder". */
-function guardWith(t, confinement) {
+function guardWith(t, confinement, scope = worktree) {
   return (async () => {
     const root = await mkdtemp(join(tmpdir(), "branch-self-confine-"));
     t.after(() => discardTemp(root));
@@ -117,7 +117,7 @@ function guardWith(t, confinement) {
     await mkdir(join(workspace, worktree), { recursive: true });
     const db = new DatabaseSync(":memory:");
     const book = new ContractBook(db), log = new AuditLog(db), registry = new ToolRegistry();
-    registry.pathScope = () => worktree;
+    registry.pathScope = () => scope;
     for (const [name, permission] of [["shell.execute", "shell.execute"], ["code.run", "code.execute"], ["process.start", "process.manage"]])
       registry.register({ name, permission, description: "double", parameters: z.object({ cwd: z.string().optional() }).passthrough(), execute: async () => ({}) });
     book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms: { allowedPaths: ["src/**"],
@@ -176,4 +176,14 @@ test("where the sandbox cannot refuse it (Linux), a .git a held command made is 
   assert.equal(existsSync(join(root, "x", "deep", ".git")), false, "the planted one is gone");
   assert.equal(existsSync(join(root, "old", ".git")), true, "one that was there before stays");
   await assert.rejects(gitFoldersUnder(root, 2), /too many files for Branch to check/);
+});
+
+test("with no project active, a command whose folder is in a worktree is still refused (on any computer)", async (t) => {
+  // The stand-in sandbox says yes, so only the rule that a command runs from the active worktree can refuse it.
+  const none = await guardWith(t, async () => true, "");
+  await assert.rejects(none.guard("shell.execute", { cwd: `${worktree}/src` }, { runId: "r" }),
+    /a command runs only inside the active self-development worktree/);
+  const other = await guardWith(t, async () => true, "notes");
+  await assert.rejects(other.guard("shell.execute", { cwd: `${worktree}/src` }, { runId: "r" }),
+    /a command runs only inside the active self-development worktree/);
 });

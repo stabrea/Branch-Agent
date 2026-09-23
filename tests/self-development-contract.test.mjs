@@ -178,7 +178,8 @@ test("widening needs the owner's yes every time, and then writes a new revision 
   assert.equal(waiting.tool, "branch.widen_source_contract");
   assert.equal(waiting.remember, "never", "a yes to widening is never kept");
   assert.throws(() => branch.app.runtime.approve(paused.sessionId, "allow", "session"), /once|kept|remember|time/i);
-  branch.app.runtime.approve(paused.sessionId, "allow", "never");
+  // Answered from a chat app, so the record names where the yes came from, not just the owner.
+  branch.app.runtime.approve(paused.sessionId, "allow", "never", undefined, "telegram");
   const done = await branch.ask(paused.sessionId);
   assert.equal(done.status, "completed", done.output);
   const history = branch.book.history(branch.owner, worktree);
@@ -186,7 +187,7 @@ test("widening needs the owner's yes every time, and then writes a new revision 
   assert.deepEqual(history[0].allowedPaths, ["src/ui/**"], "the old revision stays readable, unchanged");
   assert.deepEqual(history[1].allowedPaths, ["src/ui/**", "tests/ui.test.mjs"]);
   assert.equal(history[1].sourceSha, sha, "widening never moves the source commit");
-  assert.equal(history[1].approvedBy, branch.owner, "the one who answered the question is recorded");
+  assert.equal(history[1].approvedBy, `${branch.owner} (answered on telegram)`, "the one who answered, and where, is recorded");
   const widened = branch.refusals().find((entry) => entry.outcome === "widened");
   assert.match(widened?.subject ?? "", /self-remove-button revision 2/);
   // Asking again is a new question: the yes was used up.

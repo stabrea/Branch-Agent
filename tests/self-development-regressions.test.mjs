@@ -95,7 +95,8 @@ for (const cwd of [worktree, "branch-agent-source"]) {
   });
 }
 
-test("repro 3: the finish-of-task hook with a changed file outside the contract pushes nothing", async (t) => {
+test("repro 3: the finish-of-task hook with a changed file outside the contract pushes nothing",
+  { skip: process.platform === "win32" && "the stand-in git is a /bin/sh script" }, async (t) => {
   const branch = await realBranch(t, { project: worktree, calls: [{ name: "files.write", args: { path: "src/ui/button.ts", content: "export {};\n" } }] });
   savePullRequestHookSettings(branch.app.store, branch.owner, { mode: "on" });
   const opened = [];

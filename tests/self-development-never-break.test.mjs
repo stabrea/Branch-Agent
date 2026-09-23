@@ -85,14 +85,16 @@ test("a global reinstall or removal of Branch through a package manager is refus
 });
 
 /* Q12: brace patterns are spelled out before anything is checked, as bash, zsh and macOS's /bin/sh do. */
-const home = homedir();
+// Fixed POSIX homes, so these layouts read the same on any computer the tests run on (Windows included):
+// the commands name the home in full rather than with ~, which each computer spells its own way.
+const home = homedir(), H = "/home/u", M = "/Users/u";
 const layouts = {
-  linux: protectedAreas({ workspace: join(home, "work"), dataDir: join(home, ".local", "share", "branch-agent", "data"),
-    installRoot: join(home, ".local", "share", "branch-agent", "app"), platform: "linux", selfPids: [4242],
-    extra: [join(home, ".config", "systemd", "user", "branch-agent.service"), "/tmp/branch-agent-update"] }),
-  darwin: protectedAreas({ workspace: join(home, "work"), dataDir: join(home, "Library", "Application Support", "Branch Agent"),
+  linux: protectedAreas({ workspace: `${H}/work`, dataDir: `${H}/.local/share/branch-agent/data`,
+    installRoot: `${H}/.local/share/branch-agent/app`, platform: "linux", selfPids: [4242],
+    extra: [`${H}/.config/systemd/user/branch-agent.service`, "/tmp/branch-agent-update"] }),
+  darwin: protectedAreas({ workspace: `${M}/work`, dataDir: `${M}/Library/Application Support/Branch Agent`,
     installRoot: "/Applications/Branch Agent.app", platform: "darwin", selfPids: [4242],
-    extra: [join(home, "Library", "LaunchAgents", "com.keepoak.branch-agent.plist"), "/tmp/branch-agent-update", "/opt/branch"] }),
+    extra: [`${M}/Library/LaunchAgents/com.keepoak.branch-agent.plist`, "/tmp/branch-agent-update", "/opt/branch"] }),
 };
 const shIn = (areas, line) => protectedTarget({ tool: "shell.execute", readOnly: false, args: { executable: "sh", args: ["-c", line] }, target: "" }, areas);
 
@@ -113,15 +115,15 @@ const reinstalls = ["npm install -g {branch-agent,x}@latest", "pnpm add -g branc
   "pnpm add -g branch-agent@latest", "npm uninstall -g branch-agent"];
 const spellings = {
   linux: [
-    "rm -rf ~/.local/share/{branch-agent,x}", "rm -rf ~/.local/share/branch-agent{,}", "rm -rf ~/.local/share/branch-agent/{app,x}",
-    "rm -rf /tmp/{branch-agent-update,x}", "rm ~/.config/systemd/user/{branch-agent.service,x}",
-    "mv ~/.config/systemd/user/branch-agent.service{,.off}",
-    "rm -rf ~/.local/share/branch-agen{s..u}", "mv ~/.config/systemd/user/branch-agent.servic{d..f}",
+    `rm -rf ${H}/.local/share/{branch-agent,x}`, `rm -rf ${H}/.local/share/branch-agent{,}`, `rm -rf ${H}/.local/share/branch-agent/{app,x}`,
+    "rm -rf /tmp/{branch-agent-update,x}", `rm ${H}/.config/systemd/user/{branch-agent.service,x}`,
+    `mv ${H}/.config/systemd/user/branch-agent.service{,.off}`,
+    `rm -rf ${H}/.local/share/branch-agen{s..u}`, `mv ${H}/.config/systemd/user/branch-agent.servic{d..f}`,
   ],
   darwin: [
-    "rm -rf /Applications/{Branch\\ Agent.app,x}", "rm -rf ~/Library/Application\\ Support/{Branch\\ Agent,x}",
+    "rm -rf /Applications/{Branch\\ Agent.app,x}", `rm -rf ${M}/Library/Application\\ Support/{Branch\\ Agent,x}`,
     "rm -rf /tmp/{branch-agent-update,x}", "rm -rf /opt/{branch,x}", 'rm -rf "/opt/"{branch,x}',
-    "mv ~/Library/LaunchAgents/com.keepoak.branch-agent.plist{,.off}", "launchctl bootout gui/501/com.keepoak.{branch-agent,x}",
+    `mv ${M}/Library/LaunchAgents/com.keepoak.branch-agent.plist{,.off}`, "launchctl bootout gui/501/com.keepoak.{branch-agent,x}",
     "rm -rf /opt/branc{g..i}",
   ],
 };
@@ -157,12 +159,12 @@ test("NAS's own spelling with $TMPDIR is refused on this computer's layout", () 
 test("a brace group holding a quoted space is spelled out as the shell does it", () => {
   const areas = layouts.linux;
   for (const line of [
-    'rm -rf ~/.local/share/{branch-agent,"a b"}', "rm -rf ~/.local/share/{branch-agent,'a b'}", 'rm -rf ~/.local/share/{"a b",branch-agent}',
-    'mv ~/.config/systemd/user/branch-agent.service{,".off x"}', "rm -rf ~/.local/share/{branch-agent,a\\ b}",
-    'rm -rf ~/.local/share/branch{-agent,"-x y"}',
+    `rm -rf ${H}/.local/share/{branch-agent,"a b"}`, `rm -rf ${H}/.local/share/{branch-agent,'a b'}`, `rm -rf ${H}/.local/share/{"a b",branch-agent}`,
+    `mv ${H}/.config/systemd/user/branch-agent.service{,".off x"}`, `rm -rf ${H}/.local/share/{branch-agent,a\\ b}`,
+    `rm -rf ${H}/.local/share/branch{-agent,"-x y"}`,
   ]) assert.notEqual(shIn(areas, line), null, line);
   // Braces entirely inside quotes are not opened by bash: the command names a folder literally called
   // "{branch-agent,x}", which is not Branch's, so never-break lets it through, as the shell would run it.
-  assert.equal(shIn(areas, `rm -rf "${join(home, ".local", "share")}/{branch-agent,x}"`), null);
+  assert.equal(shIn(areas, `rm -rf "${H}/.local/share/{branch-agent,x}"`), null);
   assert.equal(shIn(areas, "echo '{a,b}' {c,\"d e\"}"), null, "an ordinary quoted brace pattern is fine");
 });

@@ -39,6 +39,8 @@ esac
 await chmod(join(bin, "git"), 0o755);
 process.env.PATH = `${bin}${delimiter}${process.env.PATH}`;
 test.after(() => discardTemp(home));
+/** The stand-in git is a /bin/sh script, which Windows cannot run. */
+const posixOnly = { skip: process.platform === "win32" && "the stand-in git is a /bin/sh script" };
 
 async function branchWith(t, permissions, options = {}) {
   await writeFile(gitLog, "");
@@ -74,7 +76,7 @@ async function branchWith(t, permissions, options = {}) {
   return { app, owner, run, opened, failed, git: async () => (await readFile(gitLog, "utf8")).split("\n").filter(Boolean) };
 }
 
-test("with both steps in the contract, the branch is pushed and the draft pull request opens", async (t) => {
+test("with both steps in the contract, the branch is pushed and the draft pull request opens", posixOnly, async (t) => {
   const { run, opened, failed, git: log } = await branchWith(t, ["files.write", "github.pull_request_from_changes", "github.open_pull_request"]);
   const git = await log();
   assert.equal(run.status, "completed", run.output);
@@ -85,7 +87,7 @@ test("with both steps in the contract, the branch is pushed and the draft pull r
   assert.equal(opened[0].draft, true);
 });
 
-test("with only the outer step in the contract, nothing is pushed and the refusal comes first", async (t) => {
+test("with only the outer step in the contract, nothing is pushed and the refusal comes first", posixOnly, async (t) => {
   const { app, owner, opened, failed, git: log } = await branchWith(t, ["files.write", "github.pull_request_from_changes"]);
   const git = await log();
   assert.match(failed.join("\n"), /self-development contract: github\.open_pull_request is not one of the tools this contract allows/);
@@ -106,7 +108,7 @@ async function hookOutcome(app, runId) {
   throw new Error("the pull request hook never reported");
 }
 
-test("the finish-of-task hook's push is checked against the contract before anything is pushed", async (t) => {
+test("the finish-of-task hook's push is checked against the contract before anything is pushed", posixOnly, async (t) => {
   const { app, owner, run, opened, git: log } = await branchWith(t,
     ["files.write", "github.pull_request_from_changes", "github.open_pull_request"], { mode: "on", edit: true, changed: "src/ui/button.ts\0package.json\0" });
   assert.equal(run.status, "completed", run.output);
@@ -120,7 +122,7 @@ test("the finish-of-task hook's push is checked against the contract before anyt
   assert.match(refused[0].subject, /^github\.pull_request_from_changes in branch-agent-source\/\.branch-worktrees\/self-remove-button/);
 });
 
-test("the hook's push needs the pull request step in the contract, even when no tool call is made", async (t) => {
+test("the hook's push needs the pull request step in the contract, even when no tool call is made", posixOnly, async (t) => {
   const { app, run, opened, git: log } = await branchWith(t, ["files.write", "github.open_pull_request"], { mode: "on", edit: true });
   const outcome = await hookOutcome(app, run.id);
   assert.equal(outcome.kind, "pull_request.failed");
@@ -129,7 +131,7 @@ test("the hook's push needs the pull request step in the contract, even when no 
   assert.deepEqual(opened, []);
 });
 
-test("with the step listed and every change inside the contract, the hook sends the work", async (t) => {
+test("with the step listed and every change inside the contract, the hook sends the work", posixOnly, async (t) => {
   const { app, run, opened } = await branchWith(t,
     ["files.write", "github.pull_request_from_changes", "github.open_pull_request"], { mode: "on", edit: true });
   const outcome = await hookOutcome(app, run.id);
@@ -138,7 +140,7 @@ test("with the step listed and every change inside the contract, the hook sends 
 });
 
 test("a pull request is never made from a folder below the worktree's root (a repository could be planted there)",
-  { skip: process.platform === "win32" && "the stand-in git is a /bin/sh script" }, async (t) => {
+  posixOnly, async (t) => {
   const { app, owner, opened, failed, git: log } = await branchWith(t,
     ["files.write", "github.pull_request_from_changes", "github.open_pull_request"], { folder: `${worktree}/src/ui` });
   assert.match(failed.join("\n"), /Git runs in Branch's own source only at a self-development worktree's root/);
