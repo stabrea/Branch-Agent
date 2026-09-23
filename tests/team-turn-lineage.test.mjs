@@ -472,6 +472,31 @@ test("a crash after a too-large result was recorded is finished from that record
   assert.equal(retry.dispatches + after.parentCalls + after.memberCalls, 0, "nothing was run again");
 });
 
+test("an older too-large record that kept no answers is finished as it is, and never claims the answers reached the room", async (t) => {
+  /* NAS review of the team stack: finishing such a record said the answers were written to the room. */
+  const provider = scripted();
+  const { state, team, reopen } = await fixture(t, provider);
+  const requestId = randomUUID();
+  const complete = TeamTasks.prototype.complete;
+  TeamTasks.prototype.complete = function skipped() {};
+  t.after(() => { TeamTasks.prototype.complete = complete; });
+  await state.app.teams.run(counted(state.app.runtime), knowledge, team.id, "sum up", { requestId });
+  TeamTasks.prototype.complete = complete;
+  // The record a build from before this change kept: the size only, no answers and no room.
+  state.app.store.sqlite.prepare("UPDATE team_tasks SET result=? WHERE request_id=?").run(JSON.stringify({ teamId: team.id, truncated: true, chars: 600000 }), requestId);
+  const roomBefore = state.app.teams.room(team.id).length;
+  const after = scripted();
+  const app = await reopen(after);
+  const task = row(app, requestId);
+  const report = app.teams.reconcile(task.task_id);
+  assert.equal(report.state, "completed");
+  assert.match(report.note, /older record that kept no answers; nothing was written to the room/);
+  assert.equal(app.teams.room(team.id).length, roomBefore, "nothing was added to the room");
+  const seen = await app.teams.run(counted(app.runtime), knowledge, team.id, "sum up", { requestId });
+  assert.match(seen.note, /not written to the team's room either/);
+  assert.equal(after.parentCalls + after.memberCalls, 0, "nothing was run again");
+});
+
 test("members that finished answering with no tool call, and no outcome recorded, need reconciliation, not failed", async (t) => {
   const provider = scripted();
   const { state, team, reopen } = await fixture(t, provider);

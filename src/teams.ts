@@ -135,13 +135,15 @@ export class Teams {
   }
   /** A finished task's recorded result; one too large to keep says so plainly and points at the room, where every answer is. */
   private recordedResult(task: { teamId: string; result: unknown }, identity: { taskId: string; requestId: string; state: string }) {
-    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean; roomSessionId?: string } | null;
+    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean; unwritten?: boolean; roomSessionId?: string } | null;
     if (result?.deleted) return { teamId: task.teamId, ...identity, deleted: true as const,
       note: "The owner deleted a conversation this task's answers were in, so they are gone. Send a new request id to run it again." };
     if (!result?.truncated) return { ...result, ...identity };
     const room = result.roomSessionId ?? this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
     return { teamId: task.teamId, roomSessionId: room, ...identity, truncated: true as const,
-      note: `The answers came to ${result.chars ?? "too many"} characters, too large to keep for a repeat, so they are not replayed here. Every answer is in the team's room.` };
+      note: `The answers came to ${result.chars ?? "too many"} characters, too large to keep for a repeat, so they are not replayed here. ${result.unwritten
+        ? "They were not written to the team's room either: each member's answer is in its own run."
+        : "Every answer is in the team's room."}` };
   }
   private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress) {
     // The claim must still be this caller's before the runtime is asked for anything; if it moved, only observe.

@@ -197,13 +197,15 @@ function finishFromRecord(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, 
     return { state: "needs_reconciliation", note: deletedBeforeWritten };
   }
   if (!recorded || (!recorded.truncated && !Array.isArray(recorded.answers))) return null;
+  let written = true;
   try {
-    if (recorded.truncated) finishTruncated(store, tasks, claim, recorded);
+    if (recorded.truncated) written = finishTruncated(store, tasks, claim, recorded);
     else finishTeamTask(store, tasks, claim, recorded);
   } catch (error) {
     const state = settleUnwritten(store, tasks, claim, recorded, error);
     return { state, note: state === "needs_reconciliation" ? "The recorded answers could not be written to the room; check them before trying again. Nothing was run again." : "This task changed while it was being checked." };
   }
+  if (!written) return { state: "completed", note: "Finished from an older record that kept no answers; nothing was written to the room, and each member's answer is in its own run. Nothing was run again." };
   return { state: "completed", note: recorded.truncated
     ? "Finished from the result the turn recorded, which was too large to keep in full; the members' answers were written to the room from their own runs. Nothing was run again."
     : "Finished from the result the turn recorded; nothing was run again." };
@@ -233,10 +235,12 @@ export function settleWaiting(store: Store, tasks: TeamTasks, claim: TeamTaskCla
  * back from that member's own run, so the room gets every answer; nothing is run again. A marker
  * without the members' runs (so nothing to read back) is finished as it is.
  */
-function finishTruncated(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, recorded: TeamRunResult & { truncated?: boolean }): void {
-  if (!Array.isArray(recorded.answers) || !recorded.roomSessionId) return tasks.complete(claim, recorded, () => {});
+/** True when the answers were written to the room; a marker from before answers were kept completes as it is. */
+function finishTruncated(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, recorded: TeamRunResult & { truncated?: boolean }): boolean {
+  if (!Array.isArray(recorded.answers) || !recorded.roomSessionId) { tasks.complete(claim, { ...recorded, unwritten: true }, () => {}); return false; }
   const answers = recorded.answers.map((answer) => ({ ...answer, output: store.run(answer.runId)?.output ?? "" }));
   finishTeamTask(store, tasks, claim, { ...recorded, answers });
+  return true;
 }
 
 /** Member runs under the turn that finished: their answers exist, even if the turn never recorded them. */
