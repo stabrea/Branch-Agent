@@ -255,6 +255,19 @@ test("under Lockdown the looser modes are greyed with the reason, not hidden, an
   assert.deepEqual(f.errors, []);
 });
 
+test("Q59: a question in an Ask first conversation offers no standing yes on its card", async (t) => {
+  const f = await windowFixture(t, writes("asked.txt"));
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
+  await f.page.locator("#prompt").fill("write it");
+  await f.page.locator("#send").click();
+  const card = f.page.locator("#live-ask");
+  await card.locator(".live-ask-choice > button").first().waitFor({ state: "visible", timeout: 30000 });
+  const answers = await card.locator(".live-ask-choice > button").allInnerTexts();
+  assert.ok(answers.includes("Yes, just now") && answers.includes("Yes, for this conversation"), answers.join(", "));
+  assert.equal(answers.includes("Yes, always"), false, "Ask first reads no standing yes, so none is offered");
+  assert.deepEqual(f.errors, []);
+});
+
 test("the menu's footer names what a new conversation from this window really starts on", async (t) => {
   const f = await windowFixture(t);
   const chip = f.page.locator("#mode-chip"), menu = f.page.locator("#mode-menu");

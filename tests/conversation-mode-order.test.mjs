@@ -1,80 +1,164 @@
-/* Q59: the four conversation modes, weighed tool by tool through the real runtime's policy check.
+/* Q59: the four conversation modes, weighed tool by tool through the real runtime.
    Plan is never looser than Ask first, Ask first never looser than Auto, Auto never looser than No
-   approvals, and the design's own rows hold: Ask first asks before any change, command or web action
-   (Q59-Q60-PRESETS-DESIGN.md, the coordinator's ruling). "follow" is the owner's own rules, not a mode. */
+   approvals, and the design's rows hold: Ask first asks before any change, command or web action
+   (Q59-Q60-PRESETS-DESIGN.md and Legion's rulings). A web action is any tool that reaches beyond the
+   workspace (src/tool-reach.ts). "follow" is the owner's own rules, not a mode. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, savePolicy } from "../dist/index.js";
+import { createBranch, evaluatePolicy, isReadOnlyPermission, savePolicy } from "../dist/index.js";
 import { saveConversationMode } from "../dist/conversation-mode.js";
+import { permissionClassified, reachOf } from "../dist/tool-reach.js";
+import { noStandingRefusal } from "../dist/runtime.js";
 import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js";
 import { BranchShell, registerShell } from "../dist/integrations/shell.js";
-import { registerAnswerEngine } from "../dist/asks/answer-engine.js";
-import { registerMarketTool } from "../dist/interop/agent-market.js";
 
 const modes = ["plan", "ask", "auto", "full"];
 const care = { allow: 0, ask: 1, deny: 2 };
 const page = "https://example.com/a";
-/** Representative calls, each with arguments the tool really accepts, so no row is an argument refusal. */
-const calls = {
-  "files.read": { path: "notes.txt" },
-  "files.write": { path: "notes.txt", content: "x" },
-  "shell.execute": { executable: "node", args: ["--version"] },
-  "web.fetch": { url: page },
-  "web.search": { query: "branch agent" },
-  "web.page": { url: page },
-  "web.crawl": { url: page },
-  "media.captions": { url: page },
-  "media.download": { url: page },
-  "decisions.judge": { kind: "yes", question: "Is the report finished?", state: "finished" },
-  "answer.ask": { question: "what is branch agent" },
-  "assistant.market": { market: page },
-  "research.run": { question: "what is branch agent", sources: [page] },
-  "browser.navigate": { url: page },
-  "browser.snapshot": {},
-  "browser.click": { role: "button", name: "Go" },
-  "browser.fill": { label: "Name", value: "x" },
-  "browser.upload": { selector: "#file", path: "notes.txt" },
-};
-/** The web actions Auto asks about (webActionRules in src/policy.ts). */
-const autoAsks = ["web.fetch", "web.search", "web.page", "web.crawl", "media.captions", "decisions.judge",
-  "answer.ask", "assistant.market", "browser.navigate", "browser.click", "browser.fill", "browser.upload"];
-/** Everything that reaches out to the web: Ask first asks, Plan never lets it through. */
-const webActions = [...autoAsks, "research.run", "media.download"];
 
-async function modeTable(t) {
+/** A real Branch with every switched part on, the browser and a command line: every tool Branch can offer. */
+async function fullBranch(t, provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } }) {
   const root = await mkdtemp(join(tmpdir(), "branch-mode-order-"));
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
-    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const browser = new BranchBrowser({ allowedOrigins: ["https://example.com"], maxRuns: 1 });
   const shell = new BranchShell({ executables: { node: { path: process.execPath } } });
   t.after(async () => { await shell.close(); await browser.close(); await app.close(); await discardTemp(root); });
-  // The command, browser and two optional web reader tools are registered for real, so each row is
-  // judged by the tool's own permission and not as an unknown tool.
+  for (const part of Object.values(app)) {
+    if (!part || typeof part.setMode !== "function") continue;
+    const names = typeof part.modes === "function" ? Object.keys(part.modes())
+      : typeof part.modesOf === "function" ? Object.keys(part.modesOf()) : [null];
+    // Some switches take { mode }, others the mode itself.
+    const on = (input) => (name) => name === null ? part.setMode(input) : part.setMode(name, input);
+    for (const name of names) { try { on({ mode: "on" })(name); } catch { on("on")(name); } }
+  }
   await shell.ready();
   registerShell(app.registry, shell);
-  registerBrowser(app.runtime.registry, browser);
-  registerAnswerEngine(app.runtime.registry, {});
-  registerMarketTool(app.runtime.registry, {});
-  savePolicy(app.store, app.runtime.owner, { preset: "off" });
-  const contexts = {};
+  registerBrowser(app.registry, browser);
+  return app;
+}
+/** One conversation per mode, and what each would decide. */
+async function modeConversations(app) {
+  const runs = {}, contexts = {};
   for (const mode of modes) {
     const run = await app.runtime.run({ prompt: `a ${mode} conversation` });
     saveConversationMode(app.store, app.runtime.owner, run.sessionId, { mode, planSet: mode === "plan" });
+    runs[mode] = run.id;
     contexts[mode] = app.runtime.context({ runId: run.id });
   }
-  const check = (tool, args, mode) => app.runtime.checkPolicy(tool, args, contexts[mode]);
-  return { app, check };
+  return {
+    /** The rules each mode holds this tool to, with nothing about what it touches. */
+    ruled: (tool, mode) => evaluatePolicy(app.runtime.policy("owner", runs[mode]),
+      { tool, target: "", readOnly: isReadOnlyPermission(app.registry.permissionOf(tool)), resource: null }).decision,
+    /** The whole check a model's call goes through. */
+    check: (tool, args, mode) => app.runtime.checkPolicy(tool, args, contexts[mode]),
+  };
 }
+/**
+ * The permissions that hold tools of both kinds, with every tool in each, as reviewed. A new tool
+ * under one of these turns the test red until somebody looks at what it does: it declares
+ * `reach: "outbound"` when it goes out, or is added to `local` here when it does not.
+ */
+const mixedPermissions = {
+  "files.read": { local: ["artifacts.list","code.definition","code.diagnostics","code.hover","code.map","code.references","context.list","context.read","debug.variables","files.find","files.glob","files.grep","files.history","files.list","files.read","files.read_many","files.search","files.validate","files.verify","notebook.read","output.read","remote.list","rules.for_path","workspace.map"], outbound: ["remote.files","remote.read"] },
+  "memory.read": { local: ["checklist.read","knowledge.list","learning.journey","lessons.list","memory.at","memory.block_view","memory.find","memory.search","memory.timeline","memory.version_note","memory.versions","project.route","templates.export","todos.list"], outbound: ["hindsight.recall","hindsight.reflect","memory.outside_ask","memory.outside_recall"] },
+  "memory.write": { local: ["checklist.write","memory.block_edit","memory.delete","memory.keep","memory.label","memory.put","memory.tidy","memory.update","todos.add","todos.done"], outbound: ["hindsight.retain","memory.outside_keep"] },
+  "browser.read": { local: ["browser.annotate","browser.extract","browser.notes","browser.pdf","browser.recording","browser.screenshot","browser.shape","browser.site","browser.snapshot","browser.unmark","browser.wait","computer.look"], outbound: ["browser.navigate"] },
+  "media.write": { local: ["media.convert","media.frames","media.image","media.speak","media.trim","voice.say"], outbound: ["media.download","video.generate"] },
+  "skills.read": { local: ["sdk.route","sdk.routes","sdk.starter","skills.list","skills.read","skills.usage","tools.services"], outbound: ["skills.bundle.preview"] },
+  "skills.write": { local: ["tools.forget_service"], outbound: ["tools.from_openapi"] },
+  "specialists.use": { local: ["delegate.debate","delegate.handoff","delegate.parallel","delegate.route","delegate.supervise","delegate.swarm","mode.task","specialists.delegate","specialists.fanout"], outbound: ["fleet.send","trunks.remote.message"] },
+  "specialists.read": { local: ["fleet.status","mode.list"], outbound: ["trunks.remote.roster"] },
+  "monitors.manage": { local: ["monitor.remove","monitors.screen.check","monitors.screen.create"], outbound: ["monitor.check","monitor.create"] },
+  "data.read": { local: ["data.chart","data.describe","data.query"], outbound: ["data.load"] },
+  "brief.manage": { local: ["brief.configure"], outbound: ["brief.send"] },
+  "desktop.view": { local: ["desktop.read","desktop.screenshot","usb.devices"], outbound: ["desktop.windows"] },
+  "nodes.read": { local: ["machines.list"], outbound: ["machines.look","nodes.status"] },
+};
+const assertOrder = (tool, row) => {
+  for (let i = 1; i < modes.length; i++)
+    assert.ok(care[row[modes[i - 1]]] >= care[row[modes[i]]],
+      `${tool}: ${modes[i - 1]} (${row[modes[i - 1]]}) must be at least as careful as ${modes[i]} (${row[modes[i]]})`);
+};
 
-test("per tool, each mode is at least as careful as the next looser one, and the design's rows hold", async (t) => {
-  const { app, check } = await modeTable(t);
+test("every tool is classified by what it does: its permission, or its own declaration", async (t) => {
+  const app = await fullBranch(t);
+  const tools = app.registry.inventory();
+  assert.ok(tools.length >= 300, `the whole registry is loaded (${tools.length} tools)`);
+  const unclassified = [...new Set(tools.map((tool) => tool.permission))].filter((permission) => !permissionClassified(permission));
+  assert.deepEqual(unclassified, [], "every permission says local or outbound in src/tool-reach.ts");
+  const reach = (name) => app.registry.reachOf(name);
+  for (const name of ["web.fetch", "web.search", "x.search", "spotify.search", "gmail.search", "gdrive.read", "gcal.events",
+    "outlook.search", "mail.search", "hindsight.recall", "memory.outside_recall", "remote.files", "remote.read", "nodes.status",
+    "machines.look", "browser.navigate", "browser.act", "browser.tab", "browser.borrow", "browser.profile", "computer.press",
+    "computer.type", "media.download", "research.run", "data.load", "monitor.create", "channels.broadcast"])
+    assert.equal(reach(name), "outbound", `${name} reaches beyond the workspace`);
+  for (const name of ["files.read", "files.search", "files.grep", "git.status", "git.diff", "git.log", "memory.search",
+    "documents.search", "browser.snapshot", "remote.list", "machines.list", "files.write", "shell.execute"])
+    assert.equal(reach(name), "local", `${name} stays on this computer`);
+  for (const [permission, expected] of Object.entries(mixedPermissions)) {
+    const held = tools.filter((tool) => tool.permission === permission).map((tool) => tool.name);
+    const got = { local: held.filter((name) => reach(name) === "local").sort(), outbound: held.filter((name) => reach(name) === "outbound").sort() };
+    assert.deepEqual(got, expected, `${permission} holds tools of both kinds: a tool added under it says what it does`);
+  }
+  assert.equal(reachOf({ permission: "gitlab.read" }), "outbound", "GitLab reads are outbound");
+  assert.equal(reachOf({ permission: "something.new" }), "outbound", "a permission nobody classified counts as outbound");
+  assert.equal(reachOf({ permission: "files.read", reach: "local", external: true }), "outbound", "somebody else's tool counts as outbound");
+  assert.equal(app.registry.reachOf("no.such.tool"), "outbound");
+});
+
+test("across the real registry, each mode is at least as careful as the next looser one", async (t) => {
+  const app = await fullBranch(t);
+  // A tool from somebody else (here, as an MCP server's would be): Branch cannot see what it does.
+  app.registry.register({ name: "mcp.elsewhere.lookup", permission: "mcp.elsewhere.lookup", external: true,
+    description: "A connected server's lookup.", parameters: z.object({}).passthrough(), execute: async () => ({}) });
+  savePolicy(app.store, app.runtime.owner, { preset: "off" });
+  const { ruled } = await modeConversations(app);
+  assert.deepEqual(Object.fromEntries(modes.map((mode) => [mode, ruled("mcp.elsewhere.lookup", mode)])),
+    { plan: "deny", ask: "ask", auto: "ask", full: "allow" }, "somebody else's tool asks in Auto too");
+  for (const { name, permission } of app.registry.inventory()) {
+    const row = Object.fromEntries(modes.map((mode) => [mode, ruled(name, mode)]));
+    assertOrder(name, row);
+    const readOnly = isReadOnlyPermission(permission), outbound = app.registry.reachOf(name) === "outbound";
+    if (outbound) {
+      assert.equal(row.ask, "ask", `Ask first asks before ${name}, which reaches beyond the workspace`);
+      assert.equal(row.auto, "ask", `Auto asks before ${name}, which reaches beyond the workspace`);
+      assert.equal(row.plan, readOnly ? "ask" : "deny", `Plan asks before ${name} when it only looks, and refuses it when it changes something`);
+    } else if (readOnly) {
+      assert.deepEqual(row, { plan: "allow", ask: "allow", auto: "allow", full: "allow" }, `${name} only looks on this computer, so it is free`);
+    } else {
+      assert.equal(row.plan, "deny", `Plan refuses the change ${name}`);
+      assert.equal(row.ask, "ask", `Ask first asks before the change ${name}`);
+    }
+    assert.notEqual(row.full, "deny", `No approvals refuses nothing the owner did not refuse (${name})`);
+  }
+});
+
+test("per tool, the whole check agrees: the design's rows hold with real arguments", async (t) => {
+  const app = await fullBranch(t);
+  savePolicy(app.store, app.runtime.owner, { preset: "off" });
+  const { check } = await modeConversations(app);
+  const calls = {
+    "files.read": { path: "notes.txt" },
+    "files.write": { path: "notes.txt", content: "x" },
+    "git.status": { folder: "." },
+    "shell.execute": { executable: "node", args: ["--version"] },
+    "web.fetch": { url: page },
+    "web.search": { query: "branch agent" },
+    "x.search": { query: "branch agent" },
+    "remote.read": { computer: "tower", path: "notes.txt" },
+    "browser.navigate": { url: page },
+    "browser.snapshot": {},
+    "browser.click": { role: "button", name: "Go" },
+    "browser.tab": { action: "open" },
+    "media.download": { url: page },
+  };
   const table = {};
   for (const [tool, args] of Object.entries(calls)) {
-    assert.notEqual(app.runtime.registry.permissionOf(tool), "", `${tool} is a registered tool`);
     table[tool] = {};
     for (const mode of modes) {
       const result = check(tool, args, mode);
@@ -82,35 +166,72 @@ test("per tool, each mode is at least as careful as the next looser one, and the
         `${tool} under ${mode} is judged by the rules, not refused by a guard: ${result.reason}`);
       table[tool][mode] = result.decision;
     }
-    const row = table[tool];
-    for (let i = 1; i < modes.length; i++)
-      assert.ok(care[row[modes[i - 1]]] >= care[row[modes[i]]],
-        `${tool}: ${modes[i - 1]} (${row[modes[i - 1]]}) must be at least as careful as ${modes[i]} (${row[modes[i]]})`);
+    assertOrder(tool, table[tool]);
   }
-  for (const tool of webActions) {
-    assert.equal(table[tool].ask, "ask", `Ask first asks before the web action ${tool}`);
-    assert.notEqual(table[tool].plan, "allow", `Plan never lets the web action ${tool} through`);
-  }
-  for (const tool of autoAsks) assert.equal(table[tool].auto, "ask", `Auto asks before the web action ${tool}`);
   assert.deepEqual(table["files.read"], { plan: "allow", ask: "allow", auto: "allow", full: "allow" }, "reading is free everywhere");
+  assert.deepEqual(table["git.status"], { plan: "allow", ask: "allow", auto: "allow", full: "allow" }, "a repository's status only looks");
   assert.deepEqual(table["browser.snapshot"], { plan: "allow", ask: "allow", auto: "allow", full: "allow" }, "reading the open page is free");
   assert.deepEqual(table["files.write"], { plan: "deny", ask: "ask", auto: "allow", full: "allow" }, "Auto writes in the workspace; Plan refuses");
   assert.deepEqual(table["shell.execute"], { plan: "deny", ask: "ask", auto: "ask", full: "ask" }, "a command no rule covers asks even under No approvals");
-  for (const tool of ["browser.click", "browser.fill", "browser.upload"])
-    assert.equal(table[tool].plan, "deny", `Plan refuses the change ${tool}, never asks about it`);
-  for (const tool of ["web.fetch", "web.search", "browser.navigate", "browser.click"])
-    assert.equal(table[tool].full, "allow", `No approvals lets ${tool} through`);
+  for (const tool of ["web.fetch", "web.search", "x.search", "remote.read", "browser.navigate"])
+    assert.deepEqual(table[tool], { plan: "ask", ask: "ask", auto: "ask", full: "allow" }, `${tool} is a web action`);
+  for (const tool of ["browser.click", "browser.tab", "media.download"])
+    assert.deepEqual(table[tool], { plan: "deny", ask: "ask", auto: "ask", full: "allow" }, `${tool} changes something outside the workspace`);
 });
 
-test("every registered tool with the web.read permission is a web action to Ask first, Auto and Plan", async (t) => {
-  const { app, check } = await modeTable(t);
-  const readers = app.runtime.registry.inventory().filter((tool) => tool.permission === "web.read").map((tool) => tool.name);
-  assert.ok(readers.length >= 8, `the web readers are registered: ${readers.join(", ")}`);
-  for (const tool of readers) {
-    const args = calls[tool];
-    assert.ok(args, `${tool} reads the web: add it to this table and to webActionRules in src/policy.ts`);
-    assert.equal(check(tool, args, "ask").decision, "ask", `Ask first asks before ${tool}`);
-    assert.equal(check(tool, args, "auto").decision, "ask", `Auto asks before ${tool}`);
-    assert.notEqual(check(tool, args, "plan").decision, "allow", `Plan never lets ${tool} through`);
+test("Plan keeps the owner's own questions on reads, and never turns its refusal of a change into one", async (t) => {
+  const app = await fullBranch(t);
+  savePolicy(app.store, app.runtime.owner, { rules: [
+    { tool: "files.read", match: "finance/*", decision: "ask" },
+    { tool: "files.write", match: "finance/*", decision: "ask" },
+    { tool: "files.*", resource: { kind: "path", pattern: "payroll" }, decision: "ask" },
+    { tool: "files.read", match: "secrets/*", decision: "deny" },
+  ] });
+  const { check } = await modeConversations(app);
+  const row = (tool, args) => Object.fromEntries(modes.map((mode) => [mode, check(tool, args, mode).decision]));
+  const cases = [
+    ["files.read", { path: "finance/q1.txt" }, { plan: "ask", ask: "ask", auto: "ask", full: "ask" }, "the owner's question on a read holds in Plan too"],
+    ["files.write", { path: "finance/q1.txt", content: "x" }, { plan: "deny", ask: "ask", auto: "ask", full: "ask" }, "a question on a write never loosens Plan's refusal"],
+    ["files.read", { path: "payroll/june.txt" }, { plan: "ask", ask: "ask", auto: "ask", full: "ask" }, "a folder rule's question on a read holds in Plan"],
+    ["files.write", { path: "payroll/june.txt", content: "x" }, { plan: "deny", ask: "ask", auto: "ask", full: "ask" }, "a folder rule's question, weighed first, still cannot loosen Plan's refusal"],
+    ["files.read", { path: "secrets/key.txt" }, { plan: "deny", ask: "deny", auto: "deny", full: "deny" }, "the owner's refusal holds everywhere"],
+    ["files.read", { path: "notes.txt" }, { plan: "allow", ask: "allow", auto: "allow", full: "allow" }, "and everything else stays free"],
+  ];
+  for (const [tool, args, expected, why] of cases) {
+    const got = row(tool, args);
+    assert.deepEqual(got, expected, `${tool} ${args.path}: ${why}`);
+    assertOrder(`${tool} ${args.path}`, got);
+  }
+});
+
+test("a question in Ask first or Plan offers no standing yes; Auto still does", async (t) => {
+  const model = { name: "scripted", async complete(request) {
+    const last = request.messages[request.messages.length - 1];
+    if (last?.role === "tool") return { content: "done", toolCalls: [] };
+    // Plan refuses a command outright, so its question is about reading a web page.
+    const plan = /\(plan\)/.test(String(request.messages.find((m) => m.role === "user")?.content ?? ""));
+    const call = plan ? { name: "web.fetch", arguments: JSON.stringify({ url: page }) }
+      : { name: "shell.execute", arguments: JSON.stringify({ executable: "node", args: ["--version"] }) };
+    return { content: "", toolCalls: [{ id: `w${Math.random().toString(36).slice(2, 8)}`, ...call }] };
+  } };
+  const app = await fullBranch(t, model);
+  savePolicy(app.store, app.runtime.owner, { preset: "off" });
+  for (const mode of ["ask", "plan", "auto"]) {
+    const run = await app.runtime.run({ prompt: `run it (${mode})`, conversationMode: mode });
+    assert.equal(run.status, "needs_input", `${mode}: the call asks`);
+    const question = app.runtime.approvals.waiting().find((one) => one.sessionId === run.sessionId);
+    const held = mode !== "auto";
+    assert.equal(question.noStanding === true, held, `${mode}: the card ${held ? "offers no" : "may offer a"} standing yes`);
+    if (held) {
+      assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always", question.fingerprint), { message: noStandingRefusal });
+      assert.equal(app.runtime.approvals.waiting().some((one) => one.sessionId === run.sessionId), true, "the refused answer leaves the question waiting");
+      const before = app.store.get("settings", app.runtime.owner, "policy")?.data?.rules?.length ?? 0;
+      app.runtime.approve(run.sessionId, "allow", "session", question.fingerprint);
+      assert.equal(app.store.get("settings", app.runtime.owner, "policy")?.data?.rules?.length ?? 0, before, "no rule was written");
+      // The yes kept for the conversation is honoured there: the same call goes ahead without asking again.
+      const [tool, args] = mode === "plan" ? ["web.fetch", { url: page }] : ["shell.execute", { executable: "node", args: ["--version"] }];
+      assert.equal(app.runtime.checkPolicy(tool, args, app.runtime.context({ runId: run.id }), question.fingerprint).decision, "allow",
+        `${mode}: a yes for this conversation holds for it`);
+    }
   }
 });
