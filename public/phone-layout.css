@@ -138,6 +138,13 @@
   }
 }
 
+/* Keep the closed rail out of a phone's sign-in screen even if the shared shell sheet is unavailable. */
+@media (max-width: 699px) {
+  body.lx:not(.rail-open) > .rail {
+    display: none;
+  }
+}
+
 /* ---------- a tablet held upright: the side list stays a column, as on the computer ---------- */
 @media (min-width: 700px) and (max-width: 860px) {
   body.lx,

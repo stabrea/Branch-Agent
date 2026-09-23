@@ -142,6 +142,18 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs", "tests/settings-grown.test.mjs"]);
 });
 
+test("phone layout styling selects its real browser proof", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([{ status: "M", paths: ["public/phone-layout.css"] }], {
+    config: checkedIn,
+    weights: {},
+    browserTest: (file) => file === "tests/phone-layout.test.mjs",
+  });
+  assert.equal(result.classification, "narrow");
+  assert.equal(result.browserNeeded, true);
+  assert.deepEqual(result.tests, ["tests/leak-guard.test.mjs", "tests/phone-layout.test.mjs"]);
+});
+
 test("glass list behavior has its exact browser contract inside the fast budget", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
   const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
@@ -153,6 +165,18 @@ test("glass list behavior has its exact browser contract inside the fast budget"
   assert.equal(result.browserNeeded, true);
   assert.deepEqual(result.tests, ["tests/glass-select.test.mjs", "tests/leak-guard.test.mjs"]);
   assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
+});
+
+test("the measured Settings audit cannot be started in the five-minute lane", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  const result = selectImpact([{ status: "M", paths: ["tests/settings-grown.test.mjs"] }], {
+    config: checkedIn,
+    weights,
+  });
+  assert.equal(result.classification, "full-required");
+  assert.ok(result.predictedSeconds > checkedIn.budgetSeconds);
+  assert.match(result.reasons.join("\n"), new RegExp(`above the ${checkedIn.budgetSeconds}s budget`));
 });
 
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {

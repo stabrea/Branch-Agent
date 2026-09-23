@@ -12,9 +12,10 @@ Two rules for reading it:
 - **Where a thing has only been proved against a stand-in**, it says so in the same sentence. A page
   that oversells is a support ticket later.
 
-The machine-readable checklist in [features.json](features.json) is the original research audit. Its
-counts (95 implemented, 14 partial, 1 external, 59 missing) are from that audit and are **not** a
-description of 0.18.0. Settings, their exact names and their defaults are in
+The machine-readable checklist in [features.json](features.json) is the original research audit. Every
+row that was not already implemented was checked again on 2026-09-22 against the code and the exact
+test titles it names: 115 implemented, 38 partial, 1 external, 15 missing. A partial row says in
+`remaining` what is still missing. Settings, their exact names and their defaults are in
 [configuration.md](configuration.md).
 
 ## Conversation — the work happening now
