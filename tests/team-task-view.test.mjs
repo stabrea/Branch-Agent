@@ -98,7 +98,7 @@ test("needs_reconciliation: a throw between batches is blocked, names why, and l
   await assert.rejects(app.teams.run(broken, knowledge, team.id, "ship it", { requestId: randomUUID() }), /stopped between batches/);
   const [task] = await view();
   assert.deepEqual([task.task.state, task.task.why], ["blocked", "reconciliation.required"]);
-  assert.match(task.blocker, /Stopped while the members were working: injected: stopped between batches/);
+  assert.match(task.blocker, /Stopped while the members were working\..*What stopped it: injected: stopped between batches/);
   assert.match(task.blocker, /Not run: tester \(not started\), reviewer \(not started\)/);
   assert.deepEqual(members(task), [["planner", "completed", 1, "finished"], ["builder", "completed", 1, "finished"],
     ["tester", "not_started", 2, null], ["reviewer", "not_started", 2, null]]);
