@@ -142,12 +142,20 @@ function bucketHead(page, [id, iconName, title, line]) {
   // words.append(worded("p", "sg-head-line", `${key}.line`, line));
   const more = make("button", "sg-more");
   more.type = "button";
-  more.hidden = true;
   more.addEventListener("click", () => chooseLevel(more.dataset.to));
-  head.append(words, more);
+  /* DG-073: the link is a line of its own, placed at the end of its section by countHidden (in the head only when
+     the section shows nothing). Search reads cards' own words, never this line's. */
+  const moreLine = make("p", "sg-more-line");
+  moreLine.hidden = true;
+  moreLine.dataset.noSearch = "";
+  moreLine.dataset.bucket = head.dataset.bucket;
+  moreLine.append(more);
+  moreLines.set(head, moreLine);
+  head.append(words, moreLine);
   // DG-011: Don't append the icon tile since it's not in the sample
   return head;
 }
+const moreLines = new Map();
 function otherHead(page) {
   const head = bucketHead(page, ["other", "more", "More on this page", "Settings added here by something else."]);
   head.classList.add("sg-other");
@@ -220,7 +228,9 @@ function putKeys(card) {
     keyLines.set(card.id, line);
   }
   const line = keyLines.get(card.id);
-  if (card.lastElementChild !== line) card.append(line);
+  /* It is the last line, save for "N more with Advanced" when that ends the section (DG-073). */
+  const trail = card.lastElementChild?.matches(".sg-more-line") ? card.lastElementChild : null;
+  if ((trail ? trail.previousElementSibling : card.lastElementChild) !== line) card.insertBefore(line, trail);
 }
 
 /* ---------- "N more with Advanced" ---------- */
@@ -231,10 +241,13 @@ function countHidden() {
     const above = cards.filter((card) => RANK[card.dataset.level ?? "regular"] > now);
     const shown = cards.filter((card) => !above.includes(card));
     for (const card of cards) card.classList.toggle("sg-solo", shown.length === 1 && card === shown[0]);
-    const more = head.querySelector(".sg-more");
+    const line = moreLines.get(head), more = line.querySelector(".sg-more");
     head.classList.toggle("sg-empty", cards.length === 0);
     head.classList.toggle("sg-thin", cards.length > 0 && above.length === cards.length);
-    if (more.hidden !== (above.length === 0)) more.hidden = above.length === 0;
+    if (line.hidden !== (above.length === 0)) line.hidden = above.length === 0;
+    /* DG-073: at the end of the section, after its last card on show; in the head when none is on show. */
+    const home = above.length && shown.length ? shown.at(-1) : head;
+    if (home.lastElementChild !== line) home.append(line);
     if (!above.length) continue;
     const to = above.some((card) => card.dataset.level === "advanced") ? "advanced" : "technical";
     mark(more, "to", to);

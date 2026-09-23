@@ -257,7 +257,8 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   await openSettings(f.page, "general");
   assert.equal(await f.page.locator("#deployment-card").isVisible(), true, "a Regular card shows");
   assert.equal(await f.page.locator("#never-break-card").isVisible(), false, "an Advanced card waits for Advanced");
-  const more = f.page.locator('.sg-head[data-bucket="general:start"] .sg-more');
+  /* DG-073: the link ends its section, wherever that section's last card on show is. */
+  const more = f.page.locator('.sg-more-line[data-bucket="general:start"] .sg-more');
   assert.match(await more.textContent(), /1 more with Advanced/);
   await more.click();
   await f.page.waitForFunction(() => document.documentElement.dataset.settingsLevel === "advanced");
