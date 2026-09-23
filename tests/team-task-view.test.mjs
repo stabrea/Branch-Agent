@@ -160,3 +160,17 @@ test("owner-only: a household profile and both kinds of short-lived key are refu
   app.store.profiles.switch({ profileId: null });
   assert.equal((await get()).status, 200, "back at the owner's profile, the view is there again");
 });
+
+test("a team's room lists only that team's tasks, and only its owner's", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-team-view-scope-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const tasks = new TeamTasks(app.store);
+  const mine = { owner: app.runtime.owner, source: "owner" };
+  const a1 = tasks.observe(mine, "team-a", randomUUID(), "f");
+  const a2 = tasks.observe({ ...mine, source: "key:1" }, "team-a", randomUUID(), "f");
+  tasks.observe(mine, "team-b", randomUUID(), "f");
+  tasks.observe({ owner: "someone-else", source: "owner" }, "team-a", randomUUID(), "f");
+  const listed = tasks.recent(app.runtime.owner, "team-a", 20).map((task) => task.taskId).sort();
+  assert.deepEqual(listed, [a1.taskId, a2.taskId].sort(), "team A's own tasks from every source, nothing of team B or another owner");
+});
