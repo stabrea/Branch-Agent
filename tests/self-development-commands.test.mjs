@@ -12,6 +12,7 @@ import { createBranch, savePolicy } from "../dist/index.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 import { ContractBook, contractGuard } from "../dist/self-development-contract.js";
 import { gitFoldersUnder, sweepNewGitFolders } from "../dist/integrations/shell.js";
+import { EditChecks } from "../dist/coding/format-on-edit.js";
 import { wallReport } from "../dist/sandbox-backends.js";
 import { AuditLog } from "../dist/audit.js";
 import { ToolRegistry } from "../dist/registry.js";
@@ -186,4 +187,30 @@ test("with no project active, a command whose folder is in a worktree is still r
   const other = await guardWith(t, async () => true, "notes");
   await assert.rejects(other.guard("shell.execute", { cwd: `${worktree}/src` }, { runId: "r" }),
     /a command runs only inside the active self-development worktree/);
+});
+
+test("no formatter runs after an edit while Branch's own source is checked out", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-format-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const workspace = app.runtime.workspace;
+  app.coding.setMode("format-on-edit", "on");
+  const formatter = join(root, "bin", "fmt");
+  await mkdir(join(root, "bin"), { recursive: true });
+  await writeFile(formatter, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const calls = [];
+  const checks = new EditChecks({ store: app.store, owner: app.runtime.owner, files: app.coding["deps"].files,
+    runner: async (run) => { calls.push(run); return { exitCode: 0, stdout: "", stderr: "", timedOut: false }; },
+    areas: () => app.runtime.protectedAreas, servers: { enabled: () => false }, trusted: () => true, wall: () => ({ network: "none" }),
+    walled: async (run, start) => run(start) });
+  await checks.save({ formatters: { fmt: { path: formatter, args: ["{file}"], extensions: [".ts"] } } });
+  await mkdir(join(workspace, "src"), { recursive: true });
+  await writeFile(join(workspace, "src", "a.ts"), "x");
+  const context = app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "edit").id });
+  assert.equal((await checks.check("src/a.ts", context)).formatter, "fmt");
+  assert.equal(calls.length, 1, "with no checkout the formatter runs");
+  await mkdir(join(workspace, "branch-agent-source"), { recursive: true });
+  const held = await checks.check("src/a.ts", context);
+  assert.match(held.note ?? "", /Branch's own source is checked out in this workspace, and no formatter runs while it is/);
+  assert.equal(calls.length, 1, "with the checkout there it does not");
 });

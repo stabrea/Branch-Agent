@@ -120,6 +120,7 @@ test("the finish-of-task hook's push is checked against the contract before anyt
   const refused = app.store.audit.list(owner, { action: "self_development.contract" }).filter((entry) => entry.outcome === "refused");
   assert.equal(refused.length, 1);
   assert.match(refused[0].subject, /^github\.pull_request_from_changes in branch-agent-source\/\.branch-worktrees\/self-remove-button/);
+  assert.equal(refused[0].runId, run.id, "the record names the finished task the hook was sending");
 });
 
 test("the hook's push needs the pull request step in the contract, even when no tool call is made", posixOnly, async (t) => {
