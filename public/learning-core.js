@@ -103,7 +103,7 @@ function forgetButton(status, redraw) {
 function buildCard(view, message) {
   const card = el("section", undefined, "card");
   card.id = "learning-core";
-  card.dataset.home = "library:memory";
+  card.dataset.home = "settings:memory";
   const status = el("p", message ? t(message) : "", "meta");
   status.setAttribute("role", "status");
   if (message) status.dataset.t = message;

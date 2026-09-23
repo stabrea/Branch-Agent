@@ -154,7 +154,7 @@ function batchRecord(batch, status) {
   return node;
 }
 function lookBackCard(state) {
-  const node = card("learning-look-back", "library:memory",
+  const node = card("learning-look-back", "settings:memory",
     ["library.card.looking-back", "Looking back over conversations"],
     ["library.note.looking-back", "Every so often your assistant rereads the latest turns of a conversation and suggests what to correct, merge or set aside in what it remembers, and how a skill could be better. Nothing changes until you say yes."]);
   const mode = field(node, { id: "look-back-switch", key: "field.looking-back", words: "Looking back", control: switchControl(state.settings.reflection) });

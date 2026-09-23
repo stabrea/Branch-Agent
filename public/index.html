@@ -521,7 +521,7 @@
             </div>
             <p id="memory-tidy-status" role="status"></p>
           </div>
-          <div class="card">
+          <div class="card" id="memory-capacity-card" data-home="settings:memory">
             <h2 data-t="memory.card.how-much-it-keeps">How much it keeps</h2>
             <p>Set how many notes your assistant may hold at once, and move them between computers.</p>
             <p id="memory-count" role="status"></p>
@@ -535,14 +535,14 @@
             <p class="subtle">Bringing notes in adds them to what is already here. A note that is already saved is skipped. If a whole file clashes with what you have, none of it is brought in, so nothing is quietly overwritten. Read what arrives before you rely on it.</p>
             <p id="memory-import-result" role="status"></p>
           </div>
-          <form id="learning-form" class="card">
+          <form id="learning-form" class="card" data-home="settings:memory">
             <h2 data-t="memory.card.what-it-learns">What it learns</h2>
             <label class="check-row"><input type="checkbox" id="learning-review" /> <span data-t="field.after-each-task-suggest-what">After each task, suggest what is worth remembering. You accept or reject each suggestion.</span></label>
             <label class="check-row"><input type="checkbox" id="learning-approval" /> <span data-t="field.ask-me-before-the-assistant">Ask me before the assistant saves, changes or removes a memory on its own.</span></label>
             <label class="check-row"><input type="checkbox" id="learning-consolidate" /> Once a day, look over what happened and suggest what is worth remembering. <button id="consolidate-now" type="button" data-t="action.look-now">Look now</button></label>
-            <h3>Suggested changes</h3>
+            <h4>Suggested changes</h4>
             <div id="memory-proposals" class="card-list" aria-live="polite"></div>
-            <h3>Checkpoints</h3>
+            <h4>Checkpoints</h4>
             <p class="subtle">A checkpoint keeps every memory and which skill versions are enabled, so you can put everything back exactly as it was.</p>
             <div class="input-row"><input id="checkpoint-label" maxlength="120" aria-label="Name this checkpoint" placeholder="Name this checkpoint (optional)" /><button id="checkpoint-save" type="button" data-t="action.save-a-checkpoint">Save a checkpoint</button></div>
             <div id="memory-checkpoints" class="card-list"></div>
@@ -809,7 +809,7 @@
         </section>
         <section id="documents" class="view" hidden>
           <p class="section-intro" data-t="documents.intro.your-own-documents-kept-on">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, slide decks, OpenDocument files, e-books, rich text, web pages, notes, tables, plain text and PDFs are all read here. A PDF that is pictures of text has no words to lift out, and says so.</p>
-          <div class="card">
+          <div class="card" id="documents-answering-card" data-home="settings:memory">
             <h2 data-t="documents.card.answering-from-your-documents">Answering from your documents</h2>
             <p>While this is on, your assistant looks through the documents below before it answers, and says which one it took each line from.</p>
             <label class="check-row"><input type="checkbox" id="documents-use" /> <span data-t="field.use-my-documents-when-answering">Use my documents when answering</span></label>
@@ -861,7 +861,7 @@
           </form>
           <p id="documents-status" role="status"></p>
           <div id="documents-list" class="card-list"></div>
-          <div class="card" id="knowledge-card">
+          <div class="card" id="knowledge-card" data-home="settings:memory">
             <h2 data-t="documents.card.knowledge">Knowledge</h2>
             <p class="subtle" id="knowledge-meaning">A knowledge base is a name you give to whole folders of your work, so the assistant can find the right page and tell you where it came from.</p>
             <form id="knowledge-create-form">
@@ -898,7 +898,7 @@
               <p class="subtle" data-t="documents.note.a-filter-that-matches-nothing">A filter narrows the search before anything is ranked, and two filters narrow it further. If nothing matches, Branch says so rather than answering from everything else you have.</p>
               <div id="knowledge-results" class="card-list"></div>
             </form>
-            <h3 data-t="documents.heading.where-your-vectors-are-kept">Where your vectors are kept</h3>
+            <h4 data-t="documents.heading.where-your-vectors-are-kept">Where your vectors are kept</h4>
             <p class="subtle" data-t="documents.note.vectors-are-kept-in-branchs">Matching by meaning needs a list of numbers for every passage. They are kept in the database Branch already has. If you have a large library you can put them in a database file of your own instead, on any drive. Nothing is deleted by changing this: press Read it again to fill the new place.</p>
             <div class="input-row">
               <select id="knowledge-vectors-in">

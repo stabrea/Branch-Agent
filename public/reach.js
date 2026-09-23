@@ -7,7 +7,7 @@
    settings:models:media     Making videos
    customize:channels        The chat relay; sending and pausing chat apps
    customize:skills          Sharing the assistant through git; skill bundles
-   library:documents         Notes
+   settings:memory           Notes
    settings:models:second    Model arena */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
@@ -383,13 +383,13 @@ async function bundlesCard(state) {
   return node;
 }
 
-/* ---------- library:documents — notes ---------- */
+/* ---------- settings:memory — notes ---------- */
 const STYLES = [["clearer", "reach.notes.clearer", "Clearer"], ["shorter", "reach.notes.shorter", "Shorter"], ["fix", "reach.notes.fix", "Fix spelling"],
   ["list", "reach.notes.list", "As a list"], ["formal", "reach.notes.formal", "More formal"]];
 let openNote = null;
 
 async function notesCard(state) {
-  const { node, status } = card("reach-notes-card", "library:documents", "reach.notes.title", "Notes",
+  const { node, status } = card("reach-notes-card", "settings:memory", "reach.notes.title", "Notes",
     "reach.notes.purpose", "Short notes of your own. Branch can suggest a rewrite; the note only changes when you keep it.");
   node.append(...switchFor("notes", state.modes, status));
   if (state.modes.notes !== "off") {

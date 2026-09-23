@@ -339,11 +339,6 @@ const SETTINGS_DIRECTORY = {
     ["specialists", "place.customize.specialists", "Specialists", "settingsDirectory.specialists.line", "Create and manage Trunks with their own jobs and character.", "customize:specialists"],
     ["plugins", "place.customize.plugins", "Plugins", "settingsDirectory.plugins.line", "Install and review add-ons from other tools and people.", "customize:plugins"],
   ],
-  memory: [
-    ["memory", "place.library.memory", "Memory", "settingsDirectory.memory.line", "Review what Branch remembers and how it learns.", "library:memory"],
-    ["documents", "place.library.documents", "Documents", "settingsDirectory.documents.line", "Manage the documents Branch may use when it answers.", "library:documents"],
-    ["made", "place.library.made", "Made for you", "settingsDirectory.made.line", "Open the pages, articles and widgets Branch made.", "library:made"],
-  ],
   automations: [
     ["scheduled", "place.automations.scheduled", "Scheduled", "settingsDirectory.scheduled.line", "Manage work that runs at a particular time.", "automations:scheduled"],
     ["procedures", "place.automations.procedures", "Procedures", "settingsDirectory.procedures.line", "Manage saved ways of doing repeatable work.", "automations:procedures"],
@@ -356,7 +351,7 @@ const SETTINGS_DIRECTORY = {
 const MOVES = [
   ["policy-waiting-card", "lx-slot-inbox-needs"],
   ["automations-container", "lx-slot-automations-triggers"], ["hooks-card", "lx-slot-automations-triggers"],
-  ["obsidian-card", "documents"],
+  ["obsidian-card", "lx-page-memory"],
   ["plugins-card", "lx-slot-customize-plugins"],
   ["mcp-card", "lx-slot-customize-connections"],
   ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-slot-customize-channels"],

@@ -143,9 +143,27 @@ export const BUCKETS = {
     ["open", "spark", "Skills, specialists and plugins", "Open the real place for each kind of capability.",
       [["settings-directory-skills-skills", R], ["settings-directory-skills-specialists", R], ["settings-directory-skills-plugins", R]]],
   ],
+  /* DG-197: the sample's sections, in its order. The cards came here from the Library's tabs; each row shows at the
+     sample's level (public/settings-row-levels.js). Bringing in new items also holds Notes, and Answers, pages and
+     articles also holds the widgets, as the sample folds a one-setting card into the section before it. */
   memory: [
-    ["open", "memory", "Memory, documents and things made", "Open the real Library page for each kind of item.",
-      [["settings-directory-memory-memory", R], ["settings-directory-memory-documents", R], ["settings-directory-memory-made", R]]],
+    ["remembers", "memory", "What it remembers", "What Branch keeps about you and your work.",
+      [["memory-capacity-card", A], ["learning-form", R], ["knobs-memory-card", A], ["learning-core", A], ["lmore-blocks-card", A],
+        ["lmore-expiry-card", A], ["lmore-readback-card", A], ["context-memory-file", A]]],
+    ["elsewhere", "swap", "Memory from elsewhere", "Memory kept by other services.",
+      [["asks-hindsight-card", R], ["lmore-lessons-card", R], ["lmore-sessions-card", A], ["lmore-providers-card", A]]],
+    ["past", "search", "Finding the past", "Finding earlier conversations.",
+      [["lmore-journey-card", R], ["lmore-meaning-card", R], ["learning-look-back", A]]],
+    ["answering", "library", "Answering from your documents", "Your assistant looks through your documents before it answers.",
+      [["documents-answering-card", R]]],
+    ["knowledge", "library", "Knowledge", "Whole folders of your work the assistant can find a page in.",
+      [["knowledge-card", R]]],
+    ["notes", "instructions", "Your notes folder", "A folder of Markdown notes Branch writes into.",
+      [["obsidian-card", R]]],
+    ["sources", "refresh", "Bringing in new items", "New issues, mail and messages, brought into your workspace.",
+      [["asks-sources-card", R], ["reach-notes-card", R]]],
+    ["made", "spark", "Answers, pages and articles", "Quick answers, pages you can hand on, and long articles.",
+      [["asks-made-card", R], ["flows-widgets-card", A]]],
   ],
   automations: [
     ["open", "automations", "Automations and their record", "Open the real Automations or Inbox page.",

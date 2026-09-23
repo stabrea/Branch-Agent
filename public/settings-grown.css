@@ -95,6 +95,11 @@
 .settings-directory-open {
   flex: none;
 }
+/* DG-197: Memory & library is the sample's sections, and each card reads as rows of its section: the card's own
+   title is not another heading on show (a search still shows it). The line saying what the card is for stays. */
+body:not(.lx-settings-searching) [data-sg-bucket^="memory:"] > :is(h2, h3):first-child {
+  display: none;
+}
 /* Destructive uninstall controls keep the warning enclosure from the full window. */
 .lx-page > .card.danger-zone {
   margin: 0 0 12px;

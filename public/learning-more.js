@@ -2,7 +2,7 @@
    with the owner's three-way switch, all starting off. Every control has a label and a one-line
    description (aria-describedby), and every word is behind a data-t key with French.
 
-   library:memory     Memory blocks, the timeline, finding conversations by meaning, lessons from
+   settings:memory    Memory blocks, the timeline, finding conversations by meaning, lessons from
                       failed evaluation tasks, preferences from Claude Code and Codex, expiring and
                       labelled memories, reading note edits back, outside memory services
    customize:skills   How often each skill is used, and merging look-alikes */
@@ -87,7 +87,7 @@ const list = (items, render) => {
 
 /* ---------- Memory blocks ---------- */
 function blocksCard(state) {
-  const built = card("lmore-blocks-card", "library:memory", "blocks", state, ["lmore.blocks.title", "Memory blocks the assistant can edit"],
+  const built = card("lmore-blocks-card", "settings:memory", "blocks", state, ["lmore.blocks.title", "Memory blocks the assistant can edit"],
     ["lmore.blocks.purpose", "A few short, named notes kept in front of every conversation. The assistant keeps them current, within each one's size."]);
   if (!built.on) return finish(built);
   for (const block of state.blocks) {
@@ -95,7 +95,7 @@ function blocksCard(state) {
     box.maxLength = block.limit;
     const used = plain("p", say("lmore.blocks.used", `${block.value.length} of ${block.limit} characters`, { used: block.value.length, limit: block.limit }), "meta");
     box.addEventListener("input", () => { used.textContent = say("lmore.blocks.used", `${box.value.length} of ${block.limit} characters`, { used: box.value.length, limit: block.limit }); });
-    built.node.append(plain("h3", block.label), ...described(`lmore-block-${block.label}`, ["lmore.blocks.value", "What it says"],
+    built.node.append(plain("h4", block.label), ...described(`lmore-block-${block.label}`, ["lmore.blocks.value", "What it says"],
       block.label === "about-you" ? ["lmore.blocks.aboutHint", "Your about-you note from Settings; its size and whether it is shown are set there."] : ["lmore.blocks.valueHint", "The assistant sees this at the start of each conversation."], box), used,
       ...button(`lmore-block-save-${block.label}`, ["lmore.blocks.save", "Save this block"], ["lmore.blocks.saveHint", "Keeps your wording; key-like values are hidden."], async () => {
         try { await api("learning-more/blocks/edit", { label: block.label, action: "set", text: box.value }); done(built.status); } catch (error) { tell(built.status, error); }
@@ -104,7 +104,7 @@ function blocksCard(state) {
   const label = input("input");
   const size = input("input", "2000", "number");
   Object.assign(size, { min: "100", max: "8000" });
-  built.node.append(make("h3", "", "lmore.blocks.new", "A new block"),
+  built.node.append(make("h4", "", "lmore.blocks.new", "A new block"),
     ...described("lmore-block-label", ["lmore.blocks.label", "Name"], ["lmore.blocks.labelHint", "Lower-case letters, digits and dashes, such as project-goals."], label),
     ...described("lmore-block-size", ["lmore.blocks.size", "Size in characters"], ["lmore.blocks.sizeHint", "The block can never grow past this."], size),
     ...button("lmore-block-add", ["lmore.blocks.add", "Add the block"], ["lmore.blocks.addHint", "It starts empty; the assistant or you can fill it."], async () => {
@@ -137,7 +137,7 @@ async function curatorCard(state) {
 
 /* ---------- Journey ---------- */
 async function journeyCard(state) {
-  const built = card("lmore-journey-card", "library:memory", "journey", state, ["lmore.journey.title", "A timeline of what was learned"],
+  const built = card("lmore-journey-card", "settings:memory", "journey", state, ["lmore.journey.title", "A timeline of what was learned"],
     ["lmore.journey.purpose", "Facts saved and changed, skills written, your decisions, habits and lessons, newest first."]);
   if (!built.on) return finish(built);
   const { entries } = await api("learning-more/journey?limit=50");
@@ -148,7 +148,7 @@ async function journeyCard(state) {
 
 /* ---------- Meaning search ---------- */
 function meaningCard(state) {
-  const built = card("lmore-meaning-card", "library:memory", "meaning-search", state, ["lmore.meaning.title", "Finding past conversations by meaning"],
+  const built = card("lmore-meaning-card", "settings:memory", "meaning-search", state, ["lmore.meaning.title", "Finding past conversations by meaning"],
     ["lmore.meaning.purpose", "Finds what was meant even when other words were used. Without a way to compare meaning, it matches words."]);
   if (!built.on) return finish(built);
   const query = input("input");
@@ -168,12 +168,12 @@ function meaningCard(state) {
 
 /* ---------- Lessons ---------- */
 async function lessonsCard(state) {
-  const built = card("lmore-lessons-card", "library:memory", "lessons", state, ["lmore.lessons.title", "Learning from failed evaluation tasks"],
+  const built = card("lmore-lessons-card", "settings:memory", "lessons", state, ["lmore.lessons.title", "Learning from failed evaluation tasks"],
     ["lmore.lessons.purpose", "A failed evaluation task leaves a lesson for you to approve. Approved lessons go on trial; those that help later are offered to remember, the rest are dropped."]);
   if (!built.on) return finish(built);
   const { lessons } = await api("learning-more/lessons");
   const waiting = lessons.filter((lesson) => lesson.status === "pending");
-  if (waiting.length) built.node.append(make("h3", "", "lmore.lessons.waitingTitle", "Waiting for your yes"),
+  if (waiting.length) built.node.append(make("h4", "", "lmore.lessons.waitingTitle", "Waiting for your yes"),
     make("p", "field-note", "lmore.lessons.waitingNote", "No task is shown a lesson until you approve it."), list(waiting, (lesson) => pendingLesson(lesson, built)));
   const rest = lessons.filter((lesson) => lesson.status !== "pending");
   built.node.append(rest.length ? list(rest, (lesson) => plain("li", `${say(`lmore.lessons.${lesson.status}`, lesson.status)} · ${lesson.passes}/${lesson.passes + lesson.failures} · ${lesson.text}`))
@@ -200,7 +200,7 @@ function pendingLesson(lesson, built) {
 
 /* ---------- Preferences from other assistants ---------- */
 function sessionsCard(state) {
-  const built = card("lmore-sessions-card", "library:memory", "session-lessons", state, ["lmore.sessions.title", "Learning your preferences from Claude Code and Codex"],
+  const built = card("lmore-sessions-card", "settings:memory", "session-lessons", state, ["lmore.sessions.title", "Learning your preferences from Claude Code and Codex"],
     ["lmore.sessions.purpose", "Reads only what you typed in their chats, never their sign-ins, and shows every preference before anything is kept."]);
   if (!built.on) return finish(built);
   const { settings, folders } = state.sessions;
@@ -239,7 +239,7 @@ function drawCandidates(found, candidates, status) {
 
 /* ---------- Expiry and labels ---------- */
 async function expiryCard(state) {
-  const built = card("lmore-expiry-card", "library:memory", "expiry", state, ["lmore.expiry.title", "Memories that expire, with labels and dates"],
+  const built = card("lmore-expiry-card", "settings:memory", "expiry", state, ["lmore.expiry.title", "Memories that expire, with labels and dates"],
     ["lmore.expiry.purpose", "A fact can carry labels and a date after which it is set aside, never deleted. Search by label and date."]);
   if (!built.on) return finish(built);
   const { tags } = await api("learning-more/memory/tags");
@@ -258,7 +258,7 @@ async function expiryCard(state) {
 
 /* ---------- Read-back and tidy instructions ---------- */
 function readBackCard(state) {
-  const built = card("lmore-readback-card", "library:memory", "readback", state, ["lmore.readback.title", "Reading your edits to the memory notes back"],
+  const built = card("lmore-readback-card", "settings:memory", "readback", state, ["lmore.readback.title", "Reading your edits to the memory notes back"],
     ["lmore.readback.purpose", "Edits you make in the memory folder become suggestions. You can also write how your notes should be tidied."]);
   if (!built.on) return finish(built);
   const words = input("textarea", state.readBack.tidyInstructions);
@@ -275,7 +275,7 @@ function readBackCard(state) {
 
 /* ---------- Outside memory services ---------- */
 function providersCard(state) {
-  const built = card("lmore-providers-card", "library:memory", "providers", state, ["lmore.providers.title", "Outside memory services"],
+  const built = card("lmore-providers-card", "settings:memory", "providers", state, ["lmore.providers.title", "Outside memory services"],
     ["lmore.providers.purpose", "Also keep and recall things with Hindsight, Mem0 or Honcho. Branch's own memory always stays."]);
   if (!built.on) return finish(built);
   const current = state.providers;
