@@ -65,12 +65,12 @@ export function torus([cx, cy, cz], radius, tube, color, seg = 18) {
 
 /* ---------- the stand-ins ---------- */
 export function acornModel() {
-  const copper = tone("--copper", "#b8562e"), text = tone("--text", "#23343e"), ground = tone("--ground", "#eaf0f2");
-  const nut = mix(copper, [0.95, 0.75, 0.45], 0.35), cap = mix(text, copper, 0.3), stem = mix(text, ground, 0.2);
+  const copper = tone("--copper", "#d8612a"), text = tone("--text", "#1d2a21"), ground = tone("--ground", "#e9e3d5");
+  const nut = mix(copper, [0.95, 0.75, 0.45], 0.2), cap = mix(text, copper, 0.4), stem = mix(text, ground, 0.3);
   return [
-    ellipsoid([0, -0.18, 0], [0.5, 0.62, 0.5], nut, { seg: 22 }),
-    ellipsoid([0, 0.18, 0], [0.58, 0.34, 0.58], cap, { seg: 18, upTo: 0.55 }),
-    cone([0, 0.44, 0], 0.26, 0.07, 0.05, stem),
+    ellipsoid([0, -0.2, 0], [0.5, 0.625, 0.5], nut, { seg: 16 }),
+    ellipsoid([0, 0.2, 0], [0.55, 0.35, 0.55], cap, { seg: 12, upTo: 0.5 }),
+    cone([0, 0.57, 0], 0.3, 0.07, 0.05, stem, 6),
   ];
 }
 export function oakModel() {
