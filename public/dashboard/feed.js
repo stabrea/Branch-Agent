@@ -47,11 +47,11 @@ function draw() {
 }
 
 function filters() {
-  const group = make("div", "lx-seg db-filters");
+  const group = make("div", "seg db-filters");
   group.setAttribute("role", "group");
   group.setAttribute("aria-label", say("dashboard.filter.label", "Show"));
   for (const [id, english] of FILTERS) {
-    const choice = worded("button", "lx-seg-button", `dashboard.filter.${id}`, english);
+    const choice = worded("button", "segmented-option", `dashboard.filter.${id}`, english);
     choice.type = "button";
     choice.dataset.filter = id;
     choice.setAttribute("aria-pressed", String(chosen === id));

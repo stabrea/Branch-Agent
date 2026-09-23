@@ -1182,53 +1182,35 @@ body.lx-help .context-panel > .acorn-art {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
   }
 }
+/* DG-171: each choice row is the sample's `.ctl` (a label, the control beside it, a note across beneath), and
+   its choices are the shared `.seg` control (control-styles.css), as every other three-way is. */
 .lx-look-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-top: 16px;
-  padding-top: 14px;
+  gap: 3px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--line);
 }
 .lx-look-label {
-  font-size: 13.5px;
-}
-.lx-seg {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--well);
-}
-.lx-seg-button {
-  padding: 5px 11px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-2);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 520;
 }
 .lx-look-note {
-  flex: 1 0 100%;
+  grid-column: 1 / -1;
   max-width: 76ch;
   margin: 0;
   color: var(--text-3);
   font-size: 12.5px;
 }
-.lx-seg-button:hover {
-  background: transparent;
-  color: var(--text);
+/* The sample's buttons are inline, so a space parts the sign from its word; the shared option is a flex box. */
+.seg-sign {
+  margin-inline-end: 0.24em;
 }
-.lx-seg-button[aria-pressed="true"] {
-  background: var(--copper);
-  color: var(--on-copper);
-  font-weight: 640;
+@media (max-width: 760px) {
+  .lx-look-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .lx-contrast-row {
   margin-top: 14px;
@@ -1404,10 +1386,6 @@ body.lx .model-controls .text-button {
 }
 .lx-subtab[aria-selected="true"]:hover {
   background: none;
-}
-.lx-seg-button[aria-pressed="true"]:hover {
-  background: var(--copper);
-  color: var(--on-copper);
 }
 .lx-button.lx-primary:hover,
 .lx-ask-send:hover {

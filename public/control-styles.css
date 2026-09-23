@@ -84,8 +84,14 @@ input[type="checkbox"][role="switch"]:disabled {
   color: var(--text-2);
   font: inherit;
   font-size: 12.5px;
+  box-shadow: none;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* The sample's options keep their look under the pointer: the page's own button hover must not reach them. */
+.segmented-option:hover {
+  background: none;
 }
 
 .segmented-option[aria-pressed="true"] {
