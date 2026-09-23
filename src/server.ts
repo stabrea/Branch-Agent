@@ -273,6 +273,10 @@ import { decisionsFromRules } from "./tool-categories.js";
 // the waiting line for tasks, days off and quiet hours, and the household's profiles.
 import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab-server.js";
 import { shareHtml, RedactionSchema } from "./conversation-share.js";
+// FQ-workspace.office: a Word or spreadsheet file the owner and one other person both edit.
+import {
+  handlesOfficeCoeditPath, officeCoeditApi, officeCoeditFileRoute, officeCoeditGuestPage, OfficeCoeditHttpError,
+} from "./document-coedit-api.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 const actionSchema = z
@@ -1218,6 +1222,11 @@ async function api(
   }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // FQ-workspace.office: the owner's own side of a co-edit session (src/document-coedit-api.js).
+  if (handlesOfficeCoeditPath(path))
+    return officeCoeditApi({ coedit: app.officeCoedit, owner: app.store.profiles.scope(),
+      method: request.method ?? "GET", readBody: () => readBody(request) }, path)
+      .catch((error: unknown) => { throw error instanceof OfficeCoeditHttpError ? new HttpError(error.status, error.message) : error; });
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
   if (path.startsWith("/api/knowledge")) {
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
@@ -3115,6 +3124,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (await chatWebhook(app, request, response, path, webhookLimiter, () => listen.beyond)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
+      // FQ-workspace.office: the other person's own door into a co-edit session, carrying its code
+      // instead of the owner's key — the same shape as a shared conversation page, just above.
+      if (await officeCoeditGuestPage(app.officeCoedit, request, response, path)) return;
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
       // A frame cannot carry the session key, so the address itself is the one-time secret.
       // mac7/channel-leaks: and only to a caller on this very computer, as the artifact page below
@@ -3654,6 +3666,8 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     return true;
   }
   // ---- end of the bucket 13 block ----
+  // FQ-workspace.office: the owner's own download of a co-edit session's current bytes.
+  if (await officeCoeditFileRoute(app.officeCoedit, app.store.profiles.scope(), request, response, path)) return true;
   // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
   if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Batch 20 (wave 8): what every task wrote down, as one JSON object per line, for a log shipper.
@@ -4160,6 +4174,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesLearningMorePath(path))
     // mac7/learn: building a map reads the whole folder, and a tour may ask a model.
     || (request.method !== "GET" && handlesLearnPath(path))
+    // FQ-workspace.office: starting a session reads a workspace file, and every edit writes one.
+    || (request.method !== "GET" && handlesOfficeCoeditPath(path))
   );
 }
 function configureLimits(server: Server): void {

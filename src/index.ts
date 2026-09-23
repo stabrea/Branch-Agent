@@ -154,6 +154,9 @@ import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
 // Batch 20 (wave 8): writing Office files, a map of what a knowledge base mentions, summaries,
 // pictures described in words, a Markdown mirror of what is remembered, and text held for one job.
 import { DocumentAuthoring, registerDocumentAuthoring } from "./document-authoring.js";
+// FQ-workspace.office: the missing half `document-authoring.js` and `document-write.js` both say
+// out loud — a document changed alongside another person, not only written and read locally.
+import { OfficeCoedit } from "./document-coedit.js";
 import { GraphRetriever, KnowledgeGraph } from "./knowledge-graph.js";
 import { KnowledgeSummaries } from "./knowledge-summary.js";
 import { KnowledgeManagement } from "./knowledge-manage.js";
@@ -540,6 +543,9 @@ export async function createBranch(options: {
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
   runtime.documents = documents;
+  // FQ-workspace.office: a Word or spreadsheet file the owner and one other person both change,
+  // each edit merged onto the other's latest save rather than one side overwriting the other.
+  const officeCoedit = new OfficeCoedit(store.sqlite, files);
   registry.register({
     name: "user.ask", permission: "user.ask",
     description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
@@ -1289,6 +1295,8 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    /** FQ-workspace.office: a Word or spreadsheet file two people are editing together right now. */
+    officeCoedit,
     /** Making and reading pictures, speech and sound files. */
     media,
     /** Writing speech out and reading text aloud, whichever service does the work. */
@@ -1936,6 +1944,7 @@ export * from "./document-xlsx.js";
 export * from "./document-pptx.js";
 export * from "./document-edit.js";
 export * from "./document-authoring.js";
+export * from "./document-coedit.js";
 export * from "./knowledge-graph.js";
 export * from "./knowledge-summary.js";
 export * from "./knowledge-manage.js";
