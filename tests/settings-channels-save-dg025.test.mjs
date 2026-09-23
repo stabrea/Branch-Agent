@@ -119,6 +119,15 @@ test("DG-025: Chat apps & devices keeps each switch as it changes, with no Save 
   });
   assert.equal(await page.locator("#embed-extension").isChecked(), false, "a switch that did not save goes back");
   assert.equal((await call("embeds")).extension, false);
+  await refused(page, "embeds", async () => {
+    /* The refusal above is still on show, so this waits for the card to read what is saved again after its own refusal. */
+    const reread = page.waitForResponse((response) => response.url().endsWith("/api/embeds") && response.request().method() === "GET");
+    await page.locator("#embed-sites").fill("https://notes.example.com");
+    await page.locator("#embed-sites").blur();
+    await reread;
+    await page.waitForTimeout(200);
+  });
+  assert.equal(await page.locator("#embed-sites").inputValue(), "https://notes.example.com", "a list that did not save stays as typed");
 
   /* Telegram: the switch is kept as it changes, and a token being typed stays where it is. */
   await page.locator("#telegram-setup-token").fill("half a token");

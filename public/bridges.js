@@ -42,14 +42,16 @@ export async function drawEmbeds() {
   } catch (error) { say("embeds-status", error.message); }
 }
 /* DG-025: each switch, and the list of pages once it is left, is kept the moment it changes, as the sample saves.
-   One that will not save goes back to what is saved, and says why. */
+   A switch that will not save goes back to what is saved, and it says why. */
 async function saveEmbeds() {
   try {
     const widgetSites = $("embed-sites").value.split("\n").map((line) => line.trim()).filter(Boolean);
     await api("embeds", { widget: $("embed-widget").checked, extension: $("embed-extension").checked, widgetSites });
     say("embeds-status", t("embeds.saved"));
   } catch (error) {
+    const typed = $("embed-sites").value; // the switches go back; the list being written stays as typed
     await drawEmbeds();
+    $("embed-sites").value = typed;
     say("embeds-status", error.message);
   }
 }
