@@ -1711,6 +1711,18 @@ details.tool-step > summary:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* at work or waiting for you: the sample's amber dot on the face's corner */
+.lx-open-dot {
+  position: absolute;
+  left: 22px;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
 .lx-open-close {
   flex: none;
   display: grid;

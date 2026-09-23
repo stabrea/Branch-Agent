@@ -56,6 +56,22 @@ function faceOn(wrap) {
   wrap.querySelector(".lx-open-go").prepend(mark);
 }
 
+/** What each conversation is doing, from app.js's "branch-busy": "wait" (it stopped to ask you), "work", or none. */
+let busy = { needsYou: [], working: [] };
+const busyOf = (id) => (busy.needsYou.includes(id) ? "wait" : busy.working.includes(id) ? "work" : "");
+/** The sample's dot on the face while a conversation is at work or waiting for you, said in words too. */
+function dotOn(wrap) {
+  const state = busyOf(wrap.dataset.session);
+  if ((wrap.dataset.busy || "") === state) return;
+  wrap.querySelector(".lx-open-dot")?.remove();
+  const go = wrap.querySelector(".lx-open-go"), words = go.title;
+  if (!state) { delete wrap.dataset.busy; go.removeAttribute("aria-label"); return; }
+  wrap.dataset.busy = state;
+  const key = state === "wait" ? ["openStrip.needsYou", "{name}, needs you"] : ["openStrip.working", "{name}, working"];
+  go.setAttribute("aria-label", say(key[0], key[1], { name: words }));
+  go.querySelector(".lx-open-face")?.after(Object.assign(document.createElement("span"), { className: "lx-open-dot" }));
+}
+
 function entry(item) {
   const here = item.id === current();
   const wrap = Object.assign(document.createElement("span"), { className: `lx-open-item${here ? " on" : ""}` });
@@ -72,6 +88,7 @@ function entry(item) {
   close.addEventListener("click", () => { open = open.filter((other) => other.id !== item.id); save(open); paint(); });
   wrap.append(go, close);
   faceOn(wrap);
+  dotOn(wrap);
   return wrap;
 }
 
@@ -104,6 +121,11 @@ if (conversation) new MutationObserver(follow).observe(conversation, { attribute
 if (thread) new MutationObserver(follow).observe(thread, { childList: true, characterData: true, subtree: true });
 /* the roster (and with it each Trunk's face) arrives after the strip is first drawn */
 document.addEventListener("branch-strip", () => document.querySelectorAll("#lx-open-list .lx-open-item").forEach(faceOn));
+/* marked in place, so a strip scrolled sideways stays where it was */
+document.addEventListener("branch-busy", (event) => {
+  busy = { needsYou: event.detail?.needsYou ?? [], working: event.detail?.working ?? [] };
+  document.querySelectorAll("#lx-open-list .lx-open-item").forEach(dotOn);
+});
 document.addEventListener("branch-language", () => {
   const strip = $("lx-open-strip");
   if (strip) strip.setAttribute("aria-label", say("openStrip.label", "Open conversations"));

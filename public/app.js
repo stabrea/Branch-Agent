@@ -595,6 +595,7 @@ async function refresh() {
   }
   renderSnapshots();
   renderAttention();
+  announceBusy();
   void window.branchMcp?.render();
   void window.branchMcpWorkbench?.render();
   void window.branchApprovals?.render();
@@ -629,6 +630,12 @@ function waitingMessageRow(item) {
     item.armed ? button(t("attention.openConversation"), open) : button(t("attention.answer"), act("answer")),
     button(t("attention.notNow"), act("decline")));
   return row;
+}
+/** DG-096: which conversations have a task at work and which stopped to ask you (public/open-strip.js marks them). */
+function announceBusy() {
+  const needsYou = (state.attention || []).flatMap((item) => [item.sessionId, item.open]).filter(Boolean);
+  const working = (state.runs || []).filter((run) => run.status === "running" && run.sessionId).map((run) => run.sessionId);
+  document.dispatchEvent(new CustomEvent("branch-busy", { detail: { needsYou, working } }));
 }
 function renderAttention() {
   const waiting = state.attention || [];
