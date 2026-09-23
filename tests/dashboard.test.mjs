@@ -304,6 +304,34 @@ test("the page shows every area, fits 400 px, and a key that may only look gets 
   await none.page.locator("#db-grid").waitFor();
 });
 
+/* DG-171 review: the activity filters are the shared segmented control every other choice uses (control-styles.css),
+   so the chosen one is raised and the others are plain; they must never all look alike. */
+test("the activity filters are the shared segmented control, and the chosen one stands out", async (t) => {
+  const f = await fixture(t);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const { page, errors } = await openDashboard(browser, f.server, f.server.token, 1200);
+  const filters = page.getByRole("group", { name: "Show", exact: true });
+  await filters.waitFor();
+  const looks = () => filters.evaluate((group) => {
+    const style = (node) => getComputedStyle(node);
+    const pressed = group.querySelector('[aria-pressed="true"]'), plain = group.querySelector('[aria-pressed="false"]');
+    return {
+      group: [style(group).padding, style(group).borderRadius, style(group).borderTopWidth],
+      pressed: [pressed.textContent, style(pressed).fontWeight, style(pressed).boxShadow !== "none"],
+      plain: [style(plain).fontWeight, style(plain).backgroundColor, style(plain).boxShadow, style(plain).padding],
+      differ: style(pressed).backgroundColor !== style(plain).backgroundColor,
+    };
+  });
+  assert.deepEqual(await looks(), {
+    group: ["2px", "10px", "0px"], pressed: ["Everything", "600", true], plain: ["400", "rgba(0, 0, 0, 0)", "none", "5px 11px"], differ: true,
+  });
+  await filters.getByRole("button", { name: "Problems", exact: true }).click();
+  assert.equal((await looks()).pressed[0], "Problems", "the click moves the chosen filter");
+  assert.deepEqual(errors, []);
+});
+
 test("Stop ends a working task, Lockdown switches from the page, and when-needed keeps nothing open", async (t) => {
   let release;
   const held = new Promise((resolve) => { release = resolve; });
