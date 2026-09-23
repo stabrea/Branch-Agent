@@ -444,6 +444,8 @@ async function staticFile(
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
+    // FQ-models.hosted-local: "Run the same check" (hosted vs. this computer) in model-probe-card.
+    "/model-fixture.js": ["model-fixture.js", "text/javascript; charset=utf-8"],
     // Help in the app: the owner's handbook, opened in the pane on the right.
     "/help.js": ["help.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],

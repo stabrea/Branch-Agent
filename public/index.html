@@ -1321,6 +1321,14 @@
             <button type="button" id="model-probe-run" data-t="action.check-every-connection">Check every connection</button>
             <div id="model-probe-list"></div>
           </section>
+          <!-- FQ-models.hosted-local: the same fixture conversation, run through every configured -->
+          <!-- connection, hosted and on this computer alike (public/model-fixture.js). -->
+          <section id="model-fixture-card" class="card">
+            <h2 data-t="settings.card.same-check-hosted-local">Run the same check, hosted and local</h2>
+            <p data-t="settings.models.fixture-explainer">Sends one conversation with a tool to answer, then reads that tool's own answer back, through every connection you have set up — so a hosted connection and one on this computer are proven against the same fixture.</p>
+            <button type="button" id="model-fixture-run" data-t="action.run-same-fixture">Run the same check on every connection</button>
+            <div id="model-fixture-list"></div>
+          </section>
           <!-- Wave 7: signing in with Google for Gemini, beside the ordinary key flow. -->
           <section id="gemini-signin-card" class="card">
             <h2 data-t="settings.card.gemini">Gemini</h2>
@@ -2173,6 +2181,7 @@
     <script src="/voice-talk.js" type="module"></script>
     <script src="/voice-live.js" type="module"></script>
     <script src="/model-profiles.js" type="module"></script>
+    <script src="/model-fixture.js" type="module"></script>
     <script src="/app.js" type="module"></script>
     <script src="/help.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
