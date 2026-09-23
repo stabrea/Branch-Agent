@@ -30,12 +30,16 @@ async function edit(page, name, instructions) {
   await page.getByLabel('Assistant name', { exact: true }).fill(name);
   await page.getByLabel('Working instructions', { exact: true }).fill(instructions);
 }
+/* DG-025: no Save button; a field is kept when you leave it. Waits for the save that carries these words. */
 async function save(page) {
-  await page.getByRole('button', { name: 'Save identity', exact: true }).click();
+  const instructions = await page.locator('#identity-instructions').inputValue();
+  const sent = page.waitForResponse(response => response.url().endsWith('/api/identity') && response.request().method() === 'POST'
+    && response.request().postDataJSON().instructions === instructions);
+  await page.locator('#identity-instructions').blur(); await sent;
   await page.locator('#identity-status').filter({ hasText: 'Identity saved.' }).waitFor();
 }
 async function controls(page, disabled) {
-  for (const id of ['identity-name', 'identity-instructions', 'identity-save', 'identity-reload'])
+  for (const id of ['identity-name', 'identity-instructions'])
     assert.equal(await page.locator('#' + id).isDisabled(), disabled, id);
 }
 async function update(server, input) {
@@ -85,48 +89,52 @@ test('identity draft and focus survive actual polling, including a blurred name 
   assert.deepEqual(f.errors, []);
 });
 
-test('identity conflict retains draft until explicit reload discards it for saved values', async t => {
+test('identity conflict retains draft until Reload, offered only then, discards it for saved values', async t => {
   const f = await fixture(t);
-  await edit(f.page, 'My draft', 'Keep this draft on conflict');
+  assert.equal(await f.page.locator('#identity-reload').isVisible(), false);
+  await f.page.locator('#identity-instructions').fill('Keep this draft on conflict');
   await update(f.server, { name: 'Newer saved identity', instructions: 'Other editor', expectedRevision: 0 });
-  await f.page.locator('#identity-save').click();
+  await f.page.locator('#identity-instructions').blur();
   await f.page.locator('#identity-status').filter({ hasText: /changed/ }).waitFor();
-  assert.equal(await f.page.locator('#identity-name').inputValue(), 'My draft');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Keep this draft on conflict');
   await controls(f.page, false);
   await f.page.locator('#identity-reload').click();
   await f.page.locator('#identity-status').filter({ hasText: 'Saved identity loaded.' }).waitFor();
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Newer saved identity');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Other editor');
-  await edit(f.page, 'Final identity', ''); await save(f.page);
+  assert.equal(await f.page.locator('#identity-reload').isVisible(), false);
+  await edit(f.page, 'Final identity', 'Final instructions'); await save(f.page);
   assert.deepEqual(f.errors, []);
 });
 
-test('pending identity saves freeze every control and failure restores the intact draft', async t => {
-  const f = await fixture(t); let release, started, calls = 0;
+test('a save on its way leaves the fields usable, and a failed one keeps the draft', async t => {
+  const f = await fixture(t); let release, started;
   const held = new Promise(resolve => { release = resolve; });
   const pending = new Promise(resolve => { started = resolve; });
   await f.page.route('**/api/identity', async route => {
-    calls++; started(); await held;
+    started(); await held;
     await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Save unavailable"}' });
   });
-  await edit(f.page, 'Held identity', 'Held instructions'); await f.page.locator('#identity-save').click(); await pending;
-  await controls(f.page, true);
-  await f.page.locator('#identity-form').evaluate(form => form.dispatchEvent(new Event('submit', { cancelable: true })));
-  await f.page.locator('#identity-reload').evaluate(button => button.dispatchEvent(new Event('click')));
-  assert.equal(calls, 1);
-  release(); await f.page.locator('#identity-status').filter({ hasText: 'Save unavailable' }).waitFor();
+  await f.page.locator('#identity-instructions').fill('Held instructions');
+  await f.page.locator('#identity-instructions').blur(); await pending;
   await controls(f.page, false);
-  assert.equal(await f.page.locator('#identity-name').inputValue(), 'Held identity');
+  await f.page.locator('#identity-instructions').focus();
+  assert.equal(await f.page.locator('#identity-instructions').evaluate(node => document.activeElement === node), true);
+  release(); await f.page.locator('#identity-status').filter({ hasText: 'Save unavailable' }).waitFor();
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Held instructions');
-  await f.page.unroute('**/api/identity'); await save(f.page);
+  assert.equal(await f.page.locator('#identity-reload').isVisible(), true);
+  await f.page.unroute('**/api/identity');
+  await f.page.locator('#identity-instructions').fill('Held instructions, kept'); await save(f.page);
+  assert.equal(await f.page.locator('#identity-reload').isVisible(), false);
   assert.deepEqual(f.errors, []);
 });
 
-test('explicit identity reload freezes controls until saved values arrive', async t => {
+test('Reload freezes the fields until saved values arrive', async t => {
   const f = await fixture(t); let release, started;
-  await edit(f.page, 'Discard this draft', 'Unsaved instructions');
+  await f.page.locator('#identity-instructions').fill('Unsaved instructions');
   await update(f.server, { name: 'Current saved identity', instructions: 'Current instructions', expectedRevision: 0 });
+  await f.page.locator('#identity-instructions').blur();
+  await f.page.locator('#identity-status').filter({ hasText: /changed/ }).waitFor();
   const held = new Promise(resolve => { release = resolve; });
   const pending = new Promise(resolve => { started = resolve; });
   await f.page.route('**/api/state', async route => {
@@ -134,7 +142,7 @@ test('explicit identity reload freezes controls until saved values arrive', asyn
   });
   await f.page.locator('#identity-reload').click(); await pending;
   await controls(f.page, true);
-  assert.equal(await f.page.locator('#identity-name').inputValue(), 'Discard this draft');
+  assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Unsaved instructions');
   release(); await f.page.locator('#identity-status').filter({ hasText: 'Saved identity loaded.' }).waitFor();
   await controls(f.page, false);
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Current saved identity');

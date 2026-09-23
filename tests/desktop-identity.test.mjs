@@ -21,7 +21,11 @@ test("native identity settings survive restart and apply to a new task without e
     await openSettingFor(page, "#identity-name");
     await page.getByLabel("Assistant name", { exact: true }).fill("Native Juniper");
     await page.getByLabel("Working instructions", { exact: true }).fill("Keep checked results concise.");
-    await page.getByRole("button", { name: "Save identity", exact: true }).click();
+    /* DG-025: kept when the field is left; wait for the save that carries both words. */
+    const sent = page.waitForResponse((response) => response.url().endsWith("/api/identity") && response.request().method() === "POST"
+      && response.request().postDataJSON().instructions === "Keep checked results concise.");
+    await page.getByLabel("Working instructions", { exact: true }).blur();
+    await sent;
     await page.locator("#identity-status").filter({ hasText: "Identity saved." }).waitFor();
     assert.equal(await page.evaluate(() => sessionStorage.getItem("branch-token")), null);
   } finally { await first.close(); }

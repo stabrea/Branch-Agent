@@ -8,6 +8,9 @@ import { ROW_LEVELS } from "/settings-row-levels.js";
 
 export const RANK = { regular: 0, advanced: 1, technical: 2 };
 const WORD = { R: "regular", A: "advanced", T: "technical" };
+/* DG-181: rows the sample draws as a line that sends you to another page ("Set in … ›") instead of as a control, so
+   the snapshot, read from controls, leaves them out; the sample still counts them in "N more with …". At its level. */
+const LINK_ROWS = { "context-switch-soul": "A", "context-switch-identity": "A", "context-switch-user": "A" };
 const NOTE = ":is(p, small, span, div):is(.subtle, .field-note, .note, .hint, .meta, .studio-note, .check-note)";
 
 /**
@@ -27,7 +30,7 @@ for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: t
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   if (!card) continue;
   const entry = BY_CARD.get(card) ?? { rows: [], partial: false };
-  const level = WORD[ROW_LEVELS[id]];
+  const level = WORD[ROW_LEVELS[id] ?? LINK_ROWS[id]];
   if (level) entry.rows.push([id, selector, level]);
   else entry.partial = true;
   BY_CARD.set(card, entry);
