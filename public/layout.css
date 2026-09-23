@@ -1241,6 +1241,7 @@ body.lx-help .context-panel > .acorn-art {
 /* A page title is loud; a card heading is a label. The old single size made them equally loud. */
 .lx-place .card h2,
 .lx-page .card h2,
+.lx-page .settings-directory-title,
 .lx-subpanel .card h2,
 .lx-place .collab-section h3,
 .lx-page .collab-section h3,
