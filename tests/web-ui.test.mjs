@@ -1,6 +1,6 @@
 /**
  * Wave 6: the web app's own screens. Markdown that is rendered and never trusted, the "Look inside"
- * panel, stepping into a task while it works, the context meter, the developer playground, the
+ * panel, stepping into a task while it works, the cost line, the developer playground, the
  * installable-app files, and switching the language.
  */
 import test from "node:test";
@@ -264,7 +264,7 @@ test("U3 an approval question appears in the conversation and the answer reaches
   assert.deepEqual(errors, []);
 });
 
-test("U4 the context meter fills in after a task and opens its numbers", async (t) => {
+test("U4 the composer builds no obsolete meter and never invents an unknown price", async (t) => {
   const { page, errors } = await fixture(t, {
     name: "scripted",
     async complete() { return { content: "A short answer.", toolCalls: [] }; },
@@ -273,16 +273,25 @@ test("U4 the context meter fills in after a task and opens its numbers", async (
   await page.locator("#prompt").fill("Hello there.");
   await page.locator("#send").click();
   await page.locator(".message.assistant").waitFor({ timeout: 30000 });
-  await page.locator("#meter-row").waitFor({ state: "visible" });
-  await page.waitForFunction(() => Number(document.getElementById("meter-row").dataset.share) >= 0 && document.getElementById("meter-text").textContent.length > 0);
-  assert.match(await page.locator("#meter-text").innerText(), /words of context/);
-  assert.match(await page.evaluate(() => document.getElementById("meter-cost").textContent), /so far|^$/, "a price shows only when one is known");
-  await page.locator("#meter-button").click();
-  await page.locator("#meter-popover").waitFor({ state: "visible" });
-  const rows = await page.locator(".meter-stat").allInnerTexts();
-  assert.ok(rows.some((row) => row.startsWith("Words in")), `the numbers are behind the bar: ${rows.join(" | ")}`);
-  await page.keyboard.press("Escape");
-  assert.ok(await page.locator("#meter-popover").isHidden());
+  await page.evaluate(() => window.branchConversationCost.refresh());
+  assert.equal(await page.locator("#meter-row, #meter-button, #meter-popover").count(), 0);
+  assert.equal(await page.locator("#conversation-cost").textContent(), "", "an unknown price is not invented");
+  const here = await page.locator("#conversation").getAttribute("data-session-id");
+  let prices = [0.08];
+  await page.route("**/api/state", async (route) => {
+    const response = await route.fetch();
+    const state = await response.json();
+    state.runs = prices.map((amount) => ({ sessionId: here, cost: { amount } }));
+    await route.fulfill({ response, json: state });
+  });
+  await page.evaluate(() => window.branchConversationCost.refresh());
+  assert.equal(await page.locator("#conversation-cost").textContent(), "About $0.08 so far");
+  prices = [0.08, null];
+  await page.evaluate(() => window.branchConversationCost.refresh());
+  assert.equal(await page.locator("#conversation-cost").textContent(), "", "partial prices do not masquerade as a total");
+  await page.evaluate(() => { document.getElementById("conversation").dataset.sessionId = "other-session"; });
+  await page.evaluate(() => window.branchConversationCost.refresh());
+  assert.equal(await page.locator("#conversation-cost").textContent(), "", "switching conversations clears the previous cost");
   assert.deepEqual(errors, []);
 });
 
@@ -389,7 +398,7 @@ test("U6 the shell fits a 400 pixel window with the new rows on screen", async (
   await page.locator("#prompt").fill("Hello.");
   await page.locator("#send").click();
   await page.locator(".message.assistant").waitFor({ timeout: 30000 });
-  await page.locator("#meter-row").waitFor({ state: "visible" });
+  await page.locator("#conversation-cost").waitFor({ state: "attached" });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 1, `no sideways scrolling at 400 px (overflow ${overflow})`);
 });

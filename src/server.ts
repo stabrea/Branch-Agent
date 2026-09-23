@@ -641,7 +641,7 @@ async function staticFile(
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
-    "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/conversation-cost.js": ["conversation-cost.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
     // phase2/everywhere: the window at phone and tablet widths

@@ -468,9 +468,7 @@ async function render() {
   // Wave 8: every section opens by saying what it is for, in one line.
   view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
-  // mac7/usage-bar: what each connection has left, above the month, and never in the meter under the
-  // message box — that bar is this conversation's room against the model's context window, which is
-  // a different thing entirely and must not be conflated with a provider's allowance.
+  // A provider's allowance is different from conversation context or model-call cost.
   renderLimits(view);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.
   renderMonth(view);
@@ -488,6 +486,7 @@ async function render() {
   // Wave 8: how busy each connection is against the allowance it reports, and what asking the same
   // thing twice saved (public/logs.js).
   await window.branchDashboards?.renderInto(view);
+  document.dispatchEvent(new Event("branch-usage-rendered"));
 }
 
 window.branchUsage = { render };

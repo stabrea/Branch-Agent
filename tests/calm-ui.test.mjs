@@ -17,7 +17,7 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
-  "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
+  "#ask-first-toggle", "#composer-specialist", "#new-session", "#session-label",
   "#saved-conversations", "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn",
 ];
@@ -116,6 +116,8 @@ test("the calm window is the default: one box, Send, New conversation, Recents, 
     assert.equal(await f.page.locator(selector).count(), 1, `${selector} is hidden, not removed`);
   const always = await shown(f.page, ALWAYS);
   assert.deepEqual(Object.entries(always).filter(([, on]) => !on).map(([selector]) => selector), [], "these must always show");
+  assert.notEqual(await f.page.locator(".composer-foot").evaluate((foot) => getComputedStyle(foot).display), "none", "the sample's cost line has a place in the calm window");
+  assert.equal(await f.page.locator("#meter-row").count(), 0, "the obsolete meter is not merely hidden");
   assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), true, "recent conversations stay in the rail");
   assert.equal(await f.page.locator("#greeting").innerText(), "What do you want done?");
   assert.deepEqual(f.errors, []);
@@ -625,12 +627,12 @@ test("every menu and popover closes on its own button, on Escape and on a click 
     /* The panel opens and closes on the next frame, so wait for it rather than read it once. */
     await f.page.locator("#context-panel").waitFor({ state: round === 0 ? "visible" : "hidden", timeout: 10000 });
   }
-  /* The full window's own: the workspace and project menus, the Lockdown shield, the room meter, labels. */
+  /* The full window's own: the workspace and project menus, the Lockdown shield, labels. */
   await showEverything(f.page);
   await everyWayClosed(f.page, "#owner-menu-button", "#owner-menu", "the workspace menu");
   await everyWayClosed(f.page, "#app-switcher", "#app-menu", "the project menu");
   await everyWayClosed(f.page, "#lx-shield", "#lx-lock-pop", "the Lockdown shield");
-  await everyWayClosed(f.page, "#meter-button", "#meter-popover", "the room meter");
+  assert.equal(await f.page.locator("#meter-button").count(), 0, "the obsolete room meter is not constructed");
   await everyWayClosed(f.page, "#thread-labels", ".label-picker", "the label picker");
   await f.page.locator("#owner-menu-button").click();
   await f.page.locator("#lx-shield").click();
