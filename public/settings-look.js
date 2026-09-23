@@ -4,10 +4,9 @@
    both wearing the theme you have (or the one under the pointer). Each mirror is a copy of the window
    as it is now, drawn in a separate blank frame so nothing in it can be pressed, found by id or seen
    by the app's own watchers; it is copied again at most once a second while Appearance is open.
-   Tiles say in plain words which themes read most easily, instead of contrast numbers. The eye beside
-   Light and dark clears the view to show the background. Nothing here changes a setting by itself. */
+   The tiles' words (Default, High contrast, Easy in daylight) are the sample's, drawn in layout.js. The eye
+   beside Light and dark clears the view to show the background. Nothing here changes a setting by itself. */
 import { t } from "/i18n.js";
-import { THEMES } from "/theme-catalogue.js";
 import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 
 const $ = (id) => document.getElementById(id);
@@ -15,41 +14,6 @@ const root = document.documentElement;
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
 const MODES = [["dark", "look.mode.dark", "Dark"], ["light", "look.mode.light", "Light"]];
 let previewing = null;
-
-/* ---------- how easily a theme reads, in words ---------- */
-function luminance(hex) {
-  const rgb = /^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255) : null;
-  if (!rgb) return null;
-  const [r, g, b] = rgb.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-/** Text against the ground, as a ratio (never shown; it only decides the words). */
-function contrastOf(theme, mode) {
-  const tokens = tokensFor(theme, mode);
-  const a = luminance(tokens["--text"]), b = luminance(tokens["--ground"]);
-  if (a === null || b === null) return 0;
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
-/* Every theme here is easy enough to read; these words only point out the two ends. */
-const EASIEST = 16, SOFTER = 9;
-/** A word on the few tiles that read most easily, or most softly, in the light or dark they are shown in. */
-function tagTiles() {
-  const mode = root.dataset.theme === "daylight" ? "light" : "dark";
-  for (const tile of document.querySelectorAll("#lx-theme-gallery .lx-tile")) {
-    if (tile.querySelector(".sg-tile-tag")) continue;
-    const theme = THEMES.find((item) => item[0] === tile.dataset.family);
-    const ratio = theme ? contrastOf(theme, mode) : 0;
-    const word = ratio >= EASIEST ? ["settingsGrown.look.easy", "Easiest to read"] : ratio && ratio < SOFTER ? ["settingsGrown.look.soft", "Softer"] : null;
-    if (!word) continue;
-    const tag = document.createElement("span");
-    tag.className = "sg-tile-tag";
-    tag.dataset.t = word[0];
-    tag.textContent = say(...word);
-    /* Under the name, where the words can wrap (on the colours they were cut short, and hid the preview). */
-    const name = tile.querySelector(".lx-tile-name");
-    if (name) name.after(tag); else tile.append(tag);
-  }
-}
 
 /* ---------- the mirrors ---------- */
 function mirrorFrame(mode, key, english) {
@@ -206,8 +170,6 @@ function watchTiles(gallery) {
   gallery.addEventListener("focusin", point);
   gallery.addEventListener("pointerleave", () => { previewing = null; redress(chosen()); });
   gallery.addEventListener("focusout", (event) => { if (!gallery.contains(event.relatedTarget)) { previewing = null; redress(chosen()); } });
-  new MutationObserver(tagTiles).observe(gallery, { childList: true, subtree: true });
-  tagTiles();
 }
 function clearViewButton() {
   const eye = document.createElement("button");

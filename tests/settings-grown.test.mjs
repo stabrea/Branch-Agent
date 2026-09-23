@@ -551,8 +551,8 @@ test("S13 Appearance: two live mirrors of your own window, dark and light, that 
   await f.page.locator('#lx-theme-gallery .lx-tile[data-family="cherry"]').hover();
   await f.page.waitForFunction(() => document.querySelector(".sg-mirror figcaption").textContent.startsWith("Cherry"));
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "slate", "pointing at a theme does not choose it");
-  /* Plain words on a few tiles instead of numbers. */
-  assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .sg-tile-tag').textContent(), /Easiest to read/);
+  /* The sample's words on a few tiles instead of numbers (DG-037). */
+  assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .lx-tile-badge').textContent(), /High contrast/);
   /* The eye beside Light and dark clears the view. */
   await f.page.locator("#sg-clear-view").click();
   await f.page.waitForFunction(() => document.documentElement.dataset.quiet === "1");
@@ -742,8 +742,8 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
       const above = await f.page.evaluate(() => document.querySelector(".sg-mirrors").getBoundingClientRect().top - document.getElementById("lx-settings-body").getBoundingClientRect().top);
       assert.ok(Math.abs(above) <= 2, `the strip rides ${above}px below the top of the page`);
     }
-    /* The plain-word tags are whole, never cut short. */
-    const cut = await f.page.evaluate(() => [...document.querySelectorAll(".sg-tile-tag")].filter((tag) => tag.scrollWidth > tag.clientWidth + 1 || tag.getBoundingClientRect().right > tag.closest(".lx-tile").getBoundingClientRect().right + 1).map((tag) => tag.textContent));
+    /* The words on the tiles are whole, never cut short. */
+    const cut = await f.page.evaluate(() => [...document.querySelectorAll(".lx-tile-badge")].filter((tag) => tag.scrollWidth > tag.clientWidth + 1 || tag.getBoundingClientRect().right > tag.closest(".lx-tile").getBoundingClientRect().right + 1).map((tag) => tag.textContent));
     assert.deepEqual(cut, [], "a tile's tag is cut short");
     /* The tile you point at is not under the mirrors riding along above it, and they follow it. */
     const covered = await last.evaluate((tile) => {
