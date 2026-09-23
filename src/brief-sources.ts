@@ -191,7 +191,8 @@ function readItem(body: Scan, source: string): BriefItem | null {
   // the whitespace out could splice it into a different address, so the item is skipped instead.
   const title = firstTagText(body, "title")?.replace(/\s+/g, " ").trim();
   const link = (firstTagText(body, "link") || atomLinkHref(body))?.trim();
-  return title && link && !/\s/.test(link) && isSafeLink(link) ? { title, link, source } : null;
+  // The link is kept in its normalised form (`URL.href`), which percent-encodes anything a feed slipped in.
+  return title && link && !/\s/.test(link) && isSafeLink(link) ? { title, link: new URL(link).href, source } : null;
 }
 
 /**
@@ -251,12 +252,23 @@ export async function fetchNewsItems(
  * owner's injection policy the way web.search titles do: "block" drops a flagged item, "redact"
  * keeps its link but not its words, and "warn" keeps it with the reason it was flagged.
  */
+/** A link's text as words, so instructions hidden in its path or query (encoded, or joined by _ + - / ? = &) are seen. */
+function linkWords(link: string): string {
+  let text = link;
+  try { text = decodeURIComponent(link); } catch { /* a malformed escape is checked as it is */ }
+  return text.replace(/[_+\-./?=&#%]+/g, " ");
+}
+
 export function guardNewsItems(items: readonly BriefItem[], policy: InjectionPolicy): BriefItem[] {
   return items.flatMap((item) => {
-    const warnings = detectInjection(item.title);
+    // The title and the link are both shown in the brief, so both are outside text the assistant reads.
+    const inTitle = detectInjection(item.title), inLink = detectInjection(linkWords(item.link));
+    const warnings = [...inTitle, ...inLink];
     if (!warnings.length) return [item];
     if (policy === "block") return [];
-    if (policy === "redact") return [{ ...item, title: "[removed: this title looked like instructions to the assistant]" }];
+    if (policy === "redact") return [{ ...item,
+      ...(inTitle.length ? { title: "[removed: this title looked like instructions to the assistant]" } : {}),
+      ...(inLink.length ? { link: `${new URL(item.link).origin}/` } : {}) }];
     return [{ ...item, flagged: warnings[0]!.reason }];
   });
 }
