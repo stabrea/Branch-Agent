@@ -33,7 +33,8 @@ async function fixture(t, viewport) {
 
 test("the card is under Customize, Chat apps, starts off, and saves one line", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#chat-permissions-form");
   await card.waitFor({ state: "visible" });
   assert.deepEqual(app.channels.permissionSettings(), { extras: false, rules: [] }, "a fresh install allows nothing more");
@@ -56,7 +57,8 @@ test("the card is under Customize, Chat apps, starts off, and saves one line", a
 
 test("mac7/chat-approvals: the box for saying yes from the chat starts clear, says what it costs, and saves", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#chat-permissions-form");
   await card.waitFor({ state: "visible" });
   const box = page.getByLabel("They may also say yes in the chat to what this line allows", { exact: true });
@@ -87,7 +89,8 @@ test("mac7/chat-approvals: the box for saying yes from the chat starts clear, sa
 
 test("the card fits a 400-pixel window and reads in French", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 900 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#chat-permissions-form");
   await card.waitFor({ state: "visible" });
   // Measured inside the page in one step: the card redraws itself, and a box asked for in two
@@ -104,7 +107,8 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   assert.deepEqual(unkeyed, [], "every word on the card has a key");
   await openPlace(page, "settings:appearance");
   await page.locator("#appearance-language").selectOption("fr");
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   await page.waitForFunction(() =>
     document.querySelector("label[for=chat-permissions-channel]")?.textContent === "Quelle application");
   assert.match(await card.locator("h2").innerText(), /au-delà de parler/);

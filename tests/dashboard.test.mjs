@@ -389,8 +389,9 @@ test("the switch lives in Customize → Channels, and the dashboard's links open
   await page.locator('.lx-settings-link[data-page="data"][aria-current="true"]').waitFor();
   assert.equal(new URL(page.url()).hash, "");
 
-  await openPlace(page, "customize:channels");
-  const card = page.locator("#lx-slot-customize-channels #dashboard-card");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
+  const card = page.locator("#lx-page-channels #dashboard-card");
   await card.waitFor();
   assert.equal(await card.locator("h2").innerText(), "Dashboard in the browser");
   assert.equal(await page.locator("#dashboard-mode").inputValue(), "off");

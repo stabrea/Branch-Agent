@@ -56,7 +56,7 @@ test("the personal cards sit in their homes, the switches work from the window, 
   assert.equal(app.personal.signIns.google.settings().clientId, "123.apps.googleusercontent.com");
   assert.equal(await wide(), false, "no sideways scrolling in Connections");
 
-  for (const [card, home] of [["personal-files-card", "customize:channels"], ["personal-mail-card", "customize:channels"],
+  for (const [card, home] of [["personal-files-card", "settings:channels"], ["personal-mail-card", "settings:channels"],
     ["personal-tunnel-card", "automations:triggers"], ["personal-voice-card", "settings:voice"], ["personal-x-card", "customize:connections"],
     ["personal-home-card", "customize:connections"]])
     assert.equal(await page.evaluate((id) => document.getElementById(id)?.dataset.home ?? null, card), home, `${card} is not in its home`);
