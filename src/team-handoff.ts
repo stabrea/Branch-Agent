@@ -143,10 +143,16 @@ export class TeamHandoffs {
 
   /** Why a task is waiting, in words, or null when no offer is open for it. */
   waiting(scope: TeamTaskScope, taskId: string): string | null {
+    const offer = this.pendingFor(scope, taskId);
+    return offer ? `waiting for ${offer.offeredTo} to accept: ${offer.reason}` : null;
+  }
+
+  /** Q64: the offer open for a task right now (to whom, since when, why), or null; an overdue one is recorded as expired first. */
+  pendingFor(scope: TeamTaskScope, taskId: string): TeamHandoff | null {
     this.expire("task_id=?", [taskId], this.now());
-    const row = this.store.sqlite.prepare("SELECT offered_to, reason FROM team_task_handoffs WHERE owner=? AND source=? AND task_id=? AND state='offered'")
+    const row = this.store.sqlite.prepare("SELECT * FROM team_task_handoffs WHERE owner=? AND source=? AND task_id=? AND state='offered'")
       .get(scope.owner, scope.source, taskId);
-    return row ? `waiting for ${String(row.offered_to)} to accept: ${String(row.reason)}` : null;
+    return row ? toHandoff(row) : null;
   }
 
   /** The task row only if this exact claim still holds it. */

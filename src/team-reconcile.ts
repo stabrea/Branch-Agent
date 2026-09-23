@@ -29,9 +29,11 @@ export interface ReconcileReport {
 /**
  * One member of a team turn: the run it answered in and that run's status, or "started" (its batch
  * began but the run was not recorded against it) or "not_started". A member run under the turn that
- * cannot be matched to a member is listed with no member or role.
+ * cannot be matched to a member is listed with no member or role. `batch` (Q64) is which batch the
+ * turn started it in, counting from 1, as the turn's own "team.batch.started" records say; null when
+ * no batch named it.
  */
-export interface TeamMemberRun { member: string | null; role: string | null; runId: string | null; status: string }
+export interface TeamMemberRun { member: string | null; role: string | null; runId: string | null; status: string; batch: number | null }
 
 /**
  * Team tasks this process is working on right now, per open store; reconciling leaves these alone.
@@ -80,7 +82,7 @@ function linkedRuns(store: Store, runId: string): string[] {
 }
 
 /** The last run in this run's chain of carry-ons after restarts (itself when it was never carried on). */
-function latestCarryOn(store: Store, runId: string): string {
+export function latestCarryOn(store: Store, runId: string): string {
   let latest = runId;
   for (const seen = new Set<string>(); !seen.has(latest);) {
     seen.add(latest);
@@ -148,7 +150,9 @@ export function memberRuns(store: Store, parentRunId: string | null): TeamMember
   const plan = recordsAfter(store, parentRunId, "team.members.planned", 0).at(-1);
   const planned = (plan?.data.members ?? []) as { member: string; role: string }[];
   const after = plan?.id ?? 0;
-  const started = new Set(recordsAfter(store, parentRunId, "team.batch.started", after).flatMap((record) => record.data.members as string[]));
+  // Each member's batch, counting from 1, in the order the turn started them.
+  const started = new Map(recordsAfter(store, parentRunId, "team.batch.started", after)
+    .flatMap((record, index) => (record.data.members as string[]).map((member) => [member, index + 1] as const)));
   const ran = new Map<string, string>();
   for (const record of recordsAfter(store, parentRunId, "delegation.fanout", after))
     for (const [member, outcome] of Object.entries((record.data.tasks ?? {}) as Record<string, { runId: string }>)) ran.set(member, outcome.runId);
@@ -160,9 +164,10 @@ export function memberRuns(store: Store, parentRunId: string | null): TeamMember
   // A member of a batch that began, with no run named for it, may be one of the unnamed runs; with none, it never got a run.
   const listed: TeamMemberRun[] = planned.map(({ member, role }) => {
     const runId = ran.get(member) ?? null;
-    return { member, role, runId, status: runId ? statusOf(runId) : started.has(member) && unnamed.length ? "started" : "not_started" };
+    const batch = started.get(member) ?? null;
+    return { member, role, runId, status: runId ? statusOf(runId) : batch && unnamed.length ? "started" : "not_started", batch };
   });
-  return [...listed, ...unnamed.map((runId) => ({ member: null, role: null, runId, status: statusOf(runId) }))];
+  return [...listed, ...unnamed.map((runId) => ({ member: null, role: null, runId, status: statusOf(runId), batch: null }))];
 }
 
 /** The member listing in words, for the reason a task needs a person. */

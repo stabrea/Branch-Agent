@@ -86,6 +86,11 @@ export class TeamTasks {
     const row = this.store.sqlite.prepare("SELECT * FROM team_tasks WHERE owner=? AND source=? AND task_id=?").get(scope.owner, scope.source, taskId);
     return row ? toTask(row) : undefined;
   }
+  /** Q64: a team's newest tasks from every source, newest first, for the owner's own view of the team. */
+  recent(owner: string, teamId: string, limit: number): TeamTask[] {
+    return this.store.sqlite.prepare("SELECT * FROM team_tasks WHERE owner=? AND team_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?")
+      .all(owner, teamId, limit).map(toTask);
+  }
   /**
    * True when a claimed task's turn is gone: its claim came from an earlier opening of the store (a
    * process that died), or from this one while no turn for it is running here. A task held by a

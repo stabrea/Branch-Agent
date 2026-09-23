@@ -871,6 +871,7 @@ export const ROUTES = {
   "/api/runs/:id/plan": "task POST",
   "/api/runs/:id/receipts": "look",
   "/api/runs/:id/recording": "look",
+  "/api/runs/:id/result": "look", // Q52: what a finished task made and how it was checked, like its receipts (classified in Q64)
   // mac7/smoke-fixes (B4): one task's steps, for `branch trace`. "look" on purpose, not an
   // oversight — it carries none of the task's words, and `inspect` beside it already shows a
   // read-scoped key strictly more. Read "Decided, not an oversight" in
@@ -975,6 +976,7 @@ export const ROUTES = {
   "/api/teams/:id/remove": "other POST",
   "/api/teams/:id/room": "look",
   "/api/teams/:id/run": "task POST",
+  "/api/teams/:id/tasks": "secret-read", // Q64: every source's team tasks, questions and answers; the owner's alone
   "/api/templates/import": "other POST",
   "/api/templates/procedure/:id": "look",
   "/api/templates/specialist/:id": "look",
