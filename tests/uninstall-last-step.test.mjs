@@ -59,12 +59,19 @@ function box(t) {
   };
 }
 
+/**
+ * Only programs that host a console window count: this machine is shared, and a window some other
+ * program opens meanwhile is not the uninstaller's. A leaked console can only appear in one of these,
+ * and the control test below proves such a window is still seen.
+ */
+const consoleHosts = new Set(["conhost", "openconsole", "windowsterminal", "cmd", "wscript", "cscript", "powershell", "pwsh"]);
 function windowsOnScreen() {
-  const ask = "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -Property Id | ConvertTo-Json -Compress";
+  const ask = "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -Property Id,ProcessName | ConvertTo-Json -Compress";
   const printed = execFileSync(join(system32, "WindowsPowerShell", "v1.0", "powershell.exe"),
     ["-NoProfile", "-NonInteractive", "-Command", ask], { encoding: "utf8", windowsHide: true }).trim();
   const rows = printed ? JSON.parse(printed) : [];
-  return new Set((Array.isArray(rows) ? rows : [rows]).map((row) => row.Id));
+  return new Set((Array.isArray(rows) ? rows : [rows])
+    .filter((row) => consoleHosts.has(String(row.ProcessName).toLowerCase())).map((row) => row.Id));
 }
 
 /** Runs one line the way the uninstaller's own console would, hidden, and watches the screen. */
