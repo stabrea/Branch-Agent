@@ -889,10 +889,10 @@ test("G5 the Activity screen and the inspector render a reply as markdown, never
 test("G5 Appearance is written in French when French is chosen", async (t) => {
   const { page, errors } = await onPage(t);
   await openSettingFor(page, "#appearance-language");
-  assert.equal(await page.locator("#settings-form h2").textContent(), "Appearance");
+  assert.equal(await page.locator("#extras-label").textContent(), "Movement and artwork");
   assert.equal(await page.locator("#accent-choices .choice").first().textContent(), "Copper");
   await page.locator("#appearance-language").selectOption("fr");
-  await page.waitForFunction(() => document.querySelector("#settings-form h2").textContent === "Apparence");
+  await page.waitForFunction(() => document.querySelector("#extras-label").textContent === "Mouvement et illustration");
   assert.equal(await page.locator("#accent-label").textContent(), "Couleur de mise en avant");
   assert.equal(await page.locator("#accent-choices .choice").first().textContent(), "Cuivre");
   assert.equal(await page.locator("#text-size-label").textContent(), "Taille du texte");

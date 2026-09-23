@@ -30,14 +30,17 @@ export const BUCKETS = {
       [["agent-files", R]]],
   ],
   appearance: [
-    ["theme", "leaf", "Theme", "The look of Branch itself.",
-      [["lx-look", R]]],
-    ["pet", "spark", "A pet", "A pet in the corner.",
-      [["delight-pet-card", R]]],
-    ["lettering", "sliders", "Theme and lettering", "Colours, the size of the words, and the language.",
+    /* DG-183: the sample's sections, in its order. Your own background has no home in the sample: it stays with
+       the theme at Advanced; Achievements waits beside the pet at Advanced until it has a page of its own (DG-164). */
+    ["theme", "leaf", "Theme", "Change how Branch Agent looks. Everything you pick shows straight away.",
+      [["lx-look", R], ["delight-bg-card", A]]],
+    ["pet", "spark", "A pet", "A small forest creature that keeps you company and shows what Branch is doing.",
+      [["delight-pet-card", R], ["delight-ach-card", A]]],
+    ["lettering", "sliders", "Theme and lettering", "Colours, size of the words, and the language.",
       [["settings-form", R], ["shell-look-card", A]]],
+    /* What's on screen has no home in the sample: Advanced here, and its gear always brings it into view. */
     ["shows", "eye", "What a conversation shows", "How much of the working-out you see while it works.",
-      [["panels-onscreen", R], ["knobs-show-reasoning-card", A], ["comfort-display-card", A], ["savings-round-chart-card", A], ["flows-focus-card", A]]],
+      [["knobs-show-reasoning-card", A], ["savings-round-chart-card", A], ["comfort-display-card", A], ["flows-focus-card", A], ["panels-onscreen", A]]],
   ],
   notifications: [
     ["attention", "bell", "When Branch gets your attention", "Sounds, banners and the times it should leave you alone.",
