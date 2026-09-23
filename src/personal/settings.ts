@@ -53,8 +53,8 @@ export const personalTools: Record<PersonalPart, readonly string[]> = {
   "voice-approvals": [],
   "x-search": ["x.search"],
   spotify: ["spotify.now", "spotify.search", "spotify.control"],
-  google: ["gmail.search", "gmail.read", "gmail.draft", "gcal.events", "gdrive.search", "gdrive.read"],
-  microsoft: ["outlook.search", "outlook.read", "outlook.draft", "outlook.events", "teams.summary"],
+  google: ["gmail.search", "gmail.read", "gmail.draft", "gcal.events", "gdrive.search", "gdrive.read", "gtasks.lists", "gtasks.list"],
+  microsoft: ["outlook.search", "outlook.read", "outlook.draft", "outlook.events", "teams.summary", "mstodo.lists", "mstodo.list"],
   "mail-search": ["mail.search", "mail.attachments", "mail.save_attachment"],
   tunnel: [],
 };

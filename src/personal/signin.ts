@@ -35,12 +35,13 @@ export function scopesFor(service: SignInService, drafts: boolean): string[] {
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.events.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/tasks.readonly",
     // Gmail has no drafts-only scope; this one could also send, which Branch never does.
     ...(drafts ? ["https://www.googleapis.com/auth/gmail.compose"] : []),
   ];
   if (service === "microsoft") return [
     "offline_access", "User.Read", drafts ? "Mail.ReadWrite" : "Mail.Read", "Calendars.Read",
-    "OnlineMeetings.Read", "OnlineMeetingTranscript.Read.All",
+    "OnlineMeetings.Read", "OnlineMeetingTranscript.Read.All", "Tasks.Read",
   ];
   return ["user-read-playback-state", "user-read-currently-playing", "user-modify-playback-state"];
 }
