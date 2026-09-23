@@ -868,6 +868,7 @@ function buildRail() {
  * the picked one's conversation. Its face and name mirror the side list's own (public/shell.js), not a copy.
  */
 function buildCrumb(where) {
+  delete where.dataset.t; // the language files would otherwise write "Conversation" over the face and name
   where.replaceChildren();
   where.className = "lx-crumb-where";
   where.id = "lx-crumb-where";
