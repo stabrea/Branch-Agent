@@ -798,6 +798,11 @@ export const ROUTES = {
   "/api/projects/default/remove": "owner POST",
   "/api/projects/notes": "other POST",
   "/api/projects/notes/:id/remove": "other POST",
+  // FQ-surfaces.mobile-push: the public VAPID key is only looked at; subscribing a device (which is
+  // then told what every finished task was about) and dropping one are the owner's alone.
+  "/api/push/subscribe": "owner POST",
+  "/api/push/unsubscribe": "owner POST",
+  "/api/push/vapid-key": "look",
   // bucket 12: saved prompts; every change is the owner's
   "/api/prompts": "owner POST",
   "/api/prompts/": "prefix",
