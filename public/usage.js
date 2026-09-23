@@ -413,7 +413,8 @@ function renderLimits(view) {
   card.append(ask);
   card.append(el("p", "OpenRouter publishes a web address for this, so asking is fair. No subscription account is ever asked: the question itself would spend the allowance it is measuring.", "subtle"));
   box.addEventListener("change", () => void saveLimitsSwitch(box.checked));
-  renderGlanceSettings(card);
+  if (glanceSettings) card.append(glanceSwitch("glance-ring", "glance.setting.ring", glanceSettings.ring !== "hidden",
+    (on) => saveGlance({ ring: on ? "shown" : "hidden" })));
   view.append(card);
 }
 /* Redesign phase 1: the ring under the message box can be hidden, and the question at 95% switched
@@ -428,13 +429,18 @@ function glanceSwitch(id, key, checked, onChange) {
   row.append(box, document.createTextNode(" " + t(key)));
   return row;
 }
-function renderGlanceSettings(card) {
+/* DG-055: the question at 95% is the sample's own section, "Saving progress before an allowance runs out",
+   after what each connection has left, not a line inside it. */
+function renderSaveProgress(view) {
   if (!glanceSettings) return;
-  card.append(glanceSwitch("glance-ring", "glance.setting.ring", glanceSettings.ring !== "hidden",
-    (on) => saveGlance({ ring: on ? "shown" : "hidden" })));
+  const card = el("article", undefined, "table-card");
+  card.id = "usage-save-progress";
+  /* Its section's heading already says this; the title stays for a screen reader. */
+  card.append(el("h2", t("settingsGrown.bucket.data.save"), "sr-only"));
   card.append(glanceSwitch("glance-save-progress", "glance.setting.save", glanceSettings.saveProgress === "ask",
     (on) => saveGlance({ saveProgress: on ? "ask" : "off" })));
   card.append(el("p", t("glance.setting.saveNote"), "subtle"));
+  view.append(card);
 }
 async function saveGlance(change) {
   try {
@@ -482,8 +488,9 @@ async function render() {
     limits = await api("usage/limits").catch(() => null);
     glanceSettings = limits ? (await api("usage/glance/settings").catch(() => null))?.settings ?? null : null;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
-  const left = host("usage-left-card"), costs = host("usage-costs-card"), sheet = host("usage-sheet-card");
-  for (const part of [view, left, costs, sheet]) part.replaceChildren();
+  const left = host("usage-left-card"), save = host("usage-save-card"), costs = host("usage-costs-card");
+  const prices = host("usage-prices-card"), sheet = host("usage-sheet-card");
+  for (const part of [view, left, save, costs, prices, sheet]) part.replaceChildren();
   // Wave 8: every section opens by saying what it is for, in one line.
   view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
@@ -491,12 +498,14 @@ async function render() {
   // under the message box — that bar is this conversation's room against the model's context window, which is
   // a different thing entirely and must not be conflated with a provider's allowance.
   renderLimits(left);
+  renderSaveProgress(save);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.
   renderMonth(view);
   renderStatistics(view);
   renderTables(view);
   renderBudget(costs);
-  renderPricing(costs);
+  // DG-190: the sample keeps model prices at Technical, apart from the monthly limit.
+  renderPricing(prices);
   renderExport(view);
   renderMetering(sheet);
   // Batch 19 (wave 7): how this copy of Branch is doing, read from its own counters.

@@ -63,22 +63,26 @@ test("DG-081 Data & usage leads with usage, in the sample's order, at each level
   const { page, errors } = await dataPage(t);
   await level(page, "regular");
   const regular = await sections(page);
-  assert.deepEqual(regular.map((one) => one.head), ["data:usage", "data:left", "data:kept", "data:cost", "data:under"]);
-  assert.deepEqual(regular.slice(0, 2).map((one) => one.cards), [["usage"], ["usage-left-card"]]);
-  assert.deepEqual(regular[3].cards, ["usage-costs-card", "usage-report-card"]);
+  assert.deepEqual(regular.map((one) => one.head), ["data:usage", "data:left", "data:save", "data:kept", "data:cost", "data:under"]);
+  assert.deepEqual(regular.slice(0, 3).map((one) => one.cards), [["usage"], ["usage-left-card"], ["usage-save-card"]]);
+  assert.deepEqual(regular[4].cards, ["usage-costs-card", "usage-report-card"], "model prices wait for Technical, as the sample's");
   await level(page, "technical");
   const technical = await sections(page);
-  assert.deepEqual(technical.map((one) => one.head), ["data:usage", "data:left", "data:kept", "data:cost", "data:under"]);
-  assert.deepEqual(technical[4].cards, ["usage-sheet-card", "asks-analytics-card"], "the spreadsheet is under the hood");
+  assert.deepEqual(technical.map((one) => one.head), ["data:usage", "data:left", "data:save", "data:kept", "data:cost", "data:under"]);
+  assert.deepEqual(technical[4].cards, ["usage-costs-card", "usage-report-card", "usage-prices-card"]);
+  assert.deepEqual(technical[5].cards, ["usage-sheet-card", "asks-analytics-card"], "the spreadsheet is under the hood");
   /* What moved is what the sample shows under each heading, and nothing is drawn twice. */
   const inside = await page.evaluate(() => ({
     left: !!document.querySelector("#usage-left-card #usage-limits"),
-    limit: !!document.querySelector("#usage-costs-card .budget-card"),
+    limit: !!document.querySelector("#usage-costs-card .budget-card") && !document.querySelector("#usage-costs-card #price-model"),
+    prices: !!document.querySelector("#usage-prices-card #price-model"),
+    save: !!document.querySelector("#usage-save-card #glance-save-progress") && !document.querySelector("#usage-left-card #glance-save-progress"),
+    ring: !!document.querySelector("#usage-left-card #glance-ring"),
     sheet: !!document.querySelector("#usage-sheet-card #usage-metering"),
     stillUsage: !!document.querySelector("#usage #usage-month") && !document.querySelector("#usage #usage-limits, #usage .budget-card, #usage #usage-metering"),
     titleOnce: [...document.querySelectorAll("#lx-page-data h2, #lx-page-data h3")].filter((h) => h.checkVisibility() && !h.matches(".sr-only") && h.textContent.trim() === "What each connection has left").length,
   }));
-  assert.deepEqual(inside, { left: true, limit: true, sheet: true, stillUsage: true, titleOnce: 1 });
+  assert.deepEqual(inside, { left: true, limit: true, prices: true, save: true, ring: true, sheet: true, stillUsage: true, titleOnce: 1 });
   assert.deepEqual(errors, []);
 });
 

@@ -4604,6 +4604,8 @@
   "settingsGrown.bucket.data.usage.line": "What your assistant has done this month, and what it cost.",
   "settingsGrown.bucket.data.left": "What each connection has left",
   "settingsGrown.bucket.data.left.line": "How much of each service's allowance is still there.",
+  "settingsGrown.bucket.data.save": "Saving progress before an allowance runs out",
+  "settingsGrown.bucket.data.save.line": "Branch can ask whether running tasks should write down where they are.",
   "settingsGrown.bucket.data.cost": "What it costs",
   "settingsGrown.bucket.data.cost.line": "Spending limits, and what each model costs.",
   "settingsGrown.bucket.data.kept": "What is kept, and for how long",
