@@ -170,6 +170,7 @@ import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
 import { ProviderPlugins } from "./provider-plugins.js";
 import type { IssueAccess } from "./integrations/issue-tools.js";
+import type { PlatformBridgeAccess } from "./integrations/platform-bridge.js";
 // Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
 import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
@@ -1329,6 +1330,11 @@ export async function createBranch(options: {
      * settings. It stays null while no tracker is set up.
      */
     issues: null as null | IssueAccess,
+    /**
+     * Starting and checking runs on a hosted workflow platform (Dify, n8n), once the launcher has
+     * loaded the integration settings. It stays null while neither is set up.
+     */
+    platforms: null as null | PlatformBridgeAccess,
     git,
     scheduler,
     chatgpt,
