@@ -155,11 +155,17 @@ export async function drawPeople() {
 }
 function pageActions() {
   const acts = make("div", "people-acts");
-  const invite = button("studio-primary", "household.invite", "Invite someone", () => openInvite());
+  const invite = withIcon(button("studio-primary", null, null, () => openInvite()), "plus", "household.invite", "Invite someone");
   invite.id = "people-invite";
-  invite.prepend(icon("plus"));
   acts.append(invite, button("", "household.ownerPin", "A PIN for switching back to you", () => displayView("settings:general")));
   return acts;
+}
+/** A button with a mark before its words; the words carry the key, so a new language keeps the mark. */
+function withIcon(node, name, key, english) {
+  const mark = icon(name);
+  mark.setAttribute("aria-hidden", "true");
+  node.append(mark, make("span", "", key, english));
+  return node;
 }
 function cardHead(spec, name, sub, roleKey) {
   const head = make("div", "person-head");
@@ -218,8 +224,7 @@ function ownerCard(owner) {
    drawn from their name, so only the owner's card offers it. */
 function changeLook() {
   const acts = make("div", "person-acts");
-  const look = button("shell-ghost", "household.changeLook", "Change look", () => displayView("settings:appearance"));
-  look.prepend(icon("leaf"));
+  const look = withIcon(button("shell-ghost", null, null, () => displayView("settings:appearance")), "leaf", "household.changeLook", "Change look");
   acts.append(look);
   return acts;
 }

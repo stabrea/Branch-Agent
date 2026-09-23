@@ -800,6 +800,13 @@
   color: var(--warn);
   font-size: 12.5px;
 }
+/* The sample's dialogs are 560 px wide; Invite someone is one of them. */
+.studio-dlg:has(.person-invite) {
+  width: min(560px, calc(100vw - 24px));
+}
+.studio-body.person-invite {
+  max-width: none;
+}
 .person-invite-form {
   display: grid;
   gap: 14px;
@@ -813,13 +820,17 @@
   font: 13px / 1.5 var(--mono);
   overflow-wrap: anywhere;
 }
+/* Settings › Trunks & people: everyone, under the People line and its Open. */
+.settings-directory-card:has(.settings-people) {
+  flex-wrap: wrap;
+}
 .settings-people {
   display: grid;
+  flex: 1 0 100%;
   gap: 2px;
-  margin: 10px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
-  grid-column: 1 / -1;
 }
 .settings-person {
   display: flex;
