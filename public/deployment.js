@@ -73,8 +73,8 @@ if (card) {
     pick("phone-invite").hidden = !state.remote.enabled;
     const points = pick("restore-points");
     points.textContent = state.restorePoints.length
-      ? `Safety copies kept: ${state.restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ")}.`
-      : "No safety copy has been taken yet. One is taken automatically before each update.";
+      ? t("settings.deployment.safety-copies-kept", { copies: state.restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ") })
+      : t("settings.deployment.no-safety-copy");
     const unhealthy = state.firstStart && !state.firstStart.healthy && state.firstStart.previousVersion;
     pick("restore-offer").hidden = !(unhealthy && state.restorePoints.length);
     if (unhealthy && state.restorePoints.length)
