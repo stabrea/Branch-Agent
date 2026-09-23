@@ -4,9 +4,9 @@
    at a real control. Row: [id, home, card id, English label, saved as (or null), selector when the control has no id,
    English title of its card (or null), true when only the owner may change it]. */
 export const SETTINGS_INDEX = [
-  ["flows-switch-install-requests","inbox:needs","flows-installs-card","Requests for new packages and tool servers","flowboards-install-requests",null,"Package and tool server requests",true],
-  ["recordings-mode","inbox:history","recordings-card","Recordings of tasks","run-recording.mode",null,"Watch a task again",true],
-  ["recordings-pictures","inbox:history","recordings-card","Put the pictures it looked at into saved pages","run-recording.pictures",null,"Watch a task again",true],
+  ["flows-switch-install-requests","settings:automations","flows-installs-settings-card","Requests for new packages and tool servers","flowboards-install-requests",null,"Package and tool server requests",true],
+  ["recordings-mode","settings:automations","recordings-settings-card","Recordings of tasks","run-recording.mode",null,"Watch a task again",true],
+  ["recordings-pictures","settings:automations","recordings-settings-card","Put the pictures it looked at into saved pages","run-recording.pictures",null,"Watch a task again",true],
   ["heartbeat-mode","automations:scheduled","quiet-checkin","Check-in","quiet.checkIn",null,"Check-in",true],
   ["heartbeat-every","automations:scheduled","quiet-checkin","Every (minutes)","heartbeat.everyMinutes",null,"Check-in",true],
   ["heartbeat-from","automations:scheduled","quiet-checkin","From","heartbeat.activeHours.from",null,"Check-in",true],

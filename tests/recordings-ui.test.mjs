@@ -70,14 +70,21 @@ test("Watch a task again: off at first, then a finished task plays back step by 
   page.on("pageerror", (error) => errors.push(error.message));
   await signIn(page, server);
   await openPlace(page, "inbox:history");
-  const card = page.locator("#recordings-card");
-  await card.locator("h2").waitFor({ state: "visible" });
-  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card", "inbox:history");
-  assert.equal(await card.locator("#recordings-task").count(), 0, "nothing to pick while off");
+  assert.equal(await page.locator("#recordings-card").count(), 0, "nothing in the Inbox while off");
 
-  await card.locator("#recordings-mode").selectOption("when-needed");
-  await card.getByRole("button", { name: "Save", exact: true }).click();
+  // DG-139: the switch lives in Settings › Automations & inbox; the Inbox keeps the task to play back.
+  await openPlace(page, "settings:automations");
+  const settings = page.locator("#recordings-settings-card");
+  await settings.locator("h2").waitFor({ state: "visible" });
+  assertAnatomy(await cardShape(page, "recordings-settings-card"), "recordings-settings-card", "settings:automations");
+  await settings.locator("#recordings-mode").selectOption("when-needed");
+  await settings.getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator("#recordings-settings-card [role=status]", { hasText: "Saved" }).waitFor();
+  await openPlace(page, "inbox:history");
+  const card = page.locator("#recordings-card");
   await page.locator("#recordings-task").waitFor({ state: "visible" });
+  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card", "inbox:history");
+  assert.equal(await card.locator("#recordings-mode, #recordings-pictures").count(), 0, "no settings in the Inbox");
   await page.locator("#recordings-card").getByRole("button", { name: "Play it back" }).click();
   const steps = page.locator("#recordings-card .recording-steps li");
   await steps.first().waitFor({ state: "visible" });

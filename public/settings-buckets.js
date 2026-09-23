@@ -152,6 +152,9 @@ export const BUCKETS = {
       [["settings-directory-automations-scheduled", R], ["settings-directory-automations-procedures", R],
         ["settings-directory-automations-triggers", R], ["settings-directory-automations-needs", R],
         ["settings-directory-automations-history", R]]],
+    /* DG-139: the Inbox's own settings, moved here so the Inbox keeps to what waits for you. */
+    ["inbox", "inbox", "What the Inbox keeps", "Requests that wait for you, and recordings of finished tasks.",
+      [["flows-installs-settings-card", A], ["recordings-settings-card", A]]],
   ],
 };
 

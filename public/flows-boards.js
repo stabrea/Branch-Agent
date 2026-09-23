@@ -5,7 +5,8 @@
    automations:scheduled     The shared board; the waiting line and typing while it works
    library:made              Live widgets the assistant builds
    settings:appearance       Focus view
-   inbox:needs               Requests for new packages and tool servers
+   inbox:needs               Requests for new packages and tool servers, only while they are switched on
+   settings:automations      The switch for those requests (DG-139: the Inbox keeps to what waits for you)
 
    Also here: focus view itself (globalThis.branchFocusView, used by /focus) and what happens when you
    type while a task works (globalThis.branchBusySend, used by the message box). */
@@ -376,18 +377,22 @@ function requestRow(item, status) {
   return line;
 }
 async function installsCard(modes) {
+  if (modes["install-requests"] === "off") return null;
   const { node, status } = card("flows-installs-card", "inbox:needs", "flowsBoards.installs.title", "Package and tool server requests",
     "flowsBoards.installs.purpose", "What the assistant or a chat asked to add. The list of harmful packages is checked first, only you can answer, and nothing installs itself.");
-  node.append(...switchFor("install-requests", modes, status));
-  if (modes["install-requests"] !== "off") {
-    const { requests } = await api("flows-boards/installs");
-    const list = document.createElement("ul");
-    list.append(...requests.slice().reverse().slice(0, 30).map((item) => requestRow(item, status)));
-    node.append(list);
-    if (!requests.length) node.append(make("p", "field-note", "flowsBoards.installs.none", "Nothing has been asked for."));
-    node.append(row(button("flowsBoards.installs.refresh", "Check again", act(status, async () => undefined), false)));
-  }
-  node.append(status);
+  const { requests } = await api("flows-boards/installs");
+  const list = document.createElement("ul");
+  list.append(...requests.slice().reverse().slice(0, 30).map((item) => requestRow(item, status)));
+  node.append(list);
+  if (!requests.length) node.append(make("p", "field-note", "flowsBoards.installs.none", "Nothing has been asked for."));
+  node.append(row(button("flowsBoards.installs.refresh", "Check again", act(status, async () => undefined), false)), status);
+  return node;
+}
+/* DG-139: the switch lives in Settings › Automations & inbox; the Inbox shows only the requests. */
+async function installsSettingsCard(modes) {
+  const { node, status } = card("flows-installs-settings-card", "settings:automations", "flowsBoards.installs.title", "Package and tool server requests",
+    "flowsBoards.installs.settingsPurpose", "Whether the assistant or a chat may ask to add a package or a tool server. The requests wait in Inbox › Needs you.");
+  node.append(...switchFor("install-requests", modes, status), status);
   return node;
 }
 
@@ -403,7 +408,7 @@ globalThis.branchBusySend = async (sessionId, prompt) => {
 const BUILDERS = [
   ["flows-travel-card", timeTravelCard], ["flows-recipes-card", recipeCard], ["flows-board-card", boardCard],
   ["flows-waiting-card", waitingCard], ["flows-widgets-card", widgetsCard], ["flows-focus-card", focusCard],
-  ["flows-installs-card", installsCard],
+  ["flows-installs-card", installsCard], ["flows-installs-settings-card", installsSettingsCard],
 ];
 
 async function drawCards() {
@@ -415,7 +420,8 @@ async function drawCards() {
     try {
       const fresh = await build(overview.modes);
       const old = $(id);
-      if (old) old.replaceWith(fresh); else document.body.append(fresh);
+      if (!fresh) old?.remove(); // a card with nothing to show while its switch is off
+      else if (old) old.replaceWith(fresh); else document.body.append(fresh);
     } catch { /* one card failing leaves the rest of the window as it was */ }
   }
 }

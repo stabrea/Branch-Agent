@@ -103,7 +103,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Changing the waiting line, and what typing does while a task works (`mac7/r17-h`) | `automations:scheduled`; `/queue` and `/busy` live in the message box |
 | Widgets the assistant built (`mac7/r17-h`) | `library:made`, beside the live tool pages they are made from |
 | Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
-| Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
+| Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` while switched on; the switch in `settings:automations` (DG-139) |
+| Watch a task again: recordings of tasks and their switches (bucket 13) | `inbox:history` while switched on; the switches in `settings:automations` (DG-139) |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
 | Where Branch listens (`mac7/bind`) | `settings:computer` |

@@ -1,9 +1,11 @@
 /* Seeing what a task did, step by step, afterwards (public list, bucket 13). Two cards, each placed
    by public/layout.js through its data-home:
 
-   1. Inbox → History: "Watch a task again". The switch, then a task to pick, a player that steps
+   1. Inbox → History: "Watch a task again". A task to pick, a player that steps
       through what it did, the picture of the path it took, the words its flow boxes used, and two
       ways to keep it — a page to save and open anywhere, or a workflow that repeats its actions.
+      It shows only while recordings are on; their switch lives in Settings → Automations & inbox
+      (DG-139: the Inbox keeps to the work, each setting to its Settings page).
    2. Settings → Advanced: "Is Branch keeping up". The switch for the event-loop watch, and its
       reading in one sentence.
 
@@ -52,12 +54,12 @@ function status() {
 
 /* ------------------------------------------------------------ Watch a task again */
 
-function recordingsCard(state) {
+function recordingsSettingsCard(state) {
   const card = make("section", "card");
-  card.id = "recordings-card";
-  card.dataset.home = "inbox:history";
+  card.id = "recordings-settings-card";
+  card.dataset.home = "settings:automations";
   card.append(make("h2", "", "recordings.title", "Watch a task again"),
-    make("p", "subtle", "recordings.purpose", "Play back what a finished task did, one step at a time, see the path it took, and keep it as a page or a workflow."));
+    make("p", "subtle", "recordings.settingsPurpose", "Whether a finished task can be played back step by step in Inbox › History."));
   const label = make("label", "", "recordings.switch", "Recordings of tasks");
   label.htmlFor = "recordings-mode";
   const select = switchSelect("recordings-mode", state.settings.mode);
@@ -74,12 +76,23 @@ function recordingsCard(state) {
   const save = button("action.save", "Save", "", async () => {
     try {
       await api("recordings", { mode: select.value, pictures: pictures.checked });
-      saved.textContent = say("recordings.saved", "Saved.");
       await drawRecordings();
+      const fresh = $("recordings-settings-card")?.querySelector('[role="status"]');
+      if (fresh) fresh.textContent = say("recordings.saved", "Saved.");
     } catch (error) { saved.textContent = error.message; }
   });
   card.append(label, select, pictureRow, save, saved);
-  if (state.settings.mode !== "off") card.append(...picker(state.tasks));
+  return card;
+}
+
+function recordingsCard(state) {
+  if (state.settings.mode === "off") return null;
+  const card = make("section", "card");
+  card.id = "recordings-card";
+  card.dataset.home = "inbox:history";
+  card.append(make("h2", "", "recordings.title", "Watch a task again"),
+    make("p", "subtle", "recordings.purpose", "Play back what a finished task did, one step at a time, see the path it took, and keep it as a page or a workflow."),
+    ...picker(state.tasks));
   return card;
 }
 
@@ -95,7 +108,7 @@ function picker(tasks) {
   });
   const stage = document.createElement("div");
   stage.id = "recordings-stage";
-  const open = button("recordings.open", "Play it back", "quiet-button", () => void openRecording(select.value, stage));
+  const open = button("recordings.open", "Play it back", "", () => void openRecording(select.value, stage)); // the Inbox card's one filled button
   return [label, select, open, stage];
 }
 
@@ -214,9 +227,11 @@ async function downloadPage(runId) {
 async function drawRecordings() {
   let state;
   try { state = await api("recordings"); } catch { return; }
-  const card = recordingsCard(state);
-  const old = $("recordings-card");
-  if (old) old.replaceWith(card); else document.body.append(card);
+  for (const [id, card] of [["recordings-settings-card", recordingsSettingsCard(state)], ["recordings-card", recordingsCard(state)]]) {
+    const old = $(id);
+    if (!card) old?.remove();
+    else if (old) old.replaceWith(card); else document.body.append(card);
+  }
 }
 
 /* ------------------------------------------------------------ Is Branch keeping up */
