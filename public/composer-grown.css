@@ -59,7 +59,7 @@
 
 /* DG-175: the extras the full window used to lay out beside the box live in the "+" menu, as the sample's do.
    Each keeps its id and its module; the menu presses the real control. */
-body.lx :is(#composer-media, #composer-attach, .composer-temporary, .composer-specialist, #new-session) {
+body.lx :is(#composer-media, #composer-attach, .composer-temporary, .composer-specialist, #new-session, #plan-controls) {
   display: none !important;
 }
 /* The sample's line under the box (`.c-foot .fchip`, shown `.full-only`): with Show everything on at Advanced or

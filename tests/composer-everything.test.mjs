@@ -91,3 +91,49 @@ test("DG-175 in French the chips are French", async (t) => {
   assert.notDeepEqual(words, ["Ask me questions first", "Temporary"]);
   assert.deepEqual(errors, []);
 });
+
+/** The + menu as drawn: its rows in order, a ✓ on each chosen one, and whether it fits the window. */
+const plusMenu = async (page) => {
+  await page.locator("#lx-plus").click();
+  await page.locator("#lx-plus-menu").waitFor({ state: "visible" });
+  return page.evaluate(() => {
+    const menu = document.getElementById("lx-plus-menu"), box = menu.getBoundingClientRect();
+    return {
+      rows: [...menu.querySelectorAll(".lx-more-head, [role^=menuitem]")].map((row) =>
+        `${row.textContent.trim()}${row.getAttribute("aria-checked") === "true" ? " ✓" : ""}`),
+      fits: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
+    };
+  });
+};
+const planSaved = (page) => page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/plan-act");
+
+test("DG-175 with Show everything on, how it should work and when to check back are the + menu's choices, not a row above the box", async (t) => {
+  const { page, errors } = await fixture(t, 400);
+  await everything(page, true);
+  assert.equal(await page.locator("#plan-controls").isVisible(), false, "no row of plan controls above the box");
+  /* The server's choice arrived: nothing checks back until the end unless asked. */
+  await page.waitForFunction(() => document.getElementById("session-autonomy").value === "at-the-end");
+  const before = await plusMenu(page);
+  assert.equal(before.fits, true, "the longer menu still fits a phone");
+  const plan = before.rows.slice(before.rows.indexOf("How it should work"));
+  assert.deepEqual(plan.slice(0, 8), ["How it should work", "Just do it ✓", "Show me the plan first",
+    "Check back with me", "Before every step", "Before steps that change something", "Not until the end ✓", "Use this for the whole project"]);
+  /* A choice presses the real select, and the choice is saved for this conversation. */
+  let answer = planSaved(page);
+  await page.locator("#lx-plus-menu").getByRole("menuitemradio", { name: "Show me the plan first", exact: true }).click();
+  const body = (await answer).request().postDataJSON();
+  assert.deepEqual([body.planMode, body.scope], ["show-plan", "project"], "before the first message the choice is the project's");
+  assert.equal(await page.locator("#session-plan-mode").inputValue(), "show-plan");
+  assert.ok((await plusMenu(page)).rows.includes("Show me the plan first ✓"), "shown chosen when the menu opens again");
+  answer = planSaved(page);
+  await page.locator("#lx-plus-menu").getByRole("menuitem", { name: "Use this for the whole project", exact: true }).click();
+  assert.equal((await answer).request().postDataJSON().scope, "project");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-175 the calm window's + menu stays the sample's short one", async (t) => {
+  const { page, errors } = await fixture(t, 1440);
+  const { rows } = await plusMenu(page);
+  assert.equal(rows.includes("How it should work"), false, JSON.stringify(rows));
+  assert.deepEqual(errors, []);
+});
