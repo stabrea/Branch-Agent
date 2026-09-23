@@ -76,7 +76,11 @@ async function takeStoreDown(dataDir: string, to: number): Promise<{ backup: str
   } finally { store.close(); }
 }
 
-const launcher = (target: string, executableName: string): void => {
+/**
+ * Opens the installed Branch as a window. Shared, because the undo and the update both have to put a
+ * window back and there must not be two ideas about how that is done.
+ */
+export const openWindow = (target: string, executableName: string): void => {
   const file = process.platform === "darwin" ? "/usr/bin/open" : join(target, executableName);
   const args = process.platform === "darwin" ? [target] : [];
   spawn(file, args, { detached: true, stdio: "ignore" }).unref();
@@ -167,7 +171,7 @@ async function startAgainOnly(
     // A window is reopened as a window. Only a conversation that was a background service is handed
     // to the service manager, because that manager is the only thing that can bring one back.
     if (mode === "app") {
-      (deps.launch ?? launcher)(entry.target, entry.executableName);
+      (deps.launch ?? openWindow)(entry.target, entry.executableName);
     } else {
       await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
       const back = await waitForReturn(input.dataDir, { pid: was?.pid ?? null, startedAt: was?.startedAt ?? null },
@@ -222,7 +226,7 @@ async function runRollback(entry: ActivationEntry, journal: ActivationJournal, i
           throw new Error(`version ${entry.fromVersion} did not come back up in the background`);
         return;
       }
-      (deps.launch ?? launcher)(entry.target, entry.executableName);
+      (deps.launch ?? openWindow)(entry.target, entry.executableName);
     },
   });
 }
