@@ -334,8 +334,8 @@ const SETTINGS_PAGES = [
 const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], ["defaults", "settings.models.defaults", "Defaults"],
   ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
 const SETTINGS_DIRECTORY = {
-  /* DG-193: Trunks & people holds the real settings instead (public/settings-trunks.js), with a way to Trunks and People. */
-  channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
+  /* DG-193: Trunks & people holds the real settings instead (public/settings-trunks.js), with a way to Trunks and People.
+     DG-194: Chat apps & devices likewise draws its settings on its own page, so neither has a directory here. */
   connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
   skills: [
     ["skills", "place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "customize:skills"],
@@ -362,7 +362,7 @@ const MOVES = [
   ["obsidian-card", "documents"],
   ["plugins-card", "lx-slot-customize-plugins"],
   ["mcp-card", "lx-slot-customize-connections"],
-  ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-slot-customize-channels"],
+  ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-page-channels"],
   ["deployment-card", "lx-page-general"], ["projects-form", "lx-page-general"],
   ["identity-form", "lx-page-assistant"],
   ["settings-form", "lx-page-appearance"],

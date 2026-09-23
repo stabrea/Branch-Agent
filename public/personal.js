@@ -2,7 +2,7 @@
    public/layout.js through data-home. Every part has the owner's three-way switch and starts off.
 
    customize:connections   Your own accounts (Google, Microsoft, Spotify), searching X, Home Assistant
-   customize:channels      Sending files into chats, searching the email channel's inbox
+   settings:channels       Sending files into chats, searching the email channel's inbox
    automations:triggers    A public address for incoming webhooks only
    settings:voice          The spoken briefing, and saying yes aloud                                  */
 import { api } from "/app.js";
@@ -187,9 +187,9 @@ async function homeCard(modes) {
   return node;
 }
 
-/* ---------- customize:channels — files into chats, the inbox ---------- */
+/* ---------- settings:channels — files into chats, the inbox ---------- */
 async function filesCard(modes) {
-  const { node, status } = card("personal-files-card", "customize:channels", "personal.files.title", "Files sent into your chats",
+  const { node, status } = card("personal-files-card", "settings:channels", "personal.files.title", "Files sent into your chats",
     "personal.files.purpose", "Branch can send a chart, PDF or spreadsheet it made into a Telegram, Slack or Discord chat that already talks to it. A file holding a key or password is never sent.");
   node.append(...switchFor("chat-files", modes, status));
   if (modes["chat-files"] !== "off") {
@@ -204,7 +204,7 @@ async function filesCard(modes) {
 }
 
 async function mailCard(modes) {
-  const { node, status } = card("personal-mail-card", "customize:channels", "personal.mail.title", "Searching the email inbox",
+  const { node, status } = card("personal-mail-card", "settings:channels", "personal.mail.title", "Searching the email inbox",
     "personal.mail.purpose", "Search the email channel's inbox and open the files attached to a message. Nothing is marked read or sent.");
   node.append(...switchFor("mail-search", modes, status));
   if (modes["mail-search"] !== "off") {

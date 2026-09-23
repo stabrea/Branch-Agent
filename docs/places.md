@@ -40,7 +40,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `customize:specialists` | Specialists and proposing new ones |
 | `customize:plugins` | Plugins |
 | `customize:connections` | MCP in both directions: servers the assistant uses, other AI tools using Branch |
-| `customize:channels` | Chat apps, the phone, pages and the browser extension that reach Branch |
+| `customize:channels` | The chat apps' own list and the phone app; their settings are in `settings:channels` (DG-194) |
 | `overview:here` | What this computer is working on, what needs attention and what finished lately |
 | `household:people` | The owner and everyone who uses Branch on this computer |
 | `settings:general` | Starting with the computer, projects, labels, shared copies, people on this computer |
@@ -62,7 +62,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `settings:advanced` | Health check, diagnostics, tracing, evaluation and studies, developer tools |
 | `settings:about` | Version and updates |
 | `settings:trunks` | Directory to the real Trunks, Overview and People places |
-| `settings:channels` | Directory to the real chat apps and devices controls |
+| `settings:channels` | Chat apps & devices: setting up chat apps, your devices, email and other pages, and what a chat may do (DG-194) |
 | `settings:connections` | Directory to the real tool-server and app connections controls |
 | `settings:skills` | Directory to the real Skills, Specialists and Plugins places |
 | `settings:memory` | Directory to the real Memory, Documents and Made for you places |
@@ -87,7 +87,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Importing from another assistant (`mac2/move-in`) | `settings:data`, and offered once on first run |
 | Heartbeat and quiet jobs (`mac2/quiet-jobs`) | `automations:scheduled`; its interruptions setting in `settings:notifications` |
 | Undoing a goal (`mac2/goal-undo`) | The conversation: a message action and the Plan tab, no screen of its own |
-| Live chat on channels (`mac2/chat-live`) | `customize:channels` |
+| Live chat on channels (`mac2/chat-live`) | `settings:channels` |
 | Persona, identity and "who the owner is" files (SOUL, IDENTITY, USER) | Edited in `settings:instructions`; `settings:assistant` may link there from the related assistant controls |
 | A project's own instructions (AGENTS.md and its aliases) | Edited in `settings:instructions`; `settings:general` may link there from the related project |
 | MEMORY.md | Edited in `settings:instructions`; `library:memory` shows the related remembered facts |
@@ -108,7 +108,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Where Branch listens (`mac7/bind`) | `settings:computer` |
 | Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
 | Making videos (`mac7/r17-i`) | `settings:models:media` |
-| The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |
+| The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `settings:channels`; `/platform` lives in the message box |
 | Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `customize:skills` |
 | Notes with rewriting (`mac7/r17-i`) | `library:documents` |
 | Model arena (`mac7/r17-i`) | `settings:models:second` |
@@ -118,14 +118,14 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
 | Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
-| Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
-| Set up any chat app: the one command, square codes and Check and save (`mac7/connect`) | `customize:channels`; the phone app shows it on its home screen, and the terminal view lists the command under Customize › Channels |
+| Set up Telegram, step by step (`mac3/never-break`) | `settings:channels` |
+| Set up any chat app: the one command, square codes and Check and save (`mac7/connect`) | `settings:channels`; the phone app shows it on its home screen, and the terminal view lists the command under Customize › Channels |
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
 | Learning, deeper: memory blocks, the timeline, meaning search, lessons, preferences from Claude Code and Codex, expiring memories, note read-back, outside memory (R17-F) | `library:memory`; skill usage and merging in `customize:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
-| The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
+| The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `settings:channels` |
 | Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
 | Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
 | Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
@@ -148,14 +148,14 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
-| Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `customize:channels`; the "which device" picker lives in the message box, because it changes the next message |
+| Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `settings:channels`; the "which device" picker lives in the message box, because it changes the next message |
 | Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
 | The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
 | Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
 | A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |
 | `@name` in the message box (R17-A) | The message box: the `@` menu, and the message goes to that Trunk's own conversation |
 | Safety extras: tool scripts, WebAssembly add-ons, authenticator codes, the emergency stop by level, command checks, the progress check, the tamper-evident record, history repair (`mac7/r17-g`) | `settings:permissions`; the emergency stop sits beside Lockdown's rules there, and a question that needs a code is still answered in `inbox:needs` |
-| The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
+| The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `settings:channels` |
 | Starting from a preset, and putting settings back (R17-S-A) | `settings:general` |
 | Which file does what, with editing of each file (R17-S-A) | `settings:general`, beside "How to work in this project"; each file's switch stays on its own card |
 | Your settings in one file (R17-S-A) | `settings:data`, beside Backup |

@@ -40,7 +40,7 @@ function noteFor(node, mode) {
 function buildCard(settings) {
   const card = make("section", "card");
   card.id = "dashboard-card";
-  card.dataset.home = "customize:channels";
+  card.dataset.home = "settings:channels";
   card.append(make("h2", "", "dashboard.card.title", "Dashboard in the browser"),
     make("p", "", "dashboard.card.purpose", "One page that shows what Branch is doing, whether it is healthy and what it has cost — for a phone, another computer or a screen on the wall."));
   const label = make("label", "", "dashboard.card.switch", "The dashboard");
