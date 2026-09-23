@@ -161,6 +161,45 @@ test("a pop-up cannot send its first request to an unlisted website", async (t) 
   assert.equal(forbiddenHits, 0, "the pop-up was refused before its first request left Chromium");
 });
 
+
+test("being sent to a website costs the task the same as going there by name", async (t) => {
+  // How many different websites one task may visit was charged only where an address is typed.
+  // Going straight to a second website was refused; being *sent* there by a redirect was not, so a
+  // chain of them could walk a task across every website the owner allowed for the price of one.
+  let secondHits = 0;
+  const second = createServer((_request, response) => {
+    secondHits += 1;
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><body><h1>The second place</h1>");
+  });
+  second.listen(0, "127.0.0.1");
+  await once(second, "listening");
+  t.after(async () => { second.close(); await once(second, "close"); });
+  const elsewhere = `http://127.0.0.1:${second.address().port}`;
+
+  const first = createServer((request, response) => {
+    if ((request.url ?? "/") === "/away") { response.writeHead(302, { location: elsewhere }); response.end(); return; }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><body><h1>The first place</h1>");
+  });
+  first.listen(0, "127.0.0.1");
+  await once(first, "listening");
+  t.after(async () => { first.close(); await once(first, "close"); });
+  const origin = `http://127.0.0.1:${first.address().port}`;
+
+  // Both websites are allowed. What is limited is how many of them one task may visit.
+  const browser = new BranchBrowser({ allowedOrigins: [origin, elsewhere], maxOriginsPerRun: 1 });
+  t.after(() => browser.close());
+
+  await browser.navigate(origin, context(["browser.read"]));
+  await assert.rejects(browser.navigate(elsewhere, context(["browser.read"])),
+    /already opened 1 different websites/, "going there by name is refused, as it always was");
+
+  // The same website, reached by being sent to it. It has to cost the same.
+  await browser.navigate(`${origin}/away`, context(["browser.read"])).catch(() => undefined);
+  assert.equal(secondHits, 0, "the second website was never asked for anything");
+});
+
 test("a site that keeps sending the browser onwards is given up on", async (t) => {
   const site = await siteThatRedirects();
   t.after(() => site.close());

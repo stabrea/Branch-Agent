@@ -149,6 +149,15 @@ export class BranchBrowser {
     const target = new URL(request.url);
     if (entry?.granted !== target.origin)
       await this.policy?.assertAllowed(target, 'browser address');
+    // How many different websites a task may visit is charged here, where every real navigation
+    // passes — including the ones a site sends the browser to. Charging it only where an address is
+    // typed meant going straight to a second website was refused and being *sent* there was not, so a
+    // chain of redirects could walk a task across every allowed website for the price of one.
+    // `Document` is the boundary: a page fetching a picture from a CDN it was allowed is not the task
+    // visiting a website, and counting those would refuse ordinary pages.
+    if (!entry || entry.origins.has(target.origin)) return;
+    if (entry.origins.size >= this.config.maxOriginsPerRun) throw new Error(originStop(this.config.maxOriginsPerRun));
+    entry.origins.add(target.origin);
   }
   private async launch(): Promise<Browser> {
     const env = Object.fromEntries(['PATH', 'SystemRoot', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME']
