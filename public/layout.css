@@ -642,11 +642,14 @@ body.lx-help .context-panel > .acorn-art {
 .lx-tab .rail-badge {
   margin-left: 4px;
 }
-/* DG-140: count badge on place tabs (sample: `.tab .n`) */
+/* DG-140: the live count on the Inbox's "Needs you" tab */
 .lx-tab-count {
-  font: 600 10.5px / 1 var(--mono);
-  color: var(--copper-text);
   margin-left: 5px;
+  color: var(--copper-text);
+  font: 600 10.5px / 1 var(--font-mono);
+}
+.lx-tab-count[hidden] {
+  display: none;
 }
 .lx-panel > .card,
 .lx-slot > .card,
