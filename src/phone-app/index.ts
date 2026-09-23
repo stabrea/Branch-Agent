@@ -7,7 +7,7 @@ import { candidateAddresses, filterTailnetAddresses, type Runner, runQuietly } f
 import { assertDoorAddress, PhoneDoor, type DoorView } from "./door.js";
 import { appRoot, damagedReason, findPhoneApp, readCheckedApp } from "./file.js";
 import { loadDictionaries } from "./page.js";
-import type { ProbeTailscale } from "../remote/tailscale.js";
+import { probeTailscale, type ProbeTailscale } from "../remote/tailscale.js";
 
 /**
  * mac7/phone-qr: "Get Branch on your phone" — the card in the window and `branch phone`.
@@ -68,9 +68,13 @@ export class PhoneApp {
     const address = asked.address ?? addresses[0];
     if (!address) throw new PhoneAppRefusal(409, noAddressRefusal);
     const dictionaries = await loadDictionaries(join(this.root(), "public", "locales"));
-    // Tailscale is asked again at the door: it may have stopped since the list was read.
-    try { await assertDoorAddress(address, this.deps.tailscale); } catch { throw new PhoneAppRefusal(409, noAddressRefusal); }
-    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}), ...(this.deps.tailscale ? { tailscale: this.deps.tailscale } : {}) });
+    // Tailscale is asked again for the door, once: it may have stopped since the list was read, and
+    // the door's own check takes that same answer, so it cannot refuse later without saying why.
+    const real = this.deps.tailscale ?? probeTailscale;
+    let answer: ReturnType<ProbeTailscale> | undefined;
+    const tailscale: ProbeTailscale = () => (answer ??= real());
+    try { await assertDoorAddress(address, tailscale); } catch { throw new PhoneAppRefusal(409, noAddressRefusal); }
+    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}), tailscale });
   }
   stop(): void { this.door.stop(); }
 }

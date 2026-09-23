@@ -116,3 +116,15 @@ test("PhoneDoor.start itself refuses a 100.64 address Tailscale does not report"
   await assert.rejects(door.start({ file: { size: 4 }, bytes: Buffer.from("test"), address: "100.99.1.2", dictionaries: {}, tailscale: probe }), /does not report/);
   assert.equal(door.view(), null);
 });
+
+test("sharing asks Tailscale once for the door, so the door cannot refuse later without saying why", async (t) => {
+  const root = await fakeApp(t);
+  let calls = 0;
+  // Running on the first two asks (the list, then the door), stopped after: a third ask would refuse.
+  const probe = async () => (++calls <= 2 ? running("100.101.102.103") : notRunning);
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+  // The address is not this machine's, so opening the door fails at listen; what matters is that
+  // Tailscale was asked twice, never a third time, and no plain "not running" came back.
+  await phone.share({}).then(() => phone.stop(), (error) => assert.doesNotMatch(String(error), /Tailscale is not running/));
+  assert.equal(calls, 2);
+});
