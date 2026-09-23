@@ -59,6 +59,11 @@ function row(...children) {
   node.append(...children);
   return node;
 }
+/** DG-197: a card's buttons and notes that belong to rows the sample keeps for a higher level show with them. */
+function atLevel(level, ...nodes) {
+  for (const node of nodes) node.dataset.level = level;
+  return nodes;
+}
 
 const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
@@ -251,17 +256,16 @@ async function sourcesCard(modes) {
   const { node, status } = card("asks-sources-card", "settings:memory", "asks.sources.title", "Bringing in new items",
     "asks.sources.purpose", "New GitHub issues, mail and Telegram messages since the last time, written into sources/ in your workspace.");
   node.append(...switchFor("source-sync", modes, status));
-  if (modes["source-sync"] !== "off") {
-    const view = await api("asks/sources");
-    const list = field("textarea", view.sources.map((s) => [s.id, s.kind, s.target, s.secret].join(" | ")).join("\n"));
-    node.append(...labelled("asks-sources-list", "asks.sources.list", "One per line: short name | github-issues, imap or telegram | where | saved secret", list),
-      row(button("asks.save", "Save", async () => {
-        try { await api("asks/sources", { sources: lines(list.value).map(([id, kind, target, secret]) => ({ id, kind, target: target ?? "", secret: secret ?? "" })) }); done(status); } catch (error) { tell(status, error); }
-      }), button("asks.sources.sync", "Bring in what is new", async () => {
-        try { status.textContent = (await api("asks/sources/sync", {})).results.map((r) => `${r.id}: ${r.error ?? r.added}`).join(" · "); } catch (error) { tell(status, error); }
-      })),
-      plain("p", view.status.map((s) => `${s.id}: ${s.items} (${s.syncedAt?.slice(0, 16) ?? "—"})`).join(" · "), "field-note"));
-  }
+  /* DG-197: the list is drawn whatever the switch says, as the sample draws it, so the section counts it. */
+  const view = await api("asks/sources");
+  const list = field("textarea", view.sources.map((s) => [s.id, s.kind, s.target, s.secret].join(" | ")).join("\n"));
+  node.append(...labelled("asks-sources-list", "asks.sources.list", "One per line: short name | github-issues, imap or telegram | where | saved secret", list),
+    ...atLevel("advanced", row(button("asks.save", "Save", async () => {
+      try { await api("asks/sources", { sources: lines(list.value).map(([id, kind, target, secret]) => ({ id, kind, target: target ?? "", secret: secret ?? "" })) }); done(status); } catch (error) { tell(status, error); }
+    }), button("asks.sources.sync", "Bring in what is new", async () => {
+      try { status.textContent = (await api("asks/sources/sync", {})).results.map((r) => `${r.id}: ${r.error ?? r.added}`).join(" · "); } catch (error) { tell(status, error); }
+    })),
+    plain("p", view.status.map((s) => `${s.id}: ${s.items} (${s.syncedAt?.slice(0, 16) ?? "—"})`).join(" · "), "field-note")));
   node.append(status);
   return node;
 }
@@ -271,16 +275,15 @@ async function hindsightCard(modes) {
   const { node, status } = card("asks-hindsight-card", "settings:memory", "asks.hindsight.title", "A Hindsight memory server",
     "asks.hindsight.purpose", "Also keep and find things in your own Hindsight server. Branch's own memory stays as it is.");
   node.append(...switchFor("hindsight", modes, status));
-  if (modes.hindsight !== "off") {
-    const { hindsight } = await api("asks/hindsight");
-    const address = field("input", hindsight.address ?? "", "url"), bank = field("input", hindsight.bank), secret = field("input", hindsight.secret);
-    node.append(...labelled("asks-hindsight-address", "asks.hindsight.address", "Server address", address),
-      ...labelled("asks-hindsight-bank", "asks.hindsight.bank", "Memory bank", bank),
-      ...labelled("asks-hindsight-secret", "asks.hindsight.secret", "Saved secret with its key (optional)", secret),
-      row(button("asks.save", "Save", async () => {
-        try { await api("asks/hindsight", { address: address.value.trim() || null, bank: bank.value.trim(), secret: secret.value.trim() }); done(status); } catch (error) { tell(status, error); }
-      })));
-  }
+  /* DG-197: its address, bank and secret are drawn whatever the switch says, as the sample draws them. */
+  const { hindsight } = await api("asks/hindsight");
+  const address = field("input", hindsight.address ?? "", "url"), bank = field("input", hindsight.bank), secret = field("input", hindsight.secret);
+  node.append(...labelled("asks-hindsight-address", "asks.hindsight.address", "Server address", address),
+    ...labelled("asks-hindsight-bank", "asks.hindsight.bank", "Memory bank", bank),
+    ...labelled("asks-hindsight-secret", "asks.hindsight.secret", "Saved secret with its key (optional)", secret),
+    ...atLevel("advanced", row(button("asks.save", "Save", async () => {
+      try { await api("asks/hindsight", { address: address.value.trim() || null, bank: bank.value.trim(), secret: secret.value.trim() }); done(status); } catch (error) { tell(status, error); }
+    }))));
   node.append(status);
   return node;
 }
