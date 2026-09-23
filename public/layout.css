@@ -1502,7 +1502,8 @@ body.lx #connection[data-state="lost"] {
   display: none !important;
 }
 /* the places stay one click away in More; Inbox comes back to the rail while something waits in it */
-:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]),
+/* DG-092: Overview stays, as the sample's first place under New conversation */
+:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]):not([data-place="overview"]),
 :root:not([data-everything="on"]) body:not(.lx-inbox-waiting) .lx-places .lx-place-link[data-place="inbox"],
 :root:not([data-everything="on"]) .rail-group[data-group="sections"] > h2 {
   display: none;

@@ -505,19 +505,75 @@ body.no-aside .context-panel {
   display: grid;
   min-width: 0;
 }
+/* DG-095: the owner's line is shown whole, never cut short; a long one wraps. */
 .owner-name {
   font-size: 12.5px;
   font-weight: 550;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .owner-status {
   font-size: 10.5px;
   color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+/* DG-094: one line of icons above the account row (public/rail-foot.js): the theme and the pet on the left,
+   then day/night, clear the view and the Settings cog on the right. */
+.lx-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0 0 2px;
+}
+.lx-foot-line .lx-foot-icon,
+.lx-foot-line .sg-gear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.lx-foot-line .lx-foot-icon:hover,
+.lx-foot-line .sg-gear:hover,
+.lx-foot-line .sg-gear[aria-expanded="true"] {
+  background: var(--rail-hover);
+  color: var(--text);
+}
+.lx-foot-line .lx-foot-icon svg,
+.lx-foot-line .sg-gear svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lx-foot-line #lx-foot-mode {
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+}
+.lx-foot-line .lx-foot-icon[hidden] {
+  display: none;
+}
+/* DG-159: day/night lives only here now, so the old half-moon beside the computer's name goes. */
+#appearance-shortcut {
+  display: none !important;
+}
+/* DG-161: as in the sample, the pet's switch is not in the folded sidebar nor on a phone. */
+@media (max-width: 960px) {
+  .lx-foot-line #lx-foot-pet {
+    display: none;
+  }
 }
 .dot {
   display: inline-block;
