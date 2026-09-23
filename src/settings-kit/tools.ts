@@ -87,18 +87,23 @@ const ListSchema = z.object({
   search: z.string().trim().max(120).optional(),
   onlyOff: z.boolean().optional(),
   onlyChanged: z.boolean().optional(),
+  offset: z.number().int().min(0).max(10000).optional(),
+  limit: z.number().int().min(1).max(80).optional(),
 }).strict();
 type ListInput = z.infer<typeof ListSchema>;
 
 /** The catalogue, filtered: every word of `search` must appear in the setting's name, label, key or place. */
-export function listSettings(store: Store, owner: string, input: ListInput): { total: number; shown: Row[] } {
+export function listSettings(store: Store, owner: string, input: ListInput): { total: number; shown: Row[]; nextOffset: number | null } {
   const words = (input.search ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const pinned = pinnedIds(store, store.profiles?.ownerName ?? owner); // the same scope as changesFor
   const rows = settingsCatalogue.flatMap((spec) => spec.fields.map((field) => row(store, owner, spec, field, pinned)))
     .filter((one) => words.every((word) => `${one.setting} ${one.name} ${one.label} ${one.where}`.toLowerCase().includes(word)))
     .filter((one) => !input.onlyOff || one.value === "off" || one.value === false)
     .filter((one) => !input.onlyChanged || one.value !== one.startsAs);
-  return { total: rows.length, shown: rows.slice(0, 80) };
+  const offset = input.offset ?? 0, limit = input.limit ?? 80;
+  const shown = rows.slice(offset, offset + limit);
+  const end = offset + shown.length;
+  return { total: rows.length, shown, nextOffset: end < rows.length ? end : null };
 }
 
 const ChangeSchema = z.object({
@@ -164,7 +169,7 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
 export function registerSettingsTools(registry: ToolRegistry, store: Store, writers: () => Record<string, Writer>): void {
   registry.register({
     name: "settings.list", permission: "settings.read",
-    description: "List Branch's own settings — every switch (off, when-needed, on), yes/no, choice and number the owner can change — with what each is set to now, how it starts, and which way is less careful. Search by words, or ask only for what is off or what was changed. Use it to answer questions about Branch's settings and to suggest ones that would help; never change anything without asking.",
+    description: "List Branch's own settings — every switch (off, when-needed, on), yes/no, choice and number the owner can change — with what each is set to now, how it starts, and which way is less careful. Search by words, or ask only for what is off or what was changed. Returns up to 80 rows; pass nextOffset as offset with the same filters to continue, until nextOffset is null. Use it to answer questions about Branch's settings and to suggest ones that would help; never change anything without asking.",
     parameters: ListSchema,
     target: () => "Branch's own settings",
     execute: async (input: ListInput, context: ToolContext) => { ownerHere(store, context); return listSettings(store, context.owner, input); },
