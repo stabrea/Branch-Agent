@@ -147,6 +147,7 @@ test("DG-199 a card shows at the lowest level of its rows", async (t) => {
   const wrong = await page.evaluate(async () => {
     const { SETTINGS_INDEX } = await import("/settings-index.js");
     const { ROW_LEVELS } = await import("/settings-row-levels.js");
+    const { ALWAYS } = await import("/settings-rows.js");
     const word = { R: "regular", A: "advanced", T: "technical" }, rank = { regular: 0, advanced: 1, technical: 2 };
     const out = [];
     for (const card of document.querySelectorAll("[data-sg-bucket]")) {
@@ -156,7 +157,7 @@ test("DG-199 a card shows at the lowest level of its rows", async (t) => {
       if (!levels.length) continue;
       let lowest = levels.reduce((low, one) => (rank[one] < rank[low] ? one : low), "technical");
       /* A card holding a setting the sample does not level is never raised by the others (the policy card's own control). */
-      const section = levels.length < own.length ? card.dataset.sgSectionLevel : null;
+      const section = levels.length < own.length || card.id in ALWAYS ? card.dataset.sgSectionLevel : null;
       if (section && rank[lowest] > rank[section]) lowest = section;
       if (card.dataset.level !== lowest) out.push(`${card.id}: ${card.dataset.level} not ${lowest}`);
     }
@@ -200,5 +201,16 @@ test("DG-199 search and a link to one setting show a row whatever the level", as
   await page.waitForFunction(() => !document.body.classList.contains("lx-settings-searching"));
   await page.evaluate((id) => globalThis.branchSettingsLevel.peek(document.querySelector(`[data-sg-row="${id}"]`)), target.id);
   assert.equal(await shown(), true, "a link to it shows it");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-199 pressing the emergency stop stays within reach at Regular, though its setup is Technical in the sample", async (t) => {
+  const { page, errors } = await settings(t);
+  await level(page, "regular");
+  await open(page, "permissions");
+  await page.locator("#safety-stop-card").waitFor({ state: "attached" });
+  const seen = await page.evaluate(() => ({ card: document.getElementById("safety-stop-card").dataset.level,
+    press: document.querySelector("#safety-stop-card button")?.checkVisibility() ?? false }));
+  assert.deepEqual(seen, { card: "regular", press: true });
   assert.deepEqual(errors, []);
 });

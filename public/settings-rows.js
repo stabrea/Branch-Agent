@@ -15,6 +15,10 @@ const NOTE = ":is(p, small, span, div):is(.subtle, .field-note, .note, .hint, .m
  * draws some as a control of its own, at Regular) follows its card, and makes the card partial.
  */
 const BY_CARD = new Map();
+/* Controls the sample levels nowhere that must stay within reach whatever the level: pressing the emergency stop
+   (coordinator, 2026-09-23). The sample puts the stop's setup at Technical; the press itself is never hidden. */
+export const ALWAYS = { "safety-stop-card": "#safety-stop-press" };
+for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: true });
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   if (!card) continue;
   const entry = BY_CARD.get(card) ?? { rows: [], partial: false };
