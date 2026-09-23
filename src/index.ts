@@ -37,6 +37,7 @@ import { SqliteMemoryBackend } from "./memory-backend.js";
 import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
+import { registerGenerateBatch } from "./trajectory-batch.js";
 import { meteringTick } from "./metering.js";
 import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
@@ -719,6 +720,9 @@ export async function createBranch(options: {
   const userAgent = `BranchAgent/${version}`;
   // Wave 7: one finished task's full record, in the documented trajectory shape.
   registerRunExport(registry, store, version);
+  // FQ-packages.trajectories: run a batch of prompts as real new tasks and save their
+  // trajectories together, gzip-compressed, in the same shape a batch export already uses.
+  registerGenerateBatch(registry, store, runtime, version);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
