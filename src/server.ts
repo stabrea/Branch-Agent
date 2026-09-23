@@ -53,7 +53,7 @@ import { adaptApi, handlesAdaptPath } from "./adapt/api.js"; // mac7/adapt
 import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
-import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { buildTrajectory, buildTrajectoryBatch, gzipTrajectoryBatch, trajectoryBatchCap, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
@@ -3941,6 +3941,31 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     await trajectoriesResponse(app, request, response);
     return true;
   }
+  // FQ-packages.trajectories: a batch of tasks — a chosen list (`?ids=`) or a filter (`?session=`
+  // and/or `?since=`/`?until=`), never both — as one JSON answer or as the same lines gzipped for
+  // real. Owner only: src/short-lived-keys.ts refuses both of these to any short-lived key before
+  // this code ever runs.
+  if (request.method === "GET" && path === "/api/runs/trajectories/batch") {
+    // Built in full before anything is sent, so a refusal partway through (the cap, a bad id)
+    // still gets its own status code instead of a 200 whose headers already went out.
+    const trajectories = await trajectoryBatchDocuments(app, request);
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    response.end(JSON.stringify({ trajectories }));
+    return true;
+  }
+  if (request.method === "GET" && path === "/api/runs/trajectories/batch.jsonl.gz") {
+    const { runIds, options } = await trajectoryBatchPlan(app, request);
+    const gzipped = gzipTrajectoryBatch(app.store, runIds, options, app.runtime.hideSecrets);
+    response.writeHead(200, {
+      // No content-encoding header: the gzip bytes ARE the body a reader saves to a .jsonl.gz file,
+      // not a transport encoding a client should undo on the way in.
+      "content-type": "application/gzip",
+      "content-disposition": `attachment; filename="branch-trajectories.jsonl.gz"`,
+      "cache-control": "no-store",
+    });
+    response.end(gzipped);
+    return true;
+  }
   if (request.method === "POST" && path === "/v1/chat/completions") {
     await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
     return true;
@@ -4026,6 +4051,80 @@ async function trajectoriesResponse(app: Branch, request: IncomingMessage, respo
     app.runtime.hideSecrets))
     response.write(line + "\n");
   response.end();
+}
+/** A date query param parses with `Date.parse`, which accepts both a bare day and a full ISO stamp. */
+function isValidQueryDate(value: string): boolean { return !Number.isNaN(Date.parse(value)); }
+
+/**
+ * FQ-packages.trajectories: a batch is asked for either as a chosen list (`?ids=a,b,c`) or as a
+ * filter (`?session=` and/or `?since=`/`?until=`) — never both, and never neither. `limit` narrows
+ * the filter form below the cap; the id-list form is already bounded by how many ids were typed.
+ */
+const TrajectoryBatchQuerySchema = z.object({
+  ids: z.string().min(1).optional(),
+  session: z.string().min(1).max(64).optional(),
+  since: z.string().min(1).refine(isValidQueryDate, "is not a valid date").optional(),
+  until: z.string().min(1).refine(isValidQueryDate, "is not a valid date").optional(),
+  limit: z.coerce.number().int().positive().max(trajectoryBatchCap).optional(),
+}).strict()
+  .refine((q) => !(q.ids !== undefined && (q.session !== undefined || q.since !== undefined || q.until !== undefined)),
+    "ids and a filter (session/since/until) may not both be given")
+  .refine((q) => q.ids !== undefined || q.session !== undefined || q.since !== undefined || q.until !== undefined,
+    "Give a run id list in ?ids=, or a filter: ?session=, ?since= and/or ?until=");
+
+/**
+ * FQ-packages.trajectories: the run ids a batch request resolves to, checked against the cap and
+ * against ownership the same way the single-run trajectory route checks one id — before anything
+ * is built, so a bad request never pays for reading even the first task.
+ *
+ * A named list (`?ids=a,b,c`) is taken as given, each id checked for ownership on its own, same as
+ * before. A filter (`?session=`, `?since=`/`?until=`) instead runs one query over the owner's own
+ * tasks — never loading every run into memory to filter in application code — newest first, and
+ * asks for one row more than the limit so a match that runs over it is refused with a clear 400
+ * instead of being quietly cut down to size.
+ */
+async function trajectoryBatchPlan(app: Branch, request: IncomingMessage): Promise<{
+  runIds: string[];
+  options: (runId: string) => Awaited<ReturnType<typeof trajectoryOptions>>;
+}> {
+  const query = new URL(request.url ?? "/", "http://local").searchParams;
+  const parsed = TrajectoryBatchQuerySchema.parse({
+    ids: query.get("ids") ?? undefined,
+    session: query.get("session") ?? undefined,
+    since: query.get("since") ?? undefined,
+    until: query.get("until") ?? undefined,
+    limit: query.get("limit") ?? undefined,
+  });
+  let runIds: string[];
+  if (parsed.ids !== undefined) {
+    runIds = parsed.ids.split(",").map((id) => id.trim()).filter(Boolean);
+    if (runIds.length === 0) throw new HttpError(400, "Give at least one run id in ?ids=");
+    if (runIds.length > trajectoryBatchCap)
+      throw new HttpError(400, `A batch is at most ${trajectoryBatchCap} runs; ${runIds.length} were asked for`);
+    for (const runId of runIds) {
+      const run = app.store.run(runId);
+      if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, `Run not found: ${runId}`);
+    }
+  } else {
+    const limit = parsed.limit ?? trajectoryBatchCap;
+    const matches = app.store.runsFiltered(app.runtime.owner, {
+      ...(parsed.session !== undefined ? { sessionId: parsed.session } : {}),
+      ...(parsed.since !== undefined ? { since: parsed.since } : {}),
+      ...(parsed.until !== undefined ? { until: parsed.until } : {}),
+    }, limit + 1);
+    if (matches.length > limit)
+      throw new HttpError(400,
+        `That filter matches more than ${limit} runs; narrow ?session=/?since=/?until= or add a smaller ?limit= (at most ${trajectoryBatchCap})`);
+    runIds = matches.map((run) => run.id);
+  }
+  const cache = new Map<string, Awaited<ReturnType<typeof trajectoryOptions>>>();
+  for (const runId of runIds) cache.set(runId, await trajectoryOptions(app, runId));
+  return { runIds, options: (runId: string) => cache.get(runId)! };
+}
+/** The batch's documents, built the same way `runs.export` builds one task's own. */
+async function trajectoryBatchDocuments(app: Branch, request: IncomingMessage): Promise<unknown[]> {
+  const { runIds, options } = await trajectoryBatchPlan(app, request);
+  return buildTrajectoryBatch(app.store, runIds, options, app.runtime.hideSecrets);
 }
 /**
  * Everything "Look inside" and a trajectory both need about one task: its receipts, its timeline,

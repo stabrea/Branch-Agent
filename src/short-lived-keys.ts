@@ -152,6 +152,10 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // FQ-packages.trajectories: a batch hands back many tasks' full messages and tool arguments at
+  // once, gzipped or not — more than any one "look" (the single-run trajectory route) was ever
+  // meant to. The owner reads it in the app window; a script's key never does, even a "run" one.
+  /^\/api\/runs\/trajectories\/batch(\.jsonl\.gz)?$/,
 ];
 
 /**
