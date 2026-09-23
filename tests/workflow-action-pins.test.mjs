@@ -13,7 +13,8 @@ const reviewed = new Map([
 ]);
 
 function inspectActionPins(source, file) {
-  const declared = [...source.matchAll(/^[ \t]*(?:-[ \t]+)?uses:[ \t]+actions\//gm)].length;
+  // The inspector below accepts plain values only; quoted values must fail closed, not vanish.
+  const declared = [...source.matchAll(/^[ \t]*(?:-[ \t]+)?uses:[ \t]+['"]?actions\//gm)].length;
   let inspected = 0;
   for (const match of source.matchAll(/^[ \t]*(?:-[ \t]+)?uses:[ \t]+(actions\/[\w-]+)@([^\s#]+)(?:[ \t]+#[ \t]+(v\S+))?/gm)) {
     inspected++;
@@ -41,4 +42,14 @@ test("a name-first action step cannot hide a changed pin", () => {
   assert.equal(inspectActionPins(line, "fixture.yml"), 1);
   assert.throws(() => inspectActionPins(line.replace("3e5f45b2", "deadbeef"), "fixture.yml"),
     /must pin actions\/download-artifact/);
+});
+
+test("quoted first-party actions fail closed rather than escaping the pin count", () => {
+  for (const quote of ["'", '"']) {
+    for (const pin of ["3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", "v8", "deadbeef"]) {
+      const line = `  - uses: ${quote}actions/download-artifact@${pin}${quote} # v8.0.1\n`;
+      assert.throws(() => inspectActionPins(line, "quoted.yml"), /uninspected first-party action/,
+        "quoted syntax must require inspection, even when its pin happens to be reviewed");
+    }
+  }
 });
