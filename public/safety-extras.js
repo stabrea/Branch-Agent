@@ -67,7 +67,7 @@ function card(id, titleKey, title, purposeKey, purpose) {
   return { node, status };
 }
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "Only when it is needed"], ["on", "field.switch-on", "On"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"], ["on", "field.switch-on", "On"]];
 const PARTS = {
   "tool-scripts": ["safety.part.toolScripts", "Scripts that call several tools at once",
     "safety.hint.toolScripts", "A script runs walled off with no internet; every tool it calls is checked like a direct call."],

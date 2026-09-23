@@ -51,7 +51,7 @@ function row(...children) {
 /** Runs a change and says how it went in the card's status line. */
 const attempt = (status, work) => async () => { try { await work(); done(status); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   "format-on-edit": ["coding.part.format", "Tidying a file and checking it for mistakes after every change"],
   "shell-snapshot": ["coding.part.shell", "Using your own command-line setup"],

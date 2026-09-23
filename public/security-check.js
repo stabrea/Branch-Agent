@@ -37,12 +37,12 @@ async function api(path, body) {
 
 const positions = [
   ["off", "field.switch-off", "Off"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "field.switch-on", "On"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
 ];
 const switches = [
   { name: "audit", label: ["field.security-audit-mode", "Check by itself"],
-    note: ["settings.note.security-audit-mode", "Off: only when you press the button. Only when it is needed: your assistant can also run the check when you ask it whether your setup is safe. On: it also runs each time Branch starts."] },
+    note: ["settings.note.security-audit-mode", "Off: only when you press the button. When needed: your assistant can also run the check when you ask it whether your setup is safe. On: it also runs each time Branch starts."] },
   { name: "malware", label: ["field.security-malware-mode", "Check add-ons for malware"],
     note: ["settings.note.security-malware-mode", "Before a server fetched with npx, uvx or pipx starts, its name is looked up in the public list of harmful packages (OSV), and a listed one is refused."] },
 ];

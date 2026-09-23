@@ -70,12 +70,12 @@ function row(...children) {
 const act = (status, work) => async () => { try { await work(); await drawCards(); } catch (error) { tell(status, error); } };
 const attempt = (status, work) => async () => { try { await work(); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 
 function switchFor(part, modes, status) {
   const select = choice(POSITIONS, modes[part]);
   select.addEventListener("change", act(status, () => api("reach/switch", { part, mode: select.value })));
-  return control(`reach-switch-${part}`, `reach.part.${part}`, part, "reach.switch.hint", "Off: nothing of this runs. On: it is ready from the start. Only when it is needed: it is offered when the work calls for it.", select);
+  return control(`reach-switch-${part}`, `reach.part.${part}`, part, "reach.switch.hint", "Off: nothing of this runs. On: it is ready from the start. When needed: it is offered when the work calls for it.", select);
 }
 
 function card(id, home, titleKey, title, purposeKey, purpose) {

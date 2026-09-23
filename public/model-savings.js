@@ -89,9 +89,9 @@ function control(spec, field, value) {
   const key = field.key ?? field.name;
   if (field.kind === "connection") return connectionSelect(id, key, value, field.none);
   if (field.kind === "switch" || field.kind === "three" || field.kind === "bool") {
-    const modes = field.kind === "three" ? ["off", "on", "when-needed"] : ["off", "on"];
+    const modes = field.kind === "three" ? ["off", "when-needed", "on"] : ["off", "on"];
     const current = field.kind === "bool" ? (value ? "on" : "off") : value;
-    const { nodes, box } = select(id, key, modes.map((mode) => [mode, `savings.option.${mode}`]), current);
+    const { nodes, box } = select(id, key, modes.map((mode) => [mode, field.kind === "three" ? `field.switch-${mode}` : `savings.option.${mode}`]), current);
     return { nodes, read: () => (field.kind === "bool" ? box.value === "on" : box.value) };
   }
   if (field.kind === "select") {

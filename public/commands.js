@@ -173,7 +173,7 @@ function wireMenu() {
 const POSITIONS = [
   ["off", "field.switch-off", "Off"],
   ["on", "field.switch-on", "On"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
 ];
 const NOTES = {
   off: ["commands.card.off", "Off: each place keeps only the commands it always had."],
