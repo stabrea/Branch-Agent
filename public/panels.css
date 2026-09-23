@@ -144,7 +144,8 @@ body.lx.lx-working #aside-toggle::after {
   gap: 0;
   margin: calc(-1 * var(--s2)) calc(-1 * var(--s4)) calc(14px - var(--s4));
   padding: 0;
-  background: var(--glass-2);
+  /* the card's tint over a solid ground (as .lx-tabs in layout.css), so nothing scrolling under it shows through */
+  background: linear-gradient(var(--glass-2), var(--glass-2)), var(--surface);
 }
 /* The name row is 42px: 8px above a 34px close button, the name 14px in and the button 6px from the edge. */
 .lx-pane-top {
@@ -241,7 +242,7 @@ body.lx-help .lx-pane-close {
   margin: auto -16px -16px;
   padding: 10px 14px;
   border-top: 1px solid var(--line);
-  background: var(--glass-2);
+  background: linear-gradient(var(--glass-2), var(--glass-2)), var(--surface); /* solid, as the head */
   color: var(--text-3);
   font-size: 12.5px;
   cursor: pointer;

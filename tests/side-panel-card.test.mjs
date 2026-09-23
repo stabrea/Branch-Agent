@@ -194,5 +194,16 @@ test("DG-114 the card's head, close button, tabs and first section sit where the
   });
   assert.ok(stuck.scrolled > 0, "the short card has something to scroll");
   assert.equal(stuck.moved, 0, "the head stays at the top of the card while it scrolls");
+  /* What scrolls under the head and the foot never shows through them. */
+  const opaque = await page.evaluate(() => ["#context-panel > .lx-pane-head", "#lx-pane-foot"].map((sel) => {
+    const colour = getComputedStyle(document.querySelector(sel)).backgroundColor;
+    return /^rgb\(/.test(colour) ? 1 : Number(colour.match(/[\d.]+(?=\)$)/)?.[0] ?? 0);
+  }));
+  assert.deepEqual(opaque, [1, 1], "the head and the foot are solid over what scrolls under them");
+  /* Help, read in the same card, hides the close button but keeps the same 42px row. */
+  await page.evaluate(async () => (await import("/help.js")).openHelpForCurrentView());
+  await page.locator("#context-help").waitFor({ state: "visible" });
+  assert.equal(await page.evaluate(() => Math.round(document.querySelector("#context-panel .lx-pane-top").getBoundingClientRect().height)), 42,
+    "Help keeps the head's 42px row");
   assert.deepEqual(errors, []);
 });
