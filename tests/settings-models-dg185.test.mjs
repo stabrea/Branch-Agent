@@ -39,7 +39,7 @@ async function modelsPage(t, width) {
 /** Opens Models the way a person does (the cog, then the page), so no card is peeked into sight. */
 async function openModels(page) {
   if (!(await page.locator("#settings-window").isVisible())) {
-    const cog = page.locator(".sg-foot-line > .sg-gear:visible");
+    const cog = page.locator(".lx-foot-line > .sg-gear:visible");
     if (!(await cog.count())) await page.locator("#rail-toggle").click();
     await cog.click();
   }

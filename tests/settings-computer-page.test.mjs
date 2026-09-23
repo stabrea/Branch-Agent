@@ -53,7 +53,7 @@ test("Computer & browser: the sample's sections, counts and paired devices, at e
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   const open = async (name) => {
     if (!(await page.locator("#settings-window").isVisible())) {
-      const cog = page.locator(".sg-foot-line > .sg-gear:visible");
+      const cog = page.locator(".lx-foot-line > .sg-gear:visible");
       if (!(await cog.count())) await page.locator("#rail-toggle").click();
       await cog.click();
     }

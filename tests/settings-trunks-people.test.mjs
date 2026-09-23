@@ -33,7 +33,7 @@ async function fixture(t, width) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
-  const cog = page.locator(".sg-foot-line > .sg-gear:visible");
+  const cog = page.locator(".lx-foot-line > .sg-gear:visible");
   if (!(await cog.count())) await page.locator("#rail-toggle").click();
   await cog.click();
   await page.locator('.lx-settings-link[data-page="trunks"]').click();
