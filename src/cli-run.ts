@@ -7,6 +7,7 @@ import { progressLine } from "./terminal.js";
 import { allowTestsRefusal } from "./coding/project-tests.js";
 import { allowTestsIdleNote } from "./code-change.js"; // mac7/smoke-fixes (B6)
 import type { ImagePart } from "./contracts.js";
+import { unkeyedAlwaysRefusal } from "./runtime.js";
 
 /**
  * `branch run` for scripts: what the flags mean, what comes out (a JSON Lines event stream with
@@ -243,11 +244,17 @@ export function answerFromCommand(runtime: Runtime, id: string, answer: string):
   const asked = runtime.store.events(run.id).filter((event) => event.kind === "policy.ask").at(-1);
   if (!asked) throw new Error("That task did not stop to ask permission for anything.");
   const tool = String(asked.data.name ?? ""), target = String(asked.data.target ?? "");
+  const noAlways = asked.data.noAlways === true || !target;
+  // FQ-execution.browser: the CLI cannot write a standing rule for an empty target or when the question
+  // forbids it (noAlways), which would cover every call of the tool rather than just the one declared.
+  // The CLI path cannot offer "just this once" like an attended UI can, so refuse and ask the user
+  // to run the task again where they can choose the right scope.
+  if (noAlways) throw new Error(`${unkeyedAlwaysRefusal}. Run the task again and choose your answer when it asks.`);
   // The question carried the fingerprint of the exact bytes it was put for, so the answer given
   // here is bound to them: a task that asks for something different next time asks again.
   const fingerprint = String(asked.data.fingerprint ?? "");
   runtime.approvals.remember(run.sessionId, tool, target, decision,
     { ...(fingerprint ? { fingerprint } : {}), label: String(asked.data.label ?? "") });
-  addPolicyRule(runtime.store, runtime.owner, { tool, match: target || "*", decision, remember: "always" });
-  return { runId: run.id, tool, target, decision, rule: `${tool} on ${target || "anything"}` };
+  addPolicyRule(runtime.store, runtime.owner, { tool, match: target, decision, remember: "always" });
+  return { runId: run.id, tool, target, decision, rule: `${tool} on ${target}` };
 }

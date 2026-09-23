@@ -71,7 +71,9 @@ function toolCall(step: FlowStep): { tool: string; args: Record<string, unknown>
 /**
  * Where each step will be when it runs: only opening a page moves the window to another website
  * (`BranchBrowser.navigate` sets the host a click or a fill is judged on), so a step is on the host
- * of the last page the flow opened before it, or on the one the window is on now.
+ * of the last page the flow opened before it, or on the one the window is on now. Known limit: a click
+ * or fill can itself move the window to another website (through a link, redirect, or form submission),
+ * but later steps are still judged by the last navigate host, not the actual current one.
  */
 function stepHosts(steps: readonly FlowStep[], current: string): string[] {
   let host = current;
