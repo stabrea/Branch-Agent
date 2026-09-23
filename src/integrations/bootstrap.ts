@@ -43,6 +43,7 @@ import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
 import { JiraAccess, JiraConfigSchema } from './jira.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
+import { DifyConfigSchema, N8nConfigSchema, DifyAccess, N8nAccess, PlatformBridgeAccess, registerPlatformBridge, type PlatformBridges } from './platform-bridge.js';
 // Wave mac3 (channels-parity): the chat services added to match other assistants, all behind a switch.
 import { ParityChannelSchema, buildParityChannel, isParityChannel, type ParityChannelConfig } from '../channels/parity-config.js';
 
@@ -206,11 +207,21 @@ export const IssuesConfigSchema = z.object({
   jira: JiraConfigSchema.optional(),
 }).strict();
 
+/**
+ * The hosted workflow platforms the assistant may start a run on. Each is off until named here
+ * with its own saved key; Dify has a hosted default address, n8n is always the owner's own server.
+ */
+export const PlatformsConfigSchema = z.object({
+  dify: DifyConfigSchema.partial().optional(),
+  n8n: N8nConfigSchema.optional(),
+}).strict();
+
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
   browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional(),
   channels: z.array(ChannelConfigSchema).max(8).default([]), web: WebConfigSchema.optional(),
   git: GitConfigSchema.optional(),
   issues: IssuesConfigSchema.optional(),
+  platforms: PlatformsConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
 /** R17-S14: the whole launch settings file, so the Settings card can check a change before writing it. */
 export const LaunchFileSchema = ConfigSchema;
@@ -219,7 +230,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   const closers: (() => Promise<void>)[] = [];
   /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
   const hosted: {
-    browser?: BranchBrowser; issues?: IssueAccess;
+    browser?: BranchBrowser; issues?: IssueAccess; platforms?: PlatformBridgeAccess;
     /** Batch 26 (wave 8): what the firewall card reads back — the sites the browser may open, and
      * whether host commands are pointed at a dead address. Both are launch settings, not stored ones. */
     browserOrigins?: string[]; commandsNetless?: boolean;
@@ -309,6 +320,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     }
     if (config.git) enableGit(registry, config.git, channels, policy);
     if (config.issues) hosted.issues = enableIssues(registry, config.issues, config.git, channels, policy);
+    if (config.platforms) hosted.platforms = enablePlatformBridge(registry, config.platforms, channels, policy);
     const hookShell = shell;
     if (config.hooks.length) {
       if (!hookShell || !channels?.hooks || !channels.context) throw new Error('Hooks need the shell integration (their executables come from it) and a launch that can host them');
@@ -546,6 +558,34 @@ function enableIssues(
   if (config.jira) trackers.jira = new JiraAccess(config.jira, policy, secret);
   const access = new IssueAccess(trackers, host?.web);
   if (access.available().length) registerIssues(registry, access);
+  return access;
+}
+
+/**
+ * Turns on the hosted-workflow-platform tools. Each platform needs its own saved key, taken out of
+ * the active project's secrets the moment a request is made and never held anywhere else.
+ */
+function enablePlatformBridge(
+  registry: ToolRegistry, config: z.infer<typeof PlatformsConfigSchema>, host: ChannelHost | undefined, policy: NetworkPolicy | undefined,
+): PlatformBridgeAccess {
+  if (!policy || !host?.activeSecret) throw new Error('The workflow platform tools need the network settings and the secrets locker');
+  const secret = host.activeSecret;
+  const held = (name: string, platform: string, what: string) => async () => {
+    const value = await secret(name).catch(() => '');
+    if (!value) throw new Error(`Connect ${platform} first: save a secret called ${name} in the active project holding ${what}.`);
+    return value;
+  };
+  const platforms: PlatformBridges = {};
+  if (config.dify) {
+    const settings = DifyConfigSchema.parse(config.dify);
+    platforms.dify = new DifyAccess(settings, policy, held(settings.tokenSecret, 'Dify', "a Dify app's API key"));
+  }
+  if (config.n8n) {
+    const settings = N8nConfigSchema.parse(config.n8n);
+    platforms.n8n = new N8nAccess(settings, policy, held(settings.tokenSecret, 'n8n', 'an n8n API key'));
+  }
+  const access = new PlatformBridgeAccess(platforms);
+  if (access.available().length) registerPlatformBridge(registry, access);
   return access;
 }
 

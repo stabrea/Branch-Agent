@@ -83,6 +83,7 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
     app.reach = { browserOrigins: integrations.hosted.browserOrigins ?? [],
       commandsMayReachInternet: integrations.hosted.commandsNetless !== true };
     app.issues = integrations.hosted.issues ?? null;
+    app.platforms = integrations.hosted.platforms ?? null;
     return {
       app,
       close: async () => {

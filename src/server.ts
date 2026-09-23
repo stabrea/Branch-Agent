@@ -950,6 +950,7 @@ function state(app: Branch): unknown {
     reranking: app.retrieval.view(owner),
     providerPlugins: app.providerPlugins.list(),
     issueTrackers: app.issues?.available() ?? [],
+    workflowPlatforms: app.platforms?.available() ?? [],
     orchestration: orchestrationSettings(app.store, owner),
     secondOpinion: secondOpinionSettings(app.store, owner),
     background: app.runtime.backgroundResults,
