@@ -36,11 +36,11 @@ async function signedIn(t, width) {
 const crumbs = (page) => page.evaluate(() => {
   const shown = (node) => !!node && node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden"
     && node.getBoundingClientRect().width > 1;
-  const mid = document.getElementById("lx-crumbs-mid"), sep = document.querySelector(".lx-crumbs-sep");
+  const mid = document.querySelector("#lx-crumb-where .lx-crumb-mid"), sep = document.querySelector(".lx-crumb-sep");
   const thread = document.getElementById("thread-name"), title = document.getElementById("page-title");
   const threadWords = thread.textContent.trim() || getComputedStyle(thread, "::before").content.replace(/^"|"$/g, "");
   return {
-    mark: shown(document.getElementById("lx-crumbs-mark")),
+    mark: shown(document.querySelector("#lx-crumb-where .lx-crumb-mark")),
     mid: shown(mid) ? mid.textContent.trim() : null,
     sep: shown(sep),
     title: shown(title) ? title.textContent.trim() : null,
