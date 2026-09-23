@@ -163,6 +163,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
+  // Listing what is in the managed-files library only looks; adding, removing or mounting one changes something.
+  "files.managed.read",
   // Looking at a picture or a sound file the person already has changes nothing.
   "media.read",
   // Figures held only for this task, reports already written, watches, and the brief: all look-only.
