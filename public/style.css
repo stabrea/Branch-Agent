@@ -801,6 +801,13 @@ label > input[type="radio"] {
 .wsedit-ask-sources { display: flex; flex-direction: column; gap: var(--s1); margin: 0; padding: 0; list-style: none; }
 .wsedit-ask-sources li { display: flex; align-items: baseline; gap: var(--s1); flex-wrap: wrap; }
 .wsedit-ask-source-open { justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
+/* FQ-collaboration: a video opened from the Files tab, and the comments pinned to a moment in it. */
+.wsedit-media { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); min-width: 0; }
+.wsedit-media-video { width: 100%; max-height: 20rem; border-radius: var(--r2); background: var(--well); }
+.media-comments-list { display: flex; flex-direction: column; gap: var(--s1); margin: 0; padding: 0; list-style: none; max-height: 10rem; overflow-y: auto; }
+.media-comments-time { font: 0.8125rem/1.5 var(--font-mono); color: var(--accent); }
+.wsedit-media-comment-form { display: flex; gap: var(--s1); }
+.wsedit-media-comment-form input { flex: 1; min-width: 0; }
 
 /* mac7/clean-uninstall: the danger zone, last in Settings. Marked with the warning colour from
    tokens only, so it reads the same in both themes and at 400 px. */
