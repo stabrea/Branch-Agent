@@ -1023,6 +1023,54 @@ body.lx-help .context-panel > .acorn-art {
   font-size: 12px;
   color: var(--text-3);
 }
+/* DG-035/DG-036: the sample's `.theme-tools` (a search field, then one row of filter chips). */
+.lx-theme-tools {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+}
+.lx-search.lx-theme-search {
+  margin: 0;
+  height: 36px;
+  background: var(--surface);
+}
+.lx-theme-search .lx-icon {
+  width: 15px;
+  height: 15px;
+}
+.lx-theme-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lx-fchip {
+  height: 30px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 15px;
+  background: none;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.lx-fchip:hover {
+  border-color: var(--text-3);
+  background: none;
+  color: var(--text);
+}
+.lx-fchip[aria-pressed="true"],
+.lx-fchip[aria-pressed="true"]:hover {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--surface);
+}
+.lx-theme-none {
+  margin: 14px 0 0;
+  color: var(--text-3);
+}
 .lx-gallery .lx-eyebrow {
   margin: 14px 0 8px;
 }
