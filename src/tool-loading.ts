@@ -43,6 +43,8 @@ export const meaningSearchExplanation = (
   + "what you asked for against what each tool says it does, which means sending your request, "
   + `and one line about each tool, to ${receiver}. `
   + "Nothing else about the request, and nothing you have saved, goes with it.";
+/** Who would receive the request, as a kind the page can put in the chosen language. */
+export type MeaningSearchReceiver = { kind: "unknown" } | { kind: "local" } | { kind: "provider"; provider: string };
 /** Where the choice is kept. False, and nothing about a request is ever sent for this. */
 export const meaningSearchSetting = "tool-meaning-search";
 /** Whether the owner has turned it on. Read fresh, so turning it off takes effect at once. */

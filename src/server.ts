@@ -111,7 +111,7 @@ import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
-import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
+import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting, type MeaningSearchReceiver } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { goalApi } from "./goal-mode.js";
@@ -1515,9 +1515,10 @@ async function api(
       app.store.save("settings", app.runtime.owner, meaningSearchSetting, { enabled });
     }
     const reader = app.knowledgeBases.embeddings(app.runtime.owner);
+    const receiver = meaningSearchReceiver(app, reader);
     return { enabled: meaningSearchOn(app.store, app.runtime.owner),
-      available: reader !== null,
-      explanation: meaningSearchExplanation(meaningSearchReceiver(app, reader)) };
+      available: reader !== null, receiver,
+      explanation: meaningSearchExplanation(receiverWords(receiver)) };
   }
   if (request.method === "POST" && path === "/api/tools/forget") {
     app.store.profiles.requireOwner("What the assistant has learned about its tools");
@@ -3954,11 +3955,16 @@ function meteringDeps(app: Branch) {
  * Who would actually receive the tool descriptions, named, so the sentence the owner reads before
  * switching meaning search on says where their words go rather than gesturing at "a model".
  */
-function meaningSearchReceiver(app: Branch, reader: { local: boolean } | null): string | undefined {
-  if (!reader) return undefined;
-  if (reader.local) return "the model running on this computer, so nothing leaves it";
+function meaningSearchReceiver(app: Branch, reader: { local: boolean } | null): MeaningSearchReceiver {
+  if (!reader) return { kind: "unknown" };
+  if (reader.local) return { kind: "local" };
   const provider = app.runtime.models.plan(app.runtime.owner, "").candidates[0]?.provider.name;
-  return provider ? `${provider}, the model service you have connected` : undefined;
+  return provider ? { kind: "provider", provider } : { kind: "unknown" };
+}
+/** The same receiver as English words; the page says it in the chosen language from `kind`. */
+function receiverWords(receiver: MeaningSearchReceiver): string | undefined {
+  if (receiver.kind === "local") return "the model running on this computer, so nothing leaves it";
+  return receiver.kind === "provider" ? `${receiver.provider}, the model service you have connected` : undefined;
 }
 
 function voiceDeps(app: Branch) {

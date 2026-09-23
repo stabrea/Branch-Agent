@@ -140,12 +140,22 @@ test("the lines 'How the assistant finds its tools' draws are French in French, 
   await page.waitForFunction(() => /outils sont installés/.test(document.getElementById("tool-catalog-summary")?.textContent ?? ""));
   await page.locator("#tool-catalog-meaning h3").waitFor({ state: "attached" });
   const french = await page.locator("#tool-catalog").innerText();
-  for (const english of ["tools are installed", "It has not worked on anything yet", "Things it remembers about a tool", "Nothing yet.", "Finding tools by meaning"])
+  for (const english of ["tools are installed", "It has not worked on anything yet", "Things it remembers about a tool", "Nothing yet.",
+    "Finding tools by meaning", "Branch finds a tool by the words", "comparing writing", "Nothing to report yet"])
     assert.ok(!french.includes(english), `${english} is still English`);
   assert.match(french, /Ce qu'il retient sur un outil/);
   assert.match(french, /Trouver les outils par leur sens/);
+  assert.match(french, /Branch trouve un outil d'après les mots de votre demande/);
+  assert.match(french, /Rien à signaler pour l'instant/);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   await page.waitForFunction(() => /tools are installed/.test(document.getElementById("tool-catalog-summary")?.textContent ?? ""));
   assert.match(await page.locator("#tool-catalog-lists").innerText(), /Things it remembers about a tool/);
+  /* In English the page says exactly what the server says: the meaning-search sentence and the catalog's health line. */
+  const said = await page.evaluate(async () => {
+    const get = async (path) => (await fetch(path, { headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json();
+    return { explanation: (await get("/api/tools/meaning-search")).explanation, health: (await get("/api/tools/catalog")).health.summary };
+  });
+  await page.waitForFunction((words) => document.querySelector("#tool-catalog-meaning p.subtle")?.textContent === words, said.explanation);
+  assert.ok((await page.locator("#tool-catalog-summary").innerText()).includes(said.health), "the health line matches the server's");
   assert.deepEqual(errors, []);
 });

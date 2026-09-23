@@ -45,7 +45,29 @@ function summaryOf(report) {
       estimated: formatNumber(round.estimatedTokens), budget: formatNumber(round.budgetTokens),
     }))
     : worded("p", "tool-catalog.no-round"));
-  if (report.health?.summary) box.append(el("p", report.health.summary, "subtle"));
+  const health = healthWords(report.health);
+  if (health) box.append(el("p", health, "subtle"));
+}
+
+/** The nightly look at the catalog, said from its numbers in the chosen language; an older saved one keeps its words. */
+function healthWords(health) {
+  if (!health) return "";
+  if (typeof health.runs !== "number" || !Array.isArray(health.tools)) return health.summary ?? "";
+  if (!health.runs) return t("tool-catalog.health.none");
+  const weighed = health.averageRoundTokens ? "weighed" : "unweighed";
+  const found = health.searches ? "found" : "none";
+  return t("tool-catalog.health.used", { runs: formatNumber(health.runs), tools: formatNumber(health.tools.length) }) + " "
+    + t(`tool-catalog.health.${weighed}-${found}`, {
+      tokens: formatNumber(health.averageRoundTokens), rate: formatNumber(Math.round(health.searchHitRate * 100)),
+    });
+}
+
+/** Who would receive the request, in the chosen language; the sentence says the same as the server's. */
+function explanationOf(state) {
+  const kind = state.receiver?.kind;
+  if (!["unknown", "local", "provider"].includes(kind)) return state.explanation;
+  const receiver = t(`tool-catalog.meaning.receiver.${kind}`, { provider: state.receiver.provider ?? "" });
+  return t("tool-catalog.meaning.explanation", { receiver });
 }
 
 /** Why a tool was ready before it was asked for, and what it has been told to remember. */
@@ -77,15 +99,15 @@ function listsOf(report) {
 
 /**
  * Finding a tool by what it does rather than by the words you happened to use. It is off, and
- * stays off until you say otherwise, because it sends your request somewhere: the sentence the
- * engine gives is shown exactly as it is written there, so this screen cannot soften it.
+ * stays off until you say otherwise, because it sends your request somewhere: the sentence says
+ * the same as the engine's, word for word in English, and names who would receive the request.
  */
 async function meaningSearch() {
   const box = $("tool-catalog-meaning");
   if (!box) return;
   const state = await api("tools/meaning-search");
   box.replaceChildren(worded("h3", "tool-catalog.meaning.title"));
-  box.append(el("p", state.explanation, "subtle"));
+  box.append(el("p", explanationOf(state), "subtle"));
   if (!state.available) {
     box.append(worded("p", "tool-catalog.meaning.unavailable", "subtle"));
     return;
