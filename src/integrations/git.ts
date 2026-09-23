@@ -3,7 +3,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
-import { explainGit, type GitOutcome, type GitRunner } from "./git-run.js";
+import { explainGit, inBranchSource, type GitOutcome, type GitRunner } from "./git-run.js";
 
 /**
  * Everyday version control for the owner: see what changed, look back through saved versions, work
@@ -193,9 +193,40 @@ export class GitTools {
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }
 
+  /**
+   * Q12: when Git run inside Branch's source, validate that a remote is configured
+   * and uses only https:// or ssh:// (including scp-like user@host:path).
+   * Refuses file://, plain paths, ext::, and other transports that could execute code.
+   */
+  private async validateRemoteURL(cwd: string, remote: string, signal: AbortSignal): Promise<string | void> {
+    // Only validate remotes when run inside Branch's source
+    if (!inBranchSource(cwd)) return;
+    
+    // Check if remote is configured
+    const checkOutcome = await this.run(cwd, ["remote", "get-url", "--push", remote], signal, { timeoutMs: 10_000 });
+    if (checkOutcome.status !== "completed") {
+      return `Remote "${remote}" is not configured in this repository.`;
+    }
+    
+    // Get all push URLs
+    const urlOutcome = await this.run(cwd, ["remote", "get-url", "--push", "--all", remote], signal, { timeoutMs: 10_000 });
+    if (urlOutcome.status !== "completed") return;
+    
+    // Validate each URL
+    const urls = urlOutcome.stdout.trim().split("\n").filter(Boolean);
+    for (const url of urls) {
+      // Accept https://, ssh://, and scp-like user@host:path
+      if (!(/^https:\/\//.test(url) || /^ssh:\/\//.test(url) || /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:[a-zA-Z0-9._\/-]+$/.test(url))) {
+        return `Remote URL must use https://, ssh://, or scp-like format (user@host:path), but got: ${url}`;
+      }
+    }
+  }
+
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
   async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
+    const urlError = await this.validateRemoteURL(cwd, input.remote, signal);
+    if (urlError) throw new Error(urlError);
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     if (/^(main|master)$/i.test(branch) && !input.confirmed)
       throw new NeedsInputError(`This would send your work straight to "${branch}" on ${input.remote}, the copy everyone shares. Shall I go ahead?`);
@@ -204,6 +235,8 @@ export class GitTools {
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
+    const urlError = await this.validateRemoteURL(cwd, input.remote, signal);
+    if (urlError) throw new Error(urlError);
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     const outcome = await this.run(cwd, ["pull", "--ff-only", input.remote, branch], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, notes: notes(outcome) };

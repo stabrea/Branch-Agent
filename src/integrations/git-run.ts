@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { stat, realpath } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ShellProcess, type ProcessResult } from "./shell-process.js";
@@ -53,9 +54,16 @@ export const pinnedGitConfig: readonly string[] = [
  */
 export const pinnedInSource: readonly string[] = [
   "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
-  "core.gitProxy=", "safe.bareRepository=explicit",
+  "core.gitProxy=", "safe.bareRepository=explicit", "protocol.file.allow=never",
 ];
-const inBranchSource = (cwd: string): boolean => /(^|[\\/])branch-agent-source([\\/.\s]|$)/i.test(cwd);
+export const inBranchSource = (cwd: string): boolean => {
+  try {
+    const resolved = realpathSync.native(cwd);
+    return /(^|[\\/])branch-agent-source([\\/\.\s]|$)/i.test(resolved);
+  } catch {
+    return /(^|[\\/])branch-agent-source([\\/\.\s]|$)/i.test(cwd);
+  }
+};
 
 /** Settings forced on every call; they come before the subcommand so no repository can override them. */
 export function hardening(cwd: string): string[] {

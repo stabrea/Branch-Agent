@@ -17,6 +17,7 @@ import { GitRunner, gitEnvironment, hardening } from "../dist/integrations/git-r
 import { ContractBook } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
 
+const posixOnly = process.platform === "win32" && "shell scripts are for macOS and Linux";
 const sha = "a".repeat(40);
 const worktree = "branch-agent-source/.branch-worktrees/self-remove-button";
 
@@ -117,4 +118,45 @@ test("the owner's own Git sign-in is left alone: a credential helper they set is
   assert.equal(helper.stdout.trim(), "!echo keep-me", "the helper is not cleared by Branch's settings");
   for (const key of ["credential.helper=", "core.askPass=", "core.sshCommand=ssh"]) assert.ok(!hardening(repo).join(" ").includes(`-c ${key}`), key);
   assert.equal(gitEnvironment(process.env).GIT_CONFIG_NOSYSTEM, undefined, "the computer-wide config (where macOS keeps its keychain helper) is read");
+});
+
+test("Q12: push/pull refuse a bare repository planted under an allowed folder with a local remote named after it", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-bare-repo-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  
+  // Create a worktree path inside Branch's source (must match the pattern)
+  const wtPath = "branch-agent-source/.branch-worktrees/self-bare";
+  await mkdir(join(workspace, wtPath), { recursive: true });
+  
+  // Initialize it as a git repo
+  const git = (...args) => execFileSync("git", args, { cwd: join(workspace, wtPath), stdio: "ignore" });
+  git("init", "-q");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
+  
+  // Create a bare repository in the worktree's allowed folder (src)
+  const bareRepoPath = join(workspace, wtPath, "src");
+  await mkdir(bareRepoPath, { recursive: true });
+  execFileSync("git", ["init", "--bare", "-q"], { cwd: bareRepoPath });
+  
+  // Add a pre-receive hook that touches a marker file
+  const markerFile = join(root, "EXPLOITED");
+  const hookPath = join(bareRepoPath, "hooks", "pre-receive");
+  await mkdir(join(bareRepoPath, "hooks"), { recursive: true });
+  await writeFile(hookPath, `#!/bin/sh\necho ran >> '${markerFile}'\nexit 0\n`);
+  await chmod(hookPath, 0o755);
+  
+  // Configure a remote named "src" pointing to the bare repo
+  git("remote", "add", "src", bareRepoPath);
+  
+  // Call push directly on GitTools, which now validates remote URLs in source
+  await assert.rejects(
+    app.git.push({ folder: wtPath, remote: "src", branch: "master" }, AbortSignal.timeout(10_000)),
+    /Remote URL must use https|ssh|scp-like format|not configured|transport/,
+    "push should refuse local path remotes in Branch source"
+  );
+  
+  // Verify the hook was never run
+  assert.equal(existsSync(markerFile), false, "the bare repo hook never executed");
 });
