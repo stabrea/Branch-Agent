@@ -18,6 +18,7 @@ import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
 import { installedAppRoot } from "./install-root.js";
+import { rememberedPort, rememberPort } from "./local-port.js";
 import { minimizedFlag, startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
 import { defaultPreset, providerFromEnv } from "../providers.js";
@@ -36,6 +37,9 @@ import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
 import { ipcMain } from "electron";
 import { registerRestartIpc } from "./restart-ipc.js";
+import { minimumSize, openingFor, readWindowState, writeWindowState } from "./window-state.js";
+import { overlayFor, registerWindowLookIpc } from "./window-chrome-ipc.js";
+import { registerEditMenu } from "./context-menu.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
 // mac2/desktop-ui: the Stop notice for screen control on macOS and Linux is a window of this app's own.
 import { screen } from "electron";
@@ -131,12 +135,18 @@ function protectWindow(
 async function createWindow(
   url: string, token: string, settings: DesktopSettings, update: UpdateHooks,
 ): Promise<void> {
+  const statePath = join(app.getPath("userData"), "window-state.json");
+  const opening = openingFor(readWindowState(statePath), screen.getAllDisplays().map((display) => display.workArea));
   window = new BrowserWindow({
-    width: 1440,
-    height: 950,
-    minWidth: 760,
-    minHeight: 540,
+    width: opening.bounds?.width ?? 1440,
+    height: opening.bounds?.height ?? 950,
+    ...(opening.bounds ? { x: opening.bounds.x, y: opening.bounds.y } : {}),
+    minWidth: minimumSize.width,
+    minHeight: minimumSize.height,
     title: "Branch Agent",
+    // DG-176: no operating-system title bar; the app's own top row is the top of the window.
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 18, y: 16 } } : { titleBarOverlay: overlayFor(true) }),
     backgroundColor: "#03140b",
     show: false,
     icon: branchIcon(),
@@ -150,7 +160,23 @@ async function createWindow(
       partition: "persist:branch-agent",
     },
   });
+  // DG-177: the first launch fills the screen; later ones open the way the owner left the window.
+  if (opening.maximized) window.maximize();
+  const remember = () => {
+    if (window && !window.isDestroyed() && !window.isMinimized())
+      writeWindowState(statePath, { maximized: window.isMaximized(), bounds: window.getNormalBounds() });
+  };
+  for (const change of ["maximize", "unmaximize", "resized", "moved", "close"] as const) window.on(change as "resized", remember);
+  // "resized" and "moved" come only after a drag, on macOS and Windows, and "close" is skipped when the app is ended
+  // rather than its window closed: "resize" and "move" come for every change, so they are written too, once it settles.
+  let settle: NodeJS.Timeout | undefined;
+  const soon = () => { clearTimeout(settle); settle = setTimeout(remember, 250); };
+  window.on("resize", soon);
+  window.on("move", soon);
+  window.on("closed", () => clearTimeout(settle));
   protectWindow(window, url, token);
+  registerWindowLookIpc(ipcMain, window, url);
+  registerEditMenu(window, (template) => Menu.buildFromTemplate(template));
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
   registerUpdaterIpc(window, url, app.getVersion(), () => { quitReason = "update"; app.quit(); },
@@ -319,12 +345,15 @@ async function start(): Promise<void> {
     branch.browser = integrations.hosted.browser ?? null;
     branch.studies.browser = integrations.hosted.browser; // w911 (A1726) hook: MiniWoB studies open their page in this browser
     branch.issues = integrations.hosted.issues ?? null;
+    // Q45 leaf 0: the same port as last time when it is free, so the page's own stored choices survive a restart.
+    const portFile = join(dataDir, "local-port.json"); // in the data folder, which the assistant may never change
     const server = await startServer(branch, {
-      dataDir, port: 0, presence: "app",
+      dataDir, port: await rememberedPort(portFile), anyPortIfTaken: true, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
       installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
       quit: () => { quitReason = "command"; app.quit(); }, // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
     });
+    rememberPort(portFile, server.url);
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
       backup: () =>

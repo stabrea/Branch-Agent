@@ -93,6 +93,15 @@ async function writeChecksum(archive) {
   console.log(`${archive}.sha256`);
 }
 
+/**
+ * The commit this build is made from, written into the app (dist/build-info.json) so the Dev update channel can
+ * tell whether the newest change is already the one running. CI gives it as GITHUB_SHA; a local build asks git.
+ */
+export function buildInfo(env = process.env, askGit = () => spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", windowsHide: true }).stdout) {
+  const commit = (env.GITHUB_SHA || askGit() || "").trim();
+  return { commit: /^[0-9a-f]{40}$/.test(commit) ? commit : null, builtAt: new Date().toISOString() };
+}
+
 async function runPackager(options) {
   const { packager } = await import("@electron/packager");
   return packager(options);
@@ -279,6 +288,7 @@ async function main() {
   if (needsAssetName(process.platform, options.release) && !assetNameFor(process.platform, options.arch))
     throw new Error(`There is no desktop download for ${process.platform} ${options.arch}.`);
   await stagePhoneApp();
+  await writeFile(join("dist", "build-info.json"), `${JSON.stringify(buildInfo())}\n`, "utf8");
   if (process.platform === "win32") return packageWindows(options);
   if (process.platform === "darwin") return packageMac(options);
   return packageLinux(options);

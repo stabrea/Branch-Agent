@@ -38,6 +38,8 @@ export const guardedDataFiles = [
 export const gatewayDataFiles = [
   "gateway.json", "gateway.good.json", "gateway.proposed.json", "gateway-state.json",
   "running.json", "first-start.json", "update-backups", "updates", "update-watch.json",
+  // Q45 leaf 0: the port the window asks for again; the assistant must not choose where the app listens.
+  "local-port.json",
   // The record of what each update changed: an assistant that could edit this could make a bad
   // update look undoable, or an undoable one look unsafe.
   "activation.sqlite", "activation.sqlite-wal", "activation.sqlite-shm", "activation.sqlite-journal",

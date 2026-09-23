@@ -124,7 +124,6 @@ import { handlesShellLookPath, shellLookApi, ShellLookError } from "./shell-look
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
-import { reachKey, reachParts } from "./reach/settings.js"; // r17-i integration review
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
 import { projectsApi, secretsApi } from "./owner-data-api.js";
@@ -153,6 +152,7 @@ import { contextFileStatus, saveContextFileSettings, contextFileSettings } from 
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
 import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
+import { settingsKitWriters } from "./settings-kit/writers.js";
 import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
 import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
 import { dictationOwnerOnlyRefusal, dictationSettings, dictationView, saveDictationSettings } from "./voice-dictation.js"; // mac7/live-voice
@@ -1092,24 +1092,8 @@ async function api(
   if (handlesSettingsKitPath(path))
     return settingsKitApi({
       store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
-      writers: {
-        "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
-        // Integration review: each through its own save, so a tool or a helper comes and goes at once.
-        "security-check": (patch) => app.security.configure(patch),
-        // mac7/wake-mic: the switch reached through a settings file or a preset starts and stops
-        // the listener exactly as the card's own switch does.
-        "wake-word": (patch) => { saveWakeWordSettings(app.store, app.runtime.owner, patch); app.wake.refresh(); },
-        // mac7/live-voice: the switch reached through a settings file or a preset stops dictation
-        // exactly as the card's own switch does. It can only ever stop it: nothing here — not a
-        // file, not a preset, not the card — opens a microphone without the owner pressing Dictate.
-        "live-dictation": (patch) => { saveDictationSettings(app.store, app.runtime.owner, patch); app.dictation.refresh(); },
-        ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
-          .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
-        // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
-        ...Object.fromEntries(reachParts.map((part) => [reachKey(part), (patch: Record<string, unknown>) => {
-          void app.reachParts.setMode(part, patch).catch(() => undefined); // the record is saved before the first await
-        }])),
-      },
+      // One set of writers for the window and for the assistant changing a setting (src/settings-kit/writers.ts).
+      writers: settingsKitWriters(app),
       guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
         workspace: app.runtime.workspace }, app.runtime.protectedAreas),
     }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
@@ -3018,10 +3002,30 @@ export async function pairingRequest(
   send(response, 200, device ? { ...redeemed, deviceId: device.device.id, deviceKey: device.secret } : redeemed);
   return true;
 }
+/**
+ * Q45 leaf 0: listens on `port`; when it is taken and `anyPortIfTaken` is set, on any free port instead, on the same
+ * server, so nothing set up before listening is set up twice.
+ */
+export function listenOn(server: Server, port: number, address: string, anyPortIfTaken = false): Promise<void> {
+  const bind = (at: number) => new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(at, address, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return bind(port).catch((error: NodeJS.ErrnoException) => {
+    if (anyPortIfTaken && port && error?.code === "EADDRINUSE") return bind(0);
+    throw error;
+  });
+}
+
 export async function startServer(
   app: Branch,
   options: {
     dataDir: string; port?: number;
+    /** Q45 leaf 0: when the asked-for port is taken, take any free one instead of failing the start. */
+    anyPortIfTaken?: boolean;
     /** The installed program file and folder, when Branch runs from an install rather than source. */
     executable?: string | null; installRoot?: string | null;
     /** Announce this engine to other launches, so a second window joins it instead of starting again. */
@@ -3557,13 +3561,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     liveConnections.add(socket);
     socket.once("close", () => liveConnections.delete(socket));
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port ?? 3210, listen.address, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
+  await listenOn(server, options.port ?? 3210, listen.address, options.anyPortIfTaken === true);
   const address = server.address();
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
