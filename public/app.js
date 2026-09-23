@@ -89,15 +89,19 @@ async function api(path, body, method, signal) {
 export function ownerAtWindow() {
   return document.documentElement.dataset.household !== "on";
 }
-export function noteWindowProfile(owner, { force = false } = {}) {
-  if (!force && ownerAtWindow() === owner) return;
+/** Which person the window was last told it is on (null for the owner), so a switch between two household people counts too. */
+let windowPerson;
+export function noteWindowProfile(owner, { force = false, person } = {}) {
+  const moved = person !== undefined && windowPerson !== undefined && person !== windowPerson;
+  if (person !== undefined) windowPerson = person;
+  if (!force && !moved && ownerAtWindow() === owner) return;
   const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
   document.documentElement.dataset.household = owner ? "off" : "on";
   document.documentElement.dataset.profileGeneration = String(generation);
   document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner, profileGeneration: generation } }));
 }
 function noteProfile(profile) {
-  noteWindowProfile(!profile || profile.isOwner !== false);
+  noteWindowProfile(!profile || profile.isOwner !== false, profile ? { person: profile.active?.id ?? null } : {});
 }
 window.addEventListener("unhandledrejection", (event) => {
   if (event.reason?.household === true) event.preventDefault();

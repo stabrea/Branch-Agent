@@ -169,6 +169,9 @@ test("a choice left in browser storage by an older version moves to the engine a
   const before = await openWindow(browser, first);
   assert.equal(await before.page.evaluate(() => document.body.classList.contains("no-rail")), false, "the side list starts open");
   assert.deepEqual((await saved(first)).choices, {}, "drawing the window saves no defaults back");
+  /* The Inbox notes when it was first seen as soon as it draws; that is taken back, so the older stamp below is the one imported. */
+  await waitFor(() => saved(first).then((kept) => kept.values.inboxSeenAt !== undefined), "the Inbox noted when it was first seen");
+  assert.equal((await post(first, "/api/ui-preferences", { set: { inboxSeenAt: null } })).status, 200);
   /* What an older version left in this page's storage. */
   await before.page.evaluate((id) => {
     localStorage.setItem("branch-rail", "closed");
@@ -177,12 +180,18 @@ test("a choice left in browser storage by an older version moves to the engine a
     localStorage.setItem("branch-pet-tips-seen", JSON.stringify(["delight.tip.palette", "not a tip!"]));
     localStorage.setItem("branch-names", JSON.stringify({ [id]: "Taxes", "somebody-elses": "Not mine" }));
     localStorage.setItem("branch-pins", JSON.stringify([id, "somebody-elses"]));
+    localStorage.setItem("branch-calm-tip", "1");
+    localStorage.setItem("branch-save-progress-asked", JSON.stringify(["claude|me|week|2026-09-30"]));
+    localStorage.setItem("branch-pet-hint-at", "1000");
+    localStorage.setItem("branch-inbox-seen", "2000");
   }, taxes);
   const imported = before.page.waitForResponse((r) => r.url().endsWith("/api/ui-preferences/import"), { timeout: 120000 });
   await before.page.reload();
   assert.equal((await imported).status(), 200);
-  const older = { railOpen: false, focusView: true, firstRunNextSeen: true, petTipsSeen: ["delight.tip.palette"] };
+  const older = { railOpen: false, focusView: true, firstRunNextSeen: true, petTipsSeen: ["delight.tip.palette"],
+    calmTipSeen: true, saveProgressAsked: ["claude|me|week|2026-09-30"], petHintAt: 1000 };
   assert.deepEqual((await saved(first)).choices, older, "the older choices are now the engine's, and what fails its check is left out");
+  assert.equal((await saved(first)).values.inboxSeenAt, 2000, "when the Inbox was last seen comes along too");
   assert.deepEqual((await saved(first)).conversations, { names: { [taxes]: "Taxes" }, pinned: [taxes], buried: [] },
     "only this person's own conversation keeps its labels");
   /* The import happens once: what lands in this page's storage later is only a copy, never imported. */
@@ -344,5 +353,23 @@ test("an engine that does not answer at start is asked again, and its choices th
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => document.body.classList.contains("no-rail"), undefined, { timeout: 15000 });
   assert.equal(refused >= 2, true, "the first read was dropped and a later one answered");
+  assert.deepEqual(errors, []);
+});
+
+test("switching from one household person to another, the way the People card does, shows the next person's choices", async (t) => {
+  const { browser, server, app } = await freshWindowSetup(t);
+  const sam = await (await post(server, "/api/profiles", { name: "Sam", pin: "2468" })).json();
+  const alex = await (await post(server, "/api/profiles", { name: "Alex", pin: "1357" })).json();
+  const { page, errors } = await openWindow(browser, server);
+  await switchTo(page, sam.id, "2468");
+  await page.waitForFunction(() => document.documentElement.dataset.household === "on", undefined, { timeout: 10000 });
+  await page.locator("#rail-toggle").click();
+  await waitFor(() => Promise.resolve(readUiPreferences(app.store, `profile:${sam.id}`).values.railOpen === false), "Sam's fold is saved");
+
+  /* The People card switches, then the window's own refresh notices; nobody forces a profile event. */
+  await page.evaluate(async (id) => { const { api } = await import("/app.js"); await api("profiles/switch", { profileId: id, pin: "1357" }); }, alex.id);
+  await page.waitForFunction(() => !document.body.classList.contains("no-rail"), undefined, { timeout: 15000 });
+  assert.deepEqual(readUiPreferences(app.store, `profile:${alex.id}`).values.railOpen, undefined, "Alex has nothing of Sam's");
+  assert.equal(readUiPreferences(app.store, `profile:${sam.id}`).values.railOpen, false, "Sam's record is untouched");
   assert.deepEqual(errors, []);
 });
