@@ -863,18 +863,20 @@ body.lx-help .context-panel > .acorn-art {
 .lx-search input::placeholder {
   font-family: var(--body);
 }
+/* DG-173: the sample's `.set-pages .nav`: 13.5px on a 1.55 line, 6px 10px, 400, and 600 for the page on show. */
 .lx-settings-link {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 7px 10px;
+  padding: 6px 10px;
   border: 0;
   border-radius: 9px;
   background: transparent;
   box-shadow: none;
   color: var(--text-2);
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: 1.55;
   text-align: left;
 }
 .lx-settings-link:hover {
@@ -884,7 +886,7 @@ body.lx-help .context-panel > .acorn-art {
 .lx-settings-link[aria-current="true"] {
   background: var(--copper-tint);
   color: var(--text);
-  font-weight: 640;
+  font-weight: 600;
 }
 .lx-settings-searching .lx-settings-link[aria-current="true"] {
   background: transparent;
