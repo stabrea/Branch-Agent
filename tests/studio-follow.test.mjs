@@ -12,7 +12,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-async function studio(t) {
+async function studio(t, width = 1440) {
   const root = await mkdtemp(join(tmpdir(), "branch-studio-follow-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
@@ -25,7 +25,7 @@ async function studio(t) {
   await fetch(new URL("/api/trunks/switch", server.url), {
     method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ part: "trunks", mode: "on" }),
   });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -50,6 +50,7 @@ const row = (page) => page.evaluate(() => {
     wordsType: type(words), noteType: type(note), noteQuiet: getComputedStyle(note).color === quiet,
     switchBeside: s.left > w.right && Math.abs((s.top + s.bottom) / 2 - (w.top + w.bottom) / 2) < 3,
     noteBeneath: n.top >= Math.max(w.bottom, s.bottom) - 0.5 && Math.abs(n.left - w.left) < 1,
+    stacked: s.top >= w.bottom - 0.5 && Math.abs(s.left - w.left) < 1,
     checked: box.checked, pressedSwatches: document.querySelectorAll('#studio .studio-swatch[aria-pressed="true"]').length,
   };
 });
@@ -85,3 +86,17 @@ test("DG-106 in French the row's words are French", async (t) => {
   assert.notEqual(words.note, "Takes the highlight colour of whichever theme is on.");
   assert.deepEqual(errors, []);
 });
+
+/* Codex's review of ceb75959: the sample's control row is one column at 760px and narrower (its `.ctl` phone rule):
+   the words, then the switch under them, then the note. At 761px it is two columns again. */
+for (const [width, stacked] of [[760, true], [400, true], [761, false]]) {
+  test(`DG-106 at ${width} px the row is ${stacked ? "one column: words, switch, note" : "words and switch side by side"}`, async (t) => {
+    const { page, errors } = await studio(t, width);
+    const seen = await row(page);
+    assert.deepEqual({ stacked: seen.stacked, beside: seen.switchBeside, beneath: seen.noteBeneath },
+      { stacked, beside: !stacked, beneath: true });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, "nothing scrolls sideways");
+    assert.deepEqual(errors, []);
+  });
+}
+
