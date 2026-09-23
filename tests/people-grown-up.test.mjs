@@ -124,11 +124,21 @@ test("each card lists what the grant really allows, the owner's card changes the
 test("Settings › Trunks & people leads to each person's card; French and a phone keep it whole", async (t) => {
   const f = await fixture(t, { width: 400, height: 860 });
   const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  const ada = await f.call("/api/profiles", { name: "Ada", pin: "5678" });
   await f.open();
   await f.page.evaluate(async () => (await import("/app.js")).displayView("settings:trunks"));
-  const row = f.page.locator(`#settings-directory-trunks-people .settings-person[data-person="${sam.id}"]`);
-  await row.waitFor({ state: "visible" });
-  assert.deepEqual(await f.page.locator("#settings-directory-trunks-people .settings-person b").allInnerTexts(), ["The owner", "Sam"]);
+  /* The list lives in the sample's "A person's card" section; a missing anchor fails here, not silently. */
+  await f.page.locator("#lx-page-trunks #settings-person-card").waitFor({ state: "visible", timeout: 20000 });
+  const row = f.page.locator(`#settings-person-card .settings-person[data-person="${sam.id}"]`);
+  await row.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+  assert.equal(await f.page.locator("#settings-person-card > .settings-people").count(), 1, "the people list is in A person's card");
+  assert.deepEqual(await f.page.locator("#settings-person-card .settings-person b").allInnerTexts(), ["The owner", "Ada", "Sam"]);
+  /* Choosing whose card draws the card anew, with nothing saved; the list comes back with it. */
+  await f.page.evaluate(() => { document.getElementById("settings-person-card").dataset.before = "yes"; });
+  await f.page.locator("#settings-person-pick").selectOption(ada.id);
+  await f.page.locator("#settings-person-card:not([data-before])").waitFor({ state: "attached", timeout: 10000 });
+  /* Put back in the same turn the card is drawn, not whenever the strip next refreshes. */
+  assert.equal(await f.page.locator("#settings-person-card > .settings-people").count(), 1, "the list survives the card being drawn again");
   await row.click();
   const card = f.page.locator(`.person-card[data-person="${sam.id}"]`);
   await card.waitFor();
