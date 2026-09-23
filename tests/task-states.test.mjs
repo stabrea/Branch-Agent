@@ -10,8 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { runActivity, taskState } from "../dist/activity.js";
-import { createBranch } from "../dist/index.js";
+import { runActivity, staleAfterMs, taskState } from "../dist/activity.js";
+import { createBranch, saveKnobs } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 const T0 = Date.parse("2026-09-23T12:00:00.000Z");
@@ -200,4 +200,41 @@ test("Q51 a real refusal reads as blocked only until the model takes it and goes
   assert.ok(after, "the model went on after the refusal");
   assert.equal(taskState({ ...run, status: "running" }, events.slice(0, events.indexOf(after) + 1)).state, "working");
   t.diagnostic(`blocked for ${Date.parse(after.createdAt) - Date.parse(events[denied].createdAt)} ms before the model went on`);
+});
+
+test("Q51 a question still unanswered stays listed however much other work finishes after it", async (t) => {
+  const { app, call, asking } = await branch(t);
+  const owner = app.runtime.owner;
+  for (let i = 0; i < 105; i++) app.store.finish(app.store.createRun(owner, `Other task ${i}`).id, "completed", "done");
+  assert.equal(app.store.runs(owner).some((run) => run.id === asking.id), false, "it is past the recent-history window");
+  assert.ok((await call("/api/activity?waiting=1")).some((one) => one.runId === asking.id), "and still waiting for you");
+});
+
+test("Q51 a task Branch closed on, which can be continued, is listed as waiting for you to continue", async (t) => {
+  const { app, call } = await branch(t);
+  const closed = app.store.createRun(app.runtime.owner, "Sort the invoices");
+  app.store.event(closed.id, "run.can_continue", { note: "Branch closed during step 2" });
+  app.store.finish(closed.id, "interrupted", "");
+  const listed = (await call("/api/activity?waiting=1")).find((one) => one.runId === closed.id);
+  assert.deepEqual([listed?.task.state, listed?.task.why, listed?.task.reason], ["waiting-owner", "run.can_continue", "Branch closed during step 2"]);
+  assert.equal((await call("/api/activity")).some((one) => one.runId === closed.id), false, "not counted as busy");
+});
+
+test("Q51 'no update' waits as long as the owner's own limits allow a silence", async (t) => {
+  const { app, call, working } = await branch(t);
+  /* A tool eight minutes into the ten minutes the owner allows has not gone quiet, on screen either. The store stamps
+     events with the time they happen, so the test moves this one back (a disposable store). */
+  app.store.db.prepare("UPDATE events SET created_at=? WHERE run_id=?").run(new Date(Date.now() - 8 * 60_000).toISOString(), working.id);
+  const quiet = async () => (await call("/api/activity")).find((one) => one.runId === working.id).task.stale;
+  assert.equal(await quiet(), true, "past the built-in limits, it has gone quiet");
+  saveKnobs(app.store, app.runtime.owner, "commands", { toolTimeoutSeconds: 600 });
+  assert.equal(await quiet(), false, "inside the limit the owner set, it has not");
+  saveKnobs(app.store, app.runtime.owner, "commands", { toolTimeoutSeconds: null });
+  const owner = app.runtime.owner, limits = app.runtime.reliability;
+  const base = staleAfterMs(app.store, owner, limits);
+  assert.ok(base >= limits.modelStallMs && base >= limits.toolTimeoutMs && base >= limits.localFirstReplyMs, `${base} covers every built-in limit`);
+  saveKnobs(app.store, owner, "commands", { toolTimeoutSeconds: 600 });
+  assert.equal(staleAfterMs(app.store, owner, limits) >= 600_000, true, "a longer tool limit the owner set");
+  saveKnobs(app.store, owner, "limits", { localFirstReplySeconds: 1800 });
+  assert.equal(staleAfterMs(app.store, owner, limits), 1_800_000 + 30_000, "a model on this computer starting its reply, with its grace");
 });
