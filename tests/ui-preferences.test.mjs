@@ -382,3 +382,43 @@ test("switching from one household person to another, the way the People card do
   assert.equal(readUiPreferences(app.store, `profile:${sam.id}`).values.railOpen, false, "Sam's record is untouched");
   assert.deepEqual(errors, []);
 });
+
+test("the first entry of a list reaches the engine, and the next one keeps it", async (t) => {
+  const { browser, server } = await freshWindowSetup(t);
+  const { page, errors, imports } = await openWindow(browser, server);
+  await waitFor(() => Promise.resolve(imports.length > 0), "the first start writes the import down");
+  await page.evaluate(async () => {
+    const { keepChoice, choicesSaved } = await import("/ui-prefs.js");
+    keepChoice("branch-save-progress-asked", JSON.stringify(["claude|me|week|2026-09-30"]));
+    await choicesSaved();
+    keepChoice("branch-save-progress-asked", JSON.stringify(["claude|me|week|2026-09-30", "claude|me|day|2026-09-24"]));
+    await choicesSaved();
+  });
+  assert.deepEqual((await saved(server)).values.saveProgressAsked, ["claude|me|week|2026-09-30", "claude|me|day|2026-09-24"]);
+  assert.deepEqual(errors, []);
+});
+
+test("a choice made while the engine is read after signing in is not undone by the answer", async (t) => {
+  const { browser, server } = await freshWindowSetup(t);
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.locator("#login").waitFor({ state: "visible", timeout: 120000 });
+  /* The read after signing in is held back a moment, and a choice is made meanwhile. */
+  await page.route("**/api/ui-preferences", async (route) => {
+    if (route.request().method() === "GET") await new Promise((done) => setTimeout(done, 1500));
+    await route.continue();
+  });
+  const reading = page.waitForRequest((request) => request.url().endsWith("/api/ui-preferences") && request.method() === "GET");
+  await page.locator("#token").fill(server.token);
+  await page.locator("#login-form").evaluate((form) => form.requestSubmit());
+  await reading;
+  await page.evaluate(async () => { const { keepChoice } = await import("/ui-prefs.js"); keepChoice("branch-aside", "closed"); });
+  await waitFor(() => saved(server).then((kept) => kept.imports["legacy-local-v1"] !== undefined), "the read after signing in lands");
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(async () => (await import("/ui-prefs.js")).choice("branch-aside")), "closed", "the window still shows it");
+  await waitFor(() => saved(server).then((kept) => kept.values.asideOpen === false), "and the engine has it");
+  assert.deepEqual(errors, []);
+});

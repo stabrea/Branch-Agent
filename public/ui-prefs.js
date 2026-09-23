@@ -162,7 +162,8 @@ if (snapshotAt) { engine = fromSnapshot(snapshotAt); keepCopies(); }
 let queue = Promise.resolve();
 let pending = 0;
 const profileNow = () => root.dataset.profileGeneration || "0";
-/** Fields changed here while a new read of the engine was on its way, so its late answer never undoes them. */
+/** Fields changed here while a new read of the engine was on its way, with what they became (null: back to
+    the default), so its late answer never undoes them, even when the engine could not be read before. */
 let changedDuringRead = null;
 function unsavedNote(fields) {
   document.dispatchEvent(new CustomEvent("branch-ui-prefs-unsaved", { detail: { fields } }));
@@ -186,27 +187,31 @@ async function send(change, profile, attempt = 0) {
   }
 }
 /** Sends a change to the engine after every change made before it. */
-function enqueue(change, field) {
-  changedDuringRead?.add(field);
+function enqueue(change, field, value) {
+  changedDuringRead?.set(field, value);
   pending++;
   const profile = profileNow();
   queue = queue.then(() => send(change, profile)).finally(() => { pending--; });
 }
+/** A list choice's entries as the window shows them now. */
+const choiceList = (key) => FIELDS[key].read(choice(key) ?? undefined) ?? [];
 /** Keeps a choice: here at once, and in the engine in the order they were made. */
 export function keepChoice(key, text) {
   const known = FIELDS[key];
+  /* A list's entries so far, read before this page's copy is overwritten below. */
+  const before = known?.list ? choiceList(key) : null;
   if (!known || ownersWindow()) local.set(copyKey(key), text);
   const value = known?.read(text ?? undefined) ?? (known && text === null ? null : undefined);
   if (!known || value === undefined) return;
   if (known.list) {
-    const before = engine?.values[known.field] ?? known.read(copyOf(key)) ?? [];
     const added = (value ?? []).filter((one) => !before.includes(one));
     if (!added.length) return;
-    if (engine) engine.values[known.field] = [...before.filter((one) => !added.includes(one)), ...added].slice(-50);
-    return enqueue({ add: { [known.field]: added } }, known.field);
+    const list = [...before.filter((one) => !added.includes(one)), ...added].slice(-50);
+    if (engine) engine.values[known.field] = list;
+    return enqueue({ add: { [known.field]: added } }, known.field, list);
   }
   if (engine) { if (value === null) delete engine.values[known.field]; else engine.values[known.field] = value; }
-  enqueue({ set: { [known.field]: value } }, known.field);
+  enqueue({ set: { [known.field]: value } }, known.field, value);
 }
 /** Labels one conversation in the side list: { name } (null for none), { pinned } or { buried }. */
 export function markConversation(id, change) {
@@ -217,7 +222,7 @@ export function markConversation(id, change) {
   if ("buried" in change) marks.buried = put(marks.buried, change.buried);
   if (engine) engine.conversations = marks;
   if (ownersWindow()) keepMarkCopies(marks);
-  enqueue({ mark: { id, ...change } }, MARKS);
+  enqueue({ mark: { id, ...change } }, MARKS, marks);
 }
 /** Settles once every choice made so far has been answered, for whatever waits before a restart. */
 export function choicesSaved() { return pending ? queue : Promise.resolve(); }
@@ -230,16 +235,17 @@ async function reread() {
   const mine = ++reads;
   await choicesSaved();
   const shown = shownNow();
-  changedDuringRead = new Set();
+  changedDuringRead = new Map();
   const snapshot = await read();
   const kept = changedDuringRead;
   changedDuringRead = null;
   if (!snapshot || mine !== reads) return Boolean(engine);
   const next = fromSnapshot(snapshot);
-  for (const field of kept) {
-    if (field === MARKS) next.conversations = engine?.conversations ?? next.conversations;
-    else if (engine?.values[field] === undefined) delete next.values[field];
-    else next.values[field] = engine.values[field];
+  for (const [field, value] of kept) {
+    const listed = Array.isArray(value) ? next.values[field] ?? [] : null;
+    if (field === MARKS) next.conversations = value;
+    else if (value === null) delete next.values[field];
+    else next.values[field] = listed ? [...listed.filter((one) => !value.includes(one)), ...value].slice(-50) : value;
   }
   engine = next;
   keepCopies();
