@@ -1116,12 +1116,14 @@ function fallbackRow(preset, ticked) {
   const box = document.createElement("input");
   box.type = "checkbox"; box.value = preset.id; box.checked = ticked;
   label.append(box, ` ${preset.name} · ${preset.model}`);
+  label.id = `models-fallback-${preset.id}`;
   const move = (way, glyph) => {
     const button = el("button", glyph, "fallback-move");
     button.type = "button";
     button.dataset.move = way;
     button.dataset.tLabel = `models.fallback.${way}`;
     button.setAttribute("aria-label", t(`models.fallback.${way}`));
+    button.setAttribute("aria-describedby", label.id); // which model it moves
     return button;
   };
   row.append(label, move("up", "↑"), move("down", "↓"));

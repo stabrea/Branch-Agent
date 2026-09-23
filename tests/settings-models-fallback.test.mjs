@@ -68,6 +68,8 @@ test("DG-044: the models tried next open in the saved order, and Move up and Mov
   assert.equal(await page.locator("#models-fallback legend").innerText(), "If the default fails, try these in order");
   assert.equal(await row(page, "order-local").getByRole("button", { name: "Move up" }).isDisabled(), true, "the first row cannot go up");
   assert.equal(await row(page, "order-gpt").getByRole("button", { name: "Move down" }).isDisabled(), true, "the last row cannot go down");
+  assert.equal(await row(page, "order-claude").getByRole("button", { name: "Move up" }).evaluate((button) =>
+    document.getElementById(button.getAttribute("aria-describedby"))?.textContent.trim()), "Anthropic · claude-sonnet-4-5", "each button says which model it moves");
 
   await row(page, "order-claude").getByRole("button", { name: "Move up" }).click();
   assert.deepEqual(await order(page), ["order-claude", "order-local", "default", "order-gpt"]);
