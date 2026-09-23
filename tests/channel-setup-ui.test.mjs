@@ -40,17 +40,17 @@ async function signedIn(t) {
 }
 
 const tooWide = (page, selector) => page.evaluate((selector) => [...document.querySelectorAll(`${selector} *`)]
-  .filter((node) => node.getClientRects().length && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))
+  .filter((node) => node.getClientRects().length && !node.closest(".sr-only") && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))
   .map((node) => `${node.tagName} ${node.textContent.slice(0, 30)}`), selector);
 
-test("the Set up card sits in Customize → Chat apps, ships off, and shows the command and the codes", async (t) => {
+test("the Set up card sits in Settings › Chat apps & devices, ships off, and shows the command and the codes", async (t) => {
   const { page, errors } = await signedIn(t);
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
   const card = page.locator("#channel-setup-card");
   await card.locator("#channel-setup-panel-card").waitFor();
-  assert.equal(await card.getAttribute("data-home"), "customize:channels");
-  assert.equal(await card.locator("h2").count(), 1);
-  assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, "one filled button");
+  assert.equal(await card.getAttribute("data-home"), "settings:channels");
+  assert.equal(await card.locator(".settings-card-title").count(), 1);
+  assert.equal(await card.locator("button:not(.quiet-button, .sg-more)").count(), 1, "one filled button");
   assert.equal(await page.locator("#channel-setup-mode").inputValue(), "off");
   assert.equal(await page.locator("#channel-setup-app").inputValue(), "telegram");
   assert.equal(await page.locator("#channel-setup-app option").count(), 55);
@@ -74,7 +74,6 @@ test("the Set up card sits in Customize → Chat apps, ships off, and shows the 
   assert.equal(await page.locator("#channel-setup-open-card").isHidden(), true);
 
   await page.locator("#channel-setup-mode").selectOption("when-needed");
-  await page.locator("#channel-setup-mode-save").click();
   await page.waitForFunction(() => document.getElementById("channel-setup-save-card")?.disabled === false);
   await page.locator("#channel-setup-app").selectOption("telegram");
   await page.locator("#channel-setup-panel-card[data-app=telegram]").waitFor();
@@ -87,7 +86,7 @@ test("the Set up card sits in Customize → Chat apps, ships off, and shows the 
 
 test("each More chat apps row and the Telegram card open the same panel, and it reads in French at 400 px", async (t) => {
   const { page, errors } = await signedIn(t);
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
   const row = page.locator("#channels-more-list details").filter({ hasText: "Mastodon" }).first();
   await row.locator(".channel-setup-row").waitFor({ state: "attached" });
   await row.locator("summary").click();
@@ -107,7 +106,7 @@ test("each More chat apps row and the Telegram card open the same panel, and it 
   assert.match(await page.locator("#channel-setup-card").textContent(), /Votre serveur ouvre/, "the recipe's own sentence in French");
 
   await page.setViewportSize({ width: 400, height: 800 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
   await page.locator("#channel-setup-card").scrollIntoViewIfNeeded();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
   assert.deepEqual(await tooWide(page, "#channel-setup-card"), []);

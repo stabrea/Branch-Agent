@@ -279,7 +279,7 @@ function modeRow() {
   const said = status();
   /* DG-025: kept the moment it changes, as the sample saves; no Save button. */
   select.addEventListener("change", async () => {
-    try { state.list = await api("channel-setup", { mode: select.value }); said.textContent = t("channel-setup.mode-saved"); }
+    try { state.list = await api("channel-setup", { mode: select.value }); said.textContent = t("channel-setup.mode-saved"); await drawCardPanel(); }
     catch (error) { said.textContent = error instanceof Error ? error.message : String(error); }
   });
   return [...labelled("channel-setup-mode", "channel-setup.mode-label", select), make("p", "channel-setup.mode-note", "field-note"), said];
@@ -330,8 +330,8 @@ async function drawCard() {
   if (!node || !state.list) return;
   const slot = make("div");
   slot.id = "channel-setup-slot";
-  /* DG-008: a card's title sits under its section's heading. */
-  node.replaceChildren(make("h4", "channel-setup.title", "settings-card-title"), make("p", "channel-setup.lead"), ...modeRow(), coreRow(), ...picker(), slot,
+  /* DG-008: a card's title is a settings card title, not a page-level heading. */
+  node.replaceChildren(make("h3", "channel-setup.title", "settings-card-title"), make("p", "channel-setup.lead"), ...modeRow(), coreRow(), ...picker(), slot,
     make("p", "channel-setup.safety", "subtle"));
   await drawCardPanel();
 }

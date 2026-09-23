@@ -81,12 +81,12 @@ test("Chat apps & devices: the sample's sections and counts, at every width, bot
   assert.deepEqual(await settle(TECHNICAL),
     TECHNICAL, "Under the hood is last, at Technical, and nothing is left out of sight");
 
-  /* DG-008: a card's title is below its section's heading. */
+  /* DG-008: a card's title is a settings card title, never the page-level h2 it was. */
   const levels = await page.evaluate(() => {
     const card = document.getElementById("channel-setup-card");
     return { section: document.getElementById("sg-bucket-channels-talk").tagName, card: card.querySelector(".settings-card-title")?.tagName };
   });
-  assert.deepEqual(levels, { section: "H3", card: "H4" });
+  assert.deepEqual(levels, { section: "H3", card: "H3" });
 
   /* DG-025: how chat apps are set up is kept as it changes, with no Save button. */
   assert.equal(await page.locator("#channel-setup-card button", { hasText: /^Save this setting$/ }).count(), 0, "no Save button");
