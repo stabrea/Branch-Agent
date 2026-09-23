@@ -42,17 +42,20 @@ async function fixture(t, { width = 1440, height = 950 } = {}) {
 test("DG-140: the Inbox's Needs you tab carries the live count, and hides it at none", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchLayout.go("runs"));
-  const count = page.locator('.lx-tab[data-place="inbox"][data-tab="needs"] #lx-needs-tab-count');
-  assert.equal(await count.count(), 1, "one count, on the Needs you tab");
-  await page.evaluate(() => { const badge = document.getElementById("lx-inbox-badge"); badge.textContent = "2"; badge.hidden = false; });
-  await count.waitFor({ state: "visible" });
-  assert.equal(await count.innerText(), "2", "the same number as the side list's badge");
-  const look = await count.evaluate((node) => { const s = getComputedStyle(node); return [s.fontSize, s.fontWeight, s.marginLeft]; });
-  assert.deepEqual(look, ["10.5px", "600", "5px"]);
-  await page.evaluate(() => { document.getElementById("lx-inbox-badge").textContent = "3"; });
-  await page.waitForFunction(() => document.getElementById("lx-needs-tab-count").textContent === "3");
-  await page.evaluate(() => { document.getElementById("lx-inbox-badge").hidden = true; });
-  await count.waitFor({ state: "hidden" });
+  assert.equal(await page.locator('.lx-tab[data-place="inbox"][data-tab="needs"] #lx-needs-tab-count').count(), 1, "one count, on the Needs you tab");
+  /* the badge is set and read in one step, so the Inbox's own redraw cannot land in between */
+  const after = (text, hidden) => page.evaluate(async ([text, hidden]) => {
+    const badge = document.getElementById("lx-inbox-badge"), count = document.getElementById("lx-needs-tab-count");
+    badge.textContent = text;
+    badge.hidden = hidden;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const s = getComputedStyle(count);
+    return { text: count.textContent, hidden: count.hidden, look: [s.fontSize, s.fontWeight, s.marginLeft] };
+  }, [text, hidden]);
+  const two = await after("2", false);
+  assert.deepEqual(two, { text: "2", hidden: false, look: ["10.5px", "600", "5px"] }, "the same number as the side list's badge");
+  assert.equal((await after("3", false)).text, "3", "and it follows the badge");
+  assert.equal((await after("3", true)).hidden, true, "none waiting, no count");
   assert.deepEqual(errors, []);
 });
 
@@ -98,5 +101,21 @@ test("DG-141: the title is the picked computer / the place, the first step opens
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   await page.waitForFunction(() => document.documentElement.lang === "fr");
   await page.waitForFunction(() => document.querySelector(".lx-crumb-mid").textContent === document.getElementById("rail-target-name").textContent.trim());
+  assert.deepEqual(errors, []);
+});
+
+test("DG-145: on a phone the same usage ring sits in the title bar before search; wider it stays under the message box", async (t) => {
+  const { page, errors } = await fixture(t);
+  const where = () => page.evaluate(() => {
+    const ring = document.getElementById("status-bar");
+    return { inHeader: !!ring.closest("header"), beforeSearch: ring.nextElementSibling?.id === "head-search", count: document.querySelectorAll("#usage-ring").length };
+  });
+  assert.deepEqual(await where(), { inHeader: false, beforeSearch: false, count: 1 }, "a computer: on the line under the message box");
+  await page.setViewportSize({ width: 400, height: 844 });
+  await page.waitForFunction(() => !!document.getElementById("status-bar").closest("header"));
+  assert.deepEqual(await where(), { inHeader: true, beforeSearch: true, count: 1 }, "a phone: in the title bar, just before search, still one ring");
+  await page.setViewportSize({ width: 860, height: 900 });
+  await page.waitForFunction(() => !document.getElementById("status-bar").closest("header"));
+  assert.equal(await page.evaluate(() => document.getElementById("status-bar").previousElementSibling?.id), "status-bar-home", "back in its own spot");
   assert.deepEqual(errors, []);
 });
