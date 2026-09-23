@@ -86,8 +86,8 @@ test("DG-182: each file's row has the sample's words, its first line, Off / When
   await card.locator("[role=status]", { hasText: "Saved" }).waitFor();
   assert.equal(contextFileSettings(app.store, app.runtime.owner).files.soul, "when-needed");
   await card.locator(".agent-file", { hasText: "SOUL.md" }).getByRole("button", { name: "When needed", exact: true }).and(page.locator('[aria-pressed="true"]')).waitFor();
-  /* The same switch on the Assistant page is drawn again, so its own Save cannot put the old value back. */
-  await page.waitForFunction(() => document.getElementById("context-switch-soul")?.value === "when-needed");
+  /* It is the file's one switch: the Assistant page only links here (DG-181). */
+  assert.equal(await page.locator("#context-switch-soul").count(), 0);
   await card.locator(".agent-file", { hasText: "SOUL.md" }).getByRole("button", { name: "Edit SOUL.md" }).click();
   await card.getByLabel("What the file says").waitFor();
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));

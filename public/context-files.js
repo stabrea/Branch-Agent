@@ -39,16 +39,6 @@ async function api(path, body) {
 /** The cards, in the homes docs/places.md gives them. One card may carry more than one file. */
 const cards = [
   {
-    /* DG-181: the sample keeps these three switches with the files themselves, on Instructions & personality, and
-       the Assistant page only says where they are set (linkRows below). Kept the moment one moves (DG-025). */
-    id: "context-persona", home: "settings:instructions",
-    title: ["settings.card.who-your-assistant-is", "Who your assistant is"],
-    purpose: ["settings.note.persona-files",
-      "Write these in plain words and your assistant reads them before it does anything else. What you put in the first one replaces its built-in character rather than being added to it."],
-    files: ["soul", "identity", "user"],
-    inSection: true,
-  },
-  {
     id: "context-project", home: "settings:general",
     title: ["settings.card.how-to-work-here", "How to work in this project"],
     purpose: ["settings.note.agents-file",
@@ -179,11 +169,8 @@ function buildCard(spec, reports, settings, save) {
   const card = el("section", undefined, "card");
   card.id = spec.id;
   card.dataset.home = spec.home;
-  // DG-032: a card inside a section of its page does not draw its title again under the section's heading. The
-  // heading still belongs to the card -- it is what a screen reader announces -- so it is hidden, not removed.
   const heading = el("h2", spec.title[1]);
   heading.dataset.t = spec.title[0];
-  if (spec.inSection) heading.className = "sr-only";
   card.append(heading);
   const purpose = el("p", spec.purpose[1]);
   purpose.dataset.t = spec.purpose[0];
@@ -193,15 +180,11 @@ function buildCard(spec, reports, settings, save) {
   const chosen = Object.fromEntries(spec.files.map((key) => [key, settings.files?.[key] ?? "off"]));
   const keep = keeper(card, chosen, status, save);
   for (const key of spec.files)
-    card.append(switchRow(key, reports.find((entry) => entry.key === key), chosen[key], (value) => {
-      chosen[key] = value;
-      if (spec.inSection) void keep();
-    }));
+    card.append(switchRow(key, reports.find((entry) => entry.key === key), chosen[key], (value) => { chosen[key] = value; }));
   const note = el("p",
     "A file can change how your assistant works and how it talks to you. It cannot give it permission it does not already have — your approval rules decide that, every time a tool runs.",
     "subtle");
   note.dataset.t = "settings.note.files-cannot-grant";
-  if (spec.inSection) { card.append(note, status); return card; }
   const button = el("button", "Save");
   button.dataset.t = "action.save";
   button.type = "button";
@@ -212,7 +195,8 @@ function buildCard(spec, reports, settings, save) {
 
 /**
  * DG-181: the Assistant page's rows for the three files, as the sample draws them: each file's name and a link to
- * Instructions & personality, where its switch is. The rows are counted in the section's "N more with Advanced".
+ * Instructions & personality, where its switch is: the file's own row there, Off / When needed / On (DG-182). The
+ * rows are counted in the section's "N more with Advanced".
  */
 function linkRows() {
   const card = el("section", undefined, "card");
@@ -236,9 +220,10 @@ function linkRows() {
     keyed(link, "settings.set-in-instructions", "Set in Instructions & personality ›");
     link.addEventListener("click", () => {
       globalThis.branchLayout?.go("settings:instructions");
-      const select = document.getElementById(`context-switch-${key}`);
-      select?.scrollIntoView({ block: "center" });
-      select?.focus({ preventScroll: true });
+      const group = document.querySelector(`#agent-files .agent-file[data-slot="${key}"] .agent-file-mode`);
+      const pressed = group?.querySelector('[aria-pressed="true"]') ?? group?.querySelector("button");
+      pressed?.scrollIntoView({ block: "center" });
+      pressed?.focus({ preventScroll: true });
     });
     row.append(name, link);
     card.append(row);

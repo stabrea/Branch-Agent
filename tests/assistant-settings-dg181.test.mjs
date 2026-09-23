@@ -97,7 +97,7 @@ for (const width of [1440, 860, 400]) {
     /* The sample's rows for the three files: a name and a link, no switch here. */
     assert.deepEqual(advanced.links, ["Its character — SOUL.md", "Its name — IDENTITY.md", "Who you are — USER.md"]
       .map((name) => `${name} | Set in Instructions & personality ›`));
-    assert.equal(await page.locator("#lx-page-assistant select[id^=context-switch-]").count(), 0, "the switches are on Instructions");
+    assert.equal(await page.locator("#lx-page-assistant select[id^=context-switch-], #lx-page-assistant .agent-file-mode").count(), 0, "the switches are on Instructions");
     assert.deepEqual(advanced.saves, [], "no Save button: everything here is kept as it changes");
     /* The cards' own titles are read aloud only: screen-reader-only h2s, as DG-183's (coordinator ruling), so each
        card still carries a title (shell-ui Q4). Nothing on the page is an h4. */
@@ -152,16 +152,6 @@ test("the name is kept when you leave the field, and a file switch the moment it
   await page.locator("#identity-name").press("Enter");
   assert.equal((await again).request().postDataJSON().name, "Juniper Two");
 
-  /* The file's line sends you to its switch on Instructions & personality, which is kept the moment it moves. */
-  await page.locator("#context-link-soul button").click();
-  await page.locator("#lx-page-instructions").waitFor({ state: "visible" });
-  await page.waitForFunction(() => document.activeElement?.id === "context-switch-soul");
-  const kept = page.waitForResponse((r) => r.url().endsWith("/api/context-files") && r.request().method() === "POST");
-  await page.locator("#context-switch-soul").selectOption("on");
-  assert.equal((await kept).ok(), true);
-  await page.locator("#context-persona [role=status]").filter({ hasText: "Saved" }).waitFor();
-  assert.equal(app.store.get("settings", "local", "context-files")?.data.files.soul, "on");
-
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await openAssistant(page);
@@ -169,21 +159,52 @@ test("the name is kept when you leave the field, and a file switch the moment it
   assert.deepEqual(errors, []);
 });
 
-test("a file switch whose save fails goes back to what is saved, and says so", async (t) => {
+/** The one control for a file on Instructions & personality: its row's Off / When needed / On (DG-182). */
+const fileSwitch = (page, slot) => page.locator(`#agent-files .agent-file[data-slot="${slot}"] .agent-file-mode`);
+
+test("Instructions has one control for each of the three files, and the Assistant's rows take the keyboard to it", async (t) => {
   const { page, errors, app } = await fixture(t);
   await openSettings(page, "instructions");
-  await page.locator("#context-switch-identity").waitFor();
+  await page.locator("#agent-files .agent-file").first().waitFor();
+  /* DG-182's row is the file's switch; DG-181's own card of three selects is not drawn beside it. */
+  const controls = await page.evaluate(() => ["soul", "identity", "user"].map((slot) => document.querySelectorAll(
+    `#lx-page-instructions #context-switch-${slot}, #lx-page-instructions .agent-file[data-slot="${slot}"] .agent-file-mode`).length));
+  assert.deepEqual(controls, [1, 1, 1], "one control each");
+  assert.equal(await page.locator("#context-persona").count(), 0);
+  await openAssistant(page);
+  await setLevel(page, "advanced");
+  for (const slot of ["soul", "identity", "user"]) {
+    await page.locator(`#context-link-go-${slot}`).click();
+    await page.locator("#lx-page-instructions").waitFor({ state: "visible" });
+    await page.waitForFunction((one) => document.activeElement?.matches(
+      `.agent-file[data-slot="${one}"] .agent-file-mode [aria-pressed="true"]`), slot);
+    await page.locator('.lx-settings-link[data-page="assistant"]').click();
+    await page.locator("#context-link-soul").waitFor({ state: "visible" });
+  }
+  /* The switch it lands on is kept the moment it is pressed. */
+  await page.locator("#context-link-go-soul").click();
+  await fileSwitch(page, "soul").getByRole("button", { name: "On", exact: true }).click();
+  await page.locator("#agent-files [role=status]").filter({ hasText: "Saved" }).waitFor();
+  assert.equal(app.store.get("settings", "local", "context-files")?.data.files.soul, "on");
+  assert.deepEqual(errors, []);
+});
+
+test("a file switch whose save fails stays on what is saved, and says so", async (t) => {
+  const { page, errors, app } = await fixture(t);
+  await openSettings(page, "instructions");
+  const identity = fileSwitch(page, "identity");
+  await identity.waitFor();
   await page.route("**/api/context-files", (route) => (route.request().method() === "POST"
     ? route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"Saving is unavailable."}' })
     : route.continue()));
-  await page.locator("#context-switch-identity").selectOption("on");
-  const status = page.locator("#context-persona [role=status]");
+  await identity.getByRole("button", { name: "On", exact: true }).click();
+  const status = page.locator("#agent-files [role=status]");
   await status.filter({ hasText: "not saved" }).waitFor();
-  assert.equal(await page.locator("#context-switch-identity").inputValue(), "off", "the switch shows what is kept");
+  assert.equal(await identity.locator('[aria-pressed="true"]').innerText(), "Off", "the switch shows what is kept");
   assert.match(await status.innerText(), /back where it was\. Saving is unavailable\./);
   assert.equal(app.store.get("settings", "local", "context-files")?.data.files?.identity, undefined);
   await page.unroute("**/api/context-files");
-  await page.locator("#context-switch-identity").selectOption("when-needed");
+  await identity.getByRole("button", { name: "When needed", exact: true }).click();
   await status.filter({ hasText: "Saved." }).waitFor();
   assert.equal(app.store.get("settings", "local", "context-files")?.data.files.identity, "when-needed");
   assert.deepEqual(errors, []);

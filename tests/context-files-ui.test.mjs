@@ -45,10 +45,9 @@ async function fixture(t, seed) {
 /* Card id -> the home docs/places.md gives it. The test asks the question a person would ask —
    "is it on that screen when I go there?" — rather than repeating how layout.js names its slots. */
 const homes = [
-  /* DG-181: the Assistant page says where the three files about the assistant are set; their switches are with the
-     files themselves, on Instructions & personality, as in the sample. */
+  /* DG-181: the Assistant page says where the three files about the assistant are set; their switches are the
+     files' own rows on Instructions & personality (DG-182, tests/settings-instructions-page.test.mjs). */
   ["context-assistant", "settings:assistant"],
-  ["context-persona", "settings:instructions"],
   ["context-project", "settings:general"],
   ["context-memory-file", "library:memory"],
   ["context-heartbeat", "automations:scheduled"],
@@ -96,13 +95,13 @@ test("every switch starts off, and the one you change is the one that is saved",
 test("the cards hold their shape at 400 px, and nothing scrolls sideways", async (t) => {
   const { page, errors } = await fixture(t);
   await page.setViewportSize({ width: 400, height: 900 });
-  await openSettings(page, "instructions");
-  await page.locator("#context-persona").waitFor();
+  await openSettings(page, "general");
+  await page.locator("#context-project").waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false, "the page does not scroll sideways at 400 px");
   // Measured inside the page in one step: the card redraws itself, and a box asked for in two steps
   // (find the element, then measure it) can land on one that was just replaced (null on a busy runner).
-  for (const key of ["soul", "identity", "user"]) {
+  for (const key of ["agents"]) {
     const fits = await page.waitForFunction((selector) => {
       const box = document.querySelector(selector)?.getBoundingClientRect();
       return box && box.width > 0 && box.width <= 400;
@@ -139,7 +138,7 @@ test("every word on these cards can be said in French", async (t) => {
   assert.deepEqual(untranslated, [], "and every one of those keys has real French");
 
   /* The note under a switch says something, and never the word "null" where a file name should be. */
-  const note = await page.locator("#context-persona .field-note").first().innerText();
+  const note = await page.locator("#context-project .field-note").first().innerText();
   assert.ok(note.trim().length > 0 && !note.includes("null"), `the note reads as a sentence (${note})`);
   assert.deepEqual(errors, []);
 });

@@ -35,7 +35,7 @@ export const BUCKETS = {
   instructions: [
     /* The sample draws no line under "Its files". */
     ["files", "instructions", "Its files", "",
-      [["agent-files", R], ["context-persona", R]]],
+      [["agent-files", R]]],
   ],
   appearance: [
     /* DG-183: the sample's sections, in its order. Your own background has no home in the sample: it stays with

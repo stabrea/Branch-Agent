@@ -204,7 +204,8 @@ function chooser(refresh, status) {
       await refresh();
       globalThis.branchContextFilesReady?.();
     } catch (error) {
-      status.textContent = error.message;
+      /* Nothing moved: the pressed position is still the one saved. Said as DG-181's switches say it. */
+      status.textContent = `${say("settings.file.not-saved", "That change was not saved, so the switch is back where it was.")} ${error.message}`;
       for (const option of group.querySelectorAll("button")) option.disabled = false;
     }
   };

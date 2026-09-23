@@ -15,6 +15,8 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openSettings, showEverything } from "./places.mjs";
 
+/* SOUL.md, IDENTITY.md and USER.md are switched on their own rows of Instructions & personality (DG-182), a group of
+   Off / When needed / On buttons with no id of its own; tests/settings-instructions-page.test.mjs reads their words. */
 const SAMPLE_THREE_WAYS = [
   "flows-switch-install-requests", "recordings-mode", "heartbeat-mode", "quiet-switch-scripts",
   "autonomy-switch-suggestions", "flows-switch-kanban", "flows-switch-waiting-line", "autonomy-switch-orders",
@@ -46,7 +48,7 @@ const SAMPLE_THREE_WAYS = [
   "chat-live-commands", "chat-live-steering", "chat-live-splitting", "devices-mode", "personal-switch-chat-files",
   "personal-switch-mail-search", "reach-switch-relay", "reach-switch-send", "reach-switch-platform-pause",
   "dashboard-mode", "never-break-mode", "commands-mode", "asks-switch-project-board", "people-admin-mode",
-  "context-switch-agents", "context-switch-soul", "context-switch-identity", "context-switch-user",
+  "context-switch-agents",
   "autonomy-switch-instructions", "flows-switch-focus", "quiet-switch-news", "accounts-mode",
   "asks-switch-runtimes", "savings-difficulty-mode", "local-models-mode", "reach-switch-arena",
   "video-programs-mode", "reach-switch-video", "wake-word-mode", "dictation-mode", "system-voice-card-mode",
