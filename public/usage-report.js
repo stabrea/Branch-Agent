@@ -104,7 +104,7 @@ function buildCountersCard() {
   status.id = "counters-status";
   status.className = "subtle";
   status.setAttribute("role", "status");
-  card.append(keyed("h2", "counters.title"), keyed("p", "counters.lead"), modeLabel, mode,
+  card.append(keyed("h3", "counters.title", "settings-card-title"), keyed("p", "counters.lead"), modeLabel, mode,
     keyed("p", "counters.note", "subtle"), send, status);
   return card;
 }

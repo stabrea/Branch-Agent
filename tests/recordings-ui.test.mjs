@@ -40,9 +40,9 @@ function cardShape(page, id) {
     const filled = [...card.querySelectorAll("button")].filter((b) => !b.classList.contains("quiet-button") && !b.classList.contains("text-button"));
     const unnamed = [...card.querySelectorAll("input, select, textarea")].filter((c) => !c.labels?.length);
     return {
-      home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2").length,
-      sentence: card.querySelector("h2 + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
-      keyless: [...card.querySelectorAll("h2, label, button, summary")].filter((n) => !n.dataset.t).length,
+      home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2, h3.settings-card-title").length,
+      sentence: card.querySelector(":is(h2, h3.settings-card-title) + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
+      keyless: [...card.querySelectorAll("h2, h3.settings-card-title, label, button, summary")].filter((n) => !n.dataset.t).length,
     };
   }, id);
 }
@@ -109,7 +109,7 @@ test("Is Branch keeping up: lives in Settings, Advanced, and its switch is saved
   await signIn(page, server);
   await page.locator("#event-loop-card").waitFor({ state: "attached" });
   await openSettingFor(page, "#event-loop-card");
-  await page.locator("#event-loop-card h2").waitFor({ state: "visible" });
+  await page.locator("#event-loop-card h3.settings-card-title").waitFor({ state: "visible" });
   assertAnatomy(await cardShape(page, "event-loop-card"), "event-loop-card", "settings:advanced");
   await page.locator("#event-loop-mode").selectOption("when-needed");
   await page.locator("#event-loop-card").getByRole("button", { name: "Save", exact: true }).click();

@@ -114,7 +114,8 @@ async function start() {
 async function loadSwitch() {
   try { $("wsedit-mode").value = (await call("settings")).mode; } catch { /* not signed in yet */ }
 }
-$("wsedit-mode-save")?.addEventListener("click", async () => {
+/* DG-025: one choice, saved the moment it changes, as the approved sample does; a failed save says so. */
+$("wsedit-mode")?.addEventListener("change", async () => {
   try {
     await call("settings", { mode: $("wsedit-mode").value });
     $("wsedit-mode-status").textContent = t("wsedit.switch-saved");

@@ -225,7 +225,7 @@ function loopCard(state) {
   const card = make("section", "card");
   card.id = "event-loop-card";
   card.dataset.home = "settings:advanced";
-  card.append(make("h2", "", "event-loop.title", "Is Branch keeping up"),
+  card.append(make("h3", "settings-card-title", "event-loop.title", "Is Branch keeping up"),
     make("p", "subtle", "event-loop.purpose", "Measures whether Branch's own work is starting on time, so a frozen window or a late chat reply can be traced to Branch itself."));
   const label = make("label", "", "event-loop.switch", "The check");
   label.htmlFor = "event-loop-mode";
