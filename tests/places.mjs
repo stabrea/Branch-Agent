@@ -49,10 +49,9 @@ const placeTabBecameOpen = (page, place, tab) => page.waitForFunction(({ place, 
 
 /**
  * Opens a page by its old name ("memory", "runs", "settings", "usage", "chat") or its new one
- * ("customize:plugins", "settings:models"). Can also pass tab as a separate argument.
- * If place is given without a tab, defaults to opening the place's first tab.
+ * ("customize:plugins", "settings:models").
  */
-export async function openPlace(page, view, tabArg) {
+export async function openPlace(page, view) {
   await ready(page);
   if (view === "chat") {
     await closeSettings(page);
@@ -64,28 +63,9 @@ export async function openPlace(page, view, tabArg) {
   if (view === "usage") return openSettings(page, "data");
   if (view.startsWith("settings:")) return openSettings(page, view.slice("settings:".length));
   const oldTab = TABS[view];
-  let place, tab;
-  if (tabArg) {
-    place = view;
-    tab = tabArg;
-  } else if (view.includes(":")) {
-    [place, tab] = view.split(":");
-  } else if (oldTab) {
-    [place, tab] = [oldTab.place, oldTab.tab];
-  } else {
-    // No tab specified and not an old tab name - use the place as-is and open its first visible tab
-    place = view;
-    // Let the browser find the first tab for this place
-    tab = null;
-  }
+  const [place, tab] = oldTab ? [oldTab.place, oldTab.tab] : view.split(":");
   await closeSettings(page);
   await openPlaceLink(page, place);
-  if (!tab) {
-    // Find and click the first tab for this place
-    const firstTab = page.locator(`.lx-tab[data-place="${place}"]`).first();
-    const tabName = await firstTab.getAttribute("data-tab");
-    tab = tabName;
-  }
   const trigger = oldTab ? `.lx-tab[data-view="${oldTab.oldView}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
   if (await placeTabIsOpen(page, place, tab)) return;
   await pressUntil(page.locator(trigger),
