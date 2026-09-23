@@ -100,3 +100,22 @@ test("POST /api/profiles adds somebody with their role in one step, and a bad ro
   }
   assert.deepEqual((await f.ok("/api/profiles")).profiles.map((person) => person.name), ["Al", "Jo"], "no half-made person");
 });
+
+test("somebody switched in sees only their own enforced grant; another person's stays out of their answer", async (t) => {
+  const { app, ok } = await served(t);
+  const kim = app.store.profiles.create({ name: "Kim", pin: "1234" });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "5678" });
+  app.runtime.roles.save(sam.id, { role: "child" });
+  await ok("/api/people/groups", { name: "Weekdays", members: [kim.id], projects: ["homework"], dailySpendLimit: 10 });
+  // The owner sees both, each narrowed its own way, so a leak would show a real difference.
+  const owner = await ok("/api/profiles");
+  assert.deepEqual(entryOf(owner, kim.id).effective.projects, ["homework"]);
+  assert.ok("effective" in entryOf(owner, sam.id) && "categories" in entryOf(owner, sam.id));
+  assert.notDeepEqual(entryOf(owner, sam.id).categories, entryOf(owner, kim.id).categories);
+  await ok("/api/profiles/switch", { profileId: kim.id, pin: "1234" });
+  const asKim = await ok("/api/profiles");
+  assert.equal("effective" in entryOf(asKim, sam.id), false, "Kim does not see what Sam is held to");
+  assert.equal("categories" in entryOf(asKim, sam.id), false);
+  assert.deepEqual(entryOf(asKim, kim.id).effective.projects, ["homework"], "Kim sees her own");
+  assert.equal(entryOf(asKim, kim.id).effective.dailySpendLimit, 10);
+});
