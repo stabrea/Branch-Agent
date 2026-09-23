@@ -57,7 +57,7 @@ function button(key, english, handler, quiet = false) {
 }
 const call = (path, body) => api(`plugin-catalog/add-ons${path}`, body);
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   packages: ["addons.part.packages", "Installing add-on packages (Branch, Claude Code, Codex and Gemini CLI formats)"],
   lists: ["addons.part.lists", "Add-on lists you name"],

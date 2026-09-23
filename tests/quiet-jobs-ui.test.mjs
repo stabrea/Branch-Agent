@@ -40,15 +40,16 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
       const card = document.getElementById(cardId);
       const filled = [...card.querySelectorAll("button")].filter((b) => !b.classList.contains("quiet-button") && !b.classList.contains("text-button"));
       const unnamed = [...card.querySelectorAll("input, select, textarea")].filter((c) => !c.labels?.length);
-      return { home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2").length,
-        sentence: card.querySelector("h2 + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
-        keyless: [...card.querySelectorAll("h2, label, button")].filter((n) => !n.dataset.t).length };
+      return { home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2, h3").length,
+        sentence: card.querySelector(":is(h2, h3) + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
+        keyless: [...card.querySelectorAll("h2, h3, label, button")].filter((n) => !n.dataset.t).length };
     }, id);
     assert.equal(shape.home, home, id);
     assert.equal(shape.tag, "SECTION");
     assert.equal(shape.headings, 1);
     assert.ok(shape.sentence.length > 10, `${id} says what it is for`);
-    assert.equal(shape.filled, 1, `${id} has one filled button`);
+    /* DG-184: the Settings card saves as you choose, as the sample does (DG-025); the Automations cards keep their button. */
+    assert.equal(shape.filled, id === "quiet-interruptions" ? 0 : 1, `${id} has ${id === "quiet-interruptions" ? "no" : "one"} filled button`);
     assert.equal(shape.unnamed, 0, `${id}: every control can be named`);
     assert.equal(shape.keyless, 0, `${id}: every word goes through a key`);
   }
@@ -56,7 +57,7 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   assert.ok(wide <= 0, `no sideways scrolling at 400 px (${wide} px over)`);
   await openSettingFor(page, "#quiet-interruptions");
   await page.locator("#quiet-interruptions select").selectOption("when-needed");
-  await page.locator("#quiet-interruptions button").click();
+  await page.waitForTimeout(800);
   await page.waitForFunction(() => document.querySelector("#quiet-interruptions select")?.value === "when-needed");
   assert.equal((await app.scheduler.overview("local")).switches.notifyGate, "when-needed");
   assert.deepEqual(errors, []);

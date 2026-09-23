@@ -39,7 +39,7 @@ test("Building on Branch sits in Settings → Advanced, starts off, and saves it
   await openSettings(page, "advanced");
   const card = page.locator("#sdk-kit-card");
   await card.waitFor({ state: "visible", timeout: 15000 });
-  assert.equal(await card.locator("h2").innerText(), "Building on Branch");
+  assert.equal(await card.locator("h3.settings-card-title").innerText(), "Building on Branch");
   assert.equal(await card.evaluate((node) => node.closest(".lx-page")?.dataset.page), "advanced");
   await page.locator("#sdk-kit-clients li").first().waitFor();
   assert.equal(await page.locator("#sdk-kit-mode").inputValue(), "off");

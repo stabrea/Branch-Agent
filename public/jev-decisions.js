@@ -64,7 +64,7 @@ function buildCard() {
   status.id = "jev-decisions-status";
   status.className = "subtle";
   status.setAttribute("role", "status");
-  card.append(worded("h2", "jev.title", "JEV decision support"), worded("p", "jev.lead", "Use a small decision model for bounded yes, pick or score questions. Low-confidence answers always come back for review."),
+  card.append(worded("h3", "jev.title", "JEV decision support", "settings-card-title"), worded("p", "jev.lead", "Use a small decision model for bounded yes, pick or score questions. Low-confidence answers always come back for review."),
     ...labelled("jev-mode", "jev.field.mode", "Use JEV for bounded decisions", mode),
     ...labelled("jev-command", "jev.field.command", "Program", command),
     ...labelled("jev-args", "jev.field.args", "Arguments, one per line", args),

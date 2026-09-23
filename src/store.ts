@@ -376,6 +376,20 @@ export class Store {
               OR (newer.created_at = current.created_at AND newer.rowid > current.rowid)))
       ORDER BY current.created_at DESC`).all(owner).map((row) => this.toRun(row));
   }
+  /**
+   * Q51: each conversation's newest task when it waits for the owner: it stopped to ask (`needs_input`) or Branch
+   * closed on it and it can be continued (`interrupted`). Read on its own, so a task still waiting stays listed however
+   * much other history comes after it; at most `limit`, newest first.
+   */
+  waitingRuns(owner: string, limit = 50): Run[] {
+    return this.db.prepare(`SELECT current.* FROM tasks current
+      WHERE current.owner=? AND current.status IN ('needs_input','interrupted')
+        AND NOT EXISTS (SELECT 1 FROM tasks newer
+          WHERE newer.owner=current.owner AND newer.session_id=current.session_id
+            AND (newer.created_at > current.created_at
+              OR (newer.created_at = current.created_at AND newer.rowid > current.rowid)))
+      ORDER BY current.created_at DESC LIMIT ?`).all(owner, limit).map((row) => this.toRun(row));
+  }
   finish(id: string, status: RunStatus, output: string): Run {
     const run = this.run(id);
     if (!run) throw new Error("Run not found");

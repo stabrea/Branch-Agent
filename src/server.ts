@@ -17,7 +17,8 @@ import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
-import { liveActivity } from "./activity.js";
+import { liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
+import { runResult } from "./results.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import {
   PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
@@ -505,10 +506,13 @@ async function staticFile(
     "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    "/settings-trunks.js": ["settings-trunks.js", "text/javascript; charset=utf-8"], // DG-193
     // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
     "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
     "/faces.css": ["faces.css", "text/css; charset=utf-8"],
     "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
+    "/topbar-crumbs.js": ["topbar-crumbs.js", "text/javascript; charset=utf-8"], // DG-099
+    "/rail-foot.js": ["rail-foot.js", "text/javascript; charset=utf-8"], // DG-094
     "/strip.css": ["strip.css", "text/css; charset=utf-8"],
     "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
     "/studio.css": ["studio.css", "text/css; charset=utf-8"],
@@ -541,6 +545,7 @@ async function staticFile(
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
     "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/dictation.js": ["dictation.js", "text/javascript; charset=utf-8"], // mac7/live-voice
+    "/voice-listening.js": ["voice-listening.js", "text/javascript; charset=utf-8"], // DG-047
     "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
@@ -661,6 +666,10 @@ async function staticFile(
     "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
     "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
+    "/settings-rows.js": ["settings-rows.js", "text/javascript; charset=utf-8"], // DG-199
+    "/settings-row-levels.js": ["settings-row-levels.js", "text/javascript; charset=utf-8"], // DG-199
+    "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
+    "/run-result.js": ["run-result.js", "text/javascript; charset=utf-8"], // Q52
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
@@ -1397,7 +1406,7 @@ async function api(
     return readDesktopSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/desktop/settings")
     return saveDesktopSettings(app.store, app.runtime.owner, await readBody(request));
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|result|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope())
@@ -1426,6 +1435,8 @@ async function api(
       return { ...plan, asked: asked ? { id: asked.id, status: asked.status, output: asked.output } : null };
     }
     if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
+    // Q52: what the task made and how that was checked, from its own record (src/results.ts).
+    if (request.method === "GET" && match[2] === "result") return runResult(app.store.receipts, run, app.store.events(run.id));
     if (request.method === "GET" && !match[2])
       return {
         run,
@@ -1437,8 +1448,22 @@ async function api(
         advice: app.runtime.advice(run.id),
       };
   }
-  if (request.method === "GET" && path === "/api/activity")
-    return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/activity") {
+    // Q51: `?waiting=1` adds the tasks waiting for the owner; stale is judged by the owner's own model and tool limits.
+    // Q58: queued tasks show they are waiting their turn, with position and what they wait behind.
+    const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
+    const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
+    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    if (!waiting) return activities;
+    // Q58: add queued tasks for each conversation using pure function
+    const result: RunActivity[] = [];
+    for (const activity of activities) {
+      result.push(activity);
+      const queued = app.runtime.queued(activity.sessionId);
+      if (queued.length) result.push(...queuedActivity(activity, queued));
+    }
+    return result;
+  }
   if (request.method === "GET" && path === "/api/second-opinion")
     return secondOpinionSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/second-opinion")

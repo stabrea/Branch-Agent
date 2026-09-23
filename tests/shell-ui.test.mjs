@@ -356,7 +356,7 @@ test("the command palette jumps to a section and closes on Escape", async (t) =>
 test("every appearance control applies at once and survives a reload", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance");
-  await f.page.getByRole("button", { name: "Light", exact: true }).click();
+  await f.page.getByRole("button", { name: "Daylight", exact: true }).click();
   await f.page.getByRole("button", { name: "Cherry", exact: true }).click();
   await f.page.getByRole("button", { name: "Large", exact: true }).click();
   await f.page.getByRole("button", { name: "Compact", exact: true }).click();
@@ -463,7 +463,7 @@ test("this computer's reduce-motion setting is honoured before anyone opens Appe
   await f.page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal((await speed()) < 0.01, true, "this computer's setting switches it off");
   await f.page.emulateMedia({ reducedMotion: "no-preference" });
-  await f.page.locator("#appearance-shortcut").click();
+  await f.page.locator("#lx-foot-theme").click(); // DG-159: the leaf in the sidebar's foot
   await f.page.locator("#appearance-motion").check();
   assert.equal((await speed()) < 0.01, true, "so does the Appearance choice");
   assert.deepEqual(f.errors, []);
@@ -532,20 +532,18 @@ test("the composer never comes to rest on top of the greeting or the welcome car
   assert.deepEqual(f.errors, []);
 });
 
-test("Send keeps its label on one line and the helper note sits under the composer", async (t) => {
+test("Send is the round button at every size and the helper note sits under the composer", async (t) => {
   const f = await fixture(t);
   for (const size of SIZES) {
     await f.page.setViewportSize(size);
     await f.page.waitForTimeout(150);
+    /* DG-175: Send is the sample's round button in the full window too, still named Send. */
     const send = await f.page.evaluate(() => {
-      const button = document.getElementById("send");
-      const range = document.createRange();
-      /* Since 0.18.1 the words sit in their own span beside the calm window's arrow. */
-      range.selectNodeContents(button.querySelector(".lx-send-words") ?? button);
-      return { lines: range.getClientRects().length, wrap: getComputedStyle(button).whiteSpace };
+      const button = document.getElementById("send"), box = button.getBoundingClientRect();
+      return { round: Math.abs(box.width - box.height) < 1 && getComputedStyle(button).borderRadius === "50%", name: button.getAttribute("aria-label") || button.textContent.trim() };
     });
-    assert.equal(send.lines, 1, `Send is one line at ${size.width}`);
-    assert.equal(send.wrap, "nowrap");
+    assert.equal(send.round, true, `Send is round at ${size.width}`);
+    assert.match(send.name, /Send/);
   }
   await f.page.setViewportSize(SIZES[0]);
   const placed = await f.page.evaluate(() => {
@@ -563,8 +561,8 @@ test("Send keeps its label on one line and the helper note sits under the compos
 
 test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const f = await fixture(t);
-  await f.page.locator("#appearance-shortcut").click();
-  await f.page.getByRole("button", { name: "Light", exact: true }).click();
+  await f.page.locator("#lx-foot-theme").click(); // DG-159: the leaf in the sidebar's foot
+  await f.page.getByRole("button", { name: "Daylight", exact: true }).click();
   await f.page.locator(".lx-settings-close").click();
   await f.page.locator("#prompt").fill("Say hello");
   await f.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -627,18 +625,18 @@ test("Tab walks the rail first, then the title bar, the messages and the compose
   /* A reload puts the focus back at the top of the document before the walk. */
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  assert.deepEqual(await tabStops(f.page, 5), [
+  /* DG-159: the old half-moon beside the computer's name is gone; day/night sits in the rail's foot. */
+  assert.deepEqual(await tabStops(f.page, 4), [
     "app-switcher",
     "cmd-open",
-    "appearance-shortcut",
     "rail-new",
     "rail-find",
   ]);
   const walk = await tabStops(f.page, 60);
   const at = (id) => walk.indexOf(id);
   assert.equal(at("rail-toggle") > -1, true, "the title bar is reachable");
-  /* phase2/settings: the Settings cog sits right after the account row, at the foot of the rail. */
-  assert.equal(at("rail-settings"), at("owner-menu-button") + 1, "the cog comes right after the account row");
+  /* DG-094: the Settings cog ends the icon line at the foot of the rail, right before the account row. */
+  assert.equal(at("rail-settings"), at("owner-menu-button") - 1, "the cog comes right before the account row");
   assert.equal(at("conversation") > -1, true, "the messages are a stop of their own");
   assert.equal(at("rail-toggle") < at("conversation"), true, "title bar before the messages");
   assert.equal(at("conversation") < at("prompt"), true, "messages before the composer");
@@ -831,7 +829,8 @@ test("Q4 every section says what it is for, and every card carries a title", asy
     }, holder);
     assert.ok(said, `${view} never says what it is for`);
     const untitled = await f.page.evaluate((id) => [...document.getElementById(id).querySelectorAll(".card")]
-      .filter((card) => card.offsetParent !== null && !card.querySelector("h2, summary"))
+      .filter((card) => card.offsetParent !== null && !card.querySelector(
+        card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title, summary"))
       .map((card) => card.id || card.className), holder);
     assert.deepEqual(untitled, [], `${view} has a card with no title`);
   }
@@ -874,14 +873,20 @@ test("Q5 the helper line and the room meter share one row, clear of the message 
 
 test("Q5 focus can be seen, and stillness is honoured", async (t) => {
   const f = await fixture(t);
+  /* The message box shows its focus as the sample's does (DG-175): the whole box takes the accent edge and ring,
+     easing in over a moment, so it is read once it has arrived. */
+  await f.page.evaluate(() => document.getElementById("prompt").focus());
+  await f.page.waitForFunction(() => / 0px 0px 0px 3px\b/.test(` ${getComputedStyle(document.getElementById("chat-form")).boxShadow}`), null, { timeout: 3000 }).catch(() => undefined);
   const ring = await f.page.evaluate(() => {
-    const probe = document.getElementById("prompt");
-    probe.focus();
-    const style = getComputedStyle(probe);
-    return { width: style.outlineWidth, style: style.outlineStyle };
+    const box = getComputedStyle(document.getElementById("chat-form"));
+    const probe = document.createElement("i");
+    probe.style.color = "var(--copper)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    return { edge: box.borderTopColor === accent, ring: / 0px 0px 0px 3px\b/.test(` ${box.boxShadow}`) };
   });
-  assert.notEqual(ring.style, "none", "a focused control shows no ring");
-  assert.notEqual(ring.width, "0px", "the focus ring has no width");
+  assert.deepEqual(ring, { edge: true, ring: true }, "a focused message box shows the accent edge and ring");
 
   /* "Keep things still" writes data-motion onto the page, and every move is then instant. */
   const still = await f.page.evaluate(() => {

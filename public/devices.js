@@ -1,8 +1,10 @@
 /* mac7/nodes: "Your devices" — the owner's other computers and phone lending Branch a few abilities.
 
-   customize:channels   the Devices card: the switch, pairing, waiting requests, each device with its
+   settings:channels    the Devices card: the switch, pairing, waiting requests, each device with its
                         per-capability switches (all off), its folder, who it is shared with, last seen
                         and Remove.
+   settings:computer    Paired devices (DG-051): the same devices, each with what it is, when it was last seen
+                        and Remove, and "Pair a device", which opens the pairing the strip's + opens.
    the message box      a small "Use device" picker, shown only while a device is paired; it decides
                         which device the next message's device tools use.
 
@@ -44,7 +46,7 @@ function row(...children) {
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 
-const MODES = [["off", "devices.mode.off", "Off"], ["when-needed", "devices.mode.whenNeeded", "Only when it is needed"], ["on", "devices.mode.on", "On"]];
+const MODES = [["off", "devices.mode.off", "Off"], ["when-needed", "devices.mode.whenNeeded", "When needed"], ["on", "devices.mode.on", "On"]];
 const CAPS = {
   camera: "Take a photo with the camera", screen: "Take a picture of the screen", location: "Say where the device is",
   notify: "Show a notification", "clipboard-read": "Read what was copied", "clipboard-write": "Put text on the clipboard",
@@ -222,7 +224,7 @@ async function buildCard() {
   const view = await api("devices");
   const node = make("section", "card");
   node.id = "devices-card";
-  node.dataset.home = "customize:channels";
+  node.dataset.home = "settings:channels";
   node.append(make("h2", "", "devices.title", "Your devices"),
     make("p", "subtle", "devices.purpose", "Let your other computers and your phone lend Branch a camera, a screen, notifications and more. Everything starts off, and you switch each thing on per device."));
   const status = make("p", "subtle");
@@ -242,6 +244,42 @@ async function buildCard() {
   }
   node.append(status);
   return { node, view };
+}
+
+/* DG-051: Settings › Computer & browser lists the paired devices from the same answer the Devices card draws.
+   Its section's heading names it, so the card has no title of its own, and a device's name is not a heading. */
+function pairedRow(device, status) {
+  const line = document.createElement("div");
+  line.className = "devices-paired-row";
+  line.id = `paired-${device.id}`;
+  const words = document.createElement("div");
+  words.className = "devices-paired-words";
+  const seen = device.connected ? make("span", "", "devices.device.connected", "Connected now")
+    : device.lastSeen ? make("span", "", "devices.device.lastSeen", `Last seen ${formatDate(device.lastSeen)}`, { when: formatDate(device.lastSeen) })
+    : make("span", "", "devices.device.never", "Not connected yet");
+  const about = make("small", "subtle");
+  about.append(make("span", "", platformKey(device.platform), PLATFORMS[device.platform]), plain("span", " · "), seen);
+  words.append(plain("b", device.name), about);
+  line.append(words, button("devices.paired.remove", "Remove", async () => {
+    try { await api(`devices/${device.id}/revoke`, {}); await draw(); } catch (error) { tell(status, error); }
+  }));
+  return line;
+}
+
+function pairedCard(view) {
+  const node = make("section", "card");
+  node.id = "paired-devices-card";
+  node.dataset.home = "settings:computer";
+  node.setAttribute("aria-labelledby", "sg-bucket-computer-paired");
+  const status = make("p", "subtle");
+  status.setAttribute("role", "status");
+  const list = document.createElement("div");
+  list.className = "devices-paired";
+  list.append(...(view.devices.length ? view.devices.map((device) => pairedRow(device, status)) : [make("p", "field-note", "devices.none", "No device is paired yet.")]));
+  const pair = button("devices.pair", "Pair a device", () => import("/studio.js").then((studio) => studio.openAdd("computer")), false);
+  pair.id = "paired-devices-pair";
+  node.append(list, row(pair), status);
+  return node;
 }
 
 function picker(view) {
@@ -287,6 +325,8 @@ async function draw() {
       const { node, view } = await buildCard();
       const old = $("devices-card");
       if (old) old.replaceWith(node); else document.body.append(node);
+      const paired = pairedCard(view), before = $("paired-devices-card");
+      if (before) before.replaceWith(paired); else document.body.append(paired);
       picker(view);
     } catch { /* the window stays as it was; the next draw tries again */ }
   })().finally(() => { drawing = null; });
@@ -310,7 +350,7 @@ whenReady(() => {
   document.addEventListener("branch-language", () => void draw());
   // New requests and connections show up without a reload, and a picked device follows a new conversation.
   setInterval(() => {
-    if (!document.hidden && !$("devices-card")?.contains(document.activeElement)) void draw();
+    if (!document.hidden && ![$("devices-card"), $("paired-devices-card")].some((card) => card?.contains(document.activeElement))) void draw();
     if (picked && globalThis.branchSessionId?.() && globalThis.branchSessionId() !== pickedFor) void choose(picked);
   }, 5000);
 });

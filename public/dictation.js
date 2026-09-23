@@ -61,6 +61,8 @@ async function save(event) {
 }
 
 $("dictation-form")?.addEventListener("submit", save);
+/* DG-025: saved as you go, as in the approved sample: each change is kept the moment it is made, with no Save button. */
+$("dictation-form")?.addEventListener("change", save);
 /* A fresh window shows the safe state — off, microphone closed — before anything is asked for. */
 show({ settings: { mode: "off", silenceSeconds: 4 }, engine: { how: "", available: true },
   canDictate: true, open: false, refusal: "", isOwner: true });

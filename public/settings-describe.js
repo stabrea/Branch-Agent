@@ -114,7 +114,7 @@ function chip(card) {
   if (!row) {
     row = document.createElement("p");
     row.className = "kit-scope sr-only";
-    const heading = card.querySelector(":scope > h2");
+    const heading = card.querySelector(":scope > h2, :scope > h3.settings-card-title");
     const purpose = heading?.nextElementSibling?.tagName === "P" ? heading.nextElementSibling : heading;
     if (purpose) purpose.after(row); else card.prepend(row);
   }

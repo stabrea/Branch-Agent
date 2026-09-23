@@ -151,8 +151,8 @@
 }
 .studio-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 26px;
   align-items: start;
 }
 .studio-form {
@@ -326,7 +326,7 @@
   top: 0;
   display: grid;
   gap: 8px;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--well);
@@ -344,19 +344,31 @@
 .studio-strip-row {
   justify-content: flex-start;
   padding: 8px 10px;
+  border-radius: 12px;
 }
-.studio-strip-row {
-  justify-content: space-around;
-}
-.studio-state {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
+.studio-state-line {
   min-width: 0;
-}
-.studio-state > span:last-child {
   color: var(--muted);
   font-size: 11px;
+}
+.studio-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.studio-header-home {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.studio-header b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .studio-reply {
@@ -741,6 +753,111 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+/* The sample's card: the role's words, what they may do, then the facts. */
+.people-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.people-acts .shell-btn svg,
+.person-acts .shell-ghost svg {
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+.shell-btn.shell-ghost {
+  border-color: transparent;
+}
+.p-words {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.person-may {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.person-may li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.person-may svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.person-may li.yes svg {
+  color: var(--good);
+}
+.person-may li.no {
+  color: var(--muted);
+}
+.person-card:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.person-invite-problem:empty {
+  display: none;
+}
+.person-invite-problem {
+  margin: 0;
+  color: var(--warn);
+  font-size: 12.5px;
+}
+/* The sample's dialogs are 560 px wide; Invite someone is one of them. */
+.studio-dlg:has(.person-invite) {
+  width: min(560px, calc(100vw - 24px));
+}
+.studio-body.person-invite {
+  max-width: none;
+}
+.person-invite-form {
+  display: grid;
+  gap: 14px;
+}
+.person-invite-address {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--well);
+  font: 13px / 1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+/* Settings › Trunks & people: everyone, under the People line and its Open. */
+.settings-directory-card:has(.settings-people) {
+  flex-wrap: wrap;
+}
+.settings-people {
+  display: grid;
+  flex: 1 0 100%;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.settings-person:hover {
+  background: var(--hover);
 }
 .person-head {
   display: flex;

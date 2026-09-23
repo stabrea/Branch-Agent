@@ -7,7 +7,7 @@
 const root = document.documentElement;
 const probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
 /** A token as [r, g, b] from 0 to 1. */
-export function tone(name, fallback) {
+export function tone(name, fallback = "transparent") {
   probe.clearRect(0, 0, 1, 1);
   probe.fillStyle = fallback;
   probe.fillStyle = getComputedStyle(root).getPropertyValue(name).trim() || fallback;
@@ -17,11 +17,12 @@ export function tone(name, fallback) {
 const mix = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
 
 /* ---------- shapes ---------- */
-/** An ellipsoid (or part of one, `upTo` of the way from the top) as positions, normals and indices. */
-export function ellipsoid([cx, cy, cz], [rx, ry, rz], color, { seg = 16, upTo = 1 } = {}) {
-  const positions = [], normals = [], indices = [], rings = Math.max(2, Math.round(seg * upTo));
+/** An ellipsoid (or part of one, `upTo` of the way from the top) as positions, normals and indices:
+    `seg` slices around it and `rows` from top to bottom; `flat` draws each face with one shade. */
+export function ellipsoid([cx, cy, cz], [rx, ry, rz], color, { seg = 16, rows = seg, upTo = 1, flat = false } = {}) {
+  const positions = [], normals = [], indices = [], rings = Math.max(2, Math.round(rows * upTo));
   for (let i = 0; i <= rings; i++) {
-    const v = (i / seg) * Math.PI, sv = Math.sin(v), cv = Math.cos(v);
+    const v = (i / rows) * Math.PI, sv = Math.sin(v), cv = Math.cos(v);
     for (let j = 0; j <= seg; j++) {
       const u = (j / seg) * Math.PI * 2, nx = sv * Math.cos(u), ny = cv, nz = sv * Math.sin(u);
       positions.push(cx + rx * nx, cy + ry * ny, cz + rz * nz);
@@ -33,10 +34,10 @@ export function ellipsoid([cx, cy, cz], [rx, ry, rz], color, { seg = 16, upTo = 
     const a = i * (seg + 1) + j, b = a + seg + 1;
     indices.push(a, b, a + 1, b, b + 1, a + 1);
   }
-  return { positions, normals, indices, color };
+  return { positions, normals, indices, color, flat };
 }
 /** A cone or a cylinder along y, from `bottom` to `top`, with the two radii given. */
-export function cone([cx, cy, cz], height, r0, r1, color, seg = 12) {
+export function cone([cx, cy, cz], height, r0, r1, color, seg = 12, { flat = false } = {}) {
   const positions = [], normals = [], indices = [], slope = (r0 - r1) / height;
   for (let i = 0; i <= 1; i++) for (let j = 0; j <= seg; j++) {
     const u = (j / seg) * Math.PI * 2, r = i ? r1 : r0, c = Math.cos(u), s = Math.sin(u);
@@ -45,32 +46,34 @@ export function cone([cx, cy, cz], height, r0, r1, color, seg = 12) {
     normals.push(c / len, slope / len, s / len);
   }
   for (let j = 0; j < seg; j++) indices.push(j, j + seg + 1, j + 1, j + seg + 1, j + seg + 2, j + 1);
-  return { positions, normals, indices, color };
+  return { positions, normals, indices, color, flat };
 }
-/** A ring lying flat (a snail's shell turned on its side is one of these). */
-export function torus([cx, cy, cz], radius, tube, color, seg = 18) {
+/** A ring standing up and facing the viewer (a snail's shell is one of these): `seg` steps around the
+    ring and `sides` around its tube. */
+export function torus([cx, cy, cz], radius, tube, color, seg = 18, sides = seg, { flat = false } = {}) {
   const positions = [], normals = [], indices = [];
-  for (let i = 0; i <= seg; i++) for (let j = 0; j <= seg; j++) {
-    const u = (i / seg) * Math.PI * 2, v = (j / seg) * Math.PI * 2;
-    const nx = Math.cos(v) * Math.cos(u), ny = Math.sin(v), nz = Math.cos(v) * Math.sin(u);
-    positions.push(cx + (radius + tube * Math.cos(v)) * Math.cos(u), cy + tube * ny, cz + (radius + tube * Math.cos(v)) * Math.sin(u));
+  for (let i = 0; i <= seg; i++) for (let j = 0; j <= sides; j++) {
+    const u = (i / seg) * Math.PI * 2, v = (j / sides) * Math.PI * 2;
+    const nx = Math.cos(v) * Math.cos(u), ny = Math.cos(v) * Math.sin(u), nz = Math.sin(v);
+    positions.push(cx + (radius + tube * Math.cos(v)) * Math.cos(u), cy + (radius + tube * Math.cos(v)) * Math.sin(u), cz + tube * nz);
     normals.push(nx, ny, nz);
   }
-  for (let i = 0; i < seg; i++) for (let j = 0; j < seg; j++) {
-    const a = i * (seg + 1) + j, b = a + seg + 1;
+  for (let i = 0; i < seg; i++) for (let j = 0; j < sides; j++) {
+    const a = i * (sides + 1) + j, b = a + sides + 1;
     indices.push(a, b, a + 1, b, b + 1, a + 1);
   }
-  return { positions, normals, indices, color };
+  return { positions, normals, indices, color, flat };
 }
 
-/* ---------- the stand-ins ---------- */
+/* ---------- the stand-ins ----------
+   DG-138: the approved sample's procedural shapes, part for part: its sizes, segment counts and flat
+   (faceted) faces, moved down so the point its camera looks at is the middle here. */
 export function acornModel() {
-  const copper = tone("--copper", "#b8562e"), text = tone("--text", "#23343e"), ground = tone("--ground", "#eaf0f2");
-  const nut = mix(copper, [0.95, 0.75, 0.45], 0.35), cap = mix(text, copper, 0.3), stem = mix(text, ground, 0.2);
+  const lift = -0.1;
   return [
-    ellipsoid([0, -0.18, 0], [0.5, 0.62, 0.5], nut, { seg: 22 }),
-    ellipsoid([0, 0.18, 0], [0.58, 0.34, 0.58], cap, { seg: 18, upTo: 0.55 }),
-    cone([0, 0.44, 0], 0.26, 0.07, 0.05, stem),
+    ellipsoid([0, lift, 0], [0.5, 0.625, 0.5], tone("--model-acorn-nut"), { seg: 14, rows: 10 }),
+    ellipsoid([0, 0.2 + lift, 0], [0.55, 0.385, 0.55], tone("--model-acorn-cap"), { seg: 12, rows: 12, upTo: 0.5, flat: true }),
+    cone([0, 0.72 - 0.15 + lift, 0], 0.3, 0.07, 0.05, tone("--model-acorn-stem"), 6, { flat: true }),
   ];
 }
 export function oakModel() {
@@ -84,22 +87,23 @@ export function oakModel() {
     ellipsoid([0.1, 1.25, -0.2], [0.65, 0.5, 0.65], leaf, { seg: 9 }),
   ];
 }
-const PET_SHAPE = {
-  squirrel: { tail: true }, fox: { tail: true, ears: 0.3 }, rabbit: { ears: 0.6 }, owl: { ears: 0.18 },
-  hedgehog: { spikes: true }, robin: { beak: true }, snail: { shell: true }, fawn: { ears: 0.25, legs: true },
-};
+/** A cone the way the sample places one: centred on its point, not standing on it. */
+const centredCone = ([x, y, z], radius, height, color, seg) => cone([x, y - height / 2, z], height, radius, 0, color, seg, { flat: true });
 export function petModel(kind) {
-  const text = tone("--text", "#23343e"), ground = tone("--ground", "#eaf0f2"), copper = tone("--copper", "#b8562e");
-  const fur = kind === "fox" || kind === "robin" ? mix(copper, text, 0.15) : mix(text, ground, 0.35), light = mix(ground, [1, 1, 1], 0.4);
-  const eye = mix(text, [0, 0, 0], 0.5), shape = PET_SHAPE[kind] ?? {};
-  const parts = [ellipsoid([0, -0.25, 0], [0.5, 0.45, 0.55], fur), ellipsoid([0, 0.35, 0.25], [0.34, 0.32, 0.32], fur),
-    ellipsoid([0, -0.25, 0.32], [0.32, 0.3, 0.2], light), ellipsoid([-0.13, 0.42, 0.53], [0.05, 0.06, 0.04], eye), ellipsoid([0.13, 0.42, 0.53], [0.05, 0.06, 0.04], eye)];
-  if (shape.ears) for (const s of [-1, 1]) parts.push(cone([s * 0.17, 0.55, 0.2], shape.ears, 0.09, 0.02, fur));
-  if (shape.tail) parts.push(ellipsoid([0, 0.1, -0.6], [0.25, 0.55, 0.22], fur));
-  if (shape.beak) parts.push(cone([0, 0.3, 0.55], 0.14, 0.06, 0.0, copper));
-  if (shape.shell) parts.push(torus([0, 0.05, -0.2], 0.3, 0.18, mix(copper, light, 0.3)));
-  if (shape.spikes) parts.push(ellipsoid([0, -0.1, -0.1], [0.56, 0.5, 0.6], mix(text, copper, 0.3), { seg: 7 }));
-  if (shape.legs) for (const s of [-1, 1]) parts.push(cone([s * 0.22, -1.05, 0.1], 0.6, 0.06, 0.06, fur));
+  const known = ["squirrel", "owl", "hedgehog", "fox", "robin", "rabbit", "snail", "fawn"].includes(kind) ? kind : "squirrel";
+  const coat = tone(`--model-${known}`), belly = tone(`--model-${known}-belly`), eye = tone("--model-eye"), lift = -0.8;
+  const rabbit = known === "rabbit", flat = true;
+  const parts = [
+    ellipsoid([0, 0.55 + lift, 0], [0.55, 0.495, 0.6325], coat, { seg: 12, rows: 9, flat }),
+    ellipsoid([0, 1.15 + lift, 0.35], [0.38, 0.38, 0.38], coat, { seg: 12, rows: 9, flat }),
+    ellipsoid([0, 0.5 + lift, 0.42], [0.36, 0.36, 0.18], belly, { seg: 10, rows: 8, flat }),
+  ];
+  for (const s of [-1, 1]) {
+    parts.push(centredCone([s * 0.2, (rabbit ? 1.7 : 1.5) + lift, 0.3], rabbit ? 0.1 : 0.12, rabbit ? 0.6 : 0.28, coat, 5));
+    parts.push(ellipsoid([s * 0.15, 1.22 + lift, 0.68], [0.05, 0.05, 0.05], eye, { seg: 6, rows: 5 }));
+  }
+  if (known === "squirrel" || known === "fox") parts.push(ellipsoid([0, 1 + lift, -0.7], [0.245, 0.49, 0.245], coat, { seg: 9, rows: 7, flat }));
+  if (known === "snail") parts.push(torus([0, 0.9 + lift, -0.2], 0.35, 0.18, belly, 14, 8, { flat }));
   return parts;
 }
 
@@ -123,9 +127,14 @@ const moved = (x, y, z) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
 /* ---------- drawing ---------- */
 const VERTEX = `attribute vec3 p; attribute vec3 n; attribute vec3 c; uniform mat4 mvp; uniform mat4 rot; varying vec3 vn; varying vec3 vc;
 void main() { vn = (rot * vec4(n, 0.0)).xyz; vc = c; gl_Position = mvp * vec4(p, 1.0); }`;
-const FRAGMENT = `precision mediump float; varying vec3 vn; varying vec3 vc; uniform vec3 light;
-void main() { vec3 N = normalize(vn); float d = max(dot(N, light), 0.0); float sky = 0.5 + 0.5 * N.y;
-  gl_FragColor = vec4(vc * (0.32 + 0.22 * sky + 0.62 * d), 1.0); }`;
+/* DG-138: the sample's light: a sky-and-ground light (the theme's surface, whitened, above; its accent
+   below) and a warm sun from the upper right, then shown in screen colour (gamma 2.2). */
+const FRAGMENT = `precision mediump float; varying vec3 vn; varying vec3 vc; uniform vec3 light; uniform vec3 sky; uniform vec3 ground; uniform vec3 sun;
+void main() { vec3 N = normalize(vn); float d = max(dot(N, light), 0.0); vec3 hemi = mix(ground, sky, 0.5 + 0.5 * N.y);
+  vec3 lit = vc * (0.9 * hemi + 0.9 * sun * d); gl_FragColor = vec4(pow(clamp(lit, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0); }`;
+const SUN = [3, 5, 4].map((v) => v / Math.hypot(3, 5, 4));
+/** The light's colours from the theme, read again whenever the parts are (a theme change). */
+const lights = () => ({ sky: mix(tone("--surface"), [1, 1, 1], 0.5), ground: tone("--copper"), sun: tone("--model-sun") });
 function program(gl) {
   const make = (type, text) => { const s = gl.createShader(type); gl.shaderSource(s, text); gl.compileShader(s); return s; };
   const p = gl.createProgram();
@@ -138,6 +147,7 @@ function program(gl) {
 /** All the parts in one set of buffers: position, normal and colour for each corner. Copied value by
     value, never spread into push, which a big model overflows (integration review). */
 function merge(parts) {
+  parts = parts.map((part) => (part.flat ? faceted(part) : part));
   const corners = parts.reduce((n, part) => n + part.positions.length, 0), count = parts.reduce((n, part) => n + part.indices.length, 0);
   const pos = new Float32Array(corners), nor = new Float32Array(corners), col = new Float32Array(corners), idx = new Uint32Array(count);
   let at = 0, i = 0;
@@ -150,6 +160,22 @@ function merge(parts) {
     at += part.positions.length;
   }
   return { pos, nor, col, idx };
+}
+/** A part with one shade per face (the sample's flat shading): each triangle gets its own three corners,
+    all with the face's normal, turned outward the way the part's own normals point. */
+function faceted(part) {
+  const { positions: p, normals: n, indices } = part, positions = [], normals = [], out = [];
+  for (let t = 0; t < indices.length; t += 3) {
+    const [a, b, c] = [indices[t], indices[t + 1], indices[t + 2]].map((i) => i * 3);
+    const u = [p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]], v = [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]];
+    let f = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const len = Math.hypot(...f);
+    if (len < 1e-9) continue; // a face with no area (the poles) adds nothing
+    const along = [0, 1, 2].reduce((sum, k) => sum + f[k] * (n[a + k] + n[b + k] + n[c + k]), 0);
+    f = f.map((x) => (x / len) * (along < 0 ? -1 : 1));
+    for (const i of [a, b, c]) { out.push(positions.length / 3); positions.push(p[i], p[i + 1], p[i + 2]); normals.push(...f); }
+  }
+  return { positions, normals, indices: out, color: part.color };
 }
 function upload(gl, prog, parts) {
   const data = merge(parts);
@@ -168,7 +194,7 @@ function upload(gl, prog, parts) {
  * A turning 3D view on a canvas. `still()` says whether it may move on its own; dragging turns it
  * either way. Returns null where WebGL is not available, so the caller keeps the pixel look.
  */
-export function view3d(canvas, parts, { distance = 3.2, still = () => false, spin = 0.0006 } = {}) {
+export function view3d(canvas, parts, { distance = 3.2, still = () => false, spin = 0.0006, fov = 0.7, yaw: startYaw = 0.6, pitch: startPitch = 0.18 } = {}) {
   const gl = canvas.getContext("webgl2", { alpha: true, antialias: true, preserveDrawingBuffer: true })
     ?? canvas.getContext("webgl", { alpha: true, antialias: true, preserveDrawingBuffer: true });
   if (!gl) return null;
@@ -179,7 +205,7 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     gl.useProgram(prog);
     count = upload(gl, prog, parts);
   } catch { return null; } // no 3D here: the caller keeps the pixel look
-  let yaw = 0.6, pitch = 0.18, frame = 0, last = 0, drag = null;
+  let yaw = startYaw, pitch = startPitch, frame = 0, last = 0, drag = null, light = lights();
   const where = (name) => gl.getUniformLocation(prog, name);
   function draw() {
     const w = canvas.width = Math.max(1, Math.round(canvas.clientWidth * Math.min(devicePixelRatio || 1, 2)));
@@ -189,9 +215,10 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     const rot = turn(yaw, pitch);
-    gl.uniformMatrix4fv(where("mvp"), false, multiply(perspective(0.7, w / h, 0.1, 50), multiply(moved(0, 0, -distance), rot)));
+    gl.uniformMatrix4fv(where("mvp"), false, multiply(perspective(fov, w / h, 0.1, 50), multiply(moved(0, 0, -distance), rot)));
     gl.uniformMatrix4fv(where("rot"), false, rot);
-    gl.uniform3fv(where("light"), [-0.45, 0.7, 0.55].map((v) => v / Math.hypot(-0.45, 0.7, 0.55)));
+    gl.uniform3fv(where("light"), SUN);
+    for (const name of ["sky", "ground", "sun"]) gl.uniform3fv(where(name), light[name]);
     gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
   }
   function tick(now) {
@@ -215,7 +242,7 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     draw,
     start() { if (!frame) { last = 0; frame = requestAnimationFrame(tick); } draw(); },
     stop() { cancelAnimationFrame(frame); frame = 0; },
-    setParts(next) { count = upload(gl, prog, next); draw(); },
+    setParts(next) { count = upload(gl, prog, next); light = lights(); draw(); },
   };
   api.start();
   return api;

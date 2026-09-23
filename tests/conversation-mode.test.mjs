@@ -205,7 +205,7 @@ test("the chip starts a new conversation on Ask first, and its menu asks before 
   await chip.click();
   const menu = f.page.locator("#mode-menu");
   await menu.waitFor({ state: "visible" });
-  assert.deepEqual(await menu.locator(".mode-item b").allInnerTexts(), ["Auto", "Ask first", "Plan first", "No approvals", "Use my setting"]);
+  assert.deepEqual(await menu.locator(".mode-item b").allInnerTexts(), ["Auto", "Ask first", "Plan first", "No approvals", "Use my setting", "Lockdown"]);
   await f.page.keyboard.press("ArrowDown");
   assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan", "arrows move between the choices");
   await menu.locator('[data-mode="full"]').click();

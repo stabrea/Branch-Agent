@@ -9,8 +9,14 @@ on:
       - 'scripts/package-mobile.mjs'
       - 'tests/mobile*.test.mjs'
       - 'public/tokens.css'
+      - 'public/style.css'
       - 'public/theme-catalogue.js'
+      - 'public/theme-bridge.js'
+      - 'public/grove.js'
+      - 'public/i18n.js'
       - 'public/locales/**'
+      - 'public/fonts/**'
+      - 'public/assets/keepoak-mark.png'
       - '.github/workflows/mobile.yml'
 permissions:
   contents: read

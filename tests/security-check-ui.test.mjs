@@ -40,7 +40,8 @@ test("the card lives on Settings → Permissions and nowhere else", async (t) =>
   await openSettings(page, "permissions");
   await card.waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await card.locator("h2").innerText()).trim(), "Security check");
-  assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, "one filled button");
+  /* "N more with Advanced" (DG-073) can end the section inside this card; it is an underlined link, not a filled button. */
+  assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1, "one filled button");
   await openPlace(page, "chat");
   assert.equal(await card.isVisible(), false);
   assert.deepEqual(errors, []);

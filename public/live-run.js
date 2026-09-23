@@ -8,6 +8,7 @@
  * opened it falls back to asking the activity route every second.
  */
 import { t, formatNumber } from "/i18n.js";
+import { taskWords } from "/task-state.js"; // Q51
 /* Wave 7: the same words the "What is allowed right now" list uses for what a yes leaves behind. */
 import { grantSentence } from "/allowed.js";
 
@@ -148,7 +149,7 @@ function paint(item, since, tokens) {
   const box = $("live-row");
   const line = $("live-line");
   line.replaceChildren(
-    el("strong", item?.current || t("live.working")),
+    el("strong", taskWords(item?.task) || item?.current || t("live.working")),
     el("span", [t("live.elapsed", { seconds: formatNumber(Math.round((Date.now() - since) / 1000)) }),
       tokens ? t("live.tokens", { tokens: formatNumber(tokens) }) : ""].filter(Boolean).join(" · "), "meta"),
   );

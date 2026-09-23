@@ -379,34 +379,54 @@ body.lx #page-title {
   letter-spacing: 0;
   white-space: nowrap;
 }
-.lx-crumb {
-  font-size: 13px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-.lx-crumb:not(:empty)::before {
-  content: "› ";
-}
-.lx-back {
+/* DG-141: the crumb, the picked computer or Trunk / the place */
+.lx-crumb-where {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 10px 0 6px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: transparent;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px 0 4px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
   box-shadow: none;
-  color: var(--text-2);
-  font-size: 12.5px;
-  font-weight: 500;
+  color: var(--text-3);
+  font-size: 13.5px;
+  font-weight: 400;
   white-space: nowrap;
 }
-.lx-back:hover {
+.lx-crumb-where:hover {
   background: var(--hover);
   color: var(--text);
 }
-body.lx-chat .lx-back,
+.lx-crumb-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+}
+.lx-crumb-mark > * {
+  max-width: 20px;
+  max-height: 20px;
+}
+.lx-crumb-mark svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+.lx-crumb-mid {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lx-crumb-sep {
+  color: var(--text-3);
+  font-size: 13.5px;
+}
 body:not(.lx-chat) .lx-pane-tabs,
 body:not(.lx-chat) #aside-toggle,
 body:not(.lx-chat) #thread-labels {
@@ -641,6 +661,15 @@ body.lx-help .context-panel > .acorn-art {
 }
 .lx-tab .rail-badge {
   margin-left: 4px;
+}
+/* DG-140: the live count on the Inbox's "Needs you" tab */
+.lx-tab-count {
+  margin-left: 5px;
+  color: var(--copper-text);
+  font: 600 10.5px / 1 var(--font-mono);
+}
+.lx-tab-count[hidden] {
+  display: none;
 }
 .lx-panel > .card,
 .lx-slot > .card,
@@ -880,18 +909,20 @@ body.lx-help .context-panel > .acorn-art {
 .lx-search input::placeholder {
   font-family: var(--body);
 }
+/* DG-173: the sample's `.set-pages .nav`: 13.5px on a 1.55 line, 6px 10px, 400, and 600 for the page on show. */
 .lx-settings-link {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 7px 10px;
+  padding: 6px 10px;
   border: 0;
   border-radius: 9px;
   background: transparent;
   box-shadow: none;
   color: var(--text-2);
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: 1.55;
   text-align: left;
 }
 .lx-settings-link:hover {
@@ -901,7 +932,7 @@ body.lx-help .context-panel > .acorn-art {
 .lx-settings-link[aria-current="true"] {
   background: var(--copper-tint);
   color: var(--text);
-  font-weight: 640;
+  font-weight: 600;
 }
 .lx-settings-searching .lx-settings-link[aria-current="true"] {
   background: transparent;
@@ -1053,110 +1084,179 @@ body.lx-help .context-panel > .acorn-art {
   font-size: 12px;
   color: var(--text-3);
 }
+/* DG-035/DG-036: the sample's `.theme-tools` (a search field, then one row of filter chips). */
+.lx-theme-tools {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+}
+.lx-search.lx-theme-search {
+  margin: 0;
+  height: 36px;
+  background: var(--surface);
+}
+.lx-theme-search .lx-icon {
+  width: 15px;
+  height: 15px;
+}
+.lx-theme-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lx-fchip {
+  height: 30px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 15px;
+  background: none;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.lx-fchip:hover {
+  border-color: var(--text-3);
+  background: none;
+  color: var(--text);
+}
+.lx-fchip[aria-pressed="true"],
+.lx-fchip[aria-pressed="true"]:hover {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--surface);
+}
+.lx-theme-none {
+  margin: 14px 0 0;
+  color: var(--text-3);
+}
 .lx-gallery .lx-eyebrow {
   margin: 14px 0 8px;
 }
+/* DG-037: the sample's tiles (live `.tiles`, `.tile2`, `.sw2`, `.tn`, `.tbadge`; 140px columns under 760px). */
 .lx-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: 10px;
 }
 .lx-tile {
-  padding: 6px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: transparent;
+  border-radius: 14px;
+  background: none;
   box-shadow: none;
   color: var(--text);
-  font-weight: 450;
   text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
 }
 .lx-tile:hover {
   border-color: var(--line-2);
-  background: transparent;
+  background: none;
+  transform: translateY(-1px);
 }
 .lx-tile[aria-pressed="true"] {
   border-color: var(--copper);
-  box-shadow: 0 0 0 1px var(--copper);
+  box-shadow: 0 0 0 3px var(--copper-tint);
 }
 .lx-mini {
   position: relative;
   display: block;
-  height: 46px;
+  height: 70px;
   overflow: hidden;
-  border-radius: 8px;
-}
-.lx-mini b {
-  position: absolute;
-  left: 6px;
-  right: 18px;
-  top: 7px;
-  height: 9px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-}
-.lx-mini s {
-  position: absolute;
-  left: 6px;
-  top: 21px;
-  width: 40%;
-  height: 5px;
-  border-radius: 3px;
+  border-radius: 9px;
 }
 .lx-mini u {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 16px;
+}
+.lx-mini i {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  bottom: 9px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: 7px;
+}
+.lx-mini em {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+}
+.lx-mini s {
+  position: absolute;
+  right: 9px;
+  bottom: 8px;
+  width: 22px;
+  height: 11px;
+  border-radius: 4px;
+}
+.lx-tile-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 3px 2px;
 }
 .lx-tile-name {
-  display: block;
-  margin-top: 5px;
-  padding-left: 2px;
-  font-size: 12px;
+  font-size: 13.5px;
+  font-weight: 560;
+  overflow-wrap: anywhere;
 }
+.lx-tile-badge {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--press);
+  color: var(--text-2);
+  font: 500 11px/1 var(--body);
+}
+@media (max-width: 760px) {
+  .lx-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+  }
+}
+/* DG-171: each choice row is the sample's `.ctl` (a label, the control beside it, a note across beneath), and
+   its choices are the shared `.seg` control (control-styles.css), as every other three-way is. */
 .lx-look-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-top: 16px;
-  padding-top: 14px;
+  gap: 3px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--line);
 }
 .lx-look-label {
-  font-size: 13.5px;
+  font-size: 14px;
+  font-weight: 520;
 }
-.lx-seg {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--well);
-}
-.lx-seg-button {
-  padding: 5px 11px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-2);
+.lx-look-note {
+  grid-column: 1 / -1;
+  max-width: 76ch;
+  margin: 0;
+  color: var(--text-3);
   font-size: 12.5px;
-  font-weight: 500;
 }
-.lx-seg-button:hover {
-  background: transparent;
-  color: var(--text);
+/* The sample's buttons are inline, so a space parts the sign from its word; the shared option is a flex box. */
+.seg-sign {
+  margin-inline-end: 0.24em;
 }
-.lx-seg-button[aria-pressed="true"] {
-  background: var(--copper);
-  color: var(--on-copper);
-  font-weight: 640;
+@media (max-width: 760px) {
+  .lx-look-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .lx-contrast-row {
   margin-top: 14px;
@@ -1183,7 +1283,7 @@ body.lx-help .context-panel > .acorn-art {
     background: var(--glass-2);
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx {
     padding: 6px;
   }
@@ -1200,7 +1300,8 @@ body.lx-help .context-panel > .acorn-art {
     background: var(--glass-2);
   }
   .lx-pane-tab .lx-words,
-  .lx-back .lx-words {
+  .lx-crumb-mid,
+  .lx-crumb-sep {
     display: none;
   }
   .lx-settings-win {
@@ -1240,9 +1341,6 @@ body.lx-help .context-panel > .acorn-art {
     inset: 6px auto 6px 6px;
     z-index: 65;
   }
-  .lx-crumb {
-    display: none;
-  }
 }
 @media (max-width: 560px) {
   body.lx {
@@ -1271,6 +1369,8 @@ body.lx-help .context-panel > .acorn-art {
 /* A page title is loud; a card heading is a label. The old single size made them equally loud. */
 .lx-place .card h2,
 .lx-page .card h2,
+.lx-page .settings-directory-title,
+.lx-page .settings-card-title,
 .lx-subpanel .card h2,
 .lx-place .collab-section h3,
 .lx-page .collab-section h3,
@@ -1286,6 +1386,10 @@ body.lx-help .context-panel > .acorn-art {
 .lx-place .card p,
 .lx-page .card p {
   max-width: 68ch;
+}
+.lx-page .settings-card-subtitle {
+  font-size: 1.17em;
+  margin-block: 1em;
 }
 body.lx .rail-head {
   gap: 0;
@@ -1318,8 +1422,7 @@ body.lx .model-controls .text-button {
 .lx-quiet-exit:hover,
 .lx-tab:hover,
 .lx-subtab:hover,
-.lx-pane-tab:hover,
-.lx-tile:hover {
+.lx-pane-tab:hover {
   background: transparent;
 }
 .lx-pane-tab[aria-pressed="true"]:hover {
@@ -1327,10 +1430,6 @@ body.lx .model-controls .text-button {
 }
 .lx-subtab[aria-selected="true"]:hover {
   background: none;
-}
-.lx-seg-button[aria-pressed="true"]:hover {
-  background: var(--copper);
-  color: var(--on-copper);
 }
 .lx-button.lx-primary:hover,
 .lx-ask-send:hover {
@@ -1502,7 +1601,8 @@ body.lx #connection[data-state="lost"] {
   display: none !important;
 }
 /* the places stay one click away in More; Inbox comes back to the rail while something waits in it */
-:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]),
+/* DG-092: Overview stays, as the sample's first place under New conversation */
+:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]):not([data-place="overview"]),
 :root:not([data-everything="on"]) body:not(.lx-inbox-waiting) .lx-places .lx-place-link[data-place="inbox"],
 :root:not([data-everything="on"]) .rail-group[data-group="sections"] > h2 {
   display: none;
@@ -1597,7 +1697,7 @@ body.lx #connection[data-state="lost"] {
   color: var(--muted);
 }
 /* the composer: the box, then Send */
-:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
+:root body.lx #chat-form > div:last-child {
   justify-content: flex-end;
 }
 /* The empty conversation: the question and the box together, in the middle of the pane. Once there is
@@ -1686,7 +1786,7 @@ body.lx #connection[data-state="lost"] {
 .lx-starters {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #chat-form {
+:root body.lx #chat-form {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
@@ -1698,22 +1798,22 @@ body.lx #connection[data-state="lost"] {
   box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow, var(--shadow));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-:root:not([data-everything="on"]) body.lx #chat-form:focus-within {
+:root body.lx #chat-form:focus-within {
   border-color: var(--copper);
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 3px var(--copper-tint), var(--card-shadow, var(--shadow));
 }
-:root:not([data-everything="on"]) body.lx #chat-form > #composer-attachments {
+:root body.lx #chat-form > #composer-attachments {
   grid-column: 1 / -1;
   grid-row: 1;
   margin: 2px 6px 6px;
 }
-:root:not([data-everything="on"]) body.lx #chat-form > .lx-plus-wrap {
+:root body.lx #chat-form > .lx-plus-wrap {
   display: block;
   position: relative;
   grid-column: 1;
   grid-row: 2;
 }
-:root:not([data-everything="on"]) body.lx #prompt {
+:root body.lx #prompt {
   grid-column: 2;
   grid-row: 2;
   field-sizing: content;
@@ -1725,10 +1825,10 @@ body.lx #connection[data-state="lost"] {
   line-height: 24px;
   outline: none;
 }
-:root:not([data-everything="on"]) body.lx #prompt::placeholder {
+:root body.lx #prompt::placeholder {
   color: var(--text-3);
 }
-:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
+:root body.lx #chat-form > div:last-child {
   grid-column: 3;
   grid-row: 2;
   display: flex;
@@ -1738,11 +1838,11 @@ body.lx #connection[data-state="lost"] {
   margin: 0;
   padding: 2px 0;
 }
-:root:not([data-everything="on"]) body.lx #followup-send {
+:root body.lx #followup-send {
   display: none;
 }
 /* the round buttons: Send (an arrow), Stop (a square), "+" */
-:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) {
+:root body.lx :is(#send, #lx-stop, #lx-plus) {
   display: grid;
   place-items: center;
   width: 36px;
@@ -1754,52 +1854,52 @@ body.lx #connection[data-state="lost"] {
   box-shadow: none;
   transition: background 0.15s ease, color 0.15s ease;
 }
-:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) .lx-icon {
+:root body.lx :is(#send, #lx-stop, #lx-plus) .lx-icon {
   width: 18px;
   height: 18px;
   stroke-width: 2.2;
 }
-:root:not([data-everything="on"]) body.lx #send .lx-send-words {
+:root body.lx #send .lx-send-words {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #send .lx-icon {
+:root body.lx #send .lx-icon {
   display: block;
 }
-:root:not([data-everything="on"]) body.lx #send {
+:root body.lx #send {
   background: var(--copper);
   color: var(--on-copper);
 }
-:root:not([data-everything="on"]) body.lx #send:hover {
+:root body.lx #send:hover {
   background: var(--copper-hi);
 }
-:root:not([data-everything="on"]) body.lx #send.lx-empty {
+:root body.lx #send.lx-empty {
   background: var(--press);
   color: var(--text-3);
   cursor: default;
 }
-:root:not([data-everything="on"]) body.lx.lx-sending #send {
+:root body.lx.lx-sending #send {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #lx-stop:not([hidden]) {
+:root body.lx #lx-stop:not([hidden]) {
   display: grid;
   background: var(--text);
   color: var(--ground);
 }
-:root:not([data-everything="on"]) body.lx #lx-stop .lx-icon {
+:root body.lx #lx-stop .lx-icon {
   fill: currentColor;
   width: 14px;
   height: 14px;
 }
-:root:not([data-everything="on"]) body.lx #lx-plus {
+:root body.lx #lx-plus {
   background: transparent;
   color: var(--text-2);
 }
-:root:not([data-everything="on"]) body.lx #lx-plus:hover,
-:root:not([data-everything="on"]) body.lx #lx-plus[aria-expanded="true"] {
+:root body.lx #lx-plus:hover,
+:root body.lx #lx-plus[aria-expanded="true"] {
   background: var(--hover);
   color: var(--text);
 }
-:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus):focus-visible {
+:root body.lx :is(#send, #lx-stop, #lx-plus):focus-visible {
   outline: 2px solid var(--copper);
   outline-offset: 2px;
 }
@@ -1838,7 +1938,7 @@ body.lx #connection[data-state="lost"] {
 /* Legibility first where people read and type (the benchmark's "no glow behind forms"): the oak
    stays behind empty areas, but a soft veil of the pane's own colour sits behind the message box and
    the question over it, and the Settings window is solid. */
-:root:not([data-everything="on"]) body.lx .composer-dock::before {
+:root body.lx .composer-dock::before {
   content: "";
   position: absolute;
   inset: -170px -240px -90px;
@@ -2586,4 +2686,75 @@ select.glass[aria-expanded="true"] {
 }
 .glass-tip[hidden] {
   display: none;
+}
+
+/* DG-051: Settings › Computer & browser, one line per paired device: its name and state, then Remove. */
+.devices-paired {
+  display: grid;
+  gap: 8px;
+}
+.devices-paired-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.devices-paired-words {
+  display: grid;
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* DG-099: the top bar says where you are, as the sample's .crumbs: the face and name of the computer or Trunk, "/",
+   then the conversation's title or the place's name (public/topbar-crumbs.js). */
+body.lx .lx-crumbs-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+body.lx .lx-crumbs-mark svg {
+  width: 20px;
+  height: 20px;
+}
+body.lx .lx-crumbs-mid,
+body.lx .lx-crumbs-sep {
+  font-size: 13.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+body.lx .lx-crumbs-mid {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.lx .lx-crumbs-mid:empty,
+body.lx .lx-crumbs-mid:empty + .lx-crumbs-sep {
+  display: none;
+}
+/* In a conversation its own title is the one on show; the place's heading stays for a screen reader. */
+body.lx.lx-chat #page-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+body.lx.lx-chat .thread-name {
+  display: inline;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+body.lx.lx-chat .thread-name:empty::before {
+  content: attr(data-empty);
+}
+@media (max-width: 760px) {
+  body.lx .lx-crumbs-mid,
+  body.lx .lx-crumbs-sep {
+    display: none;
+  }
 }

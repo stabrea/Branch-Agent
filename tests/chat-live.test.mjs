@@ -715,7 +715,7 @@ async function chatLiveCard() {
 
 test("the chat-app card lives under Customize, Chat apps, and every word has English and real French", async () => {
   const card = await chatLiveCard();
-  assert.match(card, /data-home="customize:channels"/);
+  assert.match(card, /data-home="settings:channels"/);
   assert.equal((card.match(/<h2 /g) ?? []).length, 1);
   assert.equal((card.match(/<button /g) ?? []).length, 1, "one filled button");
   assert.doesNotMatch(card, /style=|#[0-9a-f]{3,8}\b|rgba?\(/i, "no colours written in the card");
