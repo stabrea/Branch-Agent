@@ -52,9 +52,15 @@ export const BUCKETS = {
       /* DG-184: the sample's one section, its Regular row (Hold messages overnight) first, then where and how you are told. */
       [["lx-collab-days-off", R], ["comfort-notify-card", R], ["quiet-interruptions", A]]],
   ],
+  /* DG-185: the sample's Connection tab. ChatGPT account and Check your connections are sections of their own,
+     first; the card's title under a section of the same words is not drawn twice (settings-grown.css). */
   "models:connection": [
+    ["chatgpt", "chip", "ChatGPT account", "Use the models that come with your ChatGPT plan.",
+      [["chatgpt-card", R]]],
+    ["check", "eye", "Check your connections", "Whether each connection still works, and what it can do.",
+      [["model-probe-card", R]]],
     ["connection", "chip", "Your model connection", "Which service answers, and how Branch signs in to it.",
-      [["model-settings-form", R], ["chatgpt-card", R], ["models-form", R], ["model-probe-card", R]]],
+      [["model-settings-form", R], ["models-form", R]]],
     ["services", "swap", "Other model services", "Extra services Branch can use.",
       [["gemini-signin-card", A], ["savings-openrouter-card", A], ["asks-runtimes-card", A]]],
   ],
