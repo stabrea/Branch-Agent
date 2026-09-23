@@ -67,6 +67,7 @@ test("the cards sit in their homes, the switches work from the window, and nothi
   await connections.getByText("Notion (Notion's own MCP server)", { exact: false }).waitFor();
   assert.equal(await wide(), false, "no sideways scrolling in Connections");
   for (const [card, home] of [["asks-board-card", "lx-page-general"], ["asks-analytics-card", "lx-page-data"], ["asks-nodes-card", "lx-page-computer"],
-    ["asks-runtimes-card", "lx-models-connection"], ["asks-sources-card", "documents"], ["asks-hindsight-card", "memory"]])
+    ["asks-runtimes-card", "lx-models-connection"], ["asks-sources-card", "documents"], ["asks-hindsight-card", "memory"],
+    ["asks-forecasts-card", "lx-page-data"]])
     assert.equal(await page.evaluate(([id]) => document.getElementById(id)?.parentElement?.id ?? null, [card]), home, `${card} is not in its home`);
 });
