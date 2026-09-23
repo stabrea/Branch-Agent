@@ -532,20 +532,18 @@ test("the composer never comes to rest on top of the greeting or the welcome car
   assert.deepEqual(f.errors, []);
 });
 
-test("Send keeps its label on one line and the helper note sits under the composer", async (t) => {
+test("Send is the round button at every size and the helper note sits under the composer", async (t) => {
   const f = await fixture(t);
   for (const size of SIZES) {
     await f.page.setViewportSize(size);
     await f.page.waitForTimeout(150);
+    /* DG-175: Send is the sample's round button in the full window too, still named Send. */
     const send = await f.page.evaluate(() => {
-      const button = document.getElementById("send");
-      const range = document.createRange();
-      /* Since 0.18.1 the words sit in their own span beside the calm window's arrow. */
-      range.selectNodeContents(button.querySelector(".lx-send-words") ?? button);
-      return { lines: range.getClientRects().length, wrap: getComputedStyle(button).whiteSpace };
+      const button = document.getElementById("send"), box = button.getBoundingClientRect();
+      return { round: Math.abs(box.width - box.height) < 1 && getComputedStyle(button).borderRadius === "50%", name: button.getAttribute("aria-label") || button.textContent.trim() };
     });
-    assert.equal(send.lines, 1, `Send is one line at ${size.width}`);
-    assert.equal(send.wrap, "nowrap");
+    assert.equal(send.round, true, `Send is round at ${size.width}`);
+    assert.match(send.name, /Send/);
   }
   await f.page.setViewportSize(SIZES[0]);
   const placed = await f.page.evaluate(() => {
@@ -875,14 +873,20 @@ test("Q5 the helper line and the room meter share one row, clear of the message 
 
 test("Q5 focus can be seen, and stillness is honoured", async (t) => {
   const f = await fixture(t);
+  /* The message box shows its focus as the sample's does (DG-175): the whole box takes the accent edge and ring,
+     easing in over a moment, so it is read once it has arrived. */
+  await f.page.evaluate(() => document.getElementById("prompt").focus());
+  await f.page.waitForFunction(() => / 0px 0px 0px 3px\b/.test(` ${getComputedStyle(document.getElementById("chat-form")).boxShadow}`), null, { timeout: 3000 }).catch(() => undefined);
   const ring = await f.page.evaluate(() => {
-    const probe = document.getElementById("prompt");
-    probe.focus();
-    const style = getComputedStyle(probe);
-    return { width: style.outlineWidth, style: style.outlineStyle };
+    const box = getComputedStyle(document.getElementById("chat-form"));
+    const probe = document.createElement("i");
+    probe.style.color = "var(--copper)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    return { edge: box.borderTopColor === accent, ring: / 0px 0px 0px 3px\b/.test(` ${box.boxShadow}`) };
   });
-  assert.notEqual(ring.style, "none", "a focused control shows no ring");
-  assert.notEqual(ring.width, "0px", "the focus ring has no width");
+  assert.deepEqual(ring, { edge: true, ring: true }, "a focused message box shows the accent edge and ring");
 
   /* "Keep things still" writes data-motion onto the page, and every move is then instant. */
   const still = await f.page.evaluate(() => {

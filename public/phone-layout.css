@@ -97,7 +97,7 @@
     bottom: var(--ew-bar-h);
   }
   /* the veil behind the box stays close to it, so a question above it reads in full */
-  :root:not([data-everything="on"]) body.lx .composer-dock::before {
+  :root body.lx .composer-dock::before {
     inset: -36px -24px -90px;
   }
 }

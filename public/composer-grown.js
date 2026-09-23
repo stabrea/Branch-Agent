@@ -118,6 +118,30 @@ function assistant(option, select, close) {
   return row;
 }
 
+/* DG-175: "How it should work" and "Check back with me" become the + menu's choices; each sets the real select. */
+function choices(id, close) {
+  const select = $(id);
+  if (!select) return [];
+  const heading = element("p", "lx-more-head", document.querySelector(`label[for="${id}"]`)?.textContent.trim() ?? "");
+  return [heading, ...[...select.options].map((option) => {
+    const row = menuButton(option.textContent.trim(), "menuitemradio");
+    row.setAttribute("aria-checked", String(option.value === select.value));
+    row.disabled = select.disabled;
+    row.addEventListener("click", () => {
+      select.value = option.value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      close();
+    });
+    return row;
+  })];
+}
+function planRows(close) {
+  if (document.documentElement.dataset.everything !== "on" || !$("plan-controls")) return [];
+  const project = menuButton($("plan-mode-project").textContent.trim());
+  project.addEventListener("click", () => { $("plan-mode-project").click(); close(); });
+  return [element("hr", "lx-menu-rule"), ...choices("session-plan-mode", close), ...choices("session-autonomy", close), project];
+}
+
 function paintPlusMenu(menu, close) {
   const select = $("composer-specialist");
   const assistants = select ? [...select.options].map((option) => assistant(option, select, close)) : [];
@@ -129,6 +153,7 @@ function paintPlusMenu(menu, close) {
     element("hr", "lx-menu-rule"),
     action("ask-first-toggle", "more.askFirst", "Ask me questions first", close),
     action("temporary-toggle", "more.temporaryLong", "Temporary: forget this conversation afterwards", close),
+    ...planRows(close),
     ...(assistants.length ? [element("hr", "lx-menu-rule"), heading, ...assistants] : []),
   );
 }
@@ -151,7 +176,37 @@ function installPlusMenu() {
   old.replaceWith(wrap);
 }
 
+/* ---------- DG-175: the line under the box, as the sample's with Show everything on ---------- */
+function footChip(target, key, fallback) {
+  const chip = element("button", "lx-foot-chip", say(key, fallback));
+  chip.type = "button";
+  chip.dataset.t = key;
+  chip.dataset.target = target;
+  chip.addEventListener("click", () => { $(target)?.click(); syncFootChips(); });
+  return chip;
+}
+function syncFootChips() {
+  for (const chip of document.querySelectorAll(".lx-foot-chip[data-target]"))
+    chip.setAttribute("aria-pressed", String(Boolean($(chip.dataset.target)?.checked)));
+  const who = $("composer-specialist"), chip = document.querySelector(".lx-foot-assistant");
+  if (chip) chip.textContent = who?.selectedOptions[0]?.textContent.trim() || say("composer.assistantItself", "Your assistant");
+}
+function installFootChips() {
+  const foot = document.querySelector(".composer-foot");
+  if (!foot || foot.querySelector(".lx-foot-chips")) return;
+  const chips = element("span", "lx-foot-chips");
+  chips.append(footChip("ask-first-toggle", "more.askFirst", "Ask me questions first"),
+    footChip("temporary-toggle", "composer.chip.temporary", "Temporary"), element("span", "lx-foot-chip lx-foot-assistant"));
+  foot.prepend(chips);
+  document.addEventListener("change", (event) => {
+    if (["ask-first-toggle", "temporary-toggle", "composer-specialist"].includes(event.target?.id)) syncFootChips();
+  });
+  document.addEventListener("branch-language", syncFootChips);
+  syncFootChips();
+}
+
 export function installGrownComposer() {
   installModelPicker();
   installPlusMenu();
+  installFootChips();
 }

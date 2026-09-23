@@ -8,7 +8,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-async function fixture(t, viewport = { width: 1440, height: 950 }) {
+async function fixture(t, viewport = { width: 1440, height: 950 }, { everything = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-composer-parity-"));
   const provider = { name: "sample-model", async complete() { return { content: "Done.", toolCalls: [] }; } };
   const app = await createBranch({
@@ -40,6 +40,14 @@ async function fixture(t, viewport = { width: 1440, height: 950 }) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120_000 });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120_000 });
+  /* DG-175: the owner can be in either window; the bar is the sample's in both. */
+  if (everything) {
+    await page.evaluate(async () => {
+      const { applyAppearance, currentAppearance } = await import("/appearance.js");
+      applyAppearance({ ...currentAppearance(), showEverything: true });
+    });
+    await page.waitForFunction(() => document.documentElement.dataset.everything === "on");
+  }
   return page;
 }
 
@@ -60,7 +68,7 @@ async function shape(page) {
   });
 }
 
-function assertComposerContract(measured, { compact = false } = {}) {
+function assertComposerContract(measured, { compact = false, everything = false } = {}) {
   assert.ok(measured.form, "the message box is visible");
   assert.ok(Math.abs(measured.form.height - 48) <= 1, `the sample bar is 48px tall, got ${measured.form.height}px`);
   for (const key of ["plus", "prompt", "mode", "model", "send"]) assert.ok(measured[key], `${key} stays in the bar`);
@@ -69,18 +77,22 @@ function assertComposerContract(measured, { compact = false } = {}) {
   const visible = [measured.plus, measured.prompt, measured.mode, measured.model, measured.send];
   assert.ok(Math.max(...visible.map((item) => item.top)) - Math.min(...visible.map((item) => item.top)) <= 1, "controls share one line");
   assert.ok(visible.every((item) => item.left >= measured.form.left && item.right <= measured.form.right), "controls stay inside the bar");
-  assert.equal(measured.voice, null, "voice recording stays hidden until voice is switched on");
+  /* The sample's microphone shows when voice is on or everything is shown, and sits in the bar. */
+  if (everything) assert.ok(measured.voice && measured.voice.left >= measured.form.left && measured.voice.right <= measured.form.right, "the microphone sits in the bar");
+  else assert.equal(measured.voice, null, "voice recording stays hidden until voice is switched on");
   assert.equal(measured.scrollWidth <= measured.viewportWidth, true, "the composer never widens the page");
   if (!compact) assert.equal(measured.modelWords, "configured", "the chip names the model, not the connection");
 }
 
-test("the calm composer matches the sample bar at desktop, compact and phone widths", async (t) => {
-  const page = await fixture(t);
-  for (const [width, height, compact] of [[1440, 950, false], [1024, 700, false], [390, 844, true]]) {
-    await page.setViewportSize({ width, height });
-    assertComposerContract(await shape(page), { compact });
-  }
-});
+for (const everything of [false, true]) {
+  test(`the ${everything ? "full" : "calm"} window's composer matches the sample bar at desktop, compact and phone widths`, async (t) => {
+    const page = await fixture(t, undefined, { everything });
+    for (const [width, height, compact] of [[1440, 950, false], [1024, 700, false], [390, 844, true]]) {
+      await page.setViewportSize({ width, height });
+      assertComposerContract(await shape(page), { compact, everything });
+    }
+  });
+}
 
 test("the model chip opens a real model picker without leaving the conversation", async (t) => {
   const page = await fixture(t);
@@ -113,18 +125,20 @@ test("the model chip opens a real model picker without leaving the conversation"
   await page.waitForFunction(() => document.querySelector("#lx-model-chip")?.textContent.trim() === "configured");
 });
 
-test("the plus menu changes the real conversation choices", async (t) => {
-  const page = await fixture(t);
-  for (const [name, target] of [
-    ["Ask me questions first", "#ask-first-toggle"],
-    ["Temporary: forget this conversation afterwards", "#temporary-toggle"],
-  ]) {
-    await page.locator("#lx-plus").click();
-    await page.locator("#lx-plus-menu").getByRole("menuitem", { name, exact: true }).dispatchEvent("click");
-    assert.equal(await page.locator(target).isChecked(), true, `${name} presses its existing control`);
-    assert.equal(await page.locator("#lx-plus-menu").isHidden(), true);
-  }
-});
+for (const everything of [false, true]) {
+  test(`the plus menu changes the real conversation choices in the ${everything ? "full" : "calm"} window`, async (t) => {
+    const page = await fixture(t, undefined, { everything });
+    for (const [name, target] of [
+      ["Ask me questions first", "#ask-first-toggle"],
+      ["Temporary: forget this conversation afterwards", "#temporary-toggle"],
+    ]) {
+      await page.locator("#lx-plus").click();
+      await page.locator("#lx-plus-menu").getByRole("menuitem", { name, exact: true }).dispatchEvent("click");
+      assert.equal(await page.locator(target).isChecked(), true, `${name} presses its existing control`);
+      assert.equal(await page.locator("#lx-plus-menu").isHidden(), true);
+    }
+  });
+}
 
 test("a refresh that began before Ask first changed cannot put the old choice back", async (t) => {
   const page = await fixture(t);

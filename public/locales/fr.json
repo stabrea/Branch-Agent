@@ -1265,6 +1265,7 @@
   "composer.assistantItself": "Votre assistant",
   "composer.attach": "Joindre un document",
   "composer.changeModel": "Changer de modèle",
+  "composer.chip.temporary": "Temporaire",
   "composer.new": "Nouvelle conversation",
   "composer.noModel": "Connecter un modèle",
   "composer.manageModels": "Gérer les modèles…",
