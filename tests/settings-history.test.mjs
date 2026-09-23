@@ -422,3 +422,38 @@ test("an undo asked for while Lockdown is on is refused on the route and writes 
   await ask("POST", "/api/settings-kit/undo", { record, confirmLoosening: true });
   assert.equal((await values())["fly-core.mode"], "off", "once Lockdown is off the same undo goes through");
 });
+
+test("a card or kit write of one field keeps the others, and its record compares what was in force", async (t) => {
+  const { root, app, owner, ask } = await fixture(t);
+  const { saveReviewerSettings, reviewerSettings } = await import("../dist/approval-reviewer.js");
+  const { saveReflectionSettings, reflectionSettings } = await import("../dist/reflection/settings.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const post = async (path, body) => {
+    const answer = await fetch(server.url + path, { method: "POST", body: JSON.stringify(body),
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } });
+    assert.equal(answer.status, 200, `${path}: ${await answer.clone().text()}`);
+    return answer.json();
+  };
+  const kept = { rules: "Never approve deleting a folder.", preset: "strict", maxTokens: 3000 };
+  saveReviewerSettings(app.store, owner, { mode: "off", ...kept });
+  await post("/api/approval-reviewer", { mode: "on" });
+  assert.deepEqual(reviewerSettings(app.store, owner), { mode: "on", ...kept }, "the card's save reset the fields it was not sent");
+  assert.deepEqual(app.store.get("settings", owner, "approval_reviewer").data, { mode: "on", ...kept });
+  await ask("POST", "/api/settings-kit/apply", { plan: { source: "set", key: "approval_reviewer", field: "mode", value: "off" },
+    accept: ["approval_reviewer.mode"], confirmLoosening: true });
+  assert.deepEqual(app.store.get("settings", owner, "approval_reviewer").data, { mode: "off", ...kept }, "the kit's save reset the fields it was not sent");
+
+  saveReflectionSettings(app.store, owner, { reflection: "off", everyTurns: 50, newSkills: "on", retireAfterDays: 90 });
+  await post("/api/reflection/settings", { reflection: "on" });
+  assert.deepEqual(reflectionSettings(app.store, owner), { reflection: "on", everyTurns: 50, newSkills: "on", retireAfterDays: 90 });
+
+  // A record the app cannot read runs as its starting values, so the second look is off whatever the
+  // record says. Turning it on at its card is a real change, and the record says so: off, then on.
+  app.store.save("settings", owner, "approval_reviewer", { mode: "on", rules: "", preset: null, maxTokens: 999_999 });
+  const before = settingsHistory(app.store, owner).length;
+  await post("/api/approval-reviewer", { mode: "on" });
+  const records = settingsHistory(app.store, owner);
+  assert.equal(records.length, before + 1, "turning on a second look that was not in force left no record");
+  assert.deepEqual(records.at(-1).changes, [{ setting: "approval_reviewer.mode", before: "off", after: "on" }]);
+});

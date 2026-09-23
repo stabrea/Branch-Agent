@@ -4,7 +4,7 @@ import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
 import { saveLoopGuardSettings } from "../loop-guard.js";
 import { saveFolderTrustSettings } from "../folder-trust.js";
-import { saveReviewerSettings } from "../approval-reviewer.js";
+import { reviewerSettings, saveReviewerSettings } from "../approval-reviewer.js";
 import { saveSecurityCheckSettings } from "../security-audit/settings.js";
 import { saveWallSettings, wallSettings } from "../sandbox.js";
 import { saveKeychainSettings } from "../vault-sources.js";
@@ -17,6 +17,7 @@ import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; 
 import { saveComfort, type ComfortCard } from "../comfort/settings.js";
 import { saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
 import { saveUsageLimitsSettings } from "../usage-limits.js"; // mac7/usage-bar
+import { reflectionSettings } from "../reflection/settings.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -122,7 +123,7 @@ const safety: SettingSpec[] = [
     write: (store, owner, patch) => { savePolicy(store, owner, patch, "Changed from Settings: presets, reset or a settings file"); },
   },
   one("approval_reviewer", "A second look before approvals", "settings-kit.name.reviewer", "settings:permissions", "guard",
-    { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); } }),
+    { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); }, read: (store, owner) => ({ ...reviewerSettings(store, owner) }) }),
   one("loop_guard", "Stopping repeated steps", "settings-kit.name.loop-guard", "settings:permissions", "guard",
     { write: (store, owner, patch) => { saveLoopGuardSettings(store, owner, patch); } }),
   one("folder_trust_mode", "Trusted folders", "settings-kit.name.folder-trust", "settings:permissions", "guard",
@@ -279,6 +280,8 @@ const comfort: SettingSpec[] = [
     key: "reflection", name: "Looking back over conversations", t: "settings-kit.name.reflection", home: "library:memory",
     fields: [sw("reflection", "Looking back", "settings-kit.field.reflection", "plain"),
       sw("newSkills", "Writing new skills from experience", "settings-kit.field.new-skills", "reach")],
+    // Saved through the learning loop (src/settings-kit/writers.ts).
+    read: (store, owner) => ({ ...reflectionSettings(store, owner) }),
   },
   {
     key: "context-files", name: "The files you write", t: "settings-kit.name.context-files", home: "settings:general",
