@@ -235,6 +235,7 @@ const HOW_WORDS = {
   undo: ["settings-kit.how.undo", "undoing an earlier change"],
   card: ["settings-kit.how.card", "you, on its own card in Settings"],
   command: ["settings-kit.how.command", "a command you typed"],
+  lockdown: ["settings-kit.how.lockdown", "Lockdown"],
   unknown: ["settings-kit.how.unknown", "a change whose source was not recorded"],
 };
 /* A preset's record keeps its English name; it is shown in the window's language, like on the preset card. */
@@ -276,6 +277,8 @@ function recordRow(record, fields, presets, confirm, status, redraw) {
     return `${known.words}: ${valueWords(known, entry.before)} → ${valueWords(known, entry.after)}`;
   });
   row.append(el("p", undefined, `${when(record.at)} · ${howWords(record, presets)}`, "meta"), el("p", undefined, lines.join("; ")));
+  // Lockdown puts back what it changed when it is turned off, so its own changes have no undo here.
+  if (record.source === "lockdown") { row.append(el("p", "settings-kit.history.lockdown", "Turning Lockdown off or on is how this is changed.", "subtle")); return row; }
   if (record.undoneBy) { row.append(el("p", "settings-kit.history.undone", "Undone.", "subtle")); return row; }
   row.append(quiet("settings-kit.history.undo", "Undo this change", async () => {
     try {

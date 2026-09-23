@@ -9,6 +9,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { settingsKitApi } from "../dist/settings-kit/api.js";
 import { loopGuardMode } from "../dist/loop-guard.js";
+import { setLockdown } from "../dist/lockdown.js";
 import { openPlace, openSettingFor, openSettings } from "./places.mjs";
 
 /* Q48/Q49 in the window, at phone width: the recent changes card lists a preset's change, refuses an
@@ -70,6 +71,9 @@ test("Q48/Q49 in French: the why answer names the preset in French, not by its E
   const plan = { source: "preset", preset: "careful" };
   const { changes } = await ask("/api/settings-kit/preview", plan);
   await ask("/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id), confirmLoosening: false });
+  // Q48 review: Lockdown's own changes are listed, in French, with no undo of their own.
+  setLockdown(app.store, app.runtime.owner, { on: true });
+  setLockdown(app.store, app.runtime.owner, { on: false });
 
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
@@ -94,5 +98,11 @@ test("Q48/Q49 in French: the why answer names the preset in French, not by its E
   const words = await answer.innerText();
   assert.match(words, /un préréglage \(Prudent\)/);
   assert.doesNotMatch(words, /Careful/);
+  const locked = card.locator(".kit-record", { hasText: "le verrouillage" });
+  assert.equal(await locked.count(), 2, "turning Lockdown on and off is listed as two changes");
+  for (const row of await locked.all()) {
+    assert.match(await row.innerText(), /Ce changement se défait en désactivant ou en activant le verrouillage[.]/);
+    assert.equal(await row.getByRole("button", { name: "Annuler cette modification" }).count(), 0, "a Lockdown change offers an undo");
+  }
   assert.deepEqual(errors, []);
 });

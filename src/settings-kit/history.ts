@@ -16,8 +16,11 @@ export const settingsHistoryLimit = 200;
 const Value = z.union([z.string().max(80), z.number(), z.boolean()]);
 /** Q48 review: "owner-by-command" is the owner typing a command such as /preset, in the terminal or a chat. */
 export const ChangeWriters = ["owner-in-window", "owner-by-command", "conversation", "unknown"] as const;
-/** "card" is a setting's own card or screen saving around the kit; "command" is a typed command. */
-export const ChangeSources = ["switch", "preset", "reset", "import", "talk", "undo", "card", "command", "unknown"] as const;
+/**
+ * "card" is a setting's own card or screen saving around the kit; "command" is a typed command.
+ * "lockdown" is Lockdown turning on, or turning off and putting back what it changed.
+ */
+export const ChangeSources = ["switch", "preset", "reset", "import", "talk", "undo", "card", "command", "lockdown", "unknown"] as const;
 export type ChangeWriter = (typeof ChangeWriters)[number];
 export type ChangeSource = (typeof ChangeSources)[number];
 

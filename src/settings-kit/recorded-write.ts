@@ -1,4 +1,5 @@
 import type { Store } from "../store.js";
+import { recordLockdownWith } from "../lockdown.js";
 import { specFor } from "./catalogue.js";
 import { currentValue, type Value } from "./changes.js";
 import { recordSettingsChange, type ChangeEntry, type ChangeOrigin } from "./history.js";
@@ -24,6 +25,11 @@ function snapshot(store: Store, owner: string, keys: readonly string[]): Map<str
  * to finish at once; one still running when it returns is refused rather than recorded half done.
  */
 export function recordedWrite<T>(store: Store, owner: string, origin: ChangeOrigin, keys: readonly string[], write: () => T): T {
+  return recordWrite(store, owner, origin, keys, write).result;
+}
+
+/** The same, also saying which change record it wrote, or null when nothing in the catalogue moved. */
+export function recordWrite<T>(store: Store, owner: string, origin: ChangeOrigin, keys: readonly string[], write: () => T): { result: T; record: string | null } {
   const unknown = keys.filter((key) => !specFor(key));
   // A name that is not a setting would record nothing without a word, so it is a mistake to say so.
   if (unknown.length) throw new Error(`Not a setting in the catalogue: ${unknown.join(", ")}`);
@@ -36,8 +42,7 @@ export function recordedWrite<T>(store: Store, owner: string, origin: ChangeOrig
       const now = after.get(setting);
       if (now !== undefined && now !== was) changes.push({ setting, before: was, after: now });
     }
-    if (changes.length) recordSettingsChange(store, owner, origin, changes);
-    return result;
+    return { result, record: changes.length ? recordSettingsChange(store, owner, origin, changes) : null };
   });
 }
 
@@ -46,3 +51,7 @@ export const inCatalogue = (key: string): string[] => (specFor(key) ? [key] : []
 
 /** A setting's own card in Settings, saving around the kit. */
 export const byCard = (detail: string): ChangeOrigin => ({ writer: "owner-in-window", source: "card", detail });
+
+/** Q48 review: what Lockdown changes among these settings, turning on or off, is recorded here too. */
+recordLockdownWith((store, owner, origin, keys, write) =>
+  recordWrite(store, owner, { ...origin, source: "lockdown" }, keys.flatMap(inCatalogue), write).record);

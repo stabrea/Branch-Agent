@@ -40,6 +40,8 @@ function neutral(record: ChangeRecord, byId: ReadonlyMap<string, ChangeRecord>):
 
 /** Why this record cannot be undone exactly as it stands, or null. Nothing is written here. */
 function undoRefusal(store: Store, owner: string, record: ChangeRecord, records: readonly ChangeRecord[]): string | null {
+  // Lockdown puts back what it changed when it is turned off; an undo here would fight it.
+  if (record.source === "lockdown") return "Lockdown made that change. Turning Lockdown off or on is how it is changed, not an undo here.";
   if (record.undoneBy) return "That change was already undone.";
   const gone = record.changes.filter((entry) => valueOf(store, owner, entry.setting) === undefined);
   if (gone.length)
@@ -133,6 +135,7 @@ const byWhom: Record<ChangeRecord["source"], string> = {
   undo: "undoing an earlier change",
   card: "you, on its own card in Settings",
   command: "a command you typed",
+  lockdown: "Lockdown",
   unknown: "a change whose source was not recorded",
 };
 

@@ -457,3 +457,32 @@ test("a card or kit write of one field keeps the others, and its record compares
   assert.equal(records.length, before + 1, "turning on a second look that was not in force left no record");
   assert.deepEqual(records.at(-1).changes, [{ setting: "approval_reviewer.mode", before: "off", after: "on" }]);
 });
+
+test("Lockdown's own changes are recorded, cancel out when it is turned off, and are not undone here", async (t) => {
+  const { app, owner, ask, values, refused } = await fixture(t);
+  const { setLockdown } = await import("../dist/lockdown.js");
+  const { record: x } = await ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "set", key: "policy", field: "preset", value: "workspace" }, accept: ["policy.preset"], confirmLoosening: true });
+  setLockdown(app.store, owner, { on: true });
+  const on = settingsHistory(app.store, owner).at(-1);
+  assert.deepEqual([on.writer, on.source, on.detail], ["owner-in-window", "lockdown", "on"], "turning Lockdown on left no record of its own");
+  assert.ok(on.changes.some((entry) => entry.setting === "policy.preset" && entry.before === "workspace" && entry.after === "custom"),
+    JSON.stringify(on.changes));
+  const why = await ask("GET", "/api/settings-kit/why/policy.preset");
+  assert.equal(why.kind, "recorded", why.words);
+  assert.match(why.words, /set by Lockdown on /);
+
+  setLockdown(app.store, owner, { on: false }, "owner-by-command");
+  const records = settingsHistory(app.store, owner);
+  const off = records.at(-1);
+  assert.deepEqual([off.writer, off.source, off.detail, off.undoes], ["owner-by-command", "lockdown", "off", on.id]);
+  assert.equal(records.find((entry) => entry.id === on.id).undoneBy, off.id);
+  assert.equal((await values())["policy.preset"], "workspace");
+  for (const id of [on.id, off.id])
+    await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record: id, confirmLoosening: true }),
+      refused(409, /Lockdown made that change/));
+
+  // Turning Lockdown on and off again cancels out, so the change made before it can still be undone.
+  await ask("POST", "/api/settings-kit/undo", { record: x, confirmLoosening: true });
+  assert.equal((await values())["policy.preset"], "off");
+});
