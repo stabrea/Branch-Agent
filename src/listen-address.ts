@@ -1,11 +1,10 @@
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { z } from "zod";
 import { audit } from "./audit.js";
 import { tunnelMark } from "./auth-limits.js";
 import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import { lockdownActive } from "./lockdown.js";
-import { isPrivateAddress } from "./network-policy.js";
 import { currentPerson } from "./people/context.js";
 import { isTailnetAddress } from "./remote/tailscale.js";
 import type { Store } from "./store.js";
@@ -33,9 +32,12 @@ import type { Store } from "./store.js";
  * door to ask callers for. A refusal always lands on 127.0.0.1 — the safe answer is the one Branch
  * falls back to, never the wide one.
  *
- * "Private" here is the network rules' own idea of a private address (src/network-policy.ts),
- * plus a Tailscale address, which Branch already treats as private for the paired door
- * (src/remote/tailscale.ts). Nothing new was invented for this.
+ * "Private" here is stricter than the network rules' idea of a private address (src/network-policy.ts).
+ * Those rules refuse to REACH an address, so they count an IPv6 address as private when the IPv4
+ * address it carries is, and multicast and site-local besides. Opening a door is the other direction:
+ * a 6to4, Teredo, NAT64 or IPv4-compatible address routes across the internet whatever it carries, so
+ * `isLanListenAddress` accepts only an address a private network really hands out, plus a Tailscale
+ * address, which Branch already treats as private for the paired door (src/remote/tailscale.ts).
  */
 
 export const listenKey = "listen-address";
@@ -202,9 +204,33 @@ export function ownAddresses(): OwnAddress[] {
     .map((entry) => ({ address: entry.address.replace(/%.*$/, ""), internal: entry.internal }));
 }
 
-/** Private the way the network rules mean it, or a Tailscale address, which Branch already calls private. */
-const privateHere = (address: string): boolean =>
-  isIP(address) !== 0 && (isPrivateAddress(address) || isTailnetAddress(address));
+/**
+ * IPv4 addresses on this computer's own network: private (RFC 1918), link-local, the shared range
+ * Tailscale hands out, and this computer's own loopback, which every version before this allowed.
+ */
+const lanV4 = new BlockList();
+for (const [base, bits] of [
+  ["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["169.254.0.0", 16], ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+] as const) lanV4.addSubnet(base, bits, "ipv4");
+
+/** IPv6 addresses on this computer's own network: unique local, link-local and loopback. */
+const lanV6 = new BlockList();
+for (const [base, bits] of [["fc00::", 7], ["fe80::", 10], ["::1", 128]] as const) lanV6.addSubnet(base, bits, "ipv6");
+
+/**
+ * Whether the door may open on this address. Only a real address on the private network passes, and
+ * an IPv4-mapped (::ffff:) spelling of one. Multicast, site-local, 6to4, Teredo, NAT64, translated and
+ * IPv4-compatible addresses do not, whatever IPv4 address they carry.
+ */
+export function isLanListenAddress(address: string): boolean {
+  const bare = address.replace(/%.*$/, "");
+  const kind = isIP(bare);
+  if (kind === 4) return lanV4.check(bare, "ipv4") || isTailnetAddress(bare);
+  if (kind !== 6) return false;
+  // node:net matches an IPv4 rule against the ::ffff:0:0/96 spelling of that IPv4 address, and only that one.
+  return lanV6.check(bare, "ipv6") || lanV4.check(bare, "ipv6");
+}
 
 /** An address is written into a Host header with brackets when it is IPv6. */
 const asHost = (address: string): string => (isIP(address) === 6 ? `[${address}]` : address);
@@ -237,7 +263,7 @@ export function decideListen(input: {
   if (!outward.length)
     return stay("This computer answers on no address beyond itself, so Branch is listening on this"
       + " computer only.");
-  const open = outward.filter((entry) => !privateHere(entry.address));
+  const open = outward.filter((entry) => !isLanListenAddress(entry.address));
   if (open.length)
     return stay(`This computer answers on ${open[0]!.address}, which is not a private address, so Branch is`
       + " listening on this computer only. Branch listens beyond this computer on a private network and nowhere else.");

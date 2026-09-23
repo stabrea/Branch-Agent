@@ -20,11 +20,11 @@ export const NetworkPolicySchema = z.object({
 });
 export type NetworkPolicyConfig = z.infer<typeof NetworkPolicySchema>;
 
-/** IPv4 ranges that are this computer, a private or shared network, link-local, multicast or reserved. */
+/** IPv4 ranges that are this computer, a private or shared network, link-local, protocol assignments, benchmarking, multicast or reserved. */
 const privateV4Ranges = new BlockList();
 for (const [base, bits] of [
   ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16],
-  ["172.16.0.0", 12], ["192.168.0.0", 16], ["224.0.0.0", 3],
+  ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["224.0.0.0", 3],
 ] as const) privateV4Ranges.addSubnet(base, bits, "ipv4");
 
 /** IPv6 ranges that are private in their own right: unspecified, unique local, link-local, site-local, multicast, local NAT64. */

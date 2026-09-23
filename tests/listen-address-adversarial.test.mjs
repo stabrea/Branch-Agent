@@ -290,3 +290,47 @@ test("X7 the paired door's own exemptions are not on the wider door", async (t) 
   const preflight = await ask(server, { host, origin: "https://a-site-the-owner-listed.example", method: "OPTIONS" });
   assert.notEqual(preflight.status, 204, "no cross-origin permission is given on this door");
 });
+
+/**
+ * X8: "private" for the door means a real address on this computer's own network. The outbound rules
+ * count an IPv6 address as private when the IPv4 address it carries is private, which is right for
+ * refusing to reach it and wrong for opening a door on it: 6to4, Teredo, NAT64 and compatible
+ * addresses route across the internet, and site-local and multicast are not a home network either.
+ */
+const notTheLan = [
+  "fec0::5", "fedc::1", "ff02::1", "ff05::2", "2002:c0a8:105::1", "2002:6440:1::1",
+  "2001:0:a00:1::f7f7:f7f7", "2001:0:808:808::f5ff:fffe", "64:ff9b::a00:1", "64:ff9b::10.0.0.1",
+  "64:ff9b:1::5", "::a00:1", "::10.0.0.1", "::ffff:0:a00:1", "::ffff:0:192.168.1.40",
+  // Were allowed by the old classifier, and are no address a home network hands out.
+  "::", "0.0.0.0", "0.1.2.3", "224.0.0.1", "239.255.255.250", "240.0.0.1", "255.255.255.255",
+  "::ffff:224.0.0.1", "fc::1", "fd::1", "fe8::1",
+  // Public, either side of the private ranges.
+  "172.32.0.1", "100.128.0.1", "192.169.0.1", "169.255.0.1", "::ffff:8.8.8.8",
+];
+const onTheLan = [
+  "10.0.0.1", "10.255.255.254", "172.16.0.9", "172.31.255.254", "192.168.1.40", "169.254.10.20",
+  "100.64.0.1", "100.101.102.103", "100.127.255.254", "127.0.0.2",
+  "fc00::1", "fd12:3456::1", "fdff:ffff::1", "fe80::1", "fe80::1c2b:3cff:fe4d:5e6f", "febf::1", "::1",
+  "::ffff:192.168.1.40", "::ffff:10.0.0.1", "::ffff:c0a8:128", "0:0:0:0:0:ffff:c0a8:128", "::ffff:100.101.102.103",
+];
+
+test("X8 an address that is not on this computer's own network keeps the door on this computer", () => {
+  for (const address of notTheLan) {
+    for (const addresses of [[{ address, internal: false }], [...privateHome, { address, internal: false }]]) {
+      const decision = decideListen({ ...wideHere, addresses });
+      assert.equal(decision.beyond, false, address);
+      assert.equal(decision.address, "127.0.0.1", address);
+      assert.deepEqual(decision.extraHosts, [], address);
+      assert.ok(decision.refusal?.includes(address), `${address}: ${decision.refusal}`);
+    }
+  }
+});
+
+test("X8 every address a private network really hands out still opens the door", () => {
+  for (const address of onTheLan) {
+    const decision = decideListen({ ...wideHere, addresses: [...privateHome, { address, internal: false }] });
+    assert.equal(decision.refusal, null, address);
+    assert.equal(decision.beyond, true, address);
+    assert.equal(decision.address, "0.0.0.0", address);
+  }
+});
