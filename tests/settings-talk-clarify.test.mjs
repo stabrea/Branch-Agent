@@ -200,7 +200,14 @@ test("cue words match whole words only, so a name that holds or is waiting is no
   }
   assert.equal(negated("do‍n’t turn on the learning"), true, "a joiner inside the word");
   assert.equal(negated("ｄｏｎｔ turn on the learning"), true, "full-width letters");
-  assert.equal(negated("n‘est plus"), true, "French n'... plus with a curly opening mark");
+  assert.equal(negated("n’est plus"), true, "French n’... plus with a curly opening mark");
+  // Invisible characters as the only gap between words: zero-width space and word joiner
+  assert.equal(negated("don’t​turn on the learning"), true, "zero-width space between words");
+  assert.equal(negated("stop⁠the learning"), true, "word joiner between words");
+  // Extra apostrophe-like marks that should also be recognized as apostrophes
+  for (const mark of ["ʻ", "ʹ", "‵", "ꞌ", "՚", "｀"]) {
+    assert.equal(negated(`don${mark}t turn on the learning`), true, `don${mark}t (U+${mark.codePointAt(0).toString(16)})`);
+  }
 });
 
 test("a choice or number that would loosen when named plainly still asks when the words say not to", async (t) => {

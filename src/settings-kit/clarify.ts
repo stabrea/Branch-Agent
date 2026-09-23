@@ -39,8 +39,8 @@ function stem(word: string): string {
   return word;
 }
 
-/** Every mark people type as an apostrophe (straight, curly, the modifier letter, an acute or grave accent, a prime). */
-const apostropheMarks = "'\\u2018\\u2019\\u02BC\\u00B4\\u0060\\u2032\\uFF07";
+/** Every mark people type as an apostrophe (straight, curly, the modifier letter, an acute or grave accent, a prime, and others). */
+const apostropheMarks = "'\\u2018\\u2019\\u02BC\\u00B4\\u0060\\u2032\\uFF07\\u02BB\\u02B9\\u2035\\uA78C\\u055A\\uFF40";
 const apostrophes = new RegExp(`[${apostropheMarks}]`, "g");
 
 /** Invisible format characters (zero-width joiners and spaces, soft hyphens) are taken out, and full-width letters read as plain ones. */
@@ -55,6 +55,14 @@ export function namingWords(request: string): string[] {
 /** Words with accents taken out as well, so "arrête" is "arrete". */
 const plainWords = (text: string): string[] => wordsOf(text.normalize("NFD").replace(/[̀-ͯ]/g, ""));
 
+/** Variant of plainWords that replaces invisible characters with spaces, normalizes, then strips, to catch cues separated by only invisible characters. */
+const plainWordsWithSpaces = (text: string): string[] => {
+  const nfd = text.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Replace \p{Cf} (invisible format chars) with spaces, normalize NFKC first, then remove apostrophes, then split
+  const variant = nfd.replace(/\p{Cf}/gu, " ").normalize("NFKC").replace(apostrophes, "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return variant;
+};
+
 /** Setting names and labels that hold a cue themselves ("A command no rule mentions"): said whole, they only name a setting. */
 const namesWithCues = [...new Set(settingsCatalogue.flatMap((spec) => [spec.name, ...spec.fields.map((field) => field.label)]))]
   .map((text) => plainWords(text).join(" ")).filter((phrase) => holdsCue(` ${phrase} `));
@@ -67,6 +75,13 @@ export function negated(request: string): boolean {
   let said = ` ${plainWords(request).join(" ")} `;
   for (const phrase of namesWithCues) said = said.replaceAll(` ${phrase} `, " ");
   if (holdsCue(said)) return true;
+
+  // Also check a variant where invisible characters and apostrophe marks become spaces,
+  // to catch cues separated by only invisible characters (e.g., "don't‌turn" or "stop‏the")
+  let saidVariant = ` ${plainWordsWithSpaces(request).join(" ")} `;
+  for (const phrase of namesWithCues) saidVariant = saidVariant.replaceAll(` ${phrase} `, " ");
+  if (holdsCue(saidVariant)) return true;
+
   const words = said.split(" ").filter(Boolean);
   const frenchNe = words.includes("ne") || new RegExp(`(^|[^a-z])n[${apostropheMarks}][a-z]`, "i").test(request.replace(/\p{Cf}/gu, ""));
   return frenchNe && words.includes("plus");
