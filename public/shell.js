@@ -6,6 +6,7 @@ import { t } from "/i18n.js";
 import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
+import { face } from "/faces.js";
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -98,6 +99,9 @@ let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "co
 let railCanManageTrunks = false;
 let railProfileOwner = null;
 let railProfileGeneration = Number(document.documentElement.dataset.profileGeneration || 0);
+let localMachineName = "";
+let selectedRailTarget = "here";
+const defaultRailMark = $("rail-target-mark").firstElementChild.cloneNode(true);
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
   $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
@@ -137,17 +141,20 @@ document.addEventListener("branch-strip", (event) => {
   if (generation !== railProfileGeneration) return;
   const profiles = event.detail?.profiles;
   const confirmedOwner = event.detail?.profiles?.isOwner === true;
+  const newlyConfirmedOwner = confirmedOwner && railProfileOwner !== true;
   if (profiles) railProfileOwner = confirmedOwner;
   railCanManageTrunks = railProfileOwner === true && ownerAtWindow() && confirmedOwner;
   syncRailView();
   if (railCanManageTrunks) document.dispatchEvent(new CustomEvent("branch-strip-reselect"));
+  if (newlyConfirmedOwner) void loadMachineName();
 });
 document.addEventListener("branch-profile", (event) => {
   const generation = Number(event.detail?.profileGeneration);
   railProfileGeneration = Number.isSafeInteger(generation) ? generation : railProfileGeneration + 1;
   railProfileOwner = event.detail?.owner !== false;
   railCanManageTrunks = false;
-  if (railProfileOwner) return syncRailView();
+  if (railProfileOwner) { syncRailView(); void loadMachineName(); return; }
+  localMachineName = "";
   setRailTargetFallback();
   syncRailView();
 });
@@ -166,11 +173,24 @@ function setRailTargetFallback() {
     node.dataset.t = key;
     node.textContent = t(key);
   }
+  selectedRailTarget = "here";
+  $("rail-target-mark").classList.remove("has-face");
+  $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
+  if (ownerAtWindow() && railProfileOwner === true && localMachineName)
+    setRailTargetText("rail-target-name", localMachineName);
 }
 document.addEventListener("branch-strip-selection", (event) => {
   if (railProfileOwner !== true || !railCanManageTrunks || !ownerAtWindow()) return setRailTargetFallback();
-  const { name, kind, status } = event.detail;
-  setRailTargetText("rail-target-name", name);
+  const { id, name, kind, status, spec } = event.detail;
+  selectedRailTarget = id;
+  if (spec) {
+    $("rail-target-mark").classList.add("has-face");
+    $("rail-target-mark").replaceChildren(face(spec, 32, { ground: "rail" }));
+  } else {
+    $("rail-target-mark").classList.remove("has-face");
+    $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
+  }
+  setRailTargetText("rail-target-name", id === "here" ? localMachineName || name : name);
   setRailTargetText("rail-target-kind", kind);
   setRailTargetText("rail-target-status", status);
 });
@@ -450,6 +470,18 @@ export async function loadRail() {
     rememberOwner(state.identity?.id || state.project?.active?.id || name);
   } catch {
     /* the owner row keeps its resting labels */
+  }
+  await loadMachineName();
+}
+async function loadMachineName() {
+  if (!ownerAtWindow() || railProfileOwner !== true) return;
+  const generation = railProfileGeneration;
+  const reach = await api("reach").catch(() => null);
+  if (!ownerAtWindow() || railProfileOwner !== true || generation !== railProfileGeneration) return;
+  localMachineName = typeof reach?.machineName === "string" ? reach.machineName.trim() : "";
+  if (selectedRailTarget === "here") {
+    if (localMachineName) setRailTargetText("rail-target-name", localMachineName);
+    else { $("rail-target-name").dataset.t = "strip.here"; $("rail-target-name").textContent = t("strip.here"); }
   }
 }
 $("rail-new").addEventListener("click", () => {

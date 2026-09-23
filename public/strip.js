@@ -117,7 +117,7 @@ function markSelected() {
   const selectedTrunk = picked.startsWith("trunk:") ? findTrunk(picked.slice("trunk:".length)) : null;
   const item = items.find((entry) => entry.id === picked) ?? (selectedTrunk ? trunkItem(selectedTrunk) : computers[0]);
   if (item) document.dispatchEvent(new CustomEvent("branch-strip-selection", {
-    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item) },
+    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item), spec: item.spec },
   }));
 }
 
