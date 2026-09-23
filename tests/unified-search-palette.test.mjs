@@ -34,6 +34,12 @@ async function fixture(t) {
   const run = app.store.createRun(owner, "Unified search palette fixture");
   app.store.message(run.sessionId, { role: "user", content: `Notes mentioning ${word} here.` });
   app.store.finish(run.id, "completed", "Fixture complete");
+  // A recent conversation whose title does not carry the word, only a later message: the palette's
+  // local title match cannot find it, so only /api/search can.
+  const quiet = app.store.createRun(owner, "Plan the trip");
+  app.store.message(quiet.sessionId, { role: "user", content: "Plan the trip" });
+  app.store.message(quiet.sessionId, { role: "assistant", content: `Pack the ${word} adapter first.` });
+  app.store.finish(quiet.id, "completed", "Fixture complete");
   const workflow = app.workflows.create(owner, {
     name: `Palette workflow ${word}`,
     description: `A saved workflow used only to test ${word} in the palette.`,
@@ -51,7 +57,7 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  return { app, page, errors, word, sessionId: run.sessionId, workflow };
+  return { app, page, errors, word, sessionId: run.sessionId, quietId: quiet.sessionId, workflow };
 }
 
 async function searchFor(page, word) {
@@ -107,4 +113,16 @@ test("a one-letter query never reaches the remote search, but the full word does
   assert.equal(await page.locator(".cmd-item", { hasText: "Workflow" }).count(), 0, "one letter is too short to search remotely");
   await page.locator("#cmd-input").fill(word);
   await page.locator(".cmd-item", { hasText: "Workflow" }).waitFor({ state: "visible", timeout: 10000 });
+});
+
+test("a recent conversation whose title lacks the word is still found by its words, and opens", async (t) => {
+  const { page, errors, word, quietId } = await fixture(t);
+  await searchFor(page, word);
+  const item = page.locator(".cmd-item", { hasText: `Conversation ${quietId.slice(0, 8)}` }).first();
+  await item.waitFor({ state: "visible", timeout: 10000 });
+  assert.equal(await page.locator(".cmd-item", { hasText: "Plan the trip" }).count(), 0, "its title did not match locally");
+  await item.click();
+  await page.locator("#cmd-input").waitFor({ state: "hidden" });
+  await page.waitForFunction((id) => document.getElementById("conversation").dataset.sessionId === id, quietId);
+  assert.deepEqual(errors, []);
 });

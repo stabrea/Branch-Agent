@@ -541,6 +541,7 @@ function entries() {
     found.push({
       label: titleOf(entry),
       hint: "Conversation",
+      sessionId: entry.sessionId,
       run: () => { displayView("chat"); void openConversation(entry.sessionId); },
     });
   return found;
@@ -584,10 +585,10 @@ function drawPalette(query) {
     void unifiedSearchEntries(query).then((remote) => {
       if (token !== searchToken || palette?.hidden !== false) return;
       const knownLabels = new Set(matches.map((item) => item.label));
-      // A conversation already in the rail's own recent list is offered above by its real title
-      // (entries(), from `conversations`); the same conversation's generic row from /api/search
-      // would only repeat it.
-      const knownSessions = new Set(conversations.map((entry) => entry.sessionId));
+      // A conversation whose own title already matched is offered above by that title; the same
+      // conversation's generic row from /api/search would only repeat it. Only the ones that matched:
+      // a recent conversation whose words match but whose title does not is what this search is for.
+      const knownSessions = new Set(matches.map((item) => item.sessionId).filter(Boolean));
       matches = matches.concat(remote.filter((item) =>
         !knownLabels.has(item.label) && !(item.sessionId && knownSessions.has(item.sessionId))));
       renderMatches();

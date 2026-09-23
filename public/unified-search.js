@@ -7,13 +7,11 @@
  * fetch-and-map logic inline where the other feature agents working the same window are also editing.
  */
 import { api, displayView, openConversation } from "/app.js";
+import { t } from "/i18n.js";
 
 /** Shown after each remote result's title, so it reads as "Workflow — <snippet>" in the list. */
-const KIND_HINTS = {
-  conversation: "Conversation",
-  workflow: "Workflow",
-  repository: "What it was allowed to do",
-};
+const KIND_HINTS = new Set(["conversation", "workflow", "repository"]);
+const kindHint = (kind) => (KIND_HINTS.has(kind) ? t(`unified-search.kind.${kind}`) : kind);
 
 /** A query this short is almost always still being typed; it is not worth a round trip yet. */
 const MIN_QUERY_LENGTH = 2;
@@ -51,9 +49,9 @@ export async function unifiedSearchEntries(query, signal) {
   }
   return (data.results ?? []).map((result) => ({
     label: result.title,
-    hint: `${KIND_HINTS[result.kind] ?? result.kind} — ${result.snippet}`.slice(0, 140),
+    hint: `${kindHint(result.kind)} — ${result.snippet}`.slice(0, 140),
     run: () => openResult(result),
-    // Lets the palette drop a conversation its own recent list already offers by its real title,
+    // Lets the palette drop a conversation its own title match already offers by its real title,
     // rather than repeating it under this generic one (src/unified-search.ts names conversation
     // results "Conversation <id>", not the conversation's own title).
     sessionId: result.kind === "conversation" ? result.link.split("/").pop() : undefined,
