@@ -141,6 +141,7 @@ import { registerLeads } from "./leads.js"; // packages.leads: prospect enrichme
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
+import { SocialScheduler } from "./social-scheduler.js";
 // Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
@@ -876,7 +877,12 @@ export async function createBranch(options: {
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
   registerChannelTools(registry, channels, brief, store.profiles);
-  scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
+  // FQ-packages.social: a social post is prepared and, if the owner likes, given a time to go out,
+  // but it is only ever sent once the owner has authorized it — see src/social-scheduler.ts.
+  const social = new SocialScheduler(store, deliverMessage);
+  scheduler.onTick.add(async (now) => {
+    await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); await social.sweep(runtime.owner, now);
+  });
   // Wave 7: once a night, a plain-language look at how the assistant is finding its tools.
   scheduler.onTick.add(async (now) => { catalogHealthTick(store, runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
@@ -1459,6 +1465,7 @@ export async function createBranch(options: {
     research,
     monitors,
     brief,
+    social,
     web,
     hooks,
     teams,
