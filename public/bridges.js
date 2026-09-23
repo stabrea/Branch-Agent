@@ -59,11 +59,9 @@ document.querySelector('[data-view="settings"]')?.addEventListener("click", () =
   void drawObsidian();
   void drawEmbeds();
 });
-// phase2/settings: the two cards live in Library › Documents and Customize › Channels, which open without that old button.
+// phase2/settings: the embeds card lives in Customize › Channels, which opens without that old button.
 document.addEventListener("branch-place", (event) => {
-  const view = String(event.detail?.view ?? "");
-  if (view === "documents" || view === "library:documents") void drawObsidian();
-  if (view === "customize:channels") void drawEmbeds();
+  if (String(event.detail?.view ?? "") === "customize:channels") void drawEmbeds();
 });
 /* DG-197: the notes folder card is in Settings › Memory & library. */
 document.addEventListener("branch-settings-page", (event) => { if (event.detail.page === "memory") void drawObsidian(); });

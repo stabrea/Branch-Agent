@@ -256,8 +256,9 @@ async function sourcesCard(modes) {
   const { node, status } = card("asks-sources-card", "settings:memory", "asks.sources.title", "Bringing in new items",
     "asks.sources.purpose", "New GitHub issues, mail and Telegram messages since the last time, written into sources/ in your workspace.");
   node.append(...switchFor("source-sync", modes, status));
-  /* DG-197: the list is drawn whatever the switch says, as the sample draws it, so the section counts it. */
-  const view = await api("asks/sources");
+  /* DG-197: the list is drawn whatever the switch says, as the sample draws it, so the section counts it; a profile
+     the list is refused to still gets the switch, over an empty list. */
+  const view = await api("asks/sources").catch(() => ({ sources: [], status: [] }));
   const list = field("textarea", view.sources.map((s) => [s.id, s.kind, s.target, s.secret].join(" | ")).join("\n"));
   node.append(...labelled("asks-sources-list", "asks.sources.list", "One per line: short name | github-issues, imap or telegram | where | saved secret", list),
     ...atLevel("advanced", row(button("asks.save", "Save", async () => {
@@ -275,8 +276,9 @@ async function hindsightCard(modes) {
   const { node, status } = card("asks-hindsight-card", "settings:memory", "asks.hindsight.title", "A Hindsight memory server",
     "asks.hindsight.purpose", "Also keep and find things in your own Hindsight server. Branch's own memory stays as it is.");
   node.append(...switchFor("hindsight", modes, status));
-  /* DG-197: its address, bank and secret are drawn whatever the switch says, as the sample draws them. */
-  const { hindsight } = await api("asks/hindsight");
+  /* DG-197: its address, bank and secret are drawn whatever the switch says, as the sample draws them (empty when
+     they are refused to this profile). */
+  const { hindsight } = await api("asks/hindsight").catch(() => ({ hindsight: {} }));
   const address = field("input", hindsight.address ?? "", "url"), bank = field("input", hindsight.bank), secret = field("input", hindsight.secret);
   node.append(...labelled("asks-hindsight-address", "asks.hindsight.address", "Server address", address),
     ...labelled("asks-hindsight-bank", "asks.hindsight.bank", "Memory bank", bank),

@@ -39,7 +39,7 @@ test("DG-197 Memory & library lists the sample's sections, and every card of the
   assert.deepEqual(own.filter((row) => !placed.has(row[2])).map((row) => row[0]), [], "these settings have no section");
 });
 
-async function fixture(t) {
+async function fixture(t, prepare = async () => {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-memory-page-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
@@ -49,6 +49,7 @@ async function fixture(t) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await prepare(page);
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -217,5 +218,20 @@ test("DG-197 the notes folder saves as you change it, with no Save (DG-025)", as
   for (let tries = 0; tries < 50 && !(saved = await ask(page, "/api/obsidian")).enabled; tries += 1) await page.waitForTimeout(200);
   assert.deepEqual({ enabled: saved.enabled, vault: saved.vault }, { enabled: true, vault: root });
   assert.deepEqual(await buttons(), [], "no Save at Technical either");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-197 a profile refused the Hindsight and sources details still gets both cards, with empty fields", async (t) => {
+  const refuse = (route) => (route.request().method() === "GET"
+    ? route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "That is the owner's." }) })
+    : route.continue());
+  const { page, errors } = await fixture(t, async (one) => {
+    await one.route("**/api/asks/hindsight", refuse);
+    await one.route("**/api/asks/sources", refuse);
+  });
+  for (const id of ["asks-switch-hindsight", "asks-hindsight-address", "asks-switch-source-sync", "asks-sources-list"])
+    assert.equal(await page.locator(`#lx-page-memory #${id}`).count(), 1, `${id} is drawn`);
+  assert.equal(await page.locator("#asks-hindsight-address").inputValue(), "");
+  assert.equal(await page.locator("#asks-sources-list").inputValue(), "");
   assert.deepEqual(errors, []);
 });
