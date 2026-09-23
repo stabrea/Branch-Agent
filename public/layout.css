@@ -1189,7 +1189,7 @@ body.lx-help .context-panel > .acorn-art {
     background: var(--glass-2);
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx {
     padding: 6px;
   }
