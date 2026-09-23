@@ -750,11 +750,17 @@
   stroke: currentColor;
   stroke-width: 1.7;
 }
+/* Day or night keeps the clear-view eye beside its choices; on a phone the label goes above both. */
 .lx-look-row:has(#lx-mode) {
-  justify-content: flex-start;
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
-.lx-look-row:has(#lx-mode) .lx-look-label {
-  flex: 1 1 auto;
+@media (max-width: 760px) {
+  .lx-look-row:has(#lx-mode) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .lx-look-row:has(#lx-mode) .lx-look-label {
+    grid-column: 1 / -1;
+  }
 }
 /* The calm window already says once when no model is connected; the account row keeps to its name there. */
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {

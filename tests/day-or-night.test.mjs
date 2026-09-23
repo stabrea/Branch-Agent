@@ -31,17 +31,17 @@ async function appearance(t) {
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await openSettings(page, "appearance");
-  await page.locator("#lx-mode .lx-seg-button").first().waitFor();
+  await page.locator("#lx-mode .segmented-option").first().waitFor();
   return { page, errors };
 }
 const control = (page) => page.evaluate(() => {
-  const host = document.getElementById("lx-mode"), row = host.closest(".lx-look-row"), group = host.querySelector(".lx-seg");
+  const host = document.getElementById("lx-mode"), row = host.closest(".lx-look-row"), group = host.querySelector(".seg");
   return {
     label: row.querySelector(".lx-look-label").textContent,
     group: document.getElementById(group.getAttribute("aria-labelledby"))?.textContent,
     shown: [...group.children].map((choice) => choice.textContent),
     pressed: [...group.children].filter((choice) => choice.getAttribute("aria-pressed") === "true").map((choice) => choice.textContent),
-    signsHidden: [...group.querySelectorAll(".lx-seg-sign")].every((sign) => sign.getAttribute("aria-hidden") === "true"),
+    signsHidden: [...group.querySelectorAll(".seg-sign")].every((sign) => sign.getAttribute("aria-hidden") === "true"),
     note: row.querySelector(".lx-look-note")?.textContent,
     noteBelow: row.querySelector(".lx-look-note")?.getBoundingClientRect().top >= group.getBoundingClientRect().bottom,
     /* Across the row, as the sample's `.cn` (grid-column 1 / -1): from the label's left edge, on one line. */
@@ -79,10 +79,10 @@ test("DG-160: Daylight really switches the window, keeps the theme, and is still
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await openSettings(page, "appearance");
-  await page.waitForFunction(() => document.querySelector('#lx-mode .lx-seg-button[aria-pressed="true"]')?.textContent === "☀ Daylight");
+  await page.waitForFunction(() => document.querySelector('#lx-mode .segmented-option[aria-pressed="true"]')?.textContent === "☀ Daylight");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "daylight");
   await page.locator("#lx-mode").getByRole("button", { name: "Follow this computer", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('#lx-mode .lx-seg-button[aria-pressed="true"]')?.textContent === "Follow this computer");
+  await page.waitForFunction(() => document.querySelector('#lx-mode .segmented-option[aria-pressed="true"]')?.textContent === "Follow this computer");
   assert.equal(await page.locator("#appearance-follow").isChecked(), true, "following is the real setting, not only a pressed button");
   assert.deepEqual(errors, []);
 });
@@ -91,7 +91,7 @@ test("DG-160: in French the words change and the signs stay", async (t) => {
   const { page, errors } = await appearance(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => document.documentElement.lang === "fr");
-  await page.waitForFunction(() => document.querySelector("#lx-mode .lx-seg-button:nth-child(2)")?.textContent === "☾ Nuit");
+  await page.waitForFunction(() => document.querySelector("#lx-mode .segmented-option:nth-child(2)")?.textContent === "☾ Nuit");
   const words = await control(page);
   assert.equal(await page.getByRole("group", { name: "Jour ou nuit", exact: true }).count(), 1, "the choices' name follows the language");
   assert.deepEqual({ label: words.label, group: words.group, shown: words.shown, note: words.note },

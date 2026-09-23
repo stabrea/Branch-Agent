@@ -185,20 +185,20 @@ function chooseMode(mode) {
 }
 /** A choice with a sign before its word. The word alone names it, and alone is re-worded when the language changes. */
 function signedChoice(sign, key, english) {
-  const choice = make("button", "lx-seg-button");
+  const choice = make("button", "segmented-option");
   choice.type = "button";
-  const mark = make("span", "lx-seg-sign", sign);
+  const mark = make("span", "seg-sign", sign);
   mark.setAttribute("aria-hidden", "true");
   choice.append(mark, " ", worded("span", "", key, english));
   return choice;
 }
 /** The choices are named by the row's own label (by id), so a language change re-words their name with it. */
 function segmented(labelId, options, isOn, onPick) {
-  const group = make("div", "lx-seg");
+  const group = make("div", "seg");
   group.setAttribute("role", "group");
   group.setAttribute("aria-labelledby", labelId);
   for (const [value, key, english, sign] of options) {
-    const choice = sign ? signedChoice(sign, key, english) : button("lx-seg-button", key, english);
+    const choice = sign ? signedChoice(sign, key, english) : button("segmented-option", key, english);
     choice.setAttribute("aria-pressed", String(isOn(value)));
     choice.addEventListener("click", () => onPick(value));
     group.append(choice);
