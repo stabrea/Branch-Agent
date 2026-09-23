@@ -3022,6 +3022,8 @@ export async function startServer(
   app: Branch,
   options: {
     dataDir: string; port?: number;
+    /** Q45 leaf 0: when the asked-for port is taken, take any free one instead of failing the start. */
+    anyPortIfTaken?: boolean;
     /** The installed program file and folder, when Branch runs from an install rather than source. */
     executable?: string | null; installRoot?: string | null;
     /** Announce this engine to other launches, so a second window joins it instead of starting again. */
@@ -3557,12 +3559,16 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     liveConnections.add(socket);
     socket.once("close", () => liveConnections.delete(socket));
   });
-  await new Promise<void>((resolve, reject) => {
+  const bind = (port: number) => new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(options.port ?? 3210, listen.address, () => {
+    server.listen(port, listen.address, () => {
       server.off("error", reject);
       resolve();
     });
+  });
+  await bind(options.port ?? 3210).catch((error: NodeJS.ErrnoException) => {
+    if (options.anyPortIfTaken && options.port && error?.code === "EADDRINUSE") return bind(0);
+    throw error;
   });
   const address = server.address();
   if (!address || typeof address === "string")

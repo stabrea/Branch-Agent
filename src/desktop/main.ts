@@ -322,16 +322,11 @@ async function start(): Promise<void> {
     branch.issues = integrations.hosted.issues ?? null;
     // Q45 leaf 0: the same port as last time when it is free, so the page's own stored choices survive a restart.
     const portFile = join(app.getPath("userData"), "local-port.json");
-    const serve = (port: number) => startServer(branch, {
-      dataDir, port, presence: "app",
+    const server = await startServer(branch, {
+      dataDir, port: await rememberedPort(portFile), anyPortIfTaken: true, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
       installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
       quit: () => { quitReason = "command"; app.quit(); }, // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
-    });
-    const wanted = await rememberedPort(portFile);
-    const server = await serve(wanted).catch((error: NodeJS.ErrnoException) => {
-      if (wanted && error?.code === "EADDRINUSE") return serve(0); // taken in the moment since it was checked
-      throw error;
     });
     rememberPort(portFile, server.url);
     serverClose = server.close;

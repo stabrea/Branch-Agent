@@ -2,12 +2,14 @@
    stored choices survive a restart and an update. Only temp files and a free-port probe on this computer. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { rememberedPort, rememberPort, portIsFree } from "../dist/desktop/local-port.js";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 
 async function file(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-local-port-"));
@@ -42,4 +44,21 @@ test("the free-port probe says no for a port something is listening on", async (
   } finally {
     await new Promise((resolve) => other.close(resolve));
   }
+});
+
+test("a remembered port taken since it was checked still starts Branch, on another port", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-local-port-server-"));
+  const other = createServer();
+  await new Promise((resolve) => other.listen(0, "127.0.0.1", resolve));
+  const taken = other.address().port;
+  await mkdir(join(root, "workspace"), { recursive: true });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  let server = null;
+  t.after(async () => { await server?.close(); await app.close(); await new Promise((resolve) => other.close(resolve)); await discardTemp(root); });
+  await assert.rejects(startServer(app, { dataDir: join(root, "data"), port: taken }), { code: "EADDRINUSE" },
+    "the control: without the switch a taken port still fails the start");
+  server = await startServer(app, { dataDir: join(root, "data"), port: taken, anyPortIfTaken: true });
+  const port = Number(new URL(server.url).port);
+  assert.notEqual(port, taken);
+  assert.equal((await fetch(`${server.url}/`)).status < 500, true, "the fallback port serves the app");
 });
