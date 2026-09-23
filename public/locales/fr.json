@@ -4795,7 +4795,6 @@
   "terminal.keys.help4": "Dans les paramètres : gauche et droite changent de page, Tab change d'onglet Modèles, Échap ferme",
   "terminal.keys.help5": "Pg préc. et Pg suiv. font défiler la conversation · Ctrl+L redessine tout",
   "terminal.keys.line": "Entrée envoie · Alt+Entrée ajoute une ligne · Haut rappelle · Ctrl+E montre le détail des étapes · Ctrl+C arrête la tâche · Ctrl+D quitte",
-  "terminal.keys.line1": "Entrée envoie · Alt+Entrée ajoute une ligne · Haut rappelle · Ctrl+E montre le détail des étapes · Ctrl+C arrête la tâche · Ctrl+D quitte",
   "terminal.keys.line2": "Échap, puis 1-5 (ou Alt+1 à Alt+5) : Conversation, Boîte de réception, Automatisations, Bibliothèque, Personnaliser · Ctrl+K ou / : trouver n'importe quoi",
   "terminal.keys.move": "Haut et bas déplacent",
   "terminal.keys.number": "1 à 5 : les espaces",

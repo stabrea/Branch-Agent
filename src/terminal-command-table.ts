@@ -184,8 +184,8 @@ export function helpLines(words: Words, mode: FeatureMode = "off"): string[] {
     return `${usage.padEnd(22)} ${words.t(entry.key, entry.english)}`;
   });
   const more = mode === "when-needed" ? [words.t("commands.helpMore", "Send /help all for every command, or /help <question> to ask about Branch.")] : [];
-  // DG-155: Show approved terminal key hints
-  const line1 = words.t("terminal.keys.line1", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves");
+  // The two key lines the approved sample shows under the message box, then every command.
+  const line1 = words.t("terminal.keys.line", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves");
   const line2 = words.t("terminal.keys.line2", "Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize · Ctrl+K or /: find anything");
   return [line1, line2, ...rows, ...more];
 }

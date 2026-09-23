@@ -159,8 +159,8 @@ function footLines(model: ScreenModel, rows: number): string[] {
   const first = model.toast ?? footHint(model);
   const chat = "place" in model.route && model.route.place === "chat";
   if (rows < 30 || !chat || model.focus !== "composer" || model.overlay) return [first];
-  // DG-155: Show two lines of terminal key hints where every named key is implemented
-  const line1 = t(model, "terminal.keys.line1", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves");
+  // Both key lines, each naming only keys this view really answers to (src/terminal-keys.ts).
+  const line1 = t(model, "terminal.keys.line", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves");
   const line2 = t(model, "terminal.keys.line2", "Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize · Ctrl+K or /: find anything");
   return [first, line1, line2];
 }
