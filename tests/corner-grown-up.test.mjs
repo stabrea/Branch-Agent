@@ -144,6 +144,18 @@ const turnOn = (page, body) => page.evaluate((wanted) => fetch("/api/delight/set
   body: JSON.stringify(wanted),
 }).then(() => globalThis.branchDelight.reload()), body);
 
+/** Daylight through the window's own Forest/Daylight choice (the browser's scheme does not choose it). */
+async function daylight(page) {
+  await page.evaluate(() => {
+    const follow = document.getElementById("appearance-follow"), select = document.getElementById("appearance");
+    if (follow.checked) { follow.checked = false; follow.dispatchEvent(new Event("change", { bubbles: true })); }
+    select.value = "daylight";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "daylight");
+  await page.waitForTimeout(100);
+}
+
 /* DG-138: the 3D oak is the sample's, part for part, with its seasons and its shadow. */
 test("3D: the oak is the sample's trunk, branches and crown, dressed for each season, with a shadow on the ground", { timeout: 180000 }, async (t) => {
   const f = await fixture(t);
@@ -227,6 +239,11 @@ for (const [width, scheme] of [[1440, "dark"], [860, "light"], [400, "light"]]) 
     const f = await fixture(t);
     const { page, errors } = await open(f, { width, scheme, everything: width !== 860 });
     await page.emulateMedia({ reducedMotion: "reduce" });
+    const ground = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--surface").trim());
+    if (scheme === "light") {
+      await daylight(page);
+      assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--surface").trim()), ground, "daylight really is on");
+    }
     await turnOn(page, { background: { on: true } });
     await page.evaluate(async () => { await (await import("/delight-background.js")).chooseBuiltIn("oak"); });
     await page.waitForFunction(async (selector) => Boolean((await import("/delight-3d.js")).views.get(document.querySelector(selector))), WALL);
@@ -265,14 +282,7 @@ test("3D: the corner acorn breathes, and the pet is lit again when the theme cha
     return { sky: views.get(document.querySelector("#pet .pet-3d")).light.sky.map((v) => Math.round(v * 255)), surface: getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() };
   });
   const dark = await sky();
-  await page.evaluate(() => {
-    const follow = document.getElementById("appearance-follow"), select = document.getElementById("appearance");
-    if (follow.checked) { follow.checked = false; follow.dispatchEvent(new Event("change", { bubbles: true })); }
-    select.value = "daylight";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await page.waitForFunction(() => document.documentElement.dataset.theme === "daylight");
-  await page.waitForTimeout(100);
+  await daylight(page);
   const light = await sky();
   assert.notEqual(light.surface, dark.surface, "the theme really changed");
   assert.notDeepEqual(light.sky, dark.sky, "the pet's sky light is the new theme's");
