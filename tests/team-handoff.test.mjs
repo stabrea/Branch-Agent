@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 import { TeamTasks, StaleTeamTaskClaimError } from "../dist/team-tasks.js";
 import { TeamHandoffs, TeamHandoffRefusedError } from "../dist/team-handoff.js";
 
@@ -39,7 +40,7 @@ async function fixture(t) {
   const household = { owner, id: `profile:${sam.id}` };
   const reopen = async () => { await state.app.close(); state.app = await open(root); return state.app; };
   const row = (store = state.app.store) => new TeamTasks(store).get(scope, task.taskId);
-  return { state, owner, team, scope, tasks, claim, planner, reviewer, household, reopen, row };
+  return { state, owner, team, scope, tasks, claim, planner, reviewer, household, reopen, row, root };
 }
 
 test("the claimant stays responsible until acceptance, the recipient cannot write before it, and the waiting reason is readable", async (t) => {
@@ -187,4 +188,37 @@ test("an offer made before the offerer finished cannot be accepted afterwards", 
   assert.equal(row().state, "completed");
   assert.equal(row().claimant, claim.claimant);
   assert.notEqual(handoffs.get(planner.owner, offer.offerId).state, "accepted");
+});
+
+test("over HTTP the recipient is whoever signed in: a body naming someone is refused, the window cannot answer a profile's offer, and the profile can", async (t) => {
+  const { state, owner, team, claim, household, row, root } = await fixture(t);
+  const app = state.app;
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const handoffs = new TeamHandoffs(app.store);
+  const offer = handoffs.offer(claim, household.id, "Sam signs off the budget");
+  const call = async (method, suffix, body, key = server.token) => {
+    const response = await fetch(`${server.url}/api/teams/${team.id}/handoffs${suffix}`, { method, headers: { authorization: "Bearer " + key, origin: server.url, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  };
+  const before = row();
+  for (const extra of [{ actor: household.id }, { id: household.id }, { owner }, { source: household.id }])
+    assert.equal((await call("POST", `/${offer.offerId}/accept`, extra)).status, 400, `a body carrying ${Object.keys(extra)[0]} is refused`);
+  const asWindow = await call("POST", `/${offer.offerId}/accept`, {});
+  assert.equal(asWindow.status, 409);
+  assert.match(asWindow.body.error, /addressed to someone else/);
+  assert.deepEqual((await call("GET", "")).body.offers, [], "the window sees no offers addressed to it");
+  assert.equal((await call("POST", `/${randomUUID()}/accept`, {})).status, 404);
+  const key = app.sessionTokens.create(owner, { name: "script", scope: "run", minutes: 5 });
+  assert.notEqual((await call("POST", `/${offer.offerId}/accept`, {}, key.token)).status, 200, "a short-lived key is not the recipient");
+  assert.deepEqual(row(), before);
+  assert.equal(handoffs.get(owner, offer.offerId).state, "offered");
+  app.store.profiles.switch({ profileId: household.id.slice("profile:".length), pin: "1234" });
+  t.after(() => { try { app.store.profiles.switch({ profileId: null }); } catch { /* already closed */ } });
+  assert.deepEqual((await call("GET", "")).body.offers.map((o) => o.offerId), [offer.offerId]);
+  const accepted = await call("POST", `/${offer.offerId}/accept`, {});
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.deepEqual(accepted.body, { offerId: offer.offerId, taskId: claim.taskId, state: "accepted", generation: claim.generation + 1 });
+  assert.equal(row().claimant, household.id);
+  assert.equal((await call("POST", `/${offer.offerId}/accept`, {})).status, 409, "a second accept loses");
 });
