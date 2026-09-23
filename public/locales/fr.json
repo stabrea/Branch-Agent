@@ -3954,6 +3954,8 @@
   "savings.chart.input": "Envoyé",
   "savings.chart.output": "Réponse",
   "savings.chart.summary": "{rounds} tours, {input} jetons en entrée, {cached} servis par le cache, {folds} résumés.",
+  "savings.chart.summary-some": "{rounds} tours, {input} jetons en entrée, au moins {cached} (non signalés pour {unknown} des tours), {folds} résumés.",
+  "savings.chart.summary-unreported": "{rounds} tours, {input} jetons en entrée, non signalé, {folds} résumés.",
   "savings.chart.title": "Chaque tour",
   "savings.chart.towards": "Le dernier tour était à {percent} % du prochain résumé.",
   "savings.difficulty.lead": "Un petit modèle dit si une nouvelle tâche est facile ou difficile, et la réponse choisit la connexion.",
