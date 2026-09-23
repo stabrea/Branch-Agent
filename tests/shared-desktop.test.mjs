@@ -47,8 +47,8 @@ async function fixture(t) {
 
 test("Xvfb, x11vnc and the container's docker run line are built exactly, and nothing is ever pulled", () => {
   assert.deepEqual(xvfbArgv(), [":1", "-screen", "0", "1280x800x24", "-nolisten", "tcp"]);
-  assert.deepEqual(x11vncArgv("s3cr3t"), ["-display", ":1", "-rfbport", "5900", "-passwd", "s3cr3t", "-forever", "-shared", "-quiet"]);
-  const argv = dockerRunArgv("branch-linux-desktop:latest", 15900, "s3cr3t");
+  assert.deepEqual(x11vncArgv(), ["-display", ":1", "-rfbport", "5900", "-passwdfile", "rm:/tmp/vncpw", "-forever", "-shared", "-quiet"]);
+  const argv = dockerRunArgv("branch-linux-desktop:latest");
   assert.ok(argv.includes("--pull=never"), "the image is never pulled automatically");
   assert.ok(argv.includes("--network"), "network isolation is enforced");
   assert.ok(argv.includes("none"), "--network none for isolation");
@@ -57,7 +57,7 @@ test("Xvfb, x11vnc and the container's docker run line are built exactly, and no
   assert.ok(argv.includes("--label"), "labels are set");
   assert.ok(argv.includes("branch.shared-desktop=1"), "label marks shared desktop containers");
   assert.ok(argv.includes("--cap-drop"));
-  assert.deepEqual(argv.slice(argv.indexOf("-p"), argv.indexOf("-p") + 2), ["-p", "127.0.0.1:15900:5900"], "the VNC port stays on this computer only");
+  assert.equal(argv.indexOf("-p"), -1, "no -p port mapping with --network none");
   assert.equal(argv.at(-4), "branch-linux-desktop:latest");
   assert.equal(argv.at(-3), "sh");
 });
@@ -115,11 +115,27 @@ function sandboxFixture(app) {
   const banner = { shown: 0, hidden: 0, async show() { this.shown += 1; }, async hide() { this.hidden += 1; } };
   const desktop = new LinuxDesktopSandbox(app.store, { banner });
   desktop.runner = runner;
-  desktop.port = async () => 15900;
+  desktop.feeder = async () => {}; // mock password feeder
+  desktop.spawnerFn = () => ({
+    stdin: { write: () => {}, end: () => {} },
+    stdout: { on: () => {} },
+    stderr: { on: () => {} },
+    on: () => {},
+    kill: () => {},
+    pid: 12345,
+  });
   desktop.password = () => "test-pass";
   desktop.pauseMs = 1;
   let probes = 0;
-  desktop.probe = async () => { probes += 1; return probes >= 2; };
+  desktop.probe = async (containerId, runner) => { probes += 1; return probes >= 2; };
+  // Mock listener creation to return a fake server
+  desktop.createListener = async (containerId, tunnels) => {
+    const { createServer } = await import("node:net");
+    return new Promise((resolve) => {
+      const server = createServer();
+      server.listen(0, "127.0.0.1", () => resolve(server));
+    });
+  };
   return { desktop, calls };
 }
 
@@ -127,14 +143,18 @@ test("starting the shared desktop runs Xvfb/x11vnc in a container and hands back
   const { app } = await fixture(t);
   const { desktop, calls } = sandboxFixture(app);
   const info = await desktop.start("local");
-  assert.deepEqual(info, { host: "127.0.0.1", port: 15900, display, password: "test-pass" });
+  assert.equal(info.host, "127.0.0.1", "host is localhost");
+  assert(info.port > 0, "port is a valid positive number");
+  assert.equal(info.password, "test-pass", "password is test-pass");
   const run = calls.find((call) => call.args[0] === "run");
   assert.ok(run, "docker run was called");
   assert.ok(run.args.join(" ").includes("Xvfb"), "Xvfb draws the desktop");
   assert.ok(run.args.join(" ").includes("x11vnc"), "x11vnc serves it over VNC");
   // Starting again while it is already up hands back the same session instead of another container.
   const again = await desktop.start("local");
-  assert.deepEqual(again, info);
+  assert.equal(again.host, info.host, "same host");
+  assert.equal(again.port, info.port, "same port");
+  assert.equal(again.password, info.password, "same password");
   assert.equal(calls.filter((call) => call.args[0] === "run").length, 1);
 });
 

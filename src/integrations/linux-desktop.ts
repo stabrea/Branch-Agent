@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { createServer, connect } from 'node:net';
+import { execFile, spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createServer, connect, Server as NetServer } from 'node:net';
 import { z } from 'zod';
 import { FeatureModeSchema, optionalFields, sentFields } from '../feature-switches.js';
 import { lockdownActive, lockdownOverrides, lockdownToolRefusalText, onLockdownChange } from '../lockdown.js';
@@ -65,9 +65,9 @@ export const vncPort = 5900;
 export function xvfbArgv(): string[] {
   return [display, '-screen', '0', '1280x800x24', '-nolisten', 'tcp'];
 }
-/** x11vnc's argument list: the same display, a fresh password each session, and no other listener. */
-export function x11vncArgv(password: string): string[] {
-  return ['-display', display, '-rfbport', String(vncPort), '-passwd', password, '-forever', '-shared', '-quiet'];
+/** x11vnc's argument list: the same display, password file, and no other listener. */
+export function x11vncArgv(): string[] {
+  return ['-display', display, '-rfbport', String(vncPort), '-passwdfile', 'rm:/tmp/vncpw', '-forever', '-shared', '-quiet'];
 }
 export type SharedDesktopAction =
   | { type: 'open'; app: string }
@@ -83,14 +83,13 @@ export function xdotoolArgv(action: SharedDesktopAction): string[] {
   return ['key', '--clearmodifiers', action.chord];
 }
 /** The exact `docker run` line: nothing of this computer is shared in, and the VNC port stays local. */
-export function dockerRunArgv(image: string, hostPort: number, password: string): string[] {
-  const inner = `Xvfb ${xvfbArgv().join(' ')} & sleep 1 && x11vnc ${x11vncArgv(password).join(' ')}`;
+export function dockerRunArgv(image: string): string[] {
+  const inner = `Xvfb ${xvfbArgv().join(' ')} & while [ ! -s /tmp/vncpw ]; do sleep 0.2; done; exec x11vnc ${x11vncArgv().join(' ')}`;
   return ['run', '-d', '--rm', '--init', '--pull=never',
     '--network', 'none',
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--pids-limit', '256', '--label', 'branch.shared-desktop=1',
     '--memory', '1g', '--cpus', '1',
-    '-p', `127.0.0.1:${hostPort}:${vncPort}`,
     image, 'sh', '-c', inner];
 }
 /** Runs one xdotool action inside the running container, against the desktop's own display. */
@@ -116,35 +115,46 @@ export const runProgram: ProgramRunner = (file, args, timeoutMs, signal) => new 
   execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, shell: false, signal },
     (error, stdout) => (error ? reject(error) : resolve(String(stdout))));
 });
-/** True once something answers a TCP connection on the port (the VNC server has come up). */
-export type Prober = (port: number) => Promise<boolean>;
-export const probeTcp: Prober = (port) => new Promise((resolve) => {
-  const socket = connect({ host: '127.0.0.1', port, timeout: 1000 });
-  const done = (ok: boolean) => { socket.destroy(); resolve(ok); };
-  socket.once('connect', () => done(true));
-  socket.once('timeout', () => done(false));
-  socket.once('error', () => done(false));
-});
-export function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address() as { port: number };
-      server.close(() => resolve(port));
-    });
+/** Writes input via stdin to a command. */
+export type Feeder = (file: string, args: string[], input: string, timeoutMs: number) => Promise<void>;
+export const feed: Feeder = (file, args, input, timeoutMs) => new Promise((resolve, reject) => {
+  const child = spawn(file, args, { shell: false, timeout: timeoutMs, stdio: ['pipe', 'ignore', 'ignore'] });
+  const timer = setTimeout(() => { child.kill(); reject(new Error('feed timeout')); }, timeoutMs);
+  child.stdin!.write(input, (err) => {
+    if (err) return reject(err);
+    child.stdin!.end();
   });
-}
+  child.on('exit', (code) => {
+    clearTimeout(timer);
+    if (code !== 0) return reject(new Error(`feed exit code ${code}`));
+    resolve();
+  });
+  child.on('error', (err) => { clearTimeout(timer); reject(err); });
+});
+/** Spawns a child process and returns it for manual management. */
+export type Spawner = (file: string, args: string[]) => ChildProcessWithoutNullStreams;
+export const spawner: Spawner = (file, args) => spawn(file, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+/** True once the VNC server inside the container answers. */
+export type Prober = (containerId: string, runner: ProgramRunner) => Promise<boolean>;
+export const probeTcp: Prober = async (containerId, runner) => {
+  try {
+    await runner('docker', ['exec', containerId, 'sh', '-c', 'timeout 1 sh -c "</dev/tcp/127.0.0.1/5900" 2>/dev/null'], 2000);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
-export interface SharedDesktopInfo { host: string; port: number; display: string; password: string }
+export interface SharedDesktopInfo { host: string; port: number; password: string }
 /** What the Settings card shows. Never the VNC password: reading the card is only a look. */
 export interface SharedDesktopStatus extends LinuxDesktopSettings { running: boolean; control: 'agent' | 'user' | 'none' }
-interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController }
+type Tunnel = { socket: any; child: ChildProcessWithoutNullStreams };
+interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController; listener: NetServer; tunnels: Set<Tunnel> }
 /** The notice with the "Take over" button on it, or a stand-in for one. */
 export interface TakeOverNotice { show(onTakeOver: () => void): Promise<void>; hide(): Promise<void> }
 
 const infoOf = (session: Session): SharedDesktopInfo =>
-  ({ host: session.host, port: session.port, display, password: session.password });
+  ({ host: session.host, port: session.port, password: session.password });
 
 /**
  * One shared Linux desktop per owner, started on first use. Whoever holds `control` is the only
@@ -157,11 +167,15 @@ const infoOf = (session: Session): SharedDesktopInfo =>
  * Starting takes a while, so it is tracked: two starts at once share one, and a stop (or the app
  * closing) while one is under way calls it off and still takes its container down.
  */
+export type ListenerCreator = (containerId: string, tunnels: Set<Tunnel>) => Promise<NetServer>;
+
 export class LinuxDesktopSandbox {
   runner: ProgramRunner = runProgram;
+  feeder: Feeder = feed;
+  spawnerFn: Spawner = spawner;
   probe: Prober = probeTcp;
-  port: () => Promise<number> = freePort;
-  password: () => string = () => randomBytes(6).toString('hex');
+  createListener: ListenerCreator;
+  password: () => string = () => randomBytes(6).toString('base64url');
   waitMs = 30_000;
   pauseMs = 300;
   banner: TakeOverNotice;
@@ -174,6 +188,7 @@ export class LinuxDesktopSandbox {
   private readonly stopListening: () => void;
   constructor(private readonly store: Pick<Store, 'get' | 'save' | 'event'>, options: { banner?: TakeOverNotice } = {}) {
     this.banner = options.banner ?? new TakeOverBanner();
+    this.createListener = this.createListenerImpl.bind(this);
     // Lockdown takes the desktop down at once, rather than at the assistant's next action.
     this.stopListening = onLockdownChange((changed, owner, on) => {
       if (on && changed === this.store) void this.end(owner);
@@ -243,35 +258,77 @@ export class LinuxDesktopSandbox {
         await this.runner('docker', dockerStopArgv(staleId), 5_000).catch(() => undefined);
       }
     } catch { /* best-effort cleanup */ }
-    const port = await this.port();
     const password = this.password();
     let id = '';
-    try { id = (await this.runner('docker', dockerRunArgv(settings.image, port, password), 30_000)).trim().split('\n').at(-1) ?? ''; }
+    try { id = (await this.runner('docker', dockerRunArgv(settings.image), 30_000)).trim().split('\n').at(-1) ?? ''; }
     catch { throw new Error(sandboxRefusal('Docker could not start the container.')); }
     if (!/^[a-f0-9]{12,64}$/.test(id)) throw new Error(sandboxRefusal('Docker did not say which container it started.'));
     // The container exists from here on, so every way out that is not a running desktop takes it down.
-    try { await this.answering(owner, epoch, port); }
-    catch (error) {
+    let listener: NetServer | undefined;
+    const tunnels = new Set<Tunnel>();
+    try {
+      // Write the password via stdin to the container
+      await this.feeder('docker', ['exec', '-i', id, 'sh', '-c', 'umask 077; cat > /tmp/vncpw'], password, 5_000);
+      // Wait for the VNC server to answer inside the container
+      await this.answering(owner, epoch, id);
+      // Create a listener on loopback:0
+      listener = await this.createListener(id, tunnels);
+    } catch (error) {
+      if (listener) listener.close();
+      for (const tunnel of tunnels) {
+        tunnel.socket.destroy();
+        tunnel.child.kill();
+      }
       await this.runner('docker', dockerStopArgv(id), 15_000).catch(() => undefined);
       throw error;
     }
-    const session: Session = { id, host: '127.0.0.1', port, password, control: 'agent', inFlightAbort: new AbortController() };
+    const addr = listener.address() as { address: string; port: number };
+    const session: Session = {
+      id, host: addr.address, port: addr.port, password, control: 'agent', inFlightAbort: new AbortController(),
+      listener, tunnels,
+    };
     this.sessions.set(owner, session);
-    this.log(owner, 'shared-desktop.started', { port });
+    this.log(owner, 'shared-desktop.started', { port: addr.port });
     await this.showNotice(owner);
     return session;
   }
-  /** Waits for the VNC server to answer, giving up the moment a stop calls the start off. */
-  private async answering(owner: string, epoch: number, port: number): Promise<void> {
+  /** Waits for the VNC server to answer inside the container, giving up the moment a stop calls the start off. */
+  private async answering(owner: string, epoch: number, containerId: string): Promise<void> {
     for (const until = Date.now() + this.waitMs; Date.now() < until;) {
       if (this.calledOff(owner, epoch)) throw new Error(stoppedWhileStartingMessage);
-      if (await this.probe(port)) {
+      if (await this.probe(containerId, this.runner)) {
         if (this.calledOff(owner, epoch)) throw new Error(stoppedWhileStartingMessage);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, this.pauseMs));
     }
     throw new Error(sandboxRefusal(`the desktop did not answer within ${Math.round(this.waitMs / 1000)} seconds.`));
+  }
+  /** Creates a listener on 127.0.0.1:0 and spawns socat tunnels for each connection. */
+  private async createListenerImpl(containerId: string, tunnels: Set<Tunnel>): Promise<NetServer> {
+    return new Promise((resolve, reject) => {
+      const listener = createServer((socket) => {
+        const child = this.spawnerFn('docker', ['exec', '-i', containerId, 'socat', 'STDIO', 'TCP:127.0.0.1:5900']);
+        const tunnel = { socket, child };
+        tunnels.add(tunnel);
+
+        socket.on('data', (data) => child.stdin?.write(data));
+        child.stdout?.on('data', (data) => socket.write(data));
+        child.stderr?.on('data', () => {}); // ignore stderr
+
+        const cleanup = () => {
+          child.kill();
+          socket.destroy();
+          tunnels.delete(tunnel);
+        };
+        socket.on('end', cleanup);
+        socket.on('error', cleanup);
+        child.on('exit', cleanup);
+        child.on('error', cleanup);
+      });
+      listener.once('error', reject);
+      listener.listen(0, '127.0.0.1', () => resolve(listener));
+    });
   }
   /** Best-effort: a computer with nowhere to show a window (a headless server) still shares the
    * desktop over VNC, and the owner can still take it over from the Settings card. */
@@ -303,6 +360,12 @@ export class LinuxDesktopSandbox {
     if (!session) throw new Error(notRunningMessage);
     // Abort any in-flight action and kill xdotool inside the container
     session.inFlightAbort.abort();
+    // Close all open tunnels
+    for (const tunnel of session.tunnels) {
+      tunnel.socket.destroy();
+      tunnel.child.kill();
+    }
+    session.tunnels.clear();
     await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
     session.control = 'user';
     this.log(owner, 'shared-desktop.taken-over', {});
@@ -314,6 +377,8 @@ export class LinuxDesktopSandbox {
     if (!session) throw new Error(notRunningMessage);
     if (session.control === 'agent') return;
     session.control = 'agent';
+    // Create a new AbortController since the old one was aborted on takeOver
+    session.inFlightAbort = new AbortController();
     this.log(owner, 'shared-desktop.handed-back', {});
     await this.showNotice(owner); // so the owner can take it over again from the screen
   }
@@ -357,6 +422,13 @@ export class LinuxDesktopSandbox {
     if (!session) return;
     this.sessions.delete(owner);
     await this.banner.hide().catch(() => undefined);
+    // Close all tunnels and the listener
+    for (const tunnel of session.tunnels) {
+      tunnel.socket.destroy();
+      tunnel.child.kill();
+    }
+    session.tunnels.clear();
+    if (session.listener) session.listener.close();
     await this.runner('docker', dockerStopArgv(session.id), 15_000).catch(() => undefined);
     this.log(owner, 'shared-desktop.stopped', {});
   }
