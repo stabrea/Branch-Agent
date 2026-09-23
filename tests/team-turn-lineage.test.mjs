@@ -180,6 +180,12 @@ test("a crash before the team's turn did anything is reconciled as failed after 
   const after = scripted();
   const app = await reopen(after);
   assert.equal(app.store.run(task.parent_run_id).status, "interrupted");
+  // A member run still going (another process, say) means the claimant may be alive: reconcile leaves the task alone.
+  const member = app.store.createRun(app.runtime.owner, "member");
+  app.store.event(member.id, "run.started", { parentRunId: task.parent_run_id });
+  assert.equal(app.teams.reconcile(task.task_id).state, "claimed");
+  assert.equal(row(app, requestId).state, "claimed");
+  app.store.finish(member.id, "interrupted", "stopped");
   const report = app.teams.reconcile(task.task_id);
   assert.equal(report.state, "failed");
   assert.deepEqual(report.effects, []);

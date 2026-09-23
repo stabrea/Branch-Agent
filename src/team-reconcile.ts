@@ -38,30 +38,36 @@ export function runStopped(status: RunStatus | undefined): boolean {
   return status === undefined || stoppedStatuses.has(status);
 }
 
-/** Every tool call started by the parent run and by every run started under it, however deep. */
-export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
-  const effects: TurnEffect[] = [], seen = new Set<string>(), queue = [parentRunId];
+/** The parent run and every run started under it, however deep, in the order they were found. */
+export function lineageRuns(store: Store, parentRunId: string): string[] {
+  const found: string[] = [], queue = [parentRunId];
   while (queue.length) {
     const runId = queue.shift()!;
-    if (seen.has(runId)) continue;
-    seen.add(runId);
-    effects.push(...runEffects(store, runId));
+    if (found.includes(runId)) continue;
+    found.push(runId);
     const children = store.sqlite.prepare("SELECT run_id FROM events WHERE kind='run.started' AND json_extract(data,'$.parentRunId')=?").all(runId);
     queue.push(...children.map((row) => String(row.run_id)));
   }
-  return effects;
+  return found;
 }
 
+/** Every tool call started by the parent run and by every run started under it. */
+export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
+  return lineageRuns(store, parentRunId).flatMap((runId) => runEffects(store, runId));
+}
+
+/** A run's tool calls; an ending is matched to the latest unmatched start with its id, so a reused id is not lost. */
 function runEffects(store: Store, runId: string): TurnEffect[] {
   const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled') ORDER BY id").all(runId);
-  const effects = new Map<string, TurnEffect>();
+  const effects: TurnEffect[] = [];
   rows.forEach((row, index) => {
     const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown };
     const toolCallId = data.id == null ? `#${index}` : String(data.id);
-    if (row.kind === "tool.started") effects.set(toolCallId, { runId, toolCallId, name: String(data.name ?? ""), outcome: "unknown" });
-    else if (effects.has(toolCallId)) effects.get(toolCallId)!.outcome = row.kind === "tool.completed" ? "completed" : "failed";
+    if (row.kind === "tool.started") { effects.push({ runId, toolCallId, name: String(data.name ?? ""), outcome: "unknown" }); return; }
+    const started = effects.findLast((effect) => effect.toolCallId === toolCallId && effect.outcome === "unknown");
+    if (started) started.outcome = row.kind === "tool.completed" ? "completed" : "failed";
   });
-  return [...effects.values()];
+  return effects;
 }
 
 /**
@@ -100,7 +106,9 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   if (task.state !== "claimed") return report(task.state, "This task is already settled.");
   if (working(store).has(taskId)) return report("claimed", "This task is still running here.");
   const parent = task.parentRunId ? store.run(task.parentRunId) : undefined;
-  if (parent && parent.status === "running") return report("claimed", "Its run is still going.");
+  // Another process may still be working on it (a member run is going): it is left to that claimant.
+  if (task.parentRunId && lineageRuns(store, task.parentRunId).some((runId) => store.run(runId)?.status === "running"))
+    return report("claimed", "Its run, or a member's, is still going.");
   const claim = tasks.standingClaim(scope, taskId);
   if (!claim) return report(tasks.get(scope, taskId)!.state, "This task changed while it was being checked.");
   const recorded = task.result as TeamRunResult | null;
