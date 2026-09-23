@@ -12,6 +12,8 @@ import { Store } from "../dist/store.js";
 import { unixLayout } from "../dist/install/unix-install.js";
 import { unixInstall } from "../dist/install/unix-install-cli.js";
 import { databaseName } from "../dist/install/layout.js";
+import { windowsInstall } from "../dist/install/windows-install-cli.js";
+import { stagedEngine } from "../dist/never-break/canary.js";
 
 /**
  * FQ-operations.distribution: a custom distribution's branding and preset model connections
@@ -136,4 +138,58 @@ test("--assistant and --distribution together both run, and both skip together o
   const source = await fakeApp(join(root, "v1"));
   await unixInstall(["--source", source, "--assistant", assistant, "--distribution", distribution], layout, () => {}, runBranch);
   assert.deepEqual(ran, ["import-agent", "apply-distribution"]);
+});
+
+async function fakeWindowsApp(root, version) {
+  const app = join(root, "unpacked");
+  await mkdir(join(app, "resources", "app", "dist", "install"), { recursive: true });
+  await writeFile(join(app, "Branch Agent.exe"), "program");
+  await writeFile(join(app, "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version }));
+  await writeFile(join(app, "resources", "app", "dist", "cli.js"), "");
+  return app;
+}
+
+/**
+ * FQ-operations.distribution (Windows installer): unix-install-cli.ts's `--distribution` had no
+ * Windows counterpart. windows-install-cli.ts's `windowsInstall` now wires it the same way, running
+ * the just-installed app's own `dist/cli.js` as plain Node (Windows has no `branch` command on PATH).
+ * Every Windows call that would touch the real registry or run a real shortcut script is stood in for.
+ */
+test("a custom distribution on Windows: a distribution file beside the installer is brought in on a fresh install only", async (t) => {
+  const root = await scratch(t);
+  const distribution = join(root, "team.branch-distribution.json");
+  await writeFile(distribution, JSON.stringify({ format: "branch-agent-distribution", version: 1, branding: { name: "Acme Assistant" } }));
+  const source = await fakeWindowsApp(join(root, "v1"), "1.0.0");
+  const installRoot = join(root, "install");
+  const userDataDir = join(root, "data");
+  const env = { APPDATA: join(root, "AppData", "Roaming"), USERPROFILE: root, LOCALAPPDATA: join(root, "AppData", "Local") };
+  const args = ["--source", source, "--install-root", installRoot, "--user-data", userDataDir, "--uninstall-hive", "HKCU\\BranchDistTest"];
+  const calls = [];
+  const installDeps = {
+    run: async (file, cmdArgs) => { calls.push([file, cmdArgs]); return ""; },
+    quit: async () => ({ wasRunning: false, stopped: false }),
+    locked: async () => false,
+    stampShortcuts: async () => {},
+  };
+  const ran = [];
+  const runDist = async (executable, cliArgs) => { ran.push([executable, ...cliArgs]); };
+
+  await assert.rejects(windowsInstall([...args, "--distribution", join(root, "missing")], env, () => {}, installDeps, runDist),
+    /was not found, so nothing was installed/);
+  assert.equal(calls.length, 0, "a wrong file stops the install before anything real is touched");
+
+  let lines = [];
+  await windowsInstall([...args, "--distribution", distribution], env, (line) => lines.push(line), installDeps, runDist);
+  const { executable, script } = stagedEngine(installRoot, "win32", "Branch Agent.exe");
+  assert.deepEqual(ran, [[executable, script, "apply-distribution", distribution]]);
+  assert.match(lines.join("\n"), /Branch Agent is installed in .*The distribution in .* was brought in/s);
+  assert.ok(calls.some(([file]) => file.includes("reg.exe")), "the Add/Remove Programs entry still went through the stood-in reg.exe");
+
+  // A database already at the target data folder means this computer was already set up.
+  await mkdir(join(userDataDir, "state"), { recursive: true });
+  await writeFile(join(userDataDir, "state", databaseName), "somebody's work");
+  ran.length = 0; lines = [];
+  await windowsInstall([...args, "--distribution", distribution], env, (line) => lines.push(line), installDeps, runDist);
+  assert.equal(ran.length, 0, "a distribution that is already set up on this computer is never replayed");
+  assert.match(lines.join("\n"), /already set up on this computer, so the distribution file was not brought in/);
 });
