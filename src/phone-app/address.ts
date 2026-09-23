@@ -88,9 +88,6 @@ export async function filterTailnetAddresses(
 }
 
 /** Everything the door may listen on here, best first. */
-export async function candidateAddresses(
-  platform: NodeJS.Platform = process.platform, run: Runner = runQuietly, tailscale?: ProbeTailscale,
-): Promise<string[]> {
-  const candidates = doorAddresses(namedAddresses(), await defaultInterface(platform, run));
-  return filterTailnetAddresses(candidates, tailscale);
+export async function candidateAddresses(platform: NodeJS.Platform = process.platform, run: Runner = runQuietly): Promise<string[]> {
+  return doorAddresses(namedAddresses(), await defaultInterface(platform, run));
 }

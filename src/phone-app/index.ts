@@ -3,8 +3,8 @@ import { z } from "zod";
 import { qrRows } from "../deployment-api.js";
 import { lockdownActive } from "../lockdown.js";
 import type { Store } from "../store.js";
-import { candidateAddresses, type Runner, runQuietly } from "./address.js";
-import { PhoneDoor, type DoorView } from "./door.js";
+import { candidateAddresses, filterTailnetAddresses, type Runner, runQuietly } from "./address.js";
+import { assertDoorAddress, PhoneDoor, type DoorView } from "./door.js";
 import { appRoot, damagedReason, findPhoneApp, readCheckedApp } from "./file.js";
 import { loadDictionaries } from "./page.js";
 import type { ProbeTailscale } from "../remote/tailscale.js";
@@ -43,8 +43,10 @@ export class PhoneApp {
   readonly door: PhoneDoor;
   constructor(private readonly deps: PhoneAppDeps = {}) { this.door = new PhoneDoor(deps.now); }
   private root(): string { return this.deps.root ?? appRoot(); }
-  addresses(): Promise<string[]> {
-    return this.deps.addresses?.() ?? candidateAddresses(this.deps.platform ?? process.platform, this.deps.run ?? runQuietly, this.deps.tailscale);
+  /** Only a 100.64 address Tailscale reports as this computer's own counts, whichever way the list was read. */
+  async addresses(): Promise<string[]> {
+    const found = await (this.deps.addresses?.() ?? candidateAddresses(this.deps.platform ?? process.platform, this.deps.run ?? runQuietly));
+    return filterTailnetAddresses(found, this.deps.tailscale);
   }
   /** What the card shows: whether the app is here, where it can be offered, and the live code. */
   async overview(): Promise<Record<string, unknown>> {
@@ -66,17 +68,9 @@ export class PhoneApp {
     const address = asked.address ?? addresses[0];
     if (!address) throw new PhoneAppRefusal(409, noAddressRefusal);
     const dictionaries = await loadDictionaries(join(this.root(), "public", "locales"));
-    try {
-      const startInput: Parameters<typeof this.door.start>[0] = {
-        file: found.file, bytes, address, dictionaries,
-        ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}),
-      };
-      if (this.deps.tailscale) startInput.tailscale = this.deps.tailscale;
-      return await this.door.start(startInput);
-    } catch (error) {
-      if (error instanceof PhoneAppRefusal) throw error;
-      throw new PhoneAppRefusal(409, error instanceof Error ? error.message : String(error));
-    }
+    // Tailscale is asked again at the door: it may have stopped since the list was read.
+    try { await assertDoorAddress(address, this.deps.tailscale); } catch { throw new PhoneAppRefusal(409, noAddressRefusal); }
+    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}), ...(this.deps.tailscale ? { tailscale: this.deps.tailscale } : {}) });
   }
   stop(): void { this.door.stop(); }
 }
