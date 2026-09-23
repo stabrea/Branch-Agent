@@ -329,6 +329,10 @@ function applyFocus(on, save = true) {
   document.body.dataset.focusView = focusAllowed && on ? "on" : "off";
   markConversation();
 }
+/* Q45: signing in, or switching person, can bring another kept Focus view; show it without saving it again. */
+document.addEventListener("branch-ui-prefs", (event) => {
+  if (event.detail?.keys?.includes(FOCUS_KEY)) applyFocus(keptChoice(FOCUS_KEY) === "1", false);
+});
 globalThis.branchFocusView = (on) => {
   if (!focusAllowed) { toast(say("flowsBoards.focus.off", "Focus view is switched off in Settings › Appearance.")); return; }
   applyFocus(on ?? !focusOn);

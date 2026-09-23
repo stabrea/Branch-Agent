@@ -1688,6 +1688,8 @@ $("login-form").addEventListener("submit", async (event) => {
     // Signing back in is what unlocks the secrets locker again.
     await api("lock/unlock", {}).catch(() => undefined);
     $("token").value = "";
+    /* Q45: a plain browser tab could not read the window's kept choices before signing in; now it can. */
+    globalThis.branchUiPrefsReady?.();
     /* Wave 7: the voice and model-routing cards can only read their settings once you are in. */
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */

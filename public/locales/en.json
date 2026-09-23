@@ -2057,6 +2057,7 @@
   "flowsBoards.focus.off": "Focus view is switched off in Settings › Appearance.",
   "flowsBoards.focus.onlyAnswers": "Only what I asked and the answers",
   "flowsBoards.focus.purpose": "Show only what you asked and the final answers, with the steps in between folded away. /focus switches it from the message box.",
+  "prefs.unsaved": "That choice could not be saved with your workspace. It stays in this window for now.",
   "flowsBoards.focus.showAll": "Show every step",
   "flowsBoards.focus.title": "Focus view",
   "flowsBoards.installs.anyway": "Approve without the check",

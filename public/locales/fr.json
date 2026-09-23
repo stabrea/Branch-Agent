@@ -2058,6 +2058,7 @@
   "flowsBoards.focus.off": "La vue concentrée est désactivée dans Réglages › Apparence.",
   "flowsBoards.focus.onlyAnswers": "Seulement mes demandes et les réponses",
   "flowsBoards.focus.purpose": "N’afficher que vos demandes et les réponses finales, les étapes intermédiaires repliées. /focus la bascule depuis la zone de message.",
+  "prefs.unsaved": "Ce choix n’a pas pu être enregistré avec votre espace de travail. Il reste dans cette fenêtre pour l’instant.",
   "flowsBoards.focus.showAll": "Afficher chaque étape",
   "flowsBoards.focus.title": "Vue concentrée",
   "flowsBoards.installs.anyway": "Approuver sans la vérification",

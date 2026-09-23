@@ -2,19 +2,35 @@
  * Q45: the window's own choices, kept by the engine in the data folder instead of the page's browser
  * storage. Browser storage belongs to the page's address, and the desktop app picks a new port each
  * time it starts, so a choice kept only there was forgotten after an update. Here it is saved with
- * the workspace, under whoever the window is for (`runtime.owner`, the same scope `/api/look` uses).
+ * the workspace, under whoever the window is for (`profiles.scope()`: the owner's name, or a household
+ * person's own), so switching person never shows or changes somebody else's choices.
  *
  * Only the fields named below are kept, each checked; nothing else from the page is ever stored.
  * A change names only the fields it changes, so a window that has been open a while never puts back
- * an old value of a field it did not touch. The one-time import of what an older version left in
- * browser storage only fills fields that are still empty: what the engine already holds always wins.
+ * an old value of a field it did not touch. The two lists (tips already shown, questions already
+ * asked) only ever grow by the entries a change adds, capped, so two windows adding at once both
+ * count. The one-time import of what an older version left in browser storage only fills fields
+ * that are still empty: what the engine already holds always wins.
  */
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { importConversationMarks, markConversation, readConversationMarks, type ConversationMarks } from "./conversation-marks.js";
 
 const RECORD_ID = "ui-preferences";
 /** The import from browser storage this version understands; a later one gets its own name. */
 export const LEGACY_IMPORT = "legacy-local-v1";
+/** The most entries a list keeps; the oldest go first. */
+export const LIST_CAP = 50;
+
+/** When something was last seen, in milliseconds since 1970: never before then, never absurdly late. */
+const Stamp = z.number().int().nonnegative().max(8_640_000_000_000_000);
+/** A tip's name, as the page's words name it (delight.tip.palette). */
+const TipId = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/);
+/** A usage window's name (connection|account|window|refill): bounded, and no control characters. */
+const AskedKey = z.string().min(1).max(200).regex(/^[^\u0000-\u001f\u007f]+$/);
+const LIST_ITEMS = { petTipsSeen: TipId, saveProgressAsked: AskedKey } as const;
+type ListName = keyof typeof LIST_ITEMS;
+const LISTS = Object.keys(LIST_ITEMS) as ListName[];
 
 export const UiPreferenceFieldsSchema = z.object({
   /** The side list shows conversations or Trunks. */
@@ -26,10 +42,22 @@ export const UiPreferenceFieldsSchema = z.object({
   paneTab: z.string().regex(/^[a-z0-9-]{1,40}$/),
   /** Settings › Appearance › Focus view. */
   focusView: z.boolean(),
+  /** The side list's three groups, open or folded. */
+  sectionsOpen: z.boolean(),
+  projectsOpen: z.boolean(),
+  recentsOpen: z.boolean(),
+  /** Acknowledgements: when the Inbox was last looked at, and the one-time lines already shown. */
+  inboxSeenAt: Stamp,
+  calmTipSeen: z.boolean(),
+  firstRunNextSeen: z.boolean(),
+  petHintAt: Stamp,
+  petTipsSeen: z.array(TipId).max(LIST_CAP),
+  saveProgressAsked: z.array(AskedKey).max(LIST_CAP),
 });
 export type UiPreferenceFields = z.infer<typeof UiPreferenceFieldsSchema>;
 export type UiPreferenceName = keyof UiPreferenceFields;
 const NAMES = Object.keys(UiPreferenceFieldsSchema.shape) as UiPreferenceName[];
+const SCALARS = NAMES.filter((name) => !(LISTS as string[]).includes(name));
 
 const SavedSchema = z.object({
   revision: z.number().int().nonnegative().default(0),
@@ -44,13 +72,31 @@ export interface UiPreferences {
   imports: Record<string, string>;
 }
 
+/** A list with only its entries that pass their check, each once, the newest `LIST_CAP` kept. */
+function checkedList(name: ListName, input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const kept: string[] = [];
+  for (const item of input) {
+    if (!LIST_ITEMS[name].safeParse(item).success) continue;
+    const at = kept.indexOf(item as string);
+    if (at >= 0) kept.splice(at, 1);
+    kept.push(item as string);
+  }
+  return kept.slice(-LIST_CAP);
+}
+
 /** Keeps only the named fields that pass their check; anything else is dropped, never stored. */
 function checked(input: unknown): Partial<UiPreferenceFields> {
   const out: Record<string, unknown> = {};
   if (!input || typeof input !== "object") return out;
-  for (const name of NAMES) {
-    const parsed = UiPreferenceFieldsSchema.shape[name].safeParse((input as Record<string, unknown>)[name]);
+  const offered = input as Record<string, unknown>;
+  for (const name of SCALARS) {
+    const parsed = UiPreferenceFieldsSchema.shape[name].safeParse(offered[name]);
     if (parsed.success) out[name] = parsed.data;
+  }
+  for (const name of LISTS) {
+    const list = checkedList(name, offered[name]);
+    if (list) out[name] = list;
   }
   return out as Partial<UiPreferenceFields>;
 }
@@ -68,13 +114,16 @@ function write(store: Store, owner: string, next: UiPreferences): UiPreferences 
 
 const PatchSchema = z.object({
   /** Each field to change; null takes a field back to its default. Unknown fields are refused. */
-  set: z.object(Object.fromEntries(NAMES.map((name) => [name, UiPreferenceFieldsSchema.shape[name].nullable().optional()])))
-    .strict(),
+  set: z.object(Object.fromEntries(SCALARS.map((name) => [name, UiPreferenceFieldsSchema.shape[name].nullable().optional()])))
+    .strict().default({}),
+  /** Entries to add to a list; what is there already stays. */
+  add: z.object(Object.fromEntries(LISTS.map((name) => [name, z.array(LIST_ITEMS[name]).max(LIST_CAP).optional()])))
+    .strict().default({}),
 }).strict();
 
 /** Changes only the fields the change names, all together, and counts one revision. */
 export function patchUiPreferences(store: Store, owner: string, input: unknown): UiPreferences {
-  const { set } = PatchSchema.parse(input);
+  const { set, add } = PatchSchema.parse(input);
   const current = readUiPreferences(store, owner);
   const values: Record<string, unknown> = { ...current.values };
   for (const [name, value] of Object.entries(set)) {
@@ -82,6 +131,8 @@ export function patchUiPreferences(store: Store, owner: string, input: unknown):
     if (value === null) delete values[name];
     else values[name] = value;
   }
+  for (const [name, entries] of Object.entries(add) as [ListName, string[] | undefined][])
+    if (entries?.length) values[name] = checkedList(name, [...(current.values[name] ?? []), ...entries]);
   return write(store, owner, { ...current, revision: current.revision + 1, values: values as Partial<UiPreferenceFields> });
 }
 
@@ -109,13 +160,38 @@ export function importUiPreferences(store: Store, owner: string, isOwner: boolea
   return { ...next, filled };
 }
 
-/** `GET /api/ui-preferences`, `POST /api/ui-preferences` (a change) and `POST /api/ui-preferences/import`. */
+/** A request body as named parts, so the conversation labels can be taken out of it; anything else is left for the schema to refuse. */
+const parts = (input: unknown): Record<string, unknown> =>
+  input && typeof input === "object" && !Array.isArray(input) ? { ...(input as Record<string, unknown>) } : { value: input };
+
+/**
+ * `GET /api/ui-preferences`, `POST /api/ui-preferences` (a change, and/or `mark`: one conversation's
+ * label) and `POST /api/ui-preferences/import` (with `conversations`: the side list's older labels).
+ * Each answer carries the conversation labels too, and says whether the record is the owner's
+ * (`forOwner`), so a household person's window never shows, or keeps a copy of, what the owner left
+ * in this page's shared browser storage.
+ */
 export async function uiPreferencesApi(
   deps: { store: Store; owner: string; isOwner: boolean }, method: string, path: string, body: () => Promise<unknown>,
-): Promise<UiPreferences> {
-  if (path === "/api/ui-preferences" && method === "GET") return readUiPreferences(deps.store, deps.owner);
-  if (path === "/api/ui-preferences" && method === "POST") return patchUiPreferences(deps.store, deps.owner, await body());
-  if (path === "/api/ui-preferences/import" && method === "POST")
-    return importUiPreferences(deps.store, deps.owner, deps.isOwner, await body());
-  throw Object.assign(new Error("Use GET or POST"), { status: 405 });
+): Promise<UiPreferences & { conversations: ConversationMarks; forOwner: boolean }> {
+  const { store, owner, isOwner } = deps;
+  const answer = async (): Promise<UiPreferences> => {
+    if (path === "/api/ui-preferences" && method === "GET") return readUiPreferences(store, owner);
+    if (path === "/api/ui-preferences" && method === "POST") {
+      const { mark, ...change } = parts(await body());
+      if (mark !== undefined) markConversation(store, owner, mark);
+      return mark === undefined || Object.keys(change).length ? patchUiPreferences(store, owner, change) : readUiPreferences(store, owner);
+    }
+    if (path === "/api/ui-preferences/import" && method === "POST") {
+      const { conversations, ...offered } = parts(await body());
+      const before = readUiPreferences(store, owner).imports[LEGACY_IMPORT];
+      const imported = importUiPreferences(store, owner, isOwner, offered);
+      /* Once, with the rest of the import, and only for the owner, as for every other choice. */
+      if (isOwner && !before && conversations !== undefined) importConversationMarks(store, owner, conversations);
+      return imported;
+    }
+    throw Object.assign(new Error("Use GET or POST"), { status: 405 });
+  };
+  const result = await answer();
+  return { ...result, conversations: readConversationMarks(store, owner), forOwner: isOwner };
 }

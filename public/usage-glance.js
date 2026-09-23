@@ -9,6 +9,7 @@ import { api, displayView, toast } from "/app.js";
 import { t, formatDate } from "/i18n.js";
 import { popover } from "/popover.js";
 import { markTile } from "/brand-marks.js"; // phase2/accounts
+import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const SVG = "http://www.w3.org/2000/svg";
@@ -125,11 +126,10 @@ function paintPopover() {
 /* ---------- the question at 95% ---------- */
 
 function askedKeys() {
-  try { return JSON.parse(localStorage.getItem(ASKED) || "[]"); } catch { return []; }
+  try { return JSON.parse(choice(ASKED) || "[]"); } catch { return []; }
 }
 function rememberAsked(key) {
-  try { localStorage.setItem(ASKED, JSON.stringify([key, ...askedKeys().filter((one) => one !== key)].slice(0, 50))); }
-  catch { /* a private window asks again next time */ }
+  keepChoice(ASKED, JSON.stringify([...askedKeys().filter((one) => one !== key), key].slice(-50)));
 }
 /** The first crossing not yet asked about, when asking is on and something is running. */
 export function nextCrossing(state, asked) {

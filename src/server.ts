@@ -1301,9 +1301,10 @@ async function api(
   // Wave mac3 (terminal): the theme `branch theme` and Settings › Appearance share (src/terminal-theme.ts).
   if (path === "/api/look" && request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Use GET or POST");
   if (path === "/api/look") return lookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
-  // Q45: the window's own choices (which side list, folded panes, focus view), kept in the data folder.
+  // Q45: the window's own choices (which side list, folded panes, focus view), kept in the data folder,
+  // under whoever is using the window (profiles.scope(): the owner's name, or a household person's own).
   if (path === "/api/ui-preferences" || path === "/api/ui-preferences/import")
-    return uiPreferencesApi({ store: app.store, owner: app.runtime.owner, isOwner: app.store.profiles.isOwner() },
+    return uiPreferencesApi({ store: app.store, owner: app.store.profiles.scope(), isOwner: app.store.profiles.isOwner() },
       request.method ?? "GET", path, () => readBody(request, 16 * 1024));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));

@@ -7,7 +7,7 @@ import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
 import { face } from "/faces.js";
-import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
+import { choice, conversationMarks, keepChoice, markConversation } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -57,10 +57,9 @@ export function setActivityCount(count) {
 }
 
 /* ---------- groups that fold, and remember, for this owner ---------- */
-/* The rail belongs to whoever is signed in here, so each owner keeps their own
-   folding. Before the workspace answers we use the last owner seen on this device. */
+/* Q45: each person's folding is kept by the engine (public/ui-prefs.js), which also keeps the copy older
+   versions read here, per workspace (branch-group-<name>::<workspace>). */
 let owner = localStorage.getItem("branch-owner") || "";
-const groupKey = (name) => `branch-group-${name}` + (owner ? "::" + owner : "");
 const groups = [];
 for (const head of document.querySelectorAll(".group-head")) {
   const group = head.closest(".rail-group");
@@ -69,20 +68,16 @@ for (const head of document.querySelectorAll(".group-head")) {
     head.setAttribute("aria-expanded", String(open));
     group.dataset.open = String(open);
   };
-  /* A folding choice made before this workspace had a name still counts. */
-  const restore = () => {
-    const kept = localStorage.getItem(groupKey(name)) ?? localStorage.getItem("branch-group-" + name);
-    apply(kept !== "closed");
-  };
+  const restore = () => apply(choice("branch-group-" + name) !== "closed");
   groups.push(restore);
   restore();
   head.addEventListener("click", () => {
     const open = head.getAttribute("aria-expanded") !== "true";
     apply(open);
-    localStorage.setItem(groupKey(name), open ? "open" : "closed");
+    keepChoice("branch-group-" + name, open ? "open" : "closed");
   });
 }
-/** Once we know who this workspace belongs to, their own folding comes back. */
+/** Once we know which workspace this is, the copy of its folding kept at this address counts. */
 function rememberOwner(id) {
   if (!id || id === owner) return;
   owner = id;
@@ -199,10 +194,16 @@ syncRailView();
 
 /* ---------- the two panes that fold away ---------- */
 const overlayRail = () => globalThis.innerWidth < 700; // phase2/everywhere: a tablet held upright keeps the side list docked
+/** Shows each fold as kept, without saving it again: at start, and when signing in or a person switch brings other choices. */
+const paneShows = {};
 function pane(key, toggleId, className, onToggle) {
-  const open = choice(key) !== "closed";
-  document.body.classList.toggle(className, !open);
-  $(toggleId).setAttribute("aria-pressed", String(open));
+  const show = () => {
+    const open = choice(key) !== "closed";
+    document.body.classList.toggle(className, !open);
+    $(toggleId).setAttribute("aria-pressed", String(open));
+  };
+  paneShows[key] = show;
+  show();
   $(toggleId).addEventListener("click", () => {
     if (onToggle?.()) return;
     const closed = document.body.classList.toggle(className);
@@ -219,6 +220,20 @@ pane("branch-rail", "rail-toggle", "no-rail", () => {
 });
 pane("branch-aside", "aside-toggle", "no-aside");
 const closeRailOverlay = () => document.body.classList.remove("rail-open");
+/* Q45: signing in, or switching person, can bring other kept choices; show them, saving nothing. */
+document.addEventListener("branch-ui-prefs", (event) => {
+  const keys = event.detail?.keys ?? [];
+  if (keys.includes(RAIL_VIEW_KEY)) {
+    railView = choice(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
+    syncRailView();
+  }
+  if (keys.some((key) => key.startsWith("branch-group-"))) for (const restore of groups) restore();
+  for (const key of keys) paneShows[key]?.();
+  if (keys.includes("branch-conversations")) {
+    ({ names, pinned, buried } = conversationMarks());
+    drawRail();
+  }
+});
 
 /* ---------- the small menus ---------- */
 /* Opened, closed and kept one-at-a-time by public/popover.js; a pick inside closes it. */
@@ -371,31 +386,27 @@ function rowAction(glyph, label, run) {
   });
   return node;
 }
-/* Names and pins are this browser's own labels; the conversation itself is untouched. */
-const names = new Map(Object.entries(JSON.parse(localStorage.getItem("branch-names") || "{}")));
-const pinned = new Set(JSON.parse(localStorage.getItem("branch-pins") || "[]"));
-const buried = new Set(JSON.parse(localStorage.getItem("branch-buried") || "[]"));
+/* Names and pins are the side list's own labels, kept with the workspace for whoever is using the window
+   (Q45, public/ui-prefs.js); the conversation itself is untouched. */
+let { names, pinned, buried } = conversationMarks();
+function markAndDraw(id, change) {
+  markConversation(id, change);
+  ({ names, pinned, buried } = conversationMarks());
+  drawRail();
+}
 const titleOf = (entry) => names.get(entry.sessionId) || entry.preview || "Empty conversation";
 function renameConversation(entry, current) {
   const value = globalThis.prompt?.("Name for this conversation", current);
   if (value === null || value === undefined) return;
-  if (value.trim()) names.set(entry.sessionId, value.trim());
-  else names.delete(entry.sessionId);
-  localStorage.setItem("branch-names", JSON.stringify(Object.fromEntries(names)));
-  drawRail();
+  markAndDraw(entry.sessionId, { name: value.trim().slice(0, 120) || null });
 }
 function togglePin(id) {
-  if (pinned.has(id)) pinned.delete(id);
-  else pinned.add(id);
-  localStorage.setItem("branch-pins", JSON.stringify([...pinned]));
-  drawRail();
+  markAndDraw(id, { pinned: !pinned.has(id) });
 }
 /* Takes the row off this list only. The conversation is still in Saved conversations. */
 function hideConversation(entry, name) {
   if (!globalThis.confirm?.(`Take “${name}” off this list? You can still find it under Saved conversations.`)) return;
-  buried.add(entry.sessionId);
-  localStorage.setItem("branch-buried", JSON.stringify([...buried]));
-  drawRail();
+  markAndDraw(entry.sessionId, { buried: true });
 }
 function drawRail() {
   const list = $("rail-list");

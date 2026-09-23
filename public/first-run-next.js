@@ -8,10 +8,11 @@
  *                      task can be saved as a workflow from Inbox › History
  *   Suggested automations  put a ready-made request in the message box to read and send
  *
- * "Not now" closes it. It is shown once per browser.
+ * "Not now" closes it. It is shown once for each person, kept with the workspace (Q45, public/ui-prefs.js).
  */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
+import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const SEEN = "branch-first-run-next";
 const say = (key, english) => { const words = t(key); return words === key ? english : words; };
@@ -60,7 +61,7 @@ function build() {
   card.id = "first-run-next";
   const status = el("p", undefined, undefined, "meta");
   status.setAttribute("role", "status");
-  const close = () => { card.remove(); try { localStorage.setItem(SEEN, "1"); } catch { /* forgotten in a private window */ } };
+  const close = () => { card.remove(); keepChoice(SEEN, "1"); };
   const chips = el("div", undefined, undefined, "first-run-next-chips");
   chips.append(...SUGGESTIONS.map(([key, english]) => action(key, english, () => compose(say(key, english), false))));
   card.append(
@@ -87,8 +88,6 @@ export function showFirstRunNext() {
 
 if (typeof document !== "undefined") {
   globalThis.branchFirstRunDone = () => {
-    let seen = false;
-    try { seen = localStorage.getItem(SEEN) === "1"; } catch { /* show it */ }
-    if (!seen) showFirstRunNext();
+    if (choice(SEEN) !== "1") showFirstRunNext();
   };
 }

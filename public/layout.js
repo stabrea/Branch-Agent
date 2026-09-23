@@ -798,7 +798,7 @@ function go(view) {
 }
 function showPlace(next, tab) {
   /* Leaving the Inbox counts as having read it. */
-  if (place === "inbox" && next !== "inbox") store.set(SEEN, String(Date.now()));
+  if (place === "inbox" && next !== "inbox") keepChoice(SEEN, String(Date.now())); // Q45: kept by the engine
   place = next;
   if (tab) lastTab[next] = tab;
   for (const node of document.querySelectorAll("#workspace > .view")) node.hidden = node.id !== next;
@@ -948,6 +948,12 @@ function choosePaneTab(id) {
   keepChoice("branch-pane-tab", id);
   syncPane();
 }
+/* Q45: signing in, or switching person, can bring another kept tab; show it without saving it again. */
+document.addEventListener("branch-ui-prefs", (event) => {
+  if (!event.detail?.keys?.includes("branch-pane-tab")) return;
+  paneTab = choice("branch-pane-tab") || "activity";
+  if ($("context-panel")?.querySelector(".lx-pane-name")) syncPane();
+});
 function tagPaneBlocks() {
   const homes = { "context-provider": "activity", "context-working": "activity", "context-tasks": "activity", "context-allowed": "activity",
     "context-todos": "plan", "context-receipts": "files", "context-apps": "files", "context-facts": "memory" };
@@ -1116,14 +1122,14 @@ async function drawInbox() {
   }
 }
 function drawAway(runs, count) {
-  const seen = Number(store.get(SEEN) || 0);
+  const seen = Number(choice(SEEN) || 0);
   const since = runs.filter((run) => /completed|failed/.test(run.status) && Date.parse(run.updatedAt || run.createdAt) > seen).length;
   $("lx-away").hidden = !seen || (!since && !count);
   const parts = [];
   if (since) parts.push(since === 1 ? "1 task finished" : `${since} tasks finished`);
   if (count) parts.push(count === 1 ? "1 thing needs your yes" : `${count} things need your yes`);
   $("lx-away-line").textContent = parts.join(", and ") + ".";
-  if (!seen) store.set(SEEN, String(Date.now()));
+  if (!seen) keepChoice(SEEN, String(Date.now()));
 }
 function buildInboxLists() {
   const needs = make("div", "lx-list");
@@ -1462,7 +1468,7 @@ function watchInboxBadge() {
 const TIP_SEEN = "branch-calm-tip";
 async function offerNextSteps(event) {
   const { status, completedRuns } = event.detail ?? {};
-  if (!calm() || status !== "completed" || completedRuns !== 1 || store.get(TIP_SEEN) || $("lx-tip")) return;
+  if (!calm() || status !== "completed" || completedRuns !== 1 || choice(TIP_SEEN) || $("lx-tip")) return;
   const running = await api("deployment").catch(() => null);
   if (!running) return;
   const offers = [
@@ -1470,7 +1476,7 @@ async function offerNextSteps(event) {
     ...(!running.remote?.enabled ? [["phone-switch", "tip.phone", "Use it from my phone"]] : []),
   ];
   if (!offers.length || $("lx-tip")) return;
-  store.set(TIP_SEEN, "1");
+  keepChoice(TIP_SEEN, "1");
   const line = make("div", "lx-tip");
   line.id = "lx-tip";
   line.setAttribute("role", "status");

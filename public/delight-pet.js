@@ -8,6 +8,7 @@
 import { api } from "/app.js";
 import { el, notice, on, onDelight, say, saveDelight, state, still } from "/delight-kit.js";
 import { petModel, view3d } from "/delight-3d.js";
+import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 export const PET_ART = {
   squirrel: ["................", "..aa............", ".aaaa.......bb..", "aabbaa.....bbbb.", "aabbba....bbebbc", ".abbba...bbbbbb.", ".abbbaa.bbbbbb..", "..abbbaabbwwbb..", "..abbbbabbwwbb..", "...abbbbbbwwbb..", "....aabbbbbbbb..", "......bbb..bbb..", "................"],
@@ -172,25 +173,24 @@ function tipFits(where) {
   return true;
 }
 const TIP_SEEN = "branch-pet-tips-seen", HINT_AT = "branch-pet-hint-at";
-const readSeen = () => { try { return JSON.parse(localStorage.getItem(TIP_SEEN) ?? "[]"); } catch { return []; } };
+const readSeen = () => { try { return JSON.parse(choice(TIP_SEEN) ?? "[]"); } catch { return []; } };
 function maybeTip() {
   const pets = state.settings?.pets;
   if (!pets?.talks || !pets?.tips || mood() !== "nap" || SAY.cur || Date.now() < SAY.tipCool) return;
   const seen = readSeen(), tip = TIPS.find(([where, key]) => !seen.includes(key) && tipFits(where));
   if (tip) {
-    try { localStorage.setItem(TIP_SEEN, JSON.stringify([...seen, tip[1]])); } catch { /* a private window forgets */ }
+    keepChoice(TIP_SEEN, JSON.stringify([...seen, tip[1]]));
     return petSay(say(tip[1], tip[2]), "tip", `tip:${tip[1]}`);
   }
   maybeHint();
 }
 /** Now and then a hint at a Bronze or Silver achievement, never a Gold one or higher, at most hourly. */
 function maybeHint() {
-  let at = Date.now();
-  try { at = Number(localStorage.getItem(HINT_AT) ?? 0); } catch { /* no storage here: no hints, rather than one every half second */ }
+  const at = Number(choice(HINT_AT) ?? 0);
   if (!on("achievements") || !["Bronze", "Silver"].includes(state.rank) || Date.now() - at < 3600000) return;
   const hint = (state.hints ?? []).find((a) => (a.tier === "Bronze" || a.tier === "Silver") && a.desc && a.desc !== "???");
   if (!hint) return;
-  try { localStorage.setItem(HINT_AT, String(Date.now())); } catch { /* a private window forgets */ }
+  keepChoice(HINT_AT, String(Date.now()));
   const text = hint.desc.replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase());
   petSay(say("delight.pet.hint", "Psst: {what}, sometime?", { what: text }), "hint", `hint:${hint.id}`);
 }
