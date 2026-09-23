@@ -98,14 +98,19 @@ export class CollabEvents {
     if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) return { valid: false, reason: "The signature does not match the event" };
     return { valid: true };
   }
-  /** Takes in an event from elsewhere (a relay): kept only when its signature verifies. */
-  async receive(owner: string, input: unknown): Promise<CollabEvent> {
+  /**
+   * Takes in an event from elsewhere (a relay): kept only when its signature verifies. A patch is
+   * kept only when its repository is one of this household's, as on the patch route.
+   */
+  async receive(owner: string, input: unknown, repositoryExists: (repository: string) => boolean): Promise<CollabEvent> {
     const verdict = await this.verify(input);
     if (!verdict.valid) throw new Error(`Event rejected: ${verdict.reason}`);
     const event = CollabEventSchema.parse(input);
     // A correct signature is not enough for a reserved kind: a patch must look like a patch.
     const reserved = reservedKinds.get(event.kind);
     if (reserved && !reserved.payload.safeParse(event.payload).success) throw new Error(`Event rejected: it is not a valid ${event.kind} event`);
+    if (event.kind === gitPatchKind && !repositoryExists(GitPatchSchema.parse(event.payload).repository))
+      throw new Error("Event rejected: its repository is not one of this household's");
     if (this.db.prepare("SELECT 1 FROM collab_events WHERE id=?").get(event.id)) throw new Error("Event rejected: it was already received");
     this.insert(owner, event);
     return event;

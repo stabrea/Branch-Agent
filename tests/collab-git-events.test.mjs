@@ -158,3 +158,16 @@ test("a household profile cannot publish a patch: repositories are the owner's",
   assert.equal(refused.body.error, householdRefusal);
   assert.deepEqual((await events.list(owner)).events, [], "nothing was signed or stored");
 });
+
+test("a received patch for a repository this household does not have is refused, even with a correct signature", async (t) => {
+  const { app, owner, events } = await fixture(t);
+  const post = await web(t, app);
+  const claim = { id: crypto.randomUUID(), member: ownerMember, kind: gitPatchKind, at: new Date().toISOString(),
+    payload: patch("no-such-project", "Stray fix", "one") };
+  const stray = { ...claim, signature: createHmac("sha256", await events.memberKey(ownerMember)).update(canonical(claim)).digest("hex") };
+  assert.deepEqual(await events.verify(stray), { valid: true });
+  const refused = await post("/api/collab/events/receive", stray);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /repository is not one of this household's/);
+  assert.deepEqual((await events.list(owner)).events, [], "nothing was stored");
+});

@@ -168,9 +168,9 @@ async function eventsApi(app: Branch, request: IncomingMessage, path: string, bo
     if (reserved) throw new Error(`A ${input.kind} event is published through ${reserved.route}`);
     return events.publish(owner, app.store.profiles.active()?.id ?? ownerMember, input.kind, input.payload);
   }
-  if (path === "/api/collab/events/receive") return events.receive(owner, await body());
+  const known = (repository: string) => app.store.projects.list(owner).some((project) => project.id === repository);
+  if (path === "/api/collab/events/receive") return events.receive(owner, await body(), known);
   if (path === "/api/collab/git-patches") {
-    const known = (repository: string) => app.store.projects.list(owner).some((project) => project.id === repository);
     return publishGitPatch(events, owner, app.store.profiles.active()?.id ?? ownerMember, await body(), known);
   }
   return notCollab;
