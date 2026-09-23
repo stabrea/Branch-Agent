@@ -15,6 +15,7 @@ import { sandboxExecPath, seatbeltArgs, secretHomePlaces } from "./sandbox-seatb
 import { bwrapArgs, bwrapAvailability, doorBridgeSource, insideDoorPorts, seccompFilter, withSeccomp } from "./sandbox-bwrap.js";
 import { newPlaceholder, proxyEnvironment, SandboxProxy, type EdgeKey, type ProxyOptions } from "./sandbox-proxy.js";
 import { explainDenial, siteQuestion, widenable, widenQuestion } from "./sandbox-denial.js";
+import { denyWindowsPaths, type WindowsFileWall } from "./sandbox-windows-wall.js";
 
 /**
  * Where a program Branch Agent starts actually runs. `src/sandbox.ts` says how tightly it is held
@@ -471,6 +472,8 @@ export interface WallDeps {
   upstream?: ProxyOptions["upstream"];
   /** How a site name becomes addresses; tests only (bucket-15 integration: passed through to the door). */
   resolve?: ProxyOptions["resolve"];
+  /** Windows only: how the "unreadable" list is actually denied. Replaced in tests; never touches a real ACL there. */
+  denyWindowsPaths?: (paths: readonly string[]) => Promise<WindowsFileWall>;
 }
 export interface WallRun { exitCode: number | null; stdout: string; stderr: string }
 export interface OpenedWall {
@@ -592,16 +595,23 @@ async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: 
 }
 
 /**
- * Puts one program behind the wall. On Windows it changes nothing: the job object and Windows'
- * throwaway desktop keep doing exactly what they did. Anywhere the wall cannot be built it refuses
- * in a sentence and nothing starts — it never quietly runs the program without one.
+ * Puts one program behind the wall. On Windows the job object and Windows' throwaway desktop keep
+ * doing exactly what they did; the one real piece Windows itself gets is the "unreadable" list
+ * (sandbox-windows-wall.ts), denied around the run with a temporary `icacls` rule and lifted again in
+ * `close()`. With nothing on that list, Windows is left exactly as it was. Anywhere the wall cannot be
+ * built it refuses in a sentence and nothing starts — it never quietly runs the program without one.
  */
 export async function openWall(
   wall: WallContext, start: SandboxStart,
   options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean }, deps: WallDeps = {},
 ): Promise<OpenedWall> {
   const platform = deps.platform ?? process.platform;
-  if (platform === "win32") return passThrough(start);
+  if (platform === "win32") {
+    if (!wall.unreadable.length) return passThrough(start);
+    const denier = deps.denyWindowsPaths ?? ((paths) => denyWindowsPaths(paths));
+    const wallHandle = await denier(wall.unreadable);
+    return { start, close: () => wallHandle.close(), finish: async () => { await wallHandle.close(); return null; } };
+  }
   if (platform !== "darwin" && platform !== "linux")
     throw new Error("The wall around programs works on macOS and Linux only. Switch it off in Settings to run programs here.");
   const plan = await planWall(wall, options, deps);
@@ -663,7 +673,7 @@ async function walledRun(
 export async function wallReport(deps: WallDeps = {}): Promise<{ platform: string; available: boolean; reason: string }> {
   const platform = deps.platform ?? process.platform;
   if (platform === "win32")
-    return { platform, available: false, reason: "On Windows, programs are held by Windows' own job object and throwaway desktop instead; this switch changes nothing here." };
+    return { platform, available: false, reason: "On Windows, programs are held by Windows' own job object and throwaway desktop instead; this switch only denies the places listed below." };
   if (platform === "darwin") {
     const here = await (deps.exists ?? fileExists)(sandboxExecPath);
     return { platform, available: here, reason: here ? "" : "macOS's own sandbox program (/usr/bin/sandbox-exec) is missing on this Mac." };
