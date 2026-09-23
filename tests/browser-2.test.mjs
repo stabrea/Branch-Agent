@@ -52,6 +52,10 @@ const routes = {
     <tr class="r"><td class="n">Rent</td><td class="v">1200</td><td class="d">2026-03-01</td></tr>
     <tr class="r"><td class="n">Power</td><td class="v">85</td><td class="d">2026-03-04</td></tr></tbody></table>`),
   '/upload': page('<input id="pick" type="file"><p id="got">nothing</p><script>document.getElementById("pick").addEventListener("change",e=>{document.getElementById("got").textContent="received "+e.target.files[0].name})</script>'),
+  // A page that opens a tab of its own, to wherever the query string names.
+  '/opens': page(`<a id="go" target="_blank">open</a><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
+  // A form that asks for a new tab: a shape the link rewrite does not cover.
+  '/opens-form': page(`<form id="f" target="_blank" method="GET"><button type="submit">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.submit();</script>`),
   '/cookie': page('<p id="who">?</p><script>document.getElementById("who").textContent="cookie is "+document.cookie</script>'),
   // A page that tries to claim the numbering for itself: a decoy wearing number 1 and a decoy
   // wearing the scratch attribute the numbering uses, both placed before the real button.
@@ -237,6 +241,58 @@ test('a renamed selector heals by name, the way that worked is recorded, and a h
   } finally { await h.close(); }
 });
 
+test("in the owner's own browser, a tab Branch opens reaches nothing and is not left behind", async () => {
+  // Working in their browser means the guard is on Branch's tab alone: there is no context route,
+  // no page watcher and no worker block, because none of those may touch their other tabs. So a tab
+  // Branch's tab opened had neither the route nor the pause. Measured before the fix: the website
+  // the owner never allowed really served the page, and the tab was still sitting in their window.
+  //
+  // It cannot be fixed by reacting: the tab's first request is in flight before any guard can be put
+  // on it. It is stopped at the source instead, on Branch's tab only -- a window it asks for is not
+  // opened, and a link asking for a new tab opens in this one, where everything is already checked.
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => {
+    forbiddenHits += 1;
+    response.writeHead(200, {'content-type': 'text/html'});
+    response.end('<!doctype html><body><h1>must not load</h1>');
+  });
+  forbidden.listen(0, '127.0.0.1');
+  await once(forbidden, 'listening');
+  const elsewhere = `http://127.0.0.1:${forbidden.address().port}`;
+
+  const h = await harness('browser2-borrow-popup');
+  const port = 9414;
+  const owned = await chromium.launchPersistentContext('', {headless: true, args: [`--remote-debugging-port=${port}`]});
+  try {
+    const theirTabs = owned.pages().filter(page => !page.isClosed()).length;
+    h.browser.store = {get: () => ({data: {enabled: true, port, runId: 'run-borrow-popup',
+      grantedAt: new Date().toISOString()}}), save: () => undefined};
+    const context = runContext('run-borrow-popup');
+    ok(await h.registry.execute('browser.borrow', {action: 'borrow'}, context));
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/opens?to=${encodeURIComponent(elsewhere)}`}, context);
+    // Long enough that a request in flight would have landed and a tab would still be open.
+    await new Promise(resolve => { setTimeout(resolve, 2500); });
+
+    assert.equal(forbiddenHits, 0, 'the website that was not allowed was never asked for anything');
+    assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1,
+      "only Branch's own tab is added to their window");
+
+    // A form asking for a new tab is not a link, and one submitted by script raises no submit event
+    // at all. Both were measured escaping before they were covered, so both are asked for here.
+    await h.registry.execute('browser.navigate',
+      {url: `${h.origin}/opens-form?to=${encodeURIComponent(elsewhere)}`}, context);
+    await new Promise(resolve => { setTimeout(resolve, 2500); });
+
+    assert.equal(forbiddenHits, 0, 'nor by a form asking for a new tab, submitted by script');
+    assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1,
+      'and their window still has only their tabs and ours');
+  } finally {
+    await h.close();
+    await owned.close().catch(() => undefined);
+    forbidden.close();
+    await once(forbidden, 'close');
+  }
+});
 test('the borrowed browser reuses its cookies, refuses a bank, and is let go without being closed', async () => {
   // A bank is on the allowed list on purpose: the refusal being proved is the borrowing one, not
   // the ordinary website list, which would otherwise stop the address first and prove nothing.

@@ -101,7 +101,29 @@ export class BrowserSession {
     this.context = context;
     this.borrowed = true;
     context.setDefaultTimeout(10000);
+    // A tab that Branch's own tab opens is Branch's doing and nobody else's, so it is refused
+    // everything and closed. Only tabs whose opener is one of ours arrive here: the owner's own tabs
+    // are neither watched nor touched, which is the whole promise of working in their browser.
+    context.on('page', page => { void this.closeTabWeOpened(page); });
     return this.newPage();
+  }
+  private async closeTabWeOpened(page: Page): Promise<void> {
+    if (this.pages.includes(page) || this.creatingTab > 0) return;
+    // The route goes on first and the question is asked second. Asking first loses a race the tab
+    // wins: its first request is already in flight while `opener()` is still being answered.
+    let ours = false;
+    await page.route('**/*', route => {
+      if (ours) { void route.abort().catch(() => undefined); return; }
+      void route.fallback().catch(() => undefined);
+    }).catch(() => undefined);
+    const opener = await page.opener().catch(() => null);
+    if (!opener || !this.pages.includes(opener)) {
+      // Not ours after all: the owner opened it themselves. Take the route straight back off.
+      await page.unroute('**/*').catch(() => undefined);
+      return;
+    }
+    ours = true;
+    await page.close().catch(() => undefined);
   }
   /** True while this run is working inside the owner's own browser rather than one of its own. */
   private borrowed = false;
@@ -114,7 +136,34 @@ export class BrowserSession {
     const page = await this.context.newPage().finally(() => { this.creatingTab--; });
     // In the owner's own browser the website list is put on Branch's tab alone, so their other
     // tabs carry on exactly as before.
-    if (this.borrowed) await page.route('**/*', route => this.answerRoute(route));
+    if (this.borrowed) {
+      await page.route('**/*', route => this.answerRoute(route));
+      // In the owner's own browser a tab this one opens cannot be stopped after the fact: its first
+      // request is in flight before any guard can be put on it, and it was reaching websites they
+      // never allowed. So it is stopped at the source, on Branch's tab alone: a window this page
+      // asks for is not opened, and a link that asks for a new tab opens in this one instead, where
+      // everything is already checked. Nothing here touches any other tab.
+      await page.addInitScript(() => {
+        const here = (node: Element | null | undefined): void => {
+          if (node && node.getAttribute('target') && node.getAttribute('target') !== '_self')
+            node.setAttribute('target', '_self');
+        };
+        window.open = () => null;
+        // Links and forms both. A form asking for a new tab is not a link and was not covered by the
+        // first version of this; measured, the tab it opened reached a website the owner never
+        // allowed before anything could be put in its way.
+        addEventListener('click', event => here((event.target as Element | null)?.closest?.('a[target]')), true);
+        addEventListener('submit', event => here(event.target as Element | null), true);
+        // A form submitted by script raises no submit event at all, so the listener above never sees
+        // it. Measured: that tab reached a website the owner never allowed. The method itself is
+        // where it has to be caught.
+        const sending = HTMLFormElement.prototype.submit;
+        HTMLFormElement.prototype.submit = function submitHere(this: HTMLFormElement) {
+          here(this);
+          return sending.call(this);
+        };
+      });
+    }
     await this.guardPage(page);
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
