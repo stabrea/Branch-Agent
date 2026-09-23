@@ -513,7 +513,6 @@
   "asks.answer.question": "Votre question",
   "asks.appServer.how": "Un éditeur le lance avec : branch app-server",
   "asks.blocks.noKey": "pas encore de clé",
-  "asks.blocks.ready": "a une clé",
   "asks.blocks.secret": "Secret enregistré contenant sa clé",
   "asks.board.flows": "Flux",
   "asks.board.purpose": "Voir les flux, planifications et déclencheurs d'un projet, et les tâches faites dans ce projet.",

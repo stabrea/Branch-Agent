@@ -83,6 +83,9 @@ async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unkn
   if (path === "/api/asks/hindsight") return { hindsight: post ? asks.hindsight.save(await deps.readBody()) : asks.hindsight.settings() };
   if (path === "/api/asks/hindsight/recall" && post) return runPartTool(deps, "hindsight", "hindsight.recall");
   if (path === "/api/asks/blocks") return { blocks: asks.blocks.list() };
+  /* DG-025: which saved secret each step uses, so its field shows the name and saves as it changes. Names only,
+     and the owner's alone to read (src/short-lived-keys.ts). */
+  if (path === "/api/asks/blocks/keys") return { keys: asks.blocks.keys() };
   if (path === "/api/asks/blocks/key" && post) {
     const { block, secret } = z.object({ block: z.string().max(40), secret: z.string().max(80).nullable() }).strict().parse(await deps.readBody());
     return { keys: asks.blocks.setKey(block, secret) };

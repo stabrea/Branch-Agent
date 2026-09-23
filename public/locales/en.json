@@ -512,7 +512,6 @@
   "asks.answer.question": "Question",
   "asks.appServer.how": "An editor starts it with: branch app-server",
   "asks.blocks.noKey": "no key yet",
-  "asks.blocks.ready": "has a key",
   "asks.blocks.secret": "Saved secret with its key",
   "asks.board.flows": "Flows",
   "asks.board.purpose": "See the flows, schedules and triggers that belong to a project, and the tasks done under it.",

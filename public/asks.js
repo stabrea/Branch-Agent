@@ -320,13 +320,16 @@ async function connectionsCard(modes) {
   for (const part of ["app-blocks", "app-server"]) node.append(...switchFor(part, modes, status));
   if (modes["app-server"] !== "off") node.append(make("p", "field-note", "asks.appServer.how", "An editor starts it with: branch app-server"));
   if (modes["app-blocks"] !== "off") {
-    const { blocks } = await api("asks/blocks");
+    const [{ blocks }, { keys }] = await Promise.all([api("asks/blocks"), api("asks/blocks/keys")]);
     for (const block of blocks) {
-      const secret = field("input");
-      secret.placeholder = block.ready ? say("asks.blocks.ready", "has a key") : say("asks.blocks.noKey", "no key yet");
+      /* DG-025: one name per step, saved as it changes, as the approved sample saves a single field; empty forgets it. */
+      const secret = field("input", keys[block.id] ?? "");
+      secret.placeholder = say("asks.blocks.noKey", "no key yet");
+      secret.addEventListener("change", async () => {
+        try { await api("asks/blocks/key", { block: block.id, secret: secret.value.trim() || null }); done(status); } catch (error) { tell(status, error); }
+      });
       node.append(plain("p", `${block.app}: ${block.name} — ${block.about}`, "field-note"),
-        ...labelled(`asks-block-${block.id.replace(".", "-")}`, "asks.blocks.secret", "Saved secret with its key", secret),
-        row(button("asks.save", "Save", async () => { try { await api("asks/blocks/key", { block: block.id, secret: secret.value.trim() || null }); done(status); } catch (error) { tell(status, error); } })));
+        ...labelled(`asks-block-${block.id.replace(".", "-")}`, "asks.blocks.secret", "Saved secret with its key", secret));
     }
   }
   const { examples } = await api("asks/mcp-examples");

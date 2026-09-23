@@ -287,6 +287,7 @@ export const ROUTES = {
   "/api/asks/answer": "other POST",
   "/api/asks/blocks": "look",
   "/api/asks/blocks/key": "owner POST",
+  "/api/asks/blocks/keys": "secret-read",
   "/api/asks/blocks/run": "other POST",
   "/api/asks/article": "other POST",
   "/api/asks/hindsight": "owner POST",
