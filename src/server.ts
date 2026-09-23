@@ -618,6 +618,8 @@ async function staticFile(
     "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
+    // Q54-L1: Memory inspector for viewing, correcting, and managing saved facts with sources.
+    "/memory-inspector.js": ["memory-inspector.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
     "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
     "/labels-ui.js": ["labels-ui.js", "text/javascript; charset=utf-8"],
@@ -1976,6 +1978,12 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (restore && request.method === "POST") {
     z.object({}).strict().parse(await readBody(request));
     return app.store.restoreMemory(owner, decodeURIComponent(restore[1]!));
+  }
+  // Q54-L1: Correct a fact using revision-checked update. Ensures stale edits are rejected.
+  if (request.method === "POST" && path === "/api/memory/correct") {
+    const body = await readBody(request);
+    const updated = await app.store.updateMemory(owner, body, "owner-correction");
+    return updated;
   }
   throw new HttpError(404, "Endpoint not found");
 }
