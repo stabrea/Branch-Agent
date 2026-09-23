@@ -14,6 +14,7 @@ import { registerFleetTools } from "./fleet.js";
 import { registerFlowSearch } from "./flow-search.js";
 import { registerHandoffTool, type HandoffParts } from "./handoff.js";
 import { Modes, registerModeTools } from "./modes.js";
+import { registerNodeDiscoveryTool } from "./node-discovery.js";
 import { ProjectRouter, registerProjectRouting } from "./project-routing.js";
 import { interopMode, interopParts, interopTools, saveInteropMode, type InteropMode, type InteropPart } from "./settings.js";
 
@@ -57,6 +58,7 @@ export class Interop {
       handoff: () => registerHandoffTool(registry, this.handoffParts),
       "flow-search": () => registerFlowSearch(registry, runtime, deps.flows),
       "agent-market": () => registerMarketTool(registry, this.market),
+      "node-discovery": () => registerNodeDiscoveryTool(registry, { runtime, remoteAgents: deps.remoteAgents }),
     };
     for (const part of interopParts) this.sync(part);
   }

@@ -2963,23 +2963,29 @@
       "family": "interop",
       "name": "Remote tool skill and inference discovery",
       "acceptance_criterion": "Discover tools, skills and inference advertised by a node and identify their owning host.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/a2a-client.ts",
           "src/interop/fleet.ts",
           "src/interop/client-tools.ts",
           "src/devices/capabilities.ts",
+          "src/interop/node-discovery.ts",
+          "src/interop/settings.ts",
+          "src/interop/api.ts",
+          "public/interop.js",
           "tests/interop-agents.test.mjs",
-          "tests/devices.test.mjs"
+          "tests/devices.test.mjs",
+          "tests/node-discovery.test.mjs"
         ],
         "tests": [
           "discovery only looks at the addresses the owner types in, and pairing shares a link",
-          "a node only offers what it has the programs for, and asks the system only when switched on"
+          "a node only offers what it has the programs for, and asks the system only when switched on",
+          "one listing names every tool, skill and model connection, each tagged with the host that owns it"
         ],
-        "detail": "Agent cards, device capabilities and lent tools are separate. No single listing shows tools, skills and inference with the host that owns each."
+        "detail": "`nodes.catalog` (and GET /api/interop/nodes, behind its own switch like every bucket-20 part) reads the registry, the skill catalog, the model presets, the device book and the remote-agent list and puts them in one list, each row saying which host it came from: this computer, a program lending tools, a paired device, or an assistant elsewhere. Nothing here makes a network call, so an unreachable host just keeps the entry it last advertised."
       },
-      "remaining": "One listing of tools, skills and inference, each tagged with its owning host."
+      "remaining": ""
     },
     {
       "id": "interop.personal-connectors",

@@ -9026,6 +9026,13 @@ same on all three, and the tests run on each.
   call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
   improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
   (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
+- **node-discovery** (one listing of tools, skills and models) — built: `nodes.catalog` (and
+  `GET /api/interop/nodes`) reads what agent cards, device capabilities and lent tools already keep apart
+  and puts them in one list — every tool, installed skill and model connection reachable right now, each
+  row saying which host it came from: this computer, a program lending tools over the socket, a paired
+  device with a capability switched on, or an assistant elsewhere naming a skill on its card. Nothing here
+  makes a network call, so a host that has gone quiet just keeps the entry it last advertised
+  (`src/interop/node-discovery.ts`, `public/interop.js`, `tests/node-discovery.test.mjs`).
 
 ## Add-ons other people wrote (bucket 15)
 

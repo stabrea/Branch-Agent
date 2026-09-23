@@ -7,6 +7,7 @@ import { fleetStatus, fleetStop, StopSchema } from "./fleet.js";
 import { FlowSearchSchema, flowSearchParts, searchFlows } from "./flow-search.js";
 import { HandoffSchema, handOff } from "./handoff.js";
 import type { Interop } from "./index.js";
+import { nodeCatalog } from "./node-discovery.js";
 import { InteropOffError, InteropPartSchema, interopLabels, interopParts, requireInterop } from "./settings.js";
 
 /**
@@ -110,6 +111,10 @@ async function ownerRoute(deps: InteropHttpDeps, method: string, path: string): 
   if (path.startsWith("/api/interop/modes")) return modesRoute(deps, method, path);
   if (path === "/api/interop/routes" || path === "/api/interop/route") return routesRoute(deps, method, path);
   if (path.startsWith("/api/interop/fleet")) return fleetRoute(deps, method, path);
+  if (method === "GET" && path === "/api/interop/nodes") {
+    requireInterop(deps.store, deps.owner, "node-discovery");
+    return nodeCatalog({ runtime: deps.fleet.runtime, remoteAgents: deps.fleet.remoteAgents });
+  }
   if (method === "POST" && path === "/api/interop/handoff") {
     deps.requireOwner("Handing a conversation on");
     return handOff(interop.handoffParts, await body(deps, HandoffSchema), deps.baseUrl);

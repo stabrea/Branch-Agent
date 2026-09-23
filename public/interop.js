@@ -68,6 +68,7 @@ const PARTS = {
   handoff: ["interop.part.handoff", "Carrying on a conversation somewhere else"],
   "flow-search": ["interop.part.flowSearch", "Finding a better flow automatically"],
   "agent-market": ["interop.part.agentMarket", "Sharing and bringing in whole assistants"],
+  "node-discovery": ["interop.part.nodeDiscovery", "One listing of tools, skills and models, tagged by host"],
 };
 
 function switchRow(part, mode, status) {
@@ -81,7 +82,7 @@ function switchRow(part, mode, status) {
         await api("interop/switch", { part, mode: value });
         done(status);
         /* These three change what the cards themselves show. */
-        if (["modes", "agent-market", "handoff"].includes(part)) await drawCards();
+        if (["modes", "agent-market", "handoff", "node-discovery"].includes(part)) await drawCards();
       } catch (error) { tell(status, error); }
     }
   });
@@ -110,7 +111,23 @@ function handoffBlock(sessions) {
     ...labelled("interop-handoff-minutes", "interop.handoff.minutes", "Minutes the key works for", minutes), note, row(go), result];
 }
 
-function connectionsCard(state, sessions) {
+function nodesBlock(catalog) {
+  const heading = make("h3", "", "interop.nodes.title", "Tools, skills and models by host");
+  const purpose = make("p", "subtle", "interop.nodes.purpose",
+    "Every tool, skill and model reachable right now, whether it lives on this computer, is lent by a connected program, comes from a paired device, or is a skill an assistant elsewhere advertises.");
+  if (!catalog.hosts.length) return [heading, purpose, make("p", "subtle", "interop.nodes.none", "Nothing to list yet.")];
+  const list = document.createElement("ul");
+  for (const host of catalog.hosts) {
+    const counts = [];
+    if (host.tools) counts.push(`${host.tools} tool${host.tools === 1 ? "" : "s"}`);
+    if (host.skills) counts.push(`${host.skills} skill${host.skills === 1 ? "" : "s"}`);
+    if (host.inference) counts.push(`${host.inference} model connection${host.inference === 1 ? "" : "s"}`);
+    list.append(plain("li", `${host.host} — ${counts.join(", ")}`));
+  }
+  return [heading, purpose, list];
+}
+
+function connectionsCard(state, sessions, catalog) {
   const card = make("section", "card");
   card.id = "interop-card";
   card.dataset.home = "customize:connections";
@@ -121,6 +138,7 @@ function connectionsCard(state, sessions) {
   card.append(status, make("h3", "", "interop.programs.title", "Programs lending tools now"));
   if (!state.programs.length) card.append(make("p", "subtle", "interop.programs.none", "None are connected."));
   for (const program of state.programs) card.append(plain("p", `${program.client}: ${program.tools.join(", ")}`, "field-note"));
+  if (catalog) card.append(...nodesBlock(catalog));
   if (state.parts.find((p) => p.part === "handoff")?.mode !== "off") card.append(...handoffBlock(sessions));
   return card;
 }
@@ -214,15 +232,18 @@ async function specialistsCard(state) {
 }
 
 async function drawCards() {
-  let state, sessions = [];
+  let state, sessions = [], catalog = null;
   try { state = await api("interop"); } catch { return; }
   try {
     const listed = await api("sessions?limit=10");
     sessions = (Array.isArray(listed) ? listed : listed.sessions ?? []).filter((s) => typeof s.sessionId === "string");
   } catch { /* no conversations to hand on */ }
+  if (state.parts.find((p) => p.part === "node-discovery")?.mode !== "off") {
+    try { catalog = await api("interop/nodes"); } catch { /* the switches still show without it */ }
+  }
   $("interop-card")?.remove();
   $("interop-modes-card")?.remove();
-  document.body.append(connectionsCard(state, sessions));
+  document.body.append(connectionsCard(state, sessions, catalog));
   try { document.body.append(await specialistsCard(state)); } catch { /* the rest of the window is unaffected */ }
 }
 

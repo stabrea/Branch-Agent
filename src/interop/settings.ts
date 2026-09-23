@@ -14,6 +14,7 @@ import type { Store } from "../store.js";
  */
 export const interopParts = [
   "agent-protocol", "client-tools", "modes", "project-routing", "fleet", "handoff", "flow-search", "agent-market",
+  "node-discovery",
 ] as const;
 export type InteropPart = (typeof interopParts)[number];
 export const InteropPartSchema = z.enum(interopParts);
@@ -35,6 +36,7 @@ export const interopLabels: Record<InteropPart, string> = {
   handoff: "Carrying on a conversation somewhere else",
   "flow-search": "Finding a better flow automatically",
   "agent-market": "Sharing and bringing in whole assistants",
+  "node-discovery": "One listing of tools, skills and models, tagged by host",
 };
 
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
@@ -47,6 +49,7 @@ export const interopTools: Record<InteropPart, readonly string[]> = {
   handoff: ["conversation.handoff"],
   "flow-search": ["flow.search"],
   "agent-market": ["assistant.market"],
+  "node-discovery": ["nodes.catalog"],
 };
 
 export function interopMode(store: Pick<Store, "get">, owner: string, part: InteropPart): InteropMode {
