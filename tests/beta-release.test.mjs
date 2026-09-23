@@ -44,10 +44,15 @@ test("newest trusted exact Checks run governs, even when an older run passed", (
 });
 
 test("fast proof requires exact merged PR, independent exact-head approval and latest green fast run", async () => {
-  let reviews = [approval], runs = [fast(8), fast(9)];
+  const base = "c".repeat(40);
+  let reviews = [approval], runs = [fast(8), fast(9)], behindBy = 0;
+  let mergeParents = [{ sha: base }, { sha: head }];
   const gh = async (args) => {
     const path = args[3] ?? args[1];
     if (path.includes(`/commits/${sha}/pulls`)) return JSON.stringify([pull]);
+    if (path === `repos/${repo}/commits/${sha}`) return JSON.stringify({ sha, parents: mergeParents });
+    if (path === `repos/${repo}/compare/${base}...${head}`)
+      return JSON.stringify({ behind_by: behindBy });
     if (path.includes("/reviews")) return JSON.stringify(reviews);
     if (path.includes("/pr-fast.yml/runs")) return JSON.stringify({ workflow_runs: runs });
     if (args[0] === "pr" && args[1] === "checks") return JSON.stringify([{ name: "verify-fast",
@@ -64,8 +69,24 @@ test("fast proof requires exact merged PR, independent exact-head approval and l
   assert.equal(await fastProof(sha, repo, gh), null, "old-head approval cannot authorize new head");
   reviews = [{ ...approval, user: { login: "author" } }];
   assert.equal(await fastProof(sha, repo, gh), null, "author cannot review own PR");
+  for (const association of ["NONE", "CONTRIBUTOR"]) {
+    reviews = [{ ...approval, author_association: association }];
+    assert.equal(await fastProof(sha, repo, gh), null,
+      `${association} review cannot authorize the fast release`);
+  }
   reviews = [approval, { ...approval, id: 2, state: "CHANGES_REQUESTED" }];
   assert.equal(await fastProof(sha, repo, gh), null, "later requested changes revoke approval");
+  reviews = [approval];
+  behindBy = 1;
+  assert.equal(await fastProof(sha, repo, gh), null,
+    "a stale PR head cannot authorize its untested merge commit");
+  behindBy = 0;
+  mergeParents = [{ sha: base }, { sha: "d".repeat(40) }];
+  assert.equal(await fastProof(sha, repo, gh), null,
+    "a different merged head cannot borrow this PR's approval and fast gate");
+  mergeParents = [{ sha: base }];
+  assert.equal(await fastProof(sha, repo, gh), null,
+    "a squash commit without a linked reviewed head uses exhaustive acceptance");
   assert.equal(approvedExactHead([approval], pull), true);
   assert.equal(latestTrustedFast({ workflow_runs: [fast(2, "success", { head_repository: { full_name: "fork/repo" } })] }, head, repo, "feature"), null);
 });

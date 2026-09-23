@@ -62,6 +62,19 @@ export function approvedExactHead(reviews, pull) {
     ![...latest.values()].some((review) => review.state === "CHANGES_REQUESTED");
 }
 
+async function mergeHeadCurrent(sha, pullHead, repo, gh) {
+  if (!shaPattern.test(pullHead)) return false;
+  const merge = JSON.parse(await gh(["api", "--method", "GET", `repos/${repo}/commits/${sha}`]));
+  const base = merge.parents?.[0]?.sha;
+  // Only a two-parent merge links the reviewed head to this exact integration commit.
+  // Squash and rebase merges take the exhaustive acceptance lane instead.
+  if (merge.sha !== sha || merge.parents?.length !== 2 ||
+      !shaPattern.test(base) || merge.parents[1]?.sha !== pullHead) return false;
+  const comparison = JSON.parse(await gh(["api", "--method", "GET",
+    `repos/${repo}/compare/${base}...${pullHead}`]));
+  return comparison.behind_by === 0;
+}
+
 export async function fastProof(sha, repo = canonical, gh = github) {
   if (!shaPattern.test(sha) || repo !== canonical) throw new Error("Invalid beta source identity.");
   const pulls = JSON.parse(await gh(["api", "--method", "GET", `repos/${repo}/commits/${sha}/pulls`,
@@ -70,6 +83,7 @@ export async function fastProof(sha, repo = canonical, gh = github) {
     pull.base?.ref === branch && pull.base?.repo?.full_name === repo && pull.head?.repo?.full_name === repo);
   if (merged.length !== 1) return null;
   const pull = merged[0];
+  if (!await mergeHeadCurrent(sha, pull.head.sha, repo, gh)) return null;
   const reviews = JSON.parse(await gh(["api", "--method", "GET", `repos/${repo}/pulls/${pull.number}/reviews`,
     "-f", "per_page=100"]));
   if (!approvedExactHead(reviews, pull)) return null;
