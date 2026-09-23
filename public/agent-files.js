@@ -156,8 +156,7 @@ export async function drawAgentFiles() {
   section.id = "agent-files";
   section.dataset.home = "settings:instructions";
   section.dataset.level = "regular";
-  section.append(el("h2", "agent-files.title", "Your assistant's files"),
-    el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do."));
+  section.append(el("h2", "agent-files.title", "Its files"));
   const list = el("ul", undefined, undefined, "agent-files-list");
   const area = el("div", undefined, undefined, "agent-files-editor");
   area.hidden = true;

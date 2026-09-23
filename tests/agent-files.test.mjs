@@ -143,7 +143,7 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   await openSettings(page, "instructions");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   assert.equal(await page.locator("#lx-page-instructions .lx-page-intro").innerText(),
-    "Les fichiers simples que Branch lit avant de travailler : qui il est, qui vous êtes et comment vous voulez que le travail soit fait.");
+    "Les fichiers simples que votre assistant lit avant de travailler : qui il est, qui vous êtes, comment vous voulez que le travail soit fait. Ils fonctionnent de la même manière que dans d'autres agents, donc un fichier écrit pour l'un d'eux fonctionne ici.");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
   assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
