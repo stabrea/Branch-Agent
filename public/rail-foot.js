@@ -73,6 +73,10 @@ function build() {
   /* the Settings cog joins the line on the far right, so the account row is the name alone */
   for (const gear of [$("lx-settings-row"), $("rail-settings")]) if (gear) line.append(gear);
   (owner.closest(".sg-foot-line") ?? owner).before(line);
+  /* the cog says whether Settings is open, as it did beside the account row */
+  const expanded = () => { for (const gear of line.querySelectorAll(".sg-gear")) gear.setAttribute("aria-expanded", String(!$("settings-window")?.hidden)); };
+  if ($("settings-window")) new MutationObserver(expanded).observe($("settings-window"), { attributes: true, attributeFilter: ["hidden"] });
+  expanded();
   paint();
 }
 
