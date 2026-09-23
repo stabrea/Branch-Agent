@@ -513,6 +513,8 @@ const SHARED_WITH_FRENCH = new Set([
   "1Password", "Bitwarden", "Trunks",
   // phase2/delight: the near-impossible achievements' rank is written the same way in French.
   "SSS+",
+  // DG-154: the preview's tabs and speaker are names, and "Terminal" is the French word too.
+  "Terminal", "iPhone", "Android", "Branch Agent",
 ]);
 test("Q6 French is a real translation, not the English file under another name", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));

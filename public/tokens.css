@@ -427,6 +427,14 @@
   --step-bg: rgba(23, 40, 30, 0.04);
 }
 
+/* ---------- Device frames (DG-154) ----------
+   The phone and tablet bezels in "Branch in the terminal and on your phone" (public/everywhere.css):
+   dark in every theme, as a device is. */
+:root {
+  --device-frame: #111;
+  --device-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+
 /* ---------- Chart series (wave 8) ----------
    Eight colours a chart cycles through, so bars and slices are told apart without
    any file but this one writing a colour down. Forest first, then the Daylight set:

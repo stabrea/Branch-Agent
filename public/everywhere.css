@@ -1,0 +1,600 @@
+/* DG-154: Branch in the terminal and on your phone (public/everywhere.js), after the approved sample's
+   everywhereDialog: near the window's size, four tabs, a terminal and true-proportion device frames.
+   Every colour is a token from public/tokens.css. */
+.ew-dlg {
+  width: calc(100vw - 48px);
+  max-width: 1400px;
+  height: calc(100vh - 48px);
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.ew-dlg[open] {
+  display: flex;
+  flex-direction: column;
+}
+/* The window's buttons are raised copper; in here each button draws its own face. */
+:where(.ew-dlg) button {
+  box-shadow: none;
+  font: inherit;
+  cursor: pointer;
+}
+.ew-dlg button:hover {
+  background: var(--hover);
+}
+.ew-dlg .ew-tab[aria-selected="true"] {
+  background: var(--surface);
+}
+.ew-dlg .ew-btn-pri:hover,
+.ew-dlg .ew-dv-send:hover {
+  background: var(--copper-hi);
+}
+.ew-dlg::backdrop {
+  background: var(--scrim);
+}
+.ew-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.ew-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--body);
+  font-size: 18px;
+  font-stretch: normal;
+  font-weight: 640;
+  letter-spacing: normal;
+  line-height: 1.55;
+}
+.ew-x {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+}
+.ew-x:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ew-ico {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ew-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px 20px;
+}
+.ew-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 100%;
+  margin: 0 0 12px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--press);
+}
+.ew-tab {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+.ew-tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--control-selected-shadow);
+}
+.ew-note {
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.ew-note-center {
+  text-align: center;
+}
+.ew-b {
+  font-weight: 700;
+}
+.ew-dim {
+  color: var(--text-2);
+}
+
+/* ---------- the terminal ---------- */
+.ew-tui {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: 12.5px/1.5 var(--font-mono);
+}
+.ew-tui:focus {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.ew-tui p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.ew-tui-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--well);
+  white-space: pre;
+}
+.ew-tui-brand {
+  color: var(--copper);
+  font-weight: 700;
+}
+.ew-tui-r {
+  margin-left: auto;
+  color: var(--text-2);
+}
+.ew-tui-places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 3px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.ew-tui-places .on {
+  color: var(--copper-text);
+  font-weight: 700;
+}
+.ew-tui-main {
+  display: grid;
+  grid-template-columns: 34px 1fr 200px;
+  min-height: 360px;
+}
+.ew-tui-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-right: 1px solid var(--line);
+  color: var(--text-2);
+}
+.ew-tui-rail .on {
+  color: var(--copper);
+}
+.ew-tui-conv {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+.ew-tui-pane {
+  padding: 10px 12px;
+  border-left: 1px solid var(--line);
+}
+.ew-gap {
+  margin-top: 8px !important;
+}
+.ew-tui-you {
+  color: var(--copper);
+  font-weight: 700;
+}
+.ew-tui-askl {
+  color: var(--copper-text);
+  font-weight: 700;
+}
+.ew-tui-code {
+  color: var(--ok);
+  overflow-wrap: anywhere;
+}
+.ew-tui-sys {
+  color: var(--ok);
+}
+.ew-tui-cur {
+  color: var(--copper);
+}
+.ew-tui-sel {
+  background: var(--copper);
+  color: var(--on-copper);
+}
+.ew-tui-use {
+  overflow: hidden;
+  padding: 4px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.ew-tui-keys {
+  padding: 6px 12px;
+  background: var(--well);
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+@media (max-width: 640px) {
+  .ew-tui-main {
+    grid-template-columns: 30px 1fr;
+  }
+  .ew-tui-pane {
+    display: none;
+  }
+}
+
+/* ---------- the phones and the tablet, at true proportions ---------- */
+.ew-stage {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 12px;
+}
+.ew-dv {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  height: 649px;
+  overflow: hidden;
+  border: 8px solid var(--device-frame);
+  border-radius: 34px;
+  background: var(--surface);
+  box-shadow: var(--device-shadow);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.ew-dv-android {
+  height: 666px;
+  border-radius: 22px;
+}
+.ew-dv-tablet {
+  width: min(820px, 100%);
+  height: 570px;
+  border-radius: 22px;
+}
+.ew-dv-status {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 16px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.ew-dv-strip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.ew-dv-tr {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 39px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--copper-tint);
+  color: var(--copper-text);
+  font-weight: 700;
+  opacity: 0.75;
+}
+.ew-dv-tr.on {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--copper);
+}
+.ew-dv-screen,
+.ew-dv-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.ew-dv-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.ew-dv-h b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ew-dv-back {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--copper-text);
+  height: 20px;
+  min-height: 0;
+  font-size: 20px !important;
+  line-height: 1;
+}
+.ew-dv-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+}
+.ew-dv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-size: 13px !important;
+  text-align: left;
+}
+.ew-dv-row span {
+  flex: 1;
+}
+.ew-dv-row small {
+  color: var(--text-3);
+}
+.ew-dv-row.on {
+  border-radius: 8px;
+  background: var(--hover);
+}
+.ew-dv-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.ew-dv-hint {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.ew-dv-msg {
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: var(--glass-2);
+}
+.ew-dv-msg.you {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--copper);
+  color: var(--on-copper);
+}
+.ew-dv-msg.sys {
+  padding: 0 4px;
+  background: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.ew-dv-ask {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--copper);
+  border-radius: 12px;
+}
+.ew-dv-ask code {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ew-dv-btns {
+  display: flex;
+  gap: 6px;
+}
+.ew-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+}
+.ew-btn-pri {
+  border-color: var(--copper);
+  background: var(--copper);
+  color: var(--on-copper);
+}
+.ew-dv-comp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 10px 8px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--text-2);
+}
+.ew-dv-in {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+.ew-dv-send,
+.ew-dv-mic {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--copper);
+  color: var(--on-copper);
+}
+.ew-dv-mic {
+  background: none;
+  color: var(--text-2);
+}
+.ew-dv-send .ew-ico,
+.ew-dv-mic .ew-ico,
+.ew-dv-nav .ew-ico {
+  width: 16px;
+  height: 16px;
+}
+.ew-dv-nav {
+  display: flex;
+  flex: none;
+  justify-content: space-around;
+  padding: 6px 0 10px;
+  border-top: 1px solid var(--line);
+}
+.ew-dv-nav button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+}
+.ew-dv-nav button.on {
+  color: var(--copper-text);
+}
+.ew-dv-nav small {
+  font-size: 9.5px;
+}
+.ew-dv-voice {
+  display: grid;
+  flex: 1;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 10px;
+  text-align: center;
+}
+.ew-dv-voice p {
+  margin: 0;
+  font-weight: 600;
+}
+.ew-dv-voice .ew-btn {
+  margin-top: 8px;
+}
+.ew-dv-orb {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, var(--copper), color-mix(in srgb, var(--copper) 30%, var(--surface)));
+}
+.ew-dv-use,
+.ew-dv-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.ew-dv-card small {
+  color: var(--text-2);
+}
+.ew-dv-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--glass-2);
+}
+.ew-dv-bar i {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+}
+.ew-dv-sw {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.ew-dv-tab {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 52px 200px 1fr;
+  min-height: 0;
+}
+.ew-dv-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.ew-dv-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.ew-dv-side .ew-dv-row {
+  justify-content: center;
+}
+.ew-dv-side .ew-dv-row span {
+  flex: none;
+}
+.ew-dv-side .ew-ico {
+  width: 14px;
+  height: 14px;
+}
+@media (max-width: 640px) {
+  .ew-dv-tab {
+    grid-template-columns: 44px 1fr;
+  }
+  .ew-dv-side {
+    display: none;
+  }
+}

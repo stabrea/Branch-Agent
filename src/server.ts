@@ -511,6 +511,8 @@ async function staticFile(
     "/strip.css": ["strip.css", "text/css; charset=utf-8"],
     "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
     "/studio.css": ["studio.css", "text/css; charset=utf-8"],
+    "/everywhere.js": ["everywhere.js", "text/javascript; charset=utf-8"], // DG-154
+    "/everywhere.css": ["everywhere.css", "text/css; charset=utf-8"], // DG-154
     "/pairing.js": ["pairing.js", "text/javascript; charset=utf-8"],
     "/overview.js": ["overview.js", "text/javascript; charset=utf-8"],
     "/people-place.js": ["people-place.js", "text/javascript; charset=utf-8"],

@@ -372,7 +372,7 @@ test("calm: More works from the keyboard and names its groups", async (t) => {
   assert.equal(await focused(), "Show me the plan first");
   await f.page.keyboard.press("ArrowUp");
   await f.page.keyboard.press("ArrowUp");
-  assert.equal(await focused(), "Show everything", "the arrows go round");
+  assert.equal(await focused(), "In the terminal and on your phone", "the arrows go round (DG-154: the owner's Branch elsewhere comes last)");
   await f.page.keyboard.press("Home");
   assert.equal(await focused(), "Ask me questions first");
   await f.page.keyboard.press("Escape");
@@ -382,7 +382,7 @@ test("calm: More works from the keyboard and names its groups", async (t) => {
   await f.page.locator("#lx-more-menu").waitFor({ state: "visible" });
   const groups = await f.page.locator('#lx-more-menu [role="group"]').evaluateAll((nodes) =>
     nodes.map((node) => document.getElementById(node.getAttribute("aria-labelledby"))?.textContent));
-  assert.deepEqual(groups, ["This message", "Side panel", "Go to", "This window"]);
+  assert.deepEqual(groups, ["This message", "Side panel", "Go to", "This window", "Branch elsewhere"]);
   assert.equal(await f.page.locator("#lx-more").getAttribute("aria-haspopup"), "menu");
   assert.deepEqual(f.errors, []);
 });

@@ -534,6 +534,7 @@ function showOwnerSettings(owner) {
   const link = document.querySelector('.lx-settings-link[data-page="instructions"]');
   const page = $("lx-page-instructions");
   if (link) link.hidden = !owner;
+  $("menu-everywhere").hidden = !owner;
   if (page && !owner) page.hidden = true;
   if (!owner && settingsPage === "instructions") showSettingsPage("general");
 }
@@ -1040,6 +1041,7 @@ function buildOwnerMenu() {
   $("menu-settings").dataset.t = "menu.settingsShort";
   $("menu-settings").textContent = say("menu.settingsShort", "Settings");
   $("menu-settings").append(make("kbd", "lx-kbd", "Ctrl ,"));
+  $("menu-everywhere").addEventListener("click", openElsewhere);
 }
 function buildModelChip() {
   const bar = $("composer-media")?.parentElement;
@@ -1279,6 +1281,10 @@ const MORE = [
     ["press", "lock", "action.lock-session", "Lock session"],
     ["everything", "appearance-everything", "more.everything", "Show everything"],
   ]],
+  /* DG-154: the owner's own group, as in the approved sample. */
+  ["more.elsewhere", "Branch elsewhere", [
+    ["elsewhere", "", "more.everywhere", "In the terminal and on your phone"],
+  ]],
 ];
 function moreRow([kind, target, key, english], close) {
   if (kind === "assistant") return assistantRow(target, key, english);
@@ -1302,12 +1308,15 @@ function runMoreRow(kind, target) {
   else if (kind === "find") openPalette();
   else if (kind === "lockdown") $("lockdown-panel").querySelector("button")?.click();
   else if (kind === "quiet") setQuiet(true);
+  else if (kind === "elsewhere") openElsewhere();
   else if (kind === "planfirst") {
     const select = $(target);
     select.value = select.value === "show-plan" ? "just-do-it" : "show-plan";
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 }
+/** "Branch in the terminal and on your phone": a preview on its own sample, loaded when first asked for. */
+const openElsewhere = () => void import("/everywhere.js").then((module) => module.openEverywhere());
 /** Opens the Activity pane (never closes it) and brings "What is allowed right now" into view. */
 function showAllowed() {
   displayView("chat");
@@ -1330,6 +1339,8 @@ function assistantRow(target, key, english) {
   return row;
 }
 function syncMoreChecks() {
+  const elsewhere = $("lx-more-more-elsewhere")?.parentElement;
+  if (elsewhere) elsewhere.hidden = !ownerAtWindow();
   for (const row of document.querySelectorAll('#lx-more-menu [data-kind="check"]'))
     row.setAttribute("aria-checked", String(Boolean($(row.dataset.target)?.checked)));
   const plan = document.querySelector('#lx-more-menu [data-kind="planfirst"]');
