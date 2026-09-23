@@ -5,6 +5,7 @@
  *   Put settings back         (settings:general)  one setting or all of them, with the same view
  *   Your settings in one file (settings:data)     save a copy, or bring one in and see what it changes
  *   Which file does what      (settings:general)  the files you write, what each is for, and editing them
+ *   Recent changes            (settings:general)  what changed, undo one change, and why a setting is as it is (Q48/Q49)
  *
  * The three that change settings share one view: every change on its own line with a tick box,
  * changes that make Branch less careful marked and left unticked, and a separate "Yes, make it
@@ -223,6 +224,91 @@ function fileCard() {
   return section;
 }
 
+/* ---------- Q48/Q49: recent changes, undo, and why a setting is as it is ---------- */
+
+const HOW_WORDS = {
+  switch: ["settings-kit.how.switch", "you, moving the switch in Settings"],
+  preset: ["settings-kit.how.preset", "a preset"],
+  reset: ["settings-kit.how.reset", "putting settings back to how they started"],
+  import: ["settings-kit.how.import", "a settings file you brought in"],
+  talk: ["settings-kit.how.talk", "a conversation, when you asked for it"],
+  undo: ["settings-kit.how.undo", "undoing an earlier change"],
+  unknown: ["settings-kit.how.unknown", "a change whose source was not recorded"],
+};
+const howWords = (record) => {
+  const pair = Object.hasOwn(HOW_WORDS, record.source) ? HOW_WORDS[record.source] : HOW_WORDS.unknown;
+  return `${say(...pair)}${record.source === "preset" && record.detail ? ` (${record.detail})` : ""}`;
+};
+const when = (iso) => new Date(iso).toLocaleString();
+
+function fieldsOf(overview) {
+  const map = new Map();
+  for (const spec of overview.settings)
+    for (const one of spec.fields) map.set(`${spec.key}.${one.field}`, { key: spec.key, field: one.field, words: `${say(spec.t, spec.name)} · ${say(one.t, one.label)}` });
+  return map;
+}
+
+function whyWords(answer) {
+  const value = valueWords(answer, answer.value);
+  if (answer.kind === "starting-value") return say("settings-kit.why.starting", "It is {value}, how it starts. No change to it was recorded.", { value });
+  if (answer.kind === "not-recorded") return say("settings-kit.why.not-recorded", "It is {value}. Nothing was recorded about who or what set it.", { value });
+  const how = howWords(answer.record), at = when(answer.record.at);
+  if (answer.kind === "changed-since")
+    return say("settings-kit.why.changed-since", "It is {value}. The last recorded change set it to {after} ({how}, {when}), but it was changed again since by something that keeps no record.",
+      { value, after: valueWords(answer, answer.record.after), how, when: at });
+  return say("settings-kit.why.recorded", "It is {value}, set by {how} on {when}.", { value, how, when: at });
+}
+
+function recordRow(record, fields, confirm, status, redraw) {
+  const row = el("li", undefined, undefined, "kit-record");
+  const lines = record.changes.map((entry) => {
+    const known = fields.get(entry.setting) ?? { key: "", field: "", words: entry.setting };
+    return `${known.words}: ${valueWords(known, entry.before)} → ${valueWords(known, entry.after)}`;
+  });
+  row.append(el("p", undefined, `${when(record.at)} · ${howWords(record)}`, "meta"), el("p", undefined, lines.join("; ")));
+  if (record.undoneBy) { row.append(el("p", "settings-kit.history.undone", "Undone.", "subtle")); return row; }
+  row.append(quiet("settings-kit.history.undo", "Undo this change", async () => {
+    try {
+      const result = await api("settings-kit/undo", { record: record.id, confirmLoosening: confirm.checked });
+      status.textContent = say("settings-kit.done", "{count} changed. A card you already had open may show its old value until the window is reloaded.", { count: result.applied.length });
+      document.dispatchEvent(new CustomEvent("branch-settings-changed", { detail: { applied: result.applied } }));
+      await redraw();
+    } catch (error) { status.textContent = error.message; }
+  }));
+  return row;
+}
+
+async function drawRecords(list, fields, confirm, status) {
+  let history;
+  try { history = await api("settings-kit/history"); } catch (error) { status.textContent = error.message; return; }
+  const redraw = () => drawRecords(list, fields, confirm, status);
+  list.replaceChildren(...history.records.slice(0, 10).map((record) => recordRow(record, fields, confirm, status, redraw)));
+  if (!history.records.length) list.append(el("li", "settings-kit.history.none", "No changes have been recorded yet.", "subtle"));
+}
+
+function historyCard(overview) {
+  const section = card("settings-kit-history", "settings:general",
+    ["settings-kit.card.history", "Recent changes"],
+    ["settings-kit.card.history-purpose", "Changes made on these cards or in a conversation are written down. Undo one to put back exactly what it changed, or ask why a setting is set the way it is."]);
+  const fields = fieldsOf(overview);
+  const { holder, status } = planArea();
+  const select = dropdown({ id: "kit-why", options: [...fields].map(([id, known]) => [id, known.words]), value: [...fields.keys()][0] ?? "" });
+  const answer = el("p", undefined, undefined, "subtle");
+  answer.setAttribute("role", "status");
+  const ask = quiet("settings-kit.why.ask", "Why is it set like this?", async () => {
+    try { answer.textContent = whyWords({ ...fields.get(select.value), ...(await api(`settings-kit/why/${encodeURIComponent(select.value)}`)) }); }
+    catch (error) { answer.textContent = error.message; }
+  });
+  const list = el("ul", undefined, undefined, "kit-records");
+  const confirm = document.createElement("input");
+  confirm.type = "checkbox";
+  holder.append(list, ...confirmRow(confirm));
+  section.append(...field("kit-why", select, ["settings-kit.field.why", "Setting"],
+    ["describe.kit-why", "Says who or what last set it, from what was written down. Nothing is changed."]), ask, answer, holder, status);
+  drawRecords(list, fields, confirm, status).catch(() => {});
+  return section;
+}
+
 /* ---------- which file does what: public/agent-files.js (phase2/accounts) draws it now ---------- */
 
 /* The look of the changes, files and editor lives in public/settings-kit.css (the page's Content Security Policy refuses an inline <style>). */
@@ -230,7 +316,7 @@ function fileCard() {
 export async function drawKit() {
   let overview;
   try { overview = await api("settings-kit"); } catch { return; }
-  document.body.append(presetCard(overview), resetCard(overview), fileCard());
+  document.body.append(presetCard(overview), resetCard(overview), fileCard(), historyCard(overview));
   await globalThis.branchAgentFiles?.draw(); // phase2/accounts: the assistant's files, with an editor and undo
   globalThis.branchDescribeSettings?.();
 }
