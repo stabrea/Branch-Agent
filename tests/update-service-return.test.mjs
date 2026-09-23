@@ -341,6 +341,57 @@ test("a record that cannot be written and a service that will not start says so,
     `nothing implies a way back that does not exist (${said})`);
 });
 
+
+test("a hand-over that fails before it reopens the window opens it", async (t) => {
+  // The recovery after a failed script asked whether the conversation was a background service and
+  // did nothing at all when it was a window. The script had already closed it, so the owner was left
+  // with the version they had and nothing showing it.
+  const s = await updateSetup(t, { mode: "app" });
+  const opened = [];
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    runScript: (...args) => { s.events.push(["script", ...args]); return 3; },
+    // Asked twice, and the two answers are the truth at those two moments: Branch was running before
+    // any of this, and after the script failed before launching anything, nothing is.
+    running: (() => { let asked = 0; return async () => (asked++ === 0 ? s.deps.running() : null); })(),
+    launch: (...args) => { opened.push(args); },
+  } });
+
+  assert.equal(code, 1, "the update still failed");
+  assert.equal(opened.length, 1, "and the window the script closed was opened again");
+  assert.match(s.lines.join(NEWLINE), /Branch has been opened again, on version 1\.0\.0/);
+});
+
+test("a hand-over that fails after it has already reopened the window does not open a second one", async (t) => {
+  // The same exit code, the opposite situation: the script put the previous version back, launched
+  // it, and then failed. Opening one here would leave the owner with two windows. Nothing in the exit
+  // code tells the two apart, so it is not guessed at -- what is running is looked at.
+  const s = await updateSetup(t, { mode: "app" });
+  const opened = [];
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    runScript: (...args) => { s.events.push(["script", ...args]); return 3; },
+    // Asked twice: the Branch that was running before, and then a different one -- the script put
+    // the previous version back and launched it before it failed.
+    running: (() => { let asked = 0; return async () => (asked++ === 0 ? s.deps.running()
+      : { pid: 9999, mode: "app", port: 8788, url: "http://127.0.0.1:8788",
+        version: "1.0.0", startedAt: new Date().toISOString() }); })(),
+    launch: (...args) => { opened.push(args); },
+  } });
+
+  assert.equal(code, 1, "the update still failed");
+  assert.deepEqual(opened, [], "and no second window was opened");
+  assert.match(s.lines.join(NEWLINE), /Branch is open again, on version 1\.0\.0/);
+});
+
+test("a window that cannot be started is not reported as opened", async (t) => {
+  // `spawn` does not throw when the program is not there: the failure arrives later, on an error
+  // event. With nobody listening, the line saying the window was opened had already been printed --
+  // for a window that never opened -- and the event went on to end the whole command.
+  const { openWindow } = await import("../dist/install/rollback-cli.js");
+  await assert.rejects(openWindow(join(await scratch(t), "not-a-program"), "nothing-here"),
+    (error) => error.code === "ENOENT" || /ENOENT|not found|cannot find/i.test(error.message),
+    "it answers with the failure instead of pretending");
+});
+
 test("a Branch working in the background comes back by itself on the new version", { skip: posixOnly }, async (t) => {
   const s = await updateSetup(t);
   const code = await headlessUpdate({ ...s.input, deps: { ...s.deps, returnWait: cameBack() } });

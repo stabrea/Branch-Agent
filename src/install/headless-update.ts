@@ -60,7 +60,7 @@ export interface HeadlessUpdateDeps {
   /** Writes down what this update is about to change; a test makes it fail after the stop. */
   record?: typeof recordActivation;
   /** Opens the installed Branch as a window again, when a window is what was running. */
-  launch?: (target: string, executableName: string) => void;
+  launch?: (target: string, executableName: string) => void | Promise<void>;
 }
 
 /** The safety copies this data folder holds, newest last, so a refusal can name one. */
@@ -239,8 +239,8 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     // one outcome none of this is allowed to produce. So the same recovery runs, for the version
     // that is still installed — but the update still failed, and the answer given to whatever asked
     // for it says so. Recovering the old service is the least this owes them, not a success.
-    if (stopped.report?.wasRunning && note?.mode === "daemon")
-      await serviceBack(input, note, input.version, log);
+    if (stopped.report?.wasRunning && note)
+      await putBackAfterScript(input, note, log);
     return 1;
   }
   activation.activated();
@@ -261,6 +261,28 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
  * itself on the version it was already running, or the owner is told it is not running and how to
  * start it.
  */
+/**
+ * What to do after the hand-over script failed. The script can fail **before** it launches anything
+ * and **after** it has put the previous version back and launched it — and nothing in the exit code
+ * tells the two apart. Reopening either way is wrong half the time: once it leaves the owner with
+ * nothing running, once it leaves them with two windows.
+ *
+ * So it is not guessed. A background service is asked to come back and has to answer for itself, as
+ * it always did. A window is looked for first: if Branch is already running, the script got far
+ * enough and nothing more is done; if nothing is running, the window is opened.
+ */
+async function putBackAfterScript(input: HeadlessUpdateInput, before: RunningInstance, log: string): Promise<void> {
+  if (before.mode === "daemon") { await serviceBack(input, before, input.version, log); return; }
+  const deps = input.deps ?? {};
+  const running = deps.running ?? ((dir: string) => runningNow(dir));
+  const now = await running(input.dataDir).catch(() => null);
+  if (now && now.pid !== before.pid) {
+    input.print(`Branch is open again, on version ${input.version}.`);
+    return;
+  }
+  await putBackWhatWasRunning(input, before);
+}
+
 async function putBackWhatWasRunning(input: HeadlessUpdateInput, before: RunningInstance): Promise<void> {
   const deps = input.deps ?? {}, platform = input.platform ?? process.platform;
   // A window is put back as a window. The hand-over script is what normally reopens one, and this
@@ -269,7 +291,7 @@ async function putBackWhatWasRunning(input: HeadlessUpdateInput, before: Running
   // Nothing on disk had. Their window was still gone.
   if (before.mode === "app") {
     try {
-      (deps.launch ?? openWindow)(input.installRoot, appEntryName(platform));
+      await (deps.launch ?? openWindow)(input.installRoot, appEntryName(platform));
       input.print(`Branch has been opened again, on version ${input.version}.`);
     } catch (error) {
       input.print(`Branch could not be opened again (${error instanceof Error ? error.message : String(error)}). `

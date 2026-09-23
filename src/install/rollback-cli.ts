@@ -35,7 +35,7 @@ export interface RollbackCliInput {
 export interface RollbackCliDeps {
   quit?: QuitDeps;
   /** Starts the version that was put back; left out when nothing should be started. */
-  launch?: (target: string, executableName: string) => void;
+  launch?: (target: string, executableName: string) => void | Promise<void>;
   /** Starts a background service again (it was one before the undo), through its own manager. */
   restartService?: () => Promise<void>;
   /** How long to wait for the version that was put back to answer, and what to ask; tests hold the clock. */
@@ -80,11 +80,18 @@ async function takeStoreDown(dataDir: string, to: number): Promise<{ backup: str
  * Opens the installed Branch as a window. Shared, because the undo and the update both have to put a
  * window back and there must not be two ideas about how that is done.
  */
-export const openWindow = (target: string, executableName: string): void => {
-  const file = process.platform === "darwin" ? "/usr/bin/open" : join(target, executableName);
-  const args = process.platform === "darwin" ? [target] : [];
-  spawn(file, args, { detached: true, stdio: "ignore" }).unref();
-};
+export const openWindow = (target: string, executableName: string): Promise<void> =>
+  new Promise((opened, failed) => {
+    const file = process.platform === "darwin" ? "/usr/bin/open" : join(target, executableName);
+    const args = process.platform === "darwin" ? [target] : [];
+    const child = spawn(file, args, { detached: true, stdio: "ignore" });
+    // A program that is not there does not make `spawn` throw: the failure arrives later, on an
+    // `error` event. With nobody listening, the caller had already printed that the window was open
+    // -- for a window that never opened -- and the event went on to end the whole command. So the
+    // answer waits for one of the two things that really happen.
+    child.once("error", failed);
+    child.once("spawn", () => { child.unref(); opened(); });
+  });
 
 /** How the on-disk facts are gathered, shared by the check and the real thing. */
 const observer = (input: RollbackCliInput) => (entry: ActivationEntry) =>
@@ -171,7 +178,7 @@ async function startAgainOnly(
     // A window is reopened as a window. Only a conversation that was a background service is handed
     // to the service manager, because that manager is the only thing that can bring one back.
     if (mode === "app") {
-      (deps.launch ?? openWindow)(entry.target, entry.executableName);
+      await (deps.launch ?? openWindow)(entry.target, entry.executableName);
     } else {
       await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
       const back = await waitForReturn(input.dataDir, { pid: was?.pid ?? null, startedAt: was?.startedAt ?? null },
@@ -226,7 +233,7 @@ async function runRollback(entry: ActivationEntry, journal: ActivationJournal, i
           throw new Error(`version ${entry.fromVersion} did not come back up in the background`);
         return;
       }
-      (deps.launch ?? openWindow)(entry.target, entry.executableName);
+      await (deps.launch ?? openWindow)(entry.target, entry.executableName);
     },
   });
 }
