@@ -755,7 +755,8 @@ function buildOnThisPage(page) {
     return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
   });
 
-  if (headings.length === 0) return; // No sections to link to
+  /* DG-181: as the sample's table of contents, only on a longer page: one of four sections or more. */
+  if (headings.length < 4) return;
 
   // Create the navigation
   const nav = make("nav", "lx-on-this-page");

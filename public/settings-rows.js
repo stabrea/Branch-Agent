@@ -8,6 +8,12 @@ import { ROW_LEVELS } from "/settings-row-levels.js";
 
 export const RANK = { regular: 0, advanced: 1, technical: 2 };
 const WORD = { R: "regular", A: "advanced", T: "technical" };
+/* DG-181: rows the sample draws as a line that sends you to another page ("Set in … ›") instead of as a control, so
+   the snapshot, read from controls, leaves them out; the sample still counts them in "N more with …". Card id ->
+   [the row's own id, its level]; the whole row is the piece that hides and shows. */
+const LINK_ROWS = {
+  "context-assistant": [["context-link-soul", "A"], ["context-link-identity", "A"], ["context-link-user", "A"]],
+};
 const NOTE = ":is(p, small, span, div):is(.subtle, .field-note, .note, .hint, .meta, .studio-note, .check-note)";
 
 /**
@@ -32,6 +38,8 @@ for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   else entry.partial = true;
   BY_CARD.set(card, entry);
 }
+
+for (const [card, rows] of Object.entries(LINK_ROWS)) BY_CARD.set(card, { rows: rows.map(([id, level]) => [id, null, WORD[level]]), partial: false });
 
 const shared = (a, b) => { let node = a; while (node && !node.contains(b)) node = node.parentElement; return node; };
 const childOf = (box, node) => { while (node && node.parentElement !== box) node = node.parentElement; return node; };

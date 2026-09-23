@@ -39,11 +39,14 @@ async function api(path, body) {
 /** The cards, in the homes docs/places.md gives them. One card may carry more than one file. */
 const cards = [
   {
-    id: "context-assistant", home: "settings:assistant",
+    /* DG-181: the sample keeps these three switches with the files themselves, on Instructions & personality, and
+       the Assistant page only says where they are set (linkRows below). Kept the moment one moves (DG-025). */
+    id: "context-persona", home: "settings:instructions",
     title: ["settings.card.who-your-assistant-is", "Who your assistant is"],
     purpose: ["settings.note.persona-files",
       "Write these in plain words and your assistant reads them before it does anything else. What you put in the first one replaces its built-in character rather than being added to it."],
     files: ["soul", "identity", "user"],
+    inSection: true,
   },
   {
     id: "context-project", home: "settings:general",
@@ -147,44 +150,99 @@ function switchRow(key, report, state, onChange) {
   return row;
 }
 
+/** A key's words, or the English given while the language file does not have them yet. */
+const say = (key, english) => { const words = t(key); return words === key ? english : words; };
+const keyed = (node, key, english) => { node.dataset.t = key; node.textContent = say(key, english); };
+
+/**
+ * Keeps a card's switches: what is chosen now is sent, and what came back saved is remembered. DG-181: a save that
+ * fails puts every switch back to what is saved and says so, rather than showing a position that is not kept.
+ */
+function keeper(card, chosen, status, save) {
+  let saved = { ...chosen };
+  return async (button) => {
+    if (button) button.disabled = true;
+    try {
+      await save({ files: { ...chosen } });
+      saved = { ...chosen };
+      keyed(status, "settings.file.saved", "Saved. It applies to your next task.");
+    } catch (error) {
+      Object.assign(chosen, saved);
+      for (const [key, value] of Object.entries(saved)) card.querySelector(`#context-switch-${key}`).value = value;
+      keyed(status, "settings.file.not-saved", "That change was not saved, so the switch is back where it was.");
+      status.textContent += ` ${error.message}`;
+    } finally { if (button) button.disabled = false; }
+  };
+}
+
 function buildCard(spec, reports, settings, save) {
   const card = el("section", undefined, "card");
   card.id = spec.id;
   card.dataset.home = spec.home;
-  // DG-032: on the Assistant page this card's title repeats the bucket heading above it, which the
-  // sample does not show twice. The heading still belongs to the card -- it is what gives the page
-  // its structure and what a screen reader announces -- so it is hidden, not removed.
-  const heading = el("h2", spec.title[1]);
+  // DG-032: a card inside a section of its page does not draw its title again under the section's heading. The
+  // heading still belongs to the card -- it is what a screen reader announces -- so it is hidden, not removed.
+  const heading = el(spec.inSection ? "h4" : "h2", spec.title[1]);
   heading.dataset.t = spec.title[0];
-  if (spec.id === "context-assistant") heading.className = "sr-only";
+  if (spec.inSection) heading.className = "sr-only";
   card.append(heading);
   const purpose = el("p", spec.purpose[1]);
   purpose.dataset.t = spec.purpose[0];
   card.append(purpose);
-  const chosen = {};
-  for (const key of spec.files) {
-    chosen[key] = settings.files?.[key] ?? "off";
-    card.append(switchRow(key, reports.find((entry) => entry.key === key), chosen[key], (value) => { chosen[key] = value; }));
-  }
+  const status = el("p", undefined, "meta");
+  status.setAttribute("role", "status");
+  const chosen = Object.fromEntries(spec.files.map((key) => [key, settings.files?.[key] ?? "off"]));
+  const keep = keeper(card, chosen, status, save);
+  for (const key of spec.files)
+    card.append(switchRow(key, reports.find((entry) => entry.key === key), chosen[key], (value) => {
+      chosen[key] = value;
+      if (spec.inSection) void keep();
+    }));
   const note = el("p",
     "A file can change how your assistant works and how it talks to you. It cannot give it permission it does not already have — your approval rules decide that, every time a tool runs.",
     "subtle");
   note.dataset.t = "settings.note.files-cannot-grant";
-  const status = el("p", undefined, "meta");
-  status.setAttribute("role", "status");
+  if (spec.inSection) { card.append(note, status); return card; }
   const button = el("button", "Save");
   button.dataset.t = "action.save";
   button.type = "button";
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    try {
-      await save({ files: chosen });
-      status.textContent = "Saved. It applies to your next task.";
-    } catch (error) {
-      status.textContent = error.message;
-    } finally { button.disabled = false; }
-  });
+  button.addEventListener("click", () => keep(button));
   card.append(note, button, status);
+  return card;
+}
+
+/**
+ * DG-181: the Assistant page's rows for the three files, as the sample draws them: each file's name and a link to
+ * Instructions & personality, where its switch is. The rows are counted in the section's "N more with Advanced".
+ */
+function linkRows() {
+  const card = el("section", undefined, "card");
+  card.id = "context-assistant";
+  card.dataset.home = "settings:assistant";
+  /* Instructions & personality is the owner's page alone, so a household profile has nowhere to be sent. */
+  card.hidden = document.documentElement.dataset.household === "on";
+  const heading = el("h4", undefined, "sr-only");
+  keyed(heading, "settings.card.who-your-assistant-is", "Who your assistant is");
+  card.append(heading);
+  for (const key of ["soul", "identity", "user"]) {
+    const row = el("div", undefined, "file-link-row");
+    row.id = `context-link-${key}`;
+    const name = el("span", undefined, "file-link-name");
+    name.id = `context-link-name-${key}`;
+    keyed(name, ...fileNames[key]);
+    const link = el("button", undefined, "file-link");
+    link.id = `context-link-go-${key}`;
+    link.type = "button";
+    link.setAttribute("aria-labelledby", `${name.id} ${link.id}`);
+    keyed(link, "settings.set-in-instructions", "Set in Instructions & personality ›");
+    link.addEventListener("click", () => {
+      globalThis.branchLayout?.go("settings:instructions");
+      const select = document.getElementById(`context-switch-${key}`);
+      select?.scrollIntoView({ block: "center" });
+      select?.focus({ preventScroll: true });
+    });
+    row.append(name, link);
+    card.append(row);
+  }
   return card;
 }
 
@@ -203,6 +261,8 @@ export async function drawContextFiles() {
     document.getElementById(spec.id)?.remove();
     document.body.append(buildCard(spec, state.files ?? [], state.settings ?? { files: {} }, save));
   }
+  document.getElementById("context-assistant")?.remove();
+  document.body.append(linkRows());
 }
 
 /* These read the owner's settings, which needs the session, so they are drawn on the way in as well
@@ -212,5 +272,9 @@ if (typeof document !== "undefined") {
   /* The notes under each switch are assembled from a file's own name and size, so they cannot be
      retranslated in place the way marked-up words are. The cards are simply drawn again. */
   document.addEventListener("branch-language", () => { drawContextFiles().catch(() => {}); });
+  document.addEventListener("branch-profile", (event) => {
+    const links = document.getElementById("context-assistant");
+    if (links) links.hidden = event.detail?.owner === false;
+  });
   drawContextFiles().catch(() => {});
 }

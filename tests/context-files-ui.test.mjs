@@ -45,7 +45,10 @@ async function fixture(t, seed) {
 /* Card id -> the home docs/places.md gives it. The test asks the question a person would ask —
    "is it on that screen when I go there?" — rather than repeating how layout.js names its slots. */
 const homes = [
+  /* DG-181: the Assistant page says where the three files about the assistant are set; their switches are with the
+     files themselves, on Instructions & personality, as in the sample. */
   ["context-assistant", "settings:assistant"],
+  ["context-persona", "settings:instructions"],
   ["context-project", "settings:general"],
   ["context-memory-file", "library:memory"],
   ["context-heartbeat", "automations:scheduled"],
@@ -61,7 +64,8 @@ test("each switch is on the screen that already owns its subject, not on a scree
     const card = page.locator("#" + id);
     await openPlace(page, home);
     await card.waitFor({ state: "visible", timeout: 10000 });
-    assert.ok((await card.locator("h2").innerText()).trim().length > 0, `${id} has a title on ${home}`);
+    /* DG-181: a card inside a section has its title under the section's heading, read aloud (h4). */
+    assert.ok((await card.locator("h2, h4").first().textContent()).trim().length > 0, `${id} has a title on ${home}`);
     /* And it is genuinely on that screen rather than everywhere: leaving takes it away again. */
     await openPlace(page, "chat");
     assert.equal(await card.isVisible(), false, `${id} shows only on ${home}`);
@@ -92,8 +96,8 @@ test("every switch starts off, and the one you change is the one that is saved",
 test("the cards hold their shape at 400 px, and nothing scrolls sideways", async (t) => {
   const { page, errors } = await fixture(t);
   await page.setViewportSize({ width: 400, height: 900 });
-  await openSettings(page, "assistant");
-  await page.locator("#context-assistant").waitFor();
+  await openSettings(page, "instructions");
+  await page.locator("#context-persona").waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false, "the page does not scroll sideways at 400 px");
   // Measured inside the page in one step: the card redraws itself, and a box asked for in two steps
@@ -118,7 +122,7 @@ test("every word on these cards can be said in French", async (t) => {
       if (!card) { out.push(`${id} missing`); continue; }
       /* A status note is assembled from a file's own name and size, so it has no static key; it is
          still translated, through t(), and the card is drawn again when the language changes. */
-      for (const node of card.querySelectorAll("h2, p:not(.field-note), label, option, button"))
+      for (const node of card.querySelectorAll("h2, h4, p:not(.field-note), label, option, button"))
         if (!node.dataset.t && node.textContent.trim()) out.push(`${id}: "${node.textContent.trim().slice(0, 40)}"`);
     }
     return out;
@@ -135,7 +139,7 @@ test("every word on these cards can be said in French", async (t) => {
   assert.deepEqual(untranslated, [], "and every one of those keys has real French");
 
   /* The note under a switch says something, and never the word "null" where a file name should be. */
-  const note = await page.locator("#context-assistant .field-note").first().innerText();
+  const note = await page.locator("#context-persona .field-note").first().innerText();
   assert.ok(note.trim().length > 0 && !note.includes("null"), `the note reads as a sentence (${note})`);
   assert.deepEqual(errors, []);
 });

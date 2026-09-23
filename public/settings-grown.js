@@ -121,7 +121,9 @@ globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...
 
 /* ---------- the groups on each page ---------- */
 const hostFor = (page) => (page.startsWith("models:") ? $(`lx-models-${page.slice(7)}`) : $(`lx-page-${page}`));
-const FIXED = ".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel";
+/* "On this page" (DG-006) stays under the intro: were it put in order with the cards, every card after it would be
+   moved each time it is drawn again, and a field being typed in would lose the cursor (DG-181, DG-025). */
+const FIXED = ".lx-page-title, .lx-page-intro, .lx-on-this-page, .lx-subtabs, .lx-subpanel";
 /** A card of the page: by id, or (for a block with no id) by its class. */
 function cardIn(host, ref) {
   const node = document.getElementById(ref);
@@ -131,7 +133,7 @@ function cardIn(host, ref) {
 function bucketHead(page, [id, iconName, title, line]) {
   const head = make("div", "sg-head");
   head.dataset.bucket = `${page}:${id}`;
-  // DG-011: Remove icon tile and description line - sample doesn't show these
+  // DG-011: no icon tile - the sample does not draw one
   // const tile = make("span", "sg-tile");
   // tile.append(icon(iconName));
   const words = make("div", "sg-head-words");
@@ -139,8 +141,9 @@ function bucketHead(page, [id, iconName, title, line]) {
   const heading = worded("h3", "sg-head-title", key, title);
   heading.id = `sg-bucket-${page.replace(":", "-")}-${id}`;
   words.append(heading);
-  // DG-011: Remove description line - sample doesn't show section descriptions in headers
-  // words.append(worded("p", "sg-head-line", `${key}.line`, line));
+  /* DG-181: the sample draws each section's line under its heading (`.bk-p`), such as "Its name, its manner, and
+     standing instructions." The icon tile stays out (DG-011). */
+  if (line) words.append(worded("p", "sg-head-line", `${key}.line`, line));
   const more = make("button", "sg-more");
   more.type = "button";
   more.addEventListener("click", () => chooseLevel(more.dataset.to));

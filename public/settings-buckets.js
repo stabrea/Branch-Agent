@@ -27,7 +27,7 @@ export const BUCKETS = {
   ],
   instructions: [
     ["files", "instructions", "Its files", "The plain files that shape how Branch works and talks to you.",
-      [["agent-files", R]]],
+      [["agent-files", R], ["context-persona", R]]],
   ],
   appearance: [
     ["theme", "leaf", "Theme and lettering", "Colours, the size of the words, and the language.",
