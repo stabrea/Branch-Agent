@@ -216,6 +216,11 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* DG-065: the Settings list's icons are the sample's (`.set-pages .nav .ico`): 18px, in their link's own colour. */
+.lx-settings-link .sg-icon {
+  width: 18px;
+  height: 18px;
+}
 
 /* ---------- how much to show ---------- */
 :root[data-settings-level="regular"] body:not(.lx-settings-searching) .lx-settings :is([data-level="advanced"], [data-level="technical"]):not([data-sg-peek]),
@@ -243,7 +248,7 @@
 
 /* ---------- the list of pages ---------- */
 .lx-settings-link {
-  gap: 9px;
+  gap: 10px;
 }
 /* Owner instructions must fail closed while another household profile is active. */
 :root[data-household="on"] .lx-settings-link[data-page="instructions"],
@@ -272,12 +277,6 @@
 }
 .sg-place-link .sg-icon {
   color: var(--text-3);
-}
-.lx-settings-link .sg-icon {
-  color: var(--text-3);
-}
-.lx-settings-link[aria-current="true"] .sg-icon {
-  color: var(--copper-text);
 }
 .sg-nav-group {
   /* DG-076: Make nav group headings smaller and quieter */
