@@ -14,7 +14,7 @@ export const SETTINGS_INDEX = [
   ["heartbeat-zone","settings:automations","quiet-checkin","Timezone","heartbeat.timezone",null,"Check-in",true],
   ["heartbeat-list","settings:automations","quiet-checkin","Checklist","heartbeat.checklist",null,"Check-in",true],
   ["quiet-switch-scripts","settings:automations","quiet-health","Check scripts before a scheduled job","quiet.scriptGates",null,"How each schedule is doing",true],
-  ["queue-at-once","automations:scheduled",null,"Tasks at the same time","run_queue.atOnce","#collab-container input[type=number][max='8']","Set up a task",true],
+  ["queue-at-once","settings:automations","autonomy-queue-card","Tasks at the same time","run_queue.atOnce",null,"Set up a task",true],
   ["autonomy-switch-suggestions","settings:automations","autonomy-suggestions-card","Suggested automations","autonomy-suggestions",null,"Suggested automations",true],
   ["flows-switch-kanban","settings:automations","flows-board-card","The shared board for you and the assistant","flowboards-kanban",null,"Shared board",true],
   ["flows-switch-waiting-line","settings:automations","flows-waiting-card","Changing the waiting line, and typing while it works","flowboards-waiting-line",null,"Change the waiting line",true],

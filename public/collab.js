@@ -124,17 +124,9 @@ function workflowsSection(workflows, helpers) {
 
 function queueSection(queue, helpers) {
   const { el, api, refresh } = helpers;
+  /* How many work at once is set in Settings › Automations & inbox (DG-198); this is the line itself. */
   const wrap = section(helpers, "Waiting to be done",
     "When as many tasks are already working as this computer is set to handle, the rest wait their turn instead of being turned away. What you ask for goes first.");
-  const atOnce = el("input");
-  Object.assign(atOnce, { type: "number", min: "1", max: "8", value: String(queue.settings?.atOnce ?? 3) });
-  const setting = el("label", undefined, "collab-row");
-  setting.appendChild(el("span", "Tasks at the same time"));
-  setting.appendChild(atOnce);
-  setting.appendChild(smallButton(helpers, "Save", async () => {
-    await api("/api/queue/settings", { atOnce: Number(atOnce.value) }); await refresh();
-  }));
-  wrap.appendChild(setting);
   if (!queue.waiting?.length) return empty(helpers, wrap, "Nothing is waiting.");
   for (const entry of queue.waiting) {
     const card = el("div", undefined, "collab-card");

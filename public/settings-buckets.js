@@ -152,7 +152,8 @@ export const BUCKETS = {
   automations: [
     ["running", "automations", "Keep it running by itself", "Check-ins and standing orders that run on their own.",
       [["quiet-checkin", R], ["autonomy-suggestions-card", R], ["autonomy-orders-card", A], ["context-heartbeat", A],
-        ["autonomy-loops-card", A], ["settings-directory-automations-scheduled", T]]],
+        ["autonomy-loops-card", A], ["autonomy-queue-card", A],
+        ["settings-directory-automations-scheduled", T]]],
     ["limits", "gauge", "Limits and the waiting line", "How much automatic work may run, and in what order.",
       [["quiet-health", R], ["flows-board-card", R], ["flows-waiting-card", A], ["autonomy-limits-card", A],
         ["flows-travel-card", A], ["flows-recipes-card", A], ["prompts-card", A], ["context-sop", A],

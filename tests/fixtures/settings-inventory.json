@@ -8,7 +8,7 @@
 {"id":"heartbeat-zone","home":"settings:automations","type":"text","label":"Timezone","defaultRaw":"America/New_York","gated":false,"source":"public/heartbeat.js:77"},
 {"id":"heartbeat-list","home":"settings:automations","type":"text","label":"Checklist","defaultRaw":"","gated":false,"source":"public/heartbeat.js:78"},
 {"id":"quiet-switch-scripts","home":"settings:automations","type":"three-way","label":"Check scripts before a scheduled job","defaultRaw":"off","gated":false,"source":"public/heartbeat.js:165"},
-{"id":"queue-at-once","home":"automations:scheduled","type":"number","label":"Tasks at the same time","defaultRaw":null,"gated":false,"source":"public/collab.js:132"},
+{"id":"queue-at-once","home":"settings:automations","type":"number","label":"Tasks at the same time","defaultRaw":null,"gated":false,"source":"public/autonomy.js"},
 {"id":"autonomy-switch-suggestions","home":"settings:automations","type":"three-way","label":"Suggested automations","defaultRaw":"off","gated":false,"source":"public/autonomy.js:136"},
 {"id":"flows-switch-kanban","home":"settings:automations","type":"three-way","label":"The shared board for you and the assistant","defaultRaw":"off","gated":false,"source":"public/flows-boards.js:232"},
 {"id":"flows-switch-waiting-line","home":"settings:automations","type":"three-way","label":"Changing the waiting line, and typing while it works","defaultRaw":"off","gated":false,"source":"public/flows-boards.js:83"},

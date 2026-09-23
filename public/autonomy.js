@@ -1,9 +1,8 @@
 /* r17-b: it suggests, and runs things on its own. Each card is placed by public/layout.js through
    data-home, and every part has the owner's three-way switch, starting off.
 
-   automations:scheduled     Suggested automations and the catalogue; standing orders;
-                             repeating in conversations; limits on automatic work
-   automations:procedures    Procedures that start themselves
+   settings:automations      Suggested automations and the catalogue; standing orders; repeating in
+                             conversations; how many tasks work at once; limits on automatic work; procedures
    inbox:needs               What waits for your yes
    settings:assistant        "From now on" instructions
    customize:skills          What skills need on this computer */
@@ -222,6 +221,21 @@ async function limitsCard() {
   return node;
 }
 
+/* DG-198: how many tasks from the waiting line work at once ("Set up a task" in the sample), saved as it changes (DG-025).
+   It was a number with a Save button beside the waiting line itself; it lives here now, with the rest of this page. */
+async function queueCard() {
+  const { node, status } = card("autonomy-queue-card", "settings:automations", "autonomy.queue.title", "Set up a task",
+    "autonomy.queue.purpose", "When as many tasks are already working as this computer is set to handle, the rest wait their turn instead of being turned away.");
+  const { settings } = await api("queue");
+  const atOnce = field("input", String(settings.atOnce), "number");
+  Object.assign(atOnce, { min: "1", max: "8" });
+  atOnce.addEventListener("change", async () => {
+    try { await api("queue/settings", { atOnce: Number(atOnce.value) }); done(status); } catch (error) { tell(status, error); }
+  });
+  node.append(...labelled("queue-at-once", "autonomy.queue.atOnce", "Tasks at the same time", atOnce), status);
+  return node;
+}
+
 /* ---------- automations:procedures — procedures that start themselves ---------- */
 const LEVELS = [["ask-each-step", "autonomy.level.eachStep", "Ask before every step"], ["ask-to-start", "autonomy.level.toStart", "Ask before it starts"],
   ["auto", "autonomy.level.auto", "Run on its own"]];
@@ -330,6 +344,7 @@ async function readinessCard(modes) {
 
 const BUILDERS = [
   ["autonomy-suggestions-card", suggestionsCard], ["autonomy-orders-card", ordersCard], ["autonomy-loops-card", loopsCard],
+  ["autonomy-queue-card", queueCard],
   ["autonomy-limits-card", limitsCard], ["autonomy-procedures-card", proceduresCard], ["autonomy-needs-card", needsCard],
   ["autonomy-instructions-card", instructionsCard], ["autonomy-readiness-card", readinessCard],
 ];
