@@ -37,6 +37,7 @@ export const GitStatusSchema = z.object({
   branch: z.string().min(1).max(200), head: z.string().regex(/^[a-f0-9]{40}$/, "A head is a full 40-character commit id"),
   clean: z.boolean(), changed: z.array(z.string().min(1).max(500)).max(500),
 }).strict();
+export type GitStatus = z.infer<typeof GitStatusSchema>;
 export const GitPatchSchema = z.object({
   repository: projectIdSchema, title: z.string().trim().min(1).max(200),
   patch: z.string().min(1).max(60000), status: GitStatusSchema,

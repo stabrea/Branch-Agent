@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import { join } from "node:path";
 import { z } from "zod";
 import type { createBranch } from "./index.js";
 import type { Run } from "./contracts.js";
@@ -8,7 +9,9 @@ import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 import { roleLabels } from "./profile-roles.js";
-import { ownerMember, publishGitPatch, reservedKinds } from "./collab-events.js";
+import { ownerMember, publishGitPatch, reservedKinds, type GitStatus } from "./collab-events.js";
+import { GitRunner } from "./integrations/git-run.js";
+import { readGitStatus, readGitDiff } from "./collab-git-status.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -158,6 +161,12 @@ async function eventsApi(app: Branch, request: IncomingMessage, path: string, bo
     return events.list(owner, { kind: query.get("kind") ?? undefined, text: query.get("q") ?? undefined,
       repository: query.get("repository") ?? undefined });
   }
+  // A repository's current branch, head, clean flag and diff, read straight from Git, so the owner
+  // never has to type a commit id by hand before publishing a patch (see collab-git-status.ts).
+  if (request.method === "GET" && path === "/api/collab/git-status") {
+    const repository = new URL(request.url ?? "/", "http://local").searchParams.get("repository") ?? "";
+    return gitStatusFor(app, owner, repository);
+  }
   if (request.method !== "POST") return notCollab;
   if (path === "/api/collab/events") {
     const input = z.object({ kind: z.string(), payload: z.record(z.string(), z.unknown()) }).strict().parse(await body());
@@ -172,6 +181,20 @@ async function eventsApi(app: Branch, request: IncomingMessage, path: string, bo
     return publishGitPatch(events, owner, app.store.profiles.active()?.id ?? ownerMember, await body(), known);
   }
   return notCollab;
+}
+
+const gitStatusRunner = new GitRunner();
+/** What `publishGitPatch` needs for one repository, read straight from its working folder. */
+async function gitStatusFor(app: Branch, owner: string, repository: string):
+  Promise<{ repository: string; status: GitStatus; patch: string } | { repository: string; error: string }> {
+  const project = app.store.projects.list(owner).find((candidate) => candidate.id === repository);
+  if (!project) return { repository, error: "Repository not found" };
+  const folder = join(app.runtime.workspace, project.folder);
+  const signal = AbortSignal.timeout(15000);
+  const status = await readGitStatus(gitStatusRunner, folder, signal);
+  if (!status) return { repository, error: "This folder is not a repository yet, or has no commits to report." };
+  const patch = await readGitDiff(gitStatusRunner, folder, signal);
+  return { repository, status, patch };
 }
 
 async function profilesApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
