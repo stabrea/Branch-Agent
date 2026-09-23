@@ -18,7 +18,7 @@ const EMOJI = [["🌳", "tree oak"], ["🌰", "acorn nut"], ["🍂", "leaves aut
   ["🛒", "cart shopping"], ["🍳", "cooking kitchen"], ["🏡", "home house"], ["☕", "coffee"], ["🎧", "music headphones"], ["🎨", "art paint"],
   ["📚", "books reading"], ["✍️", "writing"], ["🧪", "lab test"], ["🛠️", "tools fix"], ["🤖", "robot"], ["🛡️", "shield safe"], ["🔑", "key"],
   ["⚡", "energy fast"], ["🌙", "moon night"], ["☀️", "sun day"], ["❄️", "snow winter"]];
-const FACES = [["drawn", "studio.face.drawn", "Drawn face"], ["letters", "studio.face.letters", "Letters"], ["emoji", "studio.face.emoji", "Emoji"],
+const FACES = [["letters", "studio.face.letters", "Letters"], ["emoji", "studio.face.emoji", "Emoji"],
   ["photo", "studio.face.photo", "Photo"], ["pattern", "studio.face.pattern", "Pixel pattern"]];
 const SHAPE_WORDS = { circle: "Circle", squircle: "Soft square", leaf: "Leaf", acorn: "Acorn", shield: "Shield", hexagon: "Hexagon", pebble: "Pebble" };
 const MOTION_WORDS = { none: "None", breathe: "Breathe", sway: "Sway like a leaf", shimmer: "Shimmer", pulse: "Pulse while working", dots: "Dots while working" };
@@ -385,7 +385,9 @@ export async function openEdit(id, { rename = false } = {}) {
   await refresh();
   const trunk = findTrunk(id);
   if (!trunk) return toast(say("studio.gone", "That Trunk is no longer here."));
-  const look = { face: "drawn", letters: "", emoji: "🌱", shuffle: 0, colour: null, shape: null, motion: "none", depth: "flat", ...(trunk.look ?? {}) };
+  const look = { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: null, shape: null, motion: "none", depth: "flat", ...(trunk.look ?? {}) };
+  // migrate any stored "drawn" face to "pattern"
+  if (look.face === "drawn") look.face = "pattern";
   const spec = trunkSpec(trunk);
   if (look.colour === null) look.colour = Number(/series-(\d)/.exec(spec.colour)?.[1] ?? 1);
   if (look.shape === null) look.shape = spec.shape;
