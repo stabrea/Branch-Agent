@@ -70,12 +70,12 @@ function reasonOf(event: Event): string {
   const words = d.question ?? d.message ?? d.note ?? d.reason ?? d.label ?? d.error ?? d.site ?? d.folder ?? d.provider ?? d.name ?? "";
   return short(words, 160);
 }
-/** When the wait an event describes ends, when it says. */
+/** When the wait an event describes ends, when it says. A fallback's `cooldownUntil` is when the first model may be
+    tried again, not when the task stops waiting (it has already moved on), so it is not read here. */
 function untilOf(event: Event): string | undefined {
   const d = event.data, at = Date.parse(event.createdAt);
   const wait = Number(d.waitMs ?? d.delayMs ?? (d.waitSeconds !== undefined ? Number(d.waitSeconds) * 1000 : NaN));
-  if (Number.isFinite(wait) && wait > 0 && Number.isFinite(at)) return new Date(at + wait).toISOString();
-  return typeof d.cooldownUntil === "string" ? d.cooldownUntil : undefined;
+  return Number.isFinite(wait) && wait > 0 && Number.isFinite(at) ? new Date(at + wait).toISOString() : undefined;
 }
 
 export function taskState(run: Run, events: Event[], options: { now?: number; staleMs?: number } = {}): TaskState {

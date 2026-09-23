@@ -5,7 +5,7 @@
    not grow. No percentage anywhere. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -50,6 +50,26 @@ test("Q51 a service wait says what it waits for and until when, and ends when wo
   assert.deepEqual(retry, { state: "waiting-service", why: "model.retry_scheduled", reason: "anthropic", stale: false, until: at(6) });
   assert.equal(state("running", [ev(0, "run.started"), ev(1, "model.loading", { waitSeconds: 20, message: "Loading the model" })]).why, "model.loading");
   assert.equal(state("running", [ev(0, "run.started"), ev(1, "context.compacting", {})]).state, "waiting-service");
+});
+
+test("Q51 a move to another model keeps its reason, and the first model's cooldown is not shown as the task's wait", () => {
+  const moved = state("running", [ev(0, "run.started"), ev(1, "model.fallback", {
+    from: "a", to: "b", provider: "openai", model: "gpt-x", reason: "Overloaded", cooldownUntil: at(600) })]);
+  assert.deepEqual(moved, { state: "waiting-service", why: "model.fallback", reason: "Overloaded", stale: false });
+});
+
+test("Q51 Q52 the French task and result words use the straight apostrophe most of fr.json uses, and say \"Mise à jour\"", async () => {
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  const ours = Object.entries(fr).filter(([key]) => key.startsWith("task.") || key.startsWith("result."));
+  assert.deepEqual(ours.filter(([, words]) => words.includes("\u2019")).map(([key]) => key), []);
+  assert.equal(fr["task.updated"], "Mise à jour {time}", "the task is feminine, as in Arrêtée and Bloquée");
+});
+
+test("Q51 a task that stopped to ask with no owner event recorded still waits for the owner", () => {
+  const events = [ev(0, "run.started"), ev(1, "tool.started", { name: "files.read", id: "t1" })];
+  assert.deepEqual(state("needs_input", events), { state: "waiting-owner", why: "needs_input", reason: "", stale: false });
+  assert.deepEqual(state("needs_input", [ev(0, "run.started"), ev(1, "rate.paused", { waitMs: 30_000 })]),
+    { state: "waiting-owner", why: "needs_input", reason: "", stale: false }, "a service wait before it stopped does not win");
 });
 
 test("Q51 a refusal blocks the task until anything moves on, and a failed tool is not a block", () => {
