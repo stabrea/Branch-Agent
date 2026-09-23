@@ -209,10 +209,6 @@ function build() {
   art.setAttribute("aria-hidden", "true");
   pet.append(art);
   if (state.settings.look?.style === "3d") inThreeD(pet);
-  const label = el("span", "label pet-cap");
-  const petKind = state.settings.pets.kind === "fawn" ? "fawn" : state.settings.pets.kind;
-  label.innerHTML = `keeper.${petKind}<br>${petName()}`;
-  pet.append(label);
   const bubble = el("span", "pet-say");
   bubble.id = "pet-say";
   bubble.hidden = true;
@@ -300,6 +296,8 @@ export function applyPet() {
   if (document.hidden) stop(); else start();
 }
 document.addEventListener("visibilitychange", () => { if (on("pets") && !document.hidden) start(); else stop(); });
+/* The pet's name and kind are its tooltip, so they follow a change of language at once (DG-130). */
+document.addEventListener("branch-language", label);
 onDelight(applyPet);
 
 /* ---------- its own menu: right-click it ---------- */

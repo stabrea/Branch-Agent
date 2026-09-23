@@ -65,12 +65,12 @@ export function torus([cx, cy, cz], radius, tube, color, seg = 18) {
 
 /* ---------- the stand-ins ---------- */
 export function acornModel() {
-  const copper = tone("--copper", "#d8612a"), text = tone("--text", "#1d2a21"), ground = tone("--ground", "#e9e3d5");
-  const nut = mix(copper, [0.95, 0.75, 0.45], 0.2), cap = mix(text, copper, 0.4), stem = mix(text, ground, 0.3);
+  const copper = tone("--copper", "#b8562e"), text = tone("--text", "#23343e"), ground = tone("--ground", "#eaf0f2");
+  const nut = mix(copper, [0.95, 0.75, 0.45], 0.35), cap = mix(text, copper, 0.3), stem = mix(text, ground, 0.2);
   return [
-    ellipsoid([0, -0.2, 0], [0.5, 0.625, 0.5], nut, { seg: 16 }),
-    ellipsoid([0, 0.2, 0], [0.55, 0.35, 0.55], cap, { seg: 12, upTo: 0.5 }),
-    cone([0, 0.57, 0], 0.3, 0.07, 0.05, stem, 6),
+    ellipsoid([0, -0.18, 0], [0.5, 0.62, 0.5], nut, { seg: 22 }),
+    ellipsoid([0, 0.18, 0], [0.58, 0.34, 0.58], cap, { seg: 18, upTo: 0.55 }),
+    cone([0, 0.44, 0], 0.26, 0.07, 0.05, stem),
   ];
 }
 export function oakModel() {
@@ -84,21 +84,22 @@ export function oakModel() {
     ellipsoid([0.1, 1.25, -0.2], [0.65, 0.5, 0.65], leaf, { seg: 9 }),
   ];
 }
-const PET_COL = {
-  squirrel: [[192/255, 103/255, 46/255], [240/255, 210/255, 176/255]], owl: [[138/255, 106/255, 74/255], [233/255, 216/255, 184/255]], hedgehog: [[122/255, 96/255, 72/255], [232/255, 207/255, 174/255]], fox: [[217/255, 100/255, 42/255], [1, 1, 1]],
-  robin: [[124/255, 90/255, 68/255], [217/255, 85/255, 47/255]], rabbit: [[185/255, 170/255, 152/255], [244/255, 238/255, 230/255]], snail: [[168/255, 131/255, 79/255], [216/255, 196/255, 160/255]], fawn: [[176/255, 122/255, 74/255], [242/255, 228/255, 204/255]],
-};
 const PET_SHAPE = {
-  squirrel: { tail: true }, fox: { tail: true }, rabbit: {}, owl: {}, hedgehog: {}, robin: {}, snail: { shell: true }, fawn: {},
+  squirrel: { tail: true }, fox: { tail: true, ears: 0.3 }, rabbit: { ears: 0.6 }, owl: { ears: 0.18 },
+  hedgehog: { spikes: true }, robin: { beak: true }, snail: { shell: true }, fawn: { ears: 0.25, legs: true },
 };
 export function petModel(kind) {
-  const [a, b] = PET_COL[kind] ?? [[0.75, 0.4, 0.2], [0.9, 0.85, 0.8]];
-  const shape = PET_SHAPE[kind] ?? {};
-  const parts = [ellipsoid([0, -0.25, 0], [0.55, 0.45, 0.575], a), ellipsoid([0, 0.35, 0.25], [0.38, 0.32, 0.32], a),
-    ellipsoid([0, -0.25, 0.32], [0.36, 0.3, 0.2], b), ellipsoid([-0.13, 0.42, 0.53], [0.05, 0.06, 0.04], [0.1, 0.1, 0.1]), ellipsoid([0.13, 0.42, 0.53], [0.05, 0.06, 0.04], [0.1, 0.1, 0.1])];
-  for (const s of [-1, 1]) parts.push(cone([s * 0.2, kind === "rabbit" ? 1.7 : 1.5, 0.3], kind === "rabbit" ? 0.6 : 0.28, 0.1, 0.02, a, 5));
-  if (shape.tail) parts.push(ellipsoid([0, 0.1, -0.6], [0.35, 0.55, 0.7], a));
-  if (shape.shell) parts.push(torus([0, 0.9, -0.2], 0.35, 0.18, b));
+  const text = tone("--text", "#23343e"), ground = tone("--ground", "#eaf0f2"), copper = tone("--copper", "#b8562e");
+  const fur = kind === "fox" || kind === "robin" ? mix(copper, text, 0.15) : mix(text, ground, 0.35), light = mix(ground, [1, 1, 1], 0.4);
+  const eye = mix(text, [0, 0, 0], 0.5), shape = PET_SHAPE[kind] ?? {};
+  const parts = [ellipsoid([0, -0.25, 0], [0.5, 0.45, 0.55], fur), ellipsoid([0, 0.35, 0.25], [0.34, 0.32, 0.32], fur),
+    ellipsoid([0, -0.25, 0.32], [0.32, 0.3, 0.2], light), ellipsoid([-0.13, 0.42, 0.53], [0.05, 0.06, 0.04], eye), ellipsoid([0.13, 0.42, 0.53], [0.05, 0.06, 0.04], eye)];
+  if (shape.ears) for (const s of [-1, 1]) parts.push(cone([s * 0.17, 0.55, 0.2], shape.ears, 0.09, 0.02, fur));
+  if (shape.tail) parts.push(ellipsoid([0, 0.1, -0.6], [0.25, 0.55, 0.22], fur));
+  if (shape.beak) parts.push(cone([0, 0.3, 0.55], 0.14, 0.06, 0.0, copper));
+  if (shape.shell) parts.push(torus([0, 0.05, -0.2], 0.3, 0.18, mix(copper, light, 0.3)));
+  if (shape.spikes) parts.push(ellipsoid([0, -0.1, -0.1], [0.56, 0.5, 0.6], mix(text, copper, 0.3), { seg: 7 }));
+  if (shape.legs) for (const s of [-1, 1]) parts.push(cone([s * 0.22, -1.05, 0.1], 0.6, 0.06, 0.06, fur));
   return parts;
 }
 
