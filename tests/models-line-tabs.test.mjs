@@ -43,7 +43,10 @@ const look = (page) => page.evaluate(() => {
   const copperRgb = getComputedStyle(probe).color;
   probe.remove();
   return {
-    row: { line: getComputedStyle(row).borderBottomWidth, overflow: getComputedStyle(row).overflowX, wrap: getComputedStyle(row).flexWrap },
+    row: { line: getComputedStyle(row).boxShadow, overflow: getComputedStyle(row).overflowX, wrap: getComputedStyle(row).flexWrap,
+      /* Nothing hangs below the row, so it never scrolls up and down and never clips the underline. */
+      tall: row.scrollHeight - row.clientHeight,
+      under: tabs.map((tab) => tab.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom).filter((over) => over > 0.5) },
     pills: tabs.filter((tab) => getComputedStyle(tab).borderTopLeftRadius !== "0px" || getComputedStyle(tab).backgroundColor !== "rgba(0, 0, 0, 0)")
       .map((tab) => tab.textContent.trim()),
     chosen: tabs.filter((tab) => tab.getAttribute("aria-selected") === "true").map((tab) => ({
@@ -58,7 +61,9 @@ const look = (page) => page.evaluate(() => {
 test("DG-041 the Models tabs are line tabs: one row on a hairline, the chosen one underlined in copper", async (t) => {
   const { page, errors } = await modelsPage(t);
   const seen = await look(page);
-  assert.equal(seen.row.line, "1px", "the row sits on a hairline");
+  assert.match(seen.row.line, / 0px -1px 0px 0px inset$/, "the row sits on a hairline");
+  assert.equal(seen.row.tall, 0, "the row does not scroll up and down");
+  assert.deepEqual(seen.row.under, [], "no tab, and so no underline, hangs below the row to be clipped");
   assert.deepEqual(seen.pills, [], "no tab is a filled or rounded pill");
   assert.equal(seen.chosen.length, 1);
   assert.equal(seen.chosen[0].underline, "2px", "the chosen tab is underlined");
