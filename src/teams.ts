@@ -5,7 +5,7 @@ import type { FanoutOutcome, Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message, Run, ToolContext } from "./contracts.js";
 import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
-import { describeMemberRuns, dispatchHeld, finishLiveTurn, holdDispatch, memberRuns, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import { answersDeletedBeforeRecord, describeMemberRuns, dispatchHeld, finishLiveTurn, holdDispatch, memberRuns, membersSentKind, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 import type { FanoutTask } from "./delegation.js";
 import { subtaskLimits } from "./knobs/apply.js";
 import { teamTaskViews, type TeamTaskView } from "./team-task-view.js";
@@ -106,6 +106,10 @@ export class Teams {
       throw error;
     } finally {
       releaseDispatch(this.store, claim.taskId);
+      // The team was removed while this turn ran (remove keeps a running turn's task): forget it now, answers and all.
+      try {
+        if (!this.store.get("governance", this.owner, `team:${team.id}`)) this.tasks.forgetTeam(this.owner, team.id, (taskId) => dispatchHeld(this.store, taskId));
+      } catch { /* a store closed under the turn never hides the turn's own outcome */ }
     }
   }
   /** Q64: the team's newest tasks as the owner sees them (src/team-task-view.ts); reading settles nothing. */
@@ -137,7 +141,8 @@ export class Teams {
     if (this.tasks.orphaned(this.tasks.get(scope, taskId)!, dispatchHeld(this.store, taskId))) reconcileTeamTask(this.store, this.tasks, scope, taskId);
     const task = this.tasks.get(scope, taskId)!;
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
-    if (task.state === "completed") return this.recordedResult(task, identity);
+    // A task whose answers went with a conversation the owner deleted says so, whether it finished or needs a person.
+    if (task.state === "completed" || (task.result as { deleted?: unknown } | null)?.deleted) return this.recordedResult(task, identity);
     // A turn that stopped to ask the owner says what it asked, and what it had started so far.
     if (task.state === "waiting_owner")
       return { teamId: task.teamId, ...identity, question: task.question, parentRunId: task.parentRunId, effects: task.parentRunId ? turnEffects(this.store, task.parentRunId) : [] };
@@ -145,13 +150,16 @@ export class Teams {
   }
   /** A finished task's recorded result; one too large to keep says so plainly and points at the room, where every answer is. */
   private recordedResult(task: { teamId: string; result: unknown }, identity: { taskId: string; requestId: string; state: string }) {
-    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean; roomSessionId?: string } | null;
+    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean; unwritten?: boolean; roomSessionId?: string } | null;
     if (result?.deleted) return { teamId: task.teamId, ...identity, deleted: true as const,
-      note: "The owner deleted a conversation this task's answers were in, so they are gone. Send a new request id to run it again." };
+      note: `The owner deleted a conversation this task's answers were in, so they are gone. ${identity.state === "completed"
+        ? "Send a new request id to run it again." : "Check what the team did before sending a new request id."}` };
     if (!result?.truncated) return { ...result, ...identity };
     const room = result.roomSessionId ?? this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
     return { teamId: task.teamId, roomSessionId: room, ...identity, truncated: true as const,
-      note: `The answers came to ${result.chars ?? "too many"} characters, too large to keep for a repeat, so they are not replayed here. Every answer is in the team's room.` };
+      note: `The answers came to ${result.chars ?? "too many"} characters, too large to keep for a repeat, so they are not replayed here. ${result.unwritten
+        ? "They were not written to the team's room either: each member's answer is in its own run."
+        : "Every answer is in the team's room."}` };
   }
   private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress) {
     // The claim must still be this caller's before the runtime is asked for anything; if it moved, only observe.
@@ -164,10 +172,14 @@ export class Teams {
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
     // The plan names every member before any starts, so reconcile can say which never ran.
     this.store.event(parent.id, "team.members.planned", { members: team.members.map((member, index) => ({ member: `m${index}`, role: member.role })) });
+    // Written on the team's own run before any member starts, so reconcile knows members were sent even if their conversations are deleted.
+    this.store.event(parent.id, membersSentKind, { members: tasks.length });
     turn.membersStarted = true;
     const outcomes = await this.fanOutInBatches(runtime, context, tasks, (taskId) => specs.get(taskId)!);
     const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcomes[`m${index}`]! }));
     const result: TeamRunResult = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
+    // A conversation the answers go to or came from was deleted while the members worked: nothing is kept or written.
+    if (answersDeletedBeforeRecord(this.store, this.tasks, claim, result)) return this.observed(claim.scope, claim.taskId);
     // Kept on the task first, so a crash before the finish below can still be finished from it without running anything.
     this.tasks.recordOutcome(claim, result);
     turn.recorded = true;

@@ -187,6 +187,67 @@ test("a process that dies after batch 2 of 3 is reconciled from both finished ba
   assert.equal(retry.dispatches + after.parentCalls + after.memberCalls, 0, "the unfinished rest is not redispatched");
 });
 
+test("members of the first batch whose conversations are deleted after a crash are never read as 'nothing was done'", async (t) => {
+  /* Team stack review: a member deleted after a crash must not settle "failed". With batches, only the first
+     batch was sent before any record, so that batch (not the whole team) is what must still be there. */
+  const provider = scripted();
+  const { state, owner, team, reopen } = await fixture(t, provider, 5);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
+  const requestId = randomUUID();
+  const members = [];
+  let reachedFirst;
+  const first = new Promise((resolve) => { reachedFirst = resolve; });
+  // The first batch's members start and write, then the process "dies" before that batch's record is written.
+  const dying = { run: (options) => state.app.runtime.run(options), context: (o) => state.app.runtime.context(o),
+    fanout(context, tasks) {
+      for (const task of tasks) {
+        const member = state.app.store.createRun(owner, task.prompt);
+        state.app.store.event(member.id, "run.started", { parentRunId: context.runId });
+        state.app.store.finish(member.id, "completed", `${task.id} wrote a file`);
+        members.push(member.id);
+      }
+      reachedFirst();
+      return new Promise(() => {});
+    } };
+  void state.app.teams.run(dying, knowledge, team.id, "file the notes", { requestId });
+  await first;
+  assert.equal(members.length, 2, "the first batch of 2 was sent");
+  const after = scripted();
+  const app = await reopen(after);
+  for (const runId of members) app.store.forgetSession(owner, app.store.run(runId).sessionId);
+  const report = app.teams.reconcile(row(app, requestId).task_id);
+  assert.equal(report.state, "needs_reconciliation", "a member's conversation was deleted, so what it did cannot be known");
+  assert.match(row(app, requestId).error ?? "", /conversation was deleted/);
+  assert.equal(after.parentCalls + after.memberCalls, 0, "nothing was run again");
+});
+
+test("a crash in the first batch with nothing deleted is not read as a deleted conversation: only that batch was sent", async (t) => {
+  /* The members-sent count is the first batch's, not the team's: 2 of 5 were sent, and both runs are there. */
+  const provider = scripted();
+  const { state, owner, team, reopen } = await fixture(t, provider, 5);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
+  const requestId = randomUUID();
+  let reachedFirst;
+  const first = new Promise((resolve) => { reachedFirst = resolve; });
+  const dying = { run: (options) => state.app.runtime.run(options), context: (o) => state.app.runtime.context(o),
+    fanout(context, tasks) {
+      for (const task of tasks) {
+        const member = state.app.store.createRun(owner, task.prompt);
+        state.app.store.event(member.id, "run.started", { parentRunId: context.runId });
+        state.app.store.finish(member.id, "completed", `${task.id} answered`);
+      }
+      reachedFirst();
+      return new Promise(() => {});
+    } };
+  void state.app.teams.run(dying, knowledge, team.id, "file the notes", { requestId });
+  await first;
+  const app = await reopen(scripted());
+  const report = app.teams.reconcile(row(app, requestId).task_id);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.doesNotMatch(row(app, requestId).error ?? "", /conversation was deleted/, "nothing was deleted");
+  assert.match(row(app, requestId).error ?? "", /2 member\(s\) finished an answer/);
+});
+
 test("a failed member in batch 1 keeps its real outcome and later batches still run", async (t) => {
   const provider = scripted({ fail: [1] });
   const { state, owner, team } = await fixture(t, provider, 5);
