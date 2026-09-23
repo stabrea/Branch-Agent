@@ -23,7 +23,7 @@ test("DG-189 the Secrets page's sections are the sample's, and every card it had
   assert.deepEqual(sections[1][4].map(([card]) => card), ["secret-managers", "vault-autofill", "keychain-card"]);
 });
 
-async function settings(t) {
+async function settings(t, before) {
   const root = await mkdtemp(join(tmpdir(), "branch-secrets-page-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
@@ -35,6 +35,7 @@ async function settings(t) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  if (before) await before(page);
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -110,5 +111,46 @@ test("DG-053 where Branch reads saved sign-ins from: truthful tiles that save as
   await page.waitForFunction(() => document.querySelector("#secret-managers-title")?.textContent === "Où Branch lit les identifiants enregistrés");
   const { headings } = await seen(page);
   assert.deepEqual(headings.slice(1), ["H3 Les clés de vos commandes", "H3 Mots de passe et clés"]);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-189 the Keychain card saves as you go, with no Save button (DG-025)", async (t) => {
+  /* The Keychain is a Mac's: the answer is a Mac's here, so the card shows on any computer, and each save is kept. */
+  const posts = [];
+  let saved = { enabled: false, mode: "off", entries: [], available: true, references: [] };
+  const { page, errors } = await settings(t, (page) => page.route("**/api/keychain/settings", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON();
+      posts.push(body);
+      saved = { ...saved, ...body, enabled: body.mode !== "off" };
+    }
+    await route.fulfill({ json: saved });
+  }));
+  /* The sample's count on a Mac: the Keychain's switch, its list and the saved sign-ins wait for Advanced. */
+  await level(page, "regular");
+  await secrets(page);
+  await page.waitForFunction(() => !document.getElementById("keychain-card")?.hidden);
+  assert.deepEqual((await seen(page)).more, ["3 more with Advanced"]);
+  await level(page, "advanced");
+  await secrets(page);
+  const card = page.locator("#keychain-card");
+  await card.waitFor({ state: "visible" });
+  assert.deepEqual(await card.locator("button:not(.quiet-button, .sg-more)").count(), 0, "no Save button");
+  /* As on a Mac in the sample: at Advanced, the Keychain's list and the saved sign-ins are what is out of sight. */
+  assert.deepEqual((await seen(page)).more, ["2 more with Technical"]);
+  await page.locator("#keychain-card-mode").selectOption("when-needed");
+  await page.waitForFunction(() => document.querySelector("#keychain-card .subtle, #keychain-card [role=status]"));
+  await page.waitForTimeout(300);
+  assert.deepEqual(posts.at(-1), { mode: "when-needed", entries: [] });
+  await level(page, "technical");
+  await page.locator("#keychain-name").fill("npm");
+  await page.locator("#keychain-service").fill("npm registry");
+  await page.locator("#keychain-add").click();
+  await page.waitForFunction((count) => document.querySelectorAll("#keychain-list .card-row").length === count, 1);
+  await page.waitForTimeout(300);
+  assert.deepEqual(posts.at(-1), { mode: "when-needed", entries: [{ name: "npm", service: "npm registry", note: "" }] });
+  await page.locator("#keychain-list .card-row button").click();
+  await page.waitForTimeout(300);
+  assert.deepEqual(posts.at(-1), { mode: "when-needed", entries: [] });
   assert.deepEqual(errors, []);
 });
