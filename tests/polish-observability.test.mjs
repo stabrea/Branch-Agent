@@ -896,7 +896,7 @@ test("G5 Appearance is written in French when French is chosen", async (t) => {
   assert.equal(await page.locator("#accent-label").textContent(), "Couleur de mise en avant");
   assert.equal(await page.locator("#accent-choices .choice").first().textContent(), "Cuivre");
   assert.equal(await page.locator("#text-size-label").textContent(), "Taille du texte");
-  assert.equal(await page.locator("#settings-form button[data-t='appearance.save']").textContent(), "Enregistrer l'apparence");
+  assert.equal(await page.locator("#settings-form button[data-t='appearance.save']").count(), 0, "DG-025: no Save button, it saves as you go");
   assert.deepEqual(errors, []);
 });
 

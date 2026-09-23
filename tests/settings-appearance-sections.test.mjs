@@ -68,3 +68,18 @@ for (const width of [1440, 400]) {
     assert.deepEqual(errors, []);
   });
 }
+
+test("DG-025: Appearance saves as you go, with no Save button, and says so when a save fails", async (t) => {
+  const { page, errors } = await open(t, { width: 1440, everything: false });
+  assert.equal(await page.locator("#settings-form button[data-t='appearance.save']").count(), 0);
+  const saved = page.waitForRequest((request) => request.url().endsWith("/api/preferences") && request.method() === "POST");
+  await page.locator("#appearance-acorn").click();
+  assert.equal((await saved).postDataJSON().showAcorn, true, "the change is sent the moment it is made");
+  await page.evaluate(() => import("/appearance.js").then((look) => look.appearanceSaved()));
+  await page.route("**/api/preferences", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "The look could not be saved." }) })
+    : route.continue());
+  await page.locator("#appearance-acorn").click();
+  await page.waitForFunction(() => /could not be saved/.test(document.getElementById("toast")?.textContent ?? ""));
+  assert.deepEqual(errors, []);
+});
