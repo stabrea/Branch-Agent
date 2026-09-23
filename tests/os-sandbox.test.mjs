@@ -803,7 +803,7 @@ test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and s
   await card.scrollIntoViewIfNeeded();
   assert.match(await card.textContent(), /The wall around programs/);
   assert.equal(await page.locator("#os-sandbox-mode").inputValue(), "off");
-  assert.equal(await card.locator("button:not(.quiet-button)").count(), 1);
+  assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1); // "N more" can end the card (DG-199)
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page scrolls sideways");
   const wide = await page.evaluate(() => [...document.querySelectorAll("#os-sandbox-card *")]
     .filter((node) => !node.closest(".sr-only") && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))

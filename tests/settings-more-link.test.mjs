@@ -97,17 +97,27 @@ test("DG-073 each section's \"N more\" link ends the section, in the sample's li
   assert.deepEqual(errors, []);
 });
 
-test("DG-073 a section with nothing on show keeps its link in its head", async (t) => {
+test("DG-073 a section with nothing on show keeps its link in its head, and Under the hood has none", async (t) => {
   const { page, errors } = await settings(t, "data");
-  const seen = await links(page);
-  const thin = await page.evaluate(() => [...document.querySelectorAll(".sg-head.sg-thin")].filter((head) => head.checkVisibility())
-    .map((head) => head.dataset.bucket));
-  assert.ok(thin.length >= 1, "this page has a section whose cards all wait for a higher level");
-  for (const bucket of thin) {
-    const link = seen.find((one) => one.bucket === bucket);
-    assert.ok(link, `${bucket}: its link shows`);
-    assert.equal(link.inHead, true, `${bucket}: in the head, as the sample's thin section`);
+  /* The sample's rule (DG-199): a section whose rows all wait keeps "Show N" in its head; Under the hood has no head,
+     and no line, until something in it shows. Every page is looked at, so the rule holds wherever a thin section is. */
+  const pages = await page.evaluate(() => [...document.querySelectorAll(".lx-settings-link[data-page]")].map((link) => link.dataset.page));
+  let thinSeen = 0;
+  for (const name of pages) {
+    await page.evaluate((one) => globalThis.branchLayout.go(`settings:${one}`), name);
+    await settled(page);
+    const seen = await links(page);
+    const heads = await page.evaluate(() => [...document.querySelectorAll(".sg-head")].filter((head) => head.checkVisibility())
+      .map((head) => ({ bucket: head.dataset.bucket, thin: head.classList.contains("sg-thin") })));
+    assert.deepEqual(heads.filter((head) => head.bucket.endsWith(":under")), [], `${name}: no Under the hood at Regular`);
+    for (const { bucket } of heads.filter((head) => head.thin)) {
+      thinSeen += 1;
+      const link = seen.find((one) => one.bucket === bucket);
+      assert.ok(link, `${bucket}: its link shows`);
+      assert.equal(link.inHead, true, `${bucket}: in the head, as the sample's thin section`);
+    }
   }
+  t.diagnostic(`thin sections seen at Regular: ${thinSeen}`);
   assert.deepEqual(errors, []);
 });
 
