@@ -77,7 +77,7 @@ test("a phone has the places at its foot, in the sample's order, and the message
   const bar = f.page.locator("#ew-places");
   assert.equal(await bar.isVisible(), true);
   assert.equal(await bar.getAttribute("aria-label"), "Places");
-  assert.deepEqual(await bar.locator(".ew-place").allInnerTexts(), ["Conversation", "Inbox", "Automations", "Library", "Settings"]);
+  assert.deepEqual(await bar.locator(".ew-place").allInnerTexts(), ["Conversation", "Inbox", "Automations", "Library", "Customize"]);
   const edge = await box(f.page, "#ew-places"), prompt = await box(f.page, "#prompt"), dock = await box(f.page, ".composer-dock");
   assert.ok(Math.abs(edge.y + edge.height - 844) <= 1, "the bar is at the very foot");
   assert.ok(dock.y + dock.height <= edge.y + 1, "the message box ends where the bar begins");
@@ -125,12 +125,9 @@ test("each place in the bar opens where the side list opens it, and says which o
   await f.page.locator('.ew-place[data-place="library"]').click();
   await f.page.locator("#library").waitFor({ state: "visible" });
   assert.equal(await lit(f.page), "library");
-  await f.page.locator('.ew-place[data-place="settings"]').click();
-  await f.page.locator("#settings-window").waitFor({ state: "visible" });
-  assert.equal(await lit(f.page), "settings");
-  await f.page.keyboard.press("Escape");
-  await f.page.locator("#settings-window").waitFor({ state: "hidden" });
-  assert.equal(await lit(f.page), "library", "closing Settings lights the place underneath again");
+  await f.page.locator('.ew-place[data-place="customize"]').click();
+  await f.page.locator("#customize").waitFor({ state: "visible" });
+  assert.equal(await lit(f.page), "customize");
   await f.page.locator('.ew-place[data-place="chat"]').click();
   await f.page.locator("#chat").waitFor({ state: "visible" });
   assert.equal(await lit(f.page), "chat");
@@ -242,7 +239,7 @@ test("a computer's window is unchanged: no bar, the side list where it always wa
 test("the bar's words come from the language files, in English and French", async () => {
   const read = async (name) => JSON.parse(await readFile(new URL(`../public/locales/${name}.json`, import.meta.url), "utf8"));
   const [en, fr] = [await read("en"), await read("fr")];
-  for (const key of ["ew.places", "nav.chat", "place.inbox", "place.automations", "place.library", "settings.title"]) {
+  for (const key of ["ew.places", "nav.chat", "place.inbox", "place.automations", "place.library", "place.customize"]) {
     assert.ok(en[key], `English has ${key}`);
     assert.ok(fr[key], `French has ${key}`);
   }
@@ -393,8 +390,8 @@ test("a household person's bar offers exactly what their side list offers, and c
     sideCount: document.getElementById("lx-inbox-badge").hidden ? "" : document.getElementById("lx-inbox-badge").textContent,
     barCount: document.getElementById("ew-inbox-badge").hidden ? "" : document.getElementById("ew-inbox-badge").textContent,
   }));
-  assert.deepEqual(seen.bar.filter((place) => !["chat", "settings"].includes(place)), seen.side.filter((place) => place !== "customize"),
-    "the bar lists the side list's places (the conversation and Settings in Customize's spot, as in the sample)");
+  assert.deepEqual(seen.bar.filter((place) => place !== "chat"), seen.side,
+    "the bar lists the side list's places, after the conversation, as in the sample");
   assert.equal(seen.barCount, seen.sideCount, "and the Inbox count is the side list's own");
   assert.deepEqual(f.errors, []);
 });
