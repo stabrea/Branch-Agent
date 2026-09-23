@@ -253,13 +253,13 @@ function newSkillsCard(state, sessions) {
   node.append(said("p", "skills.note.writing-positions", "When needed: only when you ask, by typing /learn in a conversation or with the box below. On: also after a task that looked like steps worth keeping.", "field-note"));
   const days = field(node, { id: "retire-days", key: "field.unused-days", words: "Offer to set aside a skill unused for this many days", control: numberControl(state.settings.retireAfterDays, 7, 365) });
   const status = statusLine("learning-new-skills");
-  const save = said("button", "action.save", "Save");
-  save.type = "button";
-  save.addEventListener("click", act(status, async () => {
+  /* DG-025: each of the two saves as you change it, as in the sample; there is no Save button under them. */
+  const save = act(status, async () => {
     await api("reflection/settings", { newSkills: mode.value, retireAfterDays: Number(days.value) });
     return t("learning.note.saved");
-  }));
-  node.append(save);
+  });
+  mode.addEventListener("change", save);
+  days.addEventListener("change", save);
   learnControls(node, sessions, status);
   node.append(quiet("action.look-for-unused-skills", "Look for skills nobody uses", act(status, async () => {
     const report = await api("reflection/retire", {});

@@ -90,7 +90,6 @@ test("new skills: draft one from a conversation, see it tried, and keep it", asy
   const card = page.locator("#learning-new-skills");
   await card.waitFor({ state: "visible", timeout: 60000 });
   await card.locator("#new-skills-switch").selectOption("when-needed");
-  await card.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#learning-new-skills [role=status]").filter({ hasText: "Saved" }).waitFor();
   await page.locator("#learn-notes").fill("keep it short");
   await page.locator("#learning-new-skills").getByRole("button", { name: "Draft a skill from it" }).click();
