@@ -32,6 +32,14 @@ export interface FileMapEntry {
   name: string | null;
   bytes: number;
   permissionShaped: number;
+  /** DG-182: the file's first line of words (not a heading), cut to 70 characters; "" when there is none. Owner only, like the rest. */
+  first: string;
+}
+
+function firstWords(store: Store, owner: string, workspace: string, key: SlotKey): string {
+  const found = findFile({ workspace, owner: store.folder, allows: (folder) => folderAllows(store, owner, folder) }, key);
+  const line = found?.text.split(/\r?\n/).map((each) => each.trim()).find((each) => each && !each.startsWith("#"));
+  return line ? line.slice(0, 70) : "";
 }
 
 export function fileMap(store: Store, owner: string, workspace: string): FileMapEntry[] {
@@ -42,6 +50,7 @@ export function fileMap(store: Store, owner: string, workspace: string): FileMap
       slot: slot.key, names: slot.names, about: slot.about, scope: slot.scope === "owner" ? "you" : "project",
       setting: report?.setting ?? "off", outcome: report?.outcome ?? "missing", name: report?.name ?? null,
       bytes: report?.bytes ?? 0, permissionShaped: report?.permissionShaped.length ?? 0,
+      first: firstWords(store, owner, workspace, slot.key),
     };
   });
 }

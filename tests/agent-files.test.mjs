@@ -98,7 +98,7 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
     assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').getAttribute("aria-current"), "true");
     assert.equal(await card.evaluate((node) => node.closest(".lx-page")?.id), "lx-page-instructions");
     assert.equal(await card.locator(".agent-file").count(), 8);
-    await card.getByRole("button", { name: "Change HEARTBEAT.md here" }).click();
+    await card.getByRole("button", { name: "Edit HEARTBEAT.md" }).click();
     const text = card.getByLabel("What the file says");
     await card.getByRole("button", { name: "Start from the usual shape" }).click();
     assert.match(await text.inputValue(), /On each scheduled wake/);
@@ -145,7 +145,7 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   assert.equal(await page.locator("#lx-page-instructions .lx-page-intro").innerText(),
     "Les fichiers simples que votre assistant lit avant de travailler : qui il est, qui vous êtes, comment vous voulez que le travail soit fait. Ils fonctionnent de la même manière que dans d'autres agents, donc un fichier écrit pour l'un d'eux fonctionne ici.");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
-  await page.locator("#agent-files").getByRole("button", { name: "Change MEMORY.md here" }).click();
+  await page.locator("#agent-files").getByRole("button", { name: "Edit MEMORY.md" }).click();
   assert.equal(await page.getByLabel("What the file says").inputValue(), `${privateText}\n`);
 
   const person = (await call("POST", "/api/profiles", { name: "Sam", pin: "2468" })).body;
