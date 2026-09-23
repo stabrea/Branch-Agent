@@ -8,7 +8,7 @@ import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { requireSafety } from "./settings.js";
-import { readWasmShape, wasmRefusal } from "./wasm-check.js";
+import { capabilityNames, deriveCapabilities, readWasmShape, wasmRefusal, type WasmCapability } from "./wasm-check.js";
 
 /**
  * mac7/r17-g (R17-062): add-ons written as WebAssembly, run in a sealed box. This sits beside the
@@ -35,8 +35,11 @@ export const WasmInstallSchema = z.object({
   wasm: z.string().min(8).max(8_000_000),
   maxMemoryMb: z.number().int().min(1).max(256).default(16),
   timeoutMs: z.number().int().min(100).max(30_000).default(5000),
+  /** What this tool may reach, declared up front rather than left to whatever it happens to import.
+   *  Left out, it keeps the old behaviour: it gets whatever branch capabilities it imports. */
+  capabilities: z.array(z.enum(capabilityNames)).max(capabilityNames.length).optional(),
 }).strict();
-export interface WasmManifest { name: string; description: string; sha256: string; bytes: number; maxMemoryMb: number; timeoutMs: number; installedAt: string }
+export interface WasmManifest { name: string; description: string; sha256: string; bytes: number; maxMemoryMb: number; timeoutMs: number; installedAt: string; capabilities: WasmCapability[] }
 export const WasmRunSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), input: z.string().max(1_000_000).default("") }).strict();
 export interface WasmRun { ok: boolean; code: number | null; output: string; log: string; error?: string; durationMs: number }
 
@@ -49,7 +52,8 @@ const sha = (bytes: Uint8Array): string => createHash("sha256").update(bytes).di
 
 const workerSource = `
 const { parentPort, workerData } = require("node:worker_threads");
-const { bytes, input, minPages, maxPages, maxOutput, importsMemory } = workerData;
+const { bytes, input, minPages, maxPages, maxOutput, importsMemory, capabilities } = workerData;
+const allowed = new Set(capabilities);
 const text = new TextEncoder().encode(input);
 const imported = importsMemory ? new WebAssembly.Memory({ initial: minPages, maximum: maxPages }) : null;
 let memory = imported, size = 0, log = "";
@@ -69,7 +73,8 @@ const branch = {
 try {
   const module = new WebAssembly.Module(bytes);
   const wanted = new Set(WebAssembly.Module.imports(module).map((entry) => entry.name));
-  const given = Object.fromEntries(Object.entries(branch).filter(([name]) => wanted.has(name)));
+  // Only what this tool both imports AND declared: memory is not a capability, so it is exempt.
+  const given = Object.fromEntries(Object.entries(branch).filter(([name]) => wanted.has(name) && (name === "memory" || allowed.has(name))));
   const instance = new WebAssembly.Instance(module, { branch: given });
   memory = memory || instance.exports.memory;
   const code = instance.exports.run();
@@ -82,14 +87,15 @@ try {
 }
 `;
 
-/** One run in a fresh worker, ended at the time limit. */
-export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: { maxMemoryMb: number; timeoutMs: number }): Promise<WasmRun> {
+/** One run in a fresh worker, ended at the time limit. `capabilities` defaults to the full catalog, so
+ *  a call that predates capability declarations keeps getting whatever it imports, as before. */
+export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: { maxMemoryMb: number; timeoutMs: number }, capabilities: readonly string[] = capabilityNames): Promise<WasmRun> {
   const shape = readWasmShape(bytes), started = Date.now();
   // A memory the module imports may not be larger than it said, nor than the owner allows.
   const ceiling = Math.min(pages(limits.maxMemoryMb), shape.imported?.max ?? Number.MAX_SAFE_INTEGER);
   const worker = new Worker(workerSource, { eval: true, env: {}, execArgv: [], stdout: true, stderr: true,
     resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8, codeRangeSizeMb: 16, stackSizeMb: 4 },
-    workerData: { bytes, input, minPages: shape.imported?.min ?? 0, maxPages: ceiling, maxOutput: maxOutputBytes, importsMemory: !!shape.imported } });
+    workerData: { bytes, input, minPages: shape.imported?.min ?? 0, maxPages: ceiling, maxOutput: maxOutputBytes, importsMemory: !!shape.imported, capabilities } });
   return new Promise<WasmRun>((resolve) => {
     const finish = (run: Omit<WasmRun, "durationMs">) => { clearTimeout(timer); void worker.terminate(); resolve({ ...run, durationMs: Date.now() - started }); };
     const timer = setTimeout(() => finish({ ok: false, code: null, output: "", log: "", error: `It ran longer than ${limits.timeoutMs} ms and was stopped.` }), limits.timeoutMs);
@@ -115,20 +121,23 @@ export class WasmAddOns {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** The owner installs a module: it is checked, kept with its fingerprint, and written in the record. */
+  /** The owner installs a module (or wasm-build.ts builds one): it is checked against its own declared
+   *  capabilities — or, absent a declaration, whatever it already imports, kept for compatibility — then
+   *  kept with its fingerprint and capabilities, and written in the record. */
   async install(input: unknown): Promise<WasmManifest> {
     const value = WasmInstallSchema.parse(input);
     const bytes = new Uint8Array(Buffer.from(value.wasm, "base64"));
-    const refusal = wasmRefusal(bytes, pages(value.maxMemoryMb));
+    const capabilities = value.capabilities ?? deriveCapabilities(bytes);
+    const refusal = wasmRefusal(bytes, pages(value.maxMemoryMb), capabilities);
     if (refusal) throw new Error(refusal);
     const manifest: WasmManifest = { name: value.name, description: value.description, sha256: sha(bytes), bytes: bytes.length,
-      maxMemoryMb: value.maxMemoryMb, timeoutMs: value.timeoutMs, installedAt: new Date().toISOString() };
+      maxMemoryMb: value.maxMemoryMb, timeoutMs: value.timeoutMs, installedAt: new Date().toISOString(), capabilities };
     await mkdir(this.folder, { recursive: true, mode: 0o700 });
     await writeFile(this.file(value.name, "wasm"), bytes, { mode: 0o600 });
     await writeFile(this.file(value.name, "json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
-    this.store.save("settings", this.owner, fingerprintKey(value.name), { sha256: manifest.sha256, maxMemoryMb: manifest.maxMemoryMb, timeoutMs: manifest.timeoutMs });
+    this.store.save("settings", this.owner, fingerprintKey(value.name), { sha256: manifest.sha256, maxMemoryMb: manifest.maxMemoryMb, timeoutMs: manifest.timeoutMs, capabilities });
     audit(this.store, this.owner, { action: "policy.changed", actor: this.owner, subject: `WebAssembly add-on ${value.name}`,
-      reason: `Installed, fingerprint ${manifest.sha256.slice(0, 16)}; it runs sealed, with ${value.maxMemoryMb} MB and ${value.timeoutMs} ms`, outcome: "saved" });
+      reason: `Installed, fingerprint ${manifest.sha256.slice(0, 16)}; it runs sealed, with ${value.maxMemoryMb} MB, ${value.timeoutMs} ms, and capabilities: ${capabilities.length ? capabilities.join(", ") : "none"}`, outcome: "saved" });
     return manifest;
   }
 
@@ -143,19 +152,24 @@ export class WasmAddOns {
     return true;
   }
 
-  /** The kept limits, as the owner installed them; the note beside the file must agree. */
-  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number } }> {
+  /** The kept limits and capabilities, as the owner installed them; the note beside the file must
+   *  agree on the fingerprint. Capabilities come from the store record, the same source of truth as
+   *  the fingerprint: rewriting the note beside the file cannot widen what a tool is given. */
+  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number }; capabilities: WasmCapability[] }> {
     const manifest = (await this.list()).find((entry) => entry.name === name);
     if (!manifest) throw new Error(`There is no WebAssembly add-on called ${name}.`);
-    const kept = this.store.get("settings", this.owner, fingerprintKey(name))?.data as { sha256?: unknown; maxMemoryMb?: unknown; timeoutMs?: unknown } | undefined;
+    const kept = this.store.get("settings", this.owner, fingerprintKey(name))?.data as { sha256?: unknown; maxMemoryMb?: unknown; timeoutMs?: unknown; capabilities?: unknown } | undefined;
     const bytes = new Uint8Array(await readFile(this.file(name, "wasm")));
     const actual = sha(bytes);
     if (actual !== manifest.sha256 || actual !== kept?.sha256)
       throw new Error(`${name} is not what it was when it was installed, so it was not run. Install it again.`);
     const limits = { maxMemoryMb: Math.min(Number(kept.maxMemoryMb) || 16, manifest.maxMemoryMb, 256), timeoutMs: Math.min(Number(kept.timeoutMs) || 5000, manifest.timeoutMs, 30_000) };
-    const refusal = wasmRefusal(bytes, pages(limits.maxMemoryMb));
+    const capabilities: WasmCapability[] = Array.isArray(kept.capabilities)
+      ? kept.capabilities.filter((name): name is WasmCapability => capabilityNames.includes(name as WasmCapability))
+      : deriveCapabilities(bytes);
+    const refusal = wasmRefusal(bytes, pages(limits.maxMemoryMb), capabilities);
     if (refusal) throw new Error(refusal);
-    return { bytes, limits };
+    return { bytes, limits, capabilities };
   }
 
   async run(input: z.input<typeof WasmRunSchema>, context?: Pick<ToolContext, "runId">): Promise<WasmRun> {
@@ -164,8 +178,8 @@ export class WasmAddOns {
     if (this.running >= maxRunsAtOnce) throw new Error(`${maxRunsAtOnce} WebAssembly add-ons are already running. Try again when one has finished.`);
     this.running++;
     try {
-      const { bytes, limits } = await this.checked(name);
-      const run = await runWasm(bytes, text, limits);
+      const { bytes, limits, capabilities } = await this.checked(name);
+      const run = await runWasm(bytes, text, limits, capabilities);
       if (context?.runId) this.store.event(context.runId, "wasm.ran", { name, ok: run.ok, durationMs: run.durationMs });
       return run;
     } finally { this.running--; }

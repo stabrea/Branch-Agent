@@ -102,6 +102,7 @@ async function confirmRoute(deps: SafetyHttpDeps): Promise<unknown> {
 async function wasmRoute(deps: SafetyHttpDeps, path: string): Promise<unknown> {
   const { wasm } = deps.extras;
   if (path === "/api/safety-extras/wasm") return { addOn: await wasm.install(await deps.readBody()) };
+  if (path === "/api/safety-extras/wasm/build") return { addOn: await deps.extras.wasmBuilder.build(await deps.readBody()) };
   if (path === "/api/safety-extras/wasm/remove") return { removed: await wasm.remove(NameSchema.parse(await deps.readBody()).name) };
   if (path === "/api/safety-extras/wasm/run") return { run: await deps.runtime.executeTool("wasm.run", await deps.readBody(), { mode: "owner" }) };
   return undefined;
