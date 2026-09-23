@@ -171,3 +171,18 @@ test("a received patch for a repository this household does not have is refused,
   assert.match(refused.body.error, /repository is not one of this household's/);
   assert.deepEqual((await events.list(owner)).events, [], "nothing was stored");
 });
+
+test("the web route's repository filter keeps out a patch from another repository", async (t) => {
+  const { app } = await fixture(t);
+  const server = await startServer(app, { dataDir: app.store.folder, port: 0 });
+  t.after(() => server.close().catch(() => undefined));
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json", origin: server.url };
+  const publish = async (body) => (await fetch(`${server.url}/api/collab/git-patches`, { method: "POST", headers, body: JSON.stringify(body) })).json();
+  const tax = await publish(patch("tax-tools", "Round up", "rounding"));
+  const garden = await publish(patch("garden-app", "Water less", "watering"));
+  // Only the repository narrows this: no kind or text that would keep the other patch out on its own.
+  const listed = await (await fetch(`${server.url}/api/collab/events?repository=tax-tools`, { headers })).json();
+  assert.deepEqual(listed.events.map((e) => e.id), [tax.id]);
+  const other = await (await fetch(`${server.url}/api/collab/events?repository=garden-app`, { headers })).json();
+  assert.deepEqual(other.events.map((e) => e.id), [garden.id]);
+});
