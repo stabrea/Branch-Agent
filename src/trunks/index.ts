@@ -88,6 +88,7 @@ export class Trunks {
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
     runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
+    runtime.followUpNotSent = (sessionId, prompt, reason) => this.messages.notSent(sessionId, prompt, reason); // Q44
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
     byRuntime.set(runtime, this);
     scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
@@ -135,6 +136,16 @@ export class Trunks {
   }
   trunkForConversation(sessionId: string): Owned | undefined {
     return this.owned.get(sessionId);
+  }
+  /**
+   * Q44: the messages already waiting in this Trunk's conversations when it starts on another computer.
+   * They were queued before the move; each is marked not sent when its turn comes (src/runtime.ts).
+   */
+  waitingElsewhere(trunk: Trunk): { count: number; computer: string | null } | null {
+    if (!trunk.startsIn) return null;
+    const count = [...this.owned].filter(([, owned]) => owned.trunkId === trunk.id)
+      .reduce((sum, [sessionId]) => sum + this.deps.runtime.queued(sessionId).length, 0);
+    return count ? { count, computer: this.computers().find((each) => each.id === trunk.startsIn)?.name ?? null } : null;
   }
   /** Q44: a message queued in a Trunk's conversation (its own or a room member's) must be able to start here. */
   requireQueueable(sessionId: string): void {

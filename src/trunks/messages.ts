@@ -8,6 +8,7 @@ import { runOrigin, startedFromChat } from "../key-context.js";
 import type { Trunk, TrunkRecords } from "./record.js";
 import { isPass } from "./room-plan.js";
 import { requireTrunkPart } from "./settings.js";
+import { StartsElsewhereError } from "./starts-in.js"; // Q44
 
 /**
  * R17-010 (T-10): `trunk.message`, a direct message from one Trunk to another.
@@ -169,6 +170,16 @@ export class TrunkMessages {
     return { originFrom: runId, permissions: runOrigin(this.store, runId).permissions ?? [] };
   }
 
+  /**
+   * Q44: a queued message that could not start when its turn came (its Trunk moved to another computer
+   * after it was queued). Its receipt fails instead of waiting for ever, and the sender is told why.
+   */
+  notSent(sessionId: string, prompt: string, reason: string): void {
+    const receipt = this.receipts().reverse().find((r) => r.status === "queued" && r.sessionId === sessionId && r.prompt === prompt);
+    if (!receipt) return;
+    this.update(receipt.id, { status: "failed", error: reason.slice(0, 500) });
+    if (receipt.kind === "message") this.answerBack(receipt, "failure", reason);
+  }
   /** Follows the task that reads each message, and sends its answer back. */
   private observe(runId: string, kind: string, data: Record<string, unknown>): void {
     if (kind !== "run.started" && kind !== "run.finished") return;
@@ -253,7 +264,9 @@ export class TrunkMessages {
       : `Your message to @${from.handle} could not be answered: ${output.slice(0, 300)}`;
     // mac7/outside-review: sent as the task that answered. Q44: this runs as a task finishes, so an answer
     // refused because the sender now starts on another computer stays a failed receipt and is never thrown.
-    try { this.deliver(kind, from, to, prompt, receipt.depth, receipt.runId); } catch { /* deliver marked it failed */ }
+    try { this.deliver(kind, from, to, prompt, receipt.depth, receipt.runId); } catch (error) {
+      if (!(error instanceof StartsElsewhereError)) throw error; // deliver marked it failed; anything else is not ours to hide
+    }
   }
 }
 

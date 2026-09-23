@@ -418,11 +418,16 @@ async function saveEdit() {
   if (!name) return $("studio-name")?.focus();
   // Q44: where it starts is sent only when the owner changed it, so a rename never resets it.
   const moved = d.startsIn !== d.savedStartsIn ? { startsIn: d.startsIn } : {};
-  await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), pinned: d.pinned, ...moved });
+  const saved = await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), pinned: d.pinned, ...moved });
   await savePhoto(id);
   closeDialog(true);
   await refresh();
-  toast(say("studio.saved", "Saved."));
+  toast(saved.waiting ? waitingWords(saved.waiting) : say("studio.saved", "Saved."));
+}
+/** Q44: messages queued before it was moved will not be sent; the owner is told how many, as it is saved. */
+function waitingWords({ count, computer }) {
+  return say("studio.startsIn.waiting", "Saved. {count} waiting message(s) will not be sent while it starts on {computer}; each is marked not sent in its conversation.",
+    { count, computer: computer ?? say("studio.startsIn.another", "another computer") });
 }
 
 /** Change look… and Rename… from the strip's menu, Customize › Specialists or the Overview. */

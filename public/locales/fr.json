@@ -3412,6 +3412,8 @@
   "studio.startsIn.here": "Cet ordinateur",
   "studio.startsIn.gone": "Il devait démarrer sur un ordinateur qui n'est plus associé. Choisissez où il démarre maintenant.",
   "studio.startsIn.later": "Branch ne peut pas encore démarrer un Trunk sur un autre ordinateur : il ne répondra pas tant que vous n'aurez pas choisi Cet ordinateur.",
+  "studio.startsIn.waiting": "Enregistré. {count} message(s) en attente ne seront pas envoyés tant qu'il démarre sur {computer} ; chacun est marqué comme non envoyé dans sa conversation.",
+  "studio.startsIn.another": "un autre ordinateur",
   "studio.face": "Visage",
   "studio.letters": "Lettres (une ou deux)",
   "studio.shuffle": "Mélanger",

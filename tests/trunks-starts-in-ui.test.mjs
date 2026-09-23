@@ -167,6 +167,22 @@ test("the window's follow-up while a Trunk works goes through busy send, is refu
   assert.deepEqual(f.errors, []);
 });
 
+test("moving a Trunk while messages wait for it says how many will not be sent", async (t) => {
+  const f = await fixture(t);
+  const pending = f.raw("/api/run", { prompt: "wait here", sessionId: f.trunk.chatSessionId });
+  await until(() => held.length === 1);
+  assert.equal((await f.call(`/api/sessions/${f.trunk.chatSessionId}/followups`, { prompt: "after this" })).queued, 1);
+  await openChange(f);
+  const dialog = f.page.locator("#studio");
+  await dialog.getByLabel("Starts in").selectOption(tower);
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  await f.page.locator("#toast").filter({ hasText: "Saved. 1 waiting message(s) will not be sent while it starts on Tower" }).waitFor({ timeout: 15000 });
+  held.shift()();
+  assert.equal((await pending).status, 200);
+  assert.deepEqual(f.errors, []);
+});
+
 test("in French the control and its choices follow", async (t) => {
   const f = await fixture(t);
   await openChange(f);

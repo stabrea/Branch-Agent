@@ -109,10 +109,16 @@ async function topRoute(deps: TrunksHttpDeps, path: string): Promise<unknown> {
   return undefined;
 }
 
+/** Q44: the saved Trunk, and how many messages already waiting will not be sent now that it starts elsewhere. */
+function edited(trunks: TrunksHttpDeps["trunks"], id: string, body: unknown) {
+  const trunk = trunks.edit(id, body), waiting = trunks.waitingElsewhere(trunk);
+  return { trunk, ...(waiting ? { waiting } : {}) };
+}
+
 async function trunkRoute(deps: TrunksHttpDeps, id: string, action: string | undefined): Promise<unknown> {
   deps.requireOwner("Trunks");
   const { trunks } = deps, post = deps.method === "POST";
-  if (!action) return post ? { trunk: trunks.edit(id, await deps.readBody()) } : details(trunks, id);
+  if (!action) return post ? edited(trunks, id, await deps.readBody()) : details(trunks, id);
   if (action === "export") return trunks.exportFile(id);
   if (action === "keys") return trunks.keys(id);
   if (!post) return undefined;

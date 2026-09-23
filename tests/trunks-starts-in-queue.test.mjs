@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { TrunkMessages } from "../dist/trunks/messages.js";
 import { brain, on } from "./trunks-helpers.mjs";
 
 const tower = "a1b2c3d4e5f60718";
@@ -145,4 +146,89 @@ test("Not now on a message whose sender moved still declines it, and the refused
   const told = f.app.trunks.messages.receipts().find((r) => r.kind === "failure");
   assert.equal(told.status, "failed");
   assert.match(told.error, /This Trunk starts on Tower/);
+});
+
+/* ---------- messages queued before the Trunk moved ---------- */
+
+/** Scout working on a held task, so what is queued now waits for its turn. */
+async function working(f) {
+  const run = f.app.runtime.run({ prompt: "wait here", sessionId: f.trunk.chatSessionId });
+  await until(() => f.held.length === 1);
+  return { run }; // wrapped, or awaiting this would wait for the held task itself
+}
+/** Lets the held task finish, however many times it asks the model. */
+async function finish(f, run) {
+  let done = false;
+  const settled = run.then((value) => { done = true; return value; });
+  while (!done) { for (const release of f.held.splice(0)) release(); await new Promise((resolve) => setTimeout(resolve, 10)); }
+  return settled;
+}
+const notes = (f, session = f.trunk.chatSessionId) => f.app.store.messages(session).filter((m) => m.role === "assistant" && /^This message wasn't sent: /.test(m.content));
+
+test("follow-ups queued before the move get a note each when their turn comes, never a silent drop", async (t) => {
+  const f = await fixture(t);
+  const call = await serve(t, f);
+  const { run } = await working(f);
+  f.app.runtime.followUp(f.trunk.chatSessionId, "first after");
+  f.app.runtime.followUp(f.trunk.chatSessionId, "second after");
+  const moved = await call(`/api/trunks/${f.trunk.id}`, { startsIn: tower });
+  assert.equal(moved.status, 200, "the move itself is allowed");
+  assert.deepEqual(moved.body.waiting, { count: 2, computer: "Tower" }, "and says how many waiting messages will not be sent");
+  await finish(f, run);
+  await until(() => notes(f).length === 2);
+  assert.match(notes(f)[0].content, /This Trunk starts on Tower, and Branch cannot start a Trunk on another computer yet.*It said: "first after"/s);
+  assert.match(notes(f)[1].content, /It said: "second after"/, "the line moved on to the next one");
+  assert.deepEqual(f.app.runtime.queued(f.trunk.chatSessionId), []);
+  assert.equal(f.provider.requests.some((r) => r.messages.some((m) => /after$/.test(m.content ?? ""))), false, "neither ran here");
+  assert.equal((await call(`/api/trunks/${f.trunk.id}`, { title: "Still there" })).body.waiting, undefined, "nothing waits any more");
+});
+
+test("a Trunk's message queued before the move fails its receipt and the sender is told", async (t) => {
+  const f = await fixture(t);
+  const own = await f.app.runtime.run({ prompt: "hi", sessionId: f.ann.chatSessionId });
+  const { run } = await working(f);
+  const sent = f.app.trunks.messages.send({ ...f.app.runtime.context({ runId: own.id }), agent: `trunk:${f.ann.id}` }, { to: "scout", message: "are you there?" });
+  f.app.trunks.edit(f.trunk.id, { startsIn: tower });
+  await finish(f, run);
+  await until(() => receipt(f, sent.receipt).status === "failed");
+  assert.match(receipt(f, sent.receipt).error, words);
+  assert.equal(notes(f).length, 1, "and Scout's conversation says so too");
+  const told = f.app.trunks.messages.receipts().find((r) => r.kind === "failure" && r.to === f.ann.id);
+  assert.match(told.prompt, /Your message to @scout could not be answered: This Trunk starts on Tower/);
+});
+
+test("after an unpair, or any other failure to start, the queued message is noted, not lost", async (t) => {
+  const f = await fixture(t);
+  let { run } = await working(f);
+  f.app.runtime.followUp(f.trunk.chatSessionId, "before the unpair");
+  f.app.trunks.edit(f.trunk.id, { startsIn: tower });
+  f.app.store.save("settings", f.app.runtime.owner, "devices-book", { mode: "on", requests: [], devices: [] });
+  await finish(f, run);
+  await until(() => notes(f).length === 1);
+  assert.match(notes(f)[0].content, /no longer paired/);
+  f.app.trunks.edit(f.trunk.id, { startsIn: null });
+  ({ run } = await working(f));
+  f.app.runtime.followUp(f.trunk.chatSessionId, "before it broke");
+  f.app.runtime.trunkShape = () => { throw new Error("something else broke"); };
+  await finish(f, run);
+  await until(() => notes(f).length === 2);
+  assert.match(notes(f)[1].content, /something else broke.*before it broke/s);
+});
+
+test("a step already answered is told so, even after the Trunk moved", async (t) => {
+  const f = await fixture(t);
+  const run = await f.app.runtime.run({ prompt: "hi", sessionId: f.trunk.chatSessionId });
+  f.app.runtime.deferrals.open({ id: "step-2", runId: run.id, sessionId: f.trunk.chatSessionId, tool: "shell.run", description: "" });
+  f.app.runtime.settleDeferred("step-2", "done");
+  f.app.trunks.edit(f.trunk.id, { startsIn: tower });
+  assert.throws(() => f.app.runtime.settleDeferred("step-2", "again"), /already been answered/);
+});
+
+test("an answer back that fails for any other reason is not hidden", async (t) => {
+  const f = await fixture(t);
+  f.app.trunks.messages.close();
+  const messages = new TrunkMessages(f.app.store, f.app.runtime.owner, f.app.trunks.records, { followUp: () => { throw new Error("the disk is full"); } });
+  t.after(() => messages.close());
+  reading(f, "waiting");
+  assert.throws(() => messages.decline("r1"), /the disk is full/);
 });

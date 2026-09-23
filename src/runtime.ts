@@ -12,6 +12,8 @@ import { settingsHold } from "./settings-kit/tools.js";
 import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
+import { StartsElsewhereError } from "./trunks/starts-in.js"; // Q44
+import { diagnose } from "./diagnostic-log.js"; // Q44: a queued message that cannot start is logged
 import {
   Budget,
   BudgetError,
@@ -438,7 +440,8 @@ export class Runtime {
    */
   settleDeferred(id: string, outcome: string): { id: string; sessionId: string; queued: number } {
     const waiting = this.deferrals.get(id);
-    if (waiting) this.queueGuard(waiting.sessionId); // Q44: refused before the step is marked answered
+    // Q44: refused before the step is marked answered; one already answered is told so first, by settle.
+    if (waiting && !waiting.settledAt) this.queueGuard(waiting.sessionId);
     const entry = this.deferrals.settle(id, outcome);
     if (entry.runId) this.store.event(entry.runId, "tool.deferred_settled", { id: entry.id, tool: entry.tool });
     // mac7/outside-resume: the answer carries the task that handed the step over on, as that task.
@@ -536,7 +539,22 @@ export class Runtime {
       ...(next.originFrom ? { originFrom: next.originFrom } : {}), ...(next.permissions ? { permissions: next.permissions } : {}) }));
     const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
     // bucket 19: a message a household person queued runs as that person, held to their role.
-    void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
+    void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked())
+      .catch((error: unknown) => this.notSent(sessionId, next, error));
+  }
+  /**
+   * Q44: a queued message that could not start (its Trunk was moved to another computer after it was
+   * queued, say) is never dropped without a word. The conversation gets a plain note, whoever queued it
+   * is told (a Trunk's receipt fails and its sender hears why), and the line moves on to the next one.
+   */
+  private notSent(sessionId: string, item: FollowUp, error: unknown): void {
+    const reason = this.hideSecrets(errorText(error));
+    diagnose("engine", error instanceof StartsElsewhereError ? "info" : "warn", "A queued message could not start", { fields: { error: reason.slice(0, 300) } });
+    try {
+      this.store.message(sessionId, { role: "assistant", content: this.hideSecrets(`This message wasn't sent: ${reason} (It said: "${item.prompt.slice(0, 120)}")`) });
+      this.followUpNotSent(sessionId, item.prompt, reason);
+    } catch { /* a note that cannot be written never stops the line */ }
+    this.drainFollowUps(sessionId);
   }
   /**
    * Starts a specialist that keeps working after the parent finishes; its result is kept on the
@@ -1200,6 +1218,8 @@ ${run.output.slice(0, 6000)}`;
    * (a Trunk set to start on another computer). `createBranch` connects it; on its own nothing is refused.
    */
   queueGuard: (sessionId: string) => void = () => undefined;
+  /** Q44: told when a queued message could not start, so whoever queued it can say so (src/trunks/messages.ts). */
+  followUpNotSent: (sessionId: string, prompt: string, reason: string) => void = () => undefined;
   /**
    * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
    * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
