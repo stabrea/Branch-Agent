@@ -9,6 +9,8 @@ import { createBranch, savePolicy } from "../dist/index.js";
 import { TeamTasks } from "../dist/team-tasks.js";
 import { turnEffects } from "../dist/team-reconcile.js";
 import { recoverAfterRestart } from "../dist/never-break/resume.js";
+import { journalHook } from "../dist/never-break/journal.js";
+import { saveGatewayConfig, GatewayConfigSchema } from "../dist/never-break/gateway-config.js";
 
 // Q63: a team turn names its run before the run does anything, and an outcome nobody saw is
 // settled from the runtime's own record, never by running the turn again. Real runtimes with
@@ -40,7 +42,7 @@ async function fixture(t, provider) {
   });
   const team = state.app.teams.save({ name: "Crew", members });
   const reopen = async (next) => { await state.app.close(); state.app = await open(next); return state.app; };
-  return { state, owner, team, reopen, workspace: join(root, "workspace") };
+  return { state, owner, team, reopen, workspace: join(root, "workspace"), dataDir: join(root, "data") };
 }
 /** The real runtime, with a count of team dispatches and an optional failure injected at the parent run's start. */
 function counted(runtime, throwAtStart) {
@@ -372,6 +374,15 @@ test("a reused tool call id is paired with the latest start still open", async (
   assert.deepEqual(turnEffects(state.app.store, third.id).map((e) => e.outcome), ["failed", "completed"]);
 });
 
+test("a call cut off by its time limit may have happened: its outcome stays unknown", async (t) => {
+  /* NAS review of Q63: "tool.stalled" was reported as failed, though the call may have gone ahead. */
+  const { state } = await fixture(t, scripted());
+  const run = state.app.store.createRun(state.app.runtime.owner, "slow call");
+  const ev = (kind, id) => state.app.store.event(run.id, kind, { name: "files.write", id });
+  ev("tool.started", "s"); ev("tool.stalled", "s"); ev("tool.started", "s"); ev("tool.completed", "s");
+  assert.deepEqual(turnEffects(state.app.store, run.id).map((e) => e.outcome), ["unknown", "completed"]);
+});
+
 test("a parent run the runtime never announces is refused before any member starts", async (t) => {
   const provider = scripted();
   const { state, team } = await fixture(t, provider);
@@ -486,4 +497,58 @@ test("members that finished answering with no tool call, and no outcome recorded
   assert.deepEqual(report.effects, [], "no tool call was made");
   assert.equal(report.state, "needs_reconciliation");
   assert.match(row(app, requestId).error, /2 member\(s\) finished an answer/);
+});
+
+test("a turn that recovery put to the owner after a restart needs reconciliation even with no step left open", async (t) => {
+  const { app, taskId, parentRunId, sessionId } = await crashedTurn(t);
+  const next = carryOn(app, parentRunId, sessionId);
+  app.store.finish(next.id, "needs_input", "Carry on?");
+  app.store.event(next.id, "attention.needed", { question: "Carry on?", afterRestart: true });
+  const report = app.teams.reconcile(taskId);
+  assert.deepEqual(report.effects.filter((e) => e.outcome === "unknown"), [], "no open step decides it");
+  assert.equal(report.state, "needs_reconciliation");
+});
+
+test("a crashed turn whose own conversation the owner then deleted needs reconciliation, never 'nothing was done'", async (t) => {
+  const { app, requestId, taskId, parentRunId, sessionId } = await crashedTurn(t);
+  app.store.event(parentRunId, "tool.started", { name: "email.send", id: "e1" });
+  app.store.event(parentRunId, "tool.completed", { name: "email.send", id: "e1", result: {} });
+  assert.equal(app.store.run(parentRunId).status, "interrupted");
+  app.store.forgetSession(app.runtime.owner, sessionId);
+  const never = { run() { throw new Error("the team must not run again"); } };
+  const again = await app.teams.run(never, knowledge, row(app, requestId).team_id, "clean up", { requestId });
+  assert.equal(again.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /record was deleted, so what it did cannot be known/);
+  assert.equal(app.teams.reconcile(taskId).state, "needs_reconciliation");
+});
+
+test("a step recovery did again after a restart is part of the turn's effects, so the turn is never 'nothing was done'", async (t) => {
+  const { app, workspace, dataDir, taskId, parentRunId, sessionId } = await crashedTurn(t);
+  // Cut off after the model asked for a write and the conversation held it, before the write started,
+  // written down exactly as the runtime does (journal intent first, then the conversation).
+  const call = { id: "w1", name: "files.write", arguments: JSON.stringify({ path: "note.txt", content: "once" }) };
+  app.neverBreak.journal.turn(parentRunId, sessionId, 1);
+  journalHook(app.neverBreak.journal).intend({ runId: parentRunId, sessionId, calls: [{ call, permission: app.registry.permissionOf(call.name) }] });
+  app.store.message(sessionId, { role: "assistant", content: "", toolCalls: [call] });
+  await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
+  const recovered = (await app.neverBreak.recoverOnStart(dataDir)).find((r) => r.runId === parentRunId);
+  assert.deepEqual(recovered.steps, [{ tool: "files.write", decision: "not-started" }]);
+  await recovered.resumed;
+  assert.equal(await readFile(join(workspace, "note.txt"), "utf8"), "once", "recovery did the write");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.runId, e.toolCallId, e.name, e.outcome]), [[parentRunId, "w1", "files.write", "completed"]]);
+  const completed = app.store.events(parentRunId).find((e) => e.kind === "tool.completed" && e.data.id === "w1");
+  assert.equal((await app.store.receipts.verify(parentRunId, completed.data)).valid, true, "the redone call carries a genuine receipt, like any other");
+});
+
+test("a turn recovery carried on is never 'nothing was done' even when the step it settled left no record of its own", async (t) => {
+  const { app, taskId, parentRunId, sessionId } = await crashedTurn(t);
+  // As an older build recorded it: the carry-on is noted, the step it did again is not.
+  app.store.event(parentRunId, "run.auto_resumed", { steps: [{ tool: "files.write", decision: "not-started" }] });
+  const next = carryOn(app, parentRunId, sessionId);
+  app.store.finish(next.id, "completed", "done");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.name, e.outcome]), [["files.write", "unknown"]]);
 });

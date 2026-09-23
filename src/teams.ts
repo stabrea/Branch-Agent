@@ -5,7 +5,7 @@ import type { FanoutOutcome, Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message, Run, ToolContext } from "./contracts.js";
 import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
-import { describeMemberRuns, dispatchHeld, finishTeamTask, holdDispatch, memberRuns, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import { describeMemberRuns, dispatchHeld, finishLiveTurn, holdDispatch, memberRuns, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 import type { FanoutTask } from "./delegation.js";
 import { subtaskLimits } from "./knobs/apply.js";
 import { teamTaskViews, type TeamTaskView } from "./team-task-view.js";
@@ -50,12 +50,27 @@ export class Teams {
     for (const member of value.members) if (!this.store.get("specialists", this.owner, member.specialistId)) throw new Error(`Specialist ${member.specialistId} does not exist`);
     const existing = value.id ? (this.store.get("governance", this.owner, `team:${value.id}`)?.data as unknown as Team | undefined) : undefined;
     const now = new Date().toISOString();
-    const room = existing?.roomSessionId ?? this.store.createRun(this.owner, `Team room: ${value.name}`).sessionId;
-    if (!existing) this.store.finish(this.store.runs(this.owner).find((r) => r.sessionId === room)!.id, "completed", "Room opened");
+    const room = existing?.roomSessionId ?? this.openRoom(value.name, value.purpose);
     const team: Team = { id: value.id ?? randomUUID(), name: value.name, purpose: value.purpose, members: value.members, roomSessionId: room, createdAt: existing?.createdAt ?? now, updatedAt: now };
     this.store.save("governance", this.owner, `team:${team.id}`, { ...team });
-    if (!existing) this.store.message(room, { role: "system", content: `Team "${team.name}" room. ${team.purpose}`.trim() });
     return team;
+  }
+  /** A new room conversation, opened with a line that says whose room it is. */
+  private openRoom(name: string, purpose: string): string {
+    const run = this.store.createRun(this.owner, `Team room: ${name}`);
+    this.store.finish(run.id, "completed", "Room opened");
+    this.store.message(run.sessionId, { role: "system", content: `Team "${name}" room. ${purpose}`.trim() });
+    return run.sessionId;
+  }
+  /**
+   * The team with a room to write to. The owner may delete the room's conversation (that deletes the
+   * history, not the team), so a turn opens a fresh room before anything runs, rather than failing after.
+   */
+  private withRoom(team: Team): Team {
+    if (this.store.ownsSession(this.owner, team.roomSessionId)) return team;
+    const reopened: Team = { ...team, roomSessionId: this.openRoom(team.name, team.purpose), updatedAt: new Date().toISOString() };
+    this.store.save("governance", this.owner, `team:${team.id}`, { ...reopened });
+    return reopened;
   }
   /** Removes a team and forgets its tasks, except one whose turn is still running here (its own writes must still land). */
   remove(id: string): { removed: boolean } {
@@ -85,7 +100,7 @@ export class Teams {
     // While this turn runs, reconcile leaves it alone and nobody can hand it off (Q62, src/team-handoff.ts).
     holdDispatch(this.store, claim.taskId);
     try {
-      return await this.dispatch(runtime, knowledge, team, prompt, claim, turn);
+      return await this.dispatch(runtime, knowledge, this.withRoom(team), prompt, claim, turn);
     } catch (error) {
       this.settleThrown(claim, turn, error instanceof Error ? error.message : String(error));
       throw error;
@@ -110,7 +125,8 @@ export class Teams {
   private settleThrown(claim: TeamTaskClaim, turn: TurnProgress, message: string): void {
     try {
       if (turn.recorded) return;
-      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim, `Stopped while the members were working: ${message}. ${describeMemberRuns(memberRuns(this.store, turn.parentRunId))}`);
+      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim,
+        ["Stopped while the members were working.", describeMemberRuns(memberRuns(this.store, turn.parentRunId)), `What stopped it: ${message}`].filter(Boolean).join(" "));
       else settleUnfinished(this.store, this.tasks, claim, turn.parentRunId, message);
     } catch { /* the claim is already gone, so this caller writes nothing */ }
   }
@@ -155,8 +171,9 @@ export class Teams {
     // Kept on the task first, so a crash before the finish below can still be finished from it without running anything.
     this.tasks.recordOutcome(claim, result);
     turn.recorded = true;
-    // The finished task and the room's answers are written together, or not at all.
-    finishTeamTask(this.store, this.tasks, claim, result);
+    // The finished task and the room's answers are written together, or not at all. If the owner
+    // deleted the room while the members worked, the task is settled for a person instead.
+    if (!finishLiveTurn(this.store, this.tasks, claim, result)) return this.observed(claim.scope, claim.taskId);
     return { ...result, taskId: claim.taskId, requestId: this.tasks.get(claim.scope, claim.taskId)!.requestId, state: "completed" as const };
   }
   /**

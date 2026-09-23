@@ -101,12 +101,21 @@ async function redoStep(input: RecoveryInput, runId: string, step: OpenStep): Pr
     ? { source: outside, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {}) });
   const check = input.runtime.checkPolicy(step.tool, args, context);
   if (check.decision !== "allow") return false;
+  // Q63: the call done again is recorded like any other call, under the run it is done for, so what
+  // that run did can be read back (a team task settles from these records, src/team-reconcile.ts).
+  const recorded = { name: step.tool, id: step.callId, redone: true };
+  input.store.event(runId, "tool.started", { ...recorded, label: label(step) });
   try {
     // mac5/manual-actions: redone where the rule and the owner's wall say, as the first attempt was.
     const result = await input.runtime.registry.execute(step.tool, args, { ...context, ...scopeOf(input.runtime, step.tool, args, context, check) });
+    const shown = input.runtime.hideSecrets(result);
+    input.store.event(runId, "tool.completed", { ...recorded, result: shown, receipt: await input.store.receipts.sign(runId, step.callId, step.tool, shown) });
     return replaceResult(input.store, step.sessionId, step.callId, { ok: true, result, status: "redone",
       note: "Branch was restarted while this step ran; it changes nothing or gives the same result every time, so it was simply done again." });
-  } catch { return false; }
+  } catch (error) {
+    input.store.event(runId, "tool.failed", { ...recorded, error: input.runtime.hideSecrets(error instanceof Error ? error.message : String(error)) });
+    return false;
+  }
 }
 
 const label = (step: OpenStep): string => {
@@ -218,7 +227,8 @@ async function recoverRun(input: RecoveryInput, runId: string, steps: OpenStep[]
     input.store.event(runId, "run.can_continue", { note: "Branch was restarted while this task was working. Continue it when you are ready." });
     return { runId, outcome: "offered", steps: decided };
   }
-  input.store.event(runId, "run.auto_resumed", { steps: decided });
+  // Each step keeps its call id, so a team task can tell which of them it has a record of (src/team-reconcile.ts).
+  input.store.event(runId, "run.auto_resumed", { steps: steps.map((step, index) => ({ ...decided[index], callId: step.callId })) });
   const resumed = input.runtime.resume(runId).catch(() => undefined);
   return { runId, outcome: "resumed", steps: decided, resumed };
 }

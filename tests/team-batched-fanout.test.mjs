@@ -99,6 +99,38 @@ test("with the owner's limit at 2, a team of 5 goes in batches of 2, 2 and 1, ne
   assert.deepEqual(answersInRoom(state.app, team), [0, 1, 2, 3, 4].map((i) => `[r${i}] answer from r${i}`));
 });
 
+test("a limit the owner changes during a turn is followed from the next batch, with no concurrency error", async (t) => {
+  /* NAS adversarial check of Q66: reading the limit once before the loop left every other test green. */
+  const provider = scripted();
+  const { state, owner, team } = await fixture(t, provider, 5);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 3 });
+  // Once the first batch has finished, and before the next is cut, the owner lowers the limit to 1.
+  const runtime = counted(state.app.runtime);
+  const fanout = runtime.fanout;
+  runtime.fanout = async (...args) => {
+    const outcome = await fanout(...args);
+    if (runtime.fanouts === 1) saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 1 });
+    return outcome;
+  };
+  const result = await state.app.teams.run(runtime, knowledge, team.id, "ship it", { requestId: randomUUID() });
+  assert.equal(result.state, "completed");
+  assert.deepEqual(runtime.batches, [[0, 1, 2], [3], [4]]);
+  assert.deepEqual(answersInRoom(state.app, team), [0, 1, 2, 3, 4].map((i) => `[r${i}] answer from r${i}`));
+});
+
+test("a long error never pushes the member list out of the stored reason", async (t) => {
+  /* NAS review of Q66: the reason is cut at 2000 characters, and the member list used to come after the error. */
+  const provider = scripted();
+  const { state, owner, team } = await fixture(t, provider, 5);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
+  const requestId = randomUUID();
+  const broken = counted(state.app.runtime, (n) => (n === 2 ? Promise.reject(new Error(`injected ${"x".repeat(3000)}`)) : undefined));
+  await assert.rejects(state.app.teams.run(broken, knowledge, team.id, "ship it", { requestId }), /injected/);
+  const task = row(state.app, requestId);
+  assert.equal(task.state, "needs_reconciliation");
+  assert.match(task.error, /Not run: r2 \(not started\), r3 \(not started\), r4 \(not started\)/);
+});
+
 test("a throw between batch 1 and batch 2 needs reconciliation, lists batch 1's member runs, and never runs the rest", async (t) => {
   const provider = scripted();
   const { state, owner, team, reopen } = await fixture(t, provider, 5);

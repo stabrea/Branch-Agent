@@ -1,6 +1,6 @@
 import type { Store } from "./store.js";
 import type { RunStatus } from "./contracts.js";
-import type { TeamTaskClaim, TeamTaskScope, TeamTaskState, TeamTasks } from "./team-tasks.js";
+import { StaleTeamTaskClaimError, type TeamTaskClaim, type TeamTaskScope, type TeamTaskState, type TeamTasks } from "./team-tasks.js";
 
 /**
  * Team turn lineage (Q63): what a team task's turn did, read back from the runtime's own record.
@@ -111,22 +111,30 @@ export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
  * is not lost. A call that stopped to ask the owner did not go ahead: either the approval rules asked
  * first ("policy.ask", naming the call) or the tool itself asked (user.ask, say), which ends the run
  * with "attention.needed" right after the call started. A question recovery put after a restart
- * (afterRestart) says nothing about the call: its outcome stays unknown.
+ * (afterRestart) says nothing about the call: its outcome stays unknown. A step recovery settled when
+ * it carried the run on ("run.auto_resumed") may have been done again; one with no record of its own
+ * counts with its outcome unknown. A call cut off by its time limit ("tool.stalled") may still have
+ * happened: it is ended, but its outcome stays unknown.
  */
 function runEffects(store: Store, runId: string): TurnEffect[] {
-  const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed') ORDER BY id").all(runId);
+  const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed','run.auto_resumed') ORDER BY id").all(runId);
   const effects: TurnEffect[] = [];
+  // Calls that ended without a known outcome, so a later ending with the same id is not matched to them.
+  const ended = new Set<TurnEffect>();
   rows.forEach((row, index) => {
-    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown };
+    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown; steps?: unknown };
+    if (row.kind === "run.auto_resumed") { effects.push(...carriedOnSteps(runId, data.steps, effects, index)); return; }
     if (row.kind === "attention.needed") {
-      const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown");
+      const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown" && !ended.has(effect));
       if (asking) asking.outcome = "asked_owner";
       return;
     }
     const toolCallId = data.id == null ? `#${index}` : String(data.id);
     if (row.kind === "tool.started") { effects.push({ runId, toolCallId, name: String(data.name ?? ""), outcome: "unknown" }); return; }
-    const started = effects.findLast((effect) => effect.toolCallId === toolCallId && effect.outcome === "unknown");
-    if (started) started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "asked_owner" : "failed";
+    const started = effects.findLast((effect) => effect.toolCallId === toolCallId && effect.outcome === "unknown" && !ended.has(effect));
+    if (!started) return;
+    if (row.kind === "tool.stalled") ended.add(started);
+    else started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "asked_owner" : "failed";
   });
   return effects;
 }
@@ -178,6 +186,13 @@ export function describeMemberRuns(members: TeamMemberRun[]): string {
   return `Members that ran: ${ran.join(", ") || "none"}. Not run: ${rest.join(", ") || "none"}.`;
 }
 
+/** The steps a carry-on settled that this run has no record of: each may have been done again, so its outcome is unknown. */
+function carriedOnSteps(runId: string, steps: unknown, known: TurnEffect[], index: number): TurnEffect[] {
+  const listed = Array.isArray(steps) ? steps as { tool?: unknown; callId?: unknown }[] : [];
+  return listed.filter((step) => step.callId == null || !known.some((effect) => effect.toolCallId === String(step.callId)))
+    .map((step, at) => ({ runId, toolCallId: step.callId == null ? `#${index}.${at}` : String(step.callId), name: String(step.tool ?? ""), outcome: "unknown" as const }));
+}
+
 /**
  * Finishes the task and writes the members' answers to the room in one transaction, then tells
  * listeners once it is committed. Used by a live turn and by reconciliation alike.
@@ -189,6 +204,71 @@ export function finishTeamTask(store: Store, tasks: TeamTasks, claim: TeamTaskCl
     announce = store.eventUnannounced(result.parentRunId, "team.ran", { teamId: result.teamId, roomSessionId: result.roomSessionId, answers: result.answers.map((a) => ({ role: a.role, status: a.status, runId: a.runId })) });
   });
   announce();
+}
+
+/**
+ * Why the answers can no longer be written, when the owner deleted where they go: the room, or the
+ * turn's own run (the finish records "team.ran" on it). Null while both are still there.
+ */
+function answersHomeDeleted(store: Store, result: TeamRunResult): string | null {
+  if (!store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(result.roomSessionId))
+    return "The team's room was deleted while it worked; its answers could not be written there.";
+  if (!store.run(result.parentRunId)) return "The team's own conversation was deleted while it worked; its answers could not be written to the room.";
+  return null;
+}
+
+/**
+ * Settles a claimed task whose recorded answers could not be written to the room, so nobody meets
+ * the same failure again. If the owner deleted where they go, the answers go too; otherwise they are
+ * kept for the person who checks. A claim that moved on is its new holder's, so it is left alone.
+ */
+function settleUnwritten(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, result: TeamRunResult, error: unknown): TeamTaskState {
+  if (error instanceof StaleTeamTaskClaimError) return tasks.get(claim.scope, claim.taskId)?.state ?? "claimed";
+  const deleted = answersHomeDeleted(store, result);
+  if (deleted) tasks.markAnswersDeleted(claim, deleted);
+  else tasks.markNeedsReconciliation(claim, `The answers were recorded but could not be written to the room: ${error instanceof Error ? error.message : String(error)}`);
+  return "needs_reconciliation";
+}
+
+/**
+ * The live turn's finish; false when it could not finish. If the owner deleted the room or the
+ * turn's conversation while the members worked, the task is settled for a person there and then.
+ * Any other failure is thrown as before, and reconcile finishes the task from the record later.
+ */
+export function finishLiveTurn(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, result: TeamRunResult): boolean {
+  try {
+    finishTeamTask(store, tasks, claim, result);
+    return true;
+  } catch (error) {
+    if (!answersHomeDeleted(store, result)) throw error;
+    settleUnwritten(store, tasks, claim, result, error);
+    return false;
+  }
+}
+
+const deletedBeforeWritten = "The owner deleted a conversation this task's answers were in before they were written to the room; check the room before trying again.";
+
+/**
+ * Finishes a task from the result its turn recorded, or null when it recorded none. A result the
+ * owner's delete already cleared settles for a person: the members did answer, so it is never taken
+ * for a turn that did nothing. Answers that cannot be written settle for a person too, never thrown.
+ */
+function finishFromRecord(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, recorded: (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null): { state: TeamTaskState; note: string } | null {
+  if (recorded?.deleted) {
+    tasks.markNeedsReconciliation(claim, deletedBeforeWritten);
+    return { state: "needs_reconciliation", note: deletedBeforeWritten };
+  }
+  if (!recorded || (!recorded.truncated && !Array.isArray(recorded.answers))) return null;
+  try {
+    if (recorded.truncated) finishTruncated(store, tasks, claim, recorded);
+    else finishTeamTask(store, tasks, claim, recorded);
+  } catch (error) {
+    const state = settleUnwritten(store, tasks, claim, recorded, error);
+    return { state, note: state === "needs_reconciliation" ? "The recorded answers could not be written to the room; check them before trying again. Nothing was run again." : "This task changed while it was being checked." };
+  }
+  return { state: "completed", note: recorded.truncated
+    ? "Finished from the result the turn recorded, which was too large to keep in full; the members' answers were written to the room from their own runs. Nothing was run again."
+    : "Finished from the result the turn recorded; nothing was run again." };
 }
 
 /**
@@ -236,7 +316,8 @@ export function settleUnfinished(store: Store, tasks: TeamTasks, claim: TeamTask
   const effects = parentRunId ? turnEffects(store, parentRunId) : [];
   // Q66: the reason names which members ran and which never started, whichever batch it stopped in.
   const needs = (reason: string): TeamTaskState => {
-    tasks.markNeedsReconciliation(claim, `${reason}: ${why}. ${describeMemberRuns(memberRuns(store, parentRunId))}`.trim());
+    // The member list goes before the cause, which can be long, so the stored reason's length cap never cuts it.
+    tasks.markNeedsReconciliation(claim, [`${reason}.`, describeMemberRuns(memberRuns(store, parentRunId)), `What stopped it: ${why}`].filter(Boolean).join(" "));
     return "needs_reconciliation";
   };
   if (effects.length) return needs(`Stopped after ${effects.length} tool call(s) whose effects must be checked before this is tried again`);
@@ -288,19 +369,23 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
     return report("claimed", "Its run, or a member's, is still going.");
   const claim = tasks.standingClaim(scope, taskId);
   if (!claim) return report(tasks.get(scope, taskId)!.state, "This task changed while it was being checked.");
-  const recorded = task.result as (TeamRunResult & { truncated?: boolean }) | null;
-  if (recorded?.truncated) {
-    finishTruncated(store, tasks, claim, recorded);
-    return report("completed", "Finished from the result the turn recorded, which was too large to keep in full; the members' answers were written to the room from their own runs. Nothing was run again.");
-  }
-  if (recorded && Array.isArray(recorded.answers)) {
-    finishTeamTask(store, tasks, claim, recorded);
-    return report("completed", "Finished from the result the turn recorded; nothing was run again.");
+  const finished = finishFromRecord(store, tasks, claim, task.result as (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null);
+  if (finished) return report(finished.state, finished.note);
+  // The owner deleted the turn's own conversation: what it did cannot be read back, so it is never "nothing was done".
+  if (recordDeleted(store, task)) {
+    tasks.markNeedsReconciliation(claim, "Its record was deleted, so what it did cannot be known; check before trying again.");
+    return report("needs_reconciliation", "Its record was deleted, so what it did cannot be known; check before trying again.");
   }
   if (parent?.status === "needs_input")
     return waitingReport(report, settleWaiting(store, tasks, claim, parent.id, parent.output, root!));
   const state = settleUnfinished(store, tasks, claim, root, "the turn stopped before its result was recorded");
   return report(state, state === "failed" ? "Nothing was done, so a new request id may try again." : "Check these effects before trying again.");
+}
+
+/** True when the task names a turn run or a conversation that no longer exists: the owner deleted its record. */
+function recordDeleted(store: Store, task: { parentRunId: string | null; parentSessionId: string | null }): boolean {
+  if (task.parentRunId && !store.run(task.parentRunId)) return true;
+  return !!task.parentSessionId && !store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(task.parentSessionId);
 }
 
 function waitingReport(report: (state: TeamTaskState, note: string) => ReconcileReport, state: TeamTaskState): ReconcileReport {

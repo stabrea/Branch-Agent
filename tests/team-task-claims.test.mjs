@@ -474,3 +474,163 @@ test("after the owner's retention rule deletes old conversations, the team task 
   assert.equal(again.answers, undefined);
   assert.equal(runtime.dispatches, 1);
 });
+
+/** A turn whose members wait at a gate until `release`; `started` resolves once they are working. */
+function gatedTurn(state, owner, secret) {
+  let release, begun;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const started = new Promise((resolve) => { begun = resolve; });
+  const runtime = inertRuntime(state.app.store, owner, { settle: true });
+  runtime.fanout = async (_context, tasks) => {
+    begun();
+    await gate;
+    return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: `child-${index}` }])) };
+  };
+  return { runtime, started, release };
+}
+
+test("the owner deleting the team's room while members work settles the task for a person, keeps none of the answers, and repeats never throw", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const secret = `private-answer-${randomUUID()}`;
+  const { runtime, started, release } = gatedTurn(state, owner, secret);
+  const requestId = randomUUID();
+  const live = state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  await started;
+  // The same call an approved retention prune makes for each conversation it deletes.
+  state.app.store.forgetSession(owner, team.roomSessionId);
+  release();
+  const answer = await live;
+  assert.equal(answer.state, "needs_reconciliation");
+  const task = taskRow(state.app, requestId);
+  assert.equal(task.state, "needs_reconciliation");
+  assert.deepEqual(JSON.parse(task.result), { deleted: true }, "the answers are not kept once their room is gone");
+  assert.match(task.error, /room was deleted while it worked/);
+  assert.deepEqual(tablesMentioning(state.app.store, secret), [], "no table holds the answers");
+  for (let i = 0; i < 2; i++) assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId })).state, "needs_reconciliation");
+  assert.equal(state.app.teams.reconcile(task.task_id).state, "needs_reconciliation");
+  assert.equal(runtime.dispatches, 1, "nothing is run again");
+});
+
+test("the retention rule leaves out a team's room and its turn's conversation while the turn runs, and takes them once it has finished", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const { runtime, started, release } = gatedTurn(state, owner, "answer");
+  const requestId = randomUUID();
+  const live = state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  await started;
+  saveRetentionSettings(state.app.store, owner, { enabled: true, keepDays: 1, exportBeforeDeleting: false });
+  const later = new ConversationRetention(state.app.store, owner, () => Date.now() + 30 * 86_400_000);
+  const turnSession = taskRow(state.app, requestId).parent_session_id;
+  const during = later.prune({ approve: true, sessionIds: [team.roomSessionId, turnSession] });
+  assert.deepEqual(during.removed, [], "neither the room nor the turn's own conversation is deleted mid-turn");
+  release();
+  assert.equal((await live).state, "completed");
+  assert.ok(later.prune({ approve: true }).removed.includes(team.roomSessionId), "once the turn finished the room can go");
+});
+
+test("a recorded result whose room was deleted before it was written settles for a person, never as 'nothing was done'", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const complete = TeamTasks.prototype.complete;
+  TeamTasks.prototype.complete = function broken() { throw new Error("disk full while finishing"); };
+  t.after(() => { TeamTasks.prototype.complete = complete; });
+  const runtime = inertRuntime(state.app.store, owner, { settle: true });
+  const requestId = randomUUID();
+  await assert.rejects(state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId }), /disk full/);
+  TeamTasks.prototype.complete = complete;
+  state.app.store.forgetSession(owner, team.roomSessionId);
+  assert.deepEqual(JSON.parse(taskRow(state.app, requestId).result), { deleted: true }, "the recorded answers went with the room");
+  const again = await state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId });
+  assert.equal(again.state, "needs_reconciliation");
+  assert.doesNotMatch(taskRow(state.app, requestId).error, /Nothing was done/);
+  assert.equal(runtime.dispatches, 1);
+});
+
+test("deleting the conversation a waiting task's turn ran in clears the question it kept", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const runtime = inertRuntime(state.app.store, owner);
+  const run = runtime.run;
+  runtime.run = async (options) => ({ ...(await run(options)), status: "needs_input", output: "Which private folder should I use?" });
+  const requestId = randomUUID();
+  assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tidy", { requestId })).state, "waiting_owner");
+  const before = taskRow(state.app, requestId);
+  assert.match(before.question, /private folder/);
+  // The inert runtime puts its run in a conversation of its own, so only the task's parent_session_id names this one.
+  assert.notEqual(state.app.store.run(before.parent_run_id).sessionId, before.parent_session_id);
+  state.app.store.forgetSession(owner, before.parent_session_id);
+  assert.equal(taskRow(state.app, requestId).question, null);
+  assert.equal(taskRow(state.app, requestId).state, "waiting_owner", "the task itself stays");
+});
+
+test("the owner deleting the turn's own conversation while members work settles the task for a person, keeps none of the answers, and repeats never throw", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const secret = `private-answer-${randomUUID()}`;
+  const runtime = inertRuntime(state.app.store, owner);
+  // Like the real runtime, the parent run lives in the conversation the task named; members live in their own.
+  runtime.run = async (options) => {
+    runtime.dispatches++;
+    const parent = state.app.store.createRun(owner, "team parent", options.sessionId);
+    options.onStarted(parent);
+    state.app.store.finish(parent.id, "completed", "");
+    return { id: parent.id, status: "completed", output: "" };
+  };
+  runtime.fanout = async (_context, tasks) => {
+    state.app.store.forgetSession(owner, taskRow(state.app, requestId).parent_session_id);
+    return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: `child-${index}` }])) };
+  };
+  const requestId = randomUUID();
+  assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId })).state, "needs_reconciliation");
+  const task = taskRow(state.app, requestId);
+  assert.deepEqual(JSON.parse(task.result), { deleted: true });
+  assert.match(task.error, /own conversation was deleted while it worked/);
+  assert.deepEqual(tablesMentioning(state.app.store, secret), [], "no table holds the answers");
+  for (let i = 0; i < 2; i++) assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId })).state, "needs_reconciliation");
+  assert.equal(state.app.teams.reconcile(task.task_id).state, "needs_reconciliation");
+  assert.equal(runtime.dispatches, 1);
+});
+
+test("a team whose room the owner deleted opens a fresh room before its next turn runs, and keeps using it", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  state.app.store.forgetSession(owner, team.roomSessionId);
+  const runtime = inertRuntime(state.app.store, owner, { settle: true });
+  const run = runtime.run;
+  const roomAtDispatch = [];
+  runtime.run = (options) => { roomAtDispatch.push(state.app.store.ownsSession(owner, state.app.teams.get(team.id).roomSessionId)); return run(options); };
+  for (const prompt of ["first", "second"]) assert.equal((await state.app.teams.run(runtime, knowledge, team.id, prompt, { requestId: randomUUID() })).state, "completed");
+  assert.deepEqual(roomAtDispatch, [true, true], "the room is there before the team's turn runs");
+  const reopened = state.app.teams.get(team.id);
+  assert.notEqual(reopened.roomSessionId, team.roomSessionId);
+  const room = state.app.teams.room(team.id).map((m) => m.content);
+  assert.match(room[0], /Team "Crew" room/);
+  assert.deepEqual(room.filter((c) => c === "first" || c === "second"), ["first", "second"], "both turns wrote to the one reopened room");
+});
+
+test("a recorded result that still cannot be written when reconciled settles for a person, keeps the answers, and a repeat never throws", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const complete = TeamTasks.prototype.complete;
+  TeamTasks.prototype.complete = function broken() { throw new Error("disk full while finishing"); };
+  t.after(() => { TeamTasks.prototype.complete = complete; });
+  const runtime = inertRuntime(state.app.store, owner, { settle: true });
+  const requestId = randomUUID();
+  await assert.rejects(state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId }), /disk full/);
+  const again = await state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId });
+  assert.equal(again.state, "needs_reconciliation");
+  const task = taskRow(state.app, requestId);
+  assert.match(task.error, /could not be written to the room: disk full/);
+  assert.deepEqual(JSON.parse(task.result).answers.map((a) => a.output), ["answer 0", "answer 1"], "the room is still there, so the answers are kept for the person who checks");
+  assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId })).state, "needs_reconciliation");
+  assert.equal(runtime.dispatches, 1);
+});
+
+test("reconcile leaves a turn alone between its parent run completing and its members answering", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const { runtime, started, release } = gatedTurn(state, owner, "answer");
+  const requestId = randomUUID();
+  const live = state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  await started;
+  const task = taskRow(state.app, requestId);
+  assert.equal(state.app.store.run(task.parent_run_id).status, "completed", "the parent run is done; only the members are working");
+  assert.equal(state.app.teams.reconcile(task.task_id).state, "claimed");
+  assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId })).state, "claimed", "a repeat mid-turn only observes");
+  release();
+  assert.equal((await live).state, "completed");
+  assert.equal(runtime.dispatches, 1);
+});
