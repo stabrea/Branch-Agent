@@ -17,7 +17,7 @@ import { quitRunning, runningNow, type QuitReport } from "./quit.js";
 import { sessionTokenFileName, type RunningInstance } from "./running.js";
 import { writeUpdateBackup } from "./update-backup.js";
 import { restartService, waitForReturn, type ReturnDeps } from "./service-return.js";
-import { rollbackCommand } from "./rollback-cli.js";
+import { openWindow, rollbackCommand } from "./rollback-cli.js";
 
 /**
  * `branch update --yes`: the app's Update button without the window. It uses the same updater, so the
@@ -59,6 +59,8 @@ export interface HeadlessUpdateDeps {
   rollback?: (restart: () => Promise<void>) => Promise<number>;
   /** Writes down what this update is about to change; a test makes it fail after the stop. */
   record?: typeof recordActivation;
+  /** Opens the installed Branch as a window again, when a window is what was running. */
+  launch?: (target: string, executableName: string) => void;
 }
 
 /** The safety copies this data folder holds, newest last, so a refusal can name one. */
@@ -220,8 +222,7 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     // owner a way out that does not exist. What can be done is to start the version that is still
     // installed -- the files were never touched -- and to say plainly when even that will not come
     // up, because a stopped service nobody is told about is the whole failure.
-    if (stopped.report?.wasRunning && note?.mode === "daemon")
-      await startInstalledAgain(input, note);
+    if (stopped.report?.wasRunning && note) await putBackWhatWasRunning(input, note);
     // The service being back is the least this owes them, never a successful update.
     return 1;
   }
@@ -260,8 +261,23 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
  * itself on the version it was already running, or the owner is told it is not running and how to
  * start it.
  */
-async function startInstalledAgain(input: HeadlessUpdateInput, before: RunningInstance): Promise<void> {
+async function putBackWhatWasRunning(input: HeadlessUpdateInput, before: RunningInstance): Promise<void> {
   const deps = input.deps ?? {}, platform = input.platform ?? process.platform;
+  // A window is put back as a window. The hand-over script is what normally reopens one, and this
+  // failure happens before there is a script to run, so nothing else in this path will do it -- the
+  // owner's window closed, the update stopped, and the words on the screen said nothing had changed.
+  // Nothing on disk had. Their window was still gone.
+  if (before.mode === "app") {
+    try {
+      (deps.launch ?? openWindow)(input.installRoot, appEntryName(platform));
+      input.print(`Branch has been opened again, on version ${input.version}.`);
+    } catch (error) {
+      input.print(`Branch could not be opened again (${error instanceof Error ? error.message : String(error)}). `
+        + `Nothing on this computer was changed, so version ${input.version} is still the one installed: `
+        + "open Branch as you normally would.");
+    }
+    return;
+  }
   const restart = deps.restartService ?? (() => restartService(platform));
   const started = await restart().then(() => true, () => false);
   if (started && await waitForReturn(input.dataDir, { pid: before.pid, startedAt: before.startedAt },

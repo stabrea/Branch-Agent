@@ -279,6 +279,42 @@ test("a record that cannot be written puts the service back, and still calls the
   assert.equal(s.events.includes(["script"].toString()), false);
 });
 
+
+test("a record that cannot be written puts a window back as a window", async (t) => {
+  // The owner had a window. It was closed for the update, writing the record failed before there was
+  // a hand-over script to run, and nothing reopened it -- while the words on the screen said nothing
+  // had changed. Nothing on disk had. Their window was still gone.
+  const s = await updateSetup(t, { mode: "app" });
+  const opened = [];
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    record: async () => { throw new Error("the disk is full"); },
+    launch: (...args) => { opened.push(args); },
+    restartService: async () => { s.events.push("restart"); assert.fail("a window is never put back as a service"); },
+  } });
+
+  assert.equal(code, 1);
+  assert.equal(opened.length, 1, "the window was opened again");
+  assert.equal(opened[0][0], s.input.installRoot, "and it is the installed one, which was never touched");
+  assert.equal(s.events.includes("restart"), false, "the service manager was not asked");
+  const said = s.lines.join(NEWLINE);
+  assert.match(said, /the disk is full/);
+  assert.match(said, /Branch has been opened again, on version 1\.0\.0/);
+});
+
+test("a window that cannot be opened again is said out loud, not left as \"nothing was changed\"", async (t) => {
+  const s = await updateSetup(t, { mode: "app" });
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    record: async () => { throw new Error("the disk is full"); },
+    launch: () => { throw new Error("nothing opened"); },
+  } });
+
+  assert.equal(code, 1);
+  const said = s.lines.join(NEWLINE);
+  assert.match(said, /could not be opened again/, "the owner is told their window is gone");
+  assert.match(said, /nothing opened/, "and what went wrong");
+  assert.match(said, /still the one installed/, "and that the version they had is intact");
+});
+
 test("a record that cannot be written and a service that will not start says so, and claims no way back", async (t) => {
   // Nothing was written down, so there is no record for `branch rollback` to work from: production
   // would answer "there is no record of an update to go back from". My first version of this test
