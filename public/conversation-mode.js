@@ -152,7 +152,7 @@ function paintMenu(menu = $("mode-menu")) {
   const mode = chosen();
   menu.replaceChildren(el("p", t("mode.question"), "mode-heading"));
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
-  menu.append(el("hr"), followItem(mode), lockdownItem());
+  menu.append(followItem(mode), el("hr"), lockdownItem());
 
   // DG-153: Add footer explaining mode choices and keyboard shortcuts
   if (!state.locked && !state.outside && mode !== null) {
