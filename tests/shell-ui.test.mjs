@@ -133,8 +133,9 @@ test("every place opens from the sidebar in one click, and every Settings page f
     await f.page.getByRole("button", { name, exact: true }).click();
     await f.page.locator("#page-title").filter({ hasText: name }).waitFor();
   }
-  await f.page.getByRole("button", { name: "Conversation", exact: true }).click();
-  await f.page.locator("#page-title").filter({ hasText: "Conversation" }).waitFor();
+  /* DG-141: the way back to the conversation is the crumb's first step, the picked computer's face and name */
+  await f.page.locator("#lx-crumb-where").click();
+  await f.page.locator("#chat").waitFor({ state: "visible" });
   await f.page.getByRole("button", { name: "Settings", exact: true }).click();
   await f.page.locator("#settings-window").waitFor({ state: "visible" });
   const pages = f.page.locator(".lx-settings-link");
