@@ -110,6 +110,10 @@ const documentTypes: Record<string, string> = {
   ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".xls": "application/vnd.ms-excel", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".ppt": "application/vnd.ms-powerpoint", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".docm": "application/vnd.ms-word.document.macroEnabled.12", ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+  ".pptm": "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+  ".odt": "application/vnd.oasis.opendocument.text", ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+  ".epub": "application/epub+zip", ".rtf": "application/rtf",
 };
 const maxAttachedText = 20000;
 

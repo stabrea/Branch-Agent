@@ -36,6 +36,7 @@ const files = {
   "clip.mp4": Buffer.from("ftyp-VIDEO-BYTES-SHOULD-NOT-BE-READ"),
   "report.pdf": helloPdf(),
   "legacy.doc": Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0x41, 0x42, 0x43]),
+  "letter.rtf": Buffer.from("{\\rtf1\\ansi RICH LETTER WORDS\\par}", "latin1"),
 };
 
 async function setup(t) {
@@ -67,7 +68,7 @@ function userTurn(seen, prompt) {
 test("every attached kind reaches the model with its type and reference, and a document is still read", async (t) => {
   const { seen, folder, conversation, context, said } = await setup(t);
   for (const name of Object.keys(files)) await runCommand(context, `/attach ${join(folder, name)}`);
-  assert.equal(conversation.attachments.length, 5, said.map(([, text]) => text).join("\n"));
+  assert.equal(conversation.attachments.length, 6,said.map(([, text]) => text).join("\n"));
 
   await conversation.send("look at these");
   const turn = userTurn(seen, "look at these");
@@ -79,6 +80,7 @@ test("every attached kind reaches the model with its type and reference, and a d
     ["clip.mp4", "video", "video/mp4"],
     ["report.pdf", "document", "application/pdf"],
     ["legacy.doc", "document", "application/msword"],
+    ["letter.rtf", "document", "application/rtf"],
   ];
   for (const [name, kind, mediaType] of expected) {
     const header = text.split("\n").find((line) => line.includes(name) && line.startsWith("--- attached"));
@@ -89,6 +91,8 @@ test("every attached kind reaches the model with its type and reference, and a d
   }
 
   assert.match(text, /Hello there/, "the PDF's words were read into the message, as a document was before");
+  assert.match(text, /RICH LETTER WORDS/, "a rich-text document's words were read too");
+  assert.doesNotMatch(text, /\\rtf1/, "the rich text was read by its reader, not pasted in raw");
   assert.equal(turn.images?.length, 1, "the picture went as a picture");
   assert.equal(turn.images[0].mediaType, "image/png");
   assert.equal(turn.images[0].data, png.toString("base64"));
