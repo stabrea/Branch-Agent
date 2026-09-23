@@ -340,4 +340,6 @@ test("the Update button holds the claim through the hand-over and gives it back 
   assert.match(failure, /^\} catch \(error\) \{\s*(?:\/\/[^\n]*\n\s*)*updater\.failed\([^;]*\);\s*throw error;/, "a hand-over that fails gives it back");
   assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.failed("), "the release is on the hand-over's failure path");
   assert.equal((handler.match(/updater\.(?:release|failed)\(/g) ?? []).length, 1, "and nowhere else");
+  // Q55: the words say the background engine was stopped only when this install really closed it.
+  assert.match(handler, /throw new Error\(updater\.backgroundStopped\s*\?/, "the stopped-engine sentence follows what the updater did");
 });
