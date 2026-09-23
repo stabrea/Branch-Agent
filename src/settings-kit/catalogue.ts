@@ -40,6 +40,7 @@ import { flyCoreSettings } from "../fly-core/settings.js";
 import { GoalUndoSettingsSchema } from "../goal-mode.js";
 import { reflectionSettings } from "../reflection/settings.js";
 import { contextFileSettings, saveContextFileSettings } from "../context-files.js";
+import { saveVoiceSettings, voiceSettings, VoiceSettingsSchema } from "../voice.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -125,6 +126,23 @@ function ownListen(store: Store, owner: string): Record<string, unknown> {
   const saved = inForce(ListenSettingsSchema, store.get("settings", owner, listenKey)?.data).where;
   return { where: saved === "private-network" || listenAsked(store, owner) === "private-network" ? "private-network" : "this-computer" };
 }
+
+/**
+ * Q65: voice is read strictly, but src/voice.ts stops on a record it cannot read rather than starting
+ * again from its first values. So the kit shows the starting values for such a record without stopping,
+ * and a change to it is refused in plain words: fixing one field there would make the whole record
+ * readable again and bring every other field in it back, which the owner never saw.
+ */
+const voiceHooks: Hooks = {
+  read: (store, owner) => {
+    try { return { ...voiceSettings(store, owner) }; } catch { return {}; }
+  },
+  write: (store, owner, patch) => {
+    if (!VoiceSettingsSchema.safeParse(store.get("settings", owner, "voice")?.data ?? {}).success)
+      throw new Error("The voice settings saved on this computer cannot be read, so nothing was changed. Changing one of them here would bring back everything else in that record.");
+    saveVoiceSettings(store, owner, patch);
+  },
+};
 
 /** Q65: the files you write, saved through their module, which takes one nested record ("files.soul" is `{ files: { soul } }`). */
 const contextFilesWrite = (store: Store, owner: string, patch: Record<string, unknown>): void => {
@@ -254,6 +272,7 @@ const reach: SettingSpec[] = [
       yesNo("autoReadAloud", "Read replies aloud automatically", "settings-kit.field.read-aloud", "plain"),
       yesNo("keepAudioOnThisComputer", "Keep audio on this computer", "settings-kit.field.keep-audio", "guard"),
       yesNo("replyWithVoiceOnChannels", "Answer a voice note with a voice note", "settings-kit.field.voice-reply", "reach")],
+    ...voiceHooks,
   },
   one("media-programs", "Watching and saving videos", "settings-kit.name.video", "settings:models:media", "reach",
     parsedBy("media-programs", () => MediaProgramsSchema)),

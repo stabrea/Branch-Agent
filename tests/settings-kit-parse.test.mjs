@@ -47,6 +47,7 @@ import { reflectionSettings } from "../dist/reflection/settings.js";
 import { contextFileSettings } from "../dist/context-files.js";
 import { retentionSettings } from "../dist/retention.js";
 import { readComfort } from "../dist/comfort/settings.js";
+import { voiceSettings } from "../dist/voice.js";
 
 /*
  * Q65: the settings kit reads and writes every setting through the app's own parse. A record the app would
@@ -105,12 +106,13 @@ const strictReaders = {
 };
 
 /**
- * The settings whose module does not throw a whole record away, so the kit's own field-by-field reading
- * already matches it. Voice is the one strict schema left out: src/voice.ts throws on a record it cannot
- * read rather than falling back, so there is no starting value in force to show.
+ * Strict settings whose module stops on a record it cannot read rather than starting again from its first
+ * values. The kit shows the starting values and refuses a change, so nothing in the record comes back.
  */
+const refusingReaders = { voice: voiceSettings };
+
+/** The settings whose module does not throw a whole record away, so the kit's own field-by-field reading already matches it. */
 const notStrict = {
-  voice: "src/voice.ts throws on an unreadable record; the system voice is read field by field (src/feature-switches.ts)",
   "sdk-kit": "read field by field (src/sdk-kit.ts, sdkKitMode)",
   "local-runner-install": "a loose record, read field by field (src/local-one-button.ts)",
   "local-runner-place": "a loose record, read field by field (src/local-one-button.ts)",
@@ -160,8 +162,8 @@ test("every catalogue setting is either read through its module's strict reader 
   const { app } = await fixture(t);
   const writers = settingsKitWriters(app);
   for (const spec of settingsCatalogue)
-    assert.ok(strictReaders[spec.key] || notStrict[spec.key], `${spec.key}: say which reader the app uses, and whether it is strict`);
-  for (const key of Object.keys(strictReaders)) {
+    assert.ok(strictReaders[spec.key] || refusingReaders[spec.key] || notStrict[spec.key], `${spec.key}: say which reader the app uses, and whether it is strict`);
+  for (const key of [...Object.keys(strictReaders), ...Object.keys(refusingReaders)]) {
     const spec = specFor(key);
     assert.ok(spec, `${key} is in the catalogue`);
     assert.equal(typeof spec.read, "function", `${key}: a strict setting must be read through its module (a read hook)`);
@@ -216,3 +218,31 @@ test("while Lockdown is on, the kit shows the owner's own saved switch, not Lock
   assert.equal(shown("listen-address", "where"), "private-network");
   assert.equal(shown("wake-word", "mode"), "on");
 });
+
+const all = (changes) => ({ accept: changes.map((change) => change.id), confirmLoosening: true, why: "test" });
+const voiceField = (field) => specFor("voice").fields.find((entry) => entry.field === field);
+const brokenVoice = { systemVoice: "on", autoReadAloud: "yes", keepAudioOnThisComputer: true, replyWithVoiceOnChannels: true };
+
+test("voice: an unreadable record shows the starting values, and reading it does not stop the kit", async (t) => {
+  const { store, owner } = await fixture(t);
+  store.save("settings", owner, "voice", brokenVoice);
+  assert.throws(() => voiceSettings(store, owner), "the app itself cannot read this record");
+  for (const field of specFor("voice").fields)
+    assert.equal(currentValue(store, owner, specFor("voice"), field), field.initial, `voice.${field.field} shows its starting value`);
+});
+
+test("voice: a kit write to an unreadable record is refused, and the record is left exactly as it was", async (t) => {
+  const { app, store, owner } = await fixture(t);
+  store.save("settings", owner, "voice", brokenVoice);
+  const { changes } = changesFor(store, owner, [{ key: "voice", field: "autoReadAloud", value: true }]);
+  assert.equal(changes.length, 1);
+  assert.throws(() => applyChanges(store, owner, changes, { ...all(changes), writers: settingsKitWriters(app) }), /cannot be read, so nothing was changed/);
+  assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice);
+  // A readable record is still changed through the voice card's own save.
+  store.save("settings", owner, "voice", {});
+  const again = changesFor(store, owner, [{ key: "voice", field: "autoReadAloud", value: true }]).changes;
+  applyChanges(store, owner, again, all(again));
+  assert.equal(voiceSettings(store, owner).autoReadAloud, true);
+  assert.equal(currentValue(store, owner, specFor("voice"), voiceField("autoReadAloud")), true);
+});
+
