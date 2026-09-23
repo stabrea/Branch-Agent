@@ -1089,66 +1089,98 @@ body.lx-help .context-panel > .acorn-art {
 .lx-gallery .lx-eyebrow {
   margin: 14px 0 8px;
 }
+/* DG-037: the sample's tiles (live `.tiles`, `.tile2`, `.sw2`, `.tn`, `.tbadge`; 140px columns under 760px). */
 .lx-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: 10px;
 }
 .lx-tile {
-  padding: 6px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: transparent;
+  border-radius: 14px;
+  background: none;
   box-shadow: none;
   color: var(--text);
-  font-weight: 450;
   text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
 }
 .lx-tile:hover {
   border-color: var(--line-2);
-  background: transparent;
+  background: none;
+  transform: translateY(-1px);
 }
 .lx-tile[aria-pressed="true"] {
   border-color: var(--copper);
-  box-shadow: 0 0 0 1px var(--copper);
+  box-shadow: 0 0 0 3px var(--copper-tint);
 }
 .lx-mini {
   position: relative;
   display: block;
-  height: 46px;
+  height: 70px;
   overflow: hidden;
-  border-radius: 8px;
-}
-.lx-mini b {
-  position: absolute;
-  left: 6px;
-  right: 18px;
-  top: 7px;
-  height: 9px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-}
-.lx-mini s {
-  position: absolute;
-  left: 6px;
-  top: 21px;
-  width: 40%;
-  height: 5px;
-  border-radius: 3px;
+  border-radius: 9px;
 }
 .lx-mini u {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 16px;
+}
+.lx-mini i {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  bottom: 9px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: 7px;
+}
+.lx-mini em {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+}
+.lx-mini s {
+  position: absolute;
+  right: 9px;
+  bottom: 8px;
+  width: 22px;
+  height: 11px;
+  border-radius: 4px;
+}
+.lx-tile-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 3px 2px;
 }
 .lx-tile-name {
-  display: block;
-  margin-top: 5px;
-  padding-left: 2px;
-  font-size: 12px;
+  font-size: 13.5px;
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+.lx-tile-badge {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--press);
+  color: var(--text-2);
+  font: 500 11px/1 var(--body);
+}
+@media (max-width: 760px) {
+  .lx-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+  }
 }
 .lx-look-row {
   display: flex;
@@ -1357,8 +1389,7 @@ body.lx .model-controls .text-button {
 .lx-quiet-exit:hover,
 .lx-tab:hover,
 .lx-subtab:hover,
-.lx-pane-tab:hover,
-.lx-tile:hover {
+.lx-pane-tab:hover {
   background: transparent;
 }
 .lx-pane-tab[aria-pressed="true"]:hover {

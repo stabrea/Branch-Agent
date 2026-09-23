@@ -118,24 +118,54 @@ function setLook(patch) {
   store.set("branch-contrast", look.contrast === "more" ? "more" : null);
   applyLook();
 }
-/** A small picture of a theme: its ground, a pane, a line of text and its accent. */
+/**
+ * DG-037: the sample's theme tile (its live `tilesHTML`): a window in miniature, with the theme's rail, a surface
+ * holding a strong and a quiet line of text, and its accent, drawn with the sample's own blends. Under it, the name
+ * and the sample's words: Default on Slate, High contrast at 14:1 in the light shown, Easy in daylight at 14:1 there.
+ */
 function themeTile(family, onPick) {
-  const tokens = tokensFor(family, modeNow());
+  const mode = modeNow(), dark = mode === "dark", tokens = tokensFor(family, mode);
+  const ground = tokens["--ground"], text = tokens["--text"];
   const tile = make("button", "lx-tile");
   tile.type = "button";
   tile.dataset.family = family[0];
   tile.setAttribute("aria-pressed", String(look.family === family[0]));
+  const ratio = textContrast(family, mode), daylight = textContrast(family, "light");
+  tile.title = say("look.tile.title", "{name} · text contrast {ratio} to 1 ({light}), {daylight} to 1 in Daylight")
+    .replace("{name}", family[1]).replace("{ratio}", ratio.toFixed(1))
+    .replace("{light}", dark ? say("look.moonlight", "Moonlight") : say("look.daylight", "Daylight"))
+    .replace("{daylight}", daylight.toFixed(1));
   const mini = make("span", "lx-mini");
-  mini.style.background = tokens["--ground"];
-  const pane = make("b");
-  pane.style.background = tokens["--glass-2"];
-  pane.style.borderColor = tokens["--glass-edge"];
-  const line = make("s");
-  line.style.background = tokens["--text-3"];
-  const dot = make("u");
-  dot.style.background = tokens["--copper"];
-  mini.append(pane, line, dot);
-  tile.append(mini, make("span", "lx-tile-name", family[1]));
+  mini.style.background = ground;
+  const rail = make("u");
+  rail.style.background = dark ? solid(ground, "#000000", 0.4) : solid(text, ground, 0.08);
+  const pane = make("i");
+  pane.style.background = dark ? solid(ground, text, 0.045) : solid(ground, "#ffffff", 0.62);
+  const strong = make("em"), quiet = make("em"), accent = make("s");
+  strong.style.width = "58%";
+  strong.style.background = text;
+  quiet.style.width = "38%";
+  quiet.style.background = tokens["--text-3"];
+  accent.style.background = tokens["--copper"];
+  pane.append(strong, quiet, accent);
+  mini.append(rail, pane);
+  const foot = make("span", "lx-tile-foot");
+  /* The button is named by the theme alone; its words describe it (so "Cherry" still finds Cherry). */
+  const name = make("b", "lx-tile-name", family[1]);
+  name.id = `lx-tile-name-${family[0]}`;
+  tile.setAttribute("aria-labelledby", name.id);
+  foot.append(name);
+  const badge = ratio >= 14 ? ["look.badge.high", "High contrast"]
+    : daylight >= 14 && !dark ? ["look.badge.daylight", "Easy in daylight"] : null;
+  const described = [];
+  for (const word of [family[0] === DEFAULT_THEME ? ["look.badge.default", "Default"] : null, badge].filter(Boolean)) {
+    const small = worded("small", "lx-tile-badge", ...word);
+    small.id = `lx-tile-${word[0].split(".").pop()}-${family[0]}`;
+    described.push(small.id);
+    foot.append(small);
+  }
+  if (described.length) tile.setAttribute("aria-describedby", described.join(" "));
+  tile.append(mini, foot);
   tile.addEventListener("click", () => onPick(family[0]));
   return tile;
 }
