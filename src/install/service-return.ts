@@ -52,9 +52,14 @@ export interface Before { pid: number | null; startedAt: string | null }
  *
  * Answers with the instance that came back, or null when none did in time.
  */
+/** What is being waited for: which kind of Branch, on which version. */
+export interface Expected { version: string; mode?: "app" | "daemon" }
 export async function waitForReturn(
-  dataDir: string, before: Before, expect: { version: string }, deps: ReturnDeps = {},
+  dataDir: string, before: Before, wanted: Expected, deps: ReturnDeps = {},
 ): Promise<RunningInstance | null> {
+  // A background service unless a caller says otherwise, because that is what every earlier caller
+  // meant and a default that changes their meaning would be the worst kind of tidy-up.
+  const expect = { version: wanted.version, mode: wanted.mode ?? "daemon" as const };
   const running = deps.running ?? ((dir: string) => runningNow(dir));
   const attach = deps.attach ?? (async (dir: string) => {
     const found = await attachToRunning(dir);
@@ -68,7 +73,7 @@ export async function waitForReturn(
   const deadline = now() + (deps.waitMs ?? 60000);
   for (;;) {
     const note = await running(dataDir).catch(() => null);
-    if (note && isTheReturn(note, before, expect.version)) {
+    if (note && isTheReturn(note, before, expect)) {
       const answered = await attach(dataDir).catch(() => null);
       if (answered && answered.version === expect.version && answered.instance.pid === note.pid) return note;
     }
@@ -77,9 +82,14 @@ export async function waitForReturn(
   }
 }
 
-/** Whether the note on disk describes the service, on the right version, started since the swap. */
-function isTheReturn(note: RunningInstance, before: Before, version: string): boolean {
-  if (note.mode !== "daemon" || note.version !== version) return false;
+/**
+ * Whether the note on disk describes the thing we were waiting for: the right **kind** of Branch, on
+ * the right version, started since the one we closed. The kind matters as much as the rest — a
+ * background service answering where a window was expected is not the window coming back, and taking
+ * it for one hands the owner a computer with no window on it and a line saying there is.
+ */
+function isTheReturn(note: RunningInstance, before: Before, expect: Expected): boolean {
+  if (note.mode !== expect.mode || note.version !== expect.version) return false;
   if (before.startedAt === null) return note.pid !== before.pid;
   return Date.parse(note.startedAt) > Date.parse(before.startedAt);
 }

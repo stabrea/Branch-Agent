@@ -274,9 +274,13 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
 async function putBackAfterScript(input: HeadlessUpdateInput, before: RunningInstance, log: string): Promise<void> {
   if (before.mode === "daemon") { await serviceBack(input, before, input.version, log); return; }
   const deps = input.deps ?? {};
-  const running = deps.running ?? ((dir: string) => runningNow(dir));
-  const now = await running(input.dataDir).catch(() => null);
-  if (now && now.pid !== before.pid) {
+  // "Some other process id is running" is not the window being back, and the note on disk is written
+  // by whatever started -- so a background service, or a note left by anything at all, would have
+  // satisfied it. The same proof the forward update already demands: the right kind of Branch, on
+  // the version that is still installed, started since the one we closed, answering for itself.
+  const back = await waitForReturn(input.dataDir, { pid: before.pid, startedAt: before.startedAt },
+    { version: input.version, mode: "app" }, { ...deps.returnWait, waitMs: deps.returnWait?.waitMs ?? 2000 });
+  if (back) {
     input.print(`Branch is open again, on version ${input.version}.`);
     return;
   }

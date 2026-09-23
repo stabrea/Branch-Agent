@@ -369,17 +369,48 @@ test("a hand-over that fails after it has already reopened the window does not o
   const opened = [];
   const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
     runScript: (...args) => { s.events.push(["script", ...args]); return 3; },
-    // Asked twice: the Branch that was running before, and then a different one -- the script put
-    // the previous version back and launched it before it failed.
-    running: (() => { let asked = 0; return async () => (asked++ === 0 ? s.deps.running()
-      : { pid: 9999, mode: "app", port: 8788, url: "http://127.0.0.1:8788",
-        version: "1.0.0", startedAt: new Date().toISOString() }); })(),
+    // A window that really is back: the right kind, the version still installed, started since the
+    // one that was closed, and answering for itself. Anything less is not proof, which is the whole
+    // point of the check this replaced.
+    returnWait: cameBack({ mode: "app", version: "1.0.0", pid: 9999 }),
     launch: (...args) => { opened.push(args); },
   } });
 
   assert.equal(code, 1, "the update still failed");
   assert.deepEqual(opened, [], "and no second window was opened");
   assert.match(s.lines.join(NEWLINE), /Branch is open again, on version 1\.0\.0/);
+});
+
+
+test("a background service answering is not the window coming back", async (t) => {
+  // The check that decided the script had already reopened the window read the note on disk and
+  // asked only whether the process id differed from the one we closed. A note is written by whatever
+  // started, so a background service -- or a note left behind by anything at all -- satisfied it, and
+  // the owner was told their window was open while their screen had nothing on it.
+  const s = await updateSetup(t, { mode: "app" });
+  const opened = [];
+  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    runScript: (...args) => { s.events.push(["script", ...args]); return 3; },
+    // Something is running, on the right version, started since -- and it is a daemon, not a window.
+    returnWait: cameBack({ mode: "daemon", version: "1.0.0", pid: 9999 }),
+    launch: (...args) => { opened.push(args); },
+  } });
+
+  assert.equal(code, 1);
+  assert.equal(opened.length, 1, "the window is opened, because no window was there");
+  assert.match(s.lines.join(NEWLINE), /Branch has been opened again/);
+});
+
+test("a Branch on the wrong version is not the window coming back either", async (t) => {
+  const s = await updateSetup(t, { mode: "app" });
+  const opened = [];
+  await headlessUpdate({ ...s.input, deps: { ...s.deps,
+    runScript: (...args) => { s.events.push(["script", ...args]); return 3; },
+    returnWait: cameBack({ mode: "app", version: "2.0.0", pid: 9999 }),
+    launch: (...args) => { opened.push(args); },
+  } });
+
+  assert.equal(opened.length, 1, "the version that is still installed is 1.0.0, so that is what has to be back");
 });
 
 test("a window that cannot be started is not reported as opened", async (t) => {
