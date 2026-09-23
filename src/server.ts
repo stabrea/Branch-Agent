@@ -113,6 +113,7 @@ import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifact
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
+import { handlesSocialPath, socialApi } from "./social-api.js"; // FQ-packages.social
 import type { createBranch } from "./index.js";
 import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
@@ -1233,6 +1234,7 @@ async function api(
     return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
+  if (handlesSocialPath(path)) return socialApi(app.social, app.runtime.owner, request, path);
   // w911 (A2019) hook: where the browser runs (on this computer, in Docker, or on a server elsewhere).
   if (handlesBrowserContainer(path))
     return browserContainerApi({ store: app.store, owner: app.runtime.owner, secrets: () => app.store.secrets,
