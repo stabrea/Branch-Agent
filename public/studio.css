@@ -348,16 +348,21 @@
 .studio-strip-row {
   justify-content: space-around;
 }
-.studio-state {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-.studio-state > span:last-child {
+.studio-state-line {
+  margin: 0;
+  text-align: center;
   color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
+  font-size: 13px;
+}
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
 }
 .studio-reply {
   display: flex;

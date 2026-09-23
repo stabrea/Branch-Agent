@@ -323,18 +323,16 @@ function drawPreview() {
   const big = make("div", "studio-big");
   big.append(face(spec, 104, { status: "on", ground: "strip" }));
   const strip = make("div", "studio-strip-row");
-  // Integration review: each face says its own state underneath, so the words never wrap into a column of dots.
-  const states = [["on", "strip.status.on", "Ready"], ["wait", "strip.status.wait", "Needs you"], ["off", "strip.status.off", "Off"]];
-  strip.append(...states.map(([status, key, english]) => {
-    const one = make("span", "studio-state");
-    one.append(face(spec, 42, { status, ground: "strip" }), make("span", "", key, english));
-    return one;
-  }));
+  // DG-110: one-line status describing the current state
+  const stateWords = make("p", "studio-state-line", "strip.status.on", "Ready");
+  strip.append(stateWords);
+  const header = make("div", "studio-header");
+  header.append(face(spec, 28, { status: "on", ground: "surface" }));
   const reply = make("div", "studio-reply");
   const words = make("div", "studio-reply-words");
   words.append(Object.assign(make("small"), { textContent: studio.draft.name || say("studio.newName", "New Trunk") }), make("i"), make("i", "short"));
   reply.append(face(spec, 24, { flat: true }), words);
-  host.replaceChildren(big, make("p", "studio-h", "studio.preview.strip", "In the strip"), strip, make("p", "studio-h", "studio.preview.reply", "On its replies"), reply);
+  host.replaceChildren(big, make("p", "studio-h", "studio.preview.strip", "In the strip"), strip, make("p", "studio-h", "studio.preview.header", "In the conversation header"), header, make("p", "studio-h", "studio.preview.reply", "On its replies"), reply);
 }
 function footer() {
   const foot = make("div", "studio-foot");

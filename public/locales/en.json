@@ -3427,6 +3427,7 @@
   "studio.place": "Where it sits",
   "studio.pinned": "Pin it to the top of the strip and the sidebar",
   "studio.preview.strip": "In the strip",
+  "studio.preview.header": "In the conversation header",
   "studio.preview.reply": "On its replies",
   "studio.foot.note": "It introduces itself in its own conversation. Everything else can be changed later.",
   "studio.cancel": "Cancel",
