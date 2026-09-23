@@ -1352,7 +1352,7 @@ function message(role, content, source) {
     node.append(document.createTextNode(content));
     // FQ-surfaces.playback: a sound or video file attached to this message plays inline, right here,
     // both the moment it is sent and every time the conversation is redrawn afterwards.
-    globalThis.branchPlaybackRender?.(node, content, source?.clips);
+    globalThis.branchPlaybackRender?.(node, sessionId, source);
   }
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
@@ -1867,6 +1867,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
+    // FQ-surfaces.playback: the redraw below matches these clips to the message the server saved.
+    globalThis.branchPlaybackExpect?.(sessionId, clips);
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     /* Wave 8: an artifact in this reply is kept beside the task it came out of, so the task's
@@ -1898,6 +1900,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   } catch (e) {
     message("assistant", e.message);
   } finally {
+    globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);
     globalThis.branchTokenMeter?.refresh();

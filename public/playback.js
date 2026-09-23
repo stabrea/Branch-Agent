@@ -69,21 +69,52 @@ function take() {
   return clips;
 }
 /**
- * Remembered by the exact words of the message it went out with, so the player survives the
- * conversation being redrawn from what the server saved — which knows the words but not the file,
- * since the clip never leaves this browser. Capped so a long-running conversation cannot grow this
- * without bound.
+ * Clips of messages the server has saved, by conversation and saved message number
+ * (`${sessionId}:${messageId}`), so the player survives the conversation being redrawn from what the
+ * server saved — which knows the message but not the file, since the clip never leaves this browser.
+ * Not keyed by the message's words: the server saves them with "[attached picture: …]" (or a
+ * specialist's number) added, and the same words can be sent again with no file, in any conversation.
+ * Capped so a long-running page cannot grow this without bound.
+ *
+ * Coordinator ruling: a clip lives only in this page's memory for now, so a reload or another device
+ * shows the message without its player. Durable playback comes with the per-conversation attachment
+ * store (#190).
  */
 const sentClips = new Map();
+/** The highest saved user message number drawn so far, per conversation. */
+const drawnUpTo = new Map();
+/** Clips just sent and not yet matched to the message the server saved for them. */
+let expected = null;
+
+function remember(key, clips) {
+  if (sentClips.size >= 200) sentClips.delete(sentClips.keys().next().value);
+  sentClips.set(key, clips);
+}
+/**
+ * Called by public/app.js once the send has come back and before the conversation is redrawn: the
+ * first user message in `sessionId` saved after everything already drawn is the one these clips went
+ * out with. Messages queued behind it are saved later, so they cannot take them.
+ */
+function expect(sessionId, clips) {
+  expected = sessionId && clips?.length ? { sessionId, after: drawnUpTo.get(sessionId) ?? 0, clips } : null;
+}
+/** Clips the redraw did not match (it failed, or the send did) are dropped, never handed to a later message. */
+function settle() { expected = null; }
 /** Puts a playable clip inside an already-built message bubble. public/app.js calls this for every
- *  user turn, both the one just sent (with its clips) and every one redrawn from saved history
- *  (with none, `content` being how last time's clips are found again). */
-function render(container, content, clips) {
-  if (clips?.length) {
-    if (sentClips.size >= 200) sentClips.delete(sentClips.keys().next().value);
-    sentClips.set(content, clips);
+ *  user turn: the one just sent (its `source.clips`, before the server has saved it) and every one
+ *  redrawn from saved history (its `source.messageId`, how its clips are found again). */
+function render(container, sessionId, source) {
+  let use = source?.clips;
+  const id = source?.messageId;
+  if (sessionId && id) {
+    const key = `${sessionId}:${id}`;
+    if (expected?.sessionId === sessionId && id > expected.after) {
+      remember(key, expected.clips);
+      expected = null;
+    }
+    use = sentClips.get(key);
+    if (id > (drawnUpTo.get(sessionId) ?? 0)) drawnUpTo.set(sessionId, id);
   }
-  const use = clips?.length ? clips : sentClips.get(content);
   if (!use?.length) return;
   const wrap = el("div", "message-clips");
   for (const clip of use) wrap.append(player(clip));
@@ -92,3 +123,5 @@ function render(container, content, clips) {
 globalThis.branchPlaybackAttach = attach;
 globalThis.branchPlaybackAttachments = take;
 globalThis.branchPlaybackRender = render;
+globalThis.branchPlaybackExpect = expect;
+globalThis.branchPlaybackSettle = settle;
