@@ -158,11 +158,12 @@ export class Store {
           `ALTER TABLE usage ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`,
         );
   }
-  searchHistory(owner: string, input: Parameters<SessionHistory["search"]>[1], excludeSessionId?: string) {
-    return this.history.search(owner, input, excludeSessionId);
+  /** `agent` narrows to the conversations that agent took part in (src/history.ts); unset for the owner. */
+  searchHistory(owner: string, input: Parameters<SessionHistory["search"]>[1], excludeSessionId?: string, agent?: string) {
+    return this.history.search(owner, input, excludeSessionId, agent);
   }
-  readHistory(owner: string, input: Parameters<SessionHistory["read"]>[1], excludeSessionId?: string) {
-    return this.history.read(owner, input, excludeSessionId);
+  readHistory(owner: string, input: Parameters<SessionHistory["read"]>[1], excludeSessionId?: string, agent?: string) {
+    return this.history.read(owner, input, excludeSessionId, agent);
   }
   close(): void {
     if (!this.closed) {
@@ -557,8 +558,10 @@ export class Store {
     owner: string,
     id: string,
     data: Record<string, unknown>,
+    /** Memory only: the agent writing, so saving a fact never ends one that agent may not change. */
+    agent?: string,
   ): SavedRecord {
-    if (table === "memory") return this.memories.save(owner, id, data);
+    if (table === "memory") return this.memories.save(owner, id, data, agent);
     // mac7/wake-pins: the one place every settings write passes through, so a setting the owner
     // pinned meets the same refusal from the window, the API, the terminal, a settings file, a
     // preset and a tool the model calls. The owner is never refused here.

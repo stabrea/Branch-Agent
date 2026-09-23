@@ -276,12 +276,16 @@ export class MemoryFacts {
     return this.db.prepare("SELECT * FROM memory WHERE owner=? ORDER BY updated_at DESC,id LIMIT 501")
       .all(owner).map(row => this.record(row));
   }
-  save(owner: string, id: string, input: unknown): MemoryRecord {
+  /** `agent` is who is writing (a Trunk's or specialist's turn); unset for the owner's own write. */
+  save(owner: string, id: string, input: unknown, agent?: string): MemoryRecord {
     MemoryIdSchema.parse(id);
     const parsed = NewMemoryDataSchema.parse(input), previous = this.get(owner, id);
     const origin = previous ? (previous.data.originRunId || previous.data.sourceRunId) : (parsed.originRunId || parsed.sourceRunId);
     const data = { ...parsed, ...(origin ? { originRunId: origin } : {}) };
-    if (!previous && data.entity && data.attribute) this.closeEarlier(owner, data.entity, data.attribute, data.validFrom ?? new Date().toISOString());
+    // FQ-routing.isolated-agents: a fact saved under an agent's own scope was written by that agent,
+    // even when the caller did not say so, so it never ends a fact that agent may not write.
+    const writer = agent ?? (data.scope?.startsWith("agent:") ? data.scope.slice("agent:".length) : undefined);
+    if (!previous && data.entity && data.attribute) this.closeEarlier(owner, data.entity, data.attribute, data.validFrom ?? new Date().toISOString(), writer);
     if (!previous) this.requireRoom(owner, 1);
     if (previous?.revision === Number.MAX_SAFE_INTEGER) throw new Error("Memory revision limit reached");
     if (previous) this.keepVersion(owner, previous, "before edit");
@@ -291,9 +295,15 @@ export class MemoryFacts {
       .run(id, owner, JSON.stringify(data), now, now);
     return this.get(owner, id)!;
   }
-  /** A newer fact about the same entity and detail ends the earlier one at the moment the new one starts. */
-  private closeEarlier(owner: string, entity: string, attribute: string, validFrom: string): void {
+  /**
+   * A newer fact about the same entity and detail ends the earlier one at the moment the new one starts.
+   * FQ-routing.isolated-agents: only facts the writer may change (`writableTo`, the rule memory.update
+   * keeps) are ended, so one Trunk saving "launch / day" never ends another Trunk's own fact about it.
+   * The owner's own write (no agent) ends any earlier one, exactly as before.
+   */
+  private closeEarlier(owner: string, entity: string, attribute: string, validFrom: string, agent?: string): void {
     for (const record of this.list(owner)) {
+      if (!writableTo(record, agent)) continue;
       const d = record.data as MemoryData;
       if (d.entity !== entity || d.attribute !== attribute || (d.validTo ?? null) !== null) continue;
       if ((d.validFrom ?? record.createdAt) >= validFrom) continue;
@@ -421,7 +431,7 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
       const layer = layerForKind(value.kind ?? "fact-about-world");
       return staged(store, context, { kind: "put", text: value.text, source: value.source })
-        ?? store.save("memory", owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId });
+        ?? store.save("memory", owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId }, context.agent);
     } });
   registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
