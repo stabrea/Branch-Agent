@@ -36,6 +36,9 @@ import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
 import { ipcMain } from "electron";
 import { registerRestartIpc } from "./restart-ipc.js";
+import { minimumSize, openingFor, readWindowState, writeWindowState } from "./window-state.js";
+import { overlayFor, registerWindowLookIpc } from "./window-chrome-ipc.js";
+import { registerEditMenu } from "./context-menu.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
 // mac2/desktop-ui: the Stop notice for screen control on macOS and Linux is a window of this app's own.
 import { screen } from "electron";
@@ -131,12 +134,18 @@ function protectWindow(
 async function createWindow(
   url: string, token: string, settings: DesktopSettings, update: UpdateHooks,
 ): Promise<void> {
+  const statePath = join(app.getPath("userData"), "window-state.json");
+  const opening = openingFor(readWindowState(statePath), screen.getAllDisplays().map((display) => display.workArea));
   window = new BrowserWindow({
-    width: 1440,
-    height: 950,
-    minWidth: 760,
-    minHeight: 540,
+    width: opening.bounds?.width ?? 1440,
+    height: opening.bounds?.height ?? 950,
+    ...(opening.bounds ? { x: opening.bounds.x, y: opening.bounds.y } : {}),
+    minWidth: minimumSize.width,
+    minHeight: minimumSize.height,
     title: "Branch Agent",
+    // DG-176: no operating-system title bar; the app's own top row is the top of the window.
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 18, y: 16 } } : { titleBarOverlay: overlayFor(true) }),
     backgroundColor: "#03140b",
     show: false,
     icon: branchIcon(),
@@ -150,7 +159,16 @@ async function createWindow(
       partition: "persist:branch-agent",
     },
   });
+  // DG-177: the first launch fills the screen; later ones open the way the owner left the window.
+  if (opening.maximized) window.maximize();
+  const remember = () => {
+    if (window && !window.isDestroyed() && !window.isMinimized())
+      writeWindowState(statePath, { maximized: window.isMaximized(), bounds: window.getNormalBounds() });
+  };
+  for (const change of ["maximize", "unmaximize", "resized", "moved"] as const) window.on(change as "resized", remember);
   protectWindow(window, url, token);
+  registerWindowLookIpc(ipcMain, window, url);
+  registerEditMenu(window, (template) => Menu.buildFromTemplate(template));
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
   registerUpdaterIpc(window, url, app.getVersion(), () => { quitReason = "update"; app.quit(); },
