@@ -542,6 +542,12 @@ export const SETTINGS_INDEX = [
   ["asks-hindsight-secret","library:memory","asks-hindsight-card","Saved secret with its key (optional)","asks-hindsight-settings.secret",null,"A Hindsight memory server",true],
   ["lmore-providers-address","library:memory","lmore-providers-card","Server address","learning-more-providers-settings.address","#lmore-provider-address","Outside memory services",true],
   ["lmore-providers-key","library:memory",null,"Key name in the locker","learning-more-providers-settings.key","#lmore-provider-secret","Outside memory services",true],
+  /* FQ-memory.providers: the "Where facts are kept" card, this computer's database or an outside memory service. */
+  ["memprovider-mode","library:memory","memprovider-card","Keep facts in","memory-provider.mode",null,"Where facts are kept",true],
+  ["memprovider-url","library:memory","memprovider-card","Outside service address","memory-provider.url",null,"Where facts are kept",true],
+  ["memprovider-timeout","library:memory","memprovider-card","Give up after (milliseconds)","memory-provider.timeoutMs",null,"Where facts are kept",true],
+  ["memprovider-secret","library:memory","memprovider-card","Key name in the locker","memory-provider.secret",null,"Where facts are kept",true],
+  ["memprovider-header","library:memory","memprovider-card","Key header","memory-provider.header",null,"Where facts are kept",true],
   ["accounts-pools","settings:accounts","accounts-card","Accounts for each connection","accounts.pools","#accounts-card","Accounts",true],
   /* Added at integration (2026-09-19): settings that arrived after the audit, found by S14's sweep of the settings schemas. */
   ["glance-ring","settings:data","usage","Show what is left as a ring under the message box","usage-glance.ring",null,"What each connection has left",true],
