@@ -189,9 +189,9 @@ export const scriptAskFirstHold = "In Ask first, every script is asked about on 
 export const unkeyedAlwaysRefusal = "This request does not say what it is targeting, so a standing yes would cover every "
   + "request of its kind. Answer it for this conversation or just this once instead";
 /**
- * Q76: any tool with empty target cannot be given a standing yes; a rule on "" is rewritten as "*",
- * matching all calls. This applies to all tools, not just those keyed on declared targets. Keep this
- * set for exact-bytes binding (unkeyed method), but use hasNoStandingTarget for noAlways/refuse/remember.
+ * FQ-execution.browser: tools whose answers are kept for the websites they declare. One of their calls
+ * that named none is answered only by a yes for the same bytes; which calls get no standing yes at all
+ * is the registry's `noStandingTarget` (Q76).
  */
 const keyedOnDeclaredTargets: ReadonlySet<string> = new Set(["browser.flow"]);
 export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
@@ -2548,7 +2548,7 @@ ${run.output.slice(0, 6000)}`;
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
     const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
-      remember: hold?.onceOnly ? "never" : extra.exact || this.hasNoStandingTarget(target) ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
+      remember: hold?.onceOnly ? "never" : extra.exact || this.registry.noStandingTarget(tool, target) ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
   }
   /**
@@ -2637,13 +2637,6 @@ ${run.output.slice(0, 6000)}`;
   }
   private readonly taskPeople = new Map<string, string | null>();
   /**
-   * Q76: a call that names no target gets no standing yes: the rule would be one on "*", every call
-   * of the tool (browser.flow on no website, channels.broadcast, research.run, git with no path).
-   */
-  private hasNoStandingTarget(target: string): boolean {
-    return !target?.trim();
-  }
-  /**
    * FQ-execution.browser: a `browser.flow` on no website is answered only by a yes for the same bytes.
    */
   private unkeyed(tool: string, target: string): boolean {
@@ -2663,7 +2656,7 @@ ${run.output.slice(0, 6000)}`;
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
-    if (remember === "always" && this.hasNoStandingTarget(about.target)) throw new Error(unkeyedAlwaysRefusal);
+    if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
     // Integration review (mac7/coding-next): a workflow or flow carried on past "Let Branch run this
     // project's tests?" is held to the same rules as the question card: Always is the owner's alone,
     // and a plain yes is a single pass for the next run of the tests.
@@ -2853,7 +2846,7 @@ ${run.output.slice(0, 6000)}`;
     // list rather than taking the place of whatever was already there. Only when the list is full
     // does one go, and then the task that was waiting on it is told, in plain words.
     const files = about.files?.length ? { files: about.files.map((one) => ({ kind: one.kind, path: this.hideSecrets(one.path) })) } : {};
-    const noAlways = this.hasNoStandingTarget(target) ? { noAlways: true } : {}; // Q76
+    const noAlways = this.registry.noStandingTarget(about.tool, target) ? { noAlways: true } : {}; // Q76
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noAlways,
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
@@ -2917,7 +2910,7 @@ ${run.output.slice(0, 6000)}`;
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
-    if (remember === "always" && this.hasNoStandingTarget(waiting.target)) throw new Error(unkeyedAlwaysRefusal);
+    if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
     // An answer that names a request must land on that request and no other. The only way to get
     // here having named one is through the fall-back above, which means nothing waiting carries
     // that name — including a question that carries no name at all, which an answer naming one was

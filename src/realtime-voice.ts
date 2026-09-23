@@ -252,7 +252,7 @@ export class LiveConversation {
       runId: this.runId, sessionId: this.sessionId, tool: name, target,
       label, question, source: "owner", remember: check.remember, askedAt: new Date().toISOString(),
       bytes: bytes.slice(0, 2000), fingerprint,
-      ...(target?.trim() ? {} : { noAlways: true }),
+      ...(this.deps.runtime.registry.noStandingTarget(name, target ?? "") ? { noAlways: true } : {}),
     });
     this.deps.store.event(this.runId, "policy.ask", {
       name, label, target, remember: check.remember, question, bytes: bytes.slice(0, 2000), fingerprint,

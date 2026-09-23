@@ -10,8 +10,12 @@ import { resourceOf, type PolicyResource } from "./policy-resources.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
 import { underTask } from "./task-scope.js"; // household-followups
 
+/** Tools `policyTarget` reads a target for by name rather than from a `url` or `path`. */
+const targetedByName: ReadonlySet<string> = new Set(["shell.execute", "shell.session.run", "shell.session.open"]);
+
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
+
   private readonly runFinished = new Set<(context: ToolContext) => Promise<void>>();
   /**
    * Integration (hardening-3): the folder of the workspace a tool's paths are read inside right now
@@ -104,6 +108,19 @@ export class ToolRegistry {
   declaresTarget(name: string): { target: boolean; targets: boolean } {
     const tool = this.tools.get(name);
     return { target: typeof tool?.target === "function", targets: typeof tool?.targets === "function" };
+  }
+  /**
+   * Q76: a call with no target gets no standing yes when its tool COULD have named one (it says what it
+   * touches, or it takes a `url` or `path` the policy reads): a rule on "*" would then cover every
+   * call. A tool that can name nothing is one thing, so "always" for it is "always" for the tool.
+   * An unknown tool, or arguments whose shape cannot be read, count as able to name one.
+   */
+  noStandingTarget(name: string, target: string): boolean {
+    if (target.trim()) return false;
+    const tool = this.tools.get(name);
+    if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
+    const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
+    return !shape || "url" in shape || "path" in shape;
   }
   /** Every registered tool with its permission, for the capability inventory. */
   inventory(): { name: string; permission: string; description: string }[] {

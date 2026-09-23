@@ -110,3 +110,36 @@ test('git.commit no paths: target="" and noAlways=true, refuse "always"', async 
     state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint);
   }, /does not say|request does not/i);
 });
+
+/* Legion's ruling: "always" stays for a tool that could never name a target, since a rule on "*" is
+   then a rule for the tool itself; it goes only where the target is empty but could have been set. */
+async function withTool(t, label, tool) {
+  const state = await harness(t, label);
+  const {z} = await import('zod');
+  state.app.registry.register({permission: 'channels.send', description: label, execute: async () => ({ok: true}), ...tool(z)});
+  return state;
+}
+
+test('a tool that takes no target-bearing argument keeps "Yes, always", and the rule is the tool itself', async (t) => {
+  const state = await withTool(t, 'q76-no-arguments', (z) => ({name: 'house.chime', parameters: z.object({}).strict()}));
+  state.calls.push({id: 'c1', name: 'house.chime', arguments: '{}'});
+  const run = await state.app.runtime.run({prompt: 'run'});
+  const asked = waitingIn(state, run);
+  assert(asked, 'should ask');
+  assert.equal(asked.target, '');
+  assert.equal(asked.noAlways, undefined, '"Yes, always" is offered');
+  state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint);
+  const rules = readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'house.chime');
+  assert.equal(rules.length, 1, 'a standing rule for the tool');
+});
+
+test('a tool whose path was left out gets no standing yes, though it declares no target of its own', async (t) => {
+  const state = await withTool(t, 'q76-path-left-out', (z) => ({name: 'house.note', parameters: z.object({path: z.string().optional()}).strict()}));
+  state.calls.push({id: 'c1', name: 'house.note', arguments: '{}'});
+  const run = await state.app.runtime.run({prompt: 'run'});
+  const asked = waitingIn(state, run);
+  assert(asked, 'should ask');
+  assert.equal(asked.target, '');
+  assert.equal(asked.noAlways, true);
+  assert.throws(() => state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint), /does not say/);
+});
