@@ -50,6 +50,12 @@ test("Xvfb, x11vnc and the container's docker run line are built exactly, and no
   assert.deepEqual(x11vncArgv("s3cr3t"), ["-display", ":1", "-rfbport", "5900", "-passwd", "s3cr3t", "-forever", "-shared", "-quiet"]);
   const argv = dockerRunArgv("branch-linux-desktop:latest", 15900, "s3cr3t");
   assert.ok(argv.includes("--pull=never"), "the image is never pulled automatically");
+  assert.ok(argv.includes("--network"), "network isolation is enforced");
+  assert.ok(argv.includes("none"), "--network none for isolation");
+  assert.ok(argv.includes("--pids-limit"), "process limit is set");
+  assert.ok(argv.includes("256"), "pids limit is 256");
+  assert.ok(argv.includes("--label"), "labels are set");
+  assert.ok(argv.includes("branch.shared-desktop=1"), "label marks shared desktop containers");
   assert.ok(argv.includes("--cap-drop"));
   assert.deepEqual(argv.slice(argv.indexOf("-p"), argv.indexOf("-p") + 2), ["-p", "127.0.0.1:15900:5900"], "the VNC port stays on this computer only");
   assert.equal(argv.at(-4), "branch-linux-desktop:latest");
@@ -57,11 +63,11 @@ test("Xvfb, x11vnc and the container's docker run line are built exactly, and no
 });
 
 test("xdotool argument lists for opening a program, typing and a key press", () => {
-  assert.deepEqual(xdotoolArgv({ type: "open", app: "xterm" }), ["exec", "xterm"]);
-  assert.deepEqual(xdotoolArgv({ type: "type", text: "hello" }), ["type", "--clearmodifiers", "hello"]);
+  assert.deepEqual(xdotoolArgv({ type: "open", app: "xterm" }), ["exec", "--", "xterm"]);
+  assert.deepEqual(xdotoolArgv({ type: "type", text: "hello" }), ["type", "--clearmodifiers", "--", "hello"]);
   assert.deepEqual(xdotoolArgv({ type: "key", chord: "ctrl+s" }), ["key", "--clearmodifiers", "ctrl+s"]);
   const exec = dockerExecArgv("abc123", { type: "open", app: "xterm" });
-  assert.deepEqual(exec, ["exec", "-e", "DISPLAY=:1", "abc123", "xdotool", "exec", "xterm"]);
+  assert.deepEqual(exec, ["exec", "-e", "DISPLAY=:1", "abc123", "xdotool", "exec", "--", "xterm"]);
   assert.deepEqual(dockerStopArgv("abc123"), ["stop", "abc123"]);
 });
 
@@ -140,7 +146,7 @@ test("the assistant can operate a test application on the shared desktop while i
   const answer = await desktop.act("local", { type: "open", app: "xterm" });
   assert.equal(answer.ran, "open");
   const exec = calls.find((call) => call.args[0] === "exec");
-  assert.deepEqual(exec.args, ["exec", "-e", "DISPLAY=:1", "abcdef012345", "xdotool", "exec", "xterm"]);
+  assert.deepEqual(exec.args, ["exec", "-e", "DISPLAY=:1", "abcdef012345", "xdotool", "exec", "--", "xterm"]);
 });
 
 test("the owner taking over the shared desktop stops the assistant from acting on it until it is handed back", async (t) => {
@@ -150,14 +156,17 @@ test("the owner taking over the shared desktop stops the assistant from acting o
   await desktop.act("local", { type: "open", app: "xterm" }); // the assistant is mid-task on the desktop
   const before = calls.filter((call) => call.args[0] === "exec").length;
 
-  desktop.takeOver("local"); // <-- the owner takes over (the notice's "Take over" button does the same)
+  await desktop.takeOver("local"); // <-- the owner takes over (the notice's "Take over" button does the same)
   assert.equal(desktop.controlOf("local"), "user");
+  // takeOver kills any in-flight xdotool process, which counts as one additional exec call
+  const afterTakeOver = calls.filter((call) => call.args[0] === "exec").length;
+  assert.equal(afterTakeOver, before + 1, "takeOver sends a pkill to abort in-flight actions");
 
   await assert.rejects(desktop.act("local", { type: "type", text: "hello" }), (error) => {
     assert.equal(error.message, takenOverMessage);
     return true;
   });
-  assert.equal(calls.filter((call) => call.args[0] === "exec").length, before, "nothing was sent to the desktop while the owner held it");
+  assert.equal(calls.filter((call) => call.args[0] === "exec").length, afterTakeOver, "no new commands sent after takeOver while owner holds it");
 
   await desktop.handBack("local"); // the owner hands it back
   assert.equal(desktop.controlOf("local"), "agent");

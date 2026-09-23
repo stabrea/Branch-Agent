@@ -16,6 +16,9 @@ export { globMatches } from "./policy-resources.js";
  * The first rule that matches wins. With no rules nothing is asked and nothing is refused, which is
  * how Branch Agent behaves until the owner picks a preset.
  */
+
+/** Tools that ask by default even with no policy rules written (shared desktop control). */
+const asksUnlessRuledDefault = (tool: string): boolean => tool.startsWith("desktop.shared.");
 export const PolicyDecisionSchema = z.enum(["allow", "ask", "deny"]);
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
 export const PolicyRememberSchema = z.enum(["never", "session", "always"]);
@@ -287,6 +290,10 @@ function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
     return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask",
       remember: asksEveryTime(request.tool) ? "never" : "session" } };
   // ---- end mac7/nodes ----
+  // FQ-execution.desktop: shared desktop control tools ask by default (desktop.shared.*).
+  if (asksUnlessRuledDefault(request.tool))
+    return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask", remember: "session" } };
+  // ---- end FQ-execution.desktop ----
   // mac7/residuals: `listed` is a program the owner put on their own list (only process.start says so, through
   // its `command` hook); a new tool declaring `command` gets this exemption too, so it must mean the same.
   if (request.resource?.kind !== "command" || request.resource.listed || policy.unmatchedCommands === "allow")

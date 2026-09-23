@@ -1385,6 +1385,10 @@ async function api(
     await app.linuxDesktop.handBack(app.runtime.owner);
     return app.linuxDesktop.status(app.runtime.owner);
   }
+  if (request.method === "GET" && path === "/api/linux-desktop/viewer") {
+    app.store.profiles.requireOwner("The shared Linux desktop");
+    return app.linuxDesktop.viewerInfo(app.runtime.owner);
+  }
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);

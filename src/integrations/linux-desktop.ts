@@ -25,7 +25,7 @@ export const LinuxDesktopSchema = z.object({
   /** The three-way switch. Off: `desktop.shared.*` refuse in one sentence, and a running desktop stops. */
   mode: FeatureModeSchema.default('off'),
   /** The container image a shared desktop starts from. Nothing is ever pulled. */
-  image: z.string().trim().min(1).max(200).default('branch-linux-desktop:latest'),
+  image: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*(?::[a-zA-Z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/, 'Image must be a valid reference (name:tag@digest)').default('branch-linux-desktop:latest'),
 }).strict();
 export type LinuxDesktopSettings = z.infer<typeof LinuxDesktopSchema>;
 /** Only what was sent: saving the mode alone must not put the image back to its default. */
@@ -78,15 +78,17 @@ export type SharedDesktopAction =
  * directly. A program is started with `xdotool exec`, which starts it and returns without waiting.
  */
 export function xdotoolArgv(action: SharedDesktopAction): string[] {
-  if (action.type === 'open') return ['exec', action.app];
-  if (action.type === 'type') return ['type', '--clearmodifiers', action.text];
+  if (action.type === 'open') return ['exec', '--', action.app];
+  if (action.type === 'type') return ['type', '--clearmodifiers', '--', action.text];
   return ['key', '--clearmodifiers', action.chord];
 }
 /** The exact `docker run` line: nothing of this computer is shared in, and the VNC port stays local. */
 export function dockerRunArgv(image: string, hostPort: number, password: string): string[] {
   const inner = `Xvfb ${xvfbArgv().join(' ')} & sleep 1 && x11vnc ${x11vncArgv(password).join(' ')}`;
   return ['run', '-d', '--rm', '--init', '--pull=never',
+    '--network', 'none',
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+    '--pids-limit', '256', '--label', 'branch.shared-desktop=1',
     '--memory', '1g', '--cpus', '1',
     '-p', `127.0.0.1:${hostPort}:${vncPort}`,
     image, 'sh', '-c', inner];
@@ -94,6 +96,10 @@ export function dockerRunArgv(image: string, hostPort: number, password: string)
 /** Runs one xdotool action inside the running container, against the desktop's own display. */
 export function dockerExecArgv(containerId: string, action: SharedDesktopAction): string[] {
   return ['exec', '-e', `DISPLAY=${display}`, containerId, 'xdotool', ...xdotoolArgv(action)];
+}
+/** Stops any in-flight xdotool action by terminating the process inside the container. */
+export function dockerExecKillArgv(containerId: string): string[] {
+  return ['exec', '-e', `DISPLAY=${display}`, containerId, 'pkill', '-x', 'xdotool'];
 }
 export function dockerStopArgv(containerId: string): string[] {
   return ['stop', containerId];
@@ -105,9 +111,9 @@ export function dockerImageInspectArgv(image: string): string[] {
 // ---------------------------------------------------------------- running it
 
 /** Starts a program with an argument list (never a shell line), bounded by a time limit. */
-export type ProgramRunner = (file: string, args: string[], timeoutMs: number) => Promise<string>;
-export const runProgram: ProgramRunner = (file, args, timeoutMs) => new Promise((resolve, reject) => {
-  execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true },
+export type ProgramRunner = (file: string, args: string[], timeoutMs: number, signal?: AbortSignal) => Promise<string>;
+export const runProgram: ProgramRunner = (file, args, timeoutMs, signal) => new Promise((resolve, reject) => {
+  execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, shell: false, signal },
     (error, stdout) => (error ? reject(error) : resolve(String(stdout))));
 });
 /** True once something answers a TCP connection on the port (the VNC server has come up). */
@@ -133,7 +139,7 @@ export function freePort(): Promise<number> {
 export interface SharedDesktopInfo { host: string; port: number; display: string; password: string }
 /** What the Settings card shows. Never the VNC password: reading the card is only a look. */
 export interface SharedDesktopStatus extends LinuxDesktopSettings { running: boolean; control: 'agent' | 'user' | 'none' }
-interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user' }
+interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController }
 /** The notice with the "Take over" button on it, or a stand-in for one. */
 export interface TakeOverNotice { show(onTakeOver: () => void): Promise<void>; hide(): Promise<void> }
 
@@ -229,6 +235,14 @@ export class LinuxDesktopSandbox {
     const check = await this.available(owner);
     if (!check.ok) throw new Error(check.reason);
     if (this.calledOff(owner, epoch)) throw new Error(stoppedWhileStartingMessage);
+    // Remove any stale containers with the shared-desktop label that we're not currently tracking (best-effort)
+    const trackedIds = new Set([...this.sessions.values()].map((s) => s.id));
+    try {
+      const staleList = (await this.runner('docker', ['container', 'ls', '-a', '--filter', 'label=branch.shared-desktop=1', '--format', '{{.ID}}'], 10_000)).trim().split('\n').filter(Boolean);
+      for (const staleId of staleList) if (!trackedIds.has(staleId)) {
+        await this.runner('docker', dockerStopArgv(staleId), 5_000).catch(() => undefined);
+      }
+    } catch { /* best-effort cleanup */ }
     const port = await this.port();
     const password = this.password();
     let id = '';
@@ -241,7 +255,7 @@ export class LinuxDesktopSandbox {
       await this.runner('docker', dockerStopArgv(id), 15_000).catch(() => undefined);
       throw error;
     }
-    const session: Session = { id, host: '127.0.0.1', port, password, control: 'agent' };
+    const session: Session = { id, host: '127.0.0.1', port, password, control: 'agent', inFlightAbort: new AbortController() };
     this.sessions.set(owner, session);
     this.log(owner, 'shared-desktop.started', { port });
     await this.showNotice(owner);
@@ -270,7 +284,16 @@ export class LinuxDesktopSandbox {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     if (session.control !== 'agent') throw new Error(takenOverMessage);
-    await this.runner('docker', dockerExecArgv(session.id, action), 15_000);
+    try {
+      await this.runner('docker', dockerExecArgv(session.id, action), 15_000, session.inFlightAbort.signal);
+    } catch (error) {
+      // Check if control changed while the action was running
+      const current = this.sessions.get(owner);
+      if (current?.control === 'user') throw new Error(takenOverMessage);
+      throw error;
+    }
+    // Check control one more time after exec returns
+    if (this.sessions.get(owner)?.control !== 'agent') throw new Error(takenOverMessage);
     this.log(owner, 'shared-desktop.action', { type: action.type });
     return { ran: action.type };
   }
@@ -278,6 +301,9 @@ export class LinuxDesktopSandbox {
   async takeOver(owner: string): Promise<void> {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
+    // Abort any in-flight action and kill xdotool inside the container
+    session.inFlightAbort.abort();
+    await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
     session.control = 'user';
     this.log(owner, 'shared-desktop.taken-over', {});
     await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
@@ -297,6 +323,12 @@ export class LinuxDesktopSandbox {
   }
   status(owner: string): SharedDesktopStatus {
     return { ...this.settings(owner), running: this.sessions.has(owner), control: this.controlOf(owner) };
+  }
+  /** Get the viewer connection info (host, port, display, password) for the owner only. */
+  async viewerInfo(owner: string): Promise<SharedDesktopInfo> {
+    const session = this.sessions.get(owner);
+    if (!session) throw new Error(notRunningMessage);
+    return infoOf(session);
   }
   /** The Settings card's save: switching it off takes a running desktop down straight away. */
   async saveSettings(owner: string, input: unknown): Promise<SharedDesktopStatus> {
