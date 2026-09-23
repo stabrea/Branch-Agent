@@ -759,7 +759,9 @@ async function testModelFixture(app: Branch, body: unknown): Promise<unknown> {
     ? named.map((id) => { const preset = app.runtime.models.presets.get(id); if (!preset) throw new HttpError(400, `Unknown model preset ${id}`); return preset; })
     : registered;
   if (!chosen.length) throw new HttpError(400, "No model connections are configured");
-  const results = await runFixtureOn(chosen, AbortSignal.timeout(60000));
+  // Each connection gets its own time limit inside runFixtureOn; one shared limit here would let a
+  // slow first connection use up the time of every connection after it.
+  const results = await runFixtureOn(chosen);
   return { results };
 }
 

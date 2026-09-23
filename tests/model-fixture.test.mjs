@@ -12,7 +12,7 @@ import { createServer } from "node:http";
 import { OpenAIProvider, wireName } from "../dist/providers.js";
 import { runFixture, runFixtureOn, fixtureToolName } from "../dist/model-fixture.js";
 
-/** An OpenAI-shaped double: first call returns a tool call, second reads its own tool result back. */
+/** An OpenAI-shaped double: first call returns a tool call, second repeats the tool's answer word for word. */
 async function openaiDouble(t) {
   const seen = [];
   const server = createServer(async (req, res) => {
@@ -31,7 +31,8 @@ async function openaiDouble(t) {
         } }],
       }));
     } else {
-      res.end(JSON.stringify({ choices: [{ message: { content: "the tool answered: pingback" } }] } ));
+      const answer = payload.messages.at(-1).content;
+      res.end(JSON.stringify({ choices: [{ message: { content: `the tool answered: ${answer}` } }] }));
     }
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -68,7 +69,7 @@ test("the same fixture passes through a hosted-shaped connection and a local one
     provider: new OpenAIProvider({ endpoint: `${local.origin}/v1`, model: "fixture-local", apiKey: "local" }),
   };
 
-  const results = await runFixtureOn([hostedPreset, localPreset], new AbortController().signal);
+  const results = await runFixtureOn([hostedPreset, localPreset]);
   assert.equal(results.length, 2);
   const [hostedResult, localResult] = results;
 
@@ -84,8 +85,62 @@ test("the same fixture passes through a hosted-shaped connection and a local one
   assert.equal(hosted.seen[0].headers.authorization, "Bearer hosted-secret");
   assert.equal(local.seen[0].headers.authorization, "Bearer local");
   // The round trip really happened: the tool result from step one was read back in step two.
-  assert.equal(hosted.seen[1].body.messages.at(-1).content, "echo: pingback");
-  assert.equal(local.seen[1].body.messages.at(-1).content, "echo: pingback");
+  assert.match(hosted.seen[1].body.messages.at(-1).content, /^echo: pingback \(check code [0-9a-f]{12}\)$/);
+  assert.match(local.seen[1].body.messages.at(-1).content, /^echo: pingback \(check code [0-9a-f]{12}\)$/);
+});
+
+/** A stand-in connection that calls the tool, then answers with whatever `reply` makes of the tool result. */
+function scriptedConnection(reply) {
+  const requests = [];
+  return {
+    requests,
+    preset: {
+      id: "scripted", name: "Scripted", model: "fixture",
+      provider: {
+        name: "scripted",
+        async complete(request) {
+          request.signal.throwIfAborted(); // honours the abort, as the real providers do
+          requests.push(request);
+          if (requests.length === 1)
+            return { content: "", toolCalls: [{ id: "c1", name: request.tools[0].name, arguments: '{"word":"pingback"}' }] };
+          return { content: reply(request.messages.at(-1).content), toolCalls: [] };
+        },
+      },
+    },
+  };
+}
+
+test("a connection that repeats the word from the question without reading the tool's answer fails", async () => {
+  // It never looks at the tool result, but the word it chose is already in the question.
+  const { preset } = scriptedConnection(() => "The tool answered: echo: pingback");
+  const result = await runFixture(preset, new AbortController().signal);
+  assert.equal(result.passed, false);
+  assert.match(result.reason, /did not read the tool's answer back/);
+});
+
+test("the tool's answer carries a fresh check code that the question never contains", async () => {
+  const first = scriptedConnection((answer) => `It said: ${answer}`);
+  const second = scriptedConnection((answer) => `It said: ${answer}`);
+  const [a, b] = [await runFixture(first.preset, new AbortController().signal), await runFixture(second.preset, new AbortController().signal)];
+  assert.equal(a.passed, true, a.reason ?? "");
+  assert.equal(b.passed, true, b.reason ?? "");
+  const codeOf = (requests) => /check code ([0-9a-f]{12})/.exec(requests[1].messages.at(-1).content)?.[1];
+  const code = codeOf(first.requests);
+  assert.ok(code, "the tool's answer carries a check code");
+  assert.equal(JSON.stringify(first.requests[0].messages).includes(code), false, "the code is not in the question");
+  assert.notEqual(codeOf(second.requests), code, "each run gets its own code");
+});
+
+test("each connection gets its own time limit, so a slow first one does not starve the next", async () => {
+  // Never answers and ignores the abort, the worst case for everything queued behind it.
+  const stuck = { id: "stuck", name: "Stuck", model: "fixture", provider: { name: "stuck", complete: () => new Promise(() => undefined) } };
+  const quick = scriptedConnection((answer) => `It said: ${answer}`);
+  const started = Date.now();
+  const [slow, fast] = await runFixtureOn([stuck, quick.preset], 400);
+  assert.equal(slow.passed, false);
+  assert.match(slow.reason, /timed out/);
+  assert.equal(fast.passed, true, fast.reason ?? "");
+  assert.ok(Date.now() - started < 5000);
 });
 
 test("a connection that ignores the tool fails the fixture with a plain reason", async (t) => {

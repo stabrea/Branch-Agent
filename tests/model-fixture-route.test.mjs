@@ -9,7 +9,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-/** A stand-in connection: first call returns a tool call, second reads its own answer back. */
+/** A stand-in connection: first call returns a tool call, second repeats the tool's answer back. */
 function fakeConnection(name, { local = false } = {}) {
   let calls = 0;
   const provider = {
@@ -20,7 +20,7 @@ function fakeConnection(name, { local = false } = {}) {
         const tool = request.tools[0];
         return { content: "", toolCalls: [{ id: "c1", name: tool.name, arguments: '{"word":"pingback"}' }] };
       }
-      return { content: "the tool answered: pingback", toolCalls: [] };
+      return { content: `the tool answered: ${request.messages.at(-1).content}`, toolCalls: [] };
     },
   };
   // presetRunsLocally (src/models.ts) reads the connection's own embeddings()/audio() route.
