@@ -82,6 +82,9 @@ test("the moved settings read in French on a phone", async (t) => {
   assert.match(await installs.locator("h2 + p").innerText(), /Boîte de réception › Vous attend/);
   assert.match(await page.locator("#recordings-settings-card h2 + p").innerText(), /Boîte de réception › Historique/);
   assert.equal(await page.locator('.sg-head[data-bucket="automations:inbox"] h3').innerText(), "Ce que garde la boîte de réception");
+  assert.equal(await page.locator("#recordings-pictures + label").innerText(), "Mettre les images qu'elle a regardées dans les pages enregistrées",
+    "the switch keeps its label beside it; its note sits under the row");
+  assert.match(await page.locator("#recordings-pictures-note").innerText(), /Désactivé, ces pages ne gardent que les mots/);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   assert.deepEqual(errors, []);
 });

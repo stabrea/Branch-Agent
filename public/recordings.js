@@ -72,6 +72,10 @@ function recordingsSettingsCard(state) {
   const pictureRow = document.createElement("div");
   pictureRow.className = "check-row";
   pictureRow.append(pictures, pictureLabel);
+  // Its own note under the row, so the words beside the switch stay its label (DG-139 moved it to Settings).
+  const pictureNote = make("p", "field-note", "describe.recordings-pictures", "A page you save from a recording also holds the pictures the task looked at. Off keeps those pages to the words alone.");
+  pictureNote.id = "recordings-pictures-note";
+  pictures.setAttribute("aria-describedby", pictureNote.id);
   const saved = status();
   const save = button("action.save", "Save", "", async () => {
     try {
@@ -81,7 +85,7 @@ function recordingsSettingsCard(state) {
       if (fresh) fresh.textContent = say("recordings.saved", "Saved.");
     } catch (error) { saved.textContent = error.message; }
   });
-  card.append(label, select, pictureRow, save, saved);
+  card.append(label, select, pictureRow, pictureNote, save, saved);
   return card;
 }
 

@@ -109,3 +109,17 @@ test("/trunk opens Customize › Trunks, where the Trunks now live", async (t) =
   app.trunks.setMode("trunks", { mode: "on" });
   assert.deepEqual((await ask()).client, { do: "go", home: "customize:trunks" });
 });
+
+test("every sentence that sends someone to their Trunks names Customize › Trunks, in English and French", async (t) => {
+  const { readFile } = await import("node:fs/promises");
+  const words = async (lang) => JSON.parse(await readFile(new URL(`../public/locales/${lang}.json`, import.meta.url), "utf8"));
+  const [en, fr] = await Promise.all([words("en"), words("fr")]);
+  for (const key of ["strip.hidden", "rooms.add.offConversations", "rooms.add.offRooms"]) {
+    assert.match(en[key], /Customize › Trunks/, key);
+    assert.match(fr[key], /Personnaliser › Troncs/, key);
+  }
+  const root = await mkdtemp(join(tmpdir(), "branch-customize-trunks-off-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  assert.throws(() => app.trunks.create({ name: "Ada" }), /switch it on in Customize → Trunks\./);
+});

@@ -242,10 +242,11 @@ test("S5 Go there opens the place and shows the card, even above the level", asy
   await f.page.locator("#reach-video-card").waitFor({ state: "visible" });
   assert.equal(await f.page.locator("#lx-models-media").isVisible(), true);
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.settingsLevel), "regular", "the level did not change");
-  /* A setting that lives in another place takes you there. */
-  await f.page.locator("#lx-settings-search").fill("Requests for new packages and tool servers");
-  await f.page.locator('#sg-found [data-setting="flows-switch-install-requests"] .sg-found-go').click();
-  await f.page.locator("#flows-switch-install-requests").waitFor({ state: "visible" });
+  /* A setting that lives in another place takes you there. (DG-139 moved the Inbox's request switch into
+     Settings › Automations & inbox, so the shared board's switch stands in for it.) */
+  await f.page.locator("#lx-settings-search").fill("The shared board for you and the assistant");
+  await f.page.locator('#sg-found [data-setting="flows-switch-kanban"] .sg-found-go').click();
+  await f.page.locator("#flows-switch-kanban").waitFor({ state: "visible" });
   assert.equal(await f.page.locator("#settings-window").isVisible(), false);
   assert.deepEqual(f.errors, []);
 });

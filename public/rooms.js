@@ -6,7 +6,7 @@
 
    Everything here only asks and shows; the server decides (src/trunks/conversations.ts). Nothing
    shows unless Trunks are on, and choosing a Trunk for a conversation has its own switch
-   (Customize › Specialists › Trunks, "Choosing a Trunk to answer in any conversation"), off at first.
+   (Customize › Trunks, "Choosing a Trunk to answer in any conversation"), off at first.
    Colours only through tokens (public/rooms.css). */
 import { api, displayView, openConversation, toast } from "/app.js";
 import { formatDate, t } from "/i18n.js";
@@ -228,11 +228,11 @@ function memberNote() {
 /** What adding means here, or why it cannot be done right now (said, never hidden). */
 function addPlan(k) {
   if (k === "plain") return on("conversations") ? { heading: say("rooms.add.choose", "Choose who answers here") }
-    : { refusal: say("rooms.add.offConversations", "Choosing a Trunk for a conversation is switched off. Switch it on in Customize › Specialists › Trunks.") };
+    : { refusal: say("rooms.add.offConversations", "Choosing a Trunk for a conversation is switched off. Switch it on in Customize › Trunks.") };
   if (k === "room") return present().length >= MAX_MEMBERS ? { refusal: say("rooms.add.full", "A room holds two to six Trunks and you.") }
     : { heading: say("rooms.add.room", "Add a Trunk") };
   if (!on("rooms") || !on("conversations"))
-    return { refusal: say("rooms.add.offRooms", "To bring several Trunks in, switch on Rooms and Choosing a Trunk in Customize › Specialists › Trunks.") };
+    return { refusal: say("rooms.add.offRooms", "To bring several Trunks in, switch on Rooms and Choosing a Trunk in Customize › Trunks.") };
   return { heading: say("rooms.add.another", "Bring another Trunk in"), note: say("rooms.add.anotherNote", "This makes a room with both of them. This conversation stays as it is.") };
 }
 function addSection(k) {

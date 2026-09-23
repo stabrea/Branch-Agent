@@ -217,8 +217,6 @@ export const descriptions = [
   ["#pull-requests-mode", "describe.pull-requests", "Whether Branch may turn a change into a pull request."],
   ["#counters-mode", "describe.counters", "Whether counts about tasks are sent to a place you chose. Off sends nothing."],
   ["#event-loop-mode", "describe.event-loop", "Watches whether Branch itself is keeping up, and says so when it falls behind."],
-  // DG-139: moved from Inbox › History to Settings › Automations & inbox.
-  ["#recordings-pictures", "describe.recordings-pictures", "A page you save from a recording also holds the pictures the task looked at. Off keeps those pages to the words alone."],
   ["#sdk-kit-mode", "describe.sdk-kit", "Whether the tools for building your own app on Branch are offered."],
 ];
 

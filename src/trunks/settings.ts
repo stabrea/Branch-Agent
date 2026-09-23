@@ -76,7 +76,7 @@ export class TrunkOffError extends Error {
 /** Throws the one plain sentence a switched-off part answers with. */
 export function requireTrunkPart(store: Pick<Store, "get">, owner: string, part: TrunkPart): void {
   if (trunkMode(store, owner, part) === "off")
-    throw new TrunkOffError(`${trunkLabels[part]} is switched off. The owner can switch it on in Customize → Specialists, under Trunks.`);
+    throw new TrunkOffError(`${trunkLabels[part]} is switched off. The owner can switch it on in Customize → Trunks.`);
 }
 
 /** Tools that run programs on the computer: a Trunk gets them only when its own switch allows it (T-15). */
