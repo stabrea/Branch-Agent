@@ -620,6 +620,14 @@ summary {
 .composer.dropping { outline: 2px dashed var(--copper); outline-offset: 2px; }
 .made-thumb { display: block; width: 100%; max-width: 14rem; height: auto; border-radius: 0.4rem; margin-bottom: 0.4rem; }
 
+/* ---------- FQ-surfaces.playback: an attached sound or video file, playable in place ---------- */
+.clip-chip { max-width: 20rem; }
+.clip-chip audio { height: 1.9rem; max-width: 11rem; }
+.clip-chip video.clip-video { width: 4rem; height: 1.9rem; object-fit: cover; border-radius: 0.25rem; }
+.message-clips { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.message-clips audio { width: 100%; max-width: 20rem; }
+.message-clips video.clip-video { width: 100%; max-width: 20rem; height: auto; border-radius: 0.4rem; }
+
 /* Wave 5: how Branch runs on this computer. */
 #deployment-card h2 { margin-top: 0; }
 #deployment-card h3 { margin: 1.2rem 0 0.4rem; }

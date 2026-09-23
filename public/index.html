@@ -310,6 +310,8 @@
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
+            <!-- FQ-surfaces.playback: the sound or video file just picked, playable right here before it is sent (public/playback.js). -->
+            <div id="composer-clips" class="attachments" hidden></div>
             <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
@@ -2191,6 +2193,8 @@
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
+    <script src="/playback.js" type="module"></script><!-- FQ-surfaces.playback: plays an attached sound or video file inline -->
+
     <script src="/mcp.js" type="module"></script>
     <script src="/mcp-workbench.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
