@@ -16,7 +16,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { SETTINGS_INDEX } from "../public/settings-index.js";
 import { ROW_LEVELS } from "../public/settings-row-levels.js";
-import { BUCKETS } from "../public/settings-buckets.js";
+import { BUCKETS, ONE_CARD_SECTIONS } from "../public/settings-buckets.js";
 
 test("DG-199 the row levels name real settings, with a level each", () => {
   const known = new Set(SETTINGS_INDEX.map((row) => row[0]));
@@ -123,7 +123,9 @@ test("DG-199 rows show at the sample's level, and each section counts what it ke
       await open(page, name);
       /* Some cards draw themselves late: read again until every section's line agrees, or give the last reading. */
       let seen = await onPage(page, name);
-      for (let tries = 0; tries < 10 && seen.sections.some((one) => !one.bucket.endsWith(":under") && one.line !== one.expected); tries++) {
+      /* A section that is one card of the sample's own draws no line at any level (DG-187). */
+      const owed = (one) => (ONE_CARD_SECTIONS.has(one.bucket) ? 0 : one.expected);
+      for (let tries = 0; tries < 10 && seen.sections.some((one) => !one.bucket.endsWith(":under") && one.line !== owed(one)); tries++) {
         await page.waitForTimeout(300);
         seen = await onPage(page, name);
       }
@@ -133,7 +135,7 @@ test("DG-199 rows show at the sample's level, and each section counts what it ke
         assert.equal(row.shown, baseline.get(row.id) && rank[row.level] <= rank[now], `${name} at ${now}: ${row.id} (${row.level})`);
       }
       for (const section of seen.sections.filter((one) => !one.bucket.endsWith(":under")))
-        assert.equal(section.line, section.expected, `${name} at ${now}: ${section.bucket} says ${section.line} more`);
+        assert.equal(section.line, owed(section), `${name} at ${now}: ${section.bucket} says ${section.line} more`);
     }
   }
   assert.ok(baseline.size >= 30, `rows on show at Technical, compared at each level (${baseline.size})`);

@@ -63,7 +63,13 @@ for (const [width, height] of [[1440, 950], [860, 900], [400, 844]]) {
   for (const showEverything of [false, true]) {
     test(`DG-187 at ${width} px, Show everything ${showEverything ? "on" : "off"}: the sample's sections, order and counts`, async (t) => {
       const { page, errors } = await fixture(t, { width, height, preferences: { showEverything, settingsLevel: "regular" } });
-      assert.deepEqual(withoutKnownGaps(await headings(page)), SAMPLE);
+      /* Some cards draw their rows late (Keeping things safe once counted 9, not 11): read again until it settles. */
+      let seen = withoutKnownGaps(await headings(page));
+      for (let tries = 0; tries < 20 && JSON.stringify(seen) !== JSON.stringify(SAMPLE); tries++) {
+        await page.waitForTimeout(250);
+        seen = withoutKnownGaps(await headings(page));
+      }
+      assert.deepEqual(seen, SAMPLE);
       assert.deepEqual(errors, []);
     });
   }
