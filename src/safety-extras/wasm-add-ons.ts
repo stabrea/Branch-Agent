@@ -101,7 +101,8 @@ try {
  *  worker even starts. */
 export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: { maxMemoryMb: number; timeoutMs: number }, capabilities: readonly string[] = capabilityNames): Promise<WasmRun> {
   const started = Date.now();
-  const refusal = capabilityRefusal(bytes, capabilities);
+  // Bytes that are not valid WebAssembly are left to readWasmShape below, as before.
+  const refusal = WebAssembly.validate(bytes) ? capabilityRefusal(bytes, capabilities) : null;
   if (refusal) return Promise.resolve({ ok: false, code: null, output: "", log: "", error: refusal, durationMs: Date.now() - started });
   const shape = readWasmShape(bytes);
   // A memory the module imports may not be larger than it said, nor than the owner allows.
