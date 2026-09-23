@@ -131,9 +131,16 @@ export const BUCKETS = {
     ["open", "people", "Trunks, computers and people", "Open the real places where you manage each one.",
       [["settings-directory-trunks-trunks", R], ["settings-directory-trunks-overview", R], ["settings-directory-trunks-people", R]]],
   ],
+  /* DG-194: the sample's sections, in its order. The chat apps' own list and the phone app stay in Customize › Chat apps. */
   channels: [
-    ["open", "bell", "Chat apps and devices", "Open the real Channels place to set them up.",
-      [["settings-directory-channels-channels", R]]],
+    ["talk", "bell", "Talk to Branch from your phone and chat apps", "Telegram, WhatsApp-style chat apps and your phone. Each one is off until you set it up.",
+      [["telegram-setup-card", R], ["channel-setup-card", R], ["channels-more-form", A], ["devices-card", A]]],
+    ["email", "globe", "Email and other pages", "Your inbox and web pages that can reach Branch.",
+      [["embeds-card", R], ["personal-mail-card", A], ["dashboard-card", A]]],
+    ["while", "bell", "While it works in a chat", "What a chat sees while a task runs, and what it may do.",
+      [["chat-live-form", R], ["chat-permissions-form", A], ["personal-files-card", A], ["reach-chats-card", A]]],
+    ["under", "wrench", "Under the hood", "Counters, retries, limits and plumbing. Rarely needed.",
+      [["reach-relay-card", T]]],
   ],
   connections: [
     ["open", "swap", "Connections", "Open the real Connections place to manage them.",
