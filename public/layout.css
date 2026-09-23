@@ -741,6 +741,80 @@ body.lx-help .context-panel > .acorn-art {
   font-size: 12px;
   color: var(--text-3);
 }
+/* DG-069: Customize › Trunks, a row per Trunk as the approved sample draws it */
+#trunks-list {
+  display: grid;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+#trunks-list .trunk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.trunk-row-words {
+  flex: 1;
+  min-width: 180px;
+}
+.trunk-row-words b {
+  font-weight: 600;
+}
+.trunk-row-words small {
+  display: block;
+  color: var(--text-3);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.trunk-pill {
+  display: inline-flex;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--chip-idle-bg);
+  color: var(--chip-idle-fg);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+#trunks-list .trunk-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  min-height: 0;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+#trunks-list .trunk-row .trunk-move {
+  padding: 0 8px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-2);
+}
+#trunks-list .trunk-row .trunk-move:disabled {
+  opacity: 0.4;
+}
+.trunk-move svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.trunk-pin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
 .lx-ask {
   position: sticky;
   bottom: 0;

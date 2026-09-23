@@ -332,7 +332,7 @@ async function changeTrunk(id, change, words) {
 }
 /** Integration review: hiding is one click, so the notice carries an Undo that shows it again. */
 async function hideTrunk(trunk) {
-  await changeTrunk(trunk.id, { hidden: true }, say("strip.hidden", "{name} is hidden. Find it in Customize › Specialists.", { name: trunk.name }));
+  await changeTrunk(trunk.id, { hidden: true }, say("strip.hidden", "{name} is hidden. Find it in Customize › Trunks.", { name: trunk.name }));
   const undo = make("button", "strip-undo", "strip.undo", "Undo");
   undo.type = "button";
   undo.addEventListener("click", () => void changeTrunk(trunk.id, { hidden: false }, say("strip.shown", "{name} is back.", { name: trunk.name })).catch((error) => toast(error.message)));
@@ -349,7 +349,7 @@ export async function moveTrunk(id, step) {
   await refresh();
 }
 function trunkSettings(id) {
-  displayView("customize:specialists");
+  displayView("customize:trunks");
   const open = () => document.querySelector(`li.trunk-row[data-trunk="${id}"] button[data-t="trunks.edit"]`);
   let tries = 0;
   const wait = setInterval(() => { const button = open(); if (button || ++tries > 40) { clearInterval(wait); button?.click(); } }, 100);

@@ -224,7 +224,7 @@ const PLACES = {
   library: { key: "place.library", english: "Library", intro: ["place.library.intro", "What your assistant knows and what it has made for you."],
     tabs: [["memory", "place.library.memory", "Memory", "memory"], ["documents", "place.library.documents", "Documents", "documents"], ["made", "place.library.made", "Made for you"]] },
   customize: { key: "place.customize", english: "Customize", intro: ["place.customize.intro", "What your assistant can do, and who can reach it."],
-    tabs: [["skills", "place.customize.skills", "Skills", "skills"], ["specialists", "place.customize.specialists", "Specialists", "specialists"],
+    tabs: [["trunks", "place.customize.trunks", "Trunks"], ["skills", "place.customize.skills", "Skills", "skills"], ["specialists", "place.customize.specialists", "Specialists", "specialists"],
       ["plugins", "place.customize.plugins", "Plugins"], ["connections", "place.customize.connections", "Connections"], ["channels", "place.customize.channels", "Channels"]] },
   // phase2/shell: two places reached from the Trunks strip (public/strip.js), not listed in the sidebar.
   overview: { key: "place.overview", english: "Overview", strip: true, intro: ["place.overview.intro", "What a computer or a Trunk is doing, in one screen."],
@@ -258,7 +258,7 @@ const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], 
   ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
 const SETTINGS_DIRECTORY = {
   trunks: [
-    ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:specialists"],
+    ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:trunks"],
     ["overview", "place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "overview"],
     ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
   ],
@@ -326,7 +326,7 @@ for (const [place, spec] of Object.entries(PLACES)) {
 for (const [page] of SETTINGS_PAGES) ROUTES[`settings:${page}`] = { settings: page };
 
 let place = "chat";
-const lastTab = { inbox: "needs", automations: "scheduled", library: "memory", customize: "skills" };
+const lastTab = { inbox: "needs", automations: "scheduled", library: "memory", customize: "trunks" }; // DG-069: Trunks first, as the approved sample
 for (const [id, spec] of Object.entries(PLACES)) lastTab[id] ??= spec.tabs[0][0]; // phase2/shell
 let settingsPage = "general";
 

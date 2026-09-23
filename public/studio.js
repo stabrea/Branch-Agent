@@ -380,7 +380,7 @@ async function saveEdit() {
   toast(say("studio.saved", "Saved."));
 }
 
-/** Change look… and Rename… from the strip's menu, Customize › Specialists or the Overview. */
+/** Change look… and Rename… from the strip's menu, Customize › Trunks or the Overview. */
 export async function openEdit(id, { rename = false } = {}) {
   await refresh();
   const trunk = findTrunk(id);

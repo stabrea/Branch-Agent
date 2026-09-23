@@ -205,7 +205,7 @@ test("the owner can revoke a person's access to an existing room", async (t) => 
   const room = (await f.call("/api/trunks/rooms", {
     name: "Private bench", members: [f.scout.id, f.ledger.id], people: [sam.id],
   })).room;
-  await openPlace(f.page, "customize:specialists");
+  await openPlace(f.page, "customize:trunks");
   await f.page.evaluate(async () => (await import("/trunks.js")).draw());
   const roomRow = f.page.locator(".trunks-room-row").filter({ hasText: "Private bench" });
   await roomRow.getByText("Change who may enter", { exact: true }).click();

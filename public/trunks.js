@@ -1,7 +1,8 @@
 /* R17-A (wave mac7): Trunks, the owner's named assistants. Every part has the three-way switch and
    starts off; nothing below shows until Trunks are switched on.
 
-   customize:specialists   the Trunks card: switches, the three-field create, each Trunk's editor,
+   customize:trunks        the Trunks card (DG-069: the first tab of Customize, as the approved sample):
+                           each Trunk as a row to reorder, pin and edit, switches, the three-field create, each Trunk's editor,
                            rooms, bringing one in from a file or from Specialists
    the sidebar             the roster, above Recents: each Trunk with its latest line, when, and
                            how many replies are unread; each room with "needs you"
@@ -13,7 +14,7 @@ import { api, displayView, openConversation } from "/app.js";
 import { t } from "/i18n.js";
 import { face, trunkSpec } from "/faces.js"; // phase2/shell
 import { dropdown } from "/control-makers.js";
-import { refresh as refreshStrip } from "/strip.js";
+import { refresh as refreshStrip, moveTrunk } from "/strip.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english.replace(/\{(\w+)\}/g, (w, n) => (values && n in values ? String(values[n]) : w)) : word; };
@@ -137,14 +138,63 @@ async function openChat(trunk) {
   await api(`trunks/${trunk.id}/seen`, {}).catch(() => undefined);
   void drawRail();
 }
+/* DG-069: a row as the approved sample draws it: the face, the name and what it does, up and down,
+   Pinned, and Edit. The order and the pin are the Trunk's own fields, the same ones the strip changes. */
+const ARROWS = { up: "M6 15l6-6 6 6", down: "M6 9l6 6 6-6" };
+function arrow(way) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", ARROWS[way]);
+  svg.append(path);
+  return svg;
+}
+const MOVES = { up: ["trunks.row.up", "Move {name} up", -1], down: ["trunks.row.down", "Move {name} down", 1] };
+function nameMove(node) {
+  const [key, english] = MOVES[node.dataset.way];
+  node.setAttribute("aria-label", say(key, english, { name: node.dataset.name }));
+  node.title = node.getAttribute("aria-label");
+}
+function moveButton(trunk, way) {
+  const node = document.createElement("button");
+  node.type = "button";
+  node.className = "quiet-button trunk-move";
+  Object.assign(node.dataset, { way, name: trunk.name });
+  nameMove(node);
+  node.append(arrow(way));
+  node.disabled = trunk.hidden; // the strip's order holds the Trunks it shows; a hidden one has no place in it
+  node.addEventListener("click", async () => {
+    node.disabled = true;
+    try { await refreshStrip(); await moveTrunk(trunk.id, MOVES[way][2]); await draw(); } catch (error) { report(error); node.disabled = false; }
+  });
+  return node;
+}
+document.addEventListener("branch-language", () => document.querySelectorAll(".trunk-move").forEach(nameMove));
+function pinSwitch(trunk) {
+  const label = make("label", "trunk-pin");
+  const box = field("input", trunk.pinned, "checkbox");
+  box.className = "sw";
+  box.setAttribute("role", "switch");
+  box.addEventListener("change", async () => {
+    box.disabled = true;
+    try { await api(`trunks/${trunk.id}`, { pinned: box.checked }); await refreshStrip(); await draw(); } catch (error) { report(error); box.disabled = false; }
+  });
+  label.append(make("span", "", "trunks.row.pinned", "Pinned"), box);
+  return label;
+}
 function trunkRow(trunk) {
   const item = document.createElement("li");
   item.className = "trunk-row";
   item.dataset.trunk = trunk.id;
-  const words = plain("span", `${trunk.name} (@${trunk.handle})${trunk.title ? ` — ${trunk.title}` : ""}`);
-  item.append(avatar(trunk), " ", words, " ",
-    button("trunks.talk", "Talk", () => openChat(trunk)), " ",
-    button("trunks.edit", "Edit Trunk", () => openEditor(trunk.id)), " ",
+  const words = make("div", "trunk-row-words");
+  const name = plain("b", trunk.name);
+  words.append(name);
+  if (trunk.hidden) words.append(" ", make("span", "trunk-pill", "trunks.row.hidden", "hidden"));
+  words.append(plain("small", trunk.title ? `${trunk.title} · @${trunk.handle}` : `@${trunk.handle}`));
+  item.append(avatar(trunk, 36), words, moveButton(trunk, "up"), moveButton(trunk, "down"), pinSwitch(trunk),
+    button("trunks.edit", "Edit Trunk", () => openEditor(trunk.id)),
+    button("trunks.talk", "Talk", () => openChat(trunk)),
     button("trunks.remove", "Remove", async () => {
       if (!confirm(say("trunks.remove.confirm", "Remove {name}? Its conversations stay in your history.", { name: trunk.name }))) return;
       await api(`trunks/${trunk.id}/remove`, {});
@@ -152,6 +202,12 @@ function trunkRow(trunk) {
       await draw();
     }));
   return item;
+}
+/** The approved sample's way to add one: the Add a Trunk studio (public/studio.js). */
+function addButton() {
+  const node = button("trunks.row.add", "A new Trunk", async () => (await import("/studio.js")).openAdd("trunk"), false);
+  node.id = "trunks-add";
+  return node;
 }
 
 /* ---------- Edit Trunk: every field ---------- */
@@ -416,7 +472,7 @@ function bringSection() {
 async function card() {
   const node = make("section", "card");
   node.id = "trunks-card";
-  node.dataset.home = "customize:specialists";
+  node.dataset.home = "customize:trunks";
   node.append(make("h2", "", "trunks.title", "Trunks"),
     make("p", "", "trunks.purpose", "Assistants of your own, each with a name, its own conversation, memory and settings."));
   statusLine = make("p", "subtle");
@@ -425,8 +481,9 @@ async function card() {
   const modes = roster.modes;
   const switches = document.createElement("div");
   for (const part of Object.keys(PARTS)) if (part === "trunks" || modes.trunks !== "off") switches.append(...switchFor(part, modes));
-  node.append(switches);
-  if (modes.trunks !== "off") {
+  if (modes.trunks === "off") node.append(switches);
+  else {
+    // DG-069: the rows and the way to add one come first, as the approved sample; the switches follow.
     const trunks = document.createElement("ul");
     trunks.id = "trunks-list";
     trunks.append(...roster.trunks.map(trunkRow));
@@ -434,7 +491,7 @@ async function card() {
     const editor = document.createElement("div"), room = document.createElement("div");
     editor.id = "trunks-editor"; editor.hidden = true;
     room.id = "trunks-room"; room.hidden = true;
-    node.append(trunks, editor, createForm(), ...(modes.rooms !== "off" ? [roomsSection(roster, profiles.profiles ?? []), room] : []), bringSection());
+    node.append(trunks, row(addButton()), editor, switches, createForm(), ...(modes.rooms !== "off" ? [roomsSection(roster, profiles.profiles ?? []), room] : []), bringSection());
   }
   node.append(statusLine);
   return node;
@@ -470,7 +527,7 @@ function railRoom(room) {
   open.dataset.room = room.id;
   open.append(plain("span", `# ${room.name}`));
   if (room.needsYou) open.append(make("span", "rail-badge", "trunks.needsYou", "needs you"));
-  open.addEventListener("click", async () => { displayView("customize:specialists"); await draw(); await openRoom(room.id); });
+  open.addEventListener("click", async () => { displayView("customize:trunks"); await draw(); await openRoom(room.id); });
   return open;
 }
 async function drawRail() {
@@ -510,7 +567,7 @@ function drawNeeds(rooms) {
   }
   node.replaceChildren(make("h2", "", "trunks.needs.title", "Rooms that need you"),
     make("p", "", "trunks.needs.purpose", "A Trunk asked for you, or is waiting for your yes."),
-    ...rooms.map((room) => row(plain("span", room.name), button("trunks.room.open", "Open", async () => { displayView("customize:specialists"); await draw(); await openRoom(room.id); }))));
+    ...rooms.map((room) => row(plain("span", room.name), button("trunks.room.open", "Open", async () => { displayView("customize:trunks"); await draw(); await openRoom(room.id); }))));
 }
 
 /* ---------- the message box: "@" offers the Trunks, "@name message" goes to that Trunk ---------- */

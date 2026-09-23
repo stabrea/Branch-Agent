@@ -36,6 +36,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `library:memory` | Remembered facts, tidying, how much it keeps, import and export, checkpoints |
 | `library:documents` | Documents, knowledge bases, the notes folder |
 | `library:made` | Pictures, files and reports the assistant made |
+| `customize:trunks` | Your Trunks, one row each: reorder, pin, edit; the Trunks switches, create, rooms, bringing one in (DG-069, first tab) |
 | `customize:skills` | Installed skills, installing and sharing, suggestions, what happens when a skill looks risky |
 | `customize:specialists` | Specialists and proposing new ones |
 | `customize:plugins` | Plugins |
@@ -106,7 +107,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
 | Where Branch listens (`mac7/bind`) | `settings:computer` |
-| Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
+| Trunks on other computers (`mac7/r17-i`) | `customize:specialists` |
 | Making videos (`mac7/r17-i`) | `settings:models:media` |
 | The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |
 | Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `customize:skills` |
@@ -149,7 +150,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
 | Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `customize:channels`; the "which device" picker lives in the message box, because it changes the next message |
-| Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
+| Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:trunks`, the first tab of Customize (DG-069) |
 | The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
 | Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
 | A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |

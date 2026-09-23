@@ -39,14 +39,14 @@ test("renaming the active Trunk updates the shell target immediately", async (t)
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
 
-  await openPlace(page, "customize:specialists");
+  await openPlace(page, "customize:trunks");
   await page.locator("#trunks-switch-trunks").selectOption("on");
   await page.locator("#trunks-new-name").fill("Ada");
   await page.getByRole("button", { name: "Create the Trunk" }).click();
   await page.getByRole("button", { name: "Talk" }).click();
   await page.waitForFunction(() => document.getElementById("rail-target-name")?.textContent === "Ada");
 
-  await openPlace(page, "customize:specialists");
+  await openPlace(page, "customize:trunks");
   await page.getByRole("button", { name: "Edit Trunk" }).click();
   await page.locator("#trunks-edit-name").fill("Ada Bloom");
   await page.getByRole("button", { name: "Save changes" }).click();
@@ -80,11 +80,11 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   const until = async (check) => { for (let i = 0; i < 200 && !(await check()); i++) await page.waitForTimeout(50); };
 
-  await openPlace(page, "customize:specialists");
+  await openPlace(page, "customize:trunks");
   const card = page.locator("#trunks-card");
   await card.waitFor();
   assert.equal(await card.locator("h2").innerText(), "Trunks");
-  assert.equal(await page.evaluate(() => document.getElementById("trunks-card").parentElement.id), "specialists");
+  assert.equal(await page.evaluate(() => document.getElementById("trunks-card").parentElement.id), "lx-slot-customize-trunks");
   assert.equal(await page.locator("#trunks-switch-trunks").inputValue(), "off");
   assert.equal(await page.locator("#trunks-create").count(), 0, "nothing but the switch while it is off");
   assert.equal(await page.locator("#trunks-rail").count(), 0);

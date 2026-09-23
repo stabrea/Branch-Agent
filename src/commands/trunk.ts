@@ -13,11 +13,11 @@ export async function trunkCommand(call: Call): Promise<Reply> {
   call.host.requireOwner("/trunk");
   const trunks = trunksFor(call.host.runtime);
   if (!trunks || trunks.mode("trunks") === "off")
-    return say("Trunks are switched off. Switch them on in Customize → Specialists, under Trunks.", { do: "go", home: "customize:specialists" });
+    return say("Trunks are switched off. Switch them on in Customize → Trunks.", { do: "go", home: "customize:trunks" });
   const [first = "", ...rest] = call.argument.trim().split(/\s+/);
   if (!first) {
     const lines = trunks.records.list().filter((t) => !t.hidden).map((t) => `@${t.handle} — ${t.name}${t.title ? `, ${t.title}` : ""}`);
-    return say(lines.length ? ["Your Trunks:", ...lines].join("\n") : "You have no Trunks yet. Make one in Customize.", { do: "go", home: "customize:specialists" });
+    return say(lines.length ? ["Your Trunks:", ...lines].join("\n") : "You have no Trunks yet. Make one in Customize → Trunks.", { do: "go", home: "customize:trunks" });
   }
   const trunk = trunks.records.resolve(first);
   const message = rest.join(" ").trim();

@@ -390,7 +390,7 @@ test("S9 every page is grouped, and a card no group names still shows under More
 });
 
 const SETTINGS_DIRECTORIES = {
-  trunks: [["trunks", "customize", "specialists"], ["overview", "overview", "here"], ["people", "household", "people"]],
+  trunks: [["trunks", "customize", "trunks"], ["overview", "overview", "here"], ["people", "household", "people"]],
   channels: [["channels", "customize", "channels"]],
   connections: [["connections", "customize", "connections"]],
   skills: [["skills", "customize", "skills"], ["specialists", "customize", "specialists"], ["plugins", "customize", "plugins"]],
