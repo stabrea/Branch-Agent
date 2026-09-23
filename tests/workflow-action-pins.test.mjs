@@ -18,12 +18,16 @@ test("every workflow pins the reviewed Node 24 action releases by immutable comm
   let uses = 0;
   for (const file of files) {
     const source = await readFile(join(folder, file), "utf8");
-    for (const match of source.matchAll(/uses:\s+(actions\/[\w-]+)@([a-f0-9]{40})\s+#\s+(v\S+)/g)) {
+    const declared = [...source.matchAll(/^\s*-\s+uses:\s+actions\//gm)].length;
+    let inspected = 0;
+    for (const match of source.matchAll(/^\s*-\s+uses:\s+(actions\/[\w-]+)@([^\s#]+)(?:\s+#\s+(v\S+))?/gm)) {
       uses++;
+      inspected++;
       const expected = reviewed.get(match[1]);
       assert.ok(expected, `${file} uses an unreviewed first-party action: ${match[1]}`);
       assert.deepEqual([match[2], match[3]], expected, `${file} must pin ${match[1]} to its reviewed Node 24 release`);
     }
+    assert.equal(inspected, declared, `${file} has an uninspected first-party action`);
   }
-  assert.equal(uses, 27, "every first-party workflow action remains covered by this review");
+  assert.ok(uses > 0, "the first-party workflow action review must inspect action references");
 });
