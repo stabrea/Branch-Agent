@@ -81,7 +81,9 @@ export interface UpdateStatus {
   bytes: { received: number; total: number } | null;
   updatedAt: string;
 }
+const assetSchema = z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() });
 const releaseSchema = z.object({
+  id: z.number().int().positive().optional(),
   tag_name: z.string().min(1),
   draft: z.boolean().optional(),
   prerelease: z.boolean().optional(),
@@ -89,7 +91,7 @@ const releaseSchema = z.object({
   body: z.string().nullable().optional(),
   published_at: z.string().nullable().optional(),
   html_url: z.string().url(),
-  assets: z.array(z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() })),
+  assets: z.array(assetSchema),
 });
 
 export function compareVersions(a: string, b: string): number {
@@ -131,7 +133,8 @@ export function betaReleaseVersion(tag: string): string {
   return tag.slice(1);
 }
 
-function newestBetaCandidate(raw: unknown): z.infer<typeof releaseSchema> {
+/** Every published Beta or Stable release, newest first. */
+function betaCandidates(raw: unknown): z.infer<typeof releaseSchema>[] {
   const releases = z.array(releaseSchema).parse(raw);
   const accepted = releases.filter((entry) => {
     if (entry.draft) return false;
@@ -143,7 +146,7 @@ function newestBetaCandidate(raw: unknown): z.infer<typeof releaseSchema> {
   });
   accepted.sort((one, two) => compareVersions(two.tag_name, one.tag_name));
   if (!accepted[0]) throw new Error("No published Branch beta or stable release is available yet.");
-  return accepted[0];
+  return accepted;
 }
 
 function betaAssetMatches(release: z.infer<typeof releaseSchema>, repo: string,
@@ -295,24 +298,48 @@ export class Updater {
     if (response.status === 404) throw new Error("No release has been published yet.");
     if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
     const raw = await response.json();
-    const data = this.channel === "stable" ? releaseSchema.parse(raw) : newestBetaCandidate(raw);
-    if (data.draft || (this.channel === "stable" && data.prerelease))
-      throw new Error("The newest stable release is not a published final release.");
-    const asset = data.assets.find((entry) => entry.name === this.options.assetName);
-    const checksum = data.assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
-    if (!asset || !checksum) throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
-    if (this.channel === "beta" &&
-      (!betaAssetMatches(data, this.options.repo, asset) || !betaAssetMatches(data, this.options.repo, checksum)))
-      throw new Error("The beta download does not belong to the selected Branch release.");
-    const latestVersion = data.prerelease ? betaReleaseVersion(data.tag_name) : finalReleaseVersion(data.tag_name);
-    return {
-      currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
-      available: compareVersions(latestVersion, this.options.currentVersion) > 0,
-      title: data.name || data.tag_name, notes: data.body ?? "", publishedAt: data.published_at ?? null,
-      assetUrl: asset.browser_download_url, checksumUrl: checksum.browser_download_url, assetBytes: asset.size,
-      pageUrl: data.html_url,
-      channel: this.channel,
-    };
+    const candidates = this.channel === "stable" ? [releaseSchema.parse(raw)] : betaCandidates(raw);
+    for (const data of candidates) {
+      if (data.draft || (this.channel === "stable" && data.prerelease))
+        throw new Error("The newest stable release is not a published final release.");
+      const assets = await this.releaseAssets(data);
+      const asset = assets.find((entry) => entry.name === this.options.assetName);
+      const checksum = assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
+      if (!asset || !checksum) {
+        /* Q37: a Beta still missing its download after a fresh look is skipped for the next valid release. */
+        if (data !== candidates.at(-1)) continue;
+        throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
+      }
+      if (this.channel === "beta" &&
+        (!betaAssetMatches(data, this.options.repo, asset) || !betaAssetMatches(data, this.options.repo, checksum)))
+        throw new Error("The beta download does not belong to the selected Branch release.");
+      const latestVersion = data.prerelease ? betaReleaseVersion(data.tag_name) : finalReleaseVersion(data.tag_name);
+      return {
+        currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
+        available: compareVersions(latestVersion, this.options.currentVersion) > 0,
+        title: data.name || data.tag_name, notes: data.body ?? "", publishedAt: data.published_at ?? null,
+        assetUrl: asset.browser_download_url, checksumUrl: checksum.browser_download_url, assetBytes: asset.size,
+        pageUrl: data.html_url,
+        channel: this.channel,
+      };
+    }
+    throw new Error("No published Branch release is available yet.");
+  }
+  /**
+   * Q37: for minutes after a release is published, GitHub's release list (and its tag look-up) can still show no
+   * assets while the release's own assets list already has them all (measured on v0.19.3-beta.2). When the listed
+   * assets lack this computer's download or checksum, ask that list, which is current.
+   */
+  private async releaseAssets(release: z.infer<typeof releaseSchema>): Promise<z.infer<typeof assetSchema>[]> {
+    const names = new Set(release.assets.map((entry) => entry.name));
+    if (!release.id || (names.has(this.options.assetName ?? "") && names.has(checksumAssetName(this.options.assetName ?? ""))))
+      return release.assets;
+    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/${release.id}/assets?per_page=100`, {
+      headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return release.assets;
+    return z.array(assetSchema).parse(await response.json());
   }
   private async download(release: ReleaseInfo, target: string): Promise<void> {
     this.set("downloading", "Downloading the new version…", 0, release);
