@@ -15,6 +15,8 @@ import { dirname, join } from "node:path";
 import { createBranch } from "../dist/index.js";
 import { GitRunner, gitEnvironment, hardening } from "../dist/integrations/git-run.js";
 import { ContractBook } from "../dist/self-development-contract.js";
+import { GitTools } from "../dist/integrations/git.js";
+import { WorkspaceFiles } from "../dist/files.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 const posixOnly = process.platform === "win32" && "shell scripts are for macOS and Linux";
@@ -225,29 +227,30 @@ test("Q79: git.push and git.pull in source refuse WORKTREE scoped credential.hel
   git("remote", "add", "origin", "https://example.com/repo.git");
   git("config", "--worktree", "credential.helper", "fake");
   const signal = AbortSignal.timeout(10_000);
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*(local|worktree) scope/);
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*(local|worktree) scope/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
 });
 
-test("Q79: git.push and git.pull in source allow GLOBAL scoped credential.helper", { skip: posixOnly }, async (t) => {
+test("Q79: git.push and git.pull in source leave the owner's own GLOBAL credential.helper alone", { skip: posixOnly }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-self-global-"));
   t.after(() => discardTemp(root));
   const home = join(root, "home"), workspace = join(root, "workspace");
   await mkdir(home, { recursive: true });
   await writeFile(join(home, ".gitconfig"), "[credential]\n\thelper = fake\n");
-  // Give the app's GitRunner the same HOME env so it sees the global config
+  // The Git these tools run must read the same home, or a global helper would never be seen at all.
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") };
-  const app = await createBranch({ workspace, dataDir: join(root, "data"), gitRunner: new GitRunner({ env }) });
-  t.after(async () => { await app.close(); });
+  const tools = new GitTools(new WorkspaceFiles(workspace), new GitRunner({ env }));
   const folder = "branch-agent-source/.branch-worktrees/self-global";
   const cwd = join(workspace, folder);
   await mkdir(cwd, { recursive: true });
   const git = (...args) => execFileSync("git", args, { cwd, env, stdio: "pipe" });
   git("init", "-q", "-b", "feature");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
-  execFileSync("git", ["init", "--bare", "-q", join(cwd, "origin")], { env });
+  assert.match(git("config", "--show-scope", "--get-regexp", "^credential\\..*helper$").toString(), /^global\scredential\.helper fake$/m, "the helper is seen, at global scope");
   const signal = AbortSignal.timeout(10_000);
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/, "push rejected for unconfigured remote, not for the GLOBAL credential helper");
+  // Past the sign-in check, the unconfigured remote is what refuses: the owner's helper was allowed.
+  await assert.rejects(tools.push({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/);
+  await assert.rejects(tools.pull({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/);
 });
 
 test("Q79: outside Branch's source, a LOCAL scoped credential.helper is not refused", { skip: posixOnly }, async (t) => {
