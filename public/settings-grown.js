@@ -248,8 +248,10 @@ function putKeys(card) {
 function outOfSight(cards, now) {
   const levels = [];
   for (const card of cards) {
-    const { shown = [], every = [] } = rowsByCard.get(card) ?? {};
-    const out = RANK[card.dataset.level ?? "regular"] > now ? every : shown.filter((one) => ROW_RANK[one.level] > now);
+    const { shown = [], waiting = [], every = [] } = rowsByCard.get(card) ?? {};
+    /* A card on show keeps out of sight its rows above this level: those drawn, and those it has not drawn yet (a
+       tunnel's program waits for its switch), which the sample draws and counts. */
+    const out = RANK[card.dataset.level ?? "regular"] > now ? every : [...shown, ...waiting].filter((one) => ROW_RANK[one.level] > now);
     levels.push(...out.map((one) => one.level));
   }
   return levels;

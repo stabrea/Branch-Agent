@@ -67,15 +67,16 @@ export function rowsIn(card) {
   const claimed = new Set();
   const found = entry.rows.map(([id, selector, level]) => {
     const control = controlOf(card, id, selector);
-    if (control && claimed.has(control)) return { id, level, control: null };
+    if (control && claimed.has(control)) return { id, level, control: null, drawn: true };
     if (control) claimed.add(control);
-    return { id, level, control };
+    return { id, level, control, drawn: Boolean(control) };
   });
   const controls = found.map((one) => one.control).filter(Boolean);
-  const rows = found.map(({ id, level, control }) => {
+  /* drawn: false when the card does not draw the control now (it waits behind a switch), which the sample still counts. */
+  const rows = found.map(({ id, level, control, drawn }) => {
     const pieces = control && rowOf(control, card, controls.filter((other) => other !== control));
     const note = pieces?.at(-1).nextElementSibling;
-    return { id, level, pieces: pieces ? [...pieces, ...(note?.matches(NOTE) && !note.querySelector("input, select, textarea") ? [note] : [])] : [] };
+    return { id, level, drawn, pieces: pieces ? [...pieces, ...(note?.matches(NOTE) && !note.querySelector("input, select, textarea") ? [note] : [])] : [] };
   });
   return { rows, partial: entry.partial };
 }
@@ -93,8 +94,9 @@ export function levelRows(card, sectionLevel, mark) {
     mark(node, "level", level);
     mark(node, "sgRow", id); // which setting the piece belongs to: a row can be its words, its control and its note
   }
-  /* shown: the rows found, which hide and show one by one; every: each leveled setting, found or not, for the count. */
-  const found = { shown: rows.filter((one) => one.pieces.length), every: rows };
+  /* shown: the rows found, which hide and show one by one; waiting: the rows not drawn yet; every: each leveled setting,
+     found or not, for the count. */
+  const found = { shown: rows.filter((one) => one.pieces.length), waiting: rows.filter((one) => !one.drawn), every: rows };
   if (!rows.length) return { level: sectionLevel, ...found };
   const lowest = rows.reduce((low, one) => (RANK[one.level] < RANK[low] ? one.level : low), "technical");
   return { level: partial && RANK[lowest] > RANK[sectionLevel] ? sectionLevel : lowest, ...found };

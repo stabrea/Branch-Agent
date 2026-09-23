@@ -97,7 +97,12 @@ const onPage = (page, name) => page.evaluate(async (name) => {
     let expected = 0;
     for (const card of cards) {
       if (rank[card.dataset.level ?? "regular"] > now) expected += leveled(card).length;
-      else expected += new Set([...card.querySelectorAll("[data-sg-row]")].filter((piece) => rank[piece.dataset.level] > now).map((piece) => piece.dataset.sgRow)).size;
+      else {
+        expected += new Set([...card.querySelectorAll("[data-sg-row]")].filter((piece) => rank[piece.dataset.level] > now).map((piece) => piece.dataset.sgRow)).size;
+        /* A row its card has not drawn yet (it waits for a switch) is still counted, as the sample draws and counts it. */
+        expected += SETTINGS_INDEX.filter((row) => row[2] === card.id && ROW_LEVELS[row[0]] && rank[word[ROW_LEVELS[row[0]]]] > now)
+          .filter((row) => { const control = document.getElementById(row[0]) ?? (row[5] ? card.querySelector(row[5]) : null); return !control || !card.contains(control); }).length;
+      }
     }
     const line = host.querySelector(`.sg-more-line[data-bucket="${head.dataset.bucket}"]`);
     return { bucket: head.dataset.bucket, head: head.checkVisibility(), line: line && !line.hidden ? Number(/\d+/.exec(line.textContent)?.[0]) : 0, expected };
