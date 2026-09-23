@@ -543,62 +543,128 @@
   display: grid !important;
 }
 
-/* ---------- Appearance: the themes beside two live mirrors of your window (#5, #24, #25, #38, #39) ---------- */
+/* ---------- Appearance: the themes beside a live preview of your window (#5, #24, #25, #38, #39) ----------
+   DG-039: the sample's `.look2`/`.look-prev` (its live lookHTML). The page is the container: 980px or wider, the
+   preview is a sticky column of 44% beside the choices, the window in this light on top and the other side under
+   it; narrower, it is a sticky strip that opens both. */
+#lx-page-appearance {
+  container-type: inline-size;
+}
 .sg-look {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0 24px;
+  gap: 18px 18px;
 }
 .sg-mirrors {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 14px;
-}
-.sg-mirrors-title {
-  margin: 0;
-  color: var(--text-2);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.sg-mirror-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.sg-mirror {
-  display: grid;
-  gap: 6px;
+  position: sticky;
+  /* Cancel the Settings body's 34px top padding, so nothing of the page shows above the strip. */
+  top: -34px;
+  z-index: 3;
   min-width: 0;
   margin: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--surface);
+  box-shadow: 0 10px 16px -14px rgba(0, 0, 0, 0.4);
+}
+.sg-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(24px) saturate(1.3);
+  box-shadow: none;
+  color: var(--text);
+  text-align: left;
+}
+.sg-strip:hover {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+.sg-strip-thumb {
+  position: relative;
+  flex: none;
+  width: 96px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 7px;
+}
+.sg-strip-thumb u {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+}
+.sg-strip-thumb i {
+  position: absolute;
+  inset: 6px 6px 6px 16px;
+  border-radius: 4px;
+}
+.sg-strip-name {
+  flex: 1;
+  min-width: 0;
+}
+.sg-strip-name b {
+  display: block;
+  font-weight: 620;
+}
+.sg-strip-name small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.sg-strip svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  transition: transform 0.15s;
+}
+.sg-mirrors.sg-open .sg-strip svg {
+  transform: rotate(180deg);
+}
+/* The sample's `.lp-full.mirrors-wrap`: hidden behind the strip until opened, always shown when wide. */
+.sg-mirrors-wrap {
+  display: none;
+  gap: 8px;
+  padding-top: 10px;
+}
+.sg-mirrors.sg-open {
+  padding-bottom: 8px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+.sg-mirrors.sg-open .sg-mirrors-wrap {
+  display: grid;
+}
+/* The sample's `.mirrors` and `.mirror`: Moonlight and Daylight side by side, stacked when wide. */
+.sg-mirror-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.sg-mirror {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ground);
+  box-shadow: 0 12px 30px -18px rgba(0, 0, 0, 0.5);
 }
 .sg-mirror-box {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--line-2);
-  border-radius: 10px;
-  background: var(--well);
+  max-height: 38vh;
 }
-/* Narrower than two columns, the mirrors ride along at the top while the themes scroll under them (#25),
-   small enough to leave the themes room. */
-@media (max-width: 1199.98px) {
-  .sg-mirrors {
-    position: sticky;
-    /* Cancel the Settings body's 34px top padding, so no half row of tiles shows above the strip. */
-    top: -34px;
-    z-index: 2;
-    margin: 0 0 14px;
-    padding: 8px 0;
-    background: linear-gradient(var(--well), var(--well)), var(--surface);
-  }
-  .sg-mirror-pair {
-    grid-template-columns: repeat(2, minmax(0, 180px));
-  }
-}
-@media (max-width: 860px) {
-  /* A phone's own window is tall: its mirror shows the top of it. */
-  .sg-mirror-box {
-    max-height: 120px;
-  }
+.sg-mirrors.sg-open .sg-mirror-box {
+  max-height: 30vh;
 }
 .sg-mirror-frame {
   position: absolute;
@@ -608,28 +674,88 @@
   transform-origin: 0 0;
   pointer-events: none;
 }
+/* The sample's `.m-chip`. */
 .sg-mirror-caption {
-  overflow: hidden;
-  color: var(--text-3);
-  font-size: 12px;
-  text-overflow: ellipsis;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 500 11px/1 var(--body);
   white-space: nowrap;
 }
-@media (min-width: 1200px) {
+/* The sample's `.m-flip`, a `btn sm` with the swap icon: only on a phone, where one mirror shows at a time. */
+.sg-mirror-flip {
+  display: none;
+  justify-self: start;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 540;
+  white-space: nowrap;
+}
+.sg-mirror-flip svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@container (max-width: 540px) {
+  .sg-mirror-pair {
+    grid-template-columns: 1fr;
+  }
+  .sg-mirror {
+    display: none;
+  }
+  .sg-mirror-pair[data-show="dark"] .sg-mirror[data-mode="dark"],
+  .sg-mirror-pair[data-show="light"] .sg-mirror[data-mode="light"] {
+    display: block;
+  }
+  .sg-mirror-flip {
+    display: inline-flex;
+  }
+}
+@container (min-width: 980px) {
   .sg-look {
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 44%);
+    align-items: start;
   }
   .sg-look > :not(.sg-mirrors) {
     grid-column: 1;
   }
   .sg-mirrors {
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    top: 12px;
     grid-column: 2;
     grid-row: 1 / span 6;
-    align-self: start;
-    margin: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .sg-strip {
+    display: none;
+  }
+  .sg-mirrors-wrap {
+    display: grid;
+    padding-top: 0;
+  }
+  .sg-mirror-pair {
+    grid-template-columns: 1fr;
+  }
+  .sg-mirror-box {
+    max-height: 40vh;
   }
 }
 .sg-clear-view {
