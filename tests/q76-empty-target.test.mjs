@@ -220,3 +220,27 @@ test('a target that is itself a pattern never gets a standing yes, however it is
   assert.throws(() => state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint), /does not say/);
   assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'files.write' && r.match === '*').length, 0);
 });
+
+test('an outside server tool that lists no arguments keeps a standing yes; one that lists any does not', async (t) => {
+  const state = await harness(t, 'q76-mcp-shapes');
+  const {z} = await import('zod');
+  const add = (name, inputSchema) => state.app.registry.register({name, permission: name, description: name, external: true,
+    parameters: z.record(z.string(), z.unknown()), inputSchema, execute: async () => ({ok: true})});
+  add('mcp.clock.now', {type: 'object', properties: {}});
+  add('mcp.clock.bare', {type: 'object'});
+  add('mcp.mail.send', {type: 'object', properties: {to: {type: 'string'}}});
+  assert.equal(state.app.registry.noStandingTarget('mcp.clock.now', ''), false);
+  assert.equal(state.app.registry.noStandingTarget('mcp.clock.bare', ''), false);
+  assert.equal(state.app.registry.noStandingTarget('mcp.mail.send', ''), true);
+});
+
+test('branch approve on the command line writes no rule for a target that is a pattern', async (t) => {
+  const {answerFromCommand} = await import('../dist/cli-run.js');
+  assert.equal((await harness(t, 'q76-bracket')).app.registry.noStandingTarget('files.write', 'notes/[ab].md'), true);
+  const state = await harness(t, 'q76-cli-pattern');
+  state.calls.push({id: 'c1', name: 'files.write', arguments: JSON.stringify({path: '*', content: 'x'})});
+  const run = await state.app.runtime.run({prompt: 'run'});
+  assert(waitingIn(state, run), 'should ask');
+  assert.throws(() => answerFromCommand(state.app.runtime, run.id, 'yes'), /does not say/);
+  assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'files.write').length, 0);
+});

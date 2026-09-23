@@ -33,11 +33,11 @@ export const targetlessTools: Readonly<Record<string, string>> = {
   "specialists.propose": "Proposing only saves the specialist. `evaluation.checks[].path` is read later, by files.verify, when it is evaluated.",
   "specialists.delegate": "`checks.files` is what the specialist's answer must account for. Every tool the specialist itself runs is judged on its own, with fewer permissions.",
 };
-/** Q76: a target that is itself a pattern ("*", a "?", even written %2A) would be kept as a rule for everything. */
+/** Q76: a target that is itself a pattern ("*", "?", "[", even written %2A) would be kept as a rule for everything. */
 export const patternTarget = (target: string): boolean => {
   let read = target;
   try { read = decodeURIComponent(target); } catch { /* not encoded: judged as written */ }
-  return /[*?]/.test(read);
+  return /[*?[]/.test(read);
 };
 /** Q76: a target of only spaces or invisible characters (a zero-width space, a joiner) names nothing. */
 export const blankTarget = (target: string): boolean => !target.replace(/[\p{Cf}\s]/gu, "");
@@ -151,6 +151,9 @@ export class ToolRegistry {
     if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
     const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
     if (shape && Object.keys(shape).length === 0) return false;
+    // An outside server's tool says what it takes in its own JSON schema: one that lists nothing takes nothing.
+    const listed = (tool.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
+    if (!shape && tool.inputSchema && Object.keys(listed ?? {}).length === 0) return false;
     return !Object.hasOwn(targetlessTools, name);
   }
   /** Every registered tool with its permission, for the capability inventory. */
