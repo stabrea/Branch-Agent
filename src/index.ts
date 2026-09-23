@@ -118,6 +118,7 @@ import { settingsKitWriters } from "./settings-kit/writers.js";
 import { GitTools } from "./integrations/git.js";
 import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
 import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
+import { ServerlessEndpoints, registerServerlessEndpoints, serverlessInvoker } from "./remote/serverless-workspace.js";
 import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
 import { GitRunner } from "./integrations/git-run.js";
@@ -436,6 +437,10 @@ export async function createBranch(options: {
   });
   const remotes = new RemoteWorkspaces(store, options.owner ?? "local", sshRunner());
   registerRemoteWorkspaces(registry, remotes);
+  // FQ-execution.remote: a serverless function reached over HTTPS, held to the same allowed-program
+  // rule as a computer over SSH — see src/remote/serverless-workspace.ts.
+  const serverless = new ServerlessEndpoints(store, options.owner ?? "local", serverlessInvoker());
+  registerServerlessEndpoints(registry, serverless);
   // Batch 26 (wave 8): how much one conversation, or one person messaging from outside, may ask for
   // in a minute and in an hour; and letting conversations older than the owner's cut-off go.
   const sessionLimiter = new SessionLimiter(store, options.owner ?? "local");
@@ -1348,6 +1353,8 @@ export async function createBranch(options: {
     osPermissions,
     /** Folders on the owner's other computers, reached with the OpenSSH client Windows already has. */
     remotes,
+    /** Serverless functions the owner deployed themselves, reached over HTTPS with a per-function allowlist. */
+    serverless,
     /** A way back to how a folder was just before a set of changes was written. */
     checkpoints,
     /** Switching a folder to the line of work a project names. */

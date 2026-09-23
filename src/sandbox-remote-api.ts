@@ -25,12 +25,13 @@ export class SandboxRemoteApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 export function handlesSandboxRemotePath(path: string): boolean {
-  return /^\/api\/(sandboxes|os-sandbox|firewall|limits|remotes|marks|retention)(\/|$)/.test(path);
+  return /^\/api\/(sandboxes|os-sandbox|firewall|limits|remotes|serverless|marks|retention)(\/|$)/.test(path);
 }
 
 const AddressSchema = z.object({ address: z.string().trim().min(1).max(2000) }).strict();
 const MarkSchema = z.object({ id: z.string().trim().min(1).max(64) }).strict();
 const RemoveSchema = z.object({ computer: z.string().trim().min(1).max(64) }).strict();
+const RemoveServerlessSchema = z.object({ endpoint: z.string().trim().min(1).max(64) }).strict();
 
 /** The firewall card: the rules read back as sentences, from the settings that really decide. */
 export function firewallFor(app: Branch) {
@@ -94,6 +95,16 @@ export async function sandboxRemoteApi(
   if (post && path === "/api/remotes/remove") {
     const { computer } = RemoveSchema.parse(await readBody(request));
     return { removed: app.remotes.remove(computer) };
+  }
+
+  // The owner's serverless functions, held to the same allowed-program rule as a computer over SSH.
+  if (path === "/api/serverless") {
+    if (post) return { endpoint: await app.serverless.add(await readBody(request), signal) };
+    return { endpoints: app.serverless.list() };
+  }
+  if (post && path === "/api/serverless/remove") {
+    const { endpoint } = RemoveServerlessSchema.parse(await readBody(request));
+    return { removed: app.serverless.remove(endpoint) };
   }
 
   // A way back to before a set of changes was written.

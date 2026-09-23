@@ -1589,6 +1589,21 @@
             <button id="remote-add" type="button" data-t="action.add-this-computer">Add this computer</button>
             <p id="remote-status" class="subtle" role="status"></p>
           </section>
+          <section id="serverless-card" class="card">
+            <h2 data-t="settings.card.serverless-functions">Your serverless functions</h2>
+            <p>Branch can call a function you deployed yourself — a Cloudflare Worker, an AWS Lambda function URL, anything reached over <strong>https://</strong> — the same way it reaches a computer over SSH: nothing is trusted until it answers, and a new one may run nothing at all until you say which of its own functions it may run.</p>
+            <div id="serverless-list" class="card-list"></div>
+            <label for="serverless-id" data-t="field.a-short-name-for-it">A short name for it</label>
+            <input id="serverless-id" type="text" maxlength="64" placeholder="reports" />
+            <label for="serverless-url" data-t="field.its-https-address">Its https:// address</label>
+            <input id="serverless-url" type="text" maxlength="2000" placeholder="https://reports.example.workers.dev" />
+            <label for="serverless-label" data-t="field.a-name-you-will-recognise">A name you will recognise</label>
+            <input id="serverless-label" type="text" maxlength="80" />
+            <label for="serverless-functions" data-t="field.functions-it-may-run">Functions it may run, separated by commas</label>
+            <input id="serverless-functions" type="text" maxlength="600" />
+            <button id="serverless-add" type="button" data-t="action.add-this-function">Add this function</button>
+            <p id="serverless-status" class="subtle" role="status"></p>
+          </section>
           <section id="retention-card" class="card">
             <h2 data-t="settings.card.how-long-conversations-are-kept">How long conversations are kept</h2>
             <p>Branch keeps everything until you say otherwise. Set a rule here and Branch will offer to delete what it covers — it never deletes on its own, and it hands you a saved copy of everything before it goes.</p>

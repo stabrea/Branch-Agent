@@ -365,6 +365,7 @@ export const SETTINGS_INDEX = [
   ["browser-attach-enabled","settings:computer","browser-card","Let Branch use my browser for this task","browser-attach.enabled",null,"Websites you stay signed in to",true],
   ["browser-attach-refused","settings:computer","browser-card","More websites it must never open in your browser (one per line)","browser-attach.extraRefusedHosts",null,"Websites you stay signed in to",true],
   ["remote-list","settings:computer","remote-card","Your other computers over SSH (list: SSH name, folder, name, programs it may run)","remote-computers",null,"Your other computers",true],
+  ["serverless-list","settings:computer","serverless-card","Your serverless functions over https (list: short name, address, name, functions it may run)","serverless-endpoints",null,"Your serverless functions",true],
   ["screen-switch-card-mode","settings:computer","screen-switch-card","How Branch offers this",null,null,"How Branch uses your screen",true],
   ["knobs-commandTimeoutSeconds","settings:computer","knobs-commands-card","Longest one command may run (seconds)","knobs.commandTimeoutSeconds",null,"How commands run",true],
   ["knobs-keptOpenShell","settings:computer","knobs-commands-card","Let a task keep a command line open","knobs.keptOpenShell",null,"How commands run",true],
