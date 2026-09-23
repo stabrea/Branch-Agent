@@ -40,9 +40,11 @@ export interface CollabListing { events: CollabEvent[]; rejected: string[]; trun
 /** The most stored rows one listing looks at before it stops, however many of them fail to verify. */
 const scanLimit = 5000;
 /**
- * The newest rows of the owner's partition one listing's SQL walks at all: room for `scanLimit` rows
- * to verify and `scanLimit` rows from people outside the household. Every filter (member, kind, text,
- * repository, what the caller may see) runs inside this window, so no request walks further.
+ * The newest rows of the owner's partition, among those the caller may see, that one listing's SQL
+ * walks at all: room for `scanLimit` rows to verify and `scanLimit` rows from people outside the
+ * household. The search (member, kind, text, repository) runs inside this window. The owner-only
+ * kinds are taken out before it for anybody but the owner, so rows they may not see never use up
+ * their window; walking past those is the one part of a household listing the window does not bound.
  */
 const walkLimit = 2 * scanLimit;
 /** Who is asking. Only `ownerView: true` is shown the kinds that belong to the owner. */
@@ -131,11 +133,11 @@ export class CollabEvents {
    * verify are left out and named in `rejected`. Rows whose member is not in the household are skipped
    * in the query itself, so up to `scanLimit` of them (as many as are named in `rejected`) never use up
    * the scan. Owner-only kinds are left out in the query too unless the caller is the owner: they never
-   * use up a household person's page or scan, and are not named to them in `rejected` either.
+   * use up a household person's window, page or scan, and are not named to them in `rejected` either.
    */
   async list(owner: string, search: CollabSearch = {}, viewer: CollabViewer = { ownerView: false }): Promise<CollabListing> {
     const limit = Math.min(Math.max(Math.trunc(search.limit ?? 100), 1), 500);
-    const members = JSON.stringify(this.members()), { from, where, params } = listFilter(owner, search, viewer);
+    const members = JSON.stringify(this.members()), { visible, scope, from, where, params } = listFilter(owner, search, viewer);
     const page = this.db.prepare(`SELECT * FROM ${from} WHERE ${where}
       AND member IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id LIMIT ? OFFSET ?`);
     const listing: CollabListing = { events: [], rejected: [], truncated: false };
@@ -160,8 +162,8 @@ export class CollabEvents {
     if (strangers.length > scanLimit) listing.truncated = true;
     listing.rejected.push(...strangers.slice(0, scanLimit).map((row) => String(row.id)));
     // Events still wanted and rows older than the window: those were never looked at.
-    if (listing.events.length < limit && this.db.prepare("SELECT 1 FROM collab_events WHERE owner=? LIMIT 1 OFFSET ?").get(owner, walkLimit))
-      listing.truncated = true;
+    if (listing.events.length < limit && this.db.prepare(`SELECT 1 FROM collab_events WHERE ${visible} LIMIT 1 OFFSET ?`)
+      .get(...scope, walkLimit)) listing.truncated = true;
     return listing;
   }
   private insert(owner: string, event: CollabEvent): void {
@@ -171,18 +173,19 @@ export class CollabEvents {
 }
 
 /**
- * The rows one listing may look at: the owner's newest `walkLimit`, narrowed by the search, with the
- * owner-only kinds taken out for anybody but the owner. `from` binds the owner and the window size.
+ * The rows one listing may look at: the newest `walkLimit` of the owner's rows the caller may see
+ * (the owner-only kinds taken out for anybody but the owner), narrowed by the search. `visible` binds
+ * `scope`; `from` binds `scope` and the window size, and `params` start with those.
  */
 function listFilter(owner: string, search: CollabSearch, viewer: CollabViewer) {
   const text = search.text ? `%${search.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
   const repository = search.repository ?? null, hidden = JSON.stringify(viewer.ownerView === true ? [] : ownerOnlyKinds);
-  const from = "(SELECT * FROM collab_events WHERE owner=? ORDER BY at DESC, id LIMIT ?)";
+  const visible = "owner=? AND kind NOT IN (SELECT value FROM json_each(?))", scope = [owner, hidden];
+  const from = `(SELECT * FROM collab_events WHERE ${visible} ORDER BY at DESC, id LIMIT ?)`;
   const where = `(? IS NULL OR kind=?) AND (? IS NULL OR payload LIKE ? ESCAPE '\\')
-    AND (? IS NULL OR (kind=? AND json_valid(payload) AND json_extract(payload, '$.repository')=?))
-    AND kind NOT IN (SELECT value FROM json_each(?))`;
-  const params = [owner, walkLimit, search.kind ?? null, search.kind ?? null, text, text, repository, gitPatchKind, repository, hidden];
-  return { from, where, params };
+    AND (? IS NULL OR (kind=? AND json_valid(payload) AND json_extract(payload, '$.repository')=?))`;
+  const params = [...scope, walkLimit, search.kind ?? null, search.kind ?? null, text, text, repository, gitPatchKind, repository];
+  return { visible, scope, from, where, params };
 }
 
 /** A stored row back as an event, or null when its payload is no longer readable. */

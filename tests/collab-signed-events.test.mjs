@@ -4,7 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, ownerMember } from "../dist/index.js";
+import { createBranch, ownerMember, gitPatchKind } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { householdRefusal } from "../dist/household-routes.js";
 import { canonical } from "../dist/receipts.js";
@@ -235,13 +235,29 @@ test("a household person reads the events and publishes as themselves; relay int
   assert.ok(!(await events.list(owner)).events.some((e) => e.id === relayed.id), "nothing was taken in");
 });
 
-test("a listing walks only the owner's newest 10000 rows: an older match is not read, and it says so", async (t) => {
-  const { app, events, owner } = await fixture(t);
-  // The oldest row is the only one the search matches; newer rows that do not match fill the window.
-  const old = await genuineAt(events, owner, ownerMember, 0);
-  assert.deepEqual((await events.list(owner, { text: "genuine" })).events.map((e) => e.id), [old.id], "found while inside the window");
+test("a household listing walks only the newest 10000 rows it may see: an older match is not read, and it says so", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  // Ada's note is the oldest row and the only one the search matches; newer visible rows fill the window.
+  const note = await genuineAt(events, owner, ada.id, 0);
+  const forAda = (search) => events.list(owner, search, { ownerView: false });
+  assert.deepEqual((await forAda({ text: "genuine" })).events.map((e) => e.id), [note.id], "found while inside the window");
   insertRows(app, owner, Array.from({ length: 10000 }, (_, i) => ({ member: ownerMember, at: at(10 + i) })));
-  const listing = await events.list(owner, { text: "genuine" });
+  const listing = await forAda({ text: "genuine" });
   assert.deepEqual(listing.events, [], "the match past the window is never read");
   assert.equal(listing.truncated, true);
+});
+
+test("the owner's patches Ada may not see never use up her window: her older note is still read", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  const note = await genuineAt(events, owner, ada.id, 0);
+  // 10000 owner patches, every one newer than her note: they fill the owner's window, not hers.
+  insertRows(app, owner, Array.from({ length: 10000 }, (_, i) => ({ member: ownerMember, kind: gitPatchKind, at: at(10 + i) })));
+  const forAda = await events.list(owner, {}, { ownerView: false });
+  assert.deepEqual(forAda.events.map((e) => e.id), [note.id]);
+  assert.deepEqual(forAda.rejected, []);
+  assert.equal(forAda.truncated, false, "nothing she may see is past her window");
+  // The owner's window holds the patches (none of which verify here), so the owner's scan stops short.
+  const forOwner = await events.list(owner, {}, { ownerView: true });
+  assert.ok(!forOwner.events.some((e) => e.id === note.id));
+  assert.equal(forOwner.truncated, true);
 });

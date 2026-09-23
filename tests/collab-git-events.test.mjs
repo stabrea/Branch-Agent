@@ -242,3 +242,13 @@ test("the owner's hidden patches do not use up a household person's page, nor sh
   assert.deepEqual(forOwner.events.map((e) => e.id), [patches[4].id, patches[3].id]);
   assert.deepEqual([...forOwner.rejected].sort(), [...broken].sort());
 });
+
+test("only ownerView === true shows the owner's patches: anything else, or nothing, hides them", async (t) => {
+  const { owner, events, publish } = await fixture(t);
+  const garden = await publish(ownerMember, patch("garden-app", "Garden fix", "one"));
+  const note = await events.publish(owner, ownerMember, "note", { text: "Dinner at seven" });
+  const listed = async (...viewer) => (await events.list(owner, {}, ...viewer)).events.map((e) => e.id).sort();
+  for (const viewer of [[], [{}], [{ ownerView: 1 }], [{ ownerView: "true" }], [{ ownerView: undefined }], [{ ownerView: false }]])
+    assert.deepEqual(await listed(...viewer), [note.id], `viewer ${JSON.stringify(viewer)} must not see the patch`);
+  assert.deepEqual(await listed({ ownerView: true }), [garden.id, note.id].sort());
+});
