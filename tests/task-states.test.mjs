@@ -345,3 +345,81 @@ test("Q58 when the task ahead finishes, the next queued message starts and the r
   const busy = (await call("/api/activity")).map((one) => one.prompt);
   assert.deepEqual(busy, ["Then rename them"], "the one that moved up to work is the busy one");
 });
+
+test("Q58 a task that waits for the owner or a service, or is blocked, still holds the conversation", async () => {
+  const { queuedActivity } = await import("../dist/activity.js");
+  const ahead = (state) => ({ runId: "r1", sessionId: "s1", prompt: "Tidy the folder", status: "running",
+    startedAt: at(0), current: null, steps: [], task: { state, why: "", reason: "", lastUpdate: at(1), stale: false } });
+  const queued = [{ id: "q1", prompt: "Then sort it", createdAt: at(2) }, { id: "q2", prompt: "Then back it up", createdAt: at(3) }];
+  const behind = (state) => queuedActivity(ahead(state), queued).map((one) => one.task.waitingBehind);
+  assert.deepEqual(behind("waiting-owner"), ["Tidy the folder", "Then sort it"], "waiting for the owner");
+  assert.deepEqual(behind("waiting-service"), ["Tidy the folder", "Then sort it"], "waiting for a service");
+  assert.deepEqual(behind("blocked"), ["Tidy the folder", "Then sort it"], "blocked");
+  assert.deepEqual(behind("finished"), ["", "Then sort it"], "a finished task holds nothing");
+});
+
+test("Q58 a queued task reads its place as a plain number, in English and in French", async (t) => {
+  const { app, server, working } = await branch(t);
+  /* Held busy while the messages are queued, so they wait instead of starting. */
+  app.runtime.activeSessions.add(working.sessionId);
+  app.runtime.followUp(working.sessionId, "Then file them");
+  app.runtime.followUp(working.sessionId, "Then back them up");
+  app.runtime.activeSessions.delete(working.sessionId);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(server.url);
+  const read = (language) => page.evaluate(async ({ token, language }) => {
+    await (await import("/i18n.js")).setLanguage(language);
+    const { taskWords } = await import("/task-state.js");
+    const list = await (await fetch("/api/activity?waiting=1", { headers: { authorization: `Bearer ${token}` } })).json();
+    return list.filter((item) => item.task?.state === "queued").map((item) => taskWords(item.task));
+  }, { token: server.token, language });
+  assert.deepEqual(await read("en"), [
+    'Waiting its turn · position 1, behind "Summarise the notes"',
+    'Waiting its turn · position 2, behind "Then file them"',
+  ]);
+  assert.deepEqual(await read("fr"), [
+    "En attente de son tour · position 1, derrière « Summarise the notes »",
+    "En attente de son tour · position 2, derrière « Then file them »",
+  ]);
+});
+
+test("Q58 when the task ahead is cancelled, the next queued message starts and the rest move up", async (t) => {
+  /* A model that holds its first two answers until the test lets them go, and gives up when its task is cancelled. */
+  const gates = [], opened = [];
+  for (let i = 0; i < 2; i++) gates.push(new Promise((resolve) => opened.push(resolve)));
+  let calls = 0;
+  const provider = { name: "gated", async complete(request) {
+    const mine = calls++;
+    if (mine < 2) await new Promise((resolve, reject) => {
+      const signal = request.signal;
+      if (signal?.aborted) return reject(signal.reason);
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      gates[mine].then(resolve);
+    });
+    return { content: "Done.", toolCalls: [] };
+  } };
+  const root = await mkdtemp(join(tmpdir(), "branch-q58-cancel-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(async () => { opened.forEach((open) => open()); await server.close(); await app.close(); await discardTemp(root); });
+  const call = (path) => fetch(new URL(path, server.url), { headers: { authorization: `Bearer ${server.token}` } }).then((response) => response.json());
+  const until = async (check) => { for (let i = 0; i < 200; i++) { const value = await check(); if (value) return value; await new Promise((r) => setTimeout(r, 25)); } throw new Error("timed out"); };
+  const first = app.runtime.run({ prompt: "Sort the photos" });
+  const running = await until(() => app.store.runs(app.runtime.owner).find((run) => run.status === "running" && calls === 1));
+  app.runtime.followUp(running.sessionId, "Then rename them");
+  app.runtime.followUp(running.sessionId, "Then back them up");
+  const queuedNow = async () => (await call("/api/activity?waiting=1")).filter((one) => one.task?.state === "queued")
+    .map((one) => [one.prompt, one.task.position, one.task.waitingBehind]);
+  assert.deepEqual(await queuedNow(), [["Then rename them", 1, "Sort the photos"], ["Then back them up", 2, "Then rename them"]]);
+  /* The model's first answer is never let go: the task ends only because it is cancelled. */
+  assert.equal(app.runtime.cancel(running.id), true, "the running task was cancelled");
+  assert.equal((await first).status, "cancelled");
+  const moved = await until(async () => {
+    const list = await queuedNow(), busy = (await call("/api/activity")).map((one) => one.prompt);
+    return JSON.stringify(list) === JSON.stringify([["Then back them up", 1, "Then rename them"]]) && busy.join() === "Then rename them" ? { list, busy } : null;
+  });
+  assert.deepEqual(moved.busy, ["Then rename them"], "the first queued message is the busy one");
+  assert.deepEqual(moved.list, [["Then back them up", 1, "Then rename them"]], "the other moved up to position 1 behind it");
+});

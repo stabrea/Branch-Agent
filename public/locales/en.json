@@ -5423,5 +5423,5 @@
   "task.until": "until about {time}",
   "task.with": "{words}: {reason}",
   "task.queued": "Waiting its turn",
-  "task.queued.behind": "{position} in line, behind \"{behind}\""
+  "task.queued.behind": "{words} · position {position}, behind \"{behind}\""
 }

@@ -5424,5 +5424,5 @@
   "task.until": "jusqu’à environ {time}",
   "task.with": "{words} : {reason}",
   "task.queued": "En attente de son tour",
-  "task.queued.behind": "{position} dans la file, en attente de « {behind} »"
+  "task.queued.behind": "{words} · position {position}, derrière « {behind} »"
 }

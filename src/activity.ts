@@ -248,14 +248,17 @@ export function liveActivity(store: Store, owner: string, options: { waiting?: b
   });
 }
 
+const HOLDING = new Set<TaskStateName>(["working", "waiting-owner", "waiting-service", "blocked"]);
 /**
  * Q58: pseudo-activities for queued messages waiting in a conversation's queue.
  * Each shows position (1-based), what it waits behind (running task or earlier queued message),
  * and when it was queued. Pure function: no side effects, <50 lines.
  */
 export function queuedActivity(activity: RunActivity, queued: QueuedMessage[]): RunActivity[] {
+  /* A task that works, or waits for the owner or a service, or is blocked, still holds the conversation. */
+  const holding = HOLDING.has(activity.task?.state ?? "finished");
   return queued.map((item, i) => {
-    const waitingBehind = i === 0 && activity.task?.state === "working" ? activity.prompt.slice(0, 60) : i === 0 ? "" : queued[i - 1]!.prompt.slice(0, 60);
+    const waitingBehind = i > 0 ? queued[i - 1]!.prompt.slice(0, 60) : holding ? activity.prompt.slice(0, 60) : "";
     return {
       runId: item.id, sessionId: activity.sessionId, prompt: item.prompt,
       status: "running" as const, startedAt: item.createdAt, current: null,
