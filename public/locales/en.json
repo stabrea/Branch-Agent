@@ -4790,6 +4790,8 @@
   "terminal.keys.help4": "In Settings: left and right change page, Tab changes the Models tab, Esc closes",
   "terminal.keys.help5": "PgUp and PgDn scroll the conversation · Ctrl+L draws everything again",
   "terminal.keys.line": "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves",
+  "terminal.keys.line1": "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves",
+  "terminal.keys.line2": "Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize · Ctrl+K or /: find anything",
   "terminal.keys.move": "Up and down move",
   "terminal.keys.number": "1-5 places",
   "terminal.keys.pages": "Left and right change page",
