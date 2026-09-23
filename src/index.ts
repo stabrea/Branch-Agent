@@ -139,6 +139,8 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
+import { LinuxDesktopSandbox } from "./integrations/linux-desktop.js";
+import { registerLinuxDesktop } from "./integrations/linux-desktop-tools.js";
 import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
 import { migrateFeatureSwitches } from "./feature-switch-migration.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
@@ -453,6 +455,10 @@ export async function createBranch(options: {
   const osPermissions = new OsPermissions(probeReader(() => desktop.probe()));
   desktop.permissions = osPermissions;
   registerDesktop(registry, desktop);
+  // FQ-execution.desktop: a throwaway Linux desktop of its own, drawn by Xvfb and served over VNC,
+  // which the owner may watch or take over — separate from this computer's own screen above.
+  const linuxDesktop = new LinuxDesktopSandbox(store);
+  registerLinuxDesktop(registry, linuxDesktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.
   const computer: ComputerLayers = { window: desktop };
@@ -1350,6 +1356,8 @@ export async function createBranch(options: {
     artifacts,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
+    /** FQ-execution.desktop: the shared Linux desktop the owner may watch or take over. */
+    linuxDesktop,
     /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
     osPermissions,
     /** Folders on the owner's other computers, reached with the OpenSSH client Windows already has. */
@@ -1542,6 +1550,7 @@ export async function createBranch(options: {
       await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
       await reachParts.close(); // r17-i: the relay stops asking
       safetyExtras.close(); // mac7/r17-g
+      await linuxDesktop.close().catch(() => undefined); // FQ-execution.desktop: no shared desktop outlives the app
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
