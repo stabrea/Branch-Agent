@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
+import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js";
 
 /**
  * mac7/target-guard: every tool that can name a thing the owner's rules are meant to judge must say
@@ -45,17 +46,34 @@ const TARGETLESS = {
   "labels.remove": "`target` is a kind, not a path.",
   "knowledge.search": "`filter.files` narrows results inside a knowledge base already built; nothing is read from disk.",
   "context.read": "`file` is one of eight fixed instruction files by name, not a path the caller chooses.",
+  "procedures.propose": "Proposing only saves the recipe. `preconditions[].path` is read later, by files.verify, when the recipe is verified or replayed.",
+  "specialists.propose": "Proposing only saves the specialist. `evaluation.checks[].path` is read later, by files.verify, when it is evaluated.",
   "specialists.delegate": "`checks.files` is what the specialist's answer must account for. Every tool the specialist itself runs is judged on its own, with fewer permissions.",
 };
 
-/** Every argument name a tool's JSON Schema can carry, however deeply nested. */
-function fieldNames(schema, found = new Set()) {
+/**
+ * `policyTarget` reads `url` and `path` only at the top of a call's arguments. Anywhere deeper — a
+ * step's `url` inside `steps[]` — nothing reads them, so there they name a thing like any other name.
+ */
+const READ_AT_TOP = /^(url|path)$/i;
+const NESTED = " (nested)";
+
+/**
+ * Every argument name a tool's JSON Schema can carry, however deeply nested. A `url` or `path` below
+ * the top is marked NESTED. The options of a union at the top are still the top.
+ */
+function fieldNames(schema, found = new Set(), top = true) {
   if (!schema || typeof schema !== "object") return found;
-  if (Array.isArray(schema)) { schema.forEach((one) => fieldNames(one, found)); return found; }
+  if (Array.isArray(schema)) { schema.forEach((one) => fieldNames(one, found, top)); return found; }
   for (const [key, value] of Object.entries(schema)) {
-    if (key === "properties" && value && typeof value === "object")
-      for (const name of Object.keys(value)) found.add(name);
-    fieldNames(value, found);
+    if (key === "properties" && value && typeof value === "object") {
+      for (const [name, inner] of Object.entries(value)) {
+        found.add(!top && READ_AT_TOP.test(name) ? name + NESTED : name);
+        fieldNames(inner, found, false);
+      }
+      continue;
+    }
+    fieldNames(value, found, top && ["anyOf", "oneOf", "allOf"].includes(key));
   }
   return found;
 }
@@ -81,7 +99,7 @@ function offendersIn(app) {
     const says = app.registry.declaresTarget(name);
     if (says.target || says.targets) continue;
     if (Object.hasOwn(TARGETLESS, name)) continue;
-    const named = [...fieldNames(described.get(name) ?? {})].filter((field) => NAMES_A_THING.test(field));
+    const named = [...fieldNames(described.get(name) ?? {})].filter((field) => NAMES_A_THING.test(field) || field.endsWith(NESTED));
     if (named.length) offenders.push(`${name}: names ${named.join(", ")} and says nothing about what it touches`);
   }
   return offenders.sort();
@@ -115,6 +133,38 @@ test("the guard catches a new tool that names paths and says nothing", async (t)
     app.registry.remove?.("fake.sweep");
   }
   assert.deepEqual(offendersIn(app), [], "the stand-in was not taken away again");
+});
+
+/**
+ * FQ-execution.browser review: `policyTarget` reads only a `url` at the top of the arguments, so a
+ * tool whose `url` sits inside `steps[]` was judged with an empty target and the guard waved it
+ * through, because it skipped every `url` wherever it was.
+ */
+test("the guard catches a new tool whose steps name a url and says nothing", async (t) => {
+  const app = await branch(t);
+  app.registry.register({
+    name: "fake.journey", description: "A stand-in that opens several pages and says nothing about them.",
+    permission: "browser.interact",
+    parameters: z.object({ steps: z.array(z.object({ url: z.string().url() })).max(5) }),
+    execute: async () => ({}),
+  });
+  try {
+    const caught = offendersIn(app);
+    assert.ok(caught.some((one) => one.startsWith("fake.journey:")),
+      `the guard did not catch a url inside steps[]: ${JSON.stringify(caught)}`);
+  } finally {
+    app.registry.remove?.("fake.journey");
+  }
+});
+
+/** The browser's tools are only registered when a browser is configured, so the first test never saw them. */
+test("every browser tool, browser.flow among them, says what it touches", async (t) => {
+  const app = await branch(t);
+  const browser = new BranchBrowser({ allowedOrigins: ["https://example.com"] });
+  t.after(() => browser.close());
+  registerBrowser(app.registry, browser);
+  assert.ok(app.registry.names().includes("browser.flow"));
+  assert.deepEqual(offendersIn(app), [], "a browser tool would be judged against an empty target");
 });
 
 /** A tool that DOES say what it touches must not be reported, or the guard is just noise. */

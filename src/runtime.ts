@@ -711,6 +711,27 @@ export class Runtime {
       throw error;
     }
   }
+  /**
+   * FQ-execution.browser (`ToolRegistry.judgeStep`): one step a tool takes on its own, judged exactly
+   * as the model calling `tool` would be — the same rules, the same kept yeses, bound to the step's
+   * own bytes — at `target` when the step says where it will be. A refusal or a question is thrown.
+   */
+  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string): void {
+    const at = target === undefined ? undefined : { target };
+    const host = { store: this.store, owner: this.owner, guards: this.guards,
+      checkPolicy: (name: string, sent: unknown, c: ToolContext, fingerprint?: string) => this.checkPolicy(name, sent, c, fingerprint, at),
+      permissionOf: (name: string) => this.permissionOf(name),
+      wallFor: (name: string, sent: unknown, c: ToolContext, choice: PolicyCheck["sandbox"]) => this.wallFor(name, sent, c, choice) };
+    try {
+      gateToolUse(host, tool, args, context, argumentFingerprint(JSON.stringify(args ?? {})));
+    } catch (error) {
+      const kind = error instanceof ApprovalRequiredError ? "policy.ask" : "policy.denied";
+      // Written on the task's record; a call run with no task behind it has no record to write on.
+      if (this.store.run(context.runId))
+        this.store.event(context.runId, kind, { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
+      throw error;
+    }
+  }
   async delegate(
     prompt: string,
     parent: ToolContext,
@@ -2451,12 +2472,13 @@ ${run.output.slice(0, 6000)}`;
    * account. The same reckoning a model's turn goes through, for the places that are not one: a
    * saved workflow's tool step, and every step of a procedure being replayed.
    */
-  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string, at?: { target: string }): PolicyCheck {
     // hardening-3: judged as the tool will run it (the same schema, the same names), whatever the caller passed.
     const args = this.registry.runArgs(tool, sent);
     const permission = this.registry.permissionOf(tool);
     const readOnly = isReadOnlyPermission(permission);
-    const target = this.registry.targetOf(tool, args, context);
+    // FQ-execution.browser: a step judged ahead of the steps before it says where it will be (`judgeStep`).
+    const target = at?.target ?? this.registry.targetOf(tool, args, context);
     const label = describeToolCall(tool, args);
     const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the

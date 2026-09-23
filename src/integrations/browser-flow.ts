@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import type { ToolContext } from '../contracts.js';
+import type { ToolContext, ToolTarget } from '../contracts.js';
 import type { ToolRegistry } from '../registry.js';
-import { ScreenshotSchema } from './browser-page.js';
+import { ScreenshotSchema, WaitSchema } from './browser-page.js';
+import type { DialogRecord, DownloadRecord } from './browser-session.js';
 
 /**
  * FQ-execution.browser: one page or action, as a step in a `browser.flow`. Kept small on purpose —
@@ -25,16 +26,21 @@ export const FlowSchema = z.object({
   fullPage: z.boolean().default(false),
 }).strict().superRefine((value, ctx) => {
   // Kept as a separate pass, not a `.refine` on the step itself: `discriminatedUnion` needs each
-  // option to stay a plain `ZodObject` so it can read the discriminator off its shape.
+  // option to stay a plain `ZodObject` so it can read the discriminator off its shape. A wait step
+  // is held to `browser.wait`'s own rule, so the two can never say different things.
   value.steps.forEach((step, index) => {
-    if (step.action === 'wait' && !step.text && !step.selector && !step.networkIdle)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['steps', index],
-        message: 'Say what to wait for: some text, a selector, or networkIdle' });
+    if (step.action !== 'wait') return;
+    const checked = WaitSchema.safeParse(toolCall(step).args);
+    if (!checked.success) for (const issue of checked.error.issues)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['steps', index], message: issue.message });
   });
 });
 
+/** What a page did on its own while a step ran: message boxes answered and files it sent. */
+interface PageEvents { messageBoxes?: DialogRecord[]; downloads?: DownloadRecord[] }
+
 /** One step's report: what it did, the page it left the browser on, and the picture kept of it. */
-export interface FlowStepReport {
+export interface FlowStepReport extends PageEvents {
   step: number;
   action: FlowStep['action'];
   url: string;
@@ -43,21 +49,79 @@ export interface FlowStepReport {
 
 /** What the browser tool lends the flow runner: its own actions, called one after another. */
 export interface FlowHost {
-  navigate(url: string, context: ToolContext): Promise<{ url: string; title: string }>;
-  click(role: 'button' | 'link', name: string, context: ToolContext): Promise<{ url: string; clicked: string }>;
-  fill(label: string, value: string, context: ToolContext): Promise<{ filled: string }>;
+  navigate(url: string, context: ToolContext): Promise<{ url: string; title: string } & PageEvents>;
+  click(role: 'button' | 'link', name: string, context: ToolContext): Promise<{ url: string; clicked: string } & PageEvents>;
+  fill(label: string, value: string, context: ToolContext): Promise<{ filled: string } & PageEvents>;
   wait(options: { text?: string | undefined; selector?: string | undefined; networkIdle?: boolean | undefined; timeoutMs: number },
-    context: ToolContext): Promise<{ waitedFor: string; url: string }>;
+    context: ToolContext): Promise<{ waitedFor: string; url: string } & PageEvents>;
   screenshot(options: z.infer<typeof ScreenshotSchema>, context: ToolContext):
-    Promise<{ path: string; bytes: number; sha256: string; mediaType: string; url: string }>;
+    Promise<{ path: string; bytes: number; sha256: string; mediaType: string; url: string } & PageEvents>;
+  /** Whether the window may open this address at all (the website list and the network policy). */
+  checkAddress(url: string, context: ToolContext): Promise<void>;
+  /** The website the window is on right now, as the single-step tools are judged on. */
+  hostFor(context: ToolContext): string;
+}
+
+/** The single-step tool a step stands for, with the arguments that tool would be called with. */
+function toolCall(step: FlowStep): { tool: string; args: Record<string, unknown> } {
+  const { action, ...args } = step;
+  return { tool: `browser.${action}`, args };
+}
+
+/**
+ * Where each step will be when it runs: only opening a page moves the window to another website
+ * (`BranchBrowser.navigate` sets the host a click or a fill is judged on), so a step is on the host
+ * of the last page the flow opened before it, or on the one the window is on now.
+ */
+function stepHosts(steps: readonly FlowStep[], current: string): string[] {
+  let host = current;
+  return steps.map(step => {
+    if (step.action === 'navigate') host = new URL(step.url).host;
+    return host;
+  });
+}
+
+/** Every website the flow opens or acts on, for the rules that judge `browser.flow` as a whole. */
+export function flowTargets(input: z.infer<typeof FlowSchema>, current: string): ToolTarget[] {
+  const hosts = stepHosts(input.steps, current);
+  return input.steps.flatMap((step, index): ToolTarget[] => {
+    if (step.action === 'navigate') return [{ kind: 'read', url: step.url }];
+    if (step.action === 'wait' || !hosts[index]) return [];
+    return [{ kind: 'write', url: `https://${hosts[index]}/` }];
+  });
+}
+
+/**
+ * Every step judged before the first one runs, each as the single-step tool it stands for — the
+ * same rules, the same questions, the same network policy as `browser.navigate`, `browser.click`,
+ * `browser.fill` and `browser.wait` — so a refusal or a question stops the flow before anything is
+ * done, and a yes followed by trying again never does an earlier step twice.
+ */
+async function judgeFlow(registry: ToolRegistry, host: FlowHost, input: z.infer<typeof FlowSchema>,
+  context: ToolContext): Promise<void> {
+  const hosts = stepHosts(input.steps, host.hostFor(context));
+  for (const [index, step] of input.steps.entries()) {
+    const { tool, args } = toolCall(step);
+    const moved = step.action === 'click' || step.action === 'fill';
+    registry.judgeStep?.(tool, args, context, moved ? hosts[index] : undefined);
+    if (step.action === 'navigate') await host.checkAddress(step.url, context);
+  }
+  registry.judgeStep?.('browser.screenshot', { fullPage: input.fullPage }, context);
 }
 
 /** Runs one step; the picture that follows it, in `runFlow`, is what reads the page it landed on. */
-async function runStep(host: FlowHost, step: FlowStep, context: ToolContext): Promise<void> {
-  if (step.action === 'navigate') { await host.navigate(step.url, context); return; }
-  if (step.action === 'click') { await host.click(step.role, step.name, context); return; }
-  if (step.action === 'fill') { await host.fill(step.label, step.value, context); return; }
-  await host.wait(step, context);
+async function runStep(host: FlowHost, step: FlowStep, context: ToolContext): Promise<PageEvents> {
+  if (step.action === 'navigate') return host.navigate(step.url, context);
+  if (step.action === 'click') return host.click(step.role, step.name, context);
+  if (step.action === 'fill') return host.fill(step.label, step.value, context);
+  return host.wait(step, context);
+}
+
+/** The message boxes and files of a step and of the picture after it; either can be the one that saw them. */
+function pageEvents(...seen: PageEvents[]): PageEvents {
+  const messageBoxes = seen.flatMap(one => one.messageBoxes ?? []);
+  const downloads = seen.flatMap(one => one.downloads ?? []);
+  return { ...(messageBoxes.length ? { messageBoxes } : {}), ...(downloads.length ? { downloads } : {}) };
 }
 
 /**
@@ -68,16 +132,17 @@ async function runStep(host: FlowHost, step: FlowStep, context: ToolContext): Pr
  * navigate/click/screenshot by hand for every page: the owner asks for the journey once and gets
  * back a picture of each step of it, proof that the session carried rather than a claim that it did.
  */
-export async function runFlow(host: FlowHost, input: z.infer<typeof FlowSchema>, context: ToolContext):
-  Promise<{ steps: FlowStepReport[]; pages: number }> {
+export async function runFlow(registry: ToolRegistry, host: FlowHost, input: z.infer<typeof FlowSchema>,
+  context: ToolContext): Promise<{ steps: FlowStepReport[]; pages: number }> {
+  await judgeFlow(registry, host, input, context);
   const steps: FlowStepReport[] = [];
   const seen = new Set<string>();
   for (const [index, step] of input.steps.entries()) {
-    await runStep(host, step, context);
+    const done = await runStep(host, step, context);
     const picture = await host.screenshot({ fullPage: input.fullPage }, context);
     seen.add(picture.url);
     steps.push({ step: index + 1, action: step.action, url: picture.url,
-      screenshot: { path: picture.path, bytes: picture.bytes, sha256: picture.sha256 } });
+      screenshot: { path: picture.path, bytes: picture.bytes, sha256: picture.sha256 }, ...pageEvents(done, picture) });
   }
   return { steps, pages: seen.size };
 }
@@ -90,6 +155,7 @@ export function registerBrowserFlow(registry: ToolRegistry, host: FlowHost): voi
       + 'from page to page. Use this for a journey across more than one page instead of calling '
       + 'navigate/click/screenshot by hand for each one.',
     parameters: FlowSchema,
-    execute: (input, context) => runFlow(host, input, context),
+    targets: (input, context) => flowTargets(input, host.hostFor(context)),
+    execute: (input, context) => runFlow(registry, host, input, context),
   });
 }

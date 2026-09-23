@@ -238,6 +238,13 @@ export class ToolRegistry {
   afterTool?: (name: string, args: unknown, result: unknown, context: ToolContext) => Promise<unknown>;
   /** mac7/r17-d (src/coding/large-output.ts): a replacement for an answer over 64 KiB, or undefined to refuse it. */
   oversized?: (name: string, result: unknown, context: ToolContext) => unknown;
+  /**
+   * FQ-execution.browser: judges one step a tool takes on its own (a `browser.flow` click) as if the
+   * model had called `tool` itself, with `target` when the step's target is not the one `targetOf`
+   * would read right now. Throws `PolicyRefusedError` or `ApprovalRequiredError`. Set by the app;
+   * a bare registry judges no call at all, so it judges no step either.
+   */
+  judgeStep?: (tool: string, args: unknown, context: ToolContext, target?: string) => void;
 }
 
 /**
