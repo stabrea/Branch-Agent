@@ -671,6 +671,15 @@ function showSettingsPage(id) {
   if (id === "data") void globalThis.branchUsage?.render().then(() => globalThis.branchAllowed?.render());
   if (id === "appearance") drawLookControls();
 }
+/** A card's own words: not what Settings adds to it, such as the "N more with Advanced" line (DG-073). */
+function wordsOf(card) {
+  if (!card.querySelector("[data-no-search]")) return card.textContent;
+  const walk = document.createTreeWalker(card, NodeFilter.SHOW_TEXT,
+    { acceptNode: (text) => text.parentElement?.closest("[data-no-search]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  let words = "";
+  while (walk.nextNode()) words += walk.currentNode.nodeValue;
+  return words;
+}
 /** Search reads every card's own words, so it finds a setting by what it says, not by where it sits. */
 function searchSettings(query) {
   const needle = query.trim().toLowerCase();
@@ -679,7 +688,7 @@ function searchSettings(query) {
   for (const page of document.querySelectorAll(".lx-page")) {
     let hits = 0;
     for (const card of page.querySelectorAll(".lx-subpanel > *, .lx-page > *:not(.lx-page-title):not(.lx-page-intro):not(.lx-subtabs):not(.lx-subpanel)")) {
-      const match = !needle || card.textContent.toLowerCase().includes(needle);
+      const match = !needle || wordsOf(card).toLowerCase().includes(needle);
       card.classList.toggle("lx-miss", !match);
       if (match && needle) hits += 1;
     }

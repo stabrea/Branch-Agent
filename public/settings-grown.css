@@ -188,17 +188,28 @@
 .sg-head-line {
   display: none;
 }
+/* DG-073: the sample's link at the end of a section (design/Branch-Grown-Up.html, `.bk-lv .linkish`): 14px, the
+   body's weight, copper text, underlined. Every level shows while searching, so it has nothing to offer then. */
+.sg-more-line {
+  margin: 4px 0 0;
+}
+.sg-head > .sg-more-line {
+  margin: 0;
+}
+.lx-settings-searching .sg-more-line {
+  display: none;
+}
 .sg-more {
   flex: none;
-  margin-left: auto;
   padding: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: var(--accent);
-  font-size: 12.5px;
-  font-weight: 560;
+  color: var(--copper-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
   white-space: nowrap;
   text-decoration: underline;
 }
@@ -391,10 +402,9 @@
     width: 32px;
     height: 32px;
   }
-  .sg-more {
+  .sg-head > .sg-more-line {
     grid-column: 1;
     justify-self: start;
-    margin-left: 0;
   }
 }
 /* A phone: the search and the page each get a whole row, so neither is cut short. */
