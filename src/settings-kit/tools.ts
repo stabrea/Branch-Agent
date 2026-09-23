@@ -7,6 +7,8 @@ import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./
 import { applyWithPins, changesFor, currentValue, type Change, type Proposal, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
 import type { ChangeOrigin } from "./history.js";
+import { planUndo, undoSettingsChange, whySetting } from "./undo.js"; // Q49
+import { lockedDown } from "../lockdown.js";
 
 /**
  * Changing Branch's own settings by asking for it: "turn the wake word on", "switch off the learning
@@ -21,6 +23,10 @@ import type { ChangeOrigin } from "./history.js";
  *   - `settings.loosen` is the only way to make a change that leaves Branch less careful or lets it
  *     reach further. It is asked about every time, a yes is never kept, and the model cannot answer
  *     it: the question goes to the owner. `settings.change` refuses such a change and says so.
+ *   - Q49: `settings.why` says who or what last set one setting, from the change records only, and
+ *     `settings.undo` puts back one recorded change, asked about first like `settings.change`. An
+ *     undo that would leave Branch less careful is refused: that is the owner's, on the Recent
+ *     changes card, because the question the owner is shown names only the record, not what it loosens.
  *
  * Every write goes through the same path as the window's presets and settings file (`applyWithPins`,
  * with the same writers), so pins, the audit record and the tools a switch adds or removes all follow.
@@ -29,15 +35,17 @@ import type { ChangeOrigin } from "./history.js";
  * before anything is read.
  */
 
-export const settingsToolNames = ["settings.list", "settings.change", "settings.loosen"] as const;
+export const settingsToolNames = ["settings.list", "settings.change", "settings.loosen", "settings.why", "settings.undo"] as const;
 
 const changeReason = "Branch asks before it changes its own settings";
+const undoReason = "Branch asks before it undoes a change to its own settings";
 const loosenReason = "This makes Branch less careful, so it is asked about every time";
 
 /** Why a settings tool call must be put to the owner whatever the rules say, or null. */
 export function settingsHold(tool: string): { reason: string; onceOnly: boolean } | null {
   if (tool === "settings.loosen") return { reason: loosenReason, onceOnly: true };
   if (tool === "settings.change") return { reason: changeReason, onceOnly: false };
+  if (tool === "settings.undo") return { reason: undoReason, onceOnly: false };
   return null;
 }
 
@@ -173,6 +181,36 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
   };
 }
 
+const WhySchema = z.object({ setting: z.string().trim().min(3).max(160) }).strict();
+const UndoSchema = z.object({ record: z.string().trim().min(1).max(80) }).strict();
+
+/** Q49: "why is this on?", answered from the change records only. */
+function whyTool(store: Store) {
+  return async (input: z.infer<typeof WhySchema>, context: ToolContext) => {
+    ownerHere(store, context);
+    const answer = whySetting(store, context.owner, input.setting);
+    if (!answer) throw new Error(`"${input.setting}" is not a setting. Use the name settings.list gives, such as wake-word.mode.`);
+    return answer;
+  };
+}
+
+/** Q49: undoing one recorded change, never one that would leave Branch less careful. */
+function undoTool(store: Store, writers: () => Record<string, Writer>) {
+  return async (input: z.infer<typeof UndoSchema>, context: ToolContext) => {
+    ownerHere(store, context);
+    if (lockedDown(store, context.owner)) throw new Error("Lockdown is on, so settings cannot be changed. Turn it off first.");
+    const { changes } = planUndo(store, context.owner, input.record);
+    const loose = changes.filter((change) => change.loosens);
+    if (loose.length)
+      throw new Error(`Undoing this would make Branch less careful: ${loose.map(said).join("; ")}. Only the owner can do that, on the Recent changes card in Settings.`);
+    if (context.dryRun) return { wouldPutBack: changes.map(said) };
+    const asked = talked(store, context);
+    const done = undoSettingsChange(store, context.owner, input.record, { confirmLoosening: false, writers: writers(),
+      by: { writer: asked.writer, runId: asked.runId, sessionId: asked.sessionId } });
+    return { putBack: done.applied.map(said), record: done.record };
+  };
+}
+
 export function registerSettingsTools(registry: ToolRegistry, store: Store, writers: () => Record<string, Writer>): void {
   registry.register({
     name: "settings.list", permission: "settings.read",
@@ -194,5 +232,19 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
     execute: changeTool(true, store, writers),
+  });
+  registry.register({
+    name: "settings.why", permission: "settings.read",
+    description: "Say who or what last set one of Branch's own settings (by the name settings.list gives, such as wake-word.mode), and when: the owner in Settings, a preset, a settings file, a conversation, a typed command, or nothing that kept a record. The answer carries the change's record id, which settings.undo takes.",
+    parameters: WhySchema,
+    target: () => "Branch's own settings",
+    execute: whyTool(store),
+  });
+  registry.register({
+    name: "settings.undo", permission: "settings.write",
+    description: "Undo one recorded change to Branch's own settings, by the record id settings.why gives, putting back exactly what each setting was before. The owner is asked first. It is refused as a whole if a setting was changed again since, is pinned, or if undoing would make Branch less careful; the owner does that one on the Recent changes card.",
+    parameters: UndoSchema,
+    target: (input: z.infer<typeof UndoSchema>) => `undo the settings change ${input.record}`.slice(0, 120),
+    execute: undoTool(store, writers),
   });
 }

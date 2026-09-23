@@ -265,3 +265,45 @@ test("an assistant file and --save-preset are recorded; a --preset for one task 
   assert.equal(typed.kind, "recorded", typed.words);
   assert.deepEqual([typed.record.writer, typed.record.source, typed.record.detail], ["owner-by-command", "command", "/switch vim"]);
 });
+
+test("in a conversation, settings.why says who set a setting and settings.undo puts one change back, never a loosening one", async (t) => {
+  const { app, owner, ask, values, preset } = await fixture(t);
+  const { settingsHold } = await import("../dist/settings-kit/tools.js");
+  const { setLockdown } = await import("../dist/lockdown.js");
+  const as = (start = { source: "owner" }) => {
+    const run = app.store.createRun(owner, "about a setting");
+    app.store.event(run.id, "run.started", start);
+    return app.runtime.context({ runId: run.id, source: start.source ?? "owner" });
+  };
+  const run = (name, args, context = as()) => app.registry.execute(name, args, context);
+  assert.equal(settingsHold("settings.why"), null, "asking why is free");
+  assert.deepEqual(settingsHold("settings.undo"), { reason: "Branch asks before it undoes a change to its own settings", onceOnly: false });
+
+  const talked = as();
+  await run("settings.change", { changes: [{ setting: "fly-core.mode", value: "on" }] }, talked);
+  const answer = await run("settings.why", { setting: "fly-core.mode" });
+  assert.equal(answer.kind, "recorded");
+  assert.equal(answer.record.writer, "conversation");
+  assert.equal(answer.record.runId, talked.runId);
+  await assert.rejects(run("settings.why", { setting: "secrets.value" }), /not a setting/);
+  await assert.rejects(run("settings.undo", { record: answer.record.id }, as({ source: "channel" })), /chat app/);
+  assert.deepEqual(await run("settings.undo", { record: answer.record.id }, { ...as(), dryRun: true }), { wouldPutBack: ["What Branch learns from experience, Switch: on → off"] });
+  assert.equal((await values())["fly-core.mode"], "on", "a dry run wrote something");
+
+  setLockdown(app.store, owner, { on: true });
+  await assert.rejects(run("settings.undo", { record: answer.record.id }), /Lockdown is on/);
+  setLockdown(app.store, owner, { on: false });
+
+  const undoing = as();
+  const done = await run("settings.undo", { record: answer.record.id }, undoing);
+  assert.deepEqual(done.putBack, ["What Branch learns from experience, Switch: on → off"]);
+  assert.equal((await values())["fly-core.mode"], "off");
+  const undo = (await ask("GET", "/api/settings-kit/history")).records[0];
+  assert.deepEqual([undo.id, undo.writer, undo.source, undo.undoes, undo.runId], [done.record, "conversation", "undo", answer.record.id, undoing.runId]);
+
+  // Undoing a preset that made Branch more careful would loosen it again: that is the owner's, at the card.
+  const careful = await preset("private");
+  const before = await values();
+  await assert.rejects(run("settings.undo", { record: careful.record }), /less careful.*Recent changes card/);
+  assert.deepEqual(await values(), before, "a refused undo changed something");
+});

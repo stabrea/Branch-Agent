@@ -1,7 +1,7 @@
 import type { Store } from "../store.js";
 import { specFor } from "./catalogue.js";
 import { applyWithPins, changesFor, currentValue, type Change, type Value, type Writer } from "./changes.js";
-import { lastChangeOf, settingsHistory, type ChangeRecord } from "./history.js";
+import { lastChangeOf, settingsHistory, type ChangeOrigin, type ChangeRecord } from "./history.js";
 
 /**
  * Q48 and Q49: undoing one recorded change, and saying why a setting is as it is. Both read the
@@ -45,15 +45,16 @@ function undoRefusal(store: Store, owner: string, record: ChangeRecord, records:
 export interface UndoChoice {
   confirmLoosening: boolean;
   writers?: Record<string, Writer> | undefined;
+  /** Q49: who asked for the undo; the owner in the window unless said otherwise. */
+  by?: Pick<ChangeOrigin, "writer" | "runId" | "sessionId"> | undefined;
 }
 
 /**
- * Puts back exactly the recorded before-values of one change, as a new change of its own through
- * the same path every change takes: pins, the separate yes for anything less careful, the setting's
- * own save, the audit record and a change record. It is all or nothing: a setting that changed
- * again since, a pinned setting or a missing yes refuses the whole undo before anything is written.
+ * What undoing one recorded change would write, worked out and checked without writing anything:
+ * a missing or already undone record, a setting changed again since, a refused value or a pinned
+ * setting refuses the whole undo here.
  */
-export function undoSettingsChange(store: Store, owner: string, id: string, choice: UndoChoice): { applied: Change[]; record: string | null } {
+export function planUndo(store: Store, owner: string, id: string): { record: ChangeRecord; changes: Change[] } {
   const records = settingsHistory(store, owner);
   const record = records.find((entry) => entry.id === id);
   if (!record) throw new UndoRefused(404, "There is no such change to undo.");
@@ -68,11 +69,23 @@ export function undoSettingsChange(store: Store, owner: string, id: string, choi
   const pinned = changes.filter((change) => change.pinned);
   if (pinned.length)
     throw new UndoRefused(409, `It cannot be put back while ${pinned.map((change) => `${change.name}: ${change.label}`).join(", ")} is pinned. Unpin it first.`);
+  return { record, changes };
+}
+
+/**
+ * Puts back exactly the recorded before-values of one change, as a new change of its own through
+ * the same path every change takes: pins, the separate yes for anything less careful, the setting's
+ * own save, the audit record and a change record. It is all or nothing: a setting that changed
+ * again since, a pinned setting or a missing yes refuses the whole undo before anything is written.
+ */
+export function undoSettingsChange(store: Store, owner: string, id: string, choice: UndoChoice): { applied: Change[]; record: string | null } {
+  const { record, changes } = planUndo(store, owner, id);
+  const by = choice.by ?? { writer: "owner-in-window" };
   try {
     const done = applyWithPins(store, owner, changes, {
       accept: changes.map((change) => change.id), confirmLoosening: choice.confirmLoosening,
       why: `undo of a change made ${record.at}`, pinnedAllowed: false, writers: choice.writers,
-      record: { writer: "owner-in-window", source: "undo", detail: record.id, undoes: record.id },
+      record: { ...by, source: "undo", detail: record.id, undoes: record.id },
     });
     return { applied: done.applied, record: done.record ?? null };
   } catch (error) { throw new UndoRefused(409, (error as Error).message); }
