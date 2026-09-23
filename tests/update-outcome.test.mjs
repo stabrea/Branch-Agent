@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { Updater } from "../dist/desktop/updater.js";
 import { ActivationJournal, lastActivation, settleActivation } from "../dist/never-break/activation.js";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 
 const repo = "stabrea/Branch-Agent", name = "Branch-Agent-windows-x64.zip", tag = "v9.9.9";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -116,7 +118,8 @@ test("the newest activation is read without writing, and an unconfirmed update s
   const dataDir = await mkdtemp(join(tmpdir(), "branch-update-outcome-"));
   t.after(() => discardTemp(dataDir));
   const path = join(dataDir, "activation.sqlite");
-  assert.equal(lastActivation(dataDir), null, "nothing recorded");
+  const thisStart = new Date(Date.now() - 1000);
+  assert.equal(lastActivation(dataDir, thisStart), null, "nothing recorded");
   assert.equal(existsSync(path), false, "and no journal is created by looking");
   const journal = new ActivationJournal(path);
   const entry = { kind: "update", target: join(dataDir, "app"), previous: null, candidate: null, launcher: null,
@@ -125,5 +128,55 @@ test("the newest activation is read without writing, and an unconfirmed update s
   journal.stage({ ...entry, fromVersion: "0.19.3", toVersion: "9.9.9" });
   journal.close();
   assert.equal(settleActivation(path, "0.19.3"), "failed");
-  assert.deepEqual(lastActivation(dataDir), { kind: "update", fromVersion: "0.19.3", toVersion: "9.9.9", state: "failed" });
+  assert.deepEqual(lastActivation(dataDir, thisStart), { kind: "update", fromVersion: "0.19.3", toVersion: "9.9.9", state: "failed" });
+});
+
+/** A journal whose newest update never landed, settled as failed by the start that followed it. */
+async function failedUpdate(t) {
+  const dataDir = await mkdtemp(join(tmpdir(), "branch-update-outcome-"));
+  t.after(() => discardTemp(dataDir));
+  const journal = new ActivationJournal(join(dataDir, "activation.sqlite"));
+  const entry = { kind: "update", target: join(dataDir, "app"), previous: null, candidate: null, launcher: null,
+    executableName: "Branch Agent.exe", understood: 1, databases: [], backups: [] };
+  journal.stage({ ...entry, fromVersion: "0.19.3", toVersion: "9.9.9" });
+  journal.close();
+  assert.equal(settleActivation(join(dataDir, "activation.sqlite"), "0.19.3"), "failed");
+  return { dataDir, entry };
+}
+
+test("a failed update is not repeated by a later start", async (t) => {
+  const { dataDir } = await failedUpdate(t);
+  // The start that settled it says so; a start that began after it was settled does not.
+  assert.equal(lastActivation(dataDir, new Date(Date.now() - 60_000))?.state, "failed");
+  assert.equal(lastActivation(dataDir, new Date(Date.now() + 60_000)), null);
+});
+
+test("a later update that landed takes the failed one's place", async (t) => {
+  const { dataDir, entry } = await failedUpdate(t);
+  const journal = new ActivationJournal(join(dataDir, "activation.sqlite"));
+  journal.activated(journal.stage({ ...entry, fromVersion: "0.19.3", toVersion: "9.9.10" }));
+  journal.close();
+  assert.deepEqual(lastActivation(dataDir, new Date(Date.now() - 60_000)), { kind: "update", fromVersion: "0.19.3", toVersion: "9.9.10", state: "activated" });
+});
+
+test("what the last update did is the owner's alone: a household person and a short-lived key are refused", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-update-outcome-"));
+  const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json", origin: server.url };
+  const call = async (method, path, body) => {
+    const response = await fetch(server.url + path, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  };
+  assert.deepEqual(await call("GET", "/api/never-break/last-update"), { status: 200, body: { last: null } });
+  const person = (await call("POST", "/api/profiles", { name: "Sam", pin: "4321" })).body;
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: person.id, pin: "4321" })).status, 200);
+  const refused = await call("GET", "/api/never-break/last-update");
+  assert.notEqual(refused.status, 200);
+  assert.match(refused.body.error, /belongs to the owner/);
+  const key = app.sessionTokens.create(app.runtime.owner, { name: "wall", scope: "read", minutes: 5 }).token;
+  const byKey = await fetch(server.url + "/api/never-break/last-update", { headers: { authorization: `Bearer ${key}` } });
+  assert.equal(byKey.status, 401, "a short-lived key is refused too");
 });

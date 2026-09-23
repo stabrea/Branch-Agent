@@ -698,7 +698,7 @@ export const ROUTES = {
   "/api/move-in/switch": "owner POST",
   "/api/never-break": "owner POST",
   "/api/never-break/": "prefix",
-  "/api/never-break/last-update": "look",
+  "/api/never-break/last-update": "secret-read", // Q55: what the owner's last update did is the owner's alone
   "/api/never-break/proposal/accept": "owner POST",
   "/api/never-break/proposal/discard": "owner POST",
   "/api/never-break/snapshot": "owner POST",
