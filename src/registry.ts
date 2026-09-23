@@ -241,10 +241,20 @@ export class ToolRegistry {
   /**
    * FQ-execution.browser: judges one step a tool takes on its own (a `browser.flow` click) as if the
    * model had called `tool` itself, with `target` when the step's target is not the one `targetOf`
-   * would read right now. Throws `PolicyRefusedError` or `ApprovalRequiredError`. Set by the app;
+   * would read right now. Returns the step fingerprint if a once-only overrule was used to skip an
+   * approval question, undefined if the step passed without a question, and throws `PolicyRefusedError`
+   * if a rule refused the step. Throws `ApprovalRequiredError` if the step asks a question and no
+   * overrule exists (the flow cannot proceed until the question is answered). Set by the app;
    * a bare registry judges no call at all, so it judges no step either.
    */
-  judgeStep?: (tool: string, args: unknown, context: ToolContext, target?: string, index?: number) => void;
+  judgeStep?: (tool: string, args: unknown, context: ToolContext, target?: string, index?: number) => string | undefined;
+  /**
+   * FQ-execution.browser: consumes (takes) the one-time overrules used by a flow's steps, after all
+   * steps have passed judgment and before any step runs. The runtime implements this to complete the
+   * approval lifecycle. If not provided, overrules are not consumed. Called with the fingerprints
+   * returned by judgeStep calls.
+   */
+  takeStepYeses?: (fingerprints: string[], context: ToolContext) => void;
 }
 
 /**

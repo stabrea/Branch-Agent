@@ -234,7 +234,7 @@ test('(d) a flow step consumes its "Yes, just now" overrule and a retry then run
   state.model.click = {role: 'link', name: 'Next'};
 
   // First call asks about the flow step (the click on docs.example.com).
-  const first = await turn(state, docs, 'flow-overrule');
+  const first = await turn(state, docs);
   assert.equal(first.status, 'needs_input');
   const asked = waitingIn(state, first);
   assert.equal(asked.tool, 'browser.flow');
@@ -271,7 +271,7 @@ test('(d2) a yes for a flow step on shop.example.com does not cover the same cli
   addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
 
   // First flow is on shop.example.com
-  const first = await turn(state, shop, 'cross-host');
+  const first = await turn(state, shop);
   assert.equal(first.status, 'needs_input');
   const asked = waitingIn(state, first);
   assert.equal(asked.target, 'shop.example.com');
@@ -291,4 +291,132 @@ test('(d2) a yes for a flow step on shop.example.com does not cover the same cli
   const docsAsked = waitingIn(state, third);
   assert.equal(docsAsked.target, 'docs.example.com');
   assert.deepEqual(state.did, [], 'nothing on the docs site ran');
+});
+
+test('(b) running the same flow again afterward asks again, because the "Yes, just now" was consumed', async (t) => {
+  const state = await harness(t, 'flow-consumed-yes');
+  state.model = dualModel();
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.click', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+
+  state.model.click = {role: 'link', name: 'Next'};
+
+  // First call asks about the flow.
+  const first = await turn(state, docs);
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+
+  // User says "Yes, just now".
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: the flow should run.
+  state.did.length = 0;
+  const second = await turn(state, docs, first.sessionId);
+  assert.equal(second.status, 'completed', 'flow runs after "Yes, just now"');
+  assert.deepEqual(state.did, ['navigate https://docs.example.com/guide', 'click Next on docs.example.com']);
+
+  // Fourth call: run the same flow again in the same conversation.
+  // The yes should have been consumed, so it should ask again.
+  state.did.length = 0;
+  const fourth = await turn(state, docs, first.sessionId);
+  assert.equal(fourth.status, 'needs_input', 'the same flow asks again after the yes was consumed');
+  const askedAgain = waitingIn(state, fourth);
+  assert.equal(askedAgain.tool, 'browser.flow');
+  assert.equal(askedAgain.target, 'docs.example.com');
+  assert.deepEqual(state.did, [], 'nothing ran before the question');
+});
+
+test('(d) after the "Yes, just now", a deny rule or Lockdown makes the retry refuse, not run', async (t) => {
+  const state = await harness(t, 'flow-lockdown-after-yes');
+  state.model = dualModel();
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.click', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+
+  state.model.click = {role: 'link', name: 'Next'};
+
+  // First call asks about the flow.
+  const first = await turn(state, docs);
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+
+  // User says "Yes, just now".
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Before retry, add a deny rule for browser.click.
+  addPolicyRule(store, runtime.owner, {tool: 'browser.click', match: 'docs.example.com', decision: 'deny', remember: 'always'});
+
+  // Retry: should refuse the click, not run it.
+  state.did.length = 0;
+  await assert.rejects(turn(state, docs, first.sessionId), (error) => {
+    assert.equal(error.name, 'PolicyRefusedError');
+    assert.equal(error.tool, 'browser.click');
+    return true;
+  }, 'a deny rule refuses the step even after "Yes, just now"');
+  assert.deepEqual(state.did, [], 'nothing ran; the step was judged before running');
+});
+
+test('(e) when flow step 1 has a yes but step 2 asks: nothing runs, step 1 yes not consumed, so after answering step 2, both run', async (t) => {
+  const state = await harness(t, 'flow-partial-overrule');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+
+  // Model that calls a multi-step flow.
+  const model = {name: 'multi', args: null, calls: 0, async complete() {
+    return model.calls++ % 2 === 0
+      ? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.flow', arguments: JSON.stringify(model.args)}]}
+      : {content: 'done', toolCalls: []};
+  }};
+  state.model = model;
+
+  // A flow with two clicks: the first one will get a yes, the second will be asked about.
+  const twoClicks = {
+    steps: [
+      {action: 'navigate', url: 'https://docs.example.com/guide'},
+      {action: 'click', role: 'button', name: 'First'},
+      {action: 'click', role: 'button', name: 'Second'},
+    ]
+  };
+  state.model.args = twoClicks;
+
+  // First call asks about the flow (the first click).
+  const first = await turn(state, twoClicks, 'flow-partial');
+  assert.equal(first.status, 'needs_input');
+  const asked1 = waitingIn(state, first);
+  assert.equal(asked1.tool, 'browser.click');
+  assert.equal(asked1.name, 'First');
+
+  // User says "Yes, just now" to the first click.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked1.fingerprint);
+
+  // Retry: still needs input because the second click hasn't been approved.
+  state.did.length = 0;
+  const second = await turn(state, twoClicks, first.sessionId);
+  assert.equal(second.status, 'needs_input', 'still asks because step 2 is not approved');
+  const asked2 = waitingIn(state, second);
+  assert.equal(asked2.tool, 'browser.click');
+  assert.equal(asked2.name, 'Second', 'the second click is the one being asked about');
+  assert.deepEqual(state.did, [], 'nothing ran; both steps were judged, neither approved');
+
+  // The first click's yes should still be there.
+  const approvalsSnapshot = state.app.store.get('approvals', first.sessionId, 'once_only_pool') || {};
+  assert.ok(Object.values(approvalsSnapshot).some(entry => entry.tool === 'browser.click' && entry.name === 'First'),
+    'the first click\'s yes was not consumed');
+
+  // User says "Yes, just now" to the second click.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked2.fingerprint);
+
+  // Retry: now both clicks should run.
+  state.did.length = 0;
+  const third = await turn(state, twoClicks, first.sessionId);
+  assert.equal(third.status, 'completed', 'the flow runs after both steps are approved');
+  assert.deepEqual(state.did, [
+    'navigate https://docs.example.com/guide',
+    'click First on docs.example.com',
+    'click Second on docs.example.com'
+  ], 'both clicks ran in order');
 });
