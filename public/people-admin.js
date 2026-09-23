@@ -67,6 +67,15 @@ const quiet = (key, words, onClick) => {
   return button;
 };
 
+/* DG-180: each finer part of the card is one box the Settings levels can find (public/settings-index.js names it), so
+   Regular shows the switch alone, as the approved sample does, and "N more" counts each part. */
+const part = (name, nodes) => {
+  const box = el("div", undefined, "people-part");
+  box.dataset.sgPart = name;
+  box.append(...nodes);
+  return box;
+};
+
 const modes = [
   ["off", "field.switch-off", "Off"],
   ["when-needed", "field.switch-when-needed", "When needed"],
@@ -95,8 +104,7 @@ function switchSection(state, act) {
   return [
     ...field("people-admin-mode", "people.admin.mode", "Let people sign in from their own device", mode),
     keyed("p", "people.admin.mode-note", "They open this computer's address followed by /people. Each person sees only their own conversations and what you share.", "field-note"),
-    keyed("p", "people.admin.chain", "Everybody passes all of these", "meta"),
-    ...chain.map((c) => c.label),
+    part("people-chain", [keyed("p", "people.admin.chain", "Everybody passes all of these", "meta"), ...chain.map((c) => c.label)]),
     ...field("people-admin-hours", "people.admin.hours", "Stay signed in for (hours)", hours),
     save,
   ];
@@ -141,7 +149,7 @@ function providerSection(state, act) {
     row.append(quiet("people.admin.remove", "Remove", () => act("people/settings", { providers: state.settings.providers.filter((x) => x.id !== p.id) })));
     return row;
   });
-  return [
+  return [part("people-providers", [
     keyed("p", "people.admin.providers", "Identity services", "meta"),
     keyed("p", "people.admin.providers-note", `Register ${location.origin}${state.redirectPath} as the return address with the service.`, "field-note", { address: location.origin + state.redirectPath }),
     ...list,
@@ -152,8 +160,7 @@ function providerSection(state, act) {
     ...field("people-provider-client", "people.admin.provider.client", "Client id", inputs.clientId),
     ...field("people-provider-secret", "people.admin.provider.secret", "Client secret's name in the locker (if the service needs one)", inputs.clientSecretName),
     add,
-    ...linkSection(state, act),
-  ];
+  ]), part("people-links", linkSection(state, act))];
 }
 
 function linkSection(state, act) {
@@ -250,7 +257,7 @@ function buildCard(state, sessions) {
     keyed("p", "people.admin.people", "People", "meta"),
     ...(state.people.length ? state.people.map((p) => personRow(p, state, act))
       : [keyed("p", "people.admin.nobody", "Nobody else uses this computer yet. Add somebody under People first.", "subtle")]),
-    ...providerSection(state, act), ...groupSection(state, act), ...shareSection(state, sessions, act));
+    ...providerSection(state, act), part("people-groups", groupSection(state, act)), part("people-share", shareSection(state, sessions, act)));
   return card;
 }
 
