@@ -103,13 +103,18 @@ export const BUCKETS = {
     ["keys", "key", "Passwords and keys", "Keys and passwords Branch may use, one at a time.",
       [["secrets-form", R], ["vault-autofill", R], ["keychain-card", A]]],
   ],
+  /* DG-081: the sample's order, usage first. */
   data: [
-    ["cost", "coins", "What it costs", "Spending limits, and what each model costs.",
-      [["usage", R], ["usage-report-card", R]]],
+    ["usage", "layers", "Usage", "What your assistant has done this month, and what it cost.",
+      [["usage", R]]],
+    ["left", "gauge", "What each connection has left", "How much of each service's allowance is still there.",
+      [["usage-left-card", R]]],
     ["kept", "archive", "What is kept, and for how long", "How long conversations stay, safety copies, and bringing things over.",
       [["retention-card", R], ["backup-card", R], ["snapshots-card", A], ["goal-undo-form", A], ["move-in-card", A], ["settings-kit-file", A]]],
-    ["under", "wrench", "Under the hood", "Counting how Branch is used. Rarely needed.",
-      [["asks-analytics-card", T]]],
+    ["cost", "coins", "What it costs", "Spending limits, and what each model costs.",
+      [["usage-costs-card", R], ["usage-report-card", R]]],
+    ["under", "wrench", "Under the hood", "Counting how Branch is used, and the spreadsheet of this month. Rarely needed.",
+      [["usage-sheet-card", T], ["asks-analytics-card", T]]],
   ],
   advanced: [
     ["fix", "wrench", "Fixing problems", "Check that everything works, and find what a stopped task needs.",

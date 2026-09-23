@@ -393,7 +393,8 @@ function limitRow(row) {
 function renderLimits(view) {
   const card = el("article", undefined, "table-card");
   card.id = "usage-limits";
-  card.append(el("h2", "What each connection has left"));
+  /* Its section's heading already says this (DG-081); the title stays for a screen reader. */
+  card.append(el("h2", "What each connection has left", "sr-only"));
   card.append(el("p", "Only what a service actually told Branch, with the time it said it. Where a service publishes nothing, this says so rather than guessing. Accounts are listed one by one and never added together: subscriptions are not interchangeable, and keys in one organisation share a single limit."));
   if (limits === null) return; // Refused, not empty: somebody other than the owner is looking.
   if (limits.empty) {
@@ -448,6 +449,23 @@ async function saveLimitsSwitch(on) {
   } catch (e) { say(e.message); }
 }
 
+/*
+ * DG-081: Data & usage reads as the approved sample does, usage first: the usage itself, then what each connection
+ * has left, then (after what is kept) what it costs, and the spreadsheet under the hood. The parts that live under
+ * another heading are drawn into cards of their own, which say where they belong (data-home) and are placed by
+ * public/settings-buckets.js. The figures are the same figures.
+ */
+function host(id) {
+  let card = $(id);
+  if (!card) {
+    card = el("section", undefined, "usage-part");
+    card.id = id;
+    card.dataset.home = "settings:data";
+    document.body.append(card);
+  }
+  return card;
+}
+
 /** Loads everything the screen shows and draws it. Safe to call again at any time. */
 async function render() {
   const view = $("usage");
@@ -464,22 +482,23 @@ async function render() {
     limits = await api("usage/limits").catch(() => null);
     glanceSettings = limits ? (await api("usage/glance/settings").catch(() => null))?.settings ?? null : null;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
-  view.replaceChildren();
+  const left = host("usage-left-card"), costs = host("usage-costs-card"), sheet = host("usage-sheet-card");
+  for (const part of [view, left, costs, sheet]) part.replaceChildren();
   // Wave 8: every section opens by saying what it is for, in one line.
   view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
-  // mac7/usage-bar: what each connection has left, above the month, and never in the meter under the
-  // message box — that bar is this conversation's room against the model's context window, which is
+  // mac7/usage-bar: what each connection has left, in a card of its own after the usage, and never in the meter
+  // under the message box — that bar is this conversation's room against the model's context window, which is
   // a different thing entirely and must not be conflated with a provider's allowance.
-  renderLimits(view);
+  renderLimits(left);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.
   renderMonth(view);
   renderStatistics(view);
   renderTables(view);
-  renderBudget(view);
-  renderPricing(view);
+  renderBudget(costs);
+  renderPricing(costs);
   renderExport(view);
-  renderMetering(view);
+  renderMetering(sheet);
   // Batch 19 (wave 7): how this copy of Branch is doing, read from its own counters.
   await window.branchRules?.renderHealth(view);
   await window.branchEvaluation?.renderInto(view);
