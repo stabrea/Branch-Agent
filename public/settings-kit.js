@@ -237,9 +237,17 @@ const HOW_WORDS = {
   command: ["settings-kit.how.command", "a command you typed"],
   unknown: ["settings-kit.how.unknown", "a change whose source was not recorded"],
 };
-const howWords = (record) => {
+/* A preset's record keeps its English name; it is shown in the window's language, like on the preset card. */
+function detailWords(record, presets) {
+  if (record.source === "command") return record.detail;
+  if (record.source !== "preset") return "";
+  const preset = presets.find((entry) => entry.name === record.detail || entry.id === record.detail);
+  return preset ? say(preset.t, preset.name) : record.detail;
+}
+const howWords = (record, presets) => {
   const pair = Object.hasOwn(HOW_WORDS, record.source) ? HOW_WORDS[record.source] : HOW_WORDS.unknown;
-  return `${say(...pair)}${record.source === "preset" && record.detail ? ` (${record.detail})` : ""}`;
+  const detail = detailWords(record, presets);
+  return `${say(...pair)}${detail ? ` (${detail})` : ""}`;
 };
 const when = (iso) => new Date(iso).toLocaleString();
 
@@ -250,24 +258,24 @@ function fieldsOf(overview) {
   return map;
 }
 
-function whyWords(answer) {
+function whyWords(answer, presets) {
   const value = valueWords(answer, answer.value);
   if (answer.kind === "starting-value") return say("settings-kit.why.starting", "It is {value}, how it starts. No change to it was recorded.", { value });
   if (answer.kind === "not-recorded") return say("settings-kit.why.not-recorded", "It is {value}. Nothing was recorded about who or what set it.", { value });
-  const how = howWords(answer.record), at = when(answer.record.at);
+  const how = howWords(answer.record, presets), at = when(answer.record.at);
   if (answer.kind === "changed-since")
     return say("settings-kit.why.changed-since", "It is {value}. The last recorded change set it to {after} ({how}, {when}), but it was changed again since by something that keeps no record.",
       { value, after: valueWords(answer, answer.record.after), how, when: at });
   return say("settings-kit.why.recorded", "It is {value}, set by {how} on {when}.", { value, how, when: at });
 }
 
-function recordRow(record, fields, confirm, status, redraw) {
+function recordRow(record, fields, presets, confirm, status, redraw) {
   const row = el("li", undefined, undefined, "kit-record");
   const lines = record.changes.map((entry) => {
     const known = fields.get(entry.setting) ?? { key: "", field: "", words: entry.setting };
     return `${known.words}: ${valueWords(known, entry.before)} → ${valueWords(known, entry.after)}`;
   });
-  row.append(el("p", undefined, `${when(record.at)} · ${howWords(record)}`, "meta"), el("p", undefined, lines.join("; ")));
+  row.append(el("p", undefined, `${when(record.at)} · ${howWords(record, presets)}`, "meta"), el("p", undefined, lines.join("; ")));
   if (record.undoneBy) { row.append(el("p", "settings-kit.history.undone", "Undone.", "subtle")); return row; }
   row.append(quiet("settings-kit.history.undo", "Undo this change", async () => {
     try {
@@ -280,11 +288,11 @@ function recordRow(record, fields, confirm, status, redraw) {
   return row;
 }
 
-async function drawRecords(list, fields, confirm, status) {
+async function drawRecords(list, fields, presets, confirm, status) {
   let history;
   try { history = await api("settings-kit/history"); } catch (error) { status.textContent = error.message; return; }
-  const redraw = () => drawRecords(list, fields, confirm, status);
-  list.replaceChildren(...history.records.slice(0, 10).map((record) => recordRow(record, fields, confirm, status, redraw)));
+  const redraw = () => drawRecords(list, fields, presets, confirm, status);
+  list.replaceChildren(...history.records.slice(0, 10).map((record) => recordRow(record, fields, presets, confirm, status, redraw)));
   if (!history.records.length) list.append(el("li", "settings-kit.history.none", "No changes have been recorded yet.", "subtle"));
 }
 
@@ -298,7 +306,7 @@ function historyCard(overview) {
   const answer = el("p", undefined, undefined, "subtle");
   answer.setAttribute("role", "status");
   const ask = quiet("settings-kit.why.ask", "Why is it set like this?", async () => {
-    try { answer.textContent = whyWords({ ...fields.get(select.value), ...(await api(`settings-kit/why/${encodeURIComponent(select.value)}`)) }); }
+    try { answer.textContent = whyWords({ ...fields.get(select.value), ...(await api(`settings-kit/why/${encodeURIComponent(select.value)}`)) }, overview.presets); }
     catch (error) { answer.textContent = error.message; }
   });
   const list = el("ul", undefined, undefined, "kit-records");
@@ -308,7 +316,7 @@ function historyCard(overview) {
     "An undo that puts back a value letting Branch do more without asking, or taking a protection away, is only made if this is ticked as well."]));
   section.append(...field("kit-why", select, ["settings-kit.field.why", "Setting"],
     ["describe.kit-why", "Says who or what last set it, from what was written down. Nothing is changed."]), ask, answer, holder, status);
-  drawRecords(list, fields, confirm, status).catch(() => {});
+  drawRecords(list, fields, overview.presets, confirm, status).catch(() => {});
   return section;
 }
 
