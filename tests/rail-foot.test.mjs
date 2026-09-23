@@ -1,4 +1,4 @@
-/* DG-092, DG-094, DG-095, DG-159, DG-161: the sidebar as in the approved sample. Overview is its first place; the foot
+/* DG-092, DG-093, DG-094, DG-095, DG-159, DG-161: the sidebar as in the approved sample. Overview is its first place; the foot
    is one line of icons (theme, pet, day/night, clear the view, the Settings cog) over the account row, whose name is
    never cut short. Headless only. */
 import test from "node:test";
@@ -11,10 +11,11 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-async function signedIn(t, width, preferences = {}) {
+async function signedIn(t, width, preferences = {}, before = async () => {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-rail-foot-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await before(app);
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json" };
@@ -29,7 +30,7 @@ async function signedIn(t, width, preferences = {}) {
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#lx-foot-line").waitFor({ state: "attached" });
   errors.length = 0;
-  return { page, errors };
+  return { page, errors, app };
 }
 
 /** The icon line, left to right: each shown button's id and its accessible name. */
@@ -133,5 +134,48 @@ test("DG-094 in French the icon line speaks French", async (t) => {
   assert.equal(await page.locator("#lx-foot-theme").getAttribute("aria-label"), "Thème · Forêt");
   assert.equal(await page.locator("#lx-foot-eye").getAttribute("aria-label"), "Dégager la vue");
   assert.equal((await page.locator('.lx-place-link[data-place="overview"]').innerText()).trim().length > 0, true);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-093 New conversation has a chevron that starts with a chosen Trunk, and one click still starts plainly", async (t) => {
+  const { page, errors, app } = await signedIn(t, 1440, {}, async (app) => {
+    app.trunks.setMode("trunks", { mode: "on" });
+    app.trunks.setMode("conversations", { mode: "on" });
+    await app.trunks.create({ name: "Ada" });
+  });
+  const more = page.locator("#rail-new-more");
+  await more.waitFor({ state: "visible" });
+  assert.equal(await more.getAttribute("aria-label"), "Start with a chosen Trunk");
+  assert.equal(await more.getAttribute("aria-haspopup"), "menu");
+  const beside = await page.evaluate(() => {
+    const a = document.getElementById("rail-new").getBoundingClientRect(), b = document.getElementById("rail-new-more").getBoundingClientRect();
+    return b.left > a.left + a.width / 2 && b.top >= a.top - 1 && b.bottom <= a.bottom + 1;
+  });
+  assert.equal(beside, true, "the chevron sits at the right end of the New conversation row");
+  await more.click();
+  const menu = page.locator("#rail-new-menu");
+  await menu.waitFor({ state: "visible" });
+  assert.equal(await more.getAttribute("aria-expanded"), "true");
+  const row = menu.locator('[role="menuitem"][data-trunk]');
+  await row.first().waitFor();
+  assert.match(await menu.innerText(), /Start a conversation with/i);
+  assert.equal(await row.count(), 1);
+  assert.match(await row.innerText(), /Ada\s+@ada/);
+  await row.click();
+  await page.waitForFunction(() => Boolean(document.getElementById("conversation")?.dataset.sessionId));
+  const session = await page.evaluate(() => document.getElementById("conversation").dataset.sessionId);
+  const chosen = new Map(app.trunks.conversations.chosen());
+  assert.equal(chosen.get(session), app.trunks.records.list()[0].id, "Ada answers in the new conversation");
+  await page.locator("#rail-new").click();
+  await page.waitForFunction(() => !document.getElementById("conversation").dataset.sessionId);
+  assert.equal(await page.locator("#rail-new-menu").isVisible(), false, "one click on New conversation starts plainly, no menu");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-093 without Trunks there is no chevron", async (t) => {
+  /* and New conversation keeps its one-click start */
+  const { page, errors } = await signedIn(t, 1440);
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator("#rail-new-more").isVisible(), false);
   assert.deepEqual(errors, []);
 });
