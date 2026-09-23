@@ -218,6 +218,7 @@ import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
+import { computerPlatforms } from "./trunks/starts-in.js"; // Q44
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
@@ -1084,6 +1085,9 @@ export async function createBranch(options: {
     choose: (sessionId: string, pool: string, account: string | null) => saveSessionChoice(store, runtime.owner, sessionId, pool, account),
   };
   const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows, accounts: trunkAccounts,
+    // Q44: the paired computers a Trunk may start in; a phone is a device but never a computer.
+    computers: () => devices.book.devices().filter((device) => computerPlatforms.includes(device.platform))
+      .map((device) => ({ id: device.id, name: device.name })),
     picture: async (prompt) => {
       const made = await runtime.executeTool("media.image", { prompt, size: "256x256" }, { mode: "owner" }) as { path?: string; mediaType?: string };
       if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");

@@ -6,7 +6,8 @@ import { noAccounts, keyPlan, type TrunkAccountsPort } from "./accounts.js";
 import { pictureAddress } from "./avatar.js";
 import { TrunkMessages, registerTrunkMessage } from "./messages.js";
 import { setSharedFacts, trunkAgent } from "./memory-scope.js";
-import { TrunkCreateSchema, TrunkRecords, TrunkSchema, type Trunk } from "./record.js";
+import { TrunkCreateSchema, TrunkEditSchema, TrunkRecords, TrunkSchema, type Trunk } from "./record.js";
+import { StartsInSchema, cannotStartThere, checkStartsIn, requireStartsHere, startTarget, type Computer, type ComputersPort, type StartElsewhere } from "./starts-in.js"; // Q44
 import { TrunkRooms } from "./rooms.js";
 import { TrunkConversations } from "./conversations.js"; // phase2/rooms
 
@@ -35,6 +36,8 @@ export interface TrunksDeps {
   accounts?: TrunkAccountsPort;
   /** Makes a picture from a few words with the connected picture model. */
   picture?: (prompt: string) => Promise<{ bytes: Buffer; mediaType: string }>;
+  /** Q44: the owner's paired computers, the only places besides this one a Trunk may start in. */
+  computers?: ComputersPort;
 }
 
 /** The Trunks of each running Branch, so a command that only has the runtime can reach them. */
@@ -42,6 +45,8 @@ const byRuntime = new WeakMap<Runtime, Trunks>();
 export const trunksFor = (runtime: Runtime): Trunks | undefined => byRuntime.get(runtime);
 
 const introPrompt = "Introduce yourself to the owner in two or three short sentences: your name, your role, and what you can help with. This is the first message of your own conversation.";
+/** Q44: the three-field create, and where it starts, so even its introduction starts in the right place. */
+const CreateInput = TrunkCreateSchema.extend({ startsIn: StartsInSchema.optional() }).strict();
 const AvatarInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("face"), locked: z.boolean().default(false) }).strict(),
   z.object({ kind: z.literal("image"), dataUrl: z.string().max(400_000) }).strict(),
@@ -62,6 +67,8 @@ export class Trunks {
   /** phase2/rooms: a room member's conversation → the room's own conversation (whose mode it follows). */
   private followsRoom = new Map<string, string>();
   private readonly introductions = new Set<Promise<unknown>>();
+  /** Q44: how a turn would be handed to another computer. Nothing in this build sets it; tests do. */
+  startElsewhere: StartElsewhere | null = null;
 
   constructor(private readonly deps: TrunksDeps) {
     const { runtime, scheduler } = deps;
@@ -80,6 +87,8 @@ export class Trunks {
       scrub: (value) => runtime.hideSecrets(value) });
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
+    runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
+    runtime.followUpNotSent = (sessionId, prompt, reason) => this.messages.notSent(sessionId, prompt, reason); // Q44
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
     byRuntime.set(runtime, this);
     scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
@@ -88,6 +97,8 @@ export class Trunks {
   }
 
   private get store() { return this.deps.runtime.store; }
+  /** Q44: the owner's paired computers, read fresh so a computer removed a moment ago is gone. */
+  computers(): Computer[] { return this.deps.computers?.() ?? []; }
   private get owner() { return this.deps.runtime.owner; }
   mode(part: TrunkPart): TrunkMode { return trunkMode(this.store, this.owner, part); }
   modes(): Record<TrunkPart, TrunkMode> { return allTrunkModes(this.store, this.owner); }
@@ -126,6 +137,21 @@ export class Trunks {
   trunkForConversation(sessionId: string): Owned | undefined {
     return this.owned.get(sessionId);
   }
+  /**
+   * Q44: the messages already waiting in this Trunk's conversations when it starts on another computer.
+   * They were queued before the move; each is marked not sent when its turn comes (src/runtime.ts).
+   */
+  waitingElsewhere(trunk: Trunk): { count: number; computer: string | null } | null {
+    if (!trunk.startsIn) return null;
+    const count = [...this.owned].filter(([, owned]) => owned.trunkId === trunk.id)
+      .reduce((sum, [sessionId]) => sum + this.deps.runtime.queued(sessionId).length, 0);
+    return count ? { count, computer: this.computers().find((each) => each.id === trunk.startsIn)?.name ?? null } : null;
+  }
+  /** Q44: a message queued in a Trunk's conversation (its own or a room member's) must be able to start here. */
+  requireQueueable(sessionId: string): void {
+    const trunk = this.records.find(this.owned.get(sessionId)?.trunkId ?? "");
+    if (trunk) requireStartsHere(trunk, this.computers());
+  }
 
   /** The runtime's hook: a task in a Trunk's conversation, or a routine it owns, runs as that Trunk. */
   shapeOf(options: RunOptions): TrunkRunShape | null {
@@ -135,6 +161,7 @@ export class Trunks {
     const trunkId = options.trunkId ?? owned?.trunkId;
     const trunk = trunkId ? this.records.find(trunkId) : undefined;
     if (!trunk) return null;
+    requireStartsHere(trunk, this.computers()); // Q44: a Trunk that starts on another computer is never quietly run here.
     const { runtime, registry } = this.deps;
     const sessionModel = options.sessionId ? !!runtime.models.session(this.owner, options.sessionId).preset : false;
     return shapeFor(trunk, this.records.list(), { available: registry.permissions(), caller: options.permissions,
@@ -185,7 +212,9 @@ export class Trunks {
   /** R17-002: the three-field create. The Trunk then introduces itself in its own conversation. */
   create(input: unknown, extra: Partial<Trunk> = {}): Trunk {
     requireTrunkPart(this.store, this.owner, "trunks");
-    const fields = TrunkSchema.parse({ ...TrunkCreateSchema.parse(input) });
+    const { startsIn, ...basic } = CreateInput.parse(input);
+    checkStartsIn(startsIn, this.computers()); // Q44: refused before anything is made
+    const fields = TrunkSchema.parse({ ...basic, ...(startsIn ? { startsIn } : {}) });
     return this.adopt(fields, extra);
   }
   private adopt(fields: z.infer<typeof TrunkSchema>, extra: Partial<Trunk>, speaks = true): Trunk {
@@ -210,6 +239,7 @@ export class Trunks {
   /** "Edit Trunk": every field. */
   edit(id: string, input: unknown): Trunk {
     requireTrunkPart(this.store, this.owner, "trunks");
+    checkStartsIn(TrunkEditSchema.parse(input).startsIn, this.computers()); // Q44: refused before anything is saved
     const trunk = this.records.edit(id, input);
     this.pushAccounts(trunk);
     this.refresh();
@@ -254,6 +284,12 @@ export class Trunks {
   async say(id: string, text: string): Promise<{ runId?: string; output?: string; status?: string; queued?: number }> {
     requireTrunkPart(this.store, this.owner, "trunks");
     const trunk = this.records.get(id);
+    // Q44: the start path picks where the turn starts; another computer needs a way to start it there.
+    const target = startTarget(trunk, this.computers());
+    if (target.where === "computer") {
+      if (!this.startElsewhere) throw cannotStartThere(target.name);
+      return this.startElsewhere({ id: target.id, name: target.name }, trunk, text);
+    }
     try {
       const run = await this.deps.runtime.run({ prompt: text, sessionId: trunk.chatSessionId, onTextDelta: () => undefined });
       return { runId: run.id, output: run.output, status: run.status };

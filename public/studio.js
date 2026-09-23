@@ -24,6 +24,8 @@ const SHAPE_WORDS = { circle: "Circle", squircle: "Soft square", leaf: "Leaf", a
 const MOTION_WORDS = { none: "None", breathe: "Breathe", sway: "Sway like a leaf", shimmer: "Shimmer", pulse: "Pulse while working", dots: "Dots while working" };
 export const TABS = [["trunk", "studio.tab.trunk", "A new Trunk"], ["computer", "studio.tab.computer", "Another computer"], ["phone", "studio.tab.phone", "Your phone"]];
 const photoLimit = 290_000;
+/** Q44: a paired device counts as a computer on these platforms; a phone never does (src/trunks/starts-in.ts). */
+const COMPUTER_PLATFORMS = ["darwin", "linux", "win32"];
 
 /* ---------- the dialog ---------- */
 export const studio = { dialog: null, tab: "trunk", draft: null, editing: null, closing: null };
@@ -114,7 +116,7 @@ export function openAdd(tab = "trunk") {
 
 /* ---------- a Trunk's look: the draft ---------- */
 function newDraft() {
-  return { name: "", title: "", pinned: true,
+  return { name: "", title: "", pinned: true, startsIn: null, savedStartsIn: null,
     look: { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: 2, shape: "leaf", motion: "breathe", depth: "flat" }, photo: null, keptPhoto: null };
 }
 function draftTrunk() {
@@ -181,10 +183,49 @@ function drawForm() {
   if (!form) return;
   const who = section("studio.who", "Who it is");
   who.append(field("studio.name", "Name", d.name, (value) => { d.name = value; drawPreview(); }, "studio-name", ["studio.name.hint", "For example: Gardener"]),
-    field("studio.what", "What it does, in a few words", d.title, (value) => { d.title = value; }, "studio-what", ["studio.what.hint", "For example: plans the vegetable beds and the watering"]));
+    field("studio.what", "What it does, in a few words", d.title, (value) => { d.title = value; }, "studio-what", ["studio.what.hint", "For example: plans the vegetable beds and the watering"]),
+    ...startsInField());
   form.replaceChildren(who, faceSection(), colourSection(), shapeSection(), motionSection(), depthSection(), ...(studio.editing ? [pinSection()] : []));
+  footWords();
+}
+/** Q44: a new Trunk set to start on another computer cannot introduce itself yet, and the footer says so. */
+function footWords() {
+  const note = $("studio-foot-note");
+  if (!note) return;
+  const [key, english] = studio.draft.startsIn ? ["studio.foot.later", "It starts on the computer you chose, so it cannot introduce itself until Branch can start it there. Everything else can be changed later."]
+    : ["studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."];
+  note.dataset.t = key;
+  note.textContent = say(key, english);
 }
 function redraw() { drawForm(); drawPreview(); }
+/** Q44: This computer and the owner's paired computers, the only places a Trunk may start in. */
+export function startChoices() {
+  const computers = (shell.devices?.devices ?? []).filter((device) => COMPUTER_PLATFORMS.includes(device.platform));
+  return [{ id: "", name: say("studio.startsIn.here", "This computer"), here: true }, ...computers.map((device) => ({ id: device.id, name: device.name }))];
+}
+/** Q44 (DG-107): "Starts in", under what it does, as the sample has it. */
+function startsInField() {
+  const d = studio.draft, choices = startChoices();
+  const label = make("label", "studio-field");
+  const select = document.createElement("select");
+  select.id = "studio-starts-in";
+  for (const choice of choices) {
+    const option = choice.here ? make("option", "", "studio.startsIn.here", "This computer") : Object.assign(document.createElement("option"), { textContent: choice.name });
+    option.value = choice.id;
+    select.append(option);
+  }
+  const listed = (id) => choices.some((choice) => choice.id === (id ?? ""));
+  // A computer no longer paired shows as This computer, so the draft says so too and Save sends null.
+  // Only when the paired devices were read: a failed read must not reset the owner's choice on a rename.
+  if (shell.devices && !listed(d.startsIn)) d.startsIn = null;
+  select.value = d.startsIn ?? "";
+  select.addEventListener("change", () => { d.startsIn = select.value || null; drawForm(); });
+  label.append(make("span", "", "studio.startsIn", "Starts in"), select);
+  const notes = [];
+  if (!d.startsIn && !listed(d.savedStartsIn)) notes.push(make("p", "studio-note", "studio.startsIn.gone", "It was set to start on a computer that is no longer paired. Choose where it starts now."));
+  else if (d.startsIn) notes.push(make("p", "studio-note", "studio.startsIn.later", "Branch cannot start a Trunk on another computer yet, so it will not answer until you choose This computer."));
+  return [label, ...notes];
+}
 function faceSection() {
   const d = studio.draft, part = section("studio.face", "Face");
   part.append(segmented(FACES, d.look.face, (value) => { d.look.face = value; redraw(); }, say("studio.face", "Face")));
@@ -346,7 +387,7 @@ function drawPreview() {
 }
 function footer() {
   const foot = make("div", "studio-foot");
-  if (!studio.editing) foot.append(make("span", "studio-note", "studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."));
+  if (!studio.editing) foot.append(Object.assign(make("span", "studio-note", "studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."), { id: "studio-foot-note" }));
   foot.append(make("span", "grow"), button("", "studio.cancel", "Cancel", () => closeDialog()),
     studio.editing ? button("studio-primary", "studio.save", "Save", saveEdit) : button("studio-primary", "studio.create", "Create the Trunk", createTrunk));
   return foot;
@@ -368,7 +409,7 @@ async function savePhoto(id) {
 async function createTrunk() {
   const d = studio.draft, name = d.name.trim();
   if (!name) return $("studio-name")?.focus();
-  const { trunk } = await api("trunks", { name, title: d.title.trim(), description: "" });
+  const { trunk } = await api("trunks", { name, title: d.title.trim(), description: "", ...(d.startsIn ? { startsIn: d.startsIn } : {}) });
   await api(`trunks/${trunk.id}`, { look: lookToSave(), pinned: d.pinned });
   await savePhoto(trunk.id);
   closeDialog(true);
@@ -376,16 +417,25 @@ async function createTrunk() {
   const fresh = findTrunk(trunk.id);
   if (fresh) await openTrunk(fresh);
   document.querySelector(`#trunk-strip [data-strip-id="trunk:${trunk.id}"]`)?.classList.add("fresh");
-  toast(say("studio.created", "{name} introduces itself in its own conversation.", { name }));
+  const far = startChoices().find((choice) => d.startsIn && choice.id === d.startsIn);
+  toast(far ? say("studio.created.elsewhere", "Made {name}. It starts on {computer}, where Branch cannot start it yet.", { name, computer: far.name })
+    : say("studio.created", "{name} introduces itself in its own conversation.", { name }));
 }
 async function saveEdit() {
   const d = studio.draft, id = studio.editing, name = d.name.trim();
   if (!name) return $("studio-name")?.focus();
-  await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), pinned: d.pinned });
+  // Q44: where it starts is sent only when the owner changed it, so a rename never resets it.
+  const moved = d.startsIn !== d.savedStartsIn ? { startsIn: d.startsIn } : {};
+  const saved = await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), pinned: d.pinned, ...moved });
   await savePhoto(id);
   closeDialog(true);
   await refresh();
-  toast(say("studio.saved", "Saved."));
+  toast(saved.waiting ? waitingWords(saved.waiting) : say("studio.saved", "Saved."));
+}
+/** Q44: messages queued before it was moved will not be sent; the owner is told how many, as it is saved. */
+function waitingWords({ count, computer }) {
+  return say("studio.startsIn.waiting", "Saved. {count} waiting message(s) will not be sent while it starts on {computer}; each is marked not sent in its conversation.",
+    { count, computer: computer ?? say("studio.startsIn.another", "another computer") });
 }
 
 /** Change look… and Rename… from the strip's menu, Customize › Specialists or the Overview. */
@@ -402,7 +452,8 @@ export async function openEdit(id, { rename = false } = {}) {
   const photo = trunk.avatar && trunk.avatar.kind !== "face" ? trunk.avatar.dataUrl : null;
   if (photo) look.face = "photo";
   studio.editing = id;
-  studio.draft = { name: trunk.name, title: trunk.title, pinned: trunk.pinned, look, photo: null, keptPhoto: photo };
+  studio.draft = { name: trunk.name, title: trunk.title, pinned: trunk.pinned, look, photo: null, keptPhoto: photo,
+    startsIn: trunk.startsIn ?? null, savedStartsIn: trunk.startsIn ?? null };
   const body = openDialog("studio.title.edit", "Change {name}", { name: trunk.name });
   studio.tab = "trunk";
   const panel = make("div", "studio-panel");
