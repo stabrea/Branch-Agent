@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { uninstallScript } from "../dist/install/installer.js";
+import { calibrate } from "./console-calibration.mjs";
 
 /**
  * The uninstaller cannot delete the folder it runs from, so its last step is handed to a second
@@ -65,13 +66,13 @@ function box(t) {
  * and the control test below proves such a window is still seen.
  */
 const consoleHosts = new Set(["conhost", "openconsole", "windowsterminal", "cmd", "wscript", "cscript", "powershell", "pwsh"]);
-function windowsOnScreen(everything = false) {
+function windowsOnScreen() {
   const ask = "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -Property Id,ProcessName | ConvertTo-Json -Compress";
   const printed = execFileSync(join(system32, "WindowsPowerShell", "v1.0", "powershell.exe"),
     ["-NoProfile", "-NonInteractive", "-Command", ask], { encoding: "utf8", windowsHide: true }).trim();
   const rows = printed ? JSON.parse(printed) : [];
   return new Set((Array.isArray(rows) ? rows : [rows])
-    .filter((row) => everything || consoleHosts.has(String(row.ProcessName).toLowerCase())).map((row) => row.Id));
+    .filter((row) => consoleHosts.has(String(row.ProcessName).toLowerCase())).map((row) => row.Id));
 }
 
 /*
@@ -81,8 +82,8 @@ function windowsOnScreen(everything = false) {
  */
 let blind = false;
 
-/** Runs one line the way the uninstaller's own console would, hidden, and watches the screen (or until `enough` windows are seen). */
-async function runHidden(folders, line, enough = Infinity) {
+/** Runs one line the way the uninstaller's own console would, hidden, and watches the screen. */
+async function runHidden(folders, line) {
   const file = join(folders.root, "last-step.cmd");
   writeFileSync(file, `@echo off\r\n${line}\r\nexit /b 0\r\n`, "utf8");
   const before = windowsOnScreen();
@@ -91,7 +92,7 @@ async function runHidden(folders, line, enough = Infinity) {
     stdio: "ignore", windowsHide: true,
     env: { ...process.env, TEMP: windowsPath(folders.temp), TMP: windowsPath(folders.temp) },
   });
-  for (let waited = 0; waited < (enough === Infinity ? 7000 : 30000) && opened.size < enough; waited += 400) {
+  for (let waited = 0; waited < 7000; waited += 400) {
     await sleep(400);
     for (const id of windowsOnScreen()) if (!before.has(id)) opened.add(id);
   }
@@ -116,22 +117,17 @@ test("the last step never puts the folder's path on the line that is parsed twic
 });
 
 /*
- * One look at the screen starts PowerShell, which takes seconds on a busy build machine; a console that
- * lived two seconds could open and close between two looks. This one lives up to 30 seconds and is
- * closed as soon as it has been seen.
+ * The control: a console this test starts and means to be seen. Only that console counts, and only it is
+ * closed (tests/console-calibration.mjs); another program's window appearing meanwhile is not proof.
  */
 test("this test can see a console window that is meant to be seen", { skip: !onWindows }, async (t) => {
-  const folders = box(t);
-  const everything = windowsOnScreen(true);
-  const opened = await runHidden(folders, `start "" ${windowsPath(system32)}${back}cmd.exe /d /c ${windowsPath(system32)}${back}ping.exe -n 31 127.0.0.1`, 1);
-  const others = [...windowsOnScreen(true)].filter((id) => !everything.has(id)).length;
-  for (const id of opened) spawnSync(join(system32, "taskkill.exe"), ["/pid", String(id), "/t", "/f"], { stdio: "ignore", windowsHide: true });
-  if (!opened.size && process.env.CI === "true") {
+  const { seen, others } = await calibrate();
+  if (!seen && process.env.CI === "true") {
     blind = true;
-    t.skip(`this build machine listed no console window in 30 s (${others} other new window(s)), so the no-window check below is skipped`);
+    t.skip(`this build machine listed no window of the test's own console in 30 s (other new windows: ${others.join(", ") || "none"}), so the no-window check below is skipped`);
     return;
   }
-  assert.ok(opened.size >= 1, "a console that should be visible was not seen, so the zero below would mean nothing");
+  assert.ok(seen, "a console that should be visible was not seen, so the zero below would mean nothing");
 });
 
 test("the last step removes the installed folder, and only that folder, with nothing on screen",

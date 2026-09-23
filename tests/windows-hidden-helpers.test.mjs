@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchHandOver } from "../dist/desktop/hand-over.js";
+import { calibrate } from "./console-calibration.mjs";
 
 /**
  * CBQ-001: a packaged Windows update must not put a console window on the owner's screen, and closing
@@ -32,7 +33,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * appear in is one of these hosts, and the first test below proves such a window is still seen.
  */
 const consoleHosts = new Set(["conhost", "openconsole", "windowsterminal", "cmd", "wscript", "cscript", "powershell", "pwsh"]);
-function windowsOnScreen(everything = false) {
+function windowsOnScreen() {
   const ask = "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } |"
     + " Select-Object -Property Id,ProcessName | ConvertTo-Json -Compress";
   const printed = execFileSync(join(system32, "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -40,7 +41,7 @@ function windowsOnScreen(everything = false) {
     { encoding: "utf8", windowsHide: true, maxBuffer: 1 << 22 }).trim();
   const rows = printed ? JSON.parse(printed) : [];
   return new Map((Array.isArray(rows) ? rows : [rows])
-    .filter((row) => everything || consoleHosts.has(String(row.ProcessName).toLowerCase()))
+    .filter((row) => consoleHosts.has(String(row.ProcessName).toLowerCase()))
     .map((row) => [row.Id, row.ProcessName]));
 }
 
@@ -53,12 +54,12 @@ function windowsOnScreen(everything = false) {
 let blind = false;
 const BLIND = "the no-window check is skipped: this build machine shows the test no console windows (see the first test); the work itself was checked";
 
-/** Runs `start`, then watches the screen for as long as the work can take, or until `enough` windows are seen. */
-async function windowsOpenedBy(start, watchMs = 4000, enough = Infinity) {
+/** Runs `start`, then watches the screen for as long as the work can take. */
+async function windowsOpenedBy(start, watchMs = 4000) {
   const before = windowsOnScreen();
   const result = await start();
   const opened = new Map();
-  for (let waited = 0; waited < watchMs && opened.size < enough; waited += 400) {
+  for (let waited = 0; waited < watchMs; waited += 400) {
     await sleep(400);
     for (const [id, name] of windowsOnScreen()) if (!before.has(id)) opened.set(id, name);
   }
@@ -79,27 +80,17 @@ function workspace(t) {
 const noScheduler = { exec: (_file, _args, _options, callback) => callback(new Error("schtasks missing")) };
 
 /*
- * One look at the screen starts PowerShell, which takes seconds on a busy build machine; a console that
- * lived two seconds could open and close between two looks. This one lives up to 30 seconds and is
- * closed as soon as it has been seen.
+ * The control: a console this test starts and means to be seen. Only that console counts, and only it is
+ * closed (tests/console-calibration.mjs); another program's window appearing meanwhile is not proof.
  */
 test("this test can see a console window that is meant to be seen", { skip: !onWindows }, async (t) => {
-  let shown;
-  const everything = windowsOnScreen(true);
-  const { opened } = await windowsOpenedBy(async () => {
-    shown = spawn(join(system32, "cmd.exe"), ["/d", "/c", join(system32, "ping.exe"), "-n", "31", "127.0.0.1"],
-      { detached: true, stdio: "ignore" });
-    shown.unref();
-  }, 30000, 1);
-  const others = [...windowsOnScreen(true)].filter(([id]) => !everything.has(id)).map(([, name]) => name);
-  spawnSync(join(system32, "taskkill.exe"), ["/pid", String(shown.pid), "/t", "/f"], { stdio: "ignore", windowsHide: true });
-  if (!opened.size && process.env.CI === "true") {
+  const { seen, others } = await calibrate();
+  if (!seen && process.env.CI === "true") {
     blind = true;
-    t.skip(`this build machine listed no console window in 30 s (any other new window: ${others.join(", ") || "none"}), so the no-window checks below are skipped`);
+    t.skip(`this build machine listed no window of the test's own console in 30 s (other new windows: ${others.join(", ") || "none"}), so the no-window checks below are skipped`);
     return;
   }
-  assert.ok(opened.size >= 1,
-    "a plain console opened no window this test could see, so every zero below would be meaningless");
+  assert.ok(seen, "a plain console opened no window this test could see, so every zero below would be meaningless");
   await sleep(2000);
 });
 
