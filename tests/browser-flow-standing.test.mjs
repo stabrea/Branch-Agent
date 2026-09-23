@@ -70,6 +70,7 @@ async function turn(state, args, sessionId) {
 }
 const waitingIn = (state, run) => state.app.runtime.approvals.questionFor(run.sessionId);
 const flowRules = (state) => readPolicy(state.app.store, state.app.runtime.owner).rules.filter(rule => rule.tool === 'browser.flow');
+const saveBrowser = (app, values) => app.store.save('settings', app.runtime.owner, 'comfort-browser', values);
 
 /**
  * The owner lets every single click and page through, and wants to be asked about browser.flow:
@@ -206,4 +207,123 @@ test('an owner rule allowing flows on *.example.com does not let a click on anot
     {action: 'navigate', url: 'https://evil.example.org/'}, {action: 'click', role: 'button', name: 'Buy'},
     {action: 'navigate', url: 'https://docs.example.com/'},
   ]}, context).decision, 'ask', 'each website is weighed on its own: the click on evil.example.org is asked about');
+});
+
+// ------------------------------------------------------------------ FQ-execution.browser: once-only overrule
+
+/**
+ * A model that calls browser.flow with state.model.args, and when asked again, also calls
+ * single-step browser.click with state.model.click arguments.
+ */
+function dualModel() {
+  const model = {name: 'dual', args: null, click: null, calls: 0, async complete() {
+    return model.calls++ % 2 === 0
+      ? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.flow', arguments: JSON.stringify(model.args)}]}
+      : {content: 'done', toolCalls: model.click ? [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify(model.click)}] : []};
+  }};
+  return model;
+}
+
+test('(d) with confirmSensitive on, "Yes, just now" runs the flow; a retry asks again because the yes is consumed', async (t) => {
+  const state = await harness(t, 'flow-once-only');
+  state.model = dualModel();
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+
+  state.model.click = {role: 'link', name: 'Next'};
+
+  // First call asks about the flow step (the click, now marked as once-only by confirmSensitive).
+  const first = await turn(state, docs);
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.tool, 'browser.click', 'the once-only question is for the step, not the flow');
+  assert.equal(asked.target, 'docs.example.com');
+  assert.equal(asked.remember, 'never', 'confirmSensitive makes it once-only (remember: never)');
+
+  // User says "Yes, just now" — it should be a once-only overrule for that exact step.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: the flow should run to completion, consuming the once-only overrule.
+  state.did.length = 0;
+  const second = await turn(state, docs, first.sessionId);
+  assert.equal(second.status, 'completed', 'the flow ran to completion after "Yes, just now"');
+  assert.deepEqual(state.did, ['navigate https://docs.example.com/guide', 'click Next on docs.example.com'],
+    'the flow step executed successfully');
+
+  // Third call: run the same flow again. The yes should have been consumed, so it should ask again.
+  state.did.length = 0;
+  const third = await turn(state, docs, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'the same flow asks again after the yes was consumed');
+  const askedAgain = waitingIn(state, third);
+  assert.equal(askedAgain.tool, 'browser.click');
+  assert.equal(askedAgain.target, 'docs.example.com');
+  assert.deepEqual(state.did, [], 'nothing ran before the question');
+});
+
+test('(d2) a yes for one flow\'s click does not cover a different click even with the same name, on the same host', async (t) => {
+  const state = await harness(t, 'flow-different-host');
+  state.model = dualModel();
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+
+  // First flow on shop.example.com
+  const first = await turn(state, shop);
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.target, 'shop.example.com');
+
+  // User says "Yes, just now" to the shop flow's click.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: shop flow runs.
+  state.did.length = 0;
+  const second = await turn(state, shop, first.sessionId);
+  assert.equal(second.status, 'completed');
+  assert.deepEqual(state.did, ['navigate https://shop.example.com/cart', 'click Place order on shop.example.com']);
+
+  // Third call: a different flow on docs.example.com with a different click name.
+  state.did.length = 0;
+  const third = await turn(state, docs, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'the docs flow is asked about, not covered by the shop yes');
+  const docsAsked = waitingIn(state, third);
+  assert.equal(docsAsked.target, 'docs.example.com');
+  assert.deepEqual(state.did, [], 'nothing on the docs site ran');
+});
+
+test('(control) a single-step browser.click with confirmSensitive still works normally', async (t) => {
+  const state = await harness(t, 'single-click');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  saveBrowser(state.app, {confirmSensitive: true});
+
+  // Model that calls single-step browser.click directly (not a flow).
+  const model = {name: 'single', calls: 0, async complete() {
+    return model.calls++ % 2 === 0
+      ? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify({role: 'button', name: 'Buy'})}]}
+      : {content: 'done', toolCalls: []};
+  }};
+  state.model = model;
+
+  // First call asks about the click.
+  const first = await turn(state, {});
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.tool, 'browser.click');
+
+  // User says "Yes, just now".
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: should run.
+  const second = await turn(state, {}, first.sessionId);
+  assert.equal(second.status, 'completed');
+
+  // Second call of the same click: because it's single-step, the yes should also be consumed, so it should ask again.
+  const third = await turn(state, {}, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'single-step click also consumes the yes');
 });
