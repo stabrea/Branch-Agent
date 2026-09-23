@@ -128,7 +128,8 @@ export class TelegramAdapter implements ChannelAdapter {
     const parsed = responseSchema.parse(await response.json());
     if (!parsed.ok) throw new Error(`Telegram sendDocument failed: ${parsed.description ?? response.status}`);
     const message = z.object({ message_id: z.number() }).passthrough().safeParse(parsed.result);
-    return message.success ? String(message.data.message_id) : undefined;
+    if (!message.success) throw new Error("Telegram sendDocument failed: response missing message_id");
+    return String(message.data.message_id);
   }
   // ---- end R17-C ----
   private async poll(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
