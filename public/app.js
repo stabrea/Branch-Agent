@@ -1021,9 +1021,47 @@ function showVersions(status) {
   else if (status.release.available) line.textContent = `Running ${running}, newest is ${newest}.`;
   else line.textContent = `Running ${running}, which is the newest.`;
 }
+/*
+ * Q55: the installed build (version and the commit it was built from, "not recorded" when the build
+ * carries none), what a failed update left in place, and the offered release's own notes as plain text.
+ */
+let lastUpdateStatus = null;
+function showBuild(status) {
+  lastUpdateStatus = status;
+  const installed = status?.installed;
+  $("updates-build-version").textContent = installed?.version || state.version || t("updates.build.not-recorded");
+  const commit = $("updates-build-commit");
+  commit.textContent = installed?.commit ? installed.commit.slice(0, 12) : t("updates.build.not-recorded");
+  commit.title = installed?.commit || "";
+  const outcome = $("updates-outcome");
+  outcome.hidden = !(status?.phase === "error" && status.outcome?.kept);
+  outcome.textContent = outcome.hidden ? "" : t("updates.outcome.kept", { version: status.outcome.kept });
+  const release = status?.release;
+  $("updates-notes").hidden = !release?.available;
+  if (!release?.available) return;
+  // A Dev build has no version of its own until it is built; it is named by its change.
+  const dev = release.channel === "dev" && release.commit;
+  $("updates-notes-title").textContent = dev ? t("updates.notes.title-dev", { change: release.commit.slice(0, 7) }) : t("updates.notes.title", { version: release.latestVersion });
+  $("updates-notes-text").textContent = release.notes?.trim() || t(dev ? "updates.notes.none-dev" : "updates.notes.none");
+}
+/* Q55: an update the hand-over could not finish is settled by the next start; say what runs now. */
+let lastActivation = null;
+let lastActivationRead = null;
+function showRestored(last) {
+  lastActivation = last;
+  const line = $("updates-restored");
+  line.hidden = !(last?.kind === "update" && last.state === "failed" && last.fromVersion === state.version);
+  line.textContent = line.hidden ? "" : t("updates.outcome.restored", { to: last.toVersion, from: last.fromVersion });
+}
+document.addEventListener("branch-language", () => {
+  if (!window.branchDesktop) return;
+  if (lastUpdateStatus) showBuild(lastUpdateStatus);
+  showRestored(lastActivation);
+});
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
   showVersions(status);
+  showBuild(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   if (installing) window.branchUpdateScreen?.show(status); else window.branchUpdateScreen?.hide();
@@ -1046,6 +1084,9 @@ async function renderUpdates() {
     if (choice) choice.checked = true;
   } catch { /* The main-process updater fails closed when owner state is unavailable. */ }
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
+  // The record only changes when Branch starts, so it is read once per page, not on every redraw.
+  lastActivationRead ??= api("never-break/last-update").then((answer) => answer.last, () => null);
+  showRestored(await lastActivationRead);
 }
 $("updates-channel").addEventListener("change", async (event) => {
   if (event.target?.name !== "release-channel") return;
