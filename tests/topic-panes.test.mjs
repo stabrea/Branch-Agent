@@ -189,3 +189,20 @@ test("with the sheet open, Escape in the picker closes only the picker and focus
   assert.equal(await f.page.evaluate(() => document.activeElement?.id), "topic-panes-add", "focus returns to the Add button");
   assert.deepEqual(f.errors, []);
 });
+
+test("after a click on the sheet's heading, Escape closes the sheet and leaves the floating side pane open", async (t) => {
+  const f = await windowFixture(t, { width: 1000, height: 900 });
+  const cherries = seedTopic(f.app, "cherries");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("body.lx-pane-float").waitFor({ state: "attached" });
+  await f.page.evaluate(async (ids) => {
+    const { openTopicPanesWith } = await import("/topic-panes.js");
+    openTopicPanesWith(ids);
+  }, [cherries]);
+  await f.page.locator("#topic-panes-overlay").waitFor({ state: "visible" });
+  await f.page.locator("#topic-panes-heading").click();
+  await f.page.keyboard.press("Escape");
+  assert.equal(await f.page.locator("#topic-panes-overlay").isVisible(), false, "the sheet closes");
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-pane-float")), true, "the side pane stays open");
+  assert.deepEqual(f.errors, []);
+});
