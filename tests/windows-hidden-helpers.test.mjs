@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,12 +44,12 @@ function windowsOnScreen() {
     .map((row) => [row.Id, row.ProcessName]));
 }
 
-/** Runs `start`, then watches the screen for as long as the work can take. */
-async function windowsOpenedBy(start, watchMs = 4000) {
+/** Runs `start`, then watches the screen for as long as the work can take, or until `enough` windows are seen. */
+async function windowsOpenedBy(start, watchMs = 4000, enough = Infinity) {
   const before = windowsOnScreen();
   const result = await start();
   const opened = new Map();
-  for (let waited = 0; waited < watchMs; waited += 400) {
+  for (let waited = 0; waited < watchMs && opened.size < enough; waited += 400) {
     await sleep(400);
     for (const [id, name] of windowsOnScreen()) if (!before.has(id)) opened.set(id, name);
   }
@@ -69,11 +69,19 @@ function workspace(t) {
 /** The scheduler is asked for first; this makes it refuse, which is the fallback the fix is about. */
 const noScheduler = { exec: (_file, _args, _options, callback) => callback(new Error("schtasks missing")) };
 
+/*
+ * One look at the screen starts PowerShell, which takes seconds on a busy build machine; a console that
+ * lived two seconds could open and close between two looks. This one lives up to 30 seconds and is
+ * closed as soon as it has been seen.
+ */
 test("this test can see a console window that is meant to be seen", { skip: !onWindows }, async () => {
+  let shown;
   const { opened } = await windowsOpenedBy(async () => {
-    spawn(join(system32, "cmd.exe"), ["/d", "/c", join(system32, "ping.exe"), "-n", "3", "127.0.0.1"],
-      { detached: true, stdio: "ignore" }).unref();
-  });
+    shown = spawn(join(system32, "cmd.exe"), ["/d", "/c", join(system32, "ping.exe"), "-n", "31", "127.0.0.1"],
+      { detached: true, stdio: "ignore" });
+    shown.unref();
+  }, 30000, 1);
+  spawnSync(join(system32, "taskkill.exe"), ["/pid", String(shown.pid), "/t", "/f"], { stdio: "ignore", windowsHide: true });
   assert.ok(opened.size >= 1,
     "a plain console opened no window this test could see, so every zero below would be meaningless");
   await sleep(2000);

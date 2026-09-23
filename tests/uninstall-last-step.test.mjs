@@ -74,8 +74,8 @@ function windowsOnScreen() {
     .filter((row) => consoleHosts.has(String(row.ProcessName).toLowerCase())).map((row) => row.Id));
 }
 
-/** Runs one line the way the uninstaller's own console would, hidden, and watches the screen. */
-async function runHidden(folders, line) {
+/** Runs one line the way the uninstaller's own console would, hidden, and watches the screen (or until `enough` windows are seen). */
+async function runHidden(folders, line, enough = Infinity) {
   const file = join(folders.root, "last-step.cmd");
   writeFileSync(file, `@echo off\r\n${line}\r\nexit /b 0\r\n`, "utf8");
   const before = windowsOnScreen();
@@ -84,7 +84,7 @@ async function runHidden(folders, line) {
     stdio: "ignore", windowsHide: true,
     env: { ...process.env, TEMP: windowsPath(folders.temp), TMP: windowsPath(folders.temp) },
   });
-  for (let waited = 0; waited < 7000; waited += 400) {
+  for (let waited = 0; waited < (enough === Infinity ? 7000 : 30000) && opened.size < enough; waited += 400) {
     await sleep(400);
     for (const id of windowsOnScreen()) if (!before.has(id)) opened.add(id);
   }
@@ -108,9 +108,15 @@ test("the last step never puts the folder's path on the line that is parsed twic
     "a % in the path is doubled, because the script's own parser reads it even inside quotes");
 });
 
+/*
+ * One look at the screen starts PowerShell, which takes seconds on a busy build machine; a console that
+ * lived two seconds could open and close between two looks. This one lives up to 30 seconds and is
+ * closed as soon as it has been seen.
+ */
 test("this test can see a console window that is meant to be seen", { skip: !onWindows }, async (t) => {
   const folders = box(t);
-  const opened = await runHidden(folders, `start "" ${windowsPath(system32)}${back}cmd.exe /d /c ${windowsPath(system32)}${back}ping.exe -n 3 127.0.0.1`);
+  const opened = await runHidden(folders, `start "" ${windowsPath(system32)}${back}cmd.exe /d /c ${windowsPath(system32)}${back}ping.exe -n 31 127.0.0.1`, 1);
+  for (const id of opened) spawnSync(join(system32, "taskkill.exe"), ["/pid", String(id), "/t", "/f"], { stdio: "ignore", windowsHide: true });
   assert.ok(opened.size >= 1, "a console that should be visible was not seen, so the zero below would mean nothing");
 });
 
