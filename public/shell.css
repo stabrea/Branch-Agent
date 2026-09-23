@@ -559,7 +559,55 @@ header {
   padding: 0 var(--s4);
   border-bottom: 1px solid var(--line);
   background: var(--head-bg);
+  /* DG-097: the search box folds to an icon by the top bar's own width, as the sample does. */
+  container-type: inline-size;
 }
+/* DG-097: the approved sample's top-bar search box, in this app's own tokens. */
+.head-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: none;
+  color: var(--text-3);
+  font-size: 13px;
+  /* The window's buttons are bold by default; the sample's search box is not. */
+  font-weight: 400;
+  cursor: pointer;
+}
+.head-search:hover {
+  border-color: var(--line-2);
+  color: var(--text-2);
+}
+.head-search svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.head-search kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--text-3);
+  background: none;
+}
+/* The sample also folds by the window's width (760px). Here that rule could never be the one doing it:
+   even with the sidebar folded away, a 760px window leaves the top bar 714px wide, already under 720. */
+@container (max-width: 720px) {
+  .head-search span,
+  .head-search kbd { display: none; }
+  .head-search { width: 34px; padding: 0; justify-content: center; border: 0; }
+}
+
 .head-title {
   display: flex;
   align-items: baseline;

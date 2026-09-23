@@ -464,6 +464,17 @@ $("thread-labels")?.addEventListener("click", (event) => {
   void openLabelPicker($("thread-labels"), $("conversation").dataset.sessionId || null, loadRail);
 });
 $("rail-find").addEventListener("click", () => openPalette());
+/* DG-097: the top-bar search box opens the same finder as Ctrl K, and shows the keys that really open it. */
+$("head-search").addEventListener("click", () => openPalette());
+function drawSearchKeys() {
+  const keys = hintFor("palette", "Ctrl K");
+  const hint = $("head-search-keys");
+  hint.textContent = keys;
+  hint.hidden = !keys;
+  const button = $("head-search");
+  if (keys) button.setAttribute("aria-keyshortcuts", keys.replace(/\bCtrl\b/g, "Control").replaceAll(" ", "+"));
+  else button.removeAttribute("aria-keyshortcuts");
+}
 $("cmd-open").addEventListener("click", () => openPalette());
 
 /* ---------- the command palette ---------- */
@@ -600,6 +611,9 @@ function closePalette() {
 /* R17-S15: the owner's own keys for these four (public/comfort.js); without it, the keys they have always been. */
 const pressed = (event, action, always) => globalThis.branchComfort?.pressed(event, action) ?? always;
 const hintFor = (action, always) => globalThis.branchComfort?.hint(action) ?? always;
+/* Drawn here rather than beside the button: `hintFor` has to exist before the keys can be shown. */
+drawSearchKeys();
+document.addEventListener("branch-comfort", drawSearchKeys);
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   /* Ctrl+Shift+K folds the context pane away and back, where there is room for it. */
