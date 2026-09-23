@@ -120,7 +120,7 @@ function moveLevel(event, group) {
 globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...LEVELS], peek: (node) => peek(node), peekPage: () => peekPage() };
 
 /* ---------- the groups on each page ---------- */
-const hostFor = (page) => $(`lx-page-${page}`);
+const hostFor = (page) => (page.startsWith("models:") ? $(`lx-models-${page.slice(7)}`) : $(`lx-page-${page}`));
 const FIXED = ".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel";
 /** A card of the page: by id, or (for a block with no id) by its class. */
 function cardIn(host, ref) {
@@ -212,6 +212,7 @@ function arrange(page) {
   if (!host) return;
   const order = wanted(page, host);
   let before = [...host.children].filter((node) => node.matches(FIXED)).at(-1) ?? null;
+  if (page.startsWith("models:")) before = null;
   for (const node of order) {
     const spot = before ? before.nextSibling : host.firstChild;
     if (spot !== node) host.insertBefore(node, spot);
