@@ -46,6 +46,9 @@ const crumbs = (page) => page.evaluate(() => {
     title: shown(title) ? title.textContent.trim() : null,
     thread: shown(thread) ? threadWords : null,
     order: !!(mid.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING),
+    /* DG-141's second crumb is gone: one mark and at most one "/" on show */
+    marks: [...document.querySelectorAll(".lx-crumbs-mark, .lx-crumb-mark, .lx-crumb-where")].filter(shown).length,
+    slashes: [...title.parentElement.children].filter((node) => node.textContent.trim() === "/" && shown(node)).length,
   };
 });
 
@@ -58,6 +61,7 @@ test("DG-099 at 1440 px a new conversation reads: this computer / New conversati
   assert.equal(now.title, null, "the place's own heading is not what shows in a conversation");
   assert.equal(now.thread, "New conversation");
   assert.equal(now.order, true, "the name comes before the title");
+  assert.deepEqual([now.marks, now.slashes], [1, 1], "exactly one crumb");
   assert.deepEqual(errors, []);
 });
 
@@ -78,6 +82,7 @@ test("DG-099 at 400 px the name and the / give way, and the title stays", async 
   assert.equal(now.mid, null);
   assert.equal(now.sep, false);
   assert.equal(now.thread, "New conversation");
+  assert.deepEqual([now.marks, now.slashes], [1, 0], "exactly one crumb, its face alone");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "nothing scrolls sideways");
   assert.deepEqual(errors, []);
 });

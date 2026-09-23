@@ -21,7 +21,9 @@ function build() {
   title.before(mark, mid, sep);
   const brand = document.querySelector("#rail-target-mark svg, .brand-mark svg");
   if (brand) mark.replaceChildren(brand.cloneNode(true));
-  mid.textContent = $("rail-target-name")?.textContent.trim() ?? "";
+  nameFromSideList();
+  const source = $("rail-target-name");
+  if (source) new MutationObserver(nameFromSideList).observe(source, { childList: true, characterData: true, subtree: true });
   const thread = $("thread-name");
   if (thread) {
     thread.dataset.tEmpty = "composer.new";
@@ -29,14 +31,20 @@ function build() {
   }
 }
 
-/** The computer or Trunk the strip has picked: its face and its name. */
-function follow(event) {
-  const { id, name, spec } = event.detail ?? {};
-  const mark = $("lx-crumbs-mark"), mid = $("lx-crumbs-mid");
-  if (!mark || !mid) return;
-  if (spec) mark.replaceChildren(face(spec, 20, { ground: "surface" }));
-  mid.textContent = id === "here" ? $("rail-target-name")?.textContent.trim() || name || "" : name || "";
+/** The name is the side list's own (public/shell.js keeps it: the picked one, this computer's name once it has
+    loaded, and "This computer" in the chosen language until then), so the two never disagree. */
+function nameFromSideList() {
+  const mid = $("lx-crumbs-mid");
+  if (!mid) return;
+  mid.textContent = $("rail-target-name")?.textContent.trim() ?? "";
   mid.title = mid.textContent;
+}
+
+/** The computer or Trunk the strip has picked: its face. */
+function follow(event) {
+  const { spec } = event.detail ?? {};
+  const mark = $("lx-crumbs-mark");
+  if (mark && spec) mark.replaceChildren(face(spec, 20, { ground: "surface" }));
 }
 
 build();

@@ -133,8 +133,11 @@ test("every place opens from the sidebar in one click, and every Settings page f
     await f.page.getByRole("button", { name, exact: true }).click();
     await f.page.locator("#page-title").filter({ hasText: name }).waitFor();
   }
-  await f.page.getByRole("button", { name: "Conversation", exact: true }).click();
-  await f.page.locator("#page-title").filter({ hasText: "Conversation" }).waitFor();
+  // As in the sample, a conversation opens from the side list's New conversation; there is no Conversation button.
+  assert.equal(await f.page.getByRole("button", { name: "Conversation", exact: true }).count(), 0);
+  await f.page.locator("#rail-new").click();
+  await f.page.locator("#chat").waitFor({ state: "visible" });
+  await f.page.locator("#page-title").filter({ hasText: "Conversation" }).waitFor({ state: "attached" });
   await f.page.getByRole("button", { name: "Settings", exact: true }).click();
   await f.page.locator("#settings-window").waitFor({ state: "visible" });
   const pages = f.page.locator(".lx-settings-link");
