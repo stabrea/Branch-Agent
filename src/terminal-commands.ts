@@ -1,5 +1,5 @@
 import { extname, basename, resolve } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import type { ImagePart } from "./contracts.js";
 import { parseImages } from "./contracts.js";
 import { conversationMarkdown } from "./memory-export.js";
@@ -84,24 +84,65 @@ export function choosePreset(runtime: Runtime, name: string): string {
 
 export interface Attachment {
   name: string;
+  /** What kind of file this is, so the terminal and the model treat it right. */
+  kind: "image" | "audio" | "video" | "document" | "text";
   /** A picture the model can look at, when the file is one. */
   image?: ImagePart;
   /** The words of a text file, added to the message instead. */
   text?: string;
+  /**
+   * The recognised media type, kept for every kind but text (which speaks for itself once read).
+   * A sound, a video and a document are not read into the message; this and `path` are the record
+   * that they were attached, and what they are.
+   */
+  mediaType?: string;
+  /** Where the original file lives on disk, kept for every kind whose bytes are not inlined above. */
+  path?: string;
 }
 const imageTypes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
+const audioTypes: Record<string, string> = { ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".flac": "audio/flac" };
+const videoTypes: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo" };
+const documentTypes: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
 const maxAttachedText = 20000;
 
-/** Reads a file to send with the next message: a picture as a picture, anything else as words. */
+/**
+ * Reads a file to send with the next message: a picture as a picture the model can look at, plain
+ * text as words added to the message, and a sound, a video or a document as a kept reference — its
+ * kind, its media type and its path — since none of those can be read straight into a message.
+ */
 export async function readAttachment(path: string): Promise<Attachment> {
-  const full = resolve(path), name = basename(full), mediaType = imageTypes[extname(full).toLowerCase()];
-  if (mediaType) {
-    const [image] = parseImages([{ mediaType, data: (await readFile(full)).toString("base64"), name }]);
-    return { name, image: image! };
+  const full = resolve(path), name = basename(full), ext = extname(full).toLowerCase();
+  const imageType = imageTypes[ext];
+  if (imageType) {
+    const [image] = parseImages([{ mediaType: imageType, data: (await readFile(full)).toString("base64"), name }]);
+    return { name, kind: "image", image: image!, mediaType: imageType, path: full };
   }
+  const audioType = audioTypes[ext];
+  if (audioType) return referenceOnly(full, name, "audio", audioType);
+  const videoType = videoTypes[ext];
+  if (videoType) return referenceOnly(full, name, "video", videoType);
+  const documentType = documentTypes[ext];
+  if (documentType) return referenceOnly(full, name, "document", documentType);
   const text = await readFile(full, "utf8");
   if (text.length > maxAttachedText) throw new Error(`${name} is too long to attach; paste the part that matters instead`);
-  return { name, text };
+  return { name, kind: "text", text };
+}
+
+/**
+ * A sound, a video or a document is kept by reference rather than read in whole: its bytes are
+ * either too big to carry in a message or, unlike a picture, not something the model can look at
+ * directly. The file is still checked so that attaching one that does not exist fails plainly here,
+ * the same as it would for a picture or a text file, instead of only surfacing later.
+ */
+async function referenceOnly(path: string, name: string, kind: "audio" | "video" | "document", mediaType: string): Promise<Attachment> {
+  const info = await stat(path);
+  if (!info.isFile()) throw new Error(`${name} is not a file`);
+  return { name, kind, mediaType, path };
 }
 
 /** What the attached files add to the message the person typed. */
