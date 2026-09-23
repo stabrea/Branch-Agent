@@ -832,7 +832,7 @@ test("Q4 every section says what it is for, and every card carries a title", asy
     assert.ok(said, `${view} never says what it is for`);
     const untitled = await f.page.evaluate((id) => [...document.getElementById(id).querySelectorAll(".card")]
       .filter((card) => card.offsetParent !== null && !card.querySelector(
-        card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, summary"))
+        card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title, summary"))
       .map((card) => card.id || card.className), holder);
     assert.deepEqual(untitled, [], `${view} has a card with no title`);
   }

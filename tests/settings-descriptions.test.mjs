@@ -59,7 +59,7 @@ function auditOpenPage(where) {
   const problems = [];
   for (const card of document.querySelectorAll(".lx-page:not([hidden]) .card")) {
     if (!shown(card)) continue;
-    const heading = card.querySelector(card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2");
+    const heading = card.querySelector(card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title");
     const cardName = card.id || heading?.textContent.trim() || "a card with no id";
     if (!heading || heading.nextElementSibling?.tagName !== "P")
       problems.push(`${where}: card ${cardName} needs its heading followed by one sentence saying what it is for`);
