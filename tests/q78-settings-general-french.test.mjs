@@ -51,6 +51,9 @@ test("Q78: Settings › General page strings are localized to French", async (t)
   await page.locator("[data-part='people']").waitFor({ state: "attached", timeout: 30000 });
 
   // Switch to French and wait for a neighbor that's already localized
+  // Q81: the card has drawn its line in English first, so the French one below can only come from the switch.
+  await page.waitForFunction((words) => document.querySelector("#restore-points")?.textContent === words,
+    en["settings.deployment.no-safety-copy"], { timeout: 10000 });
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
 
   // Wait for the French heading to appear (signals language has switched)
