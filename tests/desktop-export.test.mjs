@@ -96,6 +96,9 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     const dialogs = await electron.evaluate(() => globalThis.fixtureExportDialogs);
     assert.equal(dialogs.length, 1); assert.deepEqual(dialogs[0].filters[0].extensions, ['json']);
     assert.equal(await downloadBlocked(electron), true);
+    // History is a modal dialog now (#209): close it before going elsewhere in the window.
+    await page.locator('#saved-history-close').click();
+    await page.locator('#saved-history-dialog').waitFor({ state: 'hidden' });
     await rejectOtherWindow(electron, page.url());
     await exportNativeMemory(electron, page, path);
   } finally { await electron.close(); }
