@@ -56,6 +56,8 @@ test("an owner's fork becomes an isolated Branch Agent project without touching 
 
   const before = calls.length;
   await prepareBranchSourceChange(deps, input, AbortSignal.timeout(1000));
+  await assert.rejects(prepareBranchSourceChange(deps, { ...input, contract: { ...terms, allowedPaths: ["**"] } }, AbortSignal.timeout(1000)),
+    /already has a contract \(revision 1\)\. Different terms need branch\.widen_source_contract/, "wider terms are never silently reused");
   assert.equal(calls.slice(before).some((call) => call.includes("clone") || call.includes("worktree")), false,
     "retrying reuses the protected source and isolated copy");
 });

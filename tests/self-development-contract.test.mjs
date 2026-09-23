@@ -391,3 +391,32 @@ test("Windows spellings of the source folder go through the path normaliser, on 
   ]) assert.equal(workspacePath(ws, "", path, "win32"), "branch-agent-source/src/main.ts", path);
   assert.equal(workspacePath(ws, "", "\\\\server\\share\\branch-agent-source\\x", "win32"), null, "another computer's share is not this workspace");
 });
+
+test("worktree A's contract never judges a write into worktree B", async () => {
+  const db = new DatabaseSync(":memory:");
+  const book = new ContractBook(db), log = new AuditLog(db), registry = new ToolRegistry();
+  registry.pathScope = () => worktree;
+  registry.register({ name: "files.write", permission: "files.write", description: "double",
+    parameters: z.object({ path: z.string(), content: z.string() }), execute: async () => ({}) });
+  book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms });
+  const guard = contractGuard({ store: { audit: log }, owner: "local", workspace: "/w", registry, book, git: async () => answer("") });
+  const other = "/w/branch-agent-source/.branch-worktrees/self-other/src/ui/a.ts";
+  await assert.rejects(guard("files.write", { path: other, content: "x" }, { runId: "r" }),
+    /branch-agent-source\/\.branch-worktrees\/self-other\/src\/ui\/a\.ts is outside the contract's worktree/);
+  await guard("files.write", { path: "src/ui/a.ts", content: "x" }, { runId: "r" });
+});
+
+test("a valid row copied under another worktree, or out of its revision order, is rejected", () => {
+  const db = new DatabaseSync(":memory:");
+  const book = new ContractBook(db);
+  const first = book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms });
+  const [row] = db.prepare("SELECT body, hash, created_at FROM self_development_contracts").all();
+  const other = "branch-agent-source/.branch-worktrees/self-other";
+  db.prepare("INSERT INTO self_development_contracts(owner, worktree, revision, body, hash, created_at) VALUES(?,?,?,?,?,?)")
+    .run("local", other, 1, row.body, row.hash, row.created_at);
+  assert.throws(() => book.history("local", other), /does not match its hash/, "a row that names another worktree");
+  db.prepare("INSERT INTO self_development_contracts(owner, worktree, revision, body, hash, created_at) VALUES(?,?,?,?,?,?)")
+    .run("local", worktree, 2, row.body, row.hash, row.created_at);
+  assert.throws(() => book.history("local", worktree), /revision 2\) does not match its hash/, "revision 1's body stored as revision 2");
+  assert.equal(first.revision, 1);
+});
