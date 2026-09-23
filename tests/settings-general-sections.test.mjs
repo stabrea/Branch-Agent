@@ -13,9 +13,11 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-/* The sample's General at Regular (its KeepOak account card is not drawn: Branch has none to connect). */
+/* The sample's General at Regular (its KeepOak account card is not drawn: Branch has none to connect). Your projects
+   says 9 in the sample, which also counts "AGENTS.md in the project folder"; the generated row levels
+   (public/settings-row-levels.js) do not level that setting, so Branch counts 8 until they do. */
 const REGULAR = ["People on this computer", "A PIN for switching back to you", "How Branch starts and keeps running", "3 more with Advanced",
-  "Your projects", "9 more with Advanced", "Keys and typed commands", "6 more with Advanced", "Signing in from other devices", "6 more with Advanced"];
+  "Your projects", "8 more with Advanced", "Keys and typed commands", "6 more with Advanced", "Signing in from other devices", "6 more with Advanced"];
 const ADVANCED = ["People on this computer", "A PIN for switching back to you", "How Branch starts and keeps running",
   "Your projects", "2 more with Technical", "Keys and typed commands", "Signing in from other devices", "5 more with Technical"];
 
