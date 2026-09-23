@@ -74,6 +74,8 @@ self.addEventListener("notificationclick", (event) => {
       client.postMessage({ type: "branch-push-open", runId: event.notification.data?.runId ?? null, sessionId: event.notification.data?.sessionId ?? null });
       return client.focus();
     }
-    return self.clients.openWindow("/");
+    /* No window open: the new one is told which conversation to open once the owner is signed in (public/push.js). */
+    const sessionId = event.notification.data?.sessionId;
+    return self.clients.openWindow(sessionId ? "/?push-session=" + encodeURIComponent(sessionId) : "/");
   })());
 });

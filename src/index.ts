@@ -772,6 +772,8 @@ export async function createBranch(options: {
   // FQ-surfaces.mobile-push: a device the owner subscribed, told the same events a webhook is, over
   // Web Push rather than an HTTP callback (src/web-push.ts filters most of them out on its own).
   const webPush = new WebPushService(store, runtime.owner, web.policy);
+  // Secrets an older version kept in plain settings rows move to the locker before any backup is taken.
+  await webPush.migrate().catch(() => undefined);
   // Wave 8: while Lockdown is on, no note about what happened reaches another program either.
   const notify = webhooks.notifier(runtime.owner);
   const guardedNotify: typeof notify = (event, payload) => {

@@ -21,7 +21,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
-async function fixture(t) {
+async function fixture(t, before) {
   const root = await mkdtemp(join(tmpdir(), "branch-push-deep-link-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -38,11 +38,13 @@ async function fixture(t) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
+  /* `before` may stage the page and name the address it opens at; "/" otherwise. */
+  const path = (await before?.({ app, page })) ?? "/";
+  await page.goto(server.url + path);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  return { page, server, errors };
+  return { app, page, server, errors };
 }
 
 test("push: a tapped notification's branch-push-open event opens the conversation it named", async (t) => {
@@ -78,5 +80,42 @@ test("push: a tapped notification's branch-push-open event opens the conversatio
   await f.page.waitForTimeout(200);
   assert.equal(await f.page.evaluate(() => document.getElementById("conversation").dataset.sessionId), targetId);
 
+  assert.deepEqual(f.errors, []);
+});
+
+test("push: a tap that had to open a new window opens the conversation it named once signed in", async (t) => {
+  let targetId;
+  const f = await fixture(t, async ({ app }) => {
+    const run = await app.runtime.run({ prompt: "push fresh window target" });
+    targetId = run.sessionId;
+    return `/?push-session=${encodeURIComponent(targetId)}`;
+  });
+  await f.page.locator("#thread-name", { hasText: "push fresh window target" }).waitFor({ timeout: 15000 });
+  assert.equal(await f.page.evaluate(() => document.getElementById("conversation").dataset.sessionId), targetId);
+  assert.equal(await f.page.evaluate(() => location.search), "", "the address is put back, so a reload does not open it again");
+  assert.deepEqual(f.errors, []);
+});
+
+test("push: when the server refuses a subscription, the browser lets go of it too", async (t) => {
+  const f = await fixture(t, async ({ page }) => {
+    // No real push service in a test browser: a stand-in subscription that counts being let go of.
+    await page.addInitScript(() => {
+      globalThis.unsubscribedCount = 0;
+      const fake = {
+        endpoint: "https://push.example/refused",
+        toJSON() { return { endpoint: this.endpoint, keys: { p256dh: "p", auth: "a" } }; },
+        async unsubscribe() { globalThis.unsubscribedCount += 1; return true; },
+      };
+      PushManager.prototype.getSubscription = async () => null;
+      PushManager.prototype.subscribe = async () => fake;
+    });
+    await page.route("**/api/push/subscribe", (route) => route.fulfill({
+      status: 400, contentType: "application/json", body: JSON.stringify({ error: "That is not a push subscription." }),
+    }));
+  });
+  await f.page.locator("#push-card button").waitFor({ state: "attached", timeout: 15000 });
+  await f.page.evaluate(() => document.querySelector("#push-card button").click());
+  await f.page.waitForFunction(() => globalThis.unsubscribedCount === 1, null, { timeout: 10000 });
+  assert.equal(await f.page.locator("#push-card [role=status]").textContent(), "That is not a push subscription.");
   assert.deepEqual(f.errors, []);
 });

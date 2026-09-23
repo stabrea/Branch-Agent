@@ -345,7 +345,7 @@ export class StudyRunner {
     const began = Date.now();
     const run = await this.runtime.run({
       ...(live ? { onStarted: (started: { id: string }) => live.started(started.id) } : {}),
-      prompt: task.prompt, model: preset, budget: { maxSteps: study.maxSteps, maxTokens: study.maxTokens },
+      prompt: task.prompt, measured: true, model: preset, budget: { maxSteps: study.maxSteps, maxTokens: study.maxTokens },
       traceAttributes: { "branch.study.id": study.id, "branch.benchmark.id": study.source.kind === "benchmark" ? study.source.benchmark : study.source.suite, "branch.study.task": task.id },
     });
     // The provider's own token count is the ledger; Branch's estimate is only the fallback for a

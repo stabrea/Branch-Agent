@@ -143,7 +143,7 @@ export class SuiteRunner {
   private async execute(task: EvaluationTask, request: z.infer<typeof RunSuiteSchema>, readOnly: boolean): Promise<Run> {
     const permissions = readOnly ? this.runtime.registry.permissions().filter(isReadOnlyPermission) : undefined;
     const options = {
-      prompt: task.prompt, signal: AbortSignal.timeout(task.timeoutMs),
+      prompt: task.prompt, signal: AbortSignal.timeout(task.timeoutMs), measured: true,
       // Wave 7: every evaluation task is a trace of its own, labelled so an export can be filtered
       // down to one suite or one task months later.
       traceAttributes: { "branch.evaluation.suite": request.suite, "branch.evaluation.task": task.id },

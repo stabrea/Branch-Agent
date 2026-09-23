@@ -305,6 +305,11 @@ export interface RunOptions {
   unattended?: boolean;
   /** mac7/tests-unattended: `branch run --allow-tests`, for this one task (see ToolContext.allowProjectTests). */
   allowProjectTests?: boolean;
+  /**
+   * An evaluation's or a study's own task, set by the code that measures it. Nobody is told it
+   * finished: it sends no Web Push (src/web-push.ts). A continued task carries it on.
+   */
+  measured?: boolean;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -860,7 +865,12 @@ ${run.output.slice(0, 6000)}`;
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
       ...(person ? { personProfileId: person } : {}),
       ...(options.lentTo ? { lentTo: options.lentTo } : {}),
+      ...(options.measured || this.startMark(options.resumeFrom, "measured") === true ? { measured: true } : {}),
     };
+  }
+  /** One field of a task's own `run.started` record. */
+  private startMark(runId: string | undefined, field: string): unknown {
+    return runId ? this.store.events(runId).find((event) => event.kind === "run.started")?.data?.[field] : undefined;
   }
   private prepareRun(options: RunOptions): Run {
     RunInputSchema.parse({
@@ -1222,10 +1232,18 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(run.id, "run.finished", { status, output });
     // FQ-surfaces.mobile-push: `top`, `isolated` and `source` ride along for src/web-push.ts's
     // notifier, which is far pickier than a webhook about what deserves to buzz someone's phone —
-    // every existing webhook payload still gets exactly what it always did, plus these three fields.
+    // every existing webhook payload still gets what it always did, plus these fields. Whose task it
+    // was (a household person's, a lent conversation's, a short-lived key's) and whether it was an
+    // evaluation's are only added when true, so the owner's phone is never shown somebody else's words.
     const top = (context.scratchRoot ?? run.id) === run.id;
-    this.notifyEvent(status === "completed" ? "run.completed" : "run.failed",
-      { runId: run.id, sessionId: run.sessionId, status, top, isolated: Boolean(context.isolated), source: context.source ?? "owner" });
+    const origin = runOrigin(this.store, run.id);
+    this.notifyEvent(status === "completed" ? "run.completed" : "run.failed", {
+      runId: run.id, sessionId: run.sessionId, status, top, isolated: Boolean(context.isolated), source: context.source ?? "owner",
+      ...(origin.personProfileId ? { personProfileId: origin.personProfileId } : {}),
+      ...(origin.lentTo ? { lentTo: origin.lentTo } : {}),
+      ...(origin.shortLivedKey ? { shortLivedKey: true } : {}),
+      ...(this.startMark(run.id, "measured") === true ? { measured: true } : {}),
+    });
     return finished;
   }
   /**

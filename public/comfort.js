@@ -48,7 +48,8 @@ const CARDS = [
     sw("vim", false)] },
   { id: "files", card: "files", home: "settings:general", fields: [sw("respectGitignore", true), { name: "extraIgnoreFiles", kind: "lines", def: [] }] },
   { id: "display", card: "display", home: "settings:appearance", fields: [{ name: "statusLine", kind: "status", def: null }, sw("timestamps", false)] },
-  { id: "notify", card: "notify", home: "settings:notifications", fields: [pick("method", "system", ["system", "window"]), pick("sound", "off", ["off", "chime", "knock"])] },
+  { id: "notify", card: "notify", home: "settings:notifications", fields: [pick("method", "system", ["system", "window"]), pick("sound", "off", ["off", "chime", "knock"]),
+    sw("lockScreenText", false)] },
   // Redesign phase 1: three choice cards rather than a list, with the one Branch recommends marked.
   { id: "updates", card: "notify", home: "settings:about", fields: [{ name: "autoUpdate", kind: "cards", def: "off", options: ["off", "check", "install"], recommended: "install" }] },
   { id: "voice", card: "voice", home: "settings:voice", fields: [combo("pushToTalkKey", ""), { name: "maxRecordingSeconds", kind: "number", min: 5, max: 600, def: null }] },

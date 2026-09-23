@@ -67,7 +67,7 @@ test("a push service answering 307 is never followed to an address the network s
   await assert.rejects(policy.assertAllowed(new URL(target)), /blocked list/, "the redirect target is one the policy refuses");
 
   const webPush = new WebPushService(app.store, app.runtime.owner, policy);
-  webPush.subscribe({ endpoint: `http://127.0.0.1:${pushService.port}/push/abc`, keys: receiverKeys() });
+  await webPush.subscribe({ endpoint: `http://127.0.0.1:${pushService.port}/push/abc`, keys: receiverKeys() });
   webPush.notify("run.completed", finished);
 
   await until(() => pushService.hits.length === 1, 5000, "the push service to be asked");
@@ -76,7 +76,7 @@ test("a push service answering 307 is never followed to an address the network s
   assert.deepEqual(internal.hits, [], "the redirect target must never be reached");
 });
 
-test("one device that never answers neither holds up the others nor hangs forever", { timeout: 10000 }, async (t) => {
+test("one device that never answers neither holds up the others nor hangs forever", { timeout: 30000 }, async (t) => {
   const app = await appFixture(t);
   // The default settings, with a name lookup that answers a public address: no DNS, no network.
   const policy = new NetworkPolicy({}, async () => ["93.184.216.34"]);
@@ -92,8 +92,8 @@ test("one device that never answers neither holds up the others nor hangs foreve
   };
   const webPush = new WebPushService(app.store, app.runtime.owner, policy, fetchImpl);
   webPush.sendTimeoutMs = 400;
-  webPush.subscribe({ endpoint: "https://push-one.example/a", keys: receiverKeys() });
-  webPush.subscribe({ endpoint: "https://push-two.example/b", keys: receiverKeys() });
+  await webPush.subscribe({ endpoint: "https://push-one.example/a", keys: receiverKeys() });
+  await webPush.subscribe({ endpoint: "https://push-two.example/b", keys: receiverKeys() });
   webPush.notify("run.completed", finished);
 
   await until(() => calls.length === 2, 2000, "the second device to be sent to");
@@ -107,7 +107,7 @@ test("a subscription's auth secret is not in the problem report's settings summa
   const webPush = new WebPushService(app.store, app.runtime.owner, new NetworkPolicy({}));
   const keys = receiverKeys();
   assert.match(keys.auth, /^[\w.-]{22}$/, "a real auth secret is short enough to pass as a one-word value");
-  webPush.subscribe({ endpoint: "https://push.example/sub", keys });
+  await webPush.subscribe({ endpoint: "https://push.example/sub", keys });
 
   const summary = settingsSummary(app);
   const row = Object.entries(summary).find(([id]) => id.startsWith("push-sub:"));

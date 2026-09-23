@@ -8,7 +8,7 @@
  * http either: without a secure context the browser has no `PushManager` at all, so the card says so
  * instead of offering a button that can only fail.
  */
-import { t } from "/i18n.js";
+import { t, language } from "/i18n.js";
 
 const desktop = new URLSearchParams(location.search).get("desktop") === "1" || Boolean(globalThis.branchDesktop);
 const supported = !desktop && "serviceWorker" in navigator && "PushManager" in globalThis && isSecureContext;
@@ -39,7 +39,13 @@ async function enable() {
   const { key } = await api("push/vapid-key");
   const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesOf(key) });
   const json = subscription.toJSON();
-  await api("push/subscribe", { endpoint: json.endpoint, keys: json.keys });
+  try {
+    await api("push/subscribe", { endpoint: json.endpoint, keys: json.keys, language: language() === "fr" ? "fr" : "en" });
+  } catch (error) {
+    // The server refused it, so nothing will ever be sent there: the browser lets go of it too.
+    await subscription.unsubscribe().catch(() => undefined);
+    throw error;
+  }
   return subscription;
 }
 async function disable(subscription) {
@@ -92,6 +98,30 @@ function buildCard() {
   return card;
 }
 
+/**
+ * A tapped notification with no window open opens one at /?push-session=<id> (public/service-worker.js).
+ * The address is put back at once; the conversation opens as soon as the workspace is on screen,
+ * after signing in when this new tab has to.
+ */
+function openTappedConversation() {
+  const url = new URL(location.href);
+  const sessionId = url.searchParams.get("push-session");
+  if (!sessionId) return;
+  url.searchParams.delete("push-session");
+  history.replaceState(history.state, "", url);
+  const workspace = document.getElementById("workspace");
+  if (!workspace) return;
+  const openWhenShown = () => {
+    if (workspace.hidden || !token()) return false;
+    document.dispatchEvent(new CustomEvent("branch-push-open", { detail: { runId: null, sessionId } }));
+    return true;
+  };
+  if (openWhenShown()) return;
+  const watcher = new MutationObserver(() => { if (openWhenShown()) watcher.disconnect(); });
+  watcher.observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
+}
+
+if (typeof document !== "undefined" && !desktop) openTappedConversation();
 if (typeof document !== "undefined" && supported) {
   document.body.append(buildCard());
   // A push the owner taps says which conversation it was about; opening it here is the page's job.

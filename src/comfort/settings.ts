@@ -52,6 +52,8 @@ export const ComfortNotifySchema = z.object({
   method: z.enum(["system", "window"]).default("system"),
   /** A short sound when Branch needs you. */
   sound: z.enum(["off", "chime", "knock"]).default("off"),
+  /** A push notification shows what was asked on the lock screen; off shows only "A task finished." */
+  lockScreenText: z.boolean().default(false),
   /** off: manual only; check: daily for Stable, every five minutes for Beta; install: also install when idle. */
   autoUpdate: z.enum(["off", "check", "install"]).default("off"),
   /** Stable is the default; beta is an explicit owner choice for more frequent preview builds. */

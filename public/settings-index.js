@@ -220,6 +220,7 @@ export const SETTINGS_INDEX = [
   ["heartbeat-second","settings:notifications","quiet-interruptions","Ask a second opinion before telling me","heartbeat.secondOpinion",null,"Interruptions from background work",true],
   ["comfort-method","settings:notifications","comfort-notify-card","Where you are told","comfort.method",null,"How Branch gets your attention",true],
   ["comfort-sound","settings:notifications","comfort-notify-card","Sound","comfort.sound",null,"How Branch gets your attention",true],
+  ["comfort-lockScreenText","settings:notifications","comfort-notify-card","Show message text on the lock screen","comfort.lockScreenText",null,"How Branch gets your attention",true],
   ["provider-preset","settings:models:connection","model-settings-form","Choose a provider",null,null,"Model connection",true],
   ["model-provider","settings:models:connection","model-settings-form","Provider",null,null,"Model connection",true],
   ["model-endpoint","settings:models:connection","model-settings-form","Web address of the service","model-settings.endpoint",null,"Model connection",true],

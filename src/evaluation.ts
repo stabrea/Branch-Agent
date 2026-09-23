@@ -38,7 +38,7 @@ export class Evaluation {
     const tasks: EvaluationResult["tasks"] = [];
     for (const task of suite.tasks) {
       const began = Date.now();
-      const run = await runtime.run({ prompt: task.prompt, checks: { ...task.checks, maxRetries: 0 }, ...(suite.model ? { model: suite.model } : {}) });
+      const run = await runtime.run({ prompt: task.prompt, measured: true, checks: { ...task.checks, maxRetries: 0 }, ...(suite.model ? { model: suite.model } : {}) });
       const usage = this.store.usage(run.id) as { estimatedInput?: number; estimatedOutput?: number };
       const problem = run.status === "completed" ? await evaluateChecks(run.output, task.checks, runtime.workspace) : run.output.slice(0, 200);
       tasks.push({ id: task.id, runId: run.id, status: run.status, passed: run.status === "completed" && !problem, problem, ms: Date.now() - began, tokens: (usage.estimatedInput ?? 0) + (usage.estimatedOutput ?? 0) });
