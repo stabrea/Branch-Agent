@@ -73,6 +73,7 @@ export class Teams {
     const claim = task.state === "pending" ? this.tasks.claim(scope, task.taskId) : null;
     if (!claim) return this.observed(scope, task.taskId);
     const turn: TurnProgress = { parentRunId: null, membersStarted: false, recorded: false };
+    // While this turn runs, reconcile leaves it alone and nobody can hand it off (Q62, src/team-handoff.ts).
     holdDispatch(this.store, claim.taskId);
     try {
       return await this.dispatch(runtime, knowledge, team, prompt, claim, turn);

@@ -31,6 +31,8 @@ const dispatching = new WeakMap<Store, Set<string>>();
 const working = (store: Store): Set<string> => dispatching.get(store) ?? dispatching.set(store, new Set()).get(store)!;
 export function holdDispatch(store: Store, taskId: string): void { working(store).add(taskId); }
 export function releaseDispatch(store: Store, taskId: string): void { working(store).delete(taskId); }
+/** Whether this process is working on a team task right now (Q62 refuses a handoff while it is). */
+export function dispatchHeld(store: Store, taskId: string): boolean { return dispatching.get(store)?.has(taskId) ?? false; }
 
 /** Run statuses that mean the run has stopped for good; any other unfinished status may still act later. */
 const stoppedStatuses: ReadonlySet<RunStatus> = new Set<RunStatus>(["failed", "cancelled", "interrupted", "budget_exceeded"]);
