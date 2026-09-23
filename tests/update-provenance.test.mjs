@@ -102,6 +102,44 @@ test("verifyAttestationBundle accepts only this repository's release workflow ru
     assert.equal(verifyAttestationBundle(makeBundle(digestHex, { uri }), { repo, digestHex }).workflow, uri);
 });
 
+test("verifyAttestationBundle accepts beta.yml at refs/heads/mac/cross-platform for a Beta version", () => {
+  // Beta versions (e.g. "0.19.4-beta.5") accept the beta workflow; final versions (e.g. "0.19.4") do not.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const betaUri = `https://github.com/${repo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`;
+  const bundle = makeBundle(digestHex, { uri: betaUri });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex, version: "0.19.4-beta.5" });
+  assert.equal(result.workflow, betaUri);
+});
+
+test("verifyAttestationBundle refuses beta.yml@refs/heads/mac/cross-platform for a final version", () => {
+  // Final versions must accept only package.yml@refs/tags/vX.Y.Z, not the beta workflow.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const betaUri = `https://github.com/${repo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`;
+  const bundle = makeBundle(digestHex, { uri: betaUri });
+  assert.throws(
+    () => verifyAttestationBundle(bundle, { repo, digestHex, version: "0.19.4" }),
+    /does not name this repository's release workflow for a version tag/
+  );
+});
+
+test("verifyAttestationBundle refuses beta.yml with a different branch or other workflows for Beta versions", () => {
+  // Beta versions accept only beta.yml@refs/heads/mac/cross-platform, not variations.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const betaVersion = "0.19.4-beta.5";
+  for (const uri of [
+    `https://github.com/${repo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform-dev`,
+    `https://github.com/${repo}/.github/workflows/other.yml@refs/heads/mac/cross-platform`,
+    `https://github.com/${repo}/.github/workflows/beta.yml@refs/tags/v0.19.4-beta.5`, // tags instead of heads
+  ]) {
+    const bundle = makeBundle(digestHex, { uri });
+    assert.throws(
+      () => verifyAttestationBundle(bundle, { repo, digestHex, version: betaVersion }),
+      /does not name this repository's release workflow for a version tag/,
+      uri
+    );
+  }
+});
+
 test("isBuildProvenance is true for SLSA build provenance only, not GitHub's release attestation", () => {
   const digestHex = createHash("sha256").update("archive bytes").digest("hex");
   assert.equal(isBuildProvenance(makeBundle(digestHex)), true);

@@ -231,10 +231,18 @@ export interface ProvenanceExpectation {
   repo: string;
   /** The downloaded archive's own SHA-256, already checked against the published checksum. */
   digestHex: string;
+  /** The release version being installed (e.g. "0.19.4-beta.5" or "0.19.4"), optional for backward compat. */
+  version?: string;
 }
 export interface ProvenanceResult {
   /** The workflow identity named in the signing certificate (a GitHub Actions job URL). */
   workflow: string;
+}
+
+/** True when a version is a Branch beta prerelease: e.g. "0.19.4-beta.5" (same pattern as betaReleaseVersion in updater). */
+function isBetaVersion(version: string | undefined): boolean {
+  if (!version) return false;
+  return /^\d+\.\d+\.\d+-beta\.\d+$/.test(version);
 }
 
 /** `https://github.com/<repo>/.github/workflows/package.yml@refs/tags/v1.2.3` (a final release tag, as package.yml is triggered by). */
@@ -242,6 +250,12 @@ function releaseWorkflowIdentity(repo: string): RegExp {
   const escaped = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const tag = String.raw`v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?`;
   return new RegExp(String.raw`^URI:https://github\.com/` + escaped + String.raw`/\.github/workflows/package\.yml@refs/tags/` + tag + "$");
+}
+
+/** `https://github.com/<repo>/.github/workflows/beta.yml@refs/heads/mac/cross-platform` (beta releases run on that branch). */
+function betaWorkflowIdentity(repo: string): RegExp {
+  const escaped = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(String.raw`^URI:https://github\.com/` + escaped + String.raw`/\.github/workflows/beta\.yml@refs/heads/mac/cross-platform$`);
 }
 
 /**
@@ -280,8 +294,12 @@ export function verifyAttestationBundle(bundle: AttestationBundle, expected: Pro
   }
 
   const names = (cert.subjectAltName ?? "").split(",").map((entry) => entry.trim());
-  const workflow = releaseWorkflowIdentity(expected.repo);
-  const workflowEntry = names.find((entry) => workflow.test(entry));
+  // Beta releases accept beta.yml@refs/heads/mac/cross-platform; final releases accept package.yml@refs/tags/vX.Y.Z only.
+  const isBeta = isBetaVersion(expected.version);
+  const acceptedWorkflows = isBeta
+    ? [releaseWorkflowIdentity(expected.repo), betaWorkflowIdentity(expected.repo)]
+    : [releaseWorkflowIdentity(expected.repo)];
+  const workflowEntry = names.find((entry) => acceptedWorkflows.some((pattern) => pattern.test(entry)));
   if (!workflowEntry) throw new Error("the provenance record's signing certificate does not name this repository's release workflow for a version tag");
 
   const signature = bundle.dsseEnvelope.signatures[0]!;

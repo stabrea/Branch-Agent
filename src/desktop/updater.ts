@@ -502,7 +502,7 @@ export class Updater {
     const failures: string[] = [];
     for (const bundle of (lookup?.bundles ?? []).filter(isBuildProvenance)) {
       try {
-        verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex });
+        verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex, version: release.latestVersion });
         return this.provenanceFound("checked", release);
       } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
     }

@@ -1024,6 +1024,14 @@ function showVersions(status) {
 function showUpdateStatus(status) {
   // The build provenance outcomes arrive as fixed English sentences that the language files also hold.
   $("updates-status").textContent = fromEnglish(status.message) ?? status.message;
+  // Show the build provenance sentence persistently once it is known, even as later phases run.
+  const provenanceEl = $("updates-provenance");
+  if (status.provenance?.message) {
+    provenanceEl.textContent = fromEnglish(status.provenance.message) ?? status.provenance.message;
+    provenanceEl.hidden = false;
+  } else if (status.phase === "checking") {
+    provenanceEl.hidden = true;
+  }
   showVersions(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
