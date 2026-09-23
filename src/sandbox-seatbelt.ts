@@ -109,6 +109,9 @@ function writeRules(input: SeatbeltInput, params: Param[]): string[] {
     params.push([`KEEP_${index}`, path]);
     rules.push(`(deny file-write* (literal (param "KEEP_${index}")) (subpath (param "KEEP_${index}")))`);
   });
+  // Q12: no `.git` anywhere under the workspace either, however deep: a repository planted there
+  // could name a program in its own config for Branch's Git to run outside the wall.
+  rules.push(`(deny file-write* (require-all (subpath (param "WRITE_0")) (regex #"/\\.git(/|$)")))`);
   return rules;
 }
 

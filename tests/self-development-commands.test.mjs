@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 import { ContractBook, contractGuard } from "../dist/self-development-contract.js";
+import { gitFoldersUnder, sweepNewGitFolders } from "../dist/integrations/shell.js";
 import { wallReport } from "../dist/sandbox-backends.js";
 import { AuditLog } from "../dist/audit.js";
 import { ToolRegistry } from "../dist/registry.js";
@@ -148,4 +149,31 @@ test("the shell still refuses a cwd with .. or a full path, as before the shared
     assert.match(failed ?? "", /Path denied: traversal/, cwd);
   }
   assert.equal(existsSync(join(branch.workspace, "notes", "made.txt")), false);
+});
+
+test("a held command cannot make a .git anywhere in its folder: the real sandbox refuses it", { skip: process.platform !== "darwin" || !(await wallReport()).available }, async (t) => {
+  const branch = await withSource(t, { project: "worktree", permissions: ["shell.execute"] });
+  const { failed, result } = await branch.command({ executable: "sh", cwd: `${worktree}/src/ui`,
+    // The shell starts with no PATH of its own, so the programs are named in full.
+    args: ["-c", "/bin/mkdir -p x/.git; echo '[core] fsmonitor = /tmp/evil' > x/.git/config; /bin/mkdir -p y && /usr/bin/git init -q y; echo ok > fine.txt; /bin/mkdir -p z && echo ok > z/also.txt"] });
+  assert.equal(failed, null, failed);
+  assert.doesNotMatch(result.stderr, /Branch removed the \.git/, "the sandbox refused it: nothing was left for the sweep");
+  const ui = join(branch.workspace, worktree, "src", "ui");
+  assert.equal(existsSync(join(ui, "fine.txt")), true, "an ordinary write in the folder works");
+  assert.equal(existsSync(join(ui, "z", "also.txt")), true, "and so does an ordinary new folder (the programs really ran)");
+  for (const planted of ["x/.git/config", "x/.git", "y/.git"]) assert.equal(existsSync(join(ui, planted)), false, planted);
+});
+
+test("where the sandbox cannot refuse it (Linux), a .git a held command made is removed afterwards", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-sweep-"));
+  t.after(() => discardTemp(root));
+  await mkdir(join(root, "old", ".git"), { recursive: true });
+  const before = await gitFoldersUnder(root);
+  await mkdir(join(root, "x", "deep", ".git"), { recursive: true });
+  await writeFile(join(root, "x", "deep", ".git", "config"), "[core]\n\tfsmonitor = /tmp/evil\n");
+  await writeFile(join(root, "y.txt"), "kept");
+  assert.deepEqual(await sweepNewGitFolders(root, before), [join("x", "deep", ".git")]);
+  assert.equal(existsSync(join(root, "x", "deep", ".git")), false, "the planted one is gone");
+  assert.equal(existsSync(join(root, "old", ".git")), true, "one that was there before stays");
+  await assert.rejects(gitFoldersUnder(root, 2), /too many files for Branch to check/);
 });

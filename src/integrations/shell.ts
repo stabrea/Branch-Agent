@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import { WorkspaceFiles } from '../files.js';
@@ -112,7 +112,17 @@ export class BranchShell {
     // Q12: a command held to one folder gets a private, empty temporary folder: the shared ones are
     // writable by design, and Branch's source could sit inside one of them.
     const scratch = run.confined ? await mkdtemp(join(tmpdir(), 'branch-held-')) : null;
-    try { return await this.spawnIn(run, scratch); } finally { if (scratch) await rm(scratch, { recursive: true, force: true }).catch(() => undefined); }
+    const before = run.confined ? await gitFoldersUnder(run.workspace) : null;
+    let swept: string[] = [];
+    try {
+      const result = await this.spawnIn(run, scratch);
+      swept = before ? await sweepNewGitFolders(run.workspace, before) : [];
+      return swept.length ? { ...result, stderr: `${result.stderr}${result.stderr && !result.stderr.endsWith('\n') ? '\n' : ''}Branch removed the .git this command made (${swept.join(', ')}): Git is never run from a repository a held command planted.` } : result;
+    } finally {
+      // However the command ended, what it planted does not outlive it.
+      if (before && !swept.length) await sweepNewGitFolders(run.workspace, before).catch(() => undefined);
+      if (scratch) await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
   private async spawnIn(run: Parameters<BranchShell['spawn']>[0], scratch: string | null): Promise<ProcessResult> {
     // The environment is built from an allowlist only, then the owner's extra names (R17-S10, never a
@@ -168,6 +178,36 @@ async function confinedFolder(folder: string, cwd: string): Promise<string> {
   const rest = relative(inside, from);
   if (rest.startsWith('..') || isAbsolute(rest)) throw new Error('The command would run outside the only folder it may change, so it did not run.');
   return inside;
+}
+
+/** Q12: the most entries looked through for `.git` folders under a held command's folder. */
+const gitSweepLimit = 100_000;
+
+/**
+ * Q12: every `.git` (folder or file) under a folder, links not followed. On macOS the sandbox itself
+ * refuses to make one; Linux's has no way to say "no .git at any depth", so Branch looks before and
+ * after a held command runs. Past the limit it refuses to run the command at all.
+ */
+export async function gitFoldersUnder(folder: string, limit = gitSweepLimit): Promise<Set<string>> {
+  const found = new Set<string>(), queue = [folder];
+  let seen = 0;
+  while (queue.length) {
+    const here = queue.shift()!;
+    for (const entry of await readdir(here, { withFileTypes: true }).catch(() => [])) {
+      if (++seen > limit) throw new Error('The folder this command is held to holds too many files for Branch to check, so it did not run.');
+      const path = join(here, entry.name);
+      if (entry.name === '.git') found.add(path);
+      else if (entry.isDirectory() && !entry.isSymbolicLink()) queue.push(path);
+    }
+  }
+  return found;
+}
+
+/** Q12: removes each `.git` under the folder that was not there before, and names them. */
+export async function sweepNewGitFolders(folder: string, before: ReadonlySet<string>): Promise<string[]> {
+  const made = [...(await gitFoldersUnder(folder, Number.MAX_SAFE_INTEGER))].filter((path) => !before.has(path));
+  for (const path of made) await rm(path, { recursive: true, force: true });
+  return made.map((path) => relative(folder, path));
 }
 
 /**
