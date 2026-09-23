@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { LockerKeySource } from "./locker.js";
+import { projectIdSchema, type LockerKeySource } from "./locker.js";
 import { canonical } from "./receipts.js";
 
 /**
@@ -25,7 +25,11 @@ export const CollabEventSchema = z.object({
 }).strict();
 export type CollabEvent = z.infer<typeof CollabEventSchema>;
 export type CollabVerdict = { valid: true } | { valid: false; reason: string };
-export interface CollabSearch { kind?: string | undefined; text?: string | undefined; limit?: number | undefined }
+export interface CollabSearch {
+  kind?: string | undefined; text?: string | undefined; limit?: number | undefined;
+  /** Only events linked to this repository (a Branch project id), matched exactly, never by text. */
+  repository?: string | undefined;
+}
 export interface CollabListing { events: CollabEvent[]; rejected: string[] }
 
 export class CollabEvents {
@@ -78,9 +82,11 @@ export class CollabEvents {
   async list(owner: string, search: CollabSearch = {}): Promise<CollabListing> {
     const limit = Math.min(Math.max(Math.trunc(search.limit ?? 100), 1), 500);
     const text = search.text ? `%${search.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+    const repository = search.repository ?? null;
     const rows = this.db.prepare(`SELECT * FROM collab_events WHERE owner=? AND (? IS NULL OR kind=?)
-      AND (? IS NULL OR payload LIKE ? ESCAPE '\\') ORDER BY at DESC, id LIMIT ?`)
-      .all(owner, search.kind ?? null, search.kind ?? null, text, text, limit);
+      AND (? IS NULL OR payload LIKE ? ESCAPE '\\')
+      AND (? IS NULL OR json_extract(payload, '$.repository')=?) ORDER BY at DESC, id LIMIT ?`)
+      .all(owner, search.kind ?? null, search.kind ?? null, text, text, repository, repository, limit);
     const listing: CollabListing = { events: [], rejected: [] };
     for (const row of rows) {
       const event = rowEvent(row);
@@ -101,4 +107,27 @@ function rowEvent(row: Record<string, unknown>): CollabEvent | null {
     return { id: String(row.id), member: String(row.member), kind: String(row.kind), at: String(row.at),
       payload: JSON.parse(String(row.payload)) as Record<string, unknown>, signature: String(row.signature) };
   } catch { return null; }
+}
+
+/** What a repository looked like when a patch was published: its branch, head commit and changed files. */
+export const GitStatusSchema = z.object({
+  branch: z.string().min(1).max(200), head: z.string().regex(/^[a-f0-9]{40}$/, "A head is a full 40-character commit id"),
+  clean: z.boolean(), changed: z.array(z.string().min(1).max(500)).max(500),
+}).strict();
+export const GitPatchSchema = z.object({
+  repository: projectIdSchema, title: z.string().trim().min(1).max(200),
+  patch: z.string().min(1).max(60000), status: GitStatusSchema,
+}).strict();
+export const gitPatchKind = "git.patch";
+
+/**
+ * Publishes a patch with its repository's status as one signed event. The repository is a Branch
+ * project, and it must be one this household has, so the event cannot point at a made-up one.
+ * The repository id sits in the signed payload, so moving an event to another repository breaks it.
+ */
+export async function publishGitPatch(events: CollabEvents, owner: string, member: string, input: unknown,
+  repositoryExists: (repository: string) => boolean): Promise<CollabEvent> {
+  const patch = GitPatchSchema.parse(input);
+  if (!repositoryExists(patch.repository)) throw new Error("Repository not found");
+  return events.publish(owner, member, gitPatchKind, patch);
 }
