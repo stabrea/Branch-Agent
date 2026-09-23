@@ -5072,6 +5072,7 @@
   "attention.trunkWaitingArmed": "Your next message in that conversation answers {from}'s message: “{message}”.",
   "attention.answer": "Answer",
   "attention.notNow": "Not now",
+  "attention.continue": "Continue where it stopped",
   "rooms.allowedTitle": "Allowed in this room",
   "rooms.allowed": "{name} may do this in this room: {what}",
   "rooms.allowedUntil": "Until {time}, or until {name} leaves the room.",

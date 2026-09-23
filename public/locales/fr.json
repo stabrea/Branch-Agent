@@ -5073,6 +5073,7 @@
   "attention.trunkWaitingArmed": "Votre prochain message dans cette conversation répond au message de {from} : « {message} ».",
   "attention.answer": "Répondre",
   "attention.notNow": "Pas maintenant",
+  "attention.continue": "Reprendre là où elle s’est arrêtée",
   "rooms.allowedTitle": "Autorisé dans ce salon",
   "rooms.allowed": "{name} peut le faire dans ce salon : {what}",
   "rooms.allowedUntil": "Jusqu'à {time}, ou jusqu'à ce que {name} quitte le salon.",

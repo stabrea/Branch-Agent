@@ -210,6 +210,28 @@ test("Q51 a question still unanswered stays listed however much other work finis
   assert.ok((await call("/api/activity?waiting=1")).some((one) => one.runId === asking.id), "and still waiting for you");
 });
 
+/* The run ids "Needs you" lists, and those the Activity list shows as waiting for the owner, sorted. */
+async function bothWaiting(call) {
+  const needsYou = (await call("/api/state")).attention.map((one) => one.runId).sort();
+  const activity = (await call("/api/activity?waiting=1")).filter((one) => one.task.state === "waiting-owner").map((one) => one.runId).sort();
+  return { needsYou, activity };
+}
+
+test("Q51 Needs you keeps a question still unanswered however much other work finishes, as the Activity list does", async (t) => {
+  const { app, call, older, asking } = await branch(t);
+  const owner = app.runtime.owner;
+  for (let i = 0; i < 105; i++) app.store.finish(app.store.createRun(owner, `Other task ${i}`).id, "completed", "done");
+  const attention = (await call("/api/state")).attention;
+  const item = attention.find((one) => one.runId === asking.id);
+  assert.ok(item, "still in Needs you");
+  assert.equal(item.question, app.store.run(asking.id).output, "with its question, as before");
+  assert.equal(item.canContinue, undefined, "a question is answered, not continued");
+  assert.equal(attention.some((one) => one.runId === older.id), false, "the older question a later task moved past is not listed");
+  const { needsYou, activity } = await bothWaiting(call);
+  assert.deepEqual(needsYou, [asking.id]);
+  assert.deepEqual(needsYou, activity, "the same tasks as the Activity list's waiting ones");
+});
+
 test("Q51 a task Branch closed on, which can be continued, is listed as waiting for you to continue", async (t) => {
   const { app, call } = await branch(t);
   const closed = app.store.createRun(app.runtime.owner, "Sort the invoices");
@@ -218,6 +240,22 @@ test("Q51 a task Branch closed on, which can be continued, is listed as waiting 
   const listed = (await call("/api/activity?waiting=1")).find((one) => one.runId === closed.id);
   assert.deepEqual([listed?.task.state, listed?.task.why, listed?.task.reason], ["waiting-owner", "run.can_continue", "Branch closed during step 2"]);
   assert.equal((await call("/api/activity")).some((one) => one.runId === closed.id), false, "not counted as busy");
+});
+
+test("Q51 Needs you lists a task Branch closed on, saying it can be continued, as the Activity list does", async (t) => {
+  const { app, call, asking } = await branch(t);
+  const closed = app.store.createRun(app.runtime.owner, "Sort the invoices");
+  app.store.event(closed.id, "run.can_continue", { note: "Branch closed during step 2" });
+  app.store.finish(closed.id, "interrupted", "");
+  const item = (await call("/api/state")).attention.find((one) => one.runId === closed.id);
+  assert.deepEqual([item?.sessionId, item?.question, item?.canContinue], [closed.sessionId, "Branch closed during step 2", true]);
+  const { needsYou, activity } = await bothWaiting(call);
+  assert.deepEqual(needsYou, [asking.id, closed.id].sort());
+  assert.deepEqual(needsYou, activity, "the same tasks as the Activity list's waiting ones");
+  /* Without a note, it still says in words that it can be continued. */
+  const quiet = app.store.createRun(app.runtime.owner, "Tidy the desk");
+  app.store.finish(quiet.id, "interrupted", "");
+  assert.match((await call("/api/state")).attention.find((one) => one.runId === quiet.id)?.question ?? "", /Continue it when you are ready/);
 });
 
 test("Q51 'no update' waits as long as the owner's own limits allow a silence", async (t) => {
