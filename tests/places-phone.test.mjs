@@ -77,3 +77,26 @@ test("DG-143: the bar reads in French", async (t) => {
   assert.equal(await page.locator('.ew-place[data-place="customize"] .ew-word').innerText(), "Personnaliser");
   assert.deepEqual(errors, []);
 });
+
+test("DG-141: the title is the picked computer / the place, the first step opens its conversation, and a phone keeps only its face", async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(() => globalThis.branchLayout.go("memory"));
+  await page.locator("#library").waitFor({ state: "visible" });
+  const crumb = await page.evaluate(() => [...document.querySelector(".head-title").children]
+    .filter((node) => getComputedStyle(node).display !== "none").map((node) => node.className || node.id));
+  assert.deepEqual(crumb.slice(0, 3), ["lx-crumb-where", "lx-crumb-sep", "page-title"], "where, a slash, then the place");
+  assert.equal(await page.locator(".lx-crumb-mid").innerText(), await page.locator("#rail-target-name").innerText(), "the side list's own name");
+  assert.equal(await page.locator("#page-title").innerText(), "Library", "the place, not its tab");
+  assert.equal(await page.locator(".lx-back").count(), 0, "no separate back button");
+  await page.locator("#lx-crumb-where").click();
+  await page.locator("#chat").waitFor({ state: "visible" });
+  await page.setViewportSize({ width: 400, height: 844 });
+  await page.evaluate(() => globalThis.branchLayout.go("memory"));
+  assert.equal(await page.locator(".lx-crumb-mid").isVisible(), false, "a phone drops the name and the slash");
+  assert.equal(await page.locator(".lx-crumb-sep").isVisible(), false);
+  assert.equal(await page.locator(".lx-crumb-mark").isVisible(), true, "and keeps the face");
+  await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
+  await page.waitForFunction(() => document.documentElement.lang === "fr");
+  await page.waitForFunction(() => document.querySelector(".lx-crumb-mid").textContent === document.getElementById("rail-target-name").textContent.trim());
+  assert.deepEqual(errors, []);
+});
