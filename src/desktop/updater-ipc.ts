@@ -6,6 +6,7 @@ import { Updater, UpdateDeferredError, type UpdateChannel } from "./updater.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
 import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
+import { UpdateInstallClaim } from "./update-install-claim.js";
 
 export const updateSource = {
   repo: "stabrea/Branch-Agent",
@@ -73,11 +74,11 @@ export function registerUpdaterIpc(
       new URL(event.senderFrame.url).origin !== origin)
       throw new Error("Desktop update access denied");
   };
-  let installationClaimed = false;
+  const installClaim = new UpdateInstallClaim();
   ipcMain.handle("branch:update-status", (event) => { authorized(event); return updater.status; });
   ipcMain.handle("branch:update-check", async (event) => {
     authorized(event);
-    if (installationClaimed) return updater.status;
+    if (installClaim.active) return updater.status;
     // mac7/diagnostics: each check, and any failure, is a line in the activity log.
     if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
     updater.setChannel((await hooks.readiness()).channel);
@@ -91,9 +92,7 @@ export function registerUpdaterIpc(
   });
   ipcMain.handle("branch:update-install", async (event) => {
     authorized(event);
-    if (installationClaimed || updater.inProgress) return updater.status;
-    installationClaimed = true;
-    try {
+    return installClaim.run(() => updater.status, () => updater.inProgress, async () => {
       if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
       const readiness = await hooks.readiness();
       updater.setChannel(readiness.channel);
@@ -118,10 +117,7 @@ export function registerUpdaterIpc(
       // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.
       setTimeout(() => app.exit(0), 20000).unref();
       return status;
-    } catch (error) {
-      installationClaimed = false;
-      throw error;
-    }
+    });
   });
   ipcMain.handle("branch:open-external", async (event, url: unknown) => {
     authorized(event);
