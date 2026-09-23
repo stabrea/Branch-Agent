@@ -14,14 +14,18 @@ export const HistoryReadSchema = z.object({
   length: z.number().int().min(1).max(12000).default(4000),
 }).strict();
 type Query = z.input<typeof HistoryQuerySchema>;
+/** The most words one history search takes; unified search trims to this before it asks. */
+export const historyKeywordLimit = 32;
+/** How a history query is split into the words the full-text index is asked for. */
+export const historyKeywords = (query: string): string[] => query.match(/[\p{L}\p{N}]+/gu) ?? [];
 type Read = z.input<typeof HistoryReadSchema>;
 
 export class SessionHistory {
   constructor(private db: DatabaseSync) { this.initializeSources(); this.initialize(); }
   search(owner: string, input: Query, excludeSessionId = "") {
     const query = HistoryQuerySchema.parse(input);
-    const words = query.query.match(/[\p{L}\p{N}]+/gu) ?? [];
-    if (words.length > 32) throw new Error("History search accepts up to 32 keywords");
+    const words = historyKeywords(query.query);
+    if (words.length > historyKeywordLimit) throw new Error(`History search accepts up to ${historyKeywordLimit} keywords`);
     if (!words.length) return [];
     const expression = words.map((word) => `"${word}"`).join(query.match === "all" ? " AND " : " OR ");
     const rows = this.db.prepare(`SELECT m.source_id, m.session_id, s.created_at,

@@ -126,3 +126,19 @@ test("a recent conversation whose title lacks the word is still found by its wor
   await page.waitForFunction((id) => document.getElementById("conversation").dataset.sessionId === id, quietId);
   assert.deepEqual(errors, []);
 });
+
+test("the palette lists a conversation once even if the search answers with two rows for it", async (t) => {
+  const { page, word, quietId } = await fixture(t);
+  // The server already groups by conversation; this feeds the palette a repeated row directly, so
+  // its own de-duplication is what is being checked.
+  const row = { kind: "conversation", title: `Conversation ${quietId.slice(0, 8)}`,
+    snippet: `Pack the ${word} adapter first.`, link: `/api/sessions/${quietId}` };
+  await page.route("**/api/search?*", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ results: [row, { ...row }] }),
+  }));
+  await searchFor(page, word);
+  const item = page.locator(".cmd-item", { hasText: `Conversation ${quietId.slice(0, 8)}` });
+  await item.first().waitFor({ state: "visible", timeout: 10000 });
+  await page.waitForTimeout(300);
+  assert.equal(await item.count(), 1);
+});

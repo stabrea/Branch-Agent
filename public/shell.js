@@ -588,9 +588,15 @@ function drawPalette(query) {
       // A conversation whose own title already matched is offered above by that title; the same
       // conversation's generic row from /api/search would only repeat it. Only the ones that matched:
       // a recent conversation whose words match but whose title does not is what this search is for.
+      // Each conversation is offered once, even if /api/search ever returns two rows for it.
       const knownSessions = new Set(matches.map((item) => item.sessionId).filter(Boolean));
-      matches = matches.concat(remote.filter((item) =>
-        !knownLabels.has(item.label) && !(item.sessionId && knownSessions.has(item.sessionId))));
+      matches = matches.concat(remote.filter((item) => {
+        if (knownLabels.has(item.label)) return false;
+        if (!item.sessionId) return true;
+        if (knownSessions.has(item.sessionId)) return false;
+        knownSessions.add(item.sessionId);
+        return true;
+      }));
       renderMatches();
     });
   }, 150);

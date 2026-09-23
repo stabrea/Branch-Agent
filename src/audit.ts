@@ -127,6 +127,9 @@ export class AuditLog {
     // change that can be made, because the two rules above refuse any edit to a row that exists —
     // so an older row's origin is read back as its source, which is what it always meant.
     this.addOriginColumn();
+    // FQ-collaboration.unified-search: the same lower-casing the search's words get in JS, so a
+    // match in SQL is exactly a match in JS (SQLite's own lower() only folds ASCII).
+    this.db.function("audit_fold", { deterministic: true }, (value) => String(value ?? "").toLowerCase());
   }
   private addOriginColumn(): void {
     const has = this.db.prepare("PRAGMA table_info(audit)").all()
@@ -167,6 +170,24 @@ export class AuditLog {
     if (query.to) { where.push("at<=?"); values.push(query.to); }
     return this.db.prepare(`SELECT * FROM audit WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
       .all(...values, query.limit).map(toEntry);
+  }
+  /**
+   * FQ-collaboration.unified-search: the newest entries whose actor, subject, reason or plain label
+   * hold every one of `words` (already lower-cased), searched across the whole record rather than a
+   * recent window, so an older match is still found.
+   */
+  search(owner: string, words: readonly string[], limit: number): AuditEntry[] {
+    if (!words.length) return [];
+    const where = ["owner=?"];
+    const values: string[] = [owner];
+    for (const word of words) {
+      const labelled = auditActions.filter((action) => auditLabel(action).toLowerCase().includes(word));
+      const byLabel = labelled.length ? ` OR action IN (${labelled.map(() => "?").join(",")})` : "";
+      where.push(`(instr(audit_fold(actor),?)>0 OR instr(audit_fold(subject),?)>0 OR instr(audit_fold(reason),?)>0${byLabel})`);
+      values.push(word, word, word, ...labelled);
+    }
+    return this.db.prepare(`SELECT * FROM audit WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
+      .all(...values, limit).map(toEntry);
   }
   /** How many of each kind there are, for the plain-language summary. */
   counts(owner: string): { action: AuditAction; label: string; count: number }[] {
