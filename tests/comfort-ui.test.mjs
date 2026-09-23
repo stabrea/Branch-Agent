@@ -65,13 +65,46 @@ const undescribed = (page, id) => page.evaluate((cardId) => {
   }).map((control) => control.id);
 }, id);
 
+for (const width of [1440, 860, 400]) {
+  test(`DG-008 comfort Settings headings remain native and described at ${width}px`, async (t) => {
+    const { page, errors } = await openApp(t, width);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const language of ["en", "fr"]) {
+      await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
+      await refresh(page); // Rebuilt cards must retain their native hierarchy and scope order.
+      for (const [id, home] of Object.entries(homes)) {
+        await openSettingFor(page, `#${id}`);
+        const card = page.locator(`#${id}`);
+        const heading = card.locator(":scope > [data-t]").first();
+        assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
+        const name = (await heading.textContent()).trim();
+        assert.ok(name, `${id} has a translated title`);
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        assert.equal(await page.locator(`${home} > h2.lx-page-title`).count(), 1, "page title stays level two");
+        assert.equal(await card.locator(":scope > h3 + p.subtle + .kit-scope.sr-only").count(), 1,
+          "scope remains after the heading and purpose, not before the title");
+        assert.deepEqual(await undescribed(page, id), []);
+        const style = await heading.evaluate((node) => {
+          const css = getComputedStyle(node);
+          return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
+        });
+        assert.deepEqual(style, ["16px", "640", "20.8px", "normal", "0px 0px 6px"]);
+      }
+      assert.equal(await page.locator('[data-t="comfort.field.caCertificates"]').first().evaluate((node) => node.tagName), "H4",
+        "certificate subsection is below its card title");
+      assert.equal(await page.locator("#comfort-mcp-card > h2").count(), 1, "non-Settings card is unchanged");
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
 test("each comfort card is in its home, says what it is for, and every control has its own sentence", async (t) => {
   const { app, page, errors } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
     await openSettingFor(page, `#${id}`);
     assert.ok(await page.locator(`#${id}`).isVisible(), `${id} can be seen on its page`);
-    assert.equal(await page.locator(`#${id} > h2 + p.subtle`).count(), 1, `${id} says what it is for`);
+    assert.equal(await page.locator(`#${id} > h3.settings-card-title + p.subtle`).count(), 1, `${id} says what it is for`);
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
   }
   await closeSettings(page);
