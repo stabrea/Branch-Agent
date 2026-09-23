@@ -864,3 +864,65 @@ body:not(.lx-settings-searching) #lx-models-connection > [data-sg-bucket] > :is(
     max-width: none;
   }
 }
+
+/* DG-044: the models tried next are a row each, in the person's order: the tick and its words, then Move up and Move
+   down at the right edge. It stays one line of three at any width; long words wrap inside the row. */
+#models-fallback {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+#models-fallback > legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 520;
+  line-height: 1.55;
+}
+#models-fallback-rows {
+  clear: both;
+  display: grid;
+}
+.fallback-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+}
+.fallback-row + .fallback-row {
+  border-top: 1px solid var(--line);
+}
+/* The tick is drawn as a switch like every other; the row, not the switch's own label, carries the rule. */
+#models-fallback .fallback-row > label.check {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+  overflow-wrap: anywhere;
+}
+.fallback-move {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.fallback-move:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.fallback-move:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

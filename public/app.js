@@ -1109,22 +1109,56 @@ function codexFallbackNote() {
   $("models-fallback-codex").hidden = !(codex && presets.some((preset) => preset.provider === "chatgpt"));
 }
 $("models-fallback").addEventListener("change", codexFallbackNote);
+/* DG-044: one model to try next: its tick, its words, and Move up and Move down, named in the page's language. */
+function fallbackRow(preset, ticked) {
+  const row = el("div", undefined, "fallback-row");
+  const label = el("label", undefined, "check");
+  const box = document.createElement("input");
+  box.type = "checkbox"; box.value = preset.id; box.checked = ticked;
+  label.append(box, ` ${preset.name} · ${preset.model}`);
+  const move = (way, glyph) => {
+    const button = el("button", glyph, "fallback-move");
+    button.type = "button";
+    button.dataset.move = way;
+    button.dataset.tLabel = `models.fallback.${way}`;
+    button.setAttribute("aria-label", t(`models.fallback.${way}`));
+    return button;
+  };
+  row.append(label, move("up", "↑"), move("down", "↓"));
+  return row;
+}
+/** The first row cannot go up and the last cannot go down. */
+function fallbackEnds() {
+  for (const row of $("models-fallback-rows").children) {
+    row.querySelector('[data-move="up"]').disabled = !row.previousElementSibling;
+    row.querySelector('[data-move="down"]').disabled = !row.nextElementSibling;
+  }
+}
+/* The neighbour moves rather than the row, so focus stays on the button pressed; at an end it goes to the other one. */
+$("models-fallback").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-move]");
+  const row = button?.closest(".fallback-row");
+  const up = button?.dataset.move === "up";
+  const other = up ? row?.previousElementSibling : row?.nextElementSibling;
+  if (!other) return;
+  if (up) row.after(other); else row.before(other);
+  fallbackEnds();
+  if (button.disabled) row.querySelector(`[data-move="${up ? "down" : "up"}"]`).focus();
+  void saveModels();
+});
 function renderModels() {
   const models = state.models;
   if (!models) return;
   presetOptions($("models-active"), models.presets, null, models.activePreset ?? models.defaultPreset);
   if (document.activeElement !== $("models-reasoning")) $("models-reasoning").value = models.reasoning ?? "";
   if (document.activeElement !== $("models-cooldown")) $("models-cooldown").value = Math.round(models.cooldownMs / 1000);
-  const fallback = $("models-fallback");
-  if (!fallback.contains(document.activeElement)) {
-    fallback.replaceChildren(...models.presets.map((preset) => {
-      const label = el("label", undefined, "check");
-      const box = document.createElement("input");
-      box.type = "checkbox"; box.value = preset.id;
-      box.checked = models.fallbackOrder.includes(preset.id);
-      label.append(box, ` ${preset.name} · ${preset.model}`);
-      return label;
-    }));
+  if (!$("models-fallback").contains(document.activeElement)) {
+    /* DG-044: the saved order first, then the models not in it, as the list's own order has them. */
+    const byId = new Map(models.presets.map((preset) => [preset.id, preset]));
+    const first = models.fallbackOrder.map((id) => byId.get(id)).filter(Boolean);
+    const rest = models.presets.filter((preset) => !models.fallbackOrder.includes(preset.id));
+    $("models-fallback-rows").replaceChildren(...[...first, ...rest].map((preset) => fallbackRow(preset, first.includes(preset))));
+    fallbackEnds();
   }
   codexFallbackNote();
   // Integration review (mac7/wake-pins): the checkboxes above are new nodes with no

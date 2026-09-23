@@ -1880,8 +1880,11 @@
                 <option value="high">Thorough</option>
               </select>
             </div>
-            <p class="subtle">If the default fails, try these in order</p>
-            <div id="models-fallback" class="check-list"></div>
+            <!-- DG-044: the models tried next are rows in the person's own order, each with Move up and Move down. -->
+            <fieldset id="models-fallback" class="check-list">
+              <legend data-t="models.fallback.legend">If the default fails, try these in order</legend>
+              <div id="models-fallback-rows"></div>
+            </fieldset>
             <p id="models-fallback-codex" class="field-note" data-t="models.fallback-codex" hidden>Codex on this computer signs in on its own. If it is signed in to a different ChatGPT plan of yours, work that reaches your ChatGPT limit can carry on there, on that plan. Branch cannot see which plan it uses.</p>
             <div class="sg-ctl">
               <label for="models-cooldown" data-t="field.rest-a-failed-model-for">Rest a failed model for (seconds)</label>
