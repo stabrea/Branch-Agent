@@ -52,7 +52,9 @@ function unsaved(values) {
 async function load() {
   let snapshot;
   try { snapshot = await call("/api/ui-preferences"); } catch { return; /* not signed in yet, or no engine: the copy here stands */ }
-  const offered = unsaved(snapshot.values ?? {});
+  /* Once only: after the import is written down, this page's storage is only ever a copy, so what
+     somebody else at this computer chose here later is never handed to this person's record. */
+  const offered = snapshot.imports?.[IMPORT] ? {} : unsaved(snapshot.values ?? {});
   if (Object.keys(offered).length)
     try { snapshot = await call("/api/ui-preferences/import", { name: IMPORT, values: offered }); } catch { /* tried again next start */ }
   engine = { revision: snapshot.revision, values: { ...(snapshot.values ?? {}) } };

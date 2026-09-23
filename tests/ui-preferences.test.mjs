@@ -97,6 +97,17 @@ test("a choice left in browser storage by an older version moves to the engine a
   await before.page.reload();
   assert.equal((await imported).status(), 200);
   assert.deepEqual((await saved(first)).values, { railOpen: false, focusView: true }, "the older choices are now the engine's");
+  /* The import happens once: what lands in this page's storage later is only a copy, never imported. */
+  await before.page.evaluate(() => localStorage.setItem("branch-rail-view", "trunks"));
+  const imports = [];
+  before.page.on("request", (request) => { if (request.url().endsWith("/api/ui-preferences/import")) imports.push(request); });
+  const read = before.page.waitForResponse((r) => r.url().endsWith("/api/ui-preferences") && r.request().method() === "GET");
+  await before.page.reload();
+  await read;
+  await before.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await before.page.waitForTimeout(300);
+  assert.equal(imports.length, 0, "no second import is asked for");
+  assert.deepEqual((await saved(first)).values, { railOpen: false, focusView: true }, "a second start imports nothing");
   assert.deepEqual(before.errors, []);
   await before.context.close();
   for (const close of open.splice(0).reverse()) await close();
