@@ -8,7 +8,7 @@ import { SessionBranches } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
 import { SessionSummaries, type SessionSummary } from "./session-summary.js";
 import { WorkingSessions, type WorkingNote } from "./working-session.js";
-import { MemoryFacts } from "./memory.js";
+import { MemoryFacts, type MemoryRecord } from "./memory.js";
 import { InstalledSkills } from "./skills.js";
 import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
@@ -620,9 +620,9 @@ export class Store {
   setMemorySuppressed(owner: string, sessionId: string, suppressed: boolean) { return this.memories.setSuppressed(owner, sessionId, suppressed); }
   exportMemory(owner: string) { return this.memories.export(owner); }
   importMemory(owner: string, input: unknown) { return this.memories.import(owner, input); }
-  forgetMemoryPreview(owner: string, sessionId: string) { return this.memories.forgetPreview(owner, sessionId); }
-  forgetMemory(owner: string, input: unknown) {
-    const forgotten = this.memories.forget(owner, input);
+  forgetMemoryPreview(owner: string, sessionId: string, outside: readonly MemoryRecord[] = []) { return this.memories.forgetPreview(owner, sessionId, outside); }
+  forgetMemory(owner: string, input: unknown, outside: readonly MemoryRecord[] = []) {
+    const forgotten = this.memories.forget(owner, input, outside);
     // Wave 7: forgetting what a conversation said also forgets what it taught about tools.
     this.toolUsage.forgetSession(forgotten.sessionId);
     return forgotten;

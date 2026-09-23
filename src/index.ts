@@ -25,7 +25,7 @@ import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerSecondOpinion } from "./second-opinion-tools.js";
-import { registerMemory } from "./memory.js";
+import { memoryScope, registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
 import { chooseForInjection } from "./memory-layers.js";
@@ -1004,6 +1004,8 @@ export async function createBranch(options: {
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
   // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
   registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
+  // FQ-memory.providers: and the ones an outside memory service holds, when one is switched on.
+  registry.onRunFinished(async (context) => { await memory.backend.clearOutsideScratch(memoryScope(store, context), context.runId).catch(() => undefined); });
   // Wave 9: what the assistant notices for itself from what actually happened. It only ever
   // suggests; every suggestion carries what it was learned from, and turning one down is final.
   const learning = new MemoryLearning(store);

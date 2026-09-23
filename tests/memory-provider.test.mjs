@@ -75,7 +75,7 @@ async function fixture(t, steps = [say("ok")], { allowPrivate = true } = {}) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   if (allowPrivate) app.web.policy.configure({ allowPrivateAddresses: true }); // the double lives on 127.0.0.1
   t.after(async () => { await app.close(); await discardTemp(root); });
-  return { app, context: app.runtime.context() };
+  return { app, root, context: app.runtime.context() };
 }
 
 test("switching on an outside memory service replaces the built-in SQLite memory, not just mirrors it", async (t) => {
@@ -312,4 +312,76 @@ test("plain http is refused unless the service is on this computer, or on the ow
   await assert.rejects(() => app.registry.execute("memory.search", { query: "open" }, context), /https/);
   assert.equal(asked, 0, "nothing was looked up or fetched");
   assert.equal(read, 0, "the key was never read out of the locker");
+});
+
+// ---------------------------------------------------------------- forgetting, when facts live outside
+
+const putting = (text, extra = {}) => () => ({ content: "", toolCalls: [{ id: `put-${text.length}`, name: "memory.put", arguments: JSON.stringify({ text, source: "conversation", ...extra }) }] });
+async function served(t, app, root) {
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  return async (path, body) => {
+    const response = await fetch(`${server.url}/api/${path}`, { method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: response.status, data: await response.json() };
+  };
+}
+
+test("Forget this conversation removes the facts it saved on the outside service, and they are not found again", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root, context } = await fixture(t, [putting("Owner prefers oat milk"), say("Saved.")]);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const run = await app.runtime.run({ prompt: "remember how I take my coffee" });
+  assert.equal(double.byOwner.get("local")?.size, 1, "the conversation saved its fact on the outside service");
+  const post = await served(t, app, root);
+
+  const preview = await post("memory/forget/preview", { sessionId: run.sessionId });
+  assert.equal(preview.status, 200);
+  assert.deepEqual(preview.data.remove.map((entry) => entry.text), ["Owner prefers oat milk"]);
+  const forgotten = await post("memory/forget", { sessionId: run.sessionId });
+  assert.equal(forgotten.status, 200);
+  assert.equal(forgotten.data.removed, 1);
+  assert.equal(forgotten.data.problem, undefined);
+  assert.equal(double.byOwner.get("local").size, 0, "the outside service was asked to delete it");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "oat" }, context), []);
+});
+
+test("a delete the outside service refuses is reported plainly, and the forgotten fact is never read back", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root, context } = await fixture(t, [putting("Owner's locker code is 4411"), say("Saved.")]);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const run = await app.runtime.run({ prompt: "remember my locker code" });
+  const [id] = double.byOwner.get("local").keys();
+  double.respond = (method) => (method === "DELETE" ? [500, { error: "read only" }] : undefined);
+  const post = await served(t, app, root);
+
+  const forgotten = await post("memory/forget", { sessionId: run.sessionId });
+  assert.equal(forgotten.status, 200);
+  assert.equal(forgotten.data.removed, 0, "nothing is counted as removed that was not");
+  assert.deepEqual(forgotten.data.notRemoved.map((entry) => entry.id), [id]);
+  assert.match(forgotten.data.problem, /could not be deleted from the outside memory service/);
+  assert.equal(double.byOwner.get("local").size, 1, "the service really does still hold it");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "locker" }, context), [], "but Branch does not read it back");
+  assert.equal(await app.memory.backend.read("local", id), undefined);
+  assert.equal(await app.memory.backend.count("local"), 0);
+  await assert.rejects(() => app.registry.execute("memory.update", { id, text: "Owner's locker code is 9999", source: "owner", expectedRevision: 1 }, context), /not found/);
+});
+
+test("notes a job made for itself on the outside service go when the job ends", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t, [
+    putting("Invoice 3 is duplicated", { kind: "task-scratch" }), putting("The accountant is called Priya"), say("Done."),
+  ]);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  await app.runtime.run({ prompt: "tidy the invoices" });
+  const left = [...double.byOwner.get("local").values()].map((record) => record.data.text);
+  assert.deepEqual(left, ["The accountant is called Priya"], "the job's own note was deleted on the outside service; the lasting fact stays");
+  assert.deepEqual((await app.registry.execute("memory.search", { query: "Invoice" }, context)), []);
 });

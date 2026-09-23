@@ -1505,7 +1505,7 @@ async function previewForget(context) {
       panel.append(conversationButton("Forget them", async () => {
         try {
           const result = await api("memory/forget", { sessionId });
-          toast(`Removed ${result.removed} from memory.`);
+          toast(result.problem ? `Removed ${result.removed} from memory. ${result.problem}` : `Removed ${result.removed} from memory.`);
           await refresh(); renderConversationContext();
         } catch (e) { toast(e.message); }
       }));

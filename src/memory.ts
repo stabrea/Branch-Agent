@@ -159,14 +159,18 @@ export class MemoryFacts {
     this.db.prepare("INSERT OR REPLACE INTO memory(id,owner,data,created_at,updated_at,revision) VALUES(?,?,?,?,?,?)")
       .run(record.id, owner, JSON.stringify(record.data), record.createdAt, record.updatedAt, record.revision);
   }
-  /** Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones. */
-  forgetPreview(owner: string, sessionId: string) {
+  /**
+   * Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones.
+   * `outside` is what an outside memory service holds for this owner when one is switched on
+   * (src/memory-provider.ts), so a conversation's facts are found wherever they were saved.
+   */
+  forgetPreview(owner: string, sessionId: string, outside: readonly MemoryRecord[] = []) {
     if (!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner))
       throw new Error("Conversation not found");
     const runIds = new Set(this.db.prepare("SELECT id FROM tasks WHERE session_id=?").all(sessionId).map(row => String(row.id)));
     const remove: { id: string; text: string; source: string; createdAt: string }[] = [];
     const excluded: { id: string; text: string; reason: string }[] = [];
-    for (const record of this.list(owner)) {
+    for (const record of [...this.list(owner), ...outside]) {
       if (!runIds.has(String(record.data.originRunId || record.data.sourceRunId))) continue;
       const text = String(record.data.text);
       if (record.revision > 1) excluded.push({ id: record.id, text, reason: `You edited this after it was saved (revision ${record.revision}), so it stays.` });
@@ -174,10 +178,14 @@ export class MemoryFacts {
     }
     return { sessionId, remove, excluded, suppressed: this.suppressed(owner, sessionId) };
   }
-  /** Removes the previewed facts (or a chosen subset) and stops the conversation from saving memory again on its own. */
-  forget(owner: string, input: unknown) {
+  /**
+   * Removes the previewed facts (or a chosen subset) kept on this computer and stops the conversation
+   * from saving memory again on its own. `ids` is every fact chosen, so the caller can remove the
+   * ones an outside memory service holds as well.
+   */
+  forget(owner: string, input: unknown, outside: readonly MemoryRecord[] = []) {
     const { sessionId, ids } = z.object({ sessionId: z.string().uuid(), ids: z.array(MemoryIdSchema).max(500).optional() }).strict().parse(input);
-    const preview = this.forgetPreview(owner, sessionId);
+    const preview = this.forgetPreview(owner, sessionId, outside);
     const removable = new Set(preview.remove.map(entry => entry.id));
     const chosen = ids ?? [...removable];
     if (chosen.some(id => !removable.has(id))) throw new Error("Only facts listed in the preview can be forgotten");
@@ -188,7 +196,7 @@ export class MemoryFacts {
       this.db.prepare("INSERT OR IGNORE INTO memory_suppressions VALUES(?,?,?)").run(owner, sessionId, new Date().toISOString());
       this.db.exec("COMMIT");
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
-    return { sessionId, removed: chosen.length, excluded: preview.excluded, suppressed: true };
+    return { sessionId, removed: chosen.length, ids: chosen, excluded: preview.excluded, suppressed: true };
   }
   /** Retention: facts untouched for longer than the policy are archived (restorable) or purged, with a report. */
   hygiene(owner: string, input: unknown, now: number = Date.now()) {

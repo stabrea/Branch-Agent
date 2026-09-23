@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SecretName } from "./learning-more/providers.js";
 import type { MemoryBackend } from "./memory-backend.js";
 import { MemoryDataSchema, visibleTo, type MemoryRecord } from "./memory.js";
+import { layerOf } from "./memory-layers.js";
 import { isPrivateAddress } from "./network-policy.js";
 import type { Store } from "./store.js";
 
@@ -200,7 +201,11 @@ export class MemoryProvider implements MemoryBackend {
     private readonly guard: MemoryProviderGuard,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
     private readonly secret: MemoryProviderSecret = noLocker,
-  ) {}
+  ) {
+    // A fact forgotten here stays forgotten even when the outside service failed to delete it too.
+    store.sqlite.exec(`CREATE TABLE IF NOT EXISTS memory_outside_forgotten(owner TEXT NOT NULL, id TEXT NOT NULL,
+      forgotten_at TEXT NOT NULL, PRIMARY KEY(owner,id))`);
+  }
   /** What is switched on right now ("built-in" or "outside"), and the setting behind it, for the Memory screen. */
   view(owner: string): { settings: MemoryProviderSettings; active: MemoryProviderSettings["mode"] } {
     return { settings: memoryProviderSettings(this.store, owner), active: this.isOutside(owner) ? "outside" : "built-in" };
@@ -224,15 +229,89 @@ export class MemoryProvider implements MemoryBackend {
       allowPrivate: this.guard.settings().allowPrivateAddresses,
       ...(name ? { auth: { header: settings.header, key: () => this.secret(name) } } : {}) });
   }
-  read(owner: string, id: string): Promise<MemoryRecord | undefined> { return this.current(owner).read(owner, id); }
-  list(owner: string): Promise<MemoryRecord[]> { return this.current(owner).list(owner); }
+  async read(owner: string, id: string): Promise<MemoryRecord | undefined> {
+    if (!this.isOutside(owner)) return this.builtIn.read(owner, id);
+    return this.forgotten(owner).has(id) ? undefined : this.current(owner).read(owner, id);
+  }
+  async list(owner: string): Promise<MemoryRecord[]> {
+    if (!this.isOutside(owner)) return this.builtIn.list(owner);
+    return this.remembered(owner, await this.current(owner).list(owner));
+  }
   write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> { return this.current(owner).write(owner, id, data); }
-  search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> { return this.current(owner).search(owner, query, agent); }
-  forget(owner: string, id: string): Promise<boolean> { return this.current(owner).forget(owner, id); }
-  count(owner: string): Promise<number> { return this.current(owner).count(owner); }
+  async search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> {
+    if (!this.isOutside(owner)) return this.builtIn.search(owner, query, agent);
+    return this.remembered(owner, await this.current(owner).search(owner, query, agent));
+  }
+  /** Forgets one fact. On an outside service it is marked forgotten here first, so it never comes back even if the delete fails. */
+  async forget(owner: string, id: string): Promise<boolean> {
+    if (!this.isOutside(owner)) return this.builtIn.forget(owner, id);
+    this.markForgotten(owner, id);
+    return this.current(owner).forget(owner, id);
+  }
+  async count(owner: string): Promise<number> {
+    return this.isOutside(owner) ? (await this.list(owner)).length : this.builtIn.count(owner);
+  }
   /** True when the owner has an outside service switched on for this owner right now. */
   isOutside(owner: string): boolean {
     const settings = memoryProviderSettings(this.store, owner);
     return settings.mode === "outside" && !!settings.url;
   }
+
+  /** "Forget this conversation", previewed: its facts on this computer and, when one is on, on the outside service. */
+  async forgetPreview(owner: string, sessionId: string) {
+    const outside = await this.outsideFacts(owner);
+    const preview = this.store.forgetMemoryPreview(owner, sessionId, outside.records);
+    return outside.problem ? { ...preview, problem: outside.problem } : preview;
+  }
+  /**
+   * "Forget this conversation": removes its facts here and asks the outside service to delete the
+   * ones it holds. `removed` counts only what is really gone; anything the service would not delete
+   * is listed in `notRemoved` with a plain `problem`, and is never read back from it again.
+   */
+  async forgetConversation(owner: string, input: unknown) {
+    const outside = await this.outsideFacts(owner);
+    const { ids, ...result } = this.store.forgetMemory(owner, input, outside.records);
+    const held = new Set(outside.records.map((record) => record.id));
+    const notRemoved = await this.forgetOutside(owner, ids.filter((id) => held.has(id)));
+    const problems = [outside.problem, notRemoved.length ? stillHeld(notRemoved.length) : undefined].filter(Boolean);
+    return { ...result, removed: result.removed - notRemoved.length,
+      ...(notRemoved.length ? { notRemoved } : {}), ...(problems.length ? { problem: problems.join(" ") } : {}) };
+  }
+  /** Clears the notes one job made for itself on the outside service, as `Store.clearTaskScratch` does here. */
+  async clearOutsideScratch(owner: string, runId: string): Promise<{ cleared: string[]; notRemoved: { id: string; reason: string }[] }> {
+    if (!this.isOutside(owner)) return { cleared: [], notRemoved: [] };
+    const scratch = (await this.list(owner))
+      .filter((record) => layerOf(record) === "task" && String((record.data as { sourceRunId?: string }).sourceRunId ?? "") === runId)
+      .map((record) => record.id);
+    const notRemoved = await this.forgetOutside(owner, scratch);
+    return { cleared: scratch.filter((id) => !notRemoved.some((entry) => entry.id === id)), notRemoved };
+  }
+  private async outsideFacts(owner: string): Promise<{ records: MemoryRecord[]; problem?: string }> {
+    if (!this.isOutside(owner)) return { records: [] };
+    try { return { records: await this.list(owner) }; }
+    catch (error) {
+      return { records: [], problem: `The outside memory service could not be asked what it keeps, so only facts on this computer were included (${error instanceof Error ? error.message : String(error)}).` };
+    }
+  }
+  private async forgetOutside(owner: string, ids: string[]): Promise<{ id: string; reason: string }[]> {
+    const notRemoved: { id: string; reason: string }[] = [];
+    for (const id of ids) {
+      this.markForgotten(owner, id);
+      try { await this.current(owner).forget(owner, id); }
+      catch (error) { notRemoved.push({ id, reason: error instanceof Error ? error.message : String(error) }); }
+    }
+    return notRemoved;
+  }
+  private markForgotten(owner: string, id: string): void {
+    this.store.sqlite.prepare("INSERT OR IGNORE INTO memory_outside_forgotten VALUES(?,?,?)").run(owner, id, new Date().toISOString());
+  }
+  private forgotten(owner: string): Set<string> {
+    return new Set(this.store.sqlite.prepare("SELECT id FROM memory_outside_forgotten WHERE owner=?").all(owner).map((row) => String(row.id)));
+  }
+  private remembered(owner: string, records: MemoryRecord[]): MemoryRecord[] {
+    const forgotten = this.forgotten(owner);
+    return records.filter((record) => !forgotten.has(record.id));
+  }
 }
+
+const stillHeld = (count: number): string => `${count === 1 ? "One fact" : `${count} facts`} could not be deleted from the outside memory service and may still be kept there. Branch will not use ${count === 1 ? "it" : "them"} again.`;

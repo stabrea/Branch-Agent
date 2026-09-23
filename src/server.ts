@@ -1911,10 +1911,10 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.configureMemory(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/memory/forget/preview") {
     const { sessionId } = z.object({ sessionId: z.string().uuid() }).strict().parse(await readBody(request));
-    return app.store.forgetMemoryPreview(owner, sessionId);
+    return app.memory.backend.forgetPreview(owner, sessionId); // FQ-memory.providers: wherever the facts were saved
   }
   if (request.method === "POST" && path === "/api/memory/forget")
-    return app.store.forgetMemory(owner, await readBody(request));
+    return app.memory.backend.forgetConversation(owner, await readBody(request));
   if (path === "/api/memory/retrieval") {
     if (request.method === "GET") return app.memory.retrieval.view(owner);
     if (request.method === "POST") return app.memory.retrieval.configure(owner, await readBody(request));
