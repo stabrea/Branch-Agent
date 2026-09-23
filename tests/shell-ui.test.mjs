@@ -668,16 +668,19 @@ test("a folded Projects group stays folded, remembered for this workspace", asyn
   );
   assert.equal(keys.length, 1);
   assert.match(keys[0], /^branch-group-projects::.+/, "the choice is kept under this workspace's own name");
-  /* A choice made before the workspace answered is still honoured. */
+  /* Q45: the engine keeps it, so it stays folded with this page's storage emptied (a new address after an update).
+     What lands in this page's storage after the one-time import is only a copy, never a choice
+     (tests/ui-preferences.test.mjs covers the import of an older unnamed key). */
   await f.page.evaluate(() => {
     localStorage.clear();
     localStorage.setItem("branch-group-recents", "closed");
   });
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  assert.equal(await head.getAttribute("aria-expanded"), "false", "still folded, from the engine");
   assert.equal(
     await f.page.locator('.group-head[data-toggle="recents"]').getAttribute("aria-expanded"),
-    "false",
+    "true",
   );
   assert.deepEqual(f.errors, []);
 });

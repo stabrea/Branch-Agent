@@ -83,13 +83,15 @@ const fromSnapshot = (snapshot) => ({
   imports: snapshot.imports ?? {}, forOwner: snapshot.forOwner !== false,
 });
 
-async function call(path, body) {
+async function call(path, body, wait = 4000) {
   const token = (() => { try { return sessionStorage.getItem("branch-token") || ""; } catch { return ""; } })();
   const response = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     headers: { ...(token ? { authorization: "Bearer " + token } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(4000),
+    /* A change still reaches the engine when the page is reloaded or closed right after it is made. */
+    ...(path === "/api/ui-preferences" && body !== undefined ? { keepalive: true } : {}),
+    signal: AbortSignal.timeout(wait),
   });
   if (!response.ok) throw Object.assign(new Error("The window's choices could not be reached"), { status: response.status });
   return response.json();
@@ -107,18 +109,22 @@ function unsaved(values) {
 
 /** Why the last read of the engine failed: a refusal (signed out) has a status below 500. */
 let lastFailure = null;
-/** The engine's record for whoever the window is for now, the one-time import done; null when it cannot answer. */
-async function read() {
+/**
+ * The engine's record for whoever the window is for now, with the one-time import done unless `importing`
+ * is false; null when it cannot answer. Until the import is written down the page's copy still counts,
+ * so the window can draw before it returns.
+ */
+async function read({ importing = true } = {}) {
   let snapshot;
   try { snapshot = await call("/api/ui-preferences"); } catch (error) { lastFailure = error; return null; /* not signed in yet, or no engine: the copy here stands */ }
   /* Once only, and only for the owner: after the import is written down, this page's storage is only
      ever a copy, so what somebody else at this computer chose here later is never handed over. */
-  if (snapshot.forOwner === false || snapshot.imports?.[IMPORT]) return snapshot;
-  const offered = unsaved(snapshot.values ?? {}), marks = marksCopy();
-  if (Object.keys(offered).length || someMarks(marks))
-    try {
-      snapshot = { ...snapshot, ...(await call("/api/ui-preferences/import", { name: IMPORT, values: offered, conversations: marks })) };
-    } catch { /* tried again next start */ }
+  if (!importing || snapshot.forOwner === false || snapshot.imports?.[IMPORT]) return snapshot;
+  /* Written down even when there is nothing to bring, so what lands in this page's storage later never counts. */
+  try {
+    const values = unsaved(snapshot.values ?? {}), conversations = marksCopy();
+    snapshot = { ...snapshot, ...(await call("/api/ui-preferences/import", { name: IMPORT, values, conversations }, 15000)) };
+  } catch { /* tried again next start */ }
   return snapshot;
 }
 function keepMarkCopies(marks) {
@@ -150,7 +156,7 @@ export function conversationMarks() {
   return { names: new Map(Object.entries(marks.names)), pinned: new Set(marks.pinned), buried: new Set(marks.buried) };
 }
 
-const snapshotAt = await read();
+const snapshotAt = await read({ importing: false });
 if (snapshotAt) { engine = fromSnapshot(snapshotAt); keepCopies(); }
 
 let queue = Promise.resolve();
@@ -248,5 +254,7 @@ function askAgain(attempt = 1) {
   setTimeout(() => void reread().then((answered) => { if (!answered) askAgain(attempt + 1); }), 1500 * attempt);
 }
 if (!snapshotAt) askAgain();
+/* The one-time import runs once the window has drawn (from the engine and, until then, this page's copy). */
+else if (engine.forOwner && !engine.imports[IMPORT]) void reread();
 globalThis.branchUiPrefsReady = () => reread();
 document.addEventListener("branch-profile", () => void reread());

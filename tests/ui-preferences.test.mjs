@@ -125,16 +125,26 @@ test("a conversation's name, pin or hidden row is kept only for the person's own
   assert.deepEqual(asPerson.conversations.pinned, [], "a household person's window never takes the shared storage");
 });
 
-/** A signed-in window at `server`: the token is where a reload after signing in finds it. */
-async function openWindow(browser, server) {
+/**
+ * A signed-in window at `server`: the token is where a reload after signing in finds it. `legacy` is
+ * what an older version left in this page's browser storage, there before the page first loads.
+ * `imports` collects the answers to the one-time import.
+ */
+async function openWindow(browser, server, legacy = null) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  await context.addInitScript((token) => sessionStorage.setItem("branch-token", token), server.token);
+  await context.addInitScript(([token, left]) => {
+    sessionStorage.setItem("branch-token", token);
+    if (!left || sessionStorage.getItem("test-legacy-left")) return;
+    for (const [key, value] of Object.entries(left)) localStorage.setItem(key, value);
+    sessionStorage.setItem("test-legacy-left", "1");
+  }, [server.token, legacy]);
   const page = await context.newPage();
-  const errors = [];
+  const errors = [], imports = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("response", (response) => { if (response.url().endsWith("/api/ui-preferences/import")) imports.push(response.status()); });
   await page.goto(server.url);
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  return { page, errors, context };
+  return { page, errors, context, imports };
 }
 /* The Inbox notes when it was first looked at (inboxSeenAt) as soon as it has drawn, which is a moment, not a choice;
    `choices` leaves it out so the comparisons below do not depend on when that happened. */
@@ -166,30 +176,25 @@ test("a choice left in browser storage by an older version moves to the engine a
   open.push(() => first.close());
   const taxes = app.store.createSession(app.runtime.owner);
   app.store.sqlite.prepare("INSERT INTO messages(session_id,body) VALUES(?,?)").run(taxes, JSON.stringify({ role: "user", content: "About my taxes" }));
-  const before = await openWindow(browser, first);
-  assert.equal(await before.page.evaluate(() => document.body.classList.contains("no-rail")), false, "the side list starts open");
-  assert.deepEqual((await saved(first)).choices, {}, "drawing the window saves no defaults back");
-  /* The Inbox notes when it was first seen as soon as it draws; that is taken back, so the older stamp below is the one imported. */
-  await waitFor(() => saved(first).then((kept) => kept.values.inboxSeenAt !== undefined), "the Inbox noted when it was first seen");
-  assert.equal((await post(first, "/api/ui-preferences", { set: { inboxSeenAt: null } })).status, 200);
-  /* What an older version left in this page's storage. */
-  await before.page.evaluate((id) => {
-    localStorage.setItem("branch-rail", "closed");
-    localStorage.setItem("branch-focus-view", "1");
-    localStorage.setItem("branch-first-run-next", "1");
-    localStorage.setItem("branch-pet-tips-seen", JSON.stringify(["delight.tip.palette", "not a tip!"]));
-    localStorage.setItem("branch-names", JSON.stringify({ [id]: "Taxes", "somebody-elses": "Not mine" }));
-    localStorage.setItem("branch-pins", JSON.stringify([id, "somebody-elses"]));
-    localStorage.setItem("branch-calm-tip", "1");
-    localStorage.setItem("branch-save-progress-asked", JSON.stringify(["claude|me|week|2026-09-30"]));
-    localStorage.setItem("branch-pet-hint-at", "1000");
-    localStorage.setItem("branch-inbox-seen", "2000");
-  }, taxes);
-  const imported = before.page.waitForResponse((r) => r.url().endsWith("/api/ui-preferences/import"), { timeout: 120000 });
-  await before.page.reload();
-  assert.equal((await imported).status(), 200);
+  /* What an older version left in this page's storage, found by the first start of this version. */
+  const before = await openWindow(browser, first, {
+    "branch-rail": "closed",
+    "branch-focus-view": "1",
+    "branch-first-run-next": "1",
+    "branch-pet-tips-seen": JSON.stringify(["delight.tip.palette", "not a tip!"]),
+    "branch-names": JSON.stringify({ [taxes]: "Taxes", "somebody-elses": "Not mine" }),
+    "branch-pins": JSON.stringify([taxes, "somebody-elses"]),
+    "branch-calm-tip": "1",
+    "branch-group-recents": "closed", // folded before the workspace had a name
+    "branch-save-progress-asked": JSON.stringify(["claude|me|week|2026-09-30"]),
+    "branch-pet-hint-at": "1000",
+    "branch-inbox-seen": "2000",
+  });
+  await waitFor(() => Promise.resolve(before.imports.length > 0), "the first start imports");
+  assert.deepEqual(before.imports, [200]);
+  assert.equal(await before.page.evaluate(() => document.body.classList.contains("no-rail")), true, "and shows what it brought");
   const older = { railOpen: false, focusView: true, firstRunNextSeen: true, petTipsSeen: ["delight.tip.palette"],
-    calmTipSeen: true, saveProgressAsked: ["claude|me|week|2026-09-30"], petHintAt: 1000 };
+    calmTipSeen: true, saveProgressAsked: ["claude|me|week|2026-09-30"], petHintAt: 1000, recentsOpen: false };
   assert.deepEqual((await saved(first)).choices, older, "the older choices are now the engine's, and what fails its check is left out");
   assert.equal((await saved(first)).values.inboxSeenAt, 2000, "when the Inbox was last seen comes along too");
   assert.deepEqual((await saved(first)).conversations, { names: { [taxes]: "Taxes" }, pinned: [taxes], buried: [] },
@@ -291,7 +296,11 @@ const switchTo = (page, profileId, pin) => page.evaluate(async ([id, code]) => {
 test("switching person shows that person's own choices, never the owner's, and switching back brings the owner's", async (t) => {
   const { browser, server, app } = await freshWindowSetup(t);
   const sam = await (await post(server, "/api/profiles", { name: "Sam", pin: "2468" })).json();
-  const { page, errors } = await openWindow(browser, server);
+  const { page, errors, imports } = await openWindow(browser, server);
+  await waitFor(() => Promise.resolve(imports.length > 0), "the first start writes the import down even with nothing to bring");
+  assert.deepEqual(imports, [200]);
+  assert.deepEqual((await saved(server)).choices, {}, "drawing the window saves no defaults back");
+  assert.ok((await saved(server)).imports["legacy-local-v1"]);
   const sections = page.locator('.group-head[data-toggle="sections"]');
   await page.locator("#rail-toggle").click();
   await waitFor(() => saved(server).then((kept) => kept.values.railOpen === false), "the owner's fold is saved");
