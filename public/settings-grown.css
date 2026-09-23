@@ -625,3 +625,77 @@
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {
   display: none;
 }
+
+/* ---------- Secrets: where Branch reads saved sign-ins from (DG-053) ---------- */
+.secret-managers-title,
+.vault-autofill-list-label {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+.secret-managers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+.secret-manager {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--glass-2, var(--well));
+}
+.secret-manager b {
+  font-size: 13.5px;
+}
+.secret-manager-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 560;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.secret-manager-pill::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.secret-manager-pill.ok {
+  background: var(--chip-ok-bg);
+  color: var(--chip-ok-fg);
+}
+.secret-manager-pill.idle {
+  background: var(--chip-idle-bg);
+  color: var(--chip-idle-fg);
+}
+.secret-manager-detail {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.secret-managers-note {
+  margin: 0;
+  font-size: 12.5px;
+}
+.vault-autofill-signins {
+  display: grid;
+  gap: 6px;
+}
+.secret-manager button {
+  padding: 5px 12px;
+  font-size: 13px;
+}

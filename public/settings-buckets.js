@@ -114,8 +114,11 @@ export const BUCKETS = {
       [["comfort-network-card", T]]],
   ],
   secrets: [
+    /* DG-189: the sample's two sections, in its order: the locker for your commands, then passwords and keys. */
+    ["commands", "key", "Keys your commands use", "Keys and tokens your host commands need.",
+      [["secrets-form", R]]],
     ["keys", "key", "Passwords and keys", "Keys and passwords Branch may use, one at a time.",
-      [["secrets-form", R], ["vault-autofill", R], ["keychain-card", A]]],
+      [["secret-managers", R], ["vault-autofill", R], ["keychain-card", A]]],
   ],
   data: [
     ["cost", "coins", "What it costs", "Spending limits, and what each model costs.",
