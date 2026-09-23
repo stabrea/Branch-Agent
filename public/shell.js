@@ -1,7 +1,7 @@
 /* The app shell: one rail (brand, quiet actions, sections, projects, conversations,
    the owner at the foot), one reading column, one context pane, and Ctrl+K to reach
    anything. No section hides behind a drop-down. */
-import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
+import { api, displayView, openConversation, openSavedConversations, ownerAtWindow, titles } from "/app.js";
 import { t } from "/i18n.js";
 import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
@@ -476,8 +476,10 @@ function entries() {
     hint: "Section",
     run: () => displayView(view),
   }));
+  const historyTitle = t("history.title");
   found.push(
     { label: "New conversation", hint: hintFor("newConversation", "Ctrl N"), run: () => $("rail-new").click() }, // R17-S15
+    { label: historyTitle === "history.title" ? "Conversation history" : historyTitle, hint: "Action", run: openSavedConversations },
     { label: "Appearance settings", hint: hintFor("appearance", "Ctrl ,"), run: () => $("appearance-shortcut").click() },
     { label: "Check for updates", hint: "Action", run: () => { displayView("settings"); $("updates-check")?.click(); } },
   );
