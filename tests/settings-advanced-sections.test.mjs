@@ -131,3 +131,21 @@ test("DG-025: the code editor and pull request switches save as you go, with no 
   }
   assert.deepEqual(errors, []);
 });
+
+test("the lines 'How the assistant finds its tools' draws are French in French, and follow a change of language", async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+  await page.locator("#tool-catalog > summary").click();
+  await page.waitForFunction(() => /outils sont installés/.test(document.getElementById("tool-catalog-summary")?.textContent ?? ""));
+  await page.locator("#tool-catalog-meaning h3").waitFor({ state: "attached" });
+  const french = await page.locator("#tool-catalog").innerText();
+  for (const english of ["tools are installed", "It has not worked on anything yet", "Things it remembers about a tool", "Nothing yet.", "Finding tools by meaning"])
+    assert.ok(!french.includes(english), `${english} is still English`);
+  assert.match(french, /Ce qu'il retient sur un outil/);
+  assert.match(french, /Trouver les outils par leur sens/);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  await page.waitForFunction(() => /tools are installed/.test(document.getElementById("tool-catalog-summary")?.textContent ?? ""));
+  assert.match(await page.locator("#tool-catalog-lists").innerText(), /Things it remembers about a tool/);
+  assert.deepEqual(errors, []);
+});

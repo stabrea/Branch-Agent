@@ -6,11 +6,19 @@
  *
  * The one thing this card can change is deleting all of that, which it does in one button.
  */
+import { t, formatNumber } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = String(text);
   if (className) node.className = className;
+  return node;
+};
+/* The card's own words go through a key; a fixed line also carries it, so a change of language redraws it. */
+const worded = (tag, key, className) => {
+  const node = el(tag, t(key), className);
+  node.dataset.t = key;
   return node;
 };
 async function api(path, method = "GET", body) {
@@ -29,11 +37,14 @@ async function api(path, method = "GET", body) {
 function summaryOf(report) {
   const box = $("tool-catalog-summary");
   box.replaceChildren();
-  box.append(el("p", `${report.tools} tools are installed on this computer.`));
+  box.append(el("p", t("tool-catalog.installed", { tools: formatNumber(report.tools) })));
   const round = report.lastRound;
-  box.append(el("p", round
-    ? `Last time it worked it carried ${round.loaded} of them in full, knew ${round.indexed} more by name, and left ${round.deferred} to look up if needed — about ${round.estimatedTokens} of its ${round.budgetTokens} token allowance for tools.`
-    : "It has not worked on anything yet, so there is nothing to show."));
+  box.append(round
+    ? el("p", t("tool-catalog.last-round", {
+      loaded: formatNumber(round.loaded), indexed: formatNumber(round.indexed), deferred: formatNumber(round.deferred),
+      estimated: formatNumber(round.estimatedTokens), budget: formatNumber(round.budgetTokens),
+    }))
+    : worded("p", "tool-catalog.no-round"));
   if (report.health?.summary) box.append(el("p", report.health.summary, "subtle"));
 }
 
@@ -42,17 +53,17 @@ function listsOf(report) {
   const box = $("tool-catalog-lists");
   box.replaceChildren();
   if (report.preloaded.length) {
-    box.append(el("h3", "Ready before you asked"));
+    box.append(worded("h3", "tool-catalog.preloaded"));
     const list = el("ul");
     for (const entry of report.preloaded) list.append(el("li", `${entry.name} — ${entry.reason}`));
     box.append(list);
   }
-  box.append(el("h3", "Things it remembers about a tool"));
-  if (!report.notes.length) { box.append(el("p", "Nothing yet.", "subtle")); return; }
+  box.append(worded("h3", "tool-catalog.notes"));
+  if (!report.notes.length) { box.append(worded("p", "tool-catalog.no-notes", "subtle")); return; }
   const notes = el("ul");
   for (const note of report.notes) {
     const row = el("li", `${note.tool}: ${note.note} `);
-    const remove = el("button", "Delete");
+    const remove = worded("button", "tool-catalog.delete-note");
     remove.type = "button";
     remove.addEventListener("click", async () => {
       await api("tools/notes/" + note.id, "DELETE");
@@ -73,10 +84,10 @@ async function meaningSearch() {
   const box = $("tool-catalog-meaning");
   if (!box) return;
   const state = await api("tools/meaning-search");
-  box.replaceChildren(el("h3", "Finding tools by meaning"));
+  box.replaceChildren(worded("h3", "tool-catalog.meaning.title"));
   box.append(el("p", state.explanation, "subtle"));
   if (!state.available) {
-    box.append(el("p", "None of your connected models can compare writing yet, so this cannot be turned on.", "subtle"));
+    box.append(worded("p", "tool-catalog.meaning.unavailable", "subtle"));
     return;
   }
   const label = el("label");
@@ -87,7 +98,8 @@ async function meaningSearch() {
     await api("tools/meaning-search", "POST", { enabled: tick.checked });
     await meaningSearch();
   });
-  label.append(tick, document.createTextNode(" Also find tools by meaning"));
+  const words = worded("span", "tool-catalog.meaning.switch");
+  label.append(tick, " ", words);
   box.append(label);
 }
 
@@ -109,9 +121,11 @@ $("tool-catalog-forget")?.addEventListener("click", async () => {
   const status = $("tool-catalog-status");
   try {
     const result = await api("tools/forget", "POST", { what: "all" });
-    status.textContent = `Forgotten: ${result.history} tasks and ${result.notes} notes. Your tools are untouched.`;
+    status.textContent = t("tool-catalog.forgotten", { history: formatNumber(result.history), notes: formatNumber(result.notes) });
     await renderToolCatalog();
   } catch (error) {
     status.textContent = String(error.message || error);
   }
 });
+/* Lines with numbers in them are drawn afresh in the new language while the card is open. */
+document.addEventListener("branch-language", () => { if ($("tool-catalog")?.open) void renderToolCatalog(); });
