@@ -72,14 +72,12 @@ for (const width of [1440, 400]) {
 }
 
 test("a Trunks switch in Settings saves as you go and Customize follows it", async (t) => {
-  const { app, page, errors } = await fixture(t, 1440);
+  const { page, errors } = await fixture(t, 1440);
   assert.equal(await page.locator("#lx-page-trunks button", { hasText: /^Save/ }).count(), 0, "no Save button");
-  await page.locator("#settings-trunks-switch-trunks .segmented-source").selectOption("on").catch(async () => {
-    await page.locator("#settings-trunks-switch-trunks").getByText("On", { exact: true }).click();
-  });
-  await page.waitForFunction(() => document.querySelector("#trunks-card #trunks-switch-trunks select, #trunks-card select#trunks-switch-trunks")?.value === "on"
-    || document.querySelector("#trunks-card #trunks-switch-rooms"));
-  assert.equal((await app.trunks.status?.())?.modes?.trunks ?? "on", "on");
+  await page.locator('.segmented-control:has(> #settings-trunks-switch-trunks) .segmented-option[data-v="on"]').click();
+  /* Customize › Specialists redraws with Trunks on: its further switches appear only then. */
+  await page.locator("#trunks-card [id='trunks-switch-rooms']").first().waitFor({ state: "attached" });
+  await page.waitForFunction(() => document.getElementById("settings-trunks-switch-trunks")?.value === "on");
   assert.deepEqual(errors, []);
 });
 
