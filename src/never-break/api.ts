@@ -11,6 +11,7 @@ import {
   saveGatewayConfig, type DryRun, type GatewayConfig,
 } from "./gateway-config.js";
 import { readState } from "./gateway-state.js";
+import { lastActivation } from "./activation.js";
 import { runAsNode } from "../child-env.js";
 
 /**
@@ -37,6 +38,9 @@ export async function neverBreakView(dataDir: string): Promise<Record<string, un
   };
 }
 
+/** When this process started: a failed update settled before it belongs to an earlier start. */
+const thisStart = new Date(Date.now() - process.uptime() * 1000);
+
 export interface NeverBreakExtras {
   /** Takes a copy of the saved work for an update's check (the process that holds the database). */
   snapshot?: () => Promise<string>;
@@ -49,6 +53,10 @@ export async function neverBreakApi(dataDir: string, request: IncomingMessage, p
   if (path === "/api/never-break/telegram" && extras.telegram) return telegramApi(request, readBody, extras.telegram);
   const snapshot = extras.snapshot;
   if (request.method === "GET" && path === "/api/never-break") return neverBreakView(dataDir);
+  // Q55: what the newest update did, so Settings can say what a failed one left running. The owner's
+  // alone: a short-lived key is refused it (src/short-lived-keys.ts), and so is a household person
+  // (src/household-routes.ts), before this is reached.
+  if (request.method === "GET" && path === "/api/never-break/last-update") return { last: lastActivation(dataDir, thisStart) };
   if (request.method !== "POST") throw new NeverBreakApiError(405, "Use GET or POST here.");
   if (path === "/api/never-break") {
     const body = z.object({ mode: FeatureModeSchema }).strict().safeParse(await readBody(request));

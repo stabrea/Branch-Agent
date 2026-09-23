@@ -1,3 +1,6 @@
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { commitOfCopy } from "./desktop/build-identity.js";
 import { assistantIdentity } from "./identity.js";
 import { comfortRows } from "./comfort/terminal.js"; // R17-S21
 import { lockdownState } from "./lockdown.js";
@@ -85,6 +88,22 @@ function directoryRows(words: Words, page: string): Row[] | null {
   return pages[page] ?? null;
 }
 
+let knownCommit: { commit: string | null } | null = null;
+/** The commit this terminal's own copy was built from, asked once per process (git is not asked on every draw). */
+function thisCopysCommit(): string | null {
+  knownCommit ??= { commit: commitOfCopy(dirname(dirname(fileURLToPath(import.meta.url)))) };
+  return knownCommit.commit;
+}
+
+/** Q55: Updates & about names the installed build, as the window's page does: version, then the commit it was built from. */
+export function aboutRows(words: Words, version: string, commit: string | null): Row[] {
+  const line = (shown: string): string => words.t("terminal.settings.builtFrom", "Built from commit: {commit}", { commit: shown });
+  const built: Row = commit
+    ? { title: line(commit.slice(0, 12)), detail: commit }
+    : { title: line(words.t("updates.build.not-recorded", "not recorded")), tone: "muted" };
+  return [{ title: `Branch Agent ${version}`, detail: "branch update" }, built];
+}
+
 /** The rows of one Settings page (and Models tab). */
 export function settingsRows(app: PlaceApp, words: Words, page: string, sub: string, state: SettingsState): Row[] {
   // R17-S21: the comfort settings on each page are real controls (src/comfort/terminal.ts), put
@@ -117,7 +136,7 @@ function pageRows(app: PlaceApp, words: Words, page: string, sub: string, state:
     }
     case "data": return [{ title: words.t("terminal.settings.tasks", "{count} tasks on record", { count: app.store.runs(owner).length }), detail: "branch backup <file>" }, inWindow(words, name("data", "Data & usage"))];
     case "advanced": return [{ title: words.t("terminal.settings.doctor", "Check that everything works"), detail: "branch doctor" }, inWindow(words, name("advanced", "Advanced"))];
-    case "about": return [{ title: `Branch Agent ${app.version}`, detail: "branch update" }, inWindow(words, name("about", "Updates & about"))];
+    case "about": return [...aboutRows(words, app.version, thisCopysCommit()), inWindow(words, name("about", "Updates & about"))];
     default: return [inWindow(words, words.t(`settings.page.${page}`, page))];
   }
 }

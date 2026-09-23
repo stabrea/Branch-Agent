@@ -150,6 +150,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // Q55: what the owner's last update did, and which versions it went between.
+  /^\/api\/never-break\/last-update$/,
 ];
 
 /**

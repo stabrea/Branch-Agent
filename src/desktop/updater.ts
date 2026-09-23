@@ -79,9 +79,20 @@ export interface ReleaseInfo {
 export type UpdatePhase =
   | "idle" | "checking" | "current" | "available" | "downloading" | "verifying"
   | "unpacking" | "ready" | "applying" | "error" | "unsupported";
+/** Q55: the build that is installed now: its version, and the commit it was built from (null when not recorded). */
+export interface InstalledBuild { version: string; commit: string | null }
+/**
+ * Q55: after a failed update, what the owner still has. "kept": nothing was swapped, the installed
+ * version still runs. "backgroundStopped": the engine working with the window closed was closed for
+ * the update and stays closed until it is started again.
+ */
+export type UpdateOutcome = { kept: string; backgroundStopped: boolean } | null;
 export interface UpdateStatus {
   phase: UpdatePhase;
   message: string;
+  installed: InstalledBuild;
+  /** Set only by a failed install, and cleared by whatever the updater does next. */
+  outcome: UpdateOutcome;
   progress: number | null;
   release: ReleaseInfo | null;
   /** Download size so far and in total, while downloading. */
@@ -164,7 +175,7 @@ function betaAssetMatches(release: z.infer<typeof releaseSchema>, repo: string,
 }
 
 export class Updater {
-  status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+  status: UpdateStatus;
   private busy = false;
   private channel: UpdateChannel;
   private generation = 0;
@@ -173,7 +184,12 @@ export class Updater {
   private readonly fetch: typeof fetch;
   private readonly extract: (archive: string, into: string) => Promise<void>;
   private readonly platform: NodeJS.Platform;
+  private readonly installed: InstalledBuild;
+  /** Q55: this install closed the background engine (a stop that found nothing running does not count). */
+  private stoppedBackground = false;
   constructor(private readonly options: UpdaterOptions) {
+    this.installed = { version: options.currentVersion, commit: options.currentCommit ?? null };
+    this.status = this.fresh("idle", "Updates have not been checked yet.");
     this.channel = options.channel ?? "stable";
     this.fetch = options.fetch ?? globalThis.fetch;
     this.platform = options.platform ?? process.platform;
@@ -181,7 +197,7 @@ export class Updater {
     this.extract = options.extract ?? ((archive, into) => expandArchive(archive, into, platform));
     const reason = unsupportedReason(options, platform);
     if (reason)
-      this.status = { phase: "unsupported", message: reason, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+      this.status = this.fresh("unsupported", reason);
   }
   get selectedChannel(): UpdateChannel { return this.channel; }
   setChannel(channel: UpdateChannel): UpdateStatus {
@@ -232,6 +248,7 @@ export class Updater {
     // empties the scratch folder the first is downloading into, and the first fails on its own
     // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    this.stoppedBackground = false;
     let release: ReleaseInfo | null | undefined;
     try {
       // Beta or Stable (#215): a release chosen for the other channel is looked up again.
@@ -270,8 +287,8 @@ export class Updater {
       held = options.hold === true;
       return { script, stagedDir };
     } catch (error) {
-      this.set(error instanceof UpdateDeferredError ? "available" : "error",
-        error instanceof Error ? error.message : String(error), null, release);
+      if (error instanceof UpdateDeferredError) this.set("available", error.message, null, release);
+      else this.keptAfter(error instanceof Error ? error.message : String(error), release);
       // mac7/real-update: a download that went wrong is 130 MB or more of nothing; it is not kept.
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
       await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
@@ -280,6 +297,21 @@ export class Updater {
   }
   /** Gives back a claim `install({ hold: true })` kept, when the hand-over it was kept for did not start. */
   release(): void { this.busy = false; }
+  /** Q55: whether the install under way closed the background engine, so a failure can say so. */
+  get backgroundStopped(): boolean { return this.stoppedBackground; }
+  /**
+   * Q55: an update that stopped before the hand-over swapped any file. The installed version is
+   * what still runs, and the status says so; the claim is given back.
+   */
+  failed(message: string): UpdateStatus {
+    this.busy = false;
+    return this.keptAfter(message, this.status.release);
+  }
+  private keptAfter(message: string, release: ReleaseInfo | null | undefined): UpdateStatus {
+    this.status = { ...this.set("error", message, null, release ?? null),
+      outcome: { kept: this.installed.version, backgroundStopped: this.stoppedBackground } };
+    return this.status;
+  }
   /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
   private async tryCanary(stagedDir: string, version: string): Promise<void> {
     if (!this.options.canary) return;
@@ -308,7 +340,10 @@ export class Updater {
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    return this.options.stopDaemon();
+    const pid = await this.options.stopDaemon();
+    // A null answer means nothing was working in the background, so nothing was closed.
+    this.stoppedBackground = pid !== null;
+    return pid;
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     if (this.channel === "dev") return this.newestDevBuild();
@@ -518,8 +553,11 @@ export class Updater {
     return script;
   }
   private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release, bytes: UpdateStatus["bytes"] = null): UpdateStatus {
-    this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString() };
+    this.status = { ...this.fresh(phase, message), progress, release, bytes };
     return this.status;
+  }
+  private fresh(phase: UpdatePhase, message: string): UpdateStatus {
+    return { phase, message, installed: this.installed, outcome: null, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   }
   /** Marks the hand-over as running once the script has been launched; the app is about to close. */
   applying(): UpdateStatus {

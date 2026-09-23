@@ -336,7 +336,10 @@ test("the Update button holds the claim through the hand-over and gives it back 
   const handler = ipc.slice(ipc.indexOf('ipcMain.handle("branch:update-install"'), ipc.indexOf('ipcMain.handle("branch:open-external"'));
   assert.match(handler, /updater\.install\(\{ hold: true \}\)/, "the handler asks for the claim to be held");
   const failure = handler.slice(handler.indexOf("} catch (error) {"));
-  assert.match(failure, /^\} catch \(error\) \{\s*updater\.release\(\);\s*throw error;/, "a hand-over that fails gives it back");
-  assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.release()"), "the release is on the hand-over's failure path");
-  assert.equal((handler.match(/updater\.release\(\)/g) ?? []).length, 1, "and nowhere else");
+  // Q55: `failed` gives the claim back and says what is still installed (tests/update-outcome.test.mjs).
+  assert.match(failure, /^\} catch \(error\) \{\s*(?:\/\/[^\n]*\n\s*)*updater\.failed\([^;]*\);\s*throw error;/, "a hand-over that fails gives it back");
+  assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.failed("), "the release is on the hand-over's failure path");
+  assert.equal((handler.match(/updater\.(?:release|failed)\(/g) ?? []).length, 1, "and nowhere else");
+  // Q55: the words say the background engine was stopped only when this install really closed it.
+  assert.match(handler, /throw new Error\(updater\.backgroundStopped\s*\?/, "the stopped-engine sentence follows what the updater did");
 });
