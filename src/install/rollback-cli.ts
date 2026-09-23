@@ -107,7 +107,7 @@ export async function rollbackCommand(input: RollbackCliInput): Promise<number> 
       // That is not "nothing to go back from" — it is one step short of done, and it is the step the
       // owner cannot do for themselves as a background service.
       const pending = startPending(journal);
-      if (pending) return await startAgainOnly(pending, journal, input);
+      if (pending) return await startAgainOnly(pending.entry, pending.mode, journal, input);
       const nothing = assessRollback(null, { current: null, previous: null, store: null, runnerKnows: 0 });
       input.print(nothing.ok ? "There is nothing to go back from." : nothing.message);
       return 1;
@@ -133,12 +133,19 @@ export async function rollbackCommand(input: RollbackCliInput): Promise<number> 
  * really are back. What the ledger says is that the last thing the undo tried, and the only thing
  * still outstanding, is starting Branch again.
  */
-export function startPending(journal: ActivationJournal): ActivationEntry | null {
+/** The ledger step that records whether Branch was a window or a background service. */
+const wayItWasRunning = "the way it was running";
+
+export function startPending(journal: ActivationJournal): { entry: ActivationEntry; mode: "app" | "daemon" } | null {
   const [newest] = journal.recent(1);
   if (!newest || newest.state !== "rolled-back") return null;
-  const starts = journal.ledger(newest.id).filter((line) => line.step === "started Branch again");
-  const last = starts.at(-1);
-  return last && !last.ok ? newest : null;
+  const ledger = journal.ledger(newest.id);
+  const last = ledger.filter((line) => line.step === "started Branch again").at(-1);
+  if (!last || last.ok) return null;
+  // How it was running is read back, never assumed. Assuming the service is how an owner who had a
+  // window gets a daemon they never asked for.
+  const mode = ledger.filter((line) => line.step === wayItWasRunning).at(-1)?.detail;
+  return mode === "app" || mode === "daemon" ? { entry: newest, mode } : null;
 }
 
 /**
@@ -146,7 +153,9 @@ export function startPending(journal: ActivationJournal): ActivationEntry | null
  * version that was put back to answer for itself. Nothing on disk is moved: the only thing this can
  * do is start Branch, and the only thing it reports is whether that worked.
  */
-async function startAgainOnly(entry: ActivationEntry, journal: ActivationJournal, input: RollbackCliInput): Promise<number> {
+async function startAgainOnly(
+  entry: ActivationEntry, mode: "app" | "daemon", journal: ActivationJournal, input: RollbackCliInput,
+): Promise<number> {
   const deps = input.deps ?? {};
   if (!input.yes) {
     input.print(`Version ${entry.fromVersion} is already back in place; Branch was not started again. `
@@ -155,10 +164,16 @@ async function startAgainOnly(entry: ActivationEntry, journal: ActivationJournal
   }
   const was = deps.wasRunning ?? await runningNow(input.dataDir, deps.quit?.alive);
   try {
-    await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
-    const back = await waitForReturn(input.dataDir, { pid: was?.pid ?? null, startedAt: was?.startedAt ?? null },
-      { version: entry.fromVersion }, deps.returnWait);
-    if (!back) throw new Error(`version ${entry.fromVersion} did not come back up in the background`);
+    // A window is reopened as a window. Only a conversation that was a background service is handed
+    // to the service manager, because that manager is the only thing that can bring one back.
+    if (mode === "app") {
+      (deps.launch ?? launcher)(entry.target, entry.executableName);
+    } else {
+      await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();
+      const back = await waitForReturn(input.dataDir, { pid: was?.pid ?? null, startedAt: was?.startedAt ?? null },
+        { version: entry.fromVersion }, deps.returnWait);
+      if (!back) throw new Error(`version ${entry.fromVersion} did not come back up in the background`);
+    }
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     journal.step(entry.id, "started Branch again", false, why);
@@ -167,7 +182,9 @@ async function startAgainOnly(entry: ActivationEntry, journal: ActivationJournal
     return 1;
   }
   journal.step(entry.id, "started Branch again", true, `on version ${entry.fromVersion}`);
-  input.print(`Branch is working in the background again, on version ${entry.fromVersion}.`);
+  input.print(mode === "app"
+    ? `Branch is open again, on version ${entry.fromVersion}.`
+    : `Branch is working in the background again, on version ${entry.fromVersion}.`);
   return 0;
 }
 
@@ -187,6 +204,10 @@ async function runRollback(entry: ActivationEntry, journal: ActivationJournal, i
     ...(deps.stopAfter === undefined ? {} : { stopAfter: deps.stopAfter }),
     restart: async () => {
       if (!wasRunning) return;
+      // Which of the two it was is written down before either is attempted, because a start that
+      // fails is finished later by somebody reading this back, and starting the wrong one would give
+      // an owner who had a window a background service instead.
+      journal.step(entry.id, wayItWasRunning, true, was.mode);
       // A background service comes back as the service, not as a window it never had.
       if (was.mode === "daemon") {
         await (deps.restartService ?? (() => restartService(input.platform ?? process.platform)))();

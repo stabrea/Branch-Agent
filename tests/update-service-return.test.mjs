@@ -279,16 +279,30 @@ test("a record that cannot be written puts the service back, and still calls the
   assert.equal(s.events.includes(["script"].toString()), false);
 });
 
-test("a record that cannot be written says so plainly when the service will not come back either", async (t) => {
+test("a record that cannot be written and a service that will not start says so, and claims no way back", async (t) => {
+  // Nothing was written down, so there is no record for `branch rollback` to work from: production
+  // would answer "there is no record of an update to go back from". My first version of this test
+  // handed it a rollback stub that returned 0, which is not a stand-in for that dependency -- it is a
+  // different answer to the question, and it hid the fact that the real path offers a way out that
+  // does not exist. **No rollback dependency is supplied here at all**, so anything reaching for one
+  // would reach the real thing, and the assertions below say it is not reached.
   const s = await updateSetup(t);
-  const code = await headlessUpdate({ ...s.input, deps: { ...s.deps,
+  const { rollback: _never, ...withoutRollback } = s.deps;
+  const code = await headlessUpdate({ ...s.input, deps: { ...withoutRollback,
     record: async () => { throw new Error("the disk is full"); },
     returnWait: neverBack(),
   } });
 
   assert.equal(code, 1);
-  assert.ok(s.events.includes("rollback"), "the way back is taken when the service will not come up");
-  assert.match(s.lines.join(NEWLINE), /did not come back up/, "and the owner is told, rather than left to find out");
+  assert.equal(s.events.includes("rollback"), false, "nothing was written down, so there is nothing to go back to");
+  assert.ok(s.events.includes("restart"), "the version still installed was asked to start");
+  const said = s.lines.join(NEWLINE);
+  assert.match(said, /the disk is full/, "the owner is told why the update stopped");
+  assert.match(said, /Branch is not running in the background/, "and that it is not running");
+  assert.match(said, /Nothing on this computer was changed/, "and that the files were never touched");
+  assert.match(said, /branch start/, "and what to do about it");
+  assert.equal(/going back|version it had|put back/.test(said), false,
+    `nothing implies a way back that does not exist (${said})`);
 });
 
 test("a Branch working in the background comes back by itself on the new version", { skip: posixOnly }, async (t) => {
@@ -408,7 +422,7 @@ test("the undo is told what was running, so a service that never came back is st
 });
 
 /** Everything `branch rollback --yes` needs to undo 2.0.0 back to 1.0.0, with 1.0.0 having been the service. */
-async function undoSetup(t) {
+async function undoSetup(t, { mode = "daemon" } = {}) {
   const root = await scratch(t);
   const dataDir = join(root, "data");
   await mkdir(dataDir, { recursive: true });
@@ -422,15 +436,16 @@ async function undoSetup(t) {
   journal.activated(id);
   journal.close();
   const said = [], events = [];
-  const run = (returnWait) => rollbackCommand({ dataDir, version: "2.0.0", yes: true, platform: "linux",
+  const run = (returnWait, over = {}) => rollbackCommand({ dataDir, version: "2.0.0", yes: true, platform: "linux",
     print: (line) => said.push(line),
     deps: {
       quit: { alive: () => false, stopEngine: async () => ({ stopped: true, message: "" }) },
-      wasRunning: { pid: 4242, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787",
+      wasRunning: { pid: 4242, mode, port: 8787, url: "http://127.0.0.1:8787",
         version: "2.0.0", startedAt: "2026-09-22T10:00:00.000Z" },
       restartService: async () => { events.push("restart"); },
       returnWait,
       launch: () => assert.fail("a service is never brought back as a window"),
+      ...over,
     } });
   const told = () => said.join("\n");
   return { run, told, events, target };
@@ -492,6 +507,23 @@ test("an undo that put the files back and could not start Branch can be finished
     "the same files, not swapped a second time");
   assert.equal(await readFile(join(`${undo.target}.failed`, "resources", "version.txt"), "utf8"), "2.0.0",
     "and the version that was undone is still parked beside it, not swapped back in");
+});
+
+
+test("an undo of a window that could not reopen it is finished as a window, not as a service", async (t) => {
+  // The finish-later route reads "the last start failed" from the ledger. It used to hand every one
+  // of them to the background service manager -- so an owner who had a window, whose relaunch failed,
+  // would get a daemon they never asked for and never see Branch come back.
+  const undo = await undoSetup(t, { mode: "app" });
+  assert.equal(await undo.run(neverBack(), { launch: () => { throw new Error("nothing opened"); } }), 1,
+    "the first attempt fails at the reopening");
+
+  const opened = [];
+  const finished = await undo.run(cameBack({ version: "1.0.0" }), { launch: (...args) => { opened.push(args); } });
+  assert.equal(finished, 0, undo.told());
+  assert.equal(opened.length, 1, "the window was reopened");
+  assert.deepEqual(undo.events, [], "and the service manager was never asked");
+  assert.match(undo.told(), /Branch is open again, on version 1\.0\.0/);
 });
 
 test("a second attempt that still cannot start Branch says so again, rather than reporting it done", async (t) => {
