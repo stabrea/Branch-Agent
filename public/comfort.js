@@ -524,6 +524,8 @@ const maxRecordingSeconds = () => view?.values.voice.maxRecordingSeconds ?? null
 
 /* ---------- putting it to work ---------- */
 function apply() {
+  /* DG-097: anything that shows the owner's keys (the top-bar search box) redraws from `hint`. */
+  document.dispatchEvent(new Event("branch-comfort"));
   const box = $("prompt");
   if (box) vimIndicator(box);
   if (!view?.values.keys.vim) vim.mode = "insert";

@@ -335,6 +335,28 @@ form > button {
   font-size: 13px;
   color: var(--muted);
 }
+.saved-history-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(80vh, 760px);
+  padding: 24px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: 18px;
+  box-shadow: var(--card-shadow);
+}
+.saved-history-dialog::backdrop {
+  background: var(--scrim);
+}
+.saved-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.saved-history-head h2 { margin: 0; }
+.saved-history-dialog #saved-history-status:empty { display: none; }
 .saved-search {
   display: grid;
   gap: 10px;

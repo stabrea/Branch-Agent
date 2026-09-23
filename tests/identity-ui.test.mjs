@@ -52,7 +52,8 @@ test('identity saves across reload and the next task receives its name and instr
   await openSettingFor(f.page, '#identity-name');
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Juniper');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Use concise answers and cite saved sources.');
-  assert.match(await f.page.locator('.brand').innerText(), /Juniper/, 'the sidebar carries the assistant name');
+  assert.equal(await f.page.locator('.brand').count(), 0, 'the old assistant-name header is not built');
+  assert.equal(await f.page.locator('#rail-target-name').innerText(), 'This computer', 'the sidebar identifies this computer, not the assistant');
   assert.match(await f.page.locator('.rail-maker').innerText(), /Branch Agent[\s\S]*by[\s\S]*KeepOak/i, 'the rail names the product and its maker');
   await f.page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

@@ -61,6 +61,42 @@ const boxesHit = (page, one, two) =>
     },
     [one, two],
   );
+
+test("the sidebar starts with this real computer and keeps project switching available", async (t) => {
+  const f = await fixture(t);
+  assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "This computer");
+  assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "This computer/,
+    "the visible computer name is part of the switcher's accessible name");
+  assert.equal(await f.page.locator("#brand-name").count(), 0, "the old app-name header is not built invisibly");
+  await f.page.locator("#rail-target-mark .face-computer").waitFor();
+  assert.equal(await f.page.locator(".rail-scroll #rail-target").count(), 0, "the identity is not repeated below the actions");
+
+  const saved = await fetch(`${f.server.url}/api/reach/machine-name`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${f.server.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "studio-mac" }),
+  });
+  assert.equal(saved.status, 200);
+  await f.page.evaluate(async () => (await import("/shell.js")).loadRail());
+  assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "studio-mac");
+  assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "studio-mac/);
+  await f.page.reload();
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator(".rail-head #rail-target-name").filter({ hasText: "studio-mac" }).waitFor();
+
+  await f.page.locator("#app-switcher").click();
+  assert.equal(await f.page.locator("#app-menu").isVisible(), true, "project switching still works");
+  for (const width of [1440, 1024]) {
+    await f.page.setViewportSize({ width, height: 900 });
+    const fits = await f.page.locator("#app-switcher").evaluate((button) => {
+      const head = button.closest(".rail-head").getBoundingClientRect();
+      const identity = button.querySelector("#rail-target-name").getBoundingClientRect();
+      return identity.left >= head.left && identity.right <= head.right;
+    });
+    assert.equal(fits, true, `the computer name fits the sidebar header at ${width}px`);
+  }
+  assert.deepEqual(f.errors, []);
+});
 /** Walks Tab and reports where the focus landed each time. */
 async function tabStops(page, count) {
   const stops = [];

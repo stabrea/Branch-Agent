@@ -38,13 +38,16 @@
     <!-- Wave 9 redesign: the pixel oak behind the glass (public/grove.js). -->
     <canvas id="wall" class="lx-wall" aria-hidden="true"></canvas>
     <canvas id="wall-fx" class="lx-wall" aria-hidden="true"></canvas>
-    <!-- The rail: brand and app switcher, quiet actions, the sections, projects,
+    <!-- The rail: this computer and project switcher, quiet actions, the sections, projects,
          conversations by day, and the owner at the foot. public/shell.js fills it. -->
     <aside class="rail" id="conversation-rail" aria-label="Sidebar">
       <div class="rail-head">
-        <button id="app-switcher" class="app-switcher" type="button" aria-haspopup="true" aria-expanded="false">
-          <span class="brand-icon"><img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" /><img class="oak-normal" src="/assets/keepoak-mark.png" alt="" /></span>
-          <span class="brand"><span id="brand-name">Branch Agent</span></span>
+        <button id="app-switcher" class="app-switcher" type="button" aria-describedby="rail-target-name" aria-haspopup="true" aria-expanded="false">
+          <span id="rail-target-mark" class="rail-target-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="12" rx="2" /><path d="M2 20h20" /></svg></span>
+          <span id="rail-target" class="rail-target" aria-live="polite">
+            <strong id="rail-target-name" data-t="strip.here">This computer</strong>
+            <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
+          </span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
         </button>
         <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything" data-t-label="rail.search">
@@ -65,10 +68,6 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
           <span data-t="rail.find">Find anything</span> <kbd>Ctrl K</kbd>
         </button>
-        <div id="rail-target" class="rail-target" aria-live="polite">
-          <strong id="rail-target-name" data-t="strip.here">This computer</strong>
-          <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
-        </div>
         <div id="rail-view-tabs" class="rail-view-tabs" role="tablist" aria-label="Sidebar view" data-t-label="rail.view">
           <button id="rail-view-conversations" class="rail-view-tab" type="button" role="tab" data-rail-view="conversations"
             aria-selected="true" data-t="rail.conversations">Conversations</button>
@@ -157,6 +156,12 @@
         <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details" data-t-label="rail.details">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
         </button>
+        <!-- DG-097: the finder, where the approved sample has it. Its key hint is the owner's own binding (public/shell.js). -->
+        <button id="head-search" class="head-search" type="button" aria-label="Search" data-t-label="head.search" aria-keyshortcuts="Control+K">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
+          <span data-t="head.search">Search</span>
+          <kbd id="head-search-keys">Ctrl K</kbd>
+        </button>
       </header>
       <section id="login" class="card login">
         <span class="eyebrow">Welcome to Branch Agent</span>
@@ -207,20 +212,26 @@
             <p id="practice-state" class="subtle" role="status"></p>
             <button id="practice-toggle" type="button" data-t="action.try-the-practice-workspace">Try the practice workspace</button>
           </section>
-          <details id="saved-conversations" class="card saved-conversations">
-            <summary>Saved conversations</summary>
-            <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
-            <form id="saved-search-form" class="saved-search">
-              <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
-              <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
-              <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
-            </form>
-            <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
-            <input id="conversation-import" type="file" accept="application/json,.json" hidden />
-            <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
-            <div id="saved-list" class="card-list" aria-live="polite"></div>
-            <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
-          </details>
+          <template id="saved-history-template">
+            <section id="saved-conversations" class="saved-conversations">
+              <div class="saved-history-head">
+                <h2 id="saved-history-title" data-t="history.title">Conversation history</h2>
+                <button id="saved-history-close" type="button" class="quiet-button" aria-label="Close conversation history" data-t-label="history.close" data-t="history.closeButton">Close</button>
+              </div>
+              <p id="saved-history-status" role="status" aria-live="polite"></p>
+              <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
+              <form id="saved-search-form" class="saved-search">
+                <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
+                <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
+                <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
+              </form>
+              <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
+              <input id="conversation-import" type="file" accept="application/json,.json" hidden />
+              <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
+              <div id="saved-list" class="card-list" aria-live="polite"></div>
+              <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
+            </section>
+          </template>
           <div id="demo-notice" class="notice" hidden>
             <strong data-t="practice.title">Practice mode</strong
             ><span data-t="practice.body">Branch can't do real work yet. Choose how it thinks in Settings, then ask for anything.</span

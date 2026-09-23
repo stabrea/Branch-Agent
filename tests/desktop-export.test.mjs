@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { openPlace, showEverything } from "./places.mjs";
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,9 +62,7 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     // "performing click action", with nothing covering the button), so every step gets a minute.
     const page = await electron.firstWindow(); page.setDefaultTimeout(60000);
     await connected(page);
-    // Saved conversations is one of the full window's own lists, which the calm default keeps behind
-    // "Show everything".
-    await showEverything(page);
+    // History is on demand, not a disclosure built into the conversation thread.
     await electron.evaluate(({ dialog }, path) => {
       globalThis.fixtureExportDialogs = [];
       dialog.showSaveDialog = async (_window, options) => {
@@ -86,7 +84,9 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     // desktop and not on a loaded build machine, where this timed out at 32 seconds having done
     // nothing wrong. The wait is widened here rather than anything in the app being made faster.
     await page.waitForFunction(() => !document.getElementById('send').disabled, undefined, { timeout: 120000 });
-    await page.locator('#saved-conversations summary').click();
+    await page.keyboard.press('Control+k');
+    await page.locator('#cmd-input').fill('Conversation history');
+    await page.locator('.cmd-item').filter({ hasText: 'Conversation history' }).click();
     await page.locator('#saved-list').getByRole('button', { name: 'Export JSON', exact: true }).first().click();
     await page.locator('#toast').filter({ hasText: 'Conversation exported.' }).waitFor();
     const saved = JSON.parse(await readFile(path, 'utf8'));
@@ -96,6 +96,9 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     const dialogs = await electron.evaluate(() => globalThis.fixtureExportDialogs);
     assert.equal(dialogs.length, 1); assert.deepEqual(dialogs[0].filters[0].extensions, ['json']);
     assert.equal(await downloadBlocked(electron), true);
+    // History is a modal dialog now (#209): close it before going elsewhere in the window.
+    await page.locator('#saved-history-close').click();
+    await page.locator('#saved-history-dialog').waitFor({ state: 'hidden' });
     await rejectOtherWindow(electron, page.url());
     await exportNativeMemory(electron, page, path);
   } finally { await electron.close(); }
