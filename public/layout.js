@@ -882,19 +882,38 @@ function buildTitleBar() {
   shield.append(icon("shield"));
   /* phase2/panels: one switch in the title bar (the panel button); the tabs live inside the panel (tagPaneBlocks). */
   paneSeg = seg;
+  new ResizeObserver(fitPaneTabs).observe(seg);
+  document.addEventListener("branch-language", () => requestAnimationFrame(fitPaneTabs));
   $("connection").before(clear, shield);
+  /* DG-114: the side panel is a card over the conversation at every width, so this one switch opens and closes it
+     everywhere; public/shell.js's column fold (no-aside) no longer applies to it. */
   $("aside-toggle").addEventListener("click", (event) => {
-    if (!calm() && !narrow.matches) return; // a wide full window folds the pane as it always has (public/shell.js)
     event.stopImmediatePropagation();
     togglePane();
   }, true);
   buildLockdown(shield);
 }
 let paneSeg = null;
+/* DG-114: every tab shows its name when all six fit, as in the sample. When they do not (a card dragged narrow, a wider
+   font, a longer language), the others show only their pictures and the chosen one its name, so no name is ever cut
+   short. Measured, not guessed from a width, because the width that fits depends on the font. */
+function fitPaneTabs() {
+  if (!paneSeg || !paneSeg.getClientRects().length) return;
+  paneSeg.classList.remove("lx-tabs-tight");
+  /* A name can overflow its tab without being cut inside its own words, so the tabs themselves are measured too. */
+  const over = (node) => node.getClientRects().length && node.scrollWidth > node.clientWidth + 1;
+  const cut = [...paneSeg.querySelectorAll(".lx-pane-tab, .lx-words")].some(over);
+  paneSeg.classList.toggle("lx-tabs-tight", cut);
+}
 /* phase2/panels: the calm window's pane can be shut while work runs; it opens by itself again for the next task. */
 let paneShut = false;
 function togglePane() {
-  if (!calm()) { document.body.classList.toggle("lx-pane-float"); return syncPane(); }
+  if (!calm()) {
+    const opened = document.body.classList.toggle("lx-pane-float");
+    syncPane();
+    if (opened) document.dispatchEvent(new CustomEvent("branch-pane-draw")); // the fold's own redraw (context-pane.js) is stopped above
+    return;
+  }
   if (calmPaneWanted()) {
     paneAsked = false;
     paneShut = calmWorking;
@@ -909,16 +928,14 @@ function pickPaneTab(id) {
   if (open && paneTab === id) return;
   choosePaneTab(id);
 }
-/* On a narrow window the pane floats over the conversation, so it starts closed and opens only when asked. */
+/* DG-114: the full window's pane floats over the conversation at every width, so it starts closed and opens only
+   when asked. The calm window still opens it by itself while work runs, except on a narrow window. */
 const narrow = matchMedia("(max-width: 1180px)");
-const paneOpen = () => narrow.matches
-  ? document.body.classList.contains("lx-pane-float")
-  : !document.body.classList.contains("no-aside");
+const paneOpen = () => document.body.classList.contains("lx-pane-float");
 function choosePaneTab(id) {
   if (calm()) return askForPane(id);
   const open = paneOpen();
-  if (narrow.matches) document.body.classList.toggle("lx-pane-float", !(open && paneTab === id));
-  else if (!open || paneTab === id) $("aside-toggle").click();
+  document.body.classList.toggle("lx-pane-float", !(open && paneTab === id));
   paneTab = id;
   store.set("branch-pane-tab", id === "activity" ? null : id);
   syncPane();
@@ -931,8 +948,19 @@ function tagPaneBlocks() {
     if (block) block.dataset.pane = tab;
   }
   document.querySelector(".context-stats").dataset.pane = "memory";
+  /* DG-114: the card's head is its own name and a close button, then the tabs (the approved sample's .pane-top). */
+  const top = make("div", "lx-pane-top");
+  const close = make("button", "head-icon lx-pane-close");
+  close.type = "button";
+  close.id = "lx-pane-close";
+  close.setAttribute("aria-label", say("pane.close", "Close the side panel"));
+  close.title = close.getAttribute("aria-label");
+  close.append(icon("close"));
+  /* Closing takes the keyboard back to the button that opens it again, rather than dropping it on the page. */
+  close.addEventListener("click", () => { $("aside-toggle").click(); $("aside-toggle").focus(); });
+  top.append(make("strong", "lx-pane-name"), close);
   const head = make("div", "lx-pane-head");
-  head.append(make("strong", "lx-pane-name"), paneSeg); // phase2/panels: the tabs sit in the panel's own head
+  head.append(top, paneSeg); // phase2/panels: the tabs sit in the panel's own head
   $("context-panel").prepend(head);
 }
 /** The pane belongs to the conversation: shown there when open, or anywhere while help is being read. */
@@ -947,8 +975,8 @@ function syncPane() {
   $("aside-toggle").setAttribute("aria-pressed", String(open)); // phase2/panels: the one switch says whether the panel is open
   for (const trigger of document.querySelectorAll(".lx-pane-tab"))
     trigger.setAttribute("aria-pressed", String(open && trigger.dataset.pane === paneTab));
-  const tab = PANE_TABS.find(([id]) => id === paneTab);
-  panel.querySelector(".lx-pane-name").textContent = helping ? say("help.title", "Help") : say(tab[1], tab[2]);
+  /* DG-114: the card is named for what it is, not for the tab in it; the tabs already say which one is chosen. */
+  panel.querySelector(".lx-pane-name").textContent = helping ? say("help.title", "Help") : say("pane.title", "Side panel");
 }
 function setQuiet(on) {
   if (on) root.dataset.quiet = "1";
@@ -1175,7 +1203,9 @@ function calmPaneWanted() {
   return paneAsked || (calmWorking && !paneShut); // phase2/panels: shut with the switch while work runs
 }
 function askForPane(id) {
-  paneAsked = !(paneAsked && paneTab === id);
+  /* DG-114: decided by whether the pane is showing, not by the old request: opened on a wide window and then narrowed
+     past 1180 px, the pane had closed while still counted as asked for, so the next press only cleared it. */
+  paneAsked = !(calmPaneWanted() && paneTab === id);
   paneTab = id;
   if (narrow.matches) document.body.classList.toggle("lx-pane-float", paneAsked);
   syncPane();
