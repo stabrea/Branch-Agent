@@ -184,6 +184,8 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
   store?: unknown; tracer?: unknown;
   /** Wave mac2 (guards): false when the integrations file sits in a workspace folder the owner has not trusted. */
   configTrusted?: (path: string) => boolean;
+  /** Told which sections of the integrations file this load left out (none when it was used), for the launch-file card. */
+  leftOut?: (sections: readonly LaunchSection[]) => void;
   /** Things to let go of when Branch locks itself, such as a browser of the owner's it had borrowed. */
   onLock?: (release: () => Promise<unknown>) => void }
 
@@ -215,27 +217,38 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
 /** R17-S14: the whole launch settings file, so the Settings card can check a change before writing it. */
 export const LaunchFileSchema = ConfigSchema;
 
+type LaunchConfig = z.infer<typeof ConfigSchema>;
 /**
- * What is left out of an integrations file that sits in a workspace folder the owner has not
- * trusted. Nothing in it starts by itself as Branch starts: no AI tool servers, no hooks and no
- * chat apps, which sign in with saved keys and let people message the assistant. And it changes
- * none of the protections everything else runs under: without its `web` section the network rules
- * and the injection policy keep the settings Branch already had. The owner is told once, in one
- * line naming what was left out. What a task has to choose to call (the browser, commands, git
- * and issue tools) is still added, under the owner's approvals and those same rules.
+ * Every section of the integrations file, with the words the owner is told it by when it is left
+ * out. Typed against the schema, so a section added later has to be named here too.
  */
-function holdBackUntrusted(config: z.infer<typeof ConfigSchema>, path: string): void {
-  const left: string[] = [];
-  if (config.web) left.push('web and network settings');
-  if (config.channels.length) left.push('chat apps');
-  if (config.mcp.length) left.push('AI tool servers');
-  if (config.hooks.length) left.push('hooks');
+const sectionWords: Record<keyof LaunchConfig, string> = {
+  web: 'web and network settings', channels: 'chat apps', mcp: 'AI tool servers', hooks: 'hooks',
+  browser: 'browser settings', shell: 'command settings', git: 'git settings', issues: 'issue trackers',
+};
+export type LaunchSection = keyof LaunchConfig;
+/** The sections, in the order the owner is told about them; the launch-file card names each one. */
+export const launchSections: readonly LaunchSection[] = Object.freeze(Object.keys(sectionWords) as LaunchSection[]);
+
+/**
+ * An integrations file that sits in a workspace folder the owner has not trusted is not used at
+ * all, because every section can change where Branch connects, what it runs or what it allows:
+ * the network rules, chat apps, AI tool servers and hooks, and also the browser (its sites and
+ * what it may save), commands (their programs, limits and environment), and git and the issue
+ * trackers (the servers they connect to). This names the sections the file sets, once, in one
+ * line; the launch-file card shows the same list.
+ */
+function noteLeftOut(config: LaunchConfig, path: string): LaunchSection[] {
+  const left = launchSections.filter(section => {
+    const value = config[section];
+    return Array.isArray(value) ? value.length > 0 : value !== undefined;
+  });
   if (left.length) {
-    const named = left.length > 1 ? `${left.slice(0, -1).join(', ')} or ${left.at(-1)}` : left[0];
-    console.warn(`Branch did not use the ${named} listed in ${path}: that folder is not trusted. Trust it in Settings, Permissions.`);
+    const words = left.map(section => sectionWords[section]);
+    const named = words.length > 1 ? `${words.slice(0, -1).join(', ')} or ${words.at(-1)}` : words[0];
+    console.warn(`Branch did not use the ${named} listed in ${path}: that folder is not trusted. Trust it in Settings, Permissions, then restart Branch.`);
   }
-  delete config.web;
-  config.channels = []; config.mcp = []; config.hooks = [];
+  return left;
 }
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
@@ -257,10 +270,12 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   if (!path) return { close, count: 0, hosted };
   const info = await stat(path);
   if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
-  const config = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
-  // Wave mac2 (guards): a file in a folder the owner has not trusted starts nothing by itself and
-  // changes none of the protections the rest of Branch runs under.
-  if (channels?.configTrusted && !channels.configTrusted(path)) holdBackUntrusted(config, path);
+  const listed = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  // Wave mac2 (guards): a file in a folder the owner has not trusted sets up nothing at all. What
+  // goes on from here is an empty file, so nothing below can read one of its sections by mistake.
+  const trusted = channels?.configTrusted?.(path) ?? true;
+  channels?.leftOut?.(trusted ? [] : noteLeftOut(listed, path));
+  const config = trusted ? listed : ConfigSchema.parse({});
   if (config.web) channels?.web?.configure(config.web);
   const policy = channels?.web?.policy;
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)

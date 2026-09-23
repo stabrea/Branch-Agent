@@ -34,6 +34,8 @@ export interface KnobsApp {
     reliability: { toolResultChars: number; toolTimeoutMs: number; localFirstReplyMs: number; maxModelRounds: number };
     retryPolicy: { maxRetries: number };
   };
+  /** The sections of the launch settings file this start left out (src/integrations/bootstrap.ts). */
+  launchFile?: { leftOut: readonly string[] };
 }
 /** Both routes; a short-lived key is refused every change to them (knobsRefusal in src/short-lived-keys.ts). */
 export const knobsRoutes: readonly string[] = ["/api/knobs", "/api/knobs/launch-file"];
@@ -123,9 +125,10 @@ export async function knobsApi(app: KnobsApp, request: IncomingMessage, path: st
   if (method !== "GET" && method !== "POST") throw new KnobsApiError(405, "Use GET or POST");
   try {
     if (path === "/api/knobs/launch-file") {
-      if (method === "GET") return ownerHere(app.store) ? await launchFileView(integrationsPath()) : launchFileHidden;
+      const leftOut = app.launchFile?.leftOut ?? [];
+      if (method === "GET") return ownerHere(app.store) ? await launchFileView(integrationsPath(), leftOut) : launchFileHidden;
       requireOwnerHere(app.store, "The launch settings file");
-      return await saveLaunchFile(integrationsPath(), await readBody(request));
+      return await saveLaunchFile(integrationsPath(), await readBody(request), leftOut);
     }
     return method === "GET" ? view(app) : save(app, await readBody(request));
   } catch (error) {

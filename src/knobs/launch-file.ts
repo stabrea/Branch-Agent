@@ -12,6 +12,9 @@ import { readIntegrationFacts } from "../security-audit/integration-facts.js";
  * output is kept, whether commands are cut off from the internet, and which sites the browser may
  * open. The whole file is checked with the same schema the launch uses before anything is written,
  * the write replaces the file in one step, and the change applies from the next start.
+ *
+ * When this start left sections of the file out (it sits in a workspace folder the owner has not
+ * trusted), the card names them, and nothing in them is counted as set up.
  */
 const origin = z.string().max(200).refine((value) => {
   try { const url = new URL(value); return /^https?:$/.test(url.protocol) && url.origin === value; } catch { return false; }
@@ -27,20 +30,22 @@ export const LaunchFileChangeSchema = z.object({
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json => (value && typeof value === "object" && !Array.isArray(value) ? value as Json : {});
 
-export async function launchFileView(path: string | null) {
+export async function launchFileView(path: string | null, leftOut: readonly string[] = []) {
   if (!path) return { path: null, problem: null, facts: null, editable: null };
   const facts = await readIntegrationFacts(path);
   if (facts.problem) return { path, problem: facts.problem, facts: null, editable: null };
   const raw = record(JSON.parse(await readFile(path, "utf8")));
   const shell = raw.shell === undefined ? null : record(raw.shell);
   const browser = raw.browser === undefined ? null : record(raw.browser);
+  const used = (section: string): boolean => !leftOut.includes(section);
   return {
     path, problem: null,
     facts: {
-      servers: facts.mcp.length, hooks: facts.hooks.length,
-      chatApps: facts.channels.map((channel) => channel.type),
-      programs: facts.shell?.executables.map((one) => one.alias) ?? [],
+      servers: used("mcp") ? facts.mcp.length : 0, hooks: used("hooks") ? facts.hooks.length : 0,
+      chatApps: used("channels") ? facts.channels.map((channel) => channel.type) : [],
+      programs: used("shell") ? facts.shell?.executables.map((one) => one.alias) ?? [] : [],
       keyLikeValues: facts.keyLikeValues,
+      leftOut: [...leftOut],
     },
     editable: {
       commands: shell && {
@@ -72,7 +77,7 @@ function patched(raw: Json, change: z.infer<typeof LaunchFileChangeSchema>): Jso
   return next;
 }
 
-export async function saveLaunchFile(path: string | null, input: unknown) {
+export async function saveLaunchFile(path: string | null, input: unknown, leftOut: readonly string[] = []) {
   if (!path) throw new Error("Branch was started without a launch settings file, so there is nothing to change.");
   const change = LaunchFileChangeSchema.parse(input);
   const facts = await readIntegrationFacts(path);
@@ -81,7 +86,7 @@ export async function saveLaunchFile(path: string | null, input: unknown) {
   const text = `${JSON.stringify(next, null, 2)}\n`;
   if (Buffer.byteLength(text) > 65536) throw new Error("The launch settings file would be larger than Branch reads.");
   await replaceFile(await realpath(path), text);
-  return { ...(await launchFileView(path)), savedForNextStart: true };
+  return { ...(await launchFileView(path, leftOut)), savedForNextStart: true };
 }
 
 /**

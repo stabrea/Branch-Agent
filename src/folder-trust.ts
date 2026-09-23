@@ -218,23 +218,28 @@ export async function isFolderTrusted(store: Store, owner: string, path: string)
  * holds something for AI assistants (it usually does: it has just found a file to read). A loader
  * that is about to read a file from the folder passes nothing and gets the strict answer.
  */
-export function folderAllows(store: Store, owner: string, path: string, holdsSomething = true): boolean {
+export function folderAllows(store: Store, owner: string, path: string, holdsSomething = true, platform: NodeJS.Platform = process.platform): boolean {
   const mode = folderTrustMode(store, owner);
   if (mode === "off") return true;
-  const trust = folderTrust(store, owner, path);
+  const trust = folderTrust(store, owner, path, platform);
   if (trust !== "unknown") return trust === "trusted";
   return mode === "when-needed" && !holdsSomething;
 }
 
 /**
- * Whether the launch's integrations file may start its AI tool servers, hooks and chat apps and set
- * the web and network settings. Only a file that sits inside the workspace is a folder's own; one
- * elsewhere is the owner's.
+ * Whether the launch's integrations file may be used at all. Only a file that sits inside the
+ * workspace is a folder's own; one elsewhere is the owner's. A file that is itself a link is judged
+ * both where it is written and where it really is, and counts only when both may be used: a link
+ * outside the workspace to a file in a folder the owner has not trusted is still that folder's file,
+ * and a link inside such a folder is still that folder's, wherever it points. `platform` is for
+ * tests, as in `folderTrust`.
  */
-export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string): boolean {
-  const folder = realFolder(dirname(resolve(file)));
-  if (!folderContains(realFolder(workspace), folder)) return true;
-  return folderAllows(store, owner, folder);
+export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string,
+  platform: NodeJS.Platform = process.platform): boolean {
+  const path = platform === "win32" ? win32 : posix;
+  const full = path.resolve(file), root = realFolder(workspace, platform);
+  const written = realFolder(path.dirname(full), platform), really = path.dirname(realFolder(full, platform));
+  return [written, really].every((folder) => !folderContains(root, folder, platform) || folderAllows(store, owner, folder, true, platform));
 }
 
 /** Whether the owner should be asked about a folder now, under the owner's setting. */

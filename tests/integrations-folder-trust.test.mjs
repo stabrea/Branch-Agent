@@ -1,16 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, decideFolder, saveFolderTrustSettings } from "../dist/index.js";
+import { createBranch, decideFolder, saveFolderTrustSettings, integrationsFileTrusted } from "../dist/index.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 
 /**
  * The integrations file named by BRANCH_INTEGRATIONS, when it sits in a workspace folder the owner
- * has not trusted: it may still add tools a task has to choose to call, but it may not change the
- * network rules or start chat apps. Each case gets an app of its own, because the network rules a
+ * has not trusted: nothing in it is used. Every section can change where Branch connects, what it
+ * runs or what it allows, so none is read from such a folder, and the owner is told once, in one
+ * line naming what was left out. Each case gets an app of its own, because the network rules a
  * load sets stay set for the rest of that app's life.
  */
 async function fixture(t, mode = "on") {
@@ -50,6 +51,12 @@ const startsPrograms = (root) => ({
   mcp: [{ id: "stranger", transport: "stdio", command: join(root, "no-such-server"), tools: ["x"], expectedVersion: "1" }],
   hooks: [{ id: "on-finish", event: "run.finished", executable: "nothing" }],
 });
+const commanding = { shell: { executables: { node: { path: process.execPath } } } };
+const browsing = { browser: { allowedOrigins: ["https://example.com"] } };
+const pushing = { git: { remote: true } };
+const commandTools = ["shell.execute", "shell.session.open", "shell.session.run"];
+const browserTools = ["browser.navigate", "browser.click", "signin.fill"];
+const added = (app, names) => names.filter((name) => app.registry.names().includes(name));
 
 test("a file in a folder the owner has not trusted cannot open private addresses, and the owner is told once", async (t) => {
   const { app, root, workspace, owner } = await fixture(t);
@@ -100,13 +107,126 @@ test("with folder trust off, a file in the workspace works exactly as before", a
   await assert.rejects(load(t, app, await place(join(workspace, "cloned", "chat.json"), chatApp)), /no bot token/);
 });
 
-test("a folder the owner has not trusted still adds tools a task has to choose to call", async (t) => {
+test("commands in a file in an untrusted folder are not added, nor their programs, limits or environment", async (t) => {
   const { app, workspace } = await fixture(t);
+  const { loaded, trustNotes } = await load(t, app, await place(join(workspace, "cloned", "integrations.json"), commanding));
+  assert.deepEqual(added(app, commandTools), [], "no command tool was added");
+  assert.equal(loaded.hosted.commandsNetless, undefined, "the firewall card is not told about them");
+  assert.equal(trustNotes.length, 1);
+  assert.match(trustNotes[0], /command settings/);
+});
+
+test("the browser section of a file in an untrusted folder is not used: no browser, sites or sign-in filling", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const { loaded, trustNotes } = await load(t, app, await place(join(workspace, "cloned", "integrations.json"), browsing));
+  assert.deepEqual(added(app, browserTools), [], "no browser tool was added");
+  assert.equal(loaded.hosted.browser, undefined);
+  assert.equal(loaded.hosted.browserOrigins, undefined, "its sites are not the browser's sites");
+  assert.equal(trustNotes.length, 1);
+  assert.match(trustNotes[0], /browser settings/);
+});
+
+test("git settings in a file in an untrusted folder are not used", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const { trustNotes } = await load(t, app, await place(join(workspace, "cloned", "integrations.json"), { ...pushing, issues: { github: true } }));
+  assert.deepEqual(added(app, ["git.push", "git.pull", "github.issues", "issues.get"]), []);
+  assert.equal(trustNotes.length, 1);
+  assert.match(trustNotes[0], /git settings or issue trackers/);
+});
+
+test("a file in an untrusted folder sets up nothing at all, and one note names every section and asks for a restart", async (t) => {
+  const { app, root, workspace } = await fixture(t);
+  const before = app.registry.names();
   const file = await place(join(workspace, "cloned", "integrations.json"), {
-    browser: { allowedOrigins: ["https://example.com"] }, git: { remote: true },
+    ...reachesPrivate, ...chatApp, ...startsPrograms(root), ...browsing, ...commanding, ...pushing,
+    issues: { github: true, linear: {}, gitlab: true, jira: { site: "tracker.example.org" } },
   });
   const { loaded, trustNotes } = await load(t, app, file);
-  assert.deepEqual(loaded.hosted.browserOrigins, ["https://example.com"], "the browser section is still read");
-  assert.ok(app.registry.names().includes("git.push"), "the git section is still read");
-  assert.equal(trustNotes.length, 0, "nothing was left out, so there is nothing to tell");
+  assert.deepEqual(app.registry.names(), before, "no tool of any kind was added");
+  assert.equal(loaded.count, 0);
+  assert.deepEqual(loaded.hosted, {}, "nothing is handed to the rest of the app");
+  assert.deepEqual(app.launchFile.leftOut, ["web", "channels", "mcp", "hooks", "browser", "shell", "git", "issues"]);
+  assert.equal(trustNotes.length, 1);
+  assert.equal(trustNotes[0], `Branch did not use the web and network settings, chat apps, AI tool servers, hooks, browser settings, `
+    + `command settings, git settings or issue trackers listed in ${file}: that folder is not trusted. `
+    + "Trust it in Settings, Permissions, then restart Branch.");
+});
+
+test("a folder the owner trusts still adds the browser, commands, git and issue tools", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "cloned", decision: "trust" });
+  const { loaded, trustNotes } = await load(t, app, await place(join(workspace, "cloned", "integrations.json"),
+    { ...browsing, ...commanding, ...pushing, issues: { github: true } }));
+  assert.equal(trustNotes.length, 0);
+  assert.deepEqual(added(app, [...commandTools, ...browserTools, "git.push", "issues.get"]), [...commandTools, ...browserTools, "git.push", "issues.get"]);
+  assert.deepEqual(loaded.hosted.browserOrigins, ["https://example.com"]);
+});
+
+test("when needed: a file in a folder nobody decided about is left out, and one the owner trusts is used", async (t) => {
+  const { app, workspace, owner } = await fixture(t, "when-needed");
+  const file = await place(join(workspace, "cloned", "integrations.json"), pushing);
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), false, "the file is itself something to decide about");
+  const { trustNotes } = await load(t, app, file);
+  assert.deepEqual(added(app, ["git.push"]), []);
+  assert.equal(trustNotes.length, 1);
+  decideFolder(app.store, owner, workspace, { folder: "cloned", decision: "trust" });
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), true);
+  await load(t, app, file);
+  assert.deepEqual(added(app, ["git.push"]), ["git.push"]);
+});
+
+test("a workspace reached through a link: its untrusted folder's file is left out whichever way its path is written",
+  { skip: process.platform === "win32" }, async (t) => {
+    // Branch will not start on a workspace that is itself a link, so the link (the stand-in here for
+    // a Windows junction) leads into the workspace from elsewhere, and the file's path goes through it.
+    const { app, root, workspace, owner } = await fixture(t);
+    const alias = join(root, "alias");
+    await symlink(workspace, alias, "dir");
+    decideFolder(app.store, owner, workspace, { folder: "cloned", decision: "distrust" });
+    const real = await place(join(workspace, "cloned", "integrations.json"), pushing);
+    const throughLink = join(alias, "cloned", "integrations.json");
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, throughLink), false);
+    assert.equal(integrationsFileTrusted(app.store, owner, alias, real), false, "the workspace written through the link");
+    assert.equal(integrationsFileTrusted(app.store, owner, alias, throughLink), false);
+    const { trustNotes } = await load(t, app, throughLink);
+    assert.deepEqual(added(app, ["git.push"]), [], "written through the link");
+    assert.equal(trustNotes.length, 1);
+    await load(t, app, real);
+    assert.deepEqual(added(app, ["git.push"]), [], "written as it really is");
+  });
+
+test("a file that is itself a link counts only when both where it is written and where it really is may be used",
+  { skip: process.platform === "win32" }, async (t) => {
+    const { app, workspace, dataDir, owner } = await fixture(t);
+    decideFolder(app.store, owner, workspace, { folder: "cloned", decision: "distrust" });
+    decideFolder(app.store, owner, workspace, { folder: "mine", decision: "trust" });
+    const inside = await place(join(workspace, "cloned", "integrations.json"), pushing);
+    const owners = await place(join(dataDir, "owner.json"), pushing);
+    await mkdir(join(workspace, "mine"), { recursive: true });
+    const linkOutToIn = join(dataDir, "integrations.json"), linkInToOut = join(workspace, "cloned", "owner.json");
+    const trustedToUntrusted = join(workspace, "mine", "integrations.json"), outToOut = join(dataDir, "again.json");
+    await symlink(inside, linkOutToIn); await symlink(owners, linkInToOut);
+    await symlink(inside, trustedToUntrusted); await symlink(owners, outToOut);
+    const trusted = (file) => integrationsFileTrusted(app.store, owner, workspace, file);
+    assert.equal(trusted(linkOutToIn), false, "a link outside the workspace to a file in an untrusted folder");
+    assert.equal(trusted(trustedToUntrusted), false, "a link in a trusted folder to a file in an untrusted one");
+    assert.equal(trusted(linkInToOut), false, "a link in an untrusted folder, wherever it points");
+    assert.equal(trusted(outToOut), true, "a link outside the workspace to a file outside it");
+    const { trustNotes } = await load(t, app, linkOutToIn);
+    assert.deepEqual(added(app, ["git.push"]), []);
+    assert.equal(trustNotes.length, 1);
+  });
+
+test("on Windows, letter case does not matter when the file's folder is judged", async (t) => {
+  const { app, owner } = await fixture(t);
+  const folders = (path, decision) => app.store.save("settings", owner, "folder_trust",
+    { folders: [{ path, decision, decidedAt: new Date().toISOString() }] });
+  const trusted = (file) => integrationsFileTrusted(app.store, owner, "C:\\Users\\Owner\\Work", file, "win32");
+  folders("C:\\Users\\Owner\\Work\\cloned", "distrust");
+  assert.equal(trusted("c:\\users\\owner\\WORK\\Cloned\\integrations.json"), false);
+  assert.equal(trusted("C:\\Users\\Owner\\Work\\cloned\\sub\\..\\integrations.json"), false);
+  assert.equal(trusted("D:\\Owner\\integrations.json"), true, "a file outside the workspace is the owner's");
+  assert.equal(trusted("C:\\Users\\Owner\\Work\\integrations.json"), false, "the workspace itself was never decided about");
+  folders("C:\\USERS\\OWNER\\WORK\\CLONED", "trust");
+  assert.equal(trusted("c:\\users\\owner\\work\\cloned\\integrations.json"), true);
 });

@@ -1223,9 +1223,12 @@ export async function createBranch(options: {
   // household-followups: with the owner's PIN set, the window comes back on the profile it was left
   // on, once everything above has started as the owner.
   store.profiles.resumeWhereLeft();
+  /** Wave mac2 (guards): the sections of the integrations file this start left out, which the launch-file card names. */
+  const launchFile = { leftOut: [] as readonly string[] };
   const branch = {
     store,
     registry,
+    launchFile,
     /** R17-S-C: the proxy and certificates in force (src/comfort/network.ts). */
     comfort: { outbound },
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
@@ -1473,9 +1476,11 @@ export async function createBranch(options: {
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
       slackEvents: (channelId: string, event: unknown, bot: string | null) => void slackAutomations.handle(channelId, event, bot), // mac6/bucket-16
-      // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
-      // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
+      // Wave mac2 (guards): an integrations file inside the workspace is only used when the owner
+      // trusts its folder (src/folder-trust.ts), and what was left out is kept for the launch-file
+      // card. A file elsewhere is theirs.
       configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
+      leftOut: (sections: readonly string[]) => { launchFile.leftOut = [...sections]; },
       // Whether another person's server is started as Branch starts or only when a task really
       // needs it, and what it last said its tools are, so they can be listed either way.
       mcp: {
