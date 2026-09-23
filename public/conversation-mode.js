@@ -15,7 +15,6 @@ const PATHS = {
   auto: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6",
   full: "M6 11h12v9H6zM8 11V8a4 4 0 017.5-2",
   follow: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5a2 2 0 110 4 2 2 0 010-4zM10 15a2 2 0 110 4 2 2 0 010-4z",
-  lockdown: "M12 3c3.3 0 6 2.7 6 6v2h1v10H5V11h1V9c0-3.3 2.7-6 6-6m0 2c-2.2 0-4 1.8-4 4v2h8V9c0-2.2-1.8-4-4-4m-1 9h2v2h-2z",
   chevron: "M6 9l6 6 6-6",
   check: "M5 12l5 5 9-10",
 };
@@ -84,15 +83,10 @@ function choiceItem(choice, mode) {
   const words = el("span", undefined, "mode-words");
   words.append(el("b", t(`mode.${choice.mode}`)), el("small", choice.available ? t(`mode.${choice.mode}.note`) : choice.why));
 
-  // DG-152: Add number key indicators for keyboard shortcuts
-  const keyChips = el("span", undefined, "mode-keys");
-  const keyMap = { "ask": "1", "plan": "3", "full": "4" };
-  if (keyMap[choice.mode]) {
-    keyChips.textContent = keyMap[choice.mode];
-    keyChips.setAttribute("aria-label", `keyboard shortcut ${keyMap[choice.mode]}`);
-  }
-
-  item.append(icon(choice.mode), words, keyChips, mode === choice.mode ? icon("check") : el("span"));
+  /* The number key a choice answers to stands where the tick goes; the chosen one shows the tick. */
+  const keyMap = { ask: "1", plan: "3", full: "4" };
+  const key = keyMap[choice.mode] ? el("kbd", keyMap[choice.mode], "mode-keys") : el("span");
+  item.append(icon(choice.mode), words, mode === choice.mode ? icon("check") : key);
   if (!choice.available) {
     item.setAttribute("aria-disabled", "true");
     item.title = choice.why;
@@ -124,28 +118,32 @@ function confirmFull(menu) {
   menu.replaceChildren(el("p", t("mode.full"), "mode-heading"), box);
   yes.focus();
 }
+/** The owner's one Lockdown switch, as the menu's last row: the same state the Lockdown panel shows. */
 function lockdownItem() {
-  const item = el("button", undefined, "mode-item");
+  const item = el("button", undefined, "mode-item mode-lock");
   item.type = "button";
   item.setAttribute("role", "menuitemcheckbox");
   item.setAttribute("aria-checked", String(state.locked));
-  item.dataset.locked = String(state.locked);
   const words = el("span", undefined, "mode-words");
-  words.append(el("b", t("mode.lockdown")), el("small", state.owner ? t("mode.lockdown.note") : t("mode.lockdown.ownerOnly")));
-  item.append(icon("lockdown"), words, state.locked ? icon("check") : el("span"));
-  if (!state.owner) {
-    item.setAttribute("aria-disabled", "true");
-  } else {
-    item.addEventListener("click", async () => {
-      try {
-        state = await api("lockdown", { on: !state.locked });
-        paintChip();
-        void refreshMode();
-        toast(state.locked ? t("mode.lockdownOn") : t("mode.lockdownOff"));
-      } catch (error) { toast(error.message); }
-    });
-  }
+  words.append(el("b", t("mode.lockdown")), el("small", t(state.owner ? "mode.lockdown.note" : "mode.lockdown.ownerOnly")));
+  item.append(icon("ask"), words, state.locked ? icon("check") : el("span"));
+  if (!state.owner) item.setAttribute("aria-disabled", "true");
+  else item.addEventListener("click", () => void toggleLockdown());
   return item;
+}
+async function toggleLockdown() {
+  const on = !state.locked;
+  try { await api("lockdown", { on }); }
+  catch (error) { toast(error.message); return; }
+  toast(t(on ? "mode.lockdownOn" : "mode.lockdownOff"));
+  await globalThis.branchOther?.render?.();
+  await refreshMode();
+}
+/** The two lines under the menu: where new conversations start, and where the other choices are. */
+function footNotes() {
+  const setting = PRESET_AS_MODE[state.following.preset] ? t(`mode.${PRESET_AS_MODE[state.following.preset]}`) : state.following.label;
+  const start = state.settings?.newConversation === "follow" ? setting : t("mode.ask");
+  return [el("p", t("mode.note.line1", { start, setting }), "mode-note"), el("p", t("mode.note.line2"), "mode-note")];
 }
 function paintMenu(menu = $("mode-menu")) {
   if (!state) return;
@@ -153,26 +151,11 @@ function paintMenu(menu = $("mode-menu")) {
   const mode = chosen();
   menu.replaceChildren(el("p", t("mode.question"), "mode-heading"));
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
-  menu.append(el("hr"));
-
-  // DG-151: Add Lockdown as a fifth row in mode menu
-  menu.append(lockdownItem());
-
-  if (!state.locked && !state.outside) menu.append(el("hr"));
-  menu.append(followItem(mode));
-
-  // DG-153: Add footer with approved text about Shift+Tab and Settings
-  if (!state.locked && !state.outside && mode !== null) {
-    const footer = el("div", undefined, "mode-footer");
-    const line1 = el("p", t("mode.note.line1"), "mode-note");
-    const line2 = el("p", t("mode.note.line2"), "mode-note");
-    footer.append(line1, line2);
-    menu.append(footer);
-  }
-
+  menu.append(followItem(mode), el("hr"), lockdownItem());
   if (state.locked) menu.append(el("p", t("mode.lockedNote"), "mode-note"));
   else if (state.outside) menu.append(el("p", outsideNote(), "mode-note mode-outside"));
   else if (mode === null) menu.append(el("p", t("mode.followingNote", { setting: state.following.label }), "mode-note"));
+  menu.append(...footNotes());
 }
 /** Arrows move between the choices that can be made; Home and End go to either end. */
 function keys(event) {
@@ -186,19 +169,20 @@ function keys(event) {
 
 /* ---------- choosing ---------- */
 
-async function pick(mode, sure = false) {
+/** Picks a mode; `said` replaces the usual line the toast says. */
+async function pick(mode, sure = false, said) {
   if (mode === "full" && !sure) { confirming = true; paintMenu(); return; }
   menuControl.close();
   if (!session()) {
     pending = mode;
     paintChip();
-    toast(mode ? t("mode.pickedNew", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label }));
+    toast(said ?? (mode ? t("mode.pickedNew", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label })));
     return;
   }
   try {
     state = await api("conversation-mode", { sessionId: session(), mode });
     paintChip();
-    toast(mode ? t("mode.picked", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label }));
+    toast(said ?? (mode ? t("mode.picked", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label })));
   } catch (error) { toast(error.message); }
 }
 const ready = () => $("workspace")?.hidden === false && Boolean(sessionStorage.getItem("branch-token"));
@@ -244,6 +228,21 @@ const menuControl = popover($("mode-chip"), $("mode-menu"), {
   onClose: () => { confirming = false; },
 });
 $("mode-menu").addEventListener("keydown", keys);
+/* Shift+Tab in the message box moves to the next mode that can be picked now; No approvals is only in the
+   menu, where it asks first. */
+async function cycleMode() {
+  if (!state) return;
+  const order = ORDER.filter((id) => id !== "full" && state.choices.find((choice) => choice.mode === id)?.available);
+  if (!order.length) return;
+  const now = chosen() ?? PRESET_AS_MODE[state.following.preset] ?? "";
+  const next = order[(order.indexOf(now) + 1) % order.length];
+  await pick(next, false, t("mode.cycled", { mode: t(`mode.${next}`) }));
+}
+$("prompt")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  event.preventDefault();
+  void cycleMode();
+});
 new MutationObserver(() => { if (!session()) pending = undefined; void refreshMode(); })
   .observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
 document.addEventListener("branch-profile", () => void refreshMode());
