@@ -157,6 +157,12 @@ export class BrowserSession {
         // A form submitted by script raises no submit event at all, so the listener above never sees
         // it. Measured: that tab reached a website the owner never allowed. The method itself is
         // where it has to be caught.
+        // Branch's own window blocks these outright; the owner's cannot be reconfigured, so the page
+        // is stopped from starting one. A worker answers requests from outside the page, where the
+        // route and the pause cannot see it — measured, it fetched a website the owner never allowed.
+        if (navigator.serviceWorker)
+          navigator.serviceWorker.register = () =>
+            Promise.reject(new Error('Branch does not start background workers in your browser'));
         const sending = HTMLFormElement.prototype.submit;
         HTMLFormElement.prototype.submit = function submitHere(this: HTMLFormElement) {
           here(this);

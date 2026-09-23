@@ -56,6 +56,8 @@ const routes = {
   '/opens': page(`<a id="go" target="_blank">open</a><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
   // A form that asks for a new tab: a shape the link rewrite does not cover.
   '/opens-form': page(`<form id="f" target="_blank" method="GET"><button type="submit">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.submit();</script>`),
+  // A page that starts a background worker and asks it to fetch wherever the query string names.
+  '/worker': page(`<script>navigator.serviceWorker.register("/worker.js").then(async () => {await navigator.serviceWorker.ready;const sw = (await navigator.serviceWorker.getRegistration()).active;if (sw) sw.postMessage(new URLSearchParams(location.search).get("to"));}).catch(() => { document.title = "refused"; });</script>`),
   '/cookie': page('<p id="who">?</p><script>document.getElementById("who").textContent="cookie is "+document.cookie</script>'),
   // A page that tries to claim the numbering for itself: a decoy wearing number 1 and a decoy
   // wearing the scratch attribute the numbering uses, both placed before the real button.
@@ -69,6 +71,12 @@ const routes = {
 async function fixture() {
   const server = createServer((request, response) => {
     const path = new URL(request.url, 'http://fixture').pathname;
+    if (path === '/worker.js') {
+      response.writeHead(200, {'content-type': 'text/javascript'});
+      response.end(`self.addEventListener('activate', event => event.waitUntil(clients.claim()));
+        self.addEventListener('message', event => { fetch(event.data).catch(() => undefined); });`);
+      return;
+    }
     response.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
     response.end(routes[path] ?? routes['/']);
   });
@@ -286,6 +294,15 @@ test("in the owner's own browser, a tab Branch opens reaches nothing and is not 
     assert.equal(forbiddenHits, 0, 'nor by a form asking for a new tab, submitted by script');
     assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1,
       'and their window still has only their tabs and ours');
+
+    // A background worker answers requests from outside the page, where neither the route nor the
+    // pause can see it. Branch's own window blocks workers outright; the owner's cannot be
+    // reconfigured, so the page is stopped from starting one.
+    await h.registry.execute('browser.navigate',
+      {url: `${h.origin}/worker?to=${encodeURIComponent(`${elsewhere}/from-worker`)}`}, context);
+    await new Promise(resolve => { setTimeout(resolve, 4000); });
+
+    assert.equal(forbiddenHits, 0, 'nor by a background worker the page tried to start');
   } finally {
     await h.close();
     await owned.close().catch(() => undefined);
