@@ -772,17 +772,18 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
 }
 
 /* ---------- S19: in French, search names settings in French ---------- */
+/* DG-197 moved the memory settings into Settings, so the setting found elsewhere is one in Inbox › History. */
 test("S19 in French, a setting found elsewhere is named in French, from the words beside its control", async (t) => {
   const f = await fixture(t);
-  await f.page.evaluate(() => globalThis.branchLayout.go("library:memory"));
-  await f.page.locator("#knobs-snapshotFacts").waitFor({ state: "attached" });
+  await f.page.evaluate(() => globalThis.branchLayout.go("inbox:history"));
+  await f.page.locator("#recordings-mode").waitFor({ state: "attached" });
   await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await f.page.waitForFunction(() => document.documentElement.lang === "fr");
-  const french = await f.page.evaluate(() => document.getElementById("knobs-snapshotFacts").labels[0].textContent.replace(/\s+/g, " ").trim());
-  assert.notEqual(french, "Remembered facts given to a new conversation", "the label was not translated");
+  const french = await f.page.evaluate(() => document.getElementById("recordings-mode").labels[0].textContent.replace(/\s+/g, " ").trim());
+  assert.notEqual(french, "Recordings of tasks", "the label was not translated");
   await openSettings(f.page, "general");
   await f.page.locator("#lx-settings-search").fill(french);
-  const row = f.page.locator('#sg-found [data-setting="knobs-snapshotFacts"] b');
+  const row = f.page.locator('#sg-found [data-setting="recordings-mode"] b');
   await row.waitFor();
   assert.equal(await row.textContent(), french);
   assert.deepEqual(f.errors, []);
