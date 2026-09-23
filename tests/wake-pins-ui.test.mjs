@@ -47,7 +47,8 @@ test("U1 the wake word card is under Settings, Voice, starts off with no word, a
 
   await page.getByLabel("Your word", { exact: true }).fill("branch");
   await page.locator("#wake-word-mode").selectOption("when-needed");
-  await card.getByRole("button", { name: "Save the wake word", exact: true }).click();
+  /* DG-025: kept as you go, with no Save button. */
+  assert.equal(await card.getByRole("button", { name: "Save the wake word", exact: true }).count(), 0);
   await page.locator("#wake-word-state", { hasText: "Saved." }).waitFor();
   assert.deepEqual(app.store.get("settings", "local", "wake-word").data,
     { mode: "when-needed", word: "branch", sureness: 80, windowSeconds: 2 });

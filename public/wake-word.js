@@ -58,6 +58,8 @@ async function save(event) {
 }
 
 $("wake-word-form")?.addEventListener("submit", save);
+/* DG-025: saved as you go, as in the approved sample: each change is kept the moment it is made, with no Save button. */
+$("wake-word-form")?.addEventListener("change", save);
 /* A fresh window shows the safe state — off, no word — before anything is asked for. */
 show({ settings: { mode: "off", word: "", sureness: 80 }, spotter: { how: "", available: true },
   capture: { how: "", available: true }, canListen: true, listening: false, refusal: "" });

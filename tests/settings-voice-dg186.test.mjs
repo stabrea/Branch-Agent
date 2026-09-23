@@ -56,7 +56,7 @@ async function settings(t, width) {
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   await page.keyboard.press("Control+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
-  return { page, errors };
+  return { page, errors, server };
 }
 const level = (page, value) => page.evaluate((one) => globalThis.branchSettingsLevel.set(one), value)
   .then(() => page.waitForFunction((one) => document.documentElement.dataset.settingsLevel === one, value));
@@ -112,5 +112,22 @@ test("DG-047 Listening right now says what the listeners report, never what a sw
   /* The line on the page is one of those, read from this computer's listeners, and nothing is listening in a test. */
   const shown = await page.locator("#voice-listening-now").innerText();
   assert.ok([words.none, words.unavailable].includes(shown), shown);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-025 the word that starts a turn and dictation are kept as you go, with no Save button", async (t) => {
+  const { page, errors, server } = await settings(t, 1440);
+  await level(page, "technical");
+  await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
+  for (const form of ["#wake-word-form", "#dictation-form"]) assert.equal(await page.locator(`${form} button`).count(), 0, `${form} has no Save button`);
+  const read = (path) => fetch(new URL(`/api/${path}`, server.url), { headers: { authorization: `Bearer ${server.token}` } }).then((answer) => answer.json());
+  await page.locator("#dictation-silence").fill("7");
+  await page.locator("#dictation-silence").press("Tab");
+  await page.locator("#dictation-state", { hasText: "Saved" }).waitFor();
+  assert.equal((await read("voice/dictation")).settings.silenceSeconds, 7);
+  await page.locator("#wake-word-sureness").fill("90");
+  await page.locator("#wake-word-sureness").press("Tab");
+  await page.locator("#wake-word-state", { hasText: "Saved" }).waitFor();
+  assert.equal((await read("voice/wake")).settings.sureness, 90);
   assert.deepEqual(errors, []);
 });
