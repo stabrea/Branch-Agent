@@ -37,6 +37,10 @@ async function connectionsPage(t, width, scheme = "dark") {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
+  /* Branch ships Moonlight whatever the computer prefers; Daylight is chosen as a person chooses it. */
+  const theme = scheme === "light" ? "daylight" : "forest";
+  await page.evaluate(async (appearance) => (await import("/appearance.js")).changeAppearance({ appearance, followSystem: false }), theme);
+  await page.waitForFunction((want) => document.documentElement.dataset.theme === want, theme);
   return { page, errors };
 }
 /** Opens Connections the way a person does (the cog, then the page), so no card is peeked into sight. */

@@ -218,6 +218,12 @@ export const descriptions = [
   ["#counters-mode", "describe.counters", "Whether counts about tasks are sent to a place you chose. Off sends nothing."],
   ["#event-loop-mode", "describe.event-loop", "Watches whether Branch itself is keeping up, and says so when it falls behind."],
   ["#sdk-kit-mode", "describe.sdk-kit", "Whether the tools for building your own app on Branch are offered."],
+  // DG-195: Sharing with other AI tools, now on Settings › Connections.
+  ["#mcp-enabled", "describe.mcp-enabled", "Lets Claude Desktop, Claude Code, Cursor and other AI tools on this computer ask Branch to do things. Off: none of them can reach Branch."],
+  ["#mcp-connect-when", "describe.mcp-connect-when", "When Branch starts the servers other people wrote. Only when a task needs one leaves them stopped until then."],
+  ["#mcp-keep-warm", "describe.mcp-keep-warm", "How many minutes a server nobody is using stays open before Branch closes it."],
+  ["#mcp-max-servers", "describe.mcp-max-servers", "The most of those servers Branch keeps connected at the same time."],
+  ["#mcp-try-url", "describe.mcp-try-url", "The web address of a server, or the command that starts it. Branch asks it what it offers, and every try is written down in Activity."],
 ];
 
 /** Any three-way switch without a line of its own gets this one. */
