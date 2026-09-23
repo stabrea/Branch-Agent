@@ -115,9 +115,7 @@ export const BUCKETS = {
     ["fix", "wrench", "Fixing problems", "Check that everything works, and find what a stopped task needs.",
       [["health-card", R], ["diagnostics-card", R], ["activity-log-card", A], ["settings", A], ["event-loop-card", T]]],
     ["dev", "code", "For developers", "For people building on Branch.",
-      [["coding-card", A], ["jev-decisions-card", A], ["developer-card", T], ["sdk-kit-card", T]]],
-    ["under", "gauge", "Under the hood", "Counters, retries and limits. Rarely needed.",
-      [["counters-card", T], ["knobs-retries-card", T], ["knobs-tools-card", T]]],
+      [["coding-card", A], ["jev-decisions-card", A], ["developer-card", T], ["sdk-kit-card", T], ["counters-card", T], ["knobs-retries-card", T], ["knobs-tools-card", T]]],
   ],
   about: [
     ["updates", "refresh", "Updates", "Your version, and how Branch keeps itself up to date.",
