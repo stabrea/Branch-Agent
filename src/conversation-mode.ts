@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
-import { presetRules, type Policy, type PolicyPresetName, type PolicyRule } from "./policy.js";
+import { presetRules, webActionLines, type Policy, type PolicyPresetName, type PolicyRule } from "./policy.js";
 
 /**
  * Redesign phase 1: how much the assistant may do in one conversation, picked from the message box.
  *
  *   ask   Ask first     reading is free; any change, command or web action waits for a yes
- *   plan  Plan          reads and proposes; changes nothing (a change is refused, not asked about)
+ *   plan  Plan          reads and proposes; changes nothing (a change is refused, not asked about;
+ *                       a web action is asked about, so Plan is never looser than Ask first)
  *   auto  Auto          changes inside the workspace go ahead; commands and the web ask
  *   full  Full access   nothing is checked with you (commands no rule covers still ask, as always)
  *
@@ -49,9 +50,20 @@ function ownRules(policy: Policy): PolicyRule[] {
 /** A yes that covers everything of a kind, rather than one named thing. */
 const broadYes = (rule: PolicyRule): boolean => rule.decision === "allow" && !rule.resource && rule.match === "*";
 
+/**
+ * The lines a mode puts in place of the owner's preset. Q59: Ask first and Plan also ask about every
+ * web action, the same list Auto asks about (`webActionLines`, src/policy.ts), so no mode is looser
+ * than the next looser one: opening a page or reading the web only needs a look permission, which
+ * "ask before changes" and "read only" let through. Plan keeps refusing changes: its refusal comes first.
+ */
+function modeLines(mode: ConversationMode): PolicyRule[] {
+  const lines = presetRules(modePreset[mode]);
+  return mode === "ask" || mode === "plan" ? [...lines, ...webActionLines()] : lines;
+}
+
 /** The policy one conversation is held to, before the outside hold and Lockdown's own checks. */
 export function policyForMode(policy: Policy, mode: ConversationMode, locked = false): Policy {
-  const lines = presetRules(modePreset[mode]);
+  const lines = modeLines(mode);
   if (locked) return mode === "plan" ? { ...policy, rules: [...lines, ...policy.rules] } : policy;
   const own = ownRules(policy);
   if (mode === "plan") return { ...policy, rules: [...own.filter((rule) => rule.decision === "deny"), ...lines] };

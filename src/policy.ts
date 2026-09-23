@@ -104,6 +104,28 @@ export const PolicyInputSchema = z
 export type RunSource = "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp" | "channel";
 
 interface PresetDefinition { label: string; description: string; rules: z.input<typeof PolicyRuleSchema>[] }
+/**
+ * Q59: every web action, the one list "Just do it inside my workspace" (Auto) asks about and the Ask
+ * first and Plan modes add to their own lines (src/conversation-mode.ts), so the modes cannot drift
+ * apart on what counts as the web. Opening a page and reading the web need only a look permission
+ * (`browser.read`, `web.read`), so "ask before changes" alone lets them through. The web readers
+ * not named web.* are listed by name; tests/conversation-mode-order.test.mjs checks that every
+ * registered tool with the `web.read` permission is covered.
+ */
+export const webActionRules: z.input<typeof PolicyRuleSchema>[] = [
+  { tool: "browser.click", decision: "ask", remember: "session" },
+  { tool: "browser.fill", decision: "ask", remember: "session" },
+  // Sending one of your own files to a website is always worth a question, whatever site it is.
+  { tool: "browser.upload", decision: "ask", remember: "session" },
+  { tool: "browser.navigate", decision: "ask", remember: "always" },
+  { tool: "web.*", decision: "ask", remember: "always" },
+  { tool: "media.captions", decision: "ask", remember: "always" },
+  { tool: "decisions.judge", decision: "ask", remember: "always" },
+  { tool: "answer.ask", decision: "ask", remember: "always" },
+  { tool: "assistant.market", decision: "ask", remember: "always" },
+];
+/** The web action lines as rules, for the conversation modes. */
+export const webActionLines = (): PolicyRule[] => webActionRules.map((rule) => PolicyRuleSchema.parse(rule));
 const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefinition> = {
   off: {
     label: "No approvals",
@@ -126,12 +148,7 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       // Batch 26 (wave 8): a program on somebody else's computer always asks, whatever the rule
       // for commands here says. It is a different computer.
       { tool: "remote.run", decision: "ask", remember: "session" },
-      { tool: "browser.click", decision: "ask", remember: "session" },
-      { tool: "browser.fill", decision: "ask", remember: "session" },
-      // Sending one of your own files to a website is always worth a question, whatever site it is.
-      { tool: "browser.upload", decision: "ask", remember: "session" },
-      { tool: "browser.navigate", decision: "ask", remember: "always" },
-      { tool: "web.*", decision: "ask", remember: "always" },
+      ...webActionRules,
     ],
   },
   "read-only": {
