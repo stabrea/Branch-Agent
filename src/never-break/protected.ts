@@ -445,16 +445,29 @@ function killsSelf(text: string, areas: ProtectedAreas): boolean {
 }
 
 /**
+ * Q12: whether one command's words ask a JavaScript package manager to work globally, in any
+ * spelling: a short-flag cluster holding `g` (`-g`, `-gf`), `--global` with any value, `--location`
+ * global, yarn's `global` word, or npm's own settings given in the environment
+ * (`npm_config_global=…`, `npm_config_location=global`, before the command or through `env`).
+ */
+function globalMarker(words: readonly string[]): boolean {
+  return words.some((word, at) => /^-[A-Za-z]*g[A-Za-z]*$/.test(word) || /^--global(=|$)/i.test(word) || /^global$/i.test(word)
+    || /^--location=global$/i.test(word) || (/^--location$/i.test(word) && /^global$/i.test(words[at + 1] ?? ""))
+    || /^npm_config_(global|location)=/i.test(word));
+}
+
+/**
  * Q12: a global install, reinstall, update or removal of Branch through a JavaScript package manager
  * (npm, pnpm, yarn, bun), whether it names branch-agent by name and version, by a tarball or by a
- * folder. A package named through a variable set in the same command is read after the variable is
- * filled in (`PACKAGE=./branch-agent-2.0.0.tgz; npm install -g "$PACKAGE"`, as the termux installer does).
+ * folder, with a global marker in any spelling (`globalMarker`). A package named through a variable
+ * set in the same command is read after the variable is filled in (`PACKAGE=./branch-agent-2.0.0.tgz;
+ * npm install -g "$PACKAGE"`, as the termux installer does).
  */
 function reinstallsBranch(text: string): boolean {
-  const names = /branch[-_]agent/i;
-  return text.split(/[;|&\n]+/).some((part) => /(^|[\s/])(npm|pnpm|yarn|bun)(\.cmd|\.exe)?(\s|$)/i.test(part)
-    && /(^|\s)(-g|--global|global)(\s|$)/i.test(part)
-    && names.test(part));
+  return text.split(/[;|&\n]+/).some((part) => {
+    const words = part.trim().split(/\s+/);
+    return words.some((word) => /(^|\/)(npm|pnpm|yarn|bun)(\.cmd|\.exe)?$/i.test(word)) && /branch[-_]agent/i.test(part) && globalMarker(words);
+  });
 }
 
 function stopsBranch(text: string, areas: ProtectedAreas): boolean {

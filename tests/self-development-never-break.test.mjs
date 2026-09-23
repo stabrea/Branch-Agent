@@ -69,10 +69,18 @@ test("a global reinstall or removal of Branch through a package manager is refus
     "npm install -g branch-agent@latest", "npm i -g ./branch-agent-2.0.0.tgz", "pnpm add -g branch-agent@latest",
     "yarn global add branch-agent", "bun add -g branch-agent@2.0.0", "npm install -g ../branch-agent", "npm install branch-agent --global",
     "npm uninstall -g branch-agent", "npm update -g branch-agent",
+    // Every other way to say "global" (NAS, second review at 4fa4535e).
+    "npm install --location=global branch-agent@latest", "npm install --location global branch-agent@latest",
+    "npm install --global=true branch-agent@latest", "npm install --global=1 branch-agent@latest",
+    "npm_config_global=true npm install branch-agent@latest", "env npm_config_location=global npm i branch-agent@latest",
+    "NPM_CONFIG_GLOBAL=1 npm install ./branch-agent-2.0.0.tgz", "npm i -gf branch-agent@latest", "npm i -fg ../branch-agent",
+    "pnpm add --global branch-agent@latest", "pnpm remove -g branch-agent", "yarn global remove branch-agent",
+    "bun add --global branch-agent@latest", "bun remove -g branch-agent", "/usr/local/bin/npm install -g branch-agent",
     // The termux installer's own spelling: the package only through a variable, named earlier in the same command.
     'PACKAGE=./branch-agent-2.0.0.tgz; npm install -g "$PACKAGE"',
   ]) assert.match(sh(line) ?? "", stops, line);
-  for (const line of ["npm install -g typescript", "npm install", "npm i -D @types/node", "npm test --prefix branch-agent-source"])
+  for (const line of ["npm install -g typescript", "npm install", "npm i -D @types/node", "npm test --prefix branch-agent-source",
+    "npm install --location=project branch-agent-helper", "npm i -f ./branch-agent-source/packages/x"])
     assert.equal(sh(line), null, line);
 });
 
