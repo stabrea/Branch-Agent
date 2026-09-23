@@ -1628,7 +1628,8 @@ async function api(
     const modeRefused = input.mode && !input.sessionId ? modeRefusal(app, input.mode) : null;
     if (modeRefused) throw new HttpError(403, modeRefused);
     // Wave 6: a task started while somebody's profile is switched on is filed under their name.
-    return runForCurrentPerson(app, {
+    let userMessageId: number | undefined;
+    const run = await runForCurrentPerson(app, {
       prompt: input.prompt,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.temporary ? { temporary: true } : {}),
@@ -1638,7 +1639,9 @@ async function api(
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
+      onUserMessageId: (id) => { userMessageId = id; },
     });
+    return userMessageId !== undefined ? { ...run, userMessageId } : run;
   }
   // phase2/panels: what the side panel's Browser and Terminal tabs show (src/panels-work.ts); owner only.
   if (request.method === "GET" && path === panelsWorkPath)

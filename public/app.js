@@ -1869,7 +1869,7 @@ $("chat-form").addEventListener("submit", async (event) => {
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
     // FQ-surfaces.playback: the redraw below matches these clips to the message the server saved.
-    globalThis.branchPlaybackExpect?.(sessionId, clips, startsConversation);
+    globalThis.branchPlaybackExpect?.(sessionId, clips, run.userMessageId ?? undefined);
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     /* Wave 8: an artifact in this reply is kept beside the task it came out of, so the task's

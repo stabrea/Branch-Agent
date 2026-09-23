@@ -386,10 +386,11 @@ export class Store {
       for (const listener of this.runFinishedListeners) try { listener(id, status); } catch { /* never fails a finish */ }
     return this.run(id)!;
   }
-  message(sessionId: string, message: Message, sourceId?: number): void {
-    this.db
+  message(sessionId: string, message: Message, sourceId?: number): number {
+    const result = this.db
       .prepare("INSERT INTO messages(session_id,body,source_id) VALUES(?,?,?)")
       .run(sessionId, JSON.stringify(message), sourceId ?? null);
+    return Number(result.lastInsertRowid);
   }
   /**
    * Messages the model should see: a summary of compacted history, then everything after it, plus
