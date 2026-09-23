@@ -220,6 +220,7 @@ test("Q79: git.push and git.pull in source refuse WORKTREE scoped credential.hel
   await mkdir(cwd, { recursive: true });
   const git = (...args) => execFileSync("git", args, { cwd, stdio: "pipe" });
   git("init", "-q", "-b", "feature");
+  git("config", "extensions.worktreeConfig", "true");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
   git("remote", "add", "origin", "https://example.com/repo.git");
   git("config", "--worktree", "credential.helper", "fake");
