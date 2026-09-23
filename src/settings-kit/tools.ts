@@ -7,12 +7,16 @@ import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./
 import { applyWithPins, changesFor, currentValue, type Change, type Proposal, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
 import type { ChangeOrigin } from "./history.js";
+import { clarifyRequest } from "./clarify.js";
 
 /**
  * Changing Branch's own settings by asking for it: "turn the wake word on", "switch off the learning
  * core", "which of my settings would help with this?". The owner decides; Branch says what it would
  * change and does it only on the owner's yes.
  *
+ *   - `settings.find` takes the owner's own words ("turn the wake word on") and, before anything is
+ *     planned, either asks one question — when the words fit several settings or none — or gives the
+ *     exact before and after for the one setting they fit, leaving out what is already as asked (Q50).
  *   - `settings.list` reads the catalogue (src/settings-kit/catalogue.ts): every switch, choice and
  *     number the owner can change, with what it is set to now. Nothing else in the settings table —
  *     connections, keys, people, Lockdown — is ever listed or changed here.
@@ -29,7 +33,7 @@ import type { ChangeOrigin } from "./history.js";
  * before anything is read.
  */
 
-export const settingsToolNames = ["settings.list", "settings.change", "settings.loosen"] as const;
+export const settingsToolNames = ["settings.find", "settings.list", "settings.change", "settings.loosen"] as const;
 
 const changeReason = "Branch asks before it changes its own settings";
 const loosenReason = "This makes Branch less careful, so it is asked about every time";
@@ -107,6 +111,12 @@ export function listSettings(store: Store, owner: string, input: ListInput): { t
   return { total: rows.length, shown, nextOffset: end < rows.length ? end : null };
 }
 
+const FindSchema = z.object({
+  request: z.string().trim().min(1).max(200),
+  value: z.union([z.string().trim().max(40), z.number(), z.boolean()]).optional(),
+}).strict();
+type FindInput = z.infer<typeof FindSchema>;
+
 const ChangeSchema = z.object({
   changes: z.array(z.object({
     setting: z.string().trim().min(3).max(160),
@@ -175,6 +185,13 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
 
 export function registerSettingsTools(registry: ToolRegistry, store: Store, writers: () => Record<string, Writer>): void {
   registry.register({
+    name: "settings.find", permission: "settings.read",
+    description: "Before changing a setting the owner described in their own words, pass those words as request (and the value, if they said one). If it returns status \"ask\", ask the owner exactly that one question and change nothing until they answer. If it returns \"ready\", show the owner the preview (each setting from → to) and then call the tool it names. If it returns \"unchanged\", say so and change nothing.",
+    parameters: FindSchema,
+    target: () => "Branch's own settings",
+    execute: async (input: FindInput, context: ToolContext) => { ownerHere(store, context); return clarifyRequest(store, context.owner, input); },
+  });
+  registry.register({
     name: "settings.list", permission: "settings.read",
     description: "List Branch's own settings — every switch (off, when-needed, on), yes/no, choice and number the owner can change — with what each is set to now, how it starts, and which way is less careful. Search by words, or ask only for what is off or what was changed. Returns up to 80 rows; pass nextOffset as offset with the same filters to continue, until nextOffset is null. Use it to answer questions about Branch's settings and to suggest ones that would help; never change anything without asking.",
     parameters: ListSchema,
@@ -183,7 +200,7 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
   });
   registry.register({
     name: "settings.change", permission: "settings.write",
-    description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). The owner is asked first. A change that makes Branch less careful is refused here; use settings.loosen for it.",
+    description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). When the owner described the setting in their own words, call settings.find first and ask its question if it has one. The owner is asked first. A change that makes Branch less careful is refused here; use settings.loosen for it.",
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
     execute: changeTool(false, store, writers),
