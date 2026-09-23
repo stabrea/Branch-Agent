@@ -123,6 +123,13 @@ export async function prepareBranchSourceChange(
 ): Promise<Record<string, unknown>> {
   const terms = ContractTermsSchema.parse(input.contract);
   const repository = repositoryAddress(input.repository);
+  const pendingFolder = `${sourceFolder}/.branch-worktrees/self-${input.name}`;
+  // Q12: the source commit is only known after the fetch, so before anything is cloned, fetched or
+  // added, the proposed contract is written down as pending, with where it comes from.
+  if (!deps.contracts.current(deps.owner, pendingFolder))
+    audit(deps.store, deps.owner, { action: "self_development.contract", actor: deps.owner, subject: `${pendingFolder} (pending)`,
+      reason: `From ${repository.repo} at ${input.base}. Paths ${terms.allowedPaths.join(", ")}; tools ${terms.permissions.join(", ")}`.slice(0, 500),
+      runId: runId ? runId.slice(0, 64) : null, outcome: "pending" });
   const source = await ensureSource(deps, repository, signal);
   const remote = await ensureUpstream(deps, source, repository.repo.toLowerCase() !== branchRepository.toLowerCase(), signal);
   await run(deps, source, ["fetch", remote, input.base], signal, 180_000);

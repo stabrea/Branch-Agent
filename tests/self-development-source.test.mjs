@@ -14,17 +14,18 @@ const terms = { allowedPaths: ["src/ui/**"], permissions: ["files.write"], expec
 const completed = (stdout = "") => ({ status: "completed", stdout, stderr: "", exitCode: 0, command: "git" });
 
 test("an owner's fork becomes an isolated Branch Agent project without touching the installed app", async () => {
-  let source = false, copy = false, upstream = false;
+  let source = false, copy = false, upstream = false, pendingAtClone = false;
+  const records = [];
   const calls = [], saved = [], active = [], sites = [];
   const deps = {
     workspace: "C:/owner/workspace", owner: "local",
     projects: { save: (_owner, project) => { saved.push(project); return project; }, setActive: (_owner, input) => { active.push(input); return input; } },
     registry: {}, policy: { assertAllowed: async (url) => { sites.push(url.href); } },
-    contracts: new ContractBook(new DatabaseSync(":memory:")), store: {},
+    contracts: new ContractBook(new DatabaseSync(":memory:")), store: { audit: { record: (_owner, entry) => { records.push(entry); } } },
     exists: async (path) => path.endsWith("branch-agent-source") ? source : path.includes(".branch-worktrees") ? copy : false,
     git: async ({ cwd, args }) => {
       calls.push([cwd, ...args]);
-      if (args[0] === "clone") { source = true; return completed(); }
+      if (args[0] === "clone") { source = true; pendingAtClone = records.some((entry) => entry.outcome === "pending"); return completed(); }
       if (args.join(" ") === "remote get-url origin") return completed("https://github.com/alice/Branch-Agent.git\n");
       if (args.join(" ") === "remote get-url upstream") return upstream ? completed("https://github.com/stabrea/Branch-Agent.git\n") : { ...completed(), status: "failed", stderr: "missing" };
       if (args.join(" ").startsWith("remote add upstream")) { upstream = true; return completed(); }
@@ -46,6 +47,8 @@ test("an owner's fork becomes an isolated Branch Agent project without touching 
     "the worktree is made at the exact commit the contract names");
   assert.ok(calls.some((call) => call.join(" ").includes("rev-parse --verify upstream/mac/cross-platform^{commit}")));
   assert.equal(result.contract.sourceSha, sha);
+  assert.equal(pendingAtClone, true, "the proposed contract was written down as pending before anything was cloned");
+  assert.match(records.find((entry) => entry.outcome === "pending").reason, /From alice\/Branch-Agent at mac\/cross-platform\. Paths src\/ui\/\*\*/);
   assert.equal(result.contract.worktreePath, "branch-agent-source/.branch-worktrees/self-remove-button");
   const contractAt = calls.findIndex((call) => call.includes("rev-parse")), worktreeAt = calls.findIndex((call) => call[1] === "worktree");
   assert.ok(contractAt >= 0 && contractAt < worktreeAt, "the contract is written before the worktree is made");
