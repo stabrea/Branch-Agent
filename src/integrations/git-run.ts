@@ -28,8 +28,7 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
   }
   // macOS and Linux: where temporary files go, who is signed in, and the key agent ssh remotes use.
   Object.assign(result, posixEnvironment(["TMPDIR", "USER", "LOGNAME", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME"], source, platform));
-  // Q12: the computer-wide config file is not read either; a repository's own is held by the pins above.
-  return { ...result, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", NO_COLOR: "1", GCM_INTERACTIVE: "never", GIT_CONFIG_NOSYSTEM: "1" };
+  return { ...result, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", NO_COLOR: "1", GCM_INTERACTIVE: "never" };
 }
 
 /**
@@ -38,21 +37,31 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
  * starts itself (a submodule's), so a folder a task wrote cannot run anything through them.
  * `diff.external` cannot be emptied, so it names `false`: a patch Branch asks for passes
  * `--no-ext-diff` (src/integrations/git.ts), and any other would stop loudly rather than run a program.
- * Filters, merge drivers and textconv are named per repository and cannot all be pinned; Git tools
- * are kept out of nested repositories in Branch's source instead (src/self-development-contract.ts).
+ * The owner's own sign-in (credential helpers, askPass, sshCommand, the computer-wide config file
+ * where macOS keeps its keychain helper) is left alone: Branch's pushes use it. A planted repository
+ * never reaches those, because Git tools are kept out of nested repositories in Branch's source and a
+ * held command cannot make a `.git` (src/self-development-contract.ts, src/sandbox-seatbelt.ts).
  */
 export const pinnedGitConfig: readonly string[] = [
-  "core.fsmonitor=false", "core.sshCommand=ssh", "core.pager=cat", "core.editor=:", "sequence.editor=:",
-  "core.gitProxy=", "core.askPass=", "credential.helper=", "diff.external=false", "protocol.ext.allow=never",
-  "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
-  // A bare repository is only ever used where Git is told to use it, never found by walking up folders.
-  "safe.bareRepository=explicit",
+  "core.fsmonitor=false", "core.pager=cat", "core.editor=:", "sequence.editor=:", "diff.external=false", "protocol.ext.allow=never",
 ];
+
+/**
+ * Q12: more pins, only for Git run inside Branch's own source (`branch-agent-source`), where the
+ * owner's preferences matter less than what a self-development task could have left behind:
+ * signing programs, submodules and a bare repository found by walking up.
+ */
+export const pinnedInSource: readonly string[] = [
+  "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
+  "core.gitProxy=", "safe.bareRepository=explicit",
+];
+const inBranchSource = (cwd: string): boolean => /(^|[\\/])branch-agent-source([\\/.\s]|$)/i.test(cwd);
 
 /** Settings forced on every call; they come before the subcommand so no repository can override them. */
 export function hardening(cwd: string): string[] {
+  const pins = inBranchSource(cwd) ? [...pinnedGitConfig, ...pinnedInSource] : pinnedGitConfig;
   return ["-c", `safe.directory=${cwd}`, "-c", `core.hooksPath=${NO_HOOKS}`, "-c", "core.quotepath=false",
-    "-c", "credential.interactive=never", ...pinnedGitConfig.flatMap((setting) => ["-c", setting]), "--no-pager"];
+    "-c", "credential.interactive=never", ...pins.flatMap((setting) => ["-c", setting]), "--no-pager"];
 }
 
 let located: Promise<string | null> | undefined;

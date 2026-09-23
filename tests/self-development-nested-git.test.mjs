@@ -13,7 +13,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
-import { GitRunner, hardening, pinnedGitConfig } from "../dist/integrations/git-run.js";
+import { GitRunner, gitEnvironment, hardening } from "../dist/integrations/git-run.js";
 import { ContractBook } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
 
@@ -94,9 +94,27 @@ test("each setting a repository's own config could use to start a program runs n
   await writeFile(join(nested, ".git", "hooks", "pre-commit"), `#!/bin/sh\necho ran >> '${marker}'\n`, { mode: 0o755 });
   await runner.run({ cwd: nested, args: ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "hooked?"] }, AbortSignal.timeout(20_000));
   assert.equal(existsSync(marker), false, "the pre-commit hook started nothing");
-  // The ones that only act when Git reaches a network are pinned the same way (checked, not run here).
-  const pinned = hardening("/w").join(" ");
-  for (const key of ["core.sshCommand=ssh", "core.gitProxy=", "core.askPass=", "credential.helper=", "protocol.ext.allow=never", "safe.bareRepository=explicit"])
-    assert.ok(pinned.includes(`-c ${key}`), key);
-  assert.ok(pinnedGitConfig.length >= 16);
+  // The ones that only act over a network, or that change what the owner sees, are pinned only inside
+  // Branch's source (checked in the arguments, not run here).
+  const inSource = hardening("/w/branch-agent-source/.branch-worktrees/self-x").join(" "), elsewhere = hardening("/w/proj").join(" ");
+  for (const key of ["core.gitProxy=", "protocol.ext.allow=never", "safe.bareRepository=explicit", "commit.gpgSign=false", "diff.ignoreSubmodules=all"])
+    assert.ok(inSource.includes(`-c ${key}`), key);
+  for (const key of ["commit.gpgSign=false", "diff.ignoreSubmodules=all", "safe.bareRepository=explicit"])
+    assert.ok(!elsewhere.includes(`-c ${key}`), `${key} is not forced on the owner's own repositories`);
+  assert.ok(elsewhere.includes("-c core.fsmonitor=false") && elsewhere.includes("-c diff.external=false"));
+});
+
+test("the owner's own Git sign-in is left alone: a credential helper they set is still the one Git uses", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-signin-"));
+  t.after(() => discardTemp(root));
+  const home = join(root, "home"), repo = join(root, "repo");
+  await mkdir(home, { recursive: true });
+  await mkdir(repo, { recursive: true });
+  await writeFile(join(home, ".gitconfig"), "[credential]\n\thelper = !echo keep-me\n");
+  execFileSync("git", ["init", "-q"], { cwd: repo, stdio: "ignore" });
+  const runner = new GitRunner({ env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") } });
+  const helper = await runner.run({ cwd: repo, args: ["config", "--get", "credential.helper"] }, AbortSignal.timeout(20_000));
+  assert.equal(helper.stdout.trim(), "!echo keep-me", "the helper is not cleared by Branch's settings");
+  for (const key of ["credential.helper=", "core.askPass=", "core.sshCommand=ssh"]) assert.ok(!hardening(repo).join(" ").includes(`-c ${key}`), key);
+  assert.equal(gitEnvironment(process.env).GIT_CONFIG_NOSYSTEM, undefined, "the computer-wide config (where macOS keeps its keychain helper) is read");
 });
