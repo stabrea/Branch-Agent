@@ -139,12 +139,15 @@ function updateMotion() {
 }
 
 function resize() {
-  const box = canvas.getBoundingClientRect();
+  const box = canvas.getBoundingClientRect(), style = getComputedStyle(canvas);
+  // While the rail is folded (a phone) the canvas has no box; its own size from the style sheet keeps the backing
+  // right from the start, so opening the rail never shows a frame drawn at 40 before the resize lands.
+  const width = box.width || parseFloat(style.width) || 0, height = box.height || parseFloat(style.height) || 0;
   // phase2/delight (integration review): the corner's small acorn is drawn a pixel per screen pixel, as in
   // the approved sample (56 in a 58px tile); 40 stretched to 56 made uneven pixels. A big one stays chunky.
-  const scale = box.width > 0 && box.width <= 80 ? 1 : 2.5;
-  canvas.width = Math.max(40, Math.min(150, Math.round(box.width / scale)));
-  canvas.height = Math.max(40, Math.min(150, Math.round(box.height / scale)));
+  const scale = width > 0 && width <= 80 ? 1 : 2.5;
+  canvas.width = Math.max(40, Math.min(150, Math.round(width / scale)));
+  canvas.height = Math.max(40, Math.min(150, Math.round(height / scale)));
   draw();
 }
 
