@@ -1771,6 +1771,7 @@ export * from "./teams.js";
 export * from "./registry-install.js";
 export * from "./skill-package.js";
 export * from "./skill-packages.js";
+export * from "./package-metrics.js";
 export * from "./skill-http-tools.js";
 export * from "./skill-suggest.js";
 export * from "./skill-authoring.js";

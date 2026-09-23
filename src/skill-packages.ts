@@ -4,9 +4,11 @@ import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
 import {
   declaredHosts,
+  declaredMetrics,
   declaredSites, packSkill, readSkillPackage, requestedPermissions, SkillHooksSchema, SkillToolsSchema,
   type SkillPackageManifest,
 } from "./skill-package.js";
+import { collectPackageMetrics, type PackageMetricPoint } from "./package-metrics.js";
 import {
   grantAll, ManifestGrantSchema, narrowedSentence, narrowTools, type ManifestGrant,
 } from "./manifest-permissions.js";
@@ -62,6 +64,7 @@ export class SkillPackages {
       manifest, permissions: requestedPermissions(files), hosts: declaredHosts(files), sites: declaredSites(files),
       tools: tools.map((tool) => ({ name: tool.name, description: tool.description, method: tool.method, address: tool.url, secrets: secretsUsed(tool) })),
       hooks: files["hooks.json"] ? SkillHooksSchema.parse(JSON.parse(files["hooks.json"])).hooks : [],
+      metrics: declaredMetrics(files),
       document: files["SKILL.md"] ?? "",
     };
   }
@@ -114,7 +117,17 @@ export class SkillPackages {
       grant: this.grantOf(record), leftOut: this.leftOut(record),
       tools: this.toolNames.get(record.skillId) ?? [],
       enabled: skills.get(record.skillId)!.activeVersion !== null,
+      metrics: this.metricsOf(record),
     }));
+  }
+  /** The runtime counters this one installed package declared, filled in from what has actually run. */
+  metrics(skillId: string): PackageMetricPoint[] {
+    const record = this.live().find((entry) => entry.skillId === skillId);
+    if (!record) throw new Error("That package is not installed");
+    return this.metricsOf(record);
+  }
+  private metricsOf(record: PackageRecord): PackageMetricPoint[] {
+    return collectPackageMetrics(this.store.sqlite, record.manifest.name, declaredMetrics(record.files));
   }
   /** Takes a package's tools out of the catalog and forgets it; the skill itself is removed separately. */
   forget(skillId: string): void {

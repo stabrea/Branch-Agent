@@ -79,7 +79,7 @@ async function readAnswer(response: Response, host: string): Promise<string> {
   return Buffer.concat(parts.map((part) => Buffer.from(part))).toString("utf8");
 }
 
-async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string, InputValue>, context: ToolContext, enabled?: () => boolean, grant?: ManifestGrant): Promise<unknown> {
+async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string, InputValue>, context: ToolContext, packageName: string, enabled?: () => boolean, grant?: ManifestGrant): Promise<unknown> {
   if (enabled && !enabled()) throw new Error(`The skill that brought "${tool.name}" is switched off, so it did not run.`);
   const bound = bindInputs(tool.input, args);
   const target = new URL(fillText(tool.url, bound, true));
@@ -98,7 +98,7 @@ async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string,
   const started = Date.now();
   const response = await (host.fetchImpl ?? globalThis.fetch)(target, { method: tool.method, headers, ...(body ? { body } : {}), redirect: "error", signal: AbortSignal.timeout(20000) });
   const text = await readAnswer(response, target.host);
-  if (context.runId) host.store.event(context.runId, "skill.tool_called", { tool: tool.name, method: tool.method, host: target.host, path: target.pathname, status: response.status, ms: Date.now() - started, secrets: names });
+  if (context.runId) host.store.event(context.runId, "skill.tool_called", { tool: tool.name, skill: packageName, method: tool.method, host: target.host, path: target.pathname, status: response.status, ms: Date.now() - started, secrets: names });
   if (!response.ok) throw new Error(`${target.host} answered with HTTP ${response.status}`);
   // Parsing failures are reported without the text that failed: an answer can hold a secret we sent.
   let parsed: unknown = text.slice(0, 8000);
@@ -121,7 +121,7 @@ export function registerHttpTools(registry: ToolRegistry, host: HttpToolHost, pa
       const name = `skill.${packageName}.${tool.name}`;
       registry.register({
         name, description: tool.description, permission: httpToolPermission, parameters: schemaFor(tool.input),
-        execute: async (args, context) => callTool(host, tool, args, context, enabled, grant),
+        execute: async (args, context) => callTool(host, tool, args, context, packageName, enabled, grant),
         target: () => new URL(tool.url.replace(/\{\{[a-z0-9_]*\}\}/g, "x")).host,
       });
       registered.push(name);
