@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { SavedRecord, Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { FactKindSchema, MemoryLayerSchema, layerForKind, layerOf } from "./memory-layers.js";
+import type { MemoryBackend } from "./memory-backend.js"; // FQ-memory.providers
 
 export const maximumMemoryArchiveBytes = 16 * 1024 * 1024;
 export const MemoryDataSchema = z.object({
@@ -395,7 +396,17 @@ export interface FactSearch {
 export const memoryScope = (store: Store, context: { owner: string }): string =>
   context.owner === store.profiles.ownerName ? store.profiles.scope() : context.owner;
 
-export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch): void {
+/**
+ * FQ-memory.providers: when the owner has switched an outside memory service on, the assistant's
+ * basic remember/recall/forget loop below goes to it instead of this computer's database —
+ * `src/memory-provider.ts` is the one place that decides which, read fresh on every call. Facts
+ * that depend on Branch's own revision history (`memory.keep`, `memory.at`, `memory.timeline`, and
+ * the hygiene/versions screens) stay on this computer's database either way: they are Branch's own
+ * bookkeeping on top of a fact, not part of what `MemoryBackend` promises a backend does.
+ */
+interface OutsideMemoryProvider extends MemoryBackend { isOutside(owner: string): boolean }
+
+export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch, provider?: OutsideMemoryProvider): void {
   registry.register({ name: "memory.put", description: "Save one clear fact with its source. Give entity and attribute when it may change later, so a newer fact ends the earlier one.",
     permission: "memory.write", parameters: PutMemorySchema,
     execute: async (value, context) => {
@@ -407,8 +418,10 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const { scope: _requested, ...rest } = value; void _requested;
       // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
       const layer = layerForKind(value.kind ?? "fact-about-world");
-      return staged(store, context, { kind: "put", text: value.text, source: value.source })
-        ?? store.save("memory", owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId });
+      const proposal = staged(store, context, { kind: "put", text: value.text, source: value.source });
+      if (proposal) return proposal;
+      const data = { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId };
+      return provider?.isOutside(owner) ? provider.write(owner, randomUUID(), data) : store.save("memory", owner, randomUUID(), data);
     } });
   registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
@@ -421,19 +434,35 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
     execute: async (value, context) => store.memoryTimeline(memoryScope(store, context), value.entity, context.agent) });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
-    execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
-      ?? store.updateMemory(memoryScope(store, context), value, context.runId) });
+    execute: async (value, context) => {
+      const proposal = staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source });
+      if (proposal) return proposal;
+      const owner = memoryScope(store, context);
+      if (!provider?.isOutside(owner)) return store.updateMemory(owner, value, context.runId);
+      const previous = await provider.read(owner, value.id);
+      if (!previous) throw new Error("Memory not found");
+      if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
+      const { tags, expiresAt } = previous.data as { tags?: string[]; expiresAt?: string };
+      return provider.write(owner, value.id, { text: value.text, source: value.source, sourceRunId: context.runId,
+        ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}) });
+    } });
   registry.register({ name: "memory.search", description: "Search this owner's facts by words and, where the provider allows it, by meaning.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
     execute: async (value, context) => {
       const owner = memoryScope(store, context);
+      if (provider?.isOutside(owner)) return provider.search(owner, value.query, context.agent);
       if (!retrieval) return store.searchMemory(owner, value.query, context.agent);
       const hits = await retrieval.search(owner, value.query, context.agent, 20, context.signal);
       return hits.map((hit) => ({ ...hit.record, score: hit.score, importance: hit.importance, matched: hit.matched }));
     } });
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
-    execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", memoryScope(store, context), value.id) });
+    execute: async (value, context) => {
+      const proposal = staged(store, context, { kind: "delete", memoryId: value.id });
+      if (proposal) return proposal;
+      const owner = memoryScope(store, context);
+      return provider?.isOutside(owner) ? provider.forget(owner, value.id) : store.delete("memory", owner, value.id);
+    } });
 }
 
 function summary(record: MemoryRecord) {

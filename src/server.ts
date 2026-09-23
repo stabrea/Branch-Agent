@@ -1918,6 +1918,13 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     if (request.method === "GET") return app.memory.retrieval.view(owner);
     if (request.method === "POST") return app.memory.retrieval.configure(owner, await readBody(request));
   }
+  // FQ-memory.providers: where facts are kept — this computer's database, or an outside memory
+  // service the owner has switched on instead. Reading and saving both go through the same object
+  // that decides, at every call, which one actually answers `memory.put`/`memory.search`/etc.
+  if (path === "/api/memory/provider") {
+    if (request.method === "GET") return app.memory.backend.view(owner);
+    if (request.method === "POST") return app.memory.backend.configure(owner, await readBody(request));
+  }
   if (request.method === "POST" && path === "/api/memory/index") {
     z.object({}).strict().parse(await readBody(request));
     return app.memory.retrieval.index(owner);
