@@ -89,10 +89,15 @@ export class TeamTasks {
   /**
    * True when a claimed task's turn is gone: its claim came from an earlier opening of the store (a
    * process that died), or from this one while no turn for it is running here. A task held by a
-   * person has no boot and is never orphaned.
+   * person has no boot and is never orphaned, and nor is one whose claimant offered it and is waiting on the answer.
    */
   orphaned(task: TeamTask, runningHere: boolean): boolean {
-    return task.state === "claimed" && task.bootId !== null && (task.bootId !== storeBoot(this.store) || !runningHere);
+    return task.state === "claimed" && task.bootId !== null && (task.bootId !== storeBoot(this.store) || !runningHere) && !this.offerOpen(task.taskId);
+  }
+  /** Whether the claimant has offered the task to someone and the offer is still open (src/team-handoff.ts): it waits for that answer. */
+  private offerOpen(taskId: string): boolean {
+    if (!this.store.sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_task_handoffs'").get()) return false;
+    return !!this.store.sqlite.prepare("SELECT 1 FROM team_task_handoffs WHERE task_id=? AND state='offered' AND expires_at > ?").get(taskId, new Date().toISOString());
   }
   /** Whether this exact claim still holds its task: same claimant, same generation, still claimed. */
   held(claim: TeamTaskClaim): boolean {

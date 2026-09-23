@@ -101,6 +101,8 @@ export class Teams {
       throw error;
     } finally {
       releaseDispatch(this.store, claim.taskId);
+      // The team was removed while this turn ran (remove keeps a running turn's task): forget it now, answers and all.
+      if (!this.store.get("governance", this.owner, `team:${team.id}`)) this.tasks.forgetTeam(this.owner, team.id, (taskId) => dispatchHeld(this.store, taskId));
     }
   }
   /** Settles a claimed task by what the record says it did, for a claimant that is gone (after a restart, say). */

@@ -300,7 +300,9 @@ test("a claim held by a process that died is never reported as claimed after a r
 
 test("a real process that claims a team task and is SIGKILLed leaves a claim the next start settles, with no dispatch", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-team-crash-"));
-  t.after(() => discardTemp(root));
+  // One hook, close first and then discard: an open database cannot be removed on Windows (EBUSY).
+  const opened = { app: null };
+  t.after(async () => { await opened.app?.close().catch(() => undefined); await discardTemp(root); });
   const child = spawn(process.execPath, [resolve("tests/fixtures/team-claim-crash.mjs"), root], { stdio: ["ignore", "pipe", "inherit"] });
   const exited = new Promise((done) => child.on("exit", (code, signal) => done(signal)));
   const line = await new Promise((done, fail) => {
@@ -310,8 +312,7 @@ test("a real process that claims a team task and is SIGKILLed leaves a claim the
   });
   child.kill("SIGKILL");
   assert.equal(await exited, "SIGKILL");
-  const app = await open(root);
-  t.after(() => app.close().catch(() => undefined));
+  const app = opened.app = await open(root);
   assert.equal(taskRow(app, line.requestId).state, "claimed", "the dead process left its claim behind");
   const retry = inertRuntime(app.store, app.runtime.owner);
   const seen = await app.teams.run(retry, knowledge, line.teamId, "hang here", { requestId: line.requestId });
@@ -640,4 +641,52 @@ test("reconcile leaves a turn alone between its parent run completing and its me
   release();
   assert.equal((await live).state, "completed");
   assert.equal(runtime.dispatches, 1);
+});
+
+test("a team removed while its turn runs forgets that task, answers and all, once the turn ends", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const secret = `private-answer-${randomUUID()}`;
+  const { runtime, started, release } = gatedTurn(state, owner, secret);
+  const requestId = randomUUID();
+  const live = state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  await started;
+  assert.deepEqual(state.app.teams.remove(team.id), { removed: true });
+  assert.ok(taskRow(state.app, requestId), "the running turn's task is kept while it runs");
+  release();
+  await live;
+  assert.equal(taskRow(state.app, requestId), undefined, "once the turn ended, the removed team's task is forgotten");
+  assert.ok(!tablesMentioning(state.app.store, secret).includes("team_tasks"), "no copy of the answers is kept for a team that is gone");
+});
+
+test("forgetting any one conversation a finished team task came from clears its answers: the named one, the turn's run's, or a member's", async (t) => {
+  const conversations = {
+    "the conversation the task named": (app, task) => task.parent_session_id,
+    "the conversation the turn's run is in": (app, task) => app.store.run(task.parent_run_id).sessionId,
+    "a member's conversation": (app, task) => app.store.run(JSON.parse(task.result).answers[1].runId).sessionId,
+  };
+  for (const [which, sessionOf] of Object.entries(conversations)) {
+    const { state, owner, secret, requestId } = await answeredTask(t);
+    const task = taskRow(state.app, requestId);
+    const sessionId = sessionOf(state.app, task);
+    assert.notEqual(sessionId, state.app.teams.get(task.team_id).roomSessionId, which);
+    state.app.store.forgetSession(owner, sessionId);
+    assert.deepEqual(JSON.parse(taskRow(state.app, requestId).result), { deleted: true }, which);
+    assert.ok(!tablesMentioning(state.app.store, secret).includes("team_tasks"), which);
+  }
+});
+
+test("forgetting a conversation a settled task came from replaces its error and keeps a missing result missing", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const runtime = inertRuntime(state.app.store, owner, { throwAfterDispatch: true });
+  const requestId = randomUUID();
+  await assert.rejects(state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId }), /connection dropped/);
+  const before = taskRow(state.app, requestId);
+  assert.equal(before.state, "needs_reconciliation");
+  assert.match(before.error, /connection dropped/);
+  assert.equal(before.result, null);
+  state.app.store.forgetSession(owner, before.parent_session_id);
+  const after = taskRow(state.app, requestId);
+  assert.equal(after.error, "Its details were removed when the owner deleted a conversation it came from.");
+  assert.equal(after.result, null, "a task that recorded no result is not given one");
+  assert.equal(after.state, "needs_reconciliation", "the task itself stays");
 });

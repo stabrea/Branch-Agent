@@ -100,8 +100,8 @@ export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
  * A run's tool calls; an ending is matched to the latest unmatched start with its id, so a reused id
  * is not lost. A call that stopped to ask the owner did not go ahead: either the approval rules asked
  * first ("policy.ask", naming the call) or the tool itself asked (user.ask, say), which ends the run
- * with "attention.needed" right after the call started. A question recovery put after a restart
- * (afterRestart) says nothing about the call: its outcome stays unknown. A step recovery settled when
+ * with "attention.needed" naming that call (callId). A question that names no call (a stuck model,
+ * a plan to approve, or recovery after a restart) says nothing about any call: each open one stays unknown. A step recovery settled when
  * it carried the run on ("run.auto_resumed") may have been done again; one with no record of its own
  * counts with its outcome unknown.
  */
@@ -109,10 +109,11 @@ function runEffects(store: Store, runId: string): TurnEffect[] {
   const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed','run.auto_resumed') ORDER BY id").all(runId);
   const effects: TurnEffect[] = [];
   rows.forEach((row, index) => {
-    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown; steps?: unknown };
+    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown; steps?: unknown; callId?: unknown };
     if (row.kind === "run.auto_resumed") { effects.push(...carriedOnSteps(runId, data.steps, effects, index)); return; }
     if (row.kind === "attention.needed") {
-      const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown");
+      const asking = data.afterRestart === true || data.callId == null ? undefined
+        : effects.findLast((effect) => effect.toolCallId === String(data.callId) && effect.outcome === "unknown");
       if (asking) asking.outcome = "asked_owner";
       return;
     }
@@ -268,11 +269,29 @@ function finishTruncated(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, r
   return true;
 }
 
-/** Member runs under the turn that finished: their answers exist, even if the turn never recorded them. */
+/**
+ * Member runs under the turn that finished: their answers exist, even if the turn never recorded them.
+ * A member is any run in the lineage that is not the turn's own run or one of its carry-ons, so a member
+ * carried on after a restart (started with no parent, linked only by "run.resumed") still counts.
+ */
 function membersAnswered(store: Store, parentRunId: string | null): number {
   if (!parentRunId) return 0;
-  return lineageRuns(store, parentRunId).filter((runId) => store.run(runId)?.status === "completed"
-    && store.sqlite.prepare("SELECT 1 FROM events WHERE run_id=? AND kind='run.started' AND json_extract(data,'$.parentRunId') IS NOT NULL").get(runId)).length;
+  const own = ownCarryOns(store, parentRunId);
+  return lineageRuns(store, parentRunId).filter((runId) => !own.has(runId) && store.run(runId)?.status === "completed").length;
+}
+
+/** The turn's own run and every run linked to it only by carry-ons after restarts, either way. */
+function ownCarryOns(store: Store, runId: string): Set<string> {
+  const own = new Set<string>(), queue = [runId];
+  const ids = (sql: string, id: string) => store.sqlite.prepare(sql).all(id).map((row) => String(row.id));
+  while (queue.length) {
+    const next = queue.shift()!;
+    if (own.has(next)) continue;
+    own.add(next);
+    queue.push(...ids("SELECT run_id AS id FROM events WHERE kind='run.resumed' AND json_extract(data,'$.from')=?", next),
+      ...ids("SELECT json_extract(data,'$.from') AS id FROM events WHERE kind='run.resumed' AND run_id=? AND json_extract(data,'$.from') IS NOT NULL", next));
+  }
+  return own;
 }
 
 /**

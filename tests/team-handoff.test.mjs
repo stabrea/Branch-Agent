@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { TeamTasks, StaleTeamTaskClaimError } from "../dist/team-tasks.js";
+import { TeamTasks, StaleTeamTaskClaimError, teamRequestFingerprint } from "../dist/team-tasks.js";
 import { TeamHandoffs, TeamHandoffRefusedError, beginTeamTurn } from "../dist/team-handoff.js";
 
 // Q62: an acknowledged handoff of a claimed team task. The claimant offers the task to a named
@@ -407,4 +407,21 @@ test("an open offer lapses at accept once its team was removed", async (t) => {
   state.app.teams.remove(team.id);
   assert.throws(() => handoffs.accept(household, offer.offerId), /team was removed/);
   assert.equal(handoffs.get(owner, offer.offerId).state, "expired");
+});
+
+test("a repeat of the request leaves a claim with an open offer alone: the offer can still be accepted", async (t) => {
+  const { state, team, scope, tasks, planner } = await fixture(t);
+  const requestId = randomUUID(), prompt = "ship it";
+  const current = state.app.teams.get(team.id);
+  const task = tasks.observe(scope, team.id, requestId, teamRequestFingerprint({ teamId: current.id, prompt, ...current }));
+  const claim = tasks.claim(scope, task.taskId);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, planner.id, "planner takes it");
+  const never = { run() { throw new Error("the team must not run again"); } };
+  const seen = await state.app.teams.run(never, { activeSpecialist: () => ({}) }, team.id, prompt, { requestId });
+  assert.equal(seen.taskId, task.taskId);
+  assert.equal(seen.state, "claimed", "the claim waits for the answer to its offer");
+  assert.equal(handoffs.get(scope.owner, offer.offerId).state, "offered");
+  handoffs.accept(planner, offer.offerId);
+  assert.equal(tasks.get(scope, task.taskId).claimant, planner.id, "the offer was carried out");
 });

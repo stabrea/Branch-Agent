@@ -200,6 +200,8 @@ export class BudgetError extends Error {
 /** Raised by the user.ask tool: the task stops and waits for the person's answer. */
 export class NeedsInputError extends Error {
   override name = "NeedsInputError";
+  /** The tool call that asked, when a tool asked; a question from anywhere else (a stuck model, a plan to approve) has none. */
+  callId?: string;
   constructor(readonly question: string) { super(question); }
 }
 export class Budget {

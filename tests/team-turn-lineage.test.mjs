@@ -324,7 +324,7 @@ test("a turn waiting on the owner with a step whose outcome is unknown needs rec
   app.store.event(parentRunId, "tool.started", { name: "files.write", id: "w1" });
   app.store.event(parentRunId, "tool.started", { name: "user.ask", id: "q1" });
   app.store.finish(parentRunId, "needs_input", "Which folder?");
-  app.store.event(parentRunId, "attention.needed", { question: "Which folder?" });
+  app.store.event(parentRunId, "attention.needed", { question: "Which folder?", callId: "q1" });
   const report = app.teams.reconcile(taskId);
   assert.equal(report.state, "needs_reconciliation");
   assert.deepEqual(report.effects.map((e) => [e.toolCallId, e.outcome]), [["w1", "unknown"], ["q1", "asked_owner"]]);
@@ -668,4 +668,43 @@ test("a member's conversation the owner deletes while the team still works takes
   assert.equal(again.deleted, true);
   assert.match(again.note, /deleted a conversation/);
   assert.ok(!JSON.stringify(again).includes(secret), "the repeat does not hand the answer back");
+});
+
+test("a question that names no call never marks a call still open as the one that asked", async (t) => {
+  const { app, taskId, parentRunId } = await crashedTurn(t);
+  // A deferred job handed to the background, still able to act, then a question from the runtime itself (a stuck model, say).
+  app.store.event(parentRunId, "tool.started", { name: "jobs.start", id: "d1" });
+  app.store.finish(parentRunId, "needs_input", "Would you like me to try again?");
+  app.store.event(parentRunId, "attention.needed", { question: "Would you like me to try again?" });
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.toolCallId, e.outcome]), [["d1", "unknown"]]);
+});
+
+test("a member carried on after a restart that finished its answer means reconciliation, never 'nothing was done'", async (t) => {
+  const { app, requestId, taskId, parentRunId } = await crashedTurn(t);
+  app.store.finish(parentRunId, "completed", "parent done");
+  const member = app.store.createRun(app.runtime.owner, "member");
+  app.store.event(member.id, "run.started", { parentRunId });
+  app.store.finish(member.id, "interrupted", "Branch is closing");
+  // As the runtime carries a run on: started with no parent, linked back only by where it came from.
+  const next = app.store.createRun(app.runtime.owner, "member", member.sessionId);
+  app.store.event(next.id, "run.started", { parentRunId: null, resumedFrom: member.id });
+  app.store.event(next.id, "run.resumed", { from: member.id, unknownToolOutcomes: 0 });
+  app.store.finish(next.id, "completed", "member done");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /1 member\(s\) finished an answer/);
+});
+
+test("a turn's run never linked to its task is still read back by reconcile when recovery has not run", async (t) => {
+  const { app, requestId, taskId, sessionId } = await crashedTurn(t, { link: false });
+  assert.equal(row(app, requestId).parent_run_id, null);
+  const [orphan] = app.store.runs(app.runtime.owner).filter((run) => run.sessionId === sessionId);
+  app.store.event(orphan.id, "tool.started", { name: "files.write", id: "w1" });
+  app.store.event(orphan.id, "tool.completed", { name: "files.write", id: "w1", result: {} });
+  app.store.finish(orphan.id, "failed", "stopped");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.runId, e.toolCallId, e.outcome]), [[orphan.id, "w1", "completed"]]);
 });
