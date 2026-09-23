@@ -52,7 +52,7 @@ import { adaptApi, handlesAdaptPath } from "./adapt/api.js"; // mac7/adapt
 import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
-import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { buildTrajectory, buildTrajectoryBatch, gzipTrajectoryBatch, trajectoryBatchCap, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
@@ -3837,6 +3837,30 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     await trajectoriesResponse(app, request, response);
     return true;
   }
+  // FQ-packages.trajectories: a named batch of tasks (not "your most recent N" — a chosen list),
+  // as one JSON answer or as the same lines gzipped for real. Owner only: src/short-lived-keys.ts
+  // refuses both of these to any short-lived key before this code ever runs.
+  if (request.method === "GET" && path === "/api/runs/trajectories/batch") {
+    // Built in full before anything is sent, so a refusal partway through (the cap, a bad id)
+    // still gets its own status code instead of a 200 whose headers already went out.
+    const trajectories = await trajectoryBatchDocuments(app, request);
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    response.end(JSON.stringify({ trajectories }));
+    return true;
+  }
+  if (request.method === "GET" && path === "/api/runs/trajectories/batch.jsonl.gz") {
+    const { runIds, options } = await trajectoryBatchPlan(app, request);
+    const gzipped = gzipTrajectoryBatch(app.store, runIds, options, app.runtime.hideSecrets);
+    response.writeHead(200, {
+      // No content-encoding header: the gzip bytes ARE the body a reader saves to a .jsonl.gz file,
+      // not a transport encoding a client should undo on the way in.
+      "content-type": "application/gzip",
+      "content-disposition": `attachment; filename="branch-trajectories.jsonl.gz"`,
+      "cache-control": "no-store",
+    });
+    response.end(gzipped);
+    return true;
+  }
   if (request.method === "POST" && path === "/v1/chat/completions") {
     await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
     return true;
@@ -3922,6 +3946,33 @@ async function trajectoriesResponse(app: Branch, request: IncomingMessage, respo
     app.runtime.hideSecrets))
     response.write(line + "\n");
   response.end();
+}
+/**
+ * FQ-packages.trajectories: the run ids a batch request asked for (`?ids=a,b,c`), checked against
+ * the cap and against ownership the same way the single-run trajectory route checks one id — before
+ * anything is built, so a bad request never pays for reading even the first task.
+ */
+async function trajectoryBatchPlan(app: Branch, request: IncomingMessage): Promise<{
+  runIds: string[];
+  options: (runId: string) => Awaited<ReturnType<typeof trajectoryOptions>>;
+}> {
+  const query = new URL(request.url ?? "/", "http://local").searchParams;
+  const runIds = (query.get("ids") ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+  if (runIds.length === 0) throw new HttpError(400, "Give at least one run id in ?ids=");
+  if (runIds.length > trajectoryBatchCap)
+    throw new HttpError(400, `A batch is at most ${trajectoryBatchCap} runs; ${runIds.length} were asked for`);
+  for (const runId of runIds) {
+    const run = app.store.run(runId);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, `Run not found: ${runId}`);
+  }
+  const cache = new Map<string, Awaited<ReturnType<typeof trajectoryOptions>>>();
+  for (const runId of runIds) cache.set(runId, await trajectoryOptions(app, runId));
+  return { runIds, options: (runId: string) => cache.get(runId)! };
+}
+/** The batch's documents, built the same way `runs.export` builds one task's own. */
+async function trajectoryBatchDocuments(app: Branch, request: IncomingMessage): Promise<unknown[]> {
+  const { runIds, options } = await trajectoryBatchPlan(app, request);
+  return buildTrajectoryBatch(app.store, runIds, options, app.runtime.hideSecrets);
 }
 /**
  * Everything "Look inside" and a trajectory both need about one task: its receipts, its timeline,

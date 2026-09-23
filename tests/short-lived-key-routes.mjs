@@ -888,6 +888,10 @@ export const ROUTES = {
   "/api/runs/:id/trajectory": "look",
   "/api/runs/:id/ws": "look",
   "/api/runs/trajectories.jsonl": "look",
+  // FQ-packages.trajectories: a named batch carries many tasks' full messages and tool arguments
+  // at once (gzipped or not), so it is the owner's alone even against a "run" key.
+  "/api/runs/trajectories/batch": "owner GET",
+  "/api/runs/trajectories/batch.jsonl.gz": "owner GET",
   "/api/sandboxes": "owner POST",
   "/api/schedules": "other POST",
   "/api/schedules/": "prefix",

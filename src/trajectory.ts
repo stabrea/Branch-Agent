@@ -8,6 +8,7 @@
  * Nothing new is worked out here; the shape is the contract.
  */
 import { z } from "zod";
+import { gzipSync } from "node:zlib";
 import { inspectRun, type PriceRound } from "./inspect.js";
 import { classifyToolEvent } from "./receipts.js";
 import type { Store } from "./store.js";
@@ -69,6 +70,37 @@ export function* trajectoryLines(
       /* One task that cannot be read must not stop the rest of the export. */
     }
   }
+}
+
+/**
+ * FQ-packages.trajectories: at most this many tasks in one batch export. A batch that asks for
+ * more is refused before anything is read, rather than quietly cut down to size.
+ */
+export const trajectoryBatchCap = 200;
+
+/**
+ * Many named tasks as trajectory documents, in the order asked for, each one built the same way
+ * the single-run route builds its own — so a batch and a single fetch of the same task always
+ * agree. The caller has already checked every id belongs to whoever is asking and is within the cap.
+ */
+export function buildTrajectoryBatch(
+  store: Store, runIds: readonly string[], options: (runId: string) => TrajectoryOptions,
+  scrub: <T>(value: T) => T = (value) => value,
+): unknown[] {
+  return runIds.map((runId) => scrub(buildTrajectory(store, runId, options(runId))));
+}
+
+/**
+ * The same batch as JSON Lines, then gzipped for real with node:zlib — not a renamed file. Gunzip
+ * it and the bytes are exactly `trajectoryLines` joined with newlines.
+ */
+export function gzipTrajectoryBatch(
+  store: Store, runIds: readonly string[], options: (runId: string) => TrajectoryOptions,
+  scrub: <T>(value: T) => T = (value) => value,
+): Buffer {
+  let body = "";
+  for (const line of trajectoryLines(store, runIds, options, scrub)) body += line + "\n";
+  return gzipSync(Buffer.from(body, "utf8"));
 }
 
 /** Whether each tool call in a task was proven, worked out the same way the receipts view does. */
