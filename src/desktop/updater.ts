@@ -120,6 +120,10 @@ export class Updater {
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
+    return this.lookUp();
+  }
+  /** The look-up itself. An install that has already claimed the updater uses this, not `check`. */
+  private async lookUp(): Promise<UpdateStatus> {
     this.set("checking", "Checking GitHub for a newer version…");
     try {
       const release = await this.latestRelease();
@@ -134,9 +138,22 @@ export class Updater {
     const reason = unsupportedReason(this.options, this.platform);
     if (reason) throw new Error(reason);
     if (this.busy) throw new Error("An update is already in progress.");
-    const release = this.status.release?.available ? this.status.release : (await this.check()).release;
-    if (!release?.available) throw new Error("There is no newer version to install.");
+    // CBQ-001: claimed here, before anything is awaited. Looking the release up is a network round
+    // trip, and `busy` used to be set only after it, so two requests arriving during that trip both
+    // read `busy` as false and both went on. That is not two downloads of one file; the second one
+    // empties the scratch folder the first is downloading into, and the first fails on its own
+    // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    let release: ReleaseInfo | null | undefined;
+    try {
+      release = this.status.release?.available ? this.status.release : (await this.lookUp()).release;
+      if (!release?.available) throw new Error("There is no newer version to install.");
+    } catch (error) {
+      // Nothing has been touched yet, so the claim is simply given back: no status change and no
+      // files removed, exactly as when these two refusals happened before the claim existed.
+      this.busy = false;
+      throw error;
+    }
     try {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
