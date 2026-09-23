@@ -10,6 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { audit } from "./audit.js";
+import { chatOwnerOnly, runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import { gzipTrajectoryBatch, receiptOutcomes, type TrajectoryOptions } from "./trajectory.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -33,6 +34,22 @@ function withoutDelegation(permissions: ReadonlySet<string>): string[] {
   return [...permissions].filter((permission) => permission !== "specialists.use");
 }
 
+export const generateBatchKeyRefusal =
+  "A short-lived key cannot start a batch of new tasks. Start the batch in the app window.";
+
+/**
+ * Who may start a batch. Every generated task is a fresh top-level task, so without this a
+ * short-lived key's task (or a chat's) would start up to twenty tasks recorded as the owner's own
+ * work. The record is read as well as the live mark: a key's task resumed after a restart carries
+ * no live mark, only the `shortLivedKey` its `run.started` wrote down.
+ */
+function batchRefusal(store: Store, context: { runId: string; source?: string | undefined }): Error | null {
+  if (startedWithShortLivedKey() || (context.runId && runOrigin(store, context.runId).shortLivedKey))
+    return new Error(generateBatchKeyRefusal);
+  if (startedFromChat(context, store)) return chatOwnerOnly("Starting a batch of new tasks");
+  return null;
+}
+
 /**
  * `runs.generate_batch`: runs several prompts as real new tasks, one after another, and writes
  * their trajectories into the workspace as one gzip-compressed batch file. Cancelling the task
@@ -45,6 +62,8 @@ export function registerGenerateBatch(registry: ToolRegistry, store: Store, runt
     permission: "specialists.use",
     parameters: GenerateBatchSchema,
     execute: async (input, context) => {
+      const refused = batchRefusal(store, context);
+      if (refused) throw refused;
       const permissions = withoutDelegation(context.permissions);
       const runs: { runId: string; status: string }[] = [];
       for (const prompt of input.prompts) {
@@ -52,6 +71,9 @@ export function registerGenerateBatch(registry: ToolRegistry, store: Store, runt
           prompt, permissions, signal: context.signal,
           budget: { maxSteps: input.maxSteps, maxTokens: input.maxTokens },
           ...(context.source ? { source: context.source } : {}),
+          // Each generated task names the task that asked for it, so its origin (who started it,
+          // a key's mark, a chat) is read along the record rather than taken as the owner's own.
+          ...(context.runId ? { originFrom: context.runId } : {}),
           traceAttributes: { "branch.trajectory.batch": "runs.generate_batch" },
         });
         runs.push({ runId: run.id, status: run.status });

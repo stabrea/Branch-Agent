@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { runOrigin, underShortLivedKey } from "../dist/key-context.js";
+import { generateBatchKeyRefusal } from "../dist/trajectory-batch.js";
 
 const say = (content) => () => ({ content, toolCalls: [] });
 const call = (name, args) => () => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 8)}`, name, arguments: JSON.stringify(args) }] });
@@ -85,20 +87,95 @@ test("FQ runs.generate_batch runs real new tasks and saves a real gzip batch in 
 });
 
 test("FQ a generated task cannot start a batch of its own", async (t) => {
-  // The inner prompt asks the model to call runs.generate_batch on itself; if the permission strip
-  // failed, the scripted provider would be asked for a route for it and this test would throw
-  // "Nothing scripted for" from inside the child task instead of the parent finishing cleanly.
+  // The child task really tries: it calls runs.generate_batch itself. The strip must leave it
+  // without specialists.use, so the call is refused and no grandchild task is ever created.
   const { app, provider } = await fixture(t, [
     ["start the outer batch", [call("runs.generate_batch", { prompts: ["try to recurse"] }), say("outer batch started")]],
-    ["try to recurse", [say("the inner task just answered directly")]],
+    ["try to recurse", [call("runs.generate_batch", { prompts: ["a grandchild task"] }), say("the inner task was refused")]],
+    ["a grandchild task", [say("a grandchild ran, which must not happen")]],
   ]);
+  const before = app.store.runs(app.runtime.owner).length;
   const run = await app.runtime.run({ prompt: "start the outer batch" });
   assert.equal(run.status, "completed");
 
-  // The child task's own round never had runs.generate_batch on offer, closed or open.
+  const runs = app.store.runs(app.runtime.owner);
+  assert.equal(runs.length, before + 2, "the outer task and its one generated task, and nothing more");
+  assert.ok(!runs.some((r) => r.prompt === "a grandchild task"), "no grandchild task was created");
+  assert.ok(!provider.requests.some((request) =>
+    request.messages.some((m) => m.role === "user" && String(m.content).includes("a grandchild task"))),
+  "the grandchild prompt never reached the model");
+
+  const child = runs.find((r) => r.prompt === "try to recurse");
+  assert.ok(child, "the child task really ran");
+  const started = app.store.events(child.id).find((event) => event.kind === "run.started").data;
+  assert.ok(Array.isArray(started.permissions), "the child recorded what it was allowed");
+  assert.ok(!started.permissions.includes("specialists.use"), "the child was not given specialists.use");
+
   const childRequest = provider.requests.find((request) =>
-    [...request.messages].some((m) => m.role === "user" && m.content.includes("try to recurse")));
-  assert.ok(childRequest, "the child task really ran");
-  assert.ok(!childRequest.tools.includes("runs.generate_batch"),
-    "a generated task is not given the tool that would let it start another batch");
+    request.messages.some((m) => m.role === "user" && String(m.content).includes("try to recurse")));
+  assert.ok(!childRequest.tools.some((tool) => tool.name === "runs.generate_batch"),
+    "a generated task is not offered the tool that would let it start another batch");
+});
+
+test("FQ a short-lived key's task cannot start a batch, with the live mark or after a restart", async (t) => {
+  const { app } = await fixture(t, [
+    ["the key's own task", [say("key task done")]],
+    ["should never run", [say("a generated task ran for a key")]],
+  ]);
+  const input = { prompts: ["should never run"] };
+
+  // The live mark: the request itself came in on a short-lived key.
+  const before = app.store.runs(app.runtime.owner).length;
+  await assert.rejects(underShortLivedKey(() => app.registry.execute("runs.generate_batch", input, app.runtime.context())),
+    { message: generateBatchKeyRefusal });
+  assert.equal(app.store.runs(app.runtime.owner).length, before, "no task was created");
+
+  // No live mark: the task a key started is carried on after a restart, so only its record says so.
+  const keyRun = await underShortLivedKey(() => app.runtime.run({ prompt: "the key's own task" }), { keyId: "k-test" });
+  assert.equal(runOrigin(app.store, keyRun.id).shortLivedKey, true, "the key's task recorded its mark");
+  const resumedContext = { ...app.runtime.context(), runId: keyRun.id };
+  const count = app.store.runs(app.runtime.owner).length;
+  await assert.rejects(app.registry.execute("runs.generate_batch", input, resumedContext),
+    { message: generateBatchKeyRefusal });
+  assert.equal(app.store.runs(app.runtime.owner).length, count, "no task was created for the resumed key task");
+});
+
+test("FQ generated tasks name the task that asked for them and keep its origin", async (t) => {
+  const { app } = await fixture(t, [
+    ["the owner's own task", [call("runs.generate_batch", { prompts: ["owner generated"] }), say("done")]],
+    ["owner generated", [say("generated done")]],
+    ["an agent's task", [say("agent task done")]],
+    ["agent generated", [say("generated done")]],
+  ]);
+  const owners = await app.runtime.run({ prompt: "the owner's own task" });
+  assert.equal(owners.status, "completed");
+  const ownerChild = app.store.runs(app.runtime.owner).find((r) => r.prompt === "owner generated");
+  assert.ok(ownerChild, "the owner's batch ran");
+  const ownerOrigin = runOrigin(app.store, ownerChild.id);
+  assert.equal(ownerOrigin.shortLivedKey, false);
+  assert.equal(ownerOrigin.source, "owner", "the owner's batch is the owner's own work");
+
+  // An outside agent's task, carried on later: the context no longer says "mcp", only the record does.
+  const agents = await app.runtime.run({ prompt: "an agent's task", source: "mcp" });
+  assert.equal(agents.status, "completed");
+  const { source: _dropped, ...ownerLooking } = app.runtime.context();
+  await app.registry.execute("runs.generate_batch", { prompts: ["agent generated"] }, { ...ownerLooking, runId: agents.id });
+  const agentChild = app.store.runs(app.runtime.owner).find((r) => r.prompt === "agent generated");
+  assert.ok(agentChild, "the agent's batch ran");
+  const started = app.store.events(agentChild.id).find((event) => event.kind === "run.started").data;
+  assert.equal(started.originFrom, agents.id, "the generated task names the task that asked for it");
+  assert.equal(runOrigin(app.store, agentChild.id).source, "mcp", "an outside task's batch is held as that outside work");
+});
+
+test("FQ a chat message's task cannot start a batch, even when its context no longer says so", async (t) => {
+  const { app } = await fixture(t, [
+    ["a chat's task", [say("chat task done")]],
+    ["should never run", [say("a generated task ran for a chat")]],
+  ]);
+  const chats = await app.runtime.run({ prompt: "a chat's task", source: "channel" });
+  const before = app.store.runs(app.runtime.owner).length;
+  const { source: _dropped, ...ownerLooking } = app.runtime.context();
+  await assert.rejects(app.registry.execute("runs.generate_batch", { prompts: ["should never run"] }, { ...ownerLooking, runId: chats.id }),
+    /for the owner only/);
+  assert.equal(app.store.runs(app.runtime.owner).length, before, "no task was created");
 });

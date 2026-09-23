@@ -178,6 +178,20 @@ test("FQ a locale date string is refused, not silently parsed by Date.parse alon
   assert.equal(refused.status, 400);
 });
 
+test("FQ a day or time that does not exist is refused, not rolled over into another day", async (t) => {
+  const { api } = await served(t);
+  for (const value of ["2026-13-45", "2026-02-30", "2026-02-30T00:00:00Z", "2026-09-23T24:00:00Z",
+    "2026-09-23T12:60:00Z", "2026-09-23T12:00:00+24:00"]) {
+    for (const edge of ["since", "until"]) {
+      const refused = await api("GET", `/api/runs/trajectories/batch?${edge}=${encodeURIComponent(value)}`);
+      assert.equal(refused.status, 400, `${edge}=${value} is refused`);
+    }
+  }
+  // A real leap day is still a real day.
+  const leap = await api("GET", "/api/runs/trajectories/batch?since=2028-02-29&until=2028-02-29T23:59:59Z");
+  assert.equal(leap.status, 200);
+});
+
 test("FQ ids and a filter are mutually exclusive", async (t) => {
   const { api } = await served(t);
   const run = (await api("POST", "/api/run", { prompt: "x" })).body;

@@ -3963,10 +3963,27 @@ const isoDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2
  * its last (`:23:59:59.999Z`), so `?until=2026-09-23` still includes a run made that afternoon.
  */
 function isoQueryBoundary(value: string, edge: "start" | "end"): string | null {
+  if (!isRealCalendarTime(value)) return null;
   if (isoDateOnly.test(value)) return `${value}T${edge === "start" ? "00:00:00.000" : "23:59:59.999"}Z`;
   if (!isoDateTime.test(value)) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/**
+ * Whether the day, time and offset written in an ISO value exist as written. The shape checks
+ * above take `2026-13-45`, and `Date` quietly rolls `2026-02-30` over into March, so each field is
+ * built back up in UTC and must come out unchanged — a day or an hour that does not exist is a 400,
+ * never a different day.
+ */
+function isRealCalendarTime(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-](\d{2}):(\d{2})))?$/.exec(value);
+  if (!match) return false;
+  const [year, month, day, hour, minute, second, offsetHours, offsetMinutes] = match.slice(1).map((part) => Number(part ?? 0));
+  const built = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
+  return built.getUTCFullYear() === year && built.getUTCMonth() === month! - 1 && built.getUTCDate() === day
+    && built.getUTCHours() === hour && built.getUTCMinutes() === minute && built.getUTCSeconds() === second
+    && offsetHours! <= 23 && offsetMinutes! <= 59;
 }
 
 const isoBoundarySchema = (edge: "start" | "end") =>
