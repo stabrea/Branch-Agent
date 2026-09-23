@@ -37,7 +37,7 @@ function worded(tag, key, props = {}) {
 /** A card in the shape every card has: a title, one sentence, then its controls. */
 function card(id, home, name, ...controls) {
   const section = el("section", { id, className: "card" },
-    worded("h2", `settings.card.${name}`), worded("p", `settings.intro.${name}`), ...controls,
+    worded("h3", `settings.card.${name}`, { className: "settings-card-title" }), worded("p", `settings.intro.${name}`), ...controls,
     el("p", { id: `${id}-status`, className: "subtle", role: "status" }));
   section.dataset.home = home;
   return section;
