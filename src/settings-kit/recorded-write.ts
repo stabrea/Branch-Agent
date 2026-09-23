@@ -41,5 +41,8 @@ export function recordedWrite<T>(store: Store, owner: string, origin: ChangeOrig
   });
 }
 
+/** `[key]` when it is a setting in the catalogue, else nothing: for a family whose parts are not all settings here. */
+export const inCatalogue = (key: string): string[] => (specFor(key) ? [key] : []);
+
 /** A setting's own card in Settings, saving around the kit. */
 export const byCard = (detail: string): ChangeOrigin => ({ writer: "owner-in-window", source: "card", detail });

@@ -229,3 +229,39 @@ test("a change whose record cannot be written is not made at all, from the kit o
   assert.deepEqual(await values(), before, "a setting changed although its record was never written");
   assert.equal(app.store.audit.list(app.runtime.owner, { limit: 50 }).length, auditBefore, "the audit entry of a change that was not made stayed");
 });
+
+test("an assistant file and --save-preset are recorded; a --preset for one task is not", async (t) => {
+  const { app, owner, ask } = await fixture(t);
+  const { exportAgent, openAgent, importAgent } = await import("../dist/agent-export.js");
+  const { usePreset } = await import("../dist/cli-run.js");
+  const why = (setting) => ask("GET", `/api/settings-kit/why/${setting}`);
+  // The file carries "read-only"; this Branch starts elsewhere.
+  const { savePolicy } = await import("../dist/policy.js");
+  savePolicy(app.store, owner, { preset: "read-only" });
+  const file = openAgent(exportAgent(app.store, owner, "test").bytes);
+  savePolicy(app.store, owner, { preset: "workspace" });
+  importAgent(app.store, owner, file, ["permissions"], { writer: "owner-by-command", source: "import", detail: "branch import-agent mine.branch" });
+  const imported = await why("policy.preset");
+  assert.equal(imported.kind, "recorded", imported.words);
+  assert.equal(imported.value, "read-only");
+  assert.deepEqual([imported.record.writer, imported.record.source, imported.record.detail],
+    ["owner-by-command", "import", "branch import-agent mine.branch"]);
+  assert.deepEqual([imported.record.before, imported.record.after], ["workspace", "read-only"]);
+
+  const once = usePreset(app.store, owner, "off", false);
+  once.restore();
+  assert.equal((await why("policy.preset")).record.id, imported.record.id, "a preset for one task was recorded as a change");
+  usePreset(app.store, owner, "ask-before-changes", true);
+  const kept = await why("policy.preset");
+  assert.equal(kept.kind, "recorded", kept.words);
+  assert.deepEqual([kept.record.writer, kept.record.source, kept.record.detail], ["owner-by-command", "command", "--save-preset ask-before-changes"]);
+
+  // /switch in the terminal, for a comfort setting that is in Settings.
+  const { switchComfort } = await import("../dist/comfort/terminal.js");
+  const { value: vim } = await why("comfort-keys.vim");
+  switchComfort(app.store, owner, "vim", "", { t: (_key, english) => english });
+  const typed = await why("comfort-keys.vim");
+  assert.notEqual(typed.value, vim);
+  assert.equal(typed.kind, "recorded", typed.words);
+  assert.deepEqual([typed.record.writer, typed.record.source, typed.record.detail], ["owner-by-command", "command", "/switch vim"]);
+});
