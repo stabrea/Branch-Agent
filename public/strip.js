@@ -30,6 +30,7 @@ const ICONS = {
   users: "M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 11a3 3 0 100-6M21 20a6 6 0 00-4-5.6",
   plus: "M12 5v14M5 12h14", dots: "M5 12h.01M12 12h.01M19 12h.01", close: "M6 6l12 12M18 6 6 18",
   back: "M15 6l-6 6 6 6", check: "M5 12l5 5 9-10", copy: "M8 8h11v11H8zM5 16V5h11",
+  leaf: "M5 19C5 10 11 5 19 5c0 8-5 14-14 14zM5 19l8-8",
 };
 export function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

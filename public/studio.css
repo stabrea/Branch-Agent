@@ -727,14 +727,6 @@
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
-.shell-eyebrow {
-  font-size: 11.5px;
-  font-weight: 560;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin: 0;
-}
 .people-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
@@ -750,40 +742,99 @@
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
-.person-capabilities {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* The sample's card: the role's words, what they may do, then the facts. */
+.people-acts {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
-.person-capabilities li {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
-.person-capabilities li.yes::before {
-  content: "✓";
-  color: var(--ok);
-  font-weight: 600;
-  flex: none;
+.people-acts .shell-btn svg,
+.person-acts .shell-ghost svg {
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  vertical-align: -3px;
 }
-.person-capabilities li.no::before {
-  content: "✕";
-  color: var(--text-3);
-  flex: none;
+.shell-btn.shell-ghost {
+  border-color: transparent;
 }
-.people-invite-container {
+.p-words {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.person-may {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.person-may li {
   display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.person-may svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.person-may li.yes svg {
+  color: var(--good);
+}
+.person-may li.no {
+  color: var(--muted);
+}
+.person-card:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.person-invite-problem:empty {
+  display: none;
+}
+.person-invite-problem {
+  margin: 0;
+  color: var(--warn);
+  font-size: 12.5px;
+}
+.person-invite-form {
+  display: grid;
+  gap: 14px;
+}
+.person-invite-address {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--well);
+  font: 13px / 1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+.settings-people {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  grid-column: 1 / -1;
+}
+.settings-person {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  margin-bottom: 14px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  text-align: left;
 }
-.person-acts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.settings-person:hover {
+  background: var(--hover);
 }
 .person-head {
   display: flex;
