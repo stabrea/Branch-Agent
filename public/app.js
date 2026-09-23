@@ -5,7 +5,7 @@ import { fillMarkdown, inlineNodes } from "/markdown.js";
 import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
-import { applyLanguage, t } from "/i18n.js";
+import { applyLanguage, fromEnglish, t } from "/i18n.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 /* One notice area, one timer. A second notice inside the six seconds has to cancel the first
@@ -1022,7 +1022,8 @@ function showVersions(status) {
   else line.textContent = `Running ${running}, which is the newest.`;
 }
 function showUpdateStatus(status) {
-  $("updates-status").textContent = status.message;
+  // The build provenance outcomes arrive as fixed English sentences that the language files also hold.
+  $("updates-status").textContent = fromEnglish(status.message) ?? status.message;
   showVersions(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);

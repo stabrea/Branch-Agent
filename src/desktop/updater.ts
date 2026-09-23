@@ -8,7 +8,7 @@ import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
 import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
-import { fetchAttestationBundles, verifyAttestationBundle, type AttestationBundle } from "./provenance.js";
+import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -88,7 +88,20 @@ export interface UpdateStatus {
   /** Download size so far and in total, while downloading. */
   bytes: { received: number; total: number } | null;
   updatedAt: string;
+  /** What the build provenance check found for the download being installed, once it has run. */
+  provenance?: { outcome: ProvenanceOutcome; message: string };
 }
+export type ProvenanceOutcome = "checked" | "not-checked" | "none";
+/**
+ * The words for each provenance outcome. They are fixed sentences (no names filled in) so the
+ * window can show them in the chosen language: the same words sit in public/locales under
+ * `updates.provenance.*`. "checked" says what was checked and that the certificate chain was not.
+ */
+export const PROVENANCE_WORDS: Record<ProvenanceOutcome, string> = {
+  checked: "A build provenance record was found for this download. It names this exact file and Branch's release workflow run for a version tag, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
+  "not-checked": "The build provenance record for this download was not checked: GitHub could not be reached, did not answer in time, or sent a record that could not be read. The update relies on the published checksum alone, which it passed.",
+  none: "No build provenance record is published for this download. The update relies on the published checksum alone, which it passed.",
+};
 const assetSchema = z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() });
 const releaseSchema = z.object({
   id: z.number().int().positive().optional(),
@@ -167,6 +180,7 @@ function betaAssetMatches(release: z.infer<typeof releaseSchema>, repo: string,
 export class Updater {
   status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   private busy = false;
+  private provenance: UpdateStatus["provenance"] | null = null;
   private channel: UpdateChannel;
   private generation = 0;
   /** True while a download, check, unpack or hand-over is under way. */
@@ -194,6 +208,7 @@ export class Updater {
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
+    this.provenance = null;
     return this.lookUp();
   }
   /** The look-up itself. An install that has already claimed the updater uses this, not `check`. */
@@ -233,6 +248,7 @@ export class Updater {
     // empties the scratch folder the first is downloading into, and the first fails on its own
     // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    this.provenance = null;
     let release: ReleaseInfo | null | undefined;
     try {
       // Beta or Stable (#215): a release chosen for the other channel is looked up again.
@@ -464,36 +480,39 @@ export class Updater {
   }
   /**
    * A second check on top of the checksum above: whether GitHub has published a signed build
-   * provenance record for this exact file, naming this repository. No release does yet (that needs
-   * a workflow change outside this update), so having none is not a failure and the update goes on
-   * with only the checksum behind it, as before. A record that is present and does not check out —
-   * a different file, a certificate for some other repository, a signature that does not verify —
-   * stops the update the same way a bad checksum does, because a provenance record that lies is
-   * worse than no provenance record at all.
+   * provenance record for this exact file, naming this repository's release workflow. No release
+   * does yet (that needs a workflow change outside this update), so having none is not a failure and
+   * the update goes on with only the checksum behind it, as before. Other kinds of record GitHub
+   * publishes for the file (its own release attestation) are not build provenance and count as none.
+   * When GitHub cannot be asked (a rate limit, a timeout) or a record cannot be read, the outcome is
+   * "not checked", said as such, and the checksum alone stands. A build-provenance record that fails
+   * the checks — a different file, some other workflow, a signature that does not verify — stops the
+   * update the same way a bad checksum does, because a provenance record that lies is worse than no
+   * provenance record at all.
    */
   private async verifyProvenance(release: ReleaseInfo, digestHex: string): Promise<void> {
     this.set("verifying", "Checking for a build provenance record…", null, release);
-    let bundles: AttestationBundle[] | null;
+    let lookup: AttestationLookup | null;
     try {
-      bundles = await fetchAttestationBundles({
+      lookup = await fetchAttestationBundles({
         fetch: this.fetch, repo: this.options.repo, digestHex,
         userAgent: `BranchAgent/${this.options.currentVersion}`,
       });
-    } catch {
-      // Trouble reaching GitHub for this second, additive check does not undo the checksum this
-      // download already passed.
-      return;
-    }
-    if (!bundles || bundles.length === 0) return;
+    } catch { return this.provenanceFound("not-checked", release); }
     const failures: string[] = [];
-    for (const bundle of bundles) {
+    for (const bundle of (lookup?.bundles ?? []).filter(isBuildProvenance)) {
       try {
-        const result = verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex });
-        this.set("verifying", `The download's build provenance record checks out (signed by ${result.workflow}).`, null, release);
-        return;
+        verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex });
+        return this.provenanceFound("checked", release);
       } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
     }
-    throw new Error(`The download's build provenance record did not check out (${failures[0]}), so Branch did not install it. Branch is still on the version it had, and nothing was changed.`);
+    if (failures.length)
+      throw new Error(`The download's build provenance record did not check out (${failures[0]}), so Branch did not install it. Branch is still on the version it had, and nothing was changed.`);
+    this.provenanceFound(lookup && lookup.unreadable > 0 ? "not-checked" : "none", release);
+  }
+  private provenanceFound(outcome: ProvenanceOutcome, release: ReleaseInfo): void {
+    this.provenance = { outcome, message: PROVENANCE_WORDS[outcome] };
+    this.set("verifying", PROVENANCE_WORDS[outcome], null, release);
   }
   private async unpack(archive: string): Promise<string> {
     this.set("unpacking", "Unpacking…", null, this.status.release);
@@ -554,7 +573,8 @@ export class Updater {
     return script;
   }
   private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release, bytes: UpdateStatus["bytes"] = null): UpdateStatus {
-    this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString() };
+    this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString(),
+      ...(this.provenance ? { provenance: this.provenance } : {}) };
     return this.status;
   }
   /** Marks the hand-over as running once the script has been launched; the app is about to close. */

@@ -9,13 +9,18 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { discardTemp } from "./temp-dir.mjs";
 import { makeWorkflowCertificate } from "./helpers-provenance-cert.mjs";
-import { fetchAttestationBundles, verifyAttestationBundle } from "../dist/desktop/provenance.js";
-import { Updater } from "../dist/desktop/updater.js";
+import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle } from "../dist/desktop/provenance.js";
+import { PROVENANCE_WORDS, Updater } from "../dist/desktop/updater.js";
 
 const run = promisify(execFile);
 const windows = process.platform === "win32";
 const repo = "stabrea/Branch-Agent";
-const workflowUri = `https://github.com/${repo}/.github/workflows/release.yml@refs/heads/main`;
+// What Fulcio names when Branch's own release workflow (.github/workflows/package.yml) runs for a tag.
+const workflowUri = `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+// Where GitHub keeps externalised bundles (seen live: `gh api repos/cli/cli/attestations/sha256:<digest>`).
+const blobHost = "https://tmaproduction.blob.core.windows.net";
+/** A fetch that sends GitHub's API and blob addresses to a local test server instead. */
+const viaLocal = (origin) => (url, init) => fetch(url.replace("https://api.github.com", origin()).replace(blobHost, origin()), init);
 
 /** DSSE Pre-Authentication Encoding, built the same way `src/desktop/provenance.ts` builds it. */
 function dssePae(payloadType, payload) {
@@ -29,7 +34,7 @@ function dssePae(payloadType, payload) {
  * the same field the real world uses to check a short-lived certificate's window; it defaults to a
  * moment inside that window, matching how a genuine bundle always looks.
  */
-function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter, integratedTime } = {}) {
+function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter, integratedTime, predicateType = "https://slsa.dev/provenance/v1", logged = true } = {}) {
   const window = { notBefore: notBefore ?? new Date(Date.now() - 60_000), notAfter: notAfter ?? new Date(Date.now() + 600_000) };
   const { certificateDer, privateKey } = makeWorkflowCertificate({ workflowUri: uri, ...window });
   const signedAt = integratedTime ?? Math.floor((window.notBefore.getTime() + window.notAfter.getTime()) / 2 / 1000);
@@ -37,7 +42,7 @@ function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter, integra
   const payload = Buffer.from(JSON.stringify({
     _type: "https://in-toto.io/Statement/v1",
     subject: [{ name: "Branch-Agent-windows-x64.zip", digest: { sha256: digestHex } }],
-    predicateType: "https://slsa.dev/provenance/v1",
+    predicateType,
     predicate: {},
   }), "utf8");
   const signature = cryptoSign("sha256", dssePae(payloadType, payload), privateKey);
@@ -45,10 +50,20 @@ function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter, integra
     dsseEnvelope: { payload: payload.toString("base64"), payloadType, signatures: [{ sig: signature.toString("base64"), keyid: "" }] },
     verificationMaterial: {
       certificate: { rawBytes: certificateDer.toString("base64") },
-      tlogEntries: [{ integratedTime: String(signedAt) }],
+      ...(logged ? { tlogEntries: [{ integratedTime: String(signedAt) }] } : {}),
     },
   };
 }
+
+/**
+ * The shape of GitHub's own release attestation, as served live for a cli/cli release: an in-toto
+ * statement about this same file, with predicateType `https://in-toto.io/attestation/release/v0.2`,
+ * signed by a certificate naming `https://dotcom.releases.github.com` (not a workflow) and carrying
+ * no transparency-log entry. With immutable releases on, GitHub publishes one for every release asset.
+ */
+const makeReleaseAttestation = (digestHex) => makeBundle(digestHex, {
+  uri: "https://dotcom.releases.github.com", predicateType: "https://in-toto.io/attestation/release/v0.2", logged: false,
+});
 
 test("verifyAttestationBundle accepts a real bundle for this file and this repository", () => {
   const digestHex = createHash("sha256").update("archive bytes").digest("hex");
@@ -66,6 +81,34 @@ test("verifyAttestationBundle refuses a certificate naming a different repositor
   const digestHex = createHash("sha256").update("archive bytes").digest("hex");
   const bundle = makeBundle(digestHex, { uri: "https://github.com/someone-else/Fork/.github/workflows/release.yml@refs/heads/main" });
   assert.throws(() => verifyAttestationBundle(bundle, { repo, digestHex }), /does not name this repository/);
+});
+
+test("verifyAttestationBundle accepts only this repository's release workflow run for a final version tag", () => {
+  // A self-signed certificate can name anything; before this, any address under the repository
+  // passed as a prefix. Only package.yml at refs/tags/v<major>.<minor>.<patch> is accepted now.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  for (const uri of [
+    `https://github.com/${repo}/anything`,
+    `https://github.com/${repo}/.github/workflows/release.yml@refs/tags/v0.3.0`,
+    `https://github.com/${repo}/.github/workflows/package.yml@refs/heads/main`,
+    `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.3.0-beta.1`,
+    `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.3.0/extra`,
+    `https://github.com/${repo}-fork/.github/workflows/package.yml@refs/tags/v0.3.0`,
+    "https://dotcom.releases.github.com",
+  ]) assert.throws(() => verifyAttestationBundle(makeBundle(digestHex, { uri }), { repo, digestHex }),
+    /does not name this repository's release workflow for a version tag/, uri);
+  for (const uri of [workflowUri, `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v12.0.1+build.7`])
+    assert.equal(verifyAttestationBundle(makeBundle(digestHex, { uri }), { repo, digestHex }).workflow, uri);
+});
+
+test("isBuildProvenance is true for SLSA build provenance only, not GitHub's release attestation", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  assert.equal(isBuildProvenance(makeBundle(digestHex)), true);
+  assert.equal(isBuildProvenance(makeBundle(digestHex, { predicateType: "https://slsa.dev/provenance/v0.2" })), true);
+  assert.equal(isBuildProvenance(makeReleaseAttestation(digestHex)), false);
+  const unreadable = makeBundle(digestHex);
+  unreadable.dsseEnvelope.payload = Buffer.from("not json").toString("base64");
+  assert.equal(isBuildProvenance(unreadable), false);
 });
 
 test("verifyAttestationBundle refuses a tampered signature", () => {
@@ -131,10 +174,11 @@ test("fetchAttestationBundles reads a real GitHub-shaped response", async () => 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const origin = `http://127.0.0.1:${server.address().port}`;
-    const [read] = await fetchAttestationBundles({
+    const { bundles: [read], unreadable } = await fetchAttestationBundles({
       fetch: (url, init) => fetch(url.replace("https://api.github.com", origin), init),
       repo, digestHex, userAgent: "test",
     });
+    assert.equal(unreadable, 0);
     const result = verifyAttestationBundle(read, { repo, digestHex });
     assert.equal(result.workflow, workflowUri);
   } finally { await new Promise((resolve) => server.close(resolve)); }
@@ -148,7 +192,7 @@ test("fetchAttestationBundles follows bundle_url when GitHub externalises the bu
   const server = createServer((req, res) => {
     if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
       res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${origin()}/blob/one` }] }));
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${blobHost}/blob/one` }] }));
     }
     if (req.url === "/blob/one") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(bundle)); }
     res.writeHead(404); res.end();
@@ -156,10 +200,7 @@ test("fetchAttestationBundles follows bundle_url when GitHub externalises the bu
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = () => `http://127.0.0.1:${server.address().port}`;
   try {
-    const [read] = await fetchAttestationBundles({
-      fetch: (url, init) => fetch(url.replace("https://api.github.com", origin()), init),
-      repo, digestHex, userAgent: "test",
-    });
+    const { bundles: [read] } = await fetchAttestationBundles({ fetch: viaLocal(origin), repo, digestHex, userAgent: "test" });
     const result = verifyAttestationBundle(read, { repo, digestHex });
     assert.equal(result.workflow, workflowUri);
   } finally { await new Promise((resolve) => server.close(resolve)); }
@@ -224,24 +265,21 @@ test("fetchAttestationBundles reads a bundle_url served as raw Snappy (as GitHub
   const server = createServer((req, res) => {
     if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
       res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${origin()}/blob/one.json.sn` }] }));
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${blobHost}/blob/one.json.sn?sv=2020&sig=x` }] }));
     }
-    if (req.url === "/blob/one.json.sn") { res.writeHead(200, { "content-type": "application/x-snappy" }); return res.end(encoded); }
+    if (req.url === "/blob/one.json.sn?sv=2020&sig=x") { res.writeHead(200, { "content-type": "application/x-snappy" }); return res.end(encoded); }
     res.writeHead(404); res.end();
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = () => `http://127.0.0.1:${server.address().port}`;
   try {
-    const [read] = await fetchAttestationBundles({
-      fetch: (url, init) => fetch(url.replace("https://api.github.com", origin()), init),
-      repo, digestHex, userAgent: "test",
-    });
+    const { bundles: [read] } = await fetchAttestationBundles({ fetch: viaLocal(origin), repo, digestHex, userAgent: "test" });
     const result = verifyAttestationBundle(read, { repo, digestHex });
     assert.equal(result.workflow, workflowUri);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("fetchAttestationBundles skips a bundle_url it cannot read as JSON or Snappy, rather than failing the update", async () => {
+test("fetchAttestationBundles counts a bundle_url it cannot read as JSON or Snappy as unreadable, rather than failing the update", async () => {
   // These 6 bytes are a truncated raw-Snappy stream (a valid varint length and literal tag, but the
   // literal itself cut short) — not plain JSON, and not a Snappy body `decodeSnappy` can finish
   // reading either. That combination is treated the same as no bundle at all — quietly skipped,
@@ -250,7 +288,7 @@ test("fetchAttestationBundles skips a bundle_url it cannot read as JSON or Snapp
   const server = createServer((req, res) => {
     if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
       res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${origin()}/blob/one` }] }));
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${blobHost}/blob/one` }] }));
     }
     if (req.url === "/blob/one") { res.writeHead(200); return res.end(Buffer.from([0x84, 0x32, 0xf0, 0x43, 0x7b, 0x22])); }
     res.writeHead(404); res.end();
@@ -258,22 +296,86 @@ test("fetchAttestationBundles skips a bundle_url it cannot read as JSON or Snapp
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = () => `http://127.0.0.1:${server.address().port}`;
   try {
-    const result = await fetchAttestationBundles({
-      fetch: (url, init) => fetch(url.replace("https://api.github.com", origin()), init),
-      repo, digestHex, userAgent: "test",
-    });
-    assert.deepEqual(result, []);
+    const result = await fetchAttestationBundles({ fetch: viaLocal(origin), repo, digestHex, userAgent: "test" });
+    assert.deepEqual(result, { bundles: [], unreadable: 1 });
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+/** A local server answering the attestations address with `entries`, and `blobs` (path → handler) for bundle_url bodies. */
+async function attestationServer(t, digestHex, entries, blobs = {}) {
+  const hits = [];
+  const server = createServer((req, res) => {
+    hits.push(req.url);
+    if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ attestations: entries }));
+    }
+    if (blobs[req.url]) return blobs[req.url](res);
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  return { origin, hits };
+}
+
+test("fetchAttestationBundles follows bundle_url only over https to GitHub's blob host, and counts others unreadable", async (t) => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex);
+  const serve = (res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(bundle)); };
+  const refused = [
+    "http://127.0.0.1:1/blob/one", // plain http, some other host
+    "http://tmaproduction.blob.core.windows.net/blob/one", // the right host, but not https
+    "https://attacker.blob.core.windows.net/blob/one", // another Azure customer's storage
+    "https://tmaproduction.blob.core.windows.net.example.com/blob/one",
+    "https://tmaproduction.blob.core.windows.net:8443/blob/one",
+  ];
+  const fixture = await attestationServer(t, digestHex, refused.map((bundle_url) => ({ bundle: null, bundle_url })), { "/blob/one": serve });
+  const followed = [];
+  const result = await fetchAttestationBundles({
+    fetch: (url, init) => {
+      if (!url.startsWith("https://api.github.com")) followed.push(url);
+      return fetch(url.replace(/^https?:\/\/[^/]+/, fixture.origin()), init);
+    },
+    repo, digestHex, userAgent: "test",
+  });
+  assert.deepEqual(followed, [], "none of those addresses was fetched");
+  assert.deepEqual(result, { bundles: [], unreadable: refused.length });
+});
+
+test("fetchAttestationBundles stops reading a bundle_url body past its size cap", async (t) => {
+  // A real bundle padded with trailing spaces to 5 MiB, sent in chunks with no content-length:
+  // still valid JSON, so only a cap on the bytes read keeps it from being taken in whole.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const json = Buffer.from(JSON.stringify(makeBundle(digestHex)), "utf8");
+  const serve = (res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.write(json);
+    const pad = Buffer.alloc(64 * 1024, 0x20);
+    for (let sent = json.length; sent < 5 * 1024 * 1024; sent += pad.length) res.write(pad);
+    res.end();
+  };
+  const fixture = await attestationServer(t, digestHex, [{ bundle: null, bundle_url: `${blobHost}/blob/big` }], { "/blob/big": serve });
+  const result = await fetchAttestationBundles({ fetch: viaLocal(fixture.origin), repo, digestHex, userAgent: "test" });
+  assert.deepEqual(result, { bundles: [], unreadable: 1 });
+});
+
+test("fetchAttestationBundles throws on a rate-limit answer so the updater can say the record was not checked", async (t) => {
+  const server = createServer((_req, res) => { res.writeHead(403, { "x-ratelimit-remaining": "0" }); res.end("{}"); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  await assert.rejects(fetchAttestationBundles({ fetch: viaLocal(origin), repo, digestHex: "a".repeat(64), userAgent: "test" }), /HTTP 403/);
+});
+
 /**
- * A full download-through-install fixture, the same shape `tests/updater.test.mjs` uses, with one
- * more route: the build provenance record GitHub would serve at install time. `attestationFor`
- * receives the archive's own digest (only known once it is built) and returns null (no record
- * published, today's reality for every release), a real bundle for that digest, or a bundle for
- * some other file, standing in for one that does not check out.
+ * A full download-through-install fixture, the same shape `tests/updater.test.mjs` uses, with more
+ * routes: the attestations GitHub would serve at install time, and bundle_url bodies on its blob
+ * host. `attestationFor` receives the archive's own digest (only known once it is built) and returns
+ * null (no record published, today's reality for every release), `{ status }` for an answer other
+ * than 200, a bundle, or a list of attestation entries (`{ bundle }` or `{ bundle_url }`).
  */
-async function installFixture(t, { attestationFor = () => null } = {}) {
+async function installFixture(t, { attestationFor = () => null, blobs = {}, realArchive = windows } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-provenance-"));
   t.after(() => discardTemp(root));
   const source = join(root, "Branch Agent-win32-x64");
@@ -281,7 +383,7 @@ async function installFixture(t, { attestationFor = () => null } = {}) {
   await writeFile(join(source, "Branch Agent Test.exe"), "new executable");
   await writeFile(join(source, "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "0.3.0" }));
   const archive = join(root, "Branch-Agent-windows-x64.zip");
-  if (windows)
+  if (realArchive)
     await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
       `Compress-Archive -LiteralPath '${source}' -DestinationPath '${archive}' -Force`]);
   else await writeFile(archive, "not a real archive");
@@ -289,7 +391,9 @@ async function installFixture(t, { attestationFor = () => null } = {}) {
   const digestHex = createHash("sha256").update(bytes).digest("hex");
   const attestation = attestationFor(digestHex);
   let attestationHits = 0;
+  const hits = [];
   const server = createServer((req, res) => {
+    hits.push(req.url);
     if (req.url === "/repos/stabrea/Branch-Agent/releases/latest") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({
@@ -306,19 +410,42 @@ async function installFixture(t, { attestationFor = () => null } = {}) {
     if (req.url === `/repos/stabrea/Branch-Agent/attestations/sha256:${digestHex}`) {
       attestationHits += 1;
       if (!attestation) { res.writeHead(404); return res.end(); }
+      if (attestation.status) { res.writeHead(attestation.status); return res.end("{}"); }
       res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ attestations: [{ bundle: attestation }] }));
+      return res.end(JSON.stringify({ attestations: Array.isArray(attestation) ? attestation : [{ bundle: attestation }] }));
     }
+    if (blobs[req.url]) return blobs[req.url](res);
     res.writeHead(404); res.end();
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const origin = () => `http://127.0.0.1:${server.address().port}`;
-  const fetchViaFixture = (url, init) => fetch(url.replace("https://api.github.com", origin()), init);
+  const fetchViaFixture = viaLocal(origin);
   const installDir = join(root, "installed");
   await mkdir(installDir, { recursive: true });
   await writeFile(join(installDir, "Branch Agent Test.exe"), "old executable");
-  return { root, installDir, fetchViaFixture, digestHex, attestationHits: () => attestationHits };
+  return { root, installDir, fetchViaFixture, digestHex, hits, attestationHits: () => attestationHits };
+}
+
+/**
+ * An updater for `fixture` whose unpack step is replaced by one that stops the install with
+ * `reachedUnpack`: everything up to and including the provenance check runs for real, on every
+ * operating system, and reaching the unpack step is the proof the check let the update through.
+ */
+const reachedUnpack = "reached the unpack step";
+function gateUpdater(fixture, { platform = "win32", fetch = fixture.fetchViaFixture } = {}) {
+  return new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: fixture.installDir, platform,
+    executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: join(fixture.root, "scratch"), fetch,
+    extract: async () => { throw new Error(reachedUnpack); },
+  });
+}
+/** Runs an install that the provenance check must let through; returns the outcome it recorded. */
+async function outcomeLettingThrough(fixture, options) {
+  const updater = gateUpdater(fixture, options);
+  await assert.rejects(updater.install(), new RegExp(reachedUnpack));
+  return updater.status.provenance;
 }
 
 test("install proceeds on the checksum alone when no provenance record is published", { skip: !windows && "Windows archive tooling" }, async (t) => {
@@ -331,9 +458,10 @@ test("install proceeds on the checksum alone when no provenance record is publis
   const { script } = await updater.install();
   assert.ok(script);
   assert.equal(fixture.attestationHits(), 1, "the updater asked GitHub for a provenance record");
+  assert.equal(updater.status.provenance.outcome, "none");
 });
 
-test("install checks out a real provenance record and shows it", { skip: !windows && "Windows archive tooling" }, async (t) => {
+test("install checks a real provenance record and says what was checked", { skip: !windows && "Windows archive tooling" }, async (t) => {
   const fixture = await installFixture(t, { attestationFor: (digestHex) => makeBundle(digestHex) });
   const updater = new Updater({
     repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: fixture.installDir,
@@ -343,17 +471,94 @@ test("install checks out a real provenance record and shows it", { skip: !window
   const { script } = await updater.install();
   assert.ok(script);
   assert.equal(fixture.attestationHits(), 1);
+  assert.deepEqual(updater.status.provenance, { outcome: "checked", message: PROVENANCE_WORDS.checked });
 });
 
-test("install refuses a provenance record for a different file, and removes what was downloaded", { skip: !windows && "Windows archive tooling" }, async (t) => {
+test("install refuses a provenance record for a different file, and removes what was downloaded, on every system", async (t) => {
+  // The refusal happens before anything is unpacked, so it is tested the same way everywhere.
+  for (const platform of ["win32", "linux", "darwin"]) {
+    const fixture = await installFixture(t, {
+      realArchive: false,
+      attestationFor: () => makeBundle(createHash("sha256").update("some other file entirely").digest("hex")),
+    });
+    const updater = gateUpdater(fixture, { platform });
+    await assert.rejects(updater.install(), /provenance record did not check out/, platform);
+    await assert.rejects(readFile(join(fixture.root, "scratch", "Branch-Agent-windows-x64.zip")), /ENOENT/);
+  }
+});
+
+test("install refuses a self-signed record naming anything but the release workflow for a version tag", async (t) => {
   const fixture = await installFixture(t, {
-    attestationFor: () => makeBundle(createHash("sha256").update("some other file entirely").digest("hex")),
+    realArchive: false, attestationFor: (digestHex) => makeBundle(digestHex, { uri: `https://github.com/${repo}/anything` }),
   });
-  const updater = new Updater({
-    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: fixture.installDir,
-    executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: join(fixture.root, "scratch"), fetch: fixture.fetchViaFixture,
+  await assert.rejects(gateUpdater(fixture).install(), /did not check out \(the provenance record's signing certificate does not name this repository's release workflow/);
+});
+
+test("install goes on when GitHub's own release attestation is the only record, counting it as none", async (t) => {
+  // With immutable releases on, GitHub serves its release attestation (a different statement type,
+  // signed as dotcom.releases.github.com) for every asset. It is not build provenance and must not
+  // be held to the workflow check, or every copy would refuse every update.
+  const fixture = await installFixture(t, { realArchive: false, attestationFor: (digestHex) => makeReleaseAttestation(digestHex) });
+  assert.deepEqual(await outcomeLettingThrough(fixture), { outcome: "none", message: PROVENANCE_WORDS.none });
+});
+
+test("install checks the build provenance record next to GitHub's release attestation", async (t) => {
+  const fixture = await installFixture(t, {
+    realArchive: false,
+    attestationFor: (digestHex) => [{ bundle: makeReleaseAttestation(digestHex) }, { bundle: makeBundle(digestHex) }],
   });
-  await assert.rejects(updater.install(), /provenance record did not check out/);
-  await assert.rejects(readFile(join(fixture.root, "scratch", "Branch-Agent-windows-x64.zip")), /ENOENT/);
+  assert.equal((await outcomeLettingThrough(fixture)).outcome, "checked");
+});
+
+test("install still refuses a bad build provenance record that sits next to GitHub's release attestation", async (t) => {
+  const other = createHash("sha256").update("some other file entirely").digest("hex");
+  const fixture = await installFixture(t, {
+    realArchive: false,
+    attestationFor: (digestHex) => [{ bundle: makeReleaseAttestation(digestHex) }, { bundle: makeBundle(other) }],
+  });
+  await assert.rejects(gateUpdater(fixture).install(), /provenance record did not check out \(the provenance record is for a different file\)/);
+});
+
+test("install says the record was not checked when GitHub answers with a rate limit", async (t) => {
+  const fixture = await installFixture(t, { realArchive: false, attestationFor: () => ({ status: 403 }) });
+  assert.deepEqual(await outcomeLettingThrough(fixture), { outcome: "not-checked", message: PROVENANCE_WORDS["not-checked"] });
+});
+
+test("install says the record was not checked when asking GitHub times out", async (t) => {
+  const fixture = await installFixture(t, { realArchive: false, attestationFor: (digestHex) => makeBundle(digestHex) });
+  const fetch = (url, init) => url.includes("/attestations/")
+    ? Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"))
+    : fixture.fetchViaFixture(url, init);
+  assert.equal((await outcomeLettingThrough(fixture, { fetch })).outcome, "not-checked");
+});
+
+test("install says the record was not checked when its bundle_url is too large or on another host", async (t) => {
+  const fixture = await installFixture(t, {
+    realArchive: false,
+    attestationFor: () => [{ bundle: null, bundle_url: `${blobHost}/blob/big` }, { bundle: null, bundle_url: "https://elsewhere.example/blob/one" }],
+    blobs: {
+      "/blob/big": (res) => {
+        res.writeHead(200);
+        const pad = Buffer.alloc(64 * 1024, 0x20);
+        for (let sent = 0; sent < 5 * 1024 * 1024; sent += pad.length) res.write(pad);
+        res.end();
+      },
+    },
+  });
+  assert.equal((await outcomeLettingThrough(fixture)).outcome, "not-checked");
+});
+
+test("the provenance words say what was checked, admit the chain was not, and are translated", async () => {
+  const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  const keys = { checked: "updates.provenance.checked", "not-checked": "updates.provenance.notChecked", none: "updates.provenance.none" };
+  for (const [outcome, key] of Object.entries(keys)) {
+    assert.equal(PROVENANCE_WORDS[outcome], english[key], `${outcome} words are the ones the language file holds`);
+    assert.ok(french[key] && french[key] !== english[key], `${key} has French words`);
+    assert.doesNotMatch(PROVENANCE_WORDS[outcome], /checks out/);
+  }
+  assert.match(PROVENANCE_WORDS.checked, /release workflow/);
+  assert.match(PROVENANCE_WORDS.checked, /chain back to Sigstore was not verified/);
+  assert.match(french[keys.checked], /n'a pas été vérifiée/);
+  assert.match(PROVENANCE_WORDS["not-checked"], /was not checked/);
 });
