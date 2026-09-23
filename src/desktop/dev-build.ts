@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -71,49 +71,66 @@ export async function remoteHead(run: Run, repo: string): Promise<string> {
 }
 
 /**
- * Brings Branch's own clone to exactly `commit` and builds the release download from it. Returns the download's
- * path and the version the source says it is. A failure leaves the installed app untouched.
+ * Clones Branch afresh into `sourceDir`, which must not exist yet, at exactly `commit`, and builds the release
+ * download from it. Returns the download's path and the version it was stamped with. A failure leaves the installed
+ * app untouched. Nothing is reused from an earlier build: `sourceDir` sits in the updater's own folder, which the
+ * assistant may never change and which every install empties first.
  */
 export async function buildDev(run: Run, plan: { repo: string; sourceDir: string; commit: string; running: string | null; assetName: string; onPhase: (phase: DevPhase) => void }):
 Promise<{ archive: string; checksumFile: string; version: string }> {
   const { repo, sourceDir, commit, running, assetName, onPhase } = plan;
+  if (await lstat(sourceDir).then(() => true, () => false))
+    throw new Error("The folder a Dev build starts in was not empty, so nothing was built. Try the update again.");
   onPhase("fetching");
-  const cloned = await access(join(sourceDir, ".git")).then(() => true, () => false);
-  if (!cloned) await run("git", [...quietGit, "clone", "--no-tags", "--single-branch", "--branch", devBranch, `https://github.com/${repo}.git`, sourceDir], { timeoutMs: minutes(15) });
-  else await run("git", [...quietGit, "fetch", "--no-tags", "origin", devBranch], { cwd: sourceDir, timeoutMs: minutes(15) });
+  await run("git", [...quietGit, "clone", "--no-tags", "--single-branch", "--branch", devBranch, `https://github.com/${repo}.git`, sourceDir], { timeoutMs: minutes(15) });
   await run("git", ["reset", "--hard", commit], { cwd: sourceDir, timeoutMs: minutes(2) });
-  await run("git", ["clean", "-fdx", "-e", "node_modules"], { cwd: sourceDir, timeoutMs: minutes(2) });
   const head = (await run("git", ["rev-parse", "HEAD"], { cwd: sourceDir, timeoutMs: 30_000 })).trim();
   if (head !== commit) throw new Error("The source did not arrive at the change that was looked up, so nothing was built.");
-  // Never back: the change offered must already contain the one running (a Beta can be built from a newer change
-  // than the main line's head for a while). A running change this clone has never heard of cannot be compared.
-  if (running && running !== commit) {
-    const shared = await run("git", ["merge-base", running, commit], { cwd: sourceDir, timeoutMs: 30_000 }).then((out) => out.trim(), () => "");
-    if (shared && shared !== running)
-      throw new Error(`The newest Dev change does not include the version running now (change ${running.slice(0, 7)}), so installing it would go back. Nothing was changed; it is offered again once it catches up.`);
-  }
+  if (running && running !== commit) await neverBack(run, sourceDir, running, commit);
   onPhase("installing");
   await run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: sourceDir, timeoutMs: minutes(30) });
   const committedAt = Number((await run("git", ["show", "-s", "--format=%ct", commit], { cwd: sourceDir, timeoutMs: 30_000 })).trim());
-  const version = await stampDevVersion(sourceDir, committedAt);
+  const version = await stampDevVersion(sourceDir, committedAt, commit);
   onPhase("building");
   await run("npm", ["run", "package:desktop", "--", "--release"], { cwd: sourceDir, timeoutMs: minutes(30) });
   return { archive: join(sourceDir, "release", assetName), checksumFile: join(sourceDir, "release", `${assetName}.sha256`), version };
 }
 
 /**
- * Like Beta's stamp (scripts/beta-release.mjs), only for the build: a Dev build of 0.19.2's line is
- * 0.19.3-dev.<commit time>. So every Dev build has its own version, later changes have higher ones, the update's
- * record can tell whether the swap landed, and Beta (0.19.3-beta.N sorts below it) never offers older code.
+ * The change offered must already contain the one running: a Beta or a release can be built from a newer change
+ * than the main line's head for a while. The running change is fetched by its id when the clone does not have it.
+ * Anything that cannot be shown to go forward stops the build: a change that cannot be found, or a failed check.
  */
-export async function stampDevVersion(sourceDir: string, committedAt: number): Promise<string> {
+async function neverBack(run: Run, sourceDir: string, running: string, commit: string): Promise<void> {
+  const cwd = sourceDir, timeoutMs = 30_000;
+  const known = () => run("git", ["cat-file", "-e", `${running}^{commit}`], { cwd, timeoutMs }).then(() => true, () => false);
+  let found = await known();
+  if (!found) {
+    await run("git", [...quietGit, "fetch", "--no-tags", "origin", running], { cwd, timeoutMs: minutes(5) }).catch(() => undefined);
+    found = await known();
+  }
+  if (!found)
+    throw new Error(`Branch could not find the change the version running now was built from (${running.slice(0, 7)}), so it cannot tell whether the newest Dev change is newer. Nothing was changed. Choose Beta or Stable, or try again later.`);
+  const shared = await run("git", ["merge-base", running, commit], { cwd, timeoutMs }).then((out) => out.trim(), () => null);
+  if (shared !== running)
+    throw new Error(`The newest Dev change does not include the version running now (change ${running.slice(0, 7)}), so installing it would go back. Nothing was changed; it is offered again once it catches up.`);
+}
+
+/**
+ * Like Beta's stamp (scripts/beta-release.mjs), only for the build: a Dev build of 0.19.2's line is
+ * 0.19.3-dev.<commit time>.g<commit>. The commit makes every build's version its own, so the update's record can
+ * tell whether the swap landed even for two changes made in the same second; Beta (0.19.3-beta.N sorts below it)
+ * never offers the same line's older code, and that line's Stable release sorts above it. Which Dev change is newer
+ * is decided by the history (neverBack), never by these numbers: commit times need not increase.
+ */
+export async function stampDevVersion(sourceDir: string, committedAt: number, commit: string): Promise<string> {
   const manifestPath = join(sourceDir, "package.json"), lockPath = join(sourceDir, "package-lock.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")), lock = JSON.parse(await readFile(lockPath, "utf8"));
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(manifest.version));
   if (manifest.name !== "branch-agent" || !match || lock.version !== manifest.version || lock.packages?.[""]?.version !== manifest.version
-    || !Number.isSafeInteger(committedAt) || committedAt < 1)
+    || !Number.isSafeInteger(committedAt) || committedAt < 1 || !/^[0-9a-f]{40}$/.test(commit))
     throw new Error("The source's version could not be read, so nothing was built.");
-  const version = `${match[1]}.${match[2]}.${Number(match[3]) + 1}-dev.${committedAt}`;
+  const version = `${match[1]}.${match[2]}.${Number(match[3]) + 1}-dev.${committedAt}.g${commit.slice(0, 12)}`;
   manifest.version = lock.version = lock.packages[""].version = version;
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`);

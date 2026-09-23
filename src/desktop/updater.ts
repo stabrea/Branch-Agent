@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { chmod, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -55,8 +55,6 @@ export interface UpdaterOptions {
   runOnceKey?: string;
   /** Dev channel: the commit this copy was built from (dist/build-info.json), or null when it is not known. */
   currentCommit?: string | null;
-  /** Dev channel: Branch's own clone of its source, kept between builds (never the scratch folder). */
-  devSourceDir?: string;
   /** Dev channel: runs git and npm; tests hand in their own. */
   devRun?: Run;
 }
@@ -366,17 +364,22 @@ export class Updater {
   }
   /** Dev: builds the download from source on this computer; the steps after it are the same as for a release. */
   private async buildDevArchive(release: ReleaseInfo): Promise<{ archive: string; version: string }> {
-    if (!this.options.devSourceDir || !release.commit || !/^[0-9a-f]{40}$/.test(release.commit))
+    if (!release.commit || !/^[0-9a-f]{40}$/.test(release.commit))
       throw new Error("The Dev build is not set up on this computer, so nothing was changed.");
     const words: Record<DevPhase, string> = {
       fetching: "Getting the newest change from GitHub…",
-      installing: "Installing what Branch needs to build (the first time takes a few minutes)…",
+      installing: "Installing what Branch needs to build (a few minutes)…",
       building: "Building Branch on this computer (a few minutes)…",
     };
+    // In the updater's own folder, which the assistant may never change and which this install has just emptied.
+    const sourceDir = join(this.options.scratchDir, "dev-source");
     const built = await buildDev(this.options.devRun ?? realRun(this.platform), {
-      repo: this.options.repo, sourceDir: this.options.devSourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
+      repo: this.options.repo, sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
       onPhase: (phase) => this.set("downloading", words[phase], null, release),
     });
+    // Without the change the running version was built from, its version is the only way to see going back.
+    if (!this.options.currentCommit && compareVersions(built.version, this.options.currentVersion) < 0)
+      throw new Error(`The newest Dev build (${built.version}) is older than the version running now (${this.options.currentVersion}), so nothing was changed. It is offered again once it catches up.`);
     this.set("verifying", "Checking the build is whole…", null, release);
     const expected = /^([a-f0-9]{64})\b/i.exec((await readFile(built.checksumFile, "utf8")).trim())?.[1]?.toLowerCase();
     const hash = createHash("sha256");
@@ -384,7 +387,11 @@ export class Updater {
     for await (const chunk of createReadStream(built.archive)) hash.update(chunk as Buffer);
     // This only proves the file was written whole; the trust in its contents comes from git over https.
     if (!expected || hash.digest("hex") !== expected) throw new Error("The Dev build came out incomplete, so nothing was changed. Try the update again.");
-    return built;
+    // The download goes where a downloaded release would be, and the source (hundreds of megabytes) goes.
+    const archive = join(this.options.scratchDir, this.options.assetName!);
+    await rename(built.archive, archive);
+    await rm(sourceDir, { recursive: true, force: true });
+    return { archive, version: built.version };
   }
   /**
    * Q37: for minutes after a release is published, GitHub's release list (and its tag look-up) can still show no

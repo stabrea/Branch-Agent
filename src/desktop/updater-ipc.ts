@@ -74,7 +74,6 @@ export function registerUpdaterIpc(
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
     // Dev channel: which change this copy was built from, and Branch's own clone of its source to build the next one.
     currentCommit: builtFrom(app.getAppPath()),
-    devSourceDir: join(app.getPath("userData"), "dev-source"),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
