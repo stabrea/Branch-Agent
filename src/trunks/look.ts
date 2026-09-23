@@ -5,9 +5,10 @@ import { z } from "zod";
  * what the face is made of, its colour, its shape and how it moves; the window draws it the same
  * way in the strip, the studio, the sidebar and on every reply.
  *
- * A colour is one of the approved sample's fixed colours or any colour the owner picks, kept as
- * `#rrggbb` (DG-105); "theme" for the theme's own highlight; or, for a Trunk styled before that,
- * one of the eight `--series-N` tokens, which every theme draws in its own colours.
+ * No colour is stored as a value here: a colour names one of the eight `--series-N` tokens, or "theme"
+ * for the theme's own highlight, so every theme draws the Trunk in its own colours (docs/design.md).
+ * A colour the owner picks as a value (DG-105) is the Trunk's `chosenColour` (src/trunks/record.ts), kept
+ * outside this record so a build from before it can still read and edit the look.
  * Leaving colour or shape empty keeps what the name gives, which is how every Trunk made before
  * this looked, so nothing changes for a Trunk nobody has restyled.
  */
@@ -25,11 +26,8 @@ export const TrunkLookSchema = z.object({
   emoji: emoji.default(""),
   /** Changes the pixel pattern without renaming the Trunk. */
   shuffle: z.number().int().min(0).max(999999).default(0),
-  /** A colour as `#rrggbb` (kept in lower case), a series token (1 to 8), the theme's highlight, or null for the colour its name gives. */
-  colour: z.union([
-    z.string().regex(/^#[0-9a-f]{6}$/i, "Choose a colour such as #1f5139").transform((value) => value.toLowerCase()),
-    z.number().int().min(1).max(8), z.literal("theme"),
-  ]).nullable().default(null),
+  /** A series token (1 to 8), the theme's highlight, or null for the colour its name gives (or its `chosenColour`). */
+  colour: z.union([z.number().int().min(1).max(8), z.literal("theme")]).nullable().default(null),
   /** null keeps the shape its name gives. */
   shape: z.enum(trunkShapes).nullable().default(null),
   motion: z.enum(trunkMotions).default("none"),

@@ -95,7 +95,8 @@ test("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a re
   await page.getByRole("button", { name: "Create the Trunk", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector("#studio")?.checkVisibility());
   const [made] = await trunks(call);
-  assert.equal(made.look.colour, "#e4ba94");
+  /* Kept beside the look, whose own colour stays empty so a build from before this can still read it. */
+  assert.deepEqual([made.chosenColour, made.look.colour], ["#e4ba94", null]);
   await page.reload();
   await connect();
   await openEdit(page, made.id);
@@ -105,7 +106,7 @@ test("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a re
   assert.deepEqual((await swatches(page)).pressed, []);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector("#studio")?.checkVisibility());
-  assert.equal((await trunks(call))[0].look.colour, "#123456");
+  assert.equal((await trunks(call))[0].chosenColour, "#123456");
   await openEdit(page, made.id);
   assert.equal(await page.locator("#studio-custom").inputValue(), "#123456");
   assert.deepEqual(errors, []);
@@ -138,18 +139,18 @@ test("DG-105 a face in any of the colours stays readable, in a light and a dark 
   assert.deepEqual(errors, []);
 });
 
-test("DG-105 the server keeps only a real colour", async (t) => {
+test("DG-105 the server keeps only a real colour, and never inside the look", async (t) => {
   const { call } = await signedIn(t);
   const made = await (await call("POST", "/api/trunks", { name: "Scout", title: "", description: "" })).json();
   for (const colour of ["#12345g", "red", "#1234", "var(--x)"]) {
-    const answer = await call("POST", `/api/trunks/${made.trunk.id}`, { look: { colour } });
+    const answer = await call("POST", `/api/trunks/${made.trunk.id}`, { chosenColour: colour });
     assert.equal(answer.status, 400, `${colour} is refused`);
   }
-  for (const [colour, kept] of [["#A7C080", "#a7c080"], [3, 3], ["theme", "theme"]]) {
-    const answer = await call("POST", `/api/trunks/${made.trunk.id}`, { look: { colour } });
-    assert.equal(answer.status, 200, `${colour} is kept`);
-    assert.equal((await answer.json()).trunk.look.colour, kept);
-  }
+  assert.equal((await call("POST", `/api/trunks/${made.trunk.id}`, { look: { colour: "#a7c080" } })).status, 400, "the look keeps tokens only");
+  const kept = await (await call("POST", `/api/trunks/${made.trunk.id}`, { chosenColour: "#A7C080" })).json();
+  assert.equal(kept.trunk.chosenColour, "#a7c080");
+  const cleared = await (await call("POST", `/api/trunks/${made.trunk.id}`, { chosenColour: null, look: { colour: "theme" } })).json();
+  assert.deepEqual([cleared.trunk.chosenColour, cleared.trunk.look.colour], [null, "theme"]);
 });
 
 test("DG-105 Follow my theme switched off again gives back the colour it had", async (t) => {

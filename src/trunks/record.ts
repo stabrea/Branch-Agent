@@ -26,6 +26,13 @@ export const TrunkSchema = TrunkCreateSchema.extend({
   avatar: AvatarSchema.optional(),
   /** phase2/shell: its colour, face, shape and movement (src/trunks/look.ts); absent looks as it always did. */
   look: TrunkLookSchema.optional(),
+  /**
+   * DG-105: a colour the owner picked as a value (the sample's palette, or any colour), in lower case. It is
+   * drawn only while `look.colour` is null, so a colour chosen later, even by a build from before this field
+   * (which keeps the field it does not know and writes `look.colour`), always wins. Kept outside `look`, whose
+   * record older builds check strictly.
+   */
+  chosenColour: z.string().regex(/^#[0-9a-f]{6}$/i, "Choose a colour such as #1f5139").transform((value) => value.toLowerCase()).nullable().optional(),
   /** The model preset it answers with; empty follows the conversation, then the owner's default. */
   model: z.string().trim().max(64).default(""),
   reasoning: z.enum(reasoningEfforts).nullable().default(null),

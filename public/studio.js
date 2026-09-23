@@ -7,7 +7,7 @@
    theme's own highlight), its shape and how it moves, with a live preview of it in the strip and on
    its replies. Pairing lives in public/pairing.js. Words have data-t keys; no colour is written here. */
 import { api, toast } from "/app.js";
-import { face, initialsOf, MOTIONS, TRUNK_SHAPES, maskOf, trunkSpec } from "/faces.js";
+import { face, initialsOf, MOTIONS, TRUNK_SHAPES, maskOf, trunkColour, trunkSpec } from "/faces.js";
 import { findTrunk, icon, make, openTrunk, refresh, say, shell, showOverview, trunksOn } from "/strip.js";
 
 const $ = (id) => document.getElementById(id);
@@ -378,12 +378,16 @@ function footer() {
 }
 
 /* ---------- saving ---------- */
+/* DG-105: a colour picked as a value is saved as the Trunk's chosenColour, with the look's own colour left
+   empty, so a build from before it still reads the look; a token or "theme" clears the picked colour. */
 function lookToSave() {
   const look = { ...studio.draft.look };
   if (look.face === "photo") look.face = "drawn";
   if (look.face !== "letters") look.letters = "";
+  if (isHex(look.colour)) look.colour = null;
   return look;
 }
+const colourToSave = () => (isHex(studio.draft.look.colour) ? studio.draft.look.colour.toLowerCase() : null);
 async function savePhoto(id) {
   const d = studio.draft;
   if (d.look.face === "photo" && d.photo) return api(`trunks/${id}/avatar`, { kind: "image", dataUrl: d.photo });
@@ -394,7 +398,7 @@ async function createTrunk() {
   const d = studio.draft, name = d.name.trim();
   if (!name) return $("studio-name")?.focus();
   const { trunk } = await api("trunks", { name, title: d.title.trim(), description: "" });
-  await api(`trunks/${trunk.id}`, { look: lookToSave(), pinned: d.pinned });
+  await api(`trunks/${trunk.id}`, { look: lookToSave(), chosenColour: colourToSave(), pinned: d.pinned });
   await savePhoto(trunk.id);
   closeDialog(true);
   await refresh();
@@ -406,7 +410,7 @@ async function createTrunk() {
 async function saveEdit() {
   const d = studio.draft, id = studio.editing, name = d.name.trim();
   if (!name) return $("studio-name")?.focus();
-  await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), pinned: d.pinned });
+  await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), chosenColour: colourToSave(), pinned: d.pinned });
   await savePhoto(id);
   closeDialog(true);
   await refresh();
@@ -420,7 +424,7 @@ export async function openEdit(id, { rename = false } = {}) {
   if (!trunk) return toast(say("studio.gone", "That Trunk is no longer here."));
   const look = { face: "drawn", letters: "", emoji: "🌱", shuffle: 0, colour: null, shape: null, motion: "none", depth: "flat", ...(trunk.look ?? {}) };
   const spec = trunkSpec(trunk);
-  if (look.colour === null) look.colour = Number(/series-(\d)/.exec(spec.colour)?.[1] ?? 1);
+  if (look.colour === null) look.colour = trunkColour(trunk) ?? Number(/series-(\d)/.exec(spec.colour)?.[1] ?? 1);
   if (look.shape === null) look.shape = spec.shape;
   const photo = trunk.avatar && trunk.avatar.kind !== "face" ? trunk.avatar.dataUrl : null;
   if (photo) look.face = "photo";

@@ -9,8 +9,8 @@ import { z } from "zod";
  *   image      a picture the owner uploaded
  *   generated  a picture made by the connected picture model from a few words
  *
- * No colour is stored here: the face takes the Trunk's colour from its look (src/trunks/look.ts), or
- * one of the eight `--series-N` tokens from its name. The window animates the face while the Trunk's turn runs.
+ * No colour is stored here: the face takes the Trunk's colour from its look (src/trunks/look.ts) or its
+ * `chosenColour`, or one of the eight `--series-N` tokens from its name. The window animates the face while the Trunk's turn runs.
  */
 const pictureData = z.string().max(400_000)
   .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/, "A picture must be a PNG, JPEG or WebP");

@@ -172,8 +172,8 @@ test("Change look… edits a Trunk after it is made: face, emoji, colour, shape 
   assert.deepEqual(await untranslated(f.page), []);
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
-  const look = (await f.call(`/api/trunks/${trunk.id}`)).trunk.look;
-  assert.deepEqual([look.face, look.emoji, look.colour, look.shape, look.motion], ["emoji", "🦉", "#ff6b8a", "hexagon", "breathe"]);
+  const { look, chosenColour } = (await f.call(`/api/trunks/${trunk.id}`)).trunk;
+  assert.deepEqual([look.face, look.emoji, look.colour, chosenColour, look.shape, look.motion], ["emoji", "🦉", null, "#ff6b8a", "hexagon", "breathe"]);
   await f.page.waitForFunction((id) => document.querySelector(`#trunk-strip [data-strip-id="trunk:${id}"] .fc-emoji`)?.dataset.text === "🦉", trunk.id);
   assert.deepEqual(f.errors, []);
 });

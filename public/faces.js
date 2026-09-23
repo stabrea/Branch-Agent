@@ -53,6 +53,12 @@ export function inkOn(hex) {
   return 1.05 / (luminance(hex) + 0.05) >= 4.5 ? "var(--face-ink-light)" : "var(--face-ink-dark)";
 }
 
+/** DG-105: the colour a Trunk is drawn in: its look's token, else the colour picked as a value, else null (its name's). */
+export function trunkColour(trunk) {
+  const token = trunk.look?.colour ?? null;
+  return token === null && HEX.test(String(trunk.chosenColour ?? "")) ? trunk.chosenColour : token;
+}
+
 /* ---------- what a Trunk's look comes to, the name's own choices filling the gaps ---------- */
 export function trunkSpec(trunk) {
   const seed = hash(trunk.avatar?.seed || trunk.name), look = trunk.look ?? {};
@@ -60,7 +66,7 @@ export function trunkSpec(trunk) {
   return {
     kind: "trunk", name: trunk.name, seed,
     face: photo ? "photo" : look.face ?? "drawn", photo, letters: look.letters || initialsOf(trunk.name), emoji: look.emoji || "",
-    shuffle: look.shuffle ?? 0, colour: colourVar(look.colour ?? ((seed >>> 9) % 8) + 1),
+    shuffle: look.shuffle ?? 0, colour: colourVar(trunkColour(trunk) ?? ((seed >>> 9) % 8) + 1),
     shape: look.shape ?? (seed % 4 % 2 ? "squircle" : "circle"), motion: look.motion ?? "none", depth: look.depth ?? "flat",
   };
 }
