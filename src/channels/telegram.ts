@@ -24,6 +24,7 @@ const voiceSchema = z.object({
 }).passthrough();
 const messageSchema = z.object({
   message_id: z.number(),
+  message_thread_id: z.number().int().positive().optional(),
   text: z.string().optional(),
   caption: z.string().optional(),
   voice: voiceSchema.optional(),
@@ -46,6 +47,13 @@ const updateSchema = z.object({
   callback_query: callbackSchema.optional(),
 }).passthrough();
 const responseSchema = z.object({ ok: z.boolean(), result: z.unknown().optional(), description: z.string().optional() });
+/** Topic addresses remain distinct in the router; Telegram receives the underlying chat and thread. */
+const topicAddress = (chatId: number, threadId?: number): string =>
+  threadId === undefined ? String(chatId) : `${chatId}:${threadId}`;
+const telegramTarget = (address: string): { chat_id: number; message_thread_id?: number } => {
+  const [chatId, threadId] = address.split(":");
+  return { chat_id: Number(chatId), ...(threadId === undefined ? {} : { message_thread_id: Number(threadId) }) };
+};
 
 export class TelegramAdapter implements ChannelAdapter {
   readonly kind = "telegram";
@@ -79,7 +87,7 @@ export class TelegramAdapter implements ChannelAdapter {
   }
   async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
     const result = await this.call("sendMessage", {
-      chat_id: Number(chatId), text,
+      ...telegramTarget(chatId), text,
       ...(replyToMessageId ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
     });
     const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
@@ -88,7 +96,9 @@ export class TelegramAdapter implements ChannelAdapter {
   /** Sends a spoken reply as a Telegram voice note. Telegram wants the file as a form upload. */
   async sendVoice(chatId: string, audio: Uint8Array, mediaType: string, replyToMessageId?: string): Promise<string | undefined> {
     const form = new FormData();
-    form.append("chat_id", chatId);
+    const target = telegramTarget(chatId);
+    form.append("chat_id", String(target.chat_id));
+    if (target.message_thread_id !== undefined) form.append("message_thread_id", String(target.message_thread_id));
     const extension = mediaType.includes("mpeg") ? "mp3" : mediaType.includes("wav") ? "wav" : "ogg";
     form.append("audio", new Blob([new Uint8Array(audio)], { type: mediaType }), `reply.${extension}`);
     if (replyToMessageId) form.append("reply_to_message_id", replyToMessageId);
@@ -102,7 +112,9 @@ export class TelegramAdapter implements ChannelAdapter {
   readonly maxFileBytes = 50 * 1024 * 1024;
   async sendFile(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined> {
     const form = new FormData();
-    form.append("chat_id", chatId);
+    const target = telegramTarget(chatId);
+    form.append("chat_id", String(target.chat_id));
+    if (target.message_thread_id !== undefined) form.append("message_thread_id", String(target.message_thread_id));
     form.append("document", new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }), file.name);
     if (file.caption) form.append("caption", file.caption.slice(0, 1024));
     if (replyToMessageId) form.append("reply_to_message_id", replyToMessageId);
@@ -163,7 +175,7 @@ export class TelegramAdapter implements ChannelAdapter {
     if (!chat || !query.from || query.from.is_bot || !query.data) return null;
     void this.call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => undefined);
     return {
-      channel: this.id, chatId: String(chat.id), chatKind: chat.type === "private" ? "direct" : "group",
+      channel: this.id, chatId: topicAddress(chat.id, query.message?.message_thread_id), chatKind: chat.type === "private" ? "direct" : "group",
       ...(chat.title ? { chatTitle: chat.title } : {}),
       senderId: String(query.from.id),
       senderName: query.from.username ?? query.from.first_name ?? String(query.from.id),
@@ -177,7 +189,7 @@ export class TelegramAdapter implements ChannelAdapter {
    */
   async sendButtons(chatId: string, text: string, buttons: { label: string; value: string }[], replyToMessageId?: string): Promise<string | undefined> {
     const result = await this.call("sendMessage", {
-      chat_id: Number(chatId), text,
+      ...telegramTarget(chatId), text,
       reply_markup: { inline_keyboard: [buttons.map((button) => ({ text: button.label, callback_data: button.value }))] },
       ...(replyToMessageId ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
     });
@@ -186,17 +198,17 @@ export class TelegramAdapter implements ChannelAdapter {
   }
   /** "typing…" for about five seconds; the router asks again while the task works. */
   async sendTyping(chatId: string): Promise<void> {
-    await this.call("sendChatAction", { chat_id: Number(chatId), action: "typing" });
+    await this.call("sendChatAction", { ...telegramTarget(chatId), action: "typing" });
   }
   /** Telegram shows one reaction from a bot and replaces it, so `previous` needs no removing. */
   async react(chatId: string, messageId: string, emoji: string): Promise<void> {
     await this.call("setMessageReaction", {
-      chat_id: Number(chatId), message_id: Number(messageId), reaction: [{ type: "emoji", emoji }],
+      chat_id: telegramTarget(chatId).chat_id, message_id: Number(messageId), reaction: [{ type: "emoji", emoji }],
     });
   }
   async edit(chatId: string, messageId: string, text: string): Promise<void> {
     try {
-      await this.call("editMessageText", { chat_id: Number(chatId), message_id: Number(messageId), text });
+      await this.call("editMessageText", { chat_id: telegramTarget(chatId).chat_id, message_id: Number(messageId), text });
     } catch (error) {
       // Sending the same words again is refused with this; the message already says them.
       if (!/message is not modified/i.test(error instanceof Error ? error.message : "")) throw error;
@@ -213,7 +225,7 @@ export class TelegramAdapter implements ChannelAdapter {
     const direct = message.chat.type === "private";
     const text = mention && mentioned ? written.replace(new RegExp(mention, "ig"), "").trim() : written;
     return {
-      channel: this.id, chatId: String(message.chat.id), chatKind: direct ? "direct" : "group",
+      channel: this.id, chatId: topicAddress(message.chat.id, message.message_thread_id), chatKind: direct ? "direct" : "group",
       ...(message.chat.title ? { chatTitle: message.chat.title } : {}),
       senderId: String(message.from.id), senderName: message.from.username ?? message.from.first_name ?? String(message.from.id),
       text, addressed: direct || mentioned || replyToBot || (!!spoken && direct), messageId: String(message.message_id),
