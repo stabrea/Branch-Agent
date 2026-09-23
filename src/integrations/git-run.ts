@@ -28,13 +28,29 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
   }
   // macOS and Linux: where temporary files go, who is signed in, and the key agent ssh remotes use.
   Object.assign(result, posixEnvironment(["TMPDIR", "USER", "LOGNAME", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME"], source, platform));
-  return { ...result, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", NO_COLOR: "1", GCM_INTERACTIVE: "never" };
+  // Q12: the computer-wide config file is not read either; a repository's own is held by the pins above.
+  return { ...result, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", NO_COLOR: "1", GCM_INTERACTIVE: "never", GIT_CONFIG_NOSYSTEM: "1" };
 }
 
+/**
+ * Q12: settings a repository's own `.git/config` could use to make Git start a program, each pinned
+ * to a harmless value. `-c` outranks every config file, and Git hands these to the Git processes it
+ * starts itself (a submodule's), so a folder a task wrote cannot run anything through them.
+ * `diff.external` cannot be emptied, so it names `false`: a patch Branch asks for passes
+ * `--no-ext-diff` (src/integrations/git.ts), and any other would stop loudly rather than run a program.
+ * Filters, merge drivers and textconv are named per repository and cannot all be pinned; Git tools
+ * are kept out of nested repositories in Branch's source instead (src/self-development-contract.ts).
+ */
+export const pinnedGitConfig: readonly string[] = [
+  "core.fsmonitor=false", "core.sshCommand=ssh", "core.pager=cat", "core.editor=:", "sequence.editor=:",
+  "core.gitProxy=", "core.askPass=", "credential.helper=", "diff.external=false", "protocol.ext.allow=never",
+  "commit.gpgSign=false", "tag.gpgSign=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
+];
+
 /** Settings forced on every call; they come before the subcommand so no repository can override them. */
-function hardening(cwd: string): string[] {
+export function hardening(cwd: string): string[] {
   return ["-c", `safe.directory=${cwd}`, "-c", `core.hooksPath=${NO_HOOKS}`, "-c", "core.quotepath=false",
-    "-c", "credential.interactive=never", "--no-pager"];
+    "-c", "credential.interactive=never", ...pinnedGitConfig.flatMap((setting) => ["-c", setting]), "--no-pager"];
 }
 
 let located: Promise<string | null> | undefined;

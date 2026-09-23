@@ -358,8 +358,24 @@ const remotePermissions = new Set(["git.remote", "github.manage"]);
  * paths have been checked against it (a refusal throws, audited); null when the call only looks or
  * touches nothing there.
  */
+/**
+ * Q12: where a Git tool would run inside Branch's source when that is not a worktree's root, or null.
+ * Git reads the repository it finds there, and a repository's own settings can start programs
+ * (core.fsmonitor, a filter), so a `.git` a held command planted deeper down must never be run in.
+ * Branch pins the known settings (src/integrations/git-run.ts); this keeps Git out of such folders.
+ */
+function gitBelowRoot(deps: ContractGuardDeps, name: string, args: unknown): string | null {
+  if (!/^(git|plans)\./.test(name)) return null;
+  const named = (args as { folder?: unknown } | null)?.folder;
+  const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
+  const folder = workspacePath(deps.workspace, scope, typeof named === "string" && named ? named : ".");
+  return folder !== null && insideSource(folder) && worktreeOf(folder) !== folder ? folder : null;
+}
+
 function heldTerms(deps: ContractGuardDeps, name: string, args: unknown, context: ToolContext): { contract: SelfDevelopmentContract; permission: string } | null {
   if (name === prepareToolName || name === widenToolName) return null;
+  const below = gitBelowRoot(deps, name, args);
+  if (below) refuse(deps, context, name, worktreeOf(below), `Git runs in Branch's own source only at a self-development worktree's root, never in ${below}, where a repository's own settings could start a program outside the sandbox.`);
   const permission = deps.registry.permissionOf(name);
   if (isReadOnlyPermission(permission)) return null;
   const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";

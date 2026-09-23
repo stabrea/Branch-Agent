@@ -68,10 +68,10 @@ export class GitTools {
   async diff(input: { folder: string; range?: string | undefined; staged?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const scope = [...(input.staged ? ["--cached"] : []), ...(input.range ? [input.range] : [])];
-    const names = (await this.run(cwd, ["diff", ...scope, "--name-only"], signal)).stdout.split("\n");
+    const names = (await this.run(cwd, ["diff", ...noPrograms, ...scope, "--name-only"], signal)).stdout.split("\n");
     const files = await this.visible(cwd, names.filter(Boolean));
     if (!files.length) return { folder: input.folder, files: [], text: "", truncated: false };
-    const outcome = await this.run(cwd, ["diff", "--no-color", ...scope, "--", ...files], signal, { maxOutputBytes: 65536 });
+    const outcome = await this.run(cwd, ["diff", ...noPrograms, "--no-color", ...scope, "--", ...files], signal, { maxOutputBytes: 65536 });
     const text = outcome.stdout.slice(0, 24000);
     return { folder: input.folder, files, text, truncated: outcome.truncated || outcome.stdout.length > text.length };
   }
@@ -79,7 +79,7 @@ export class GitTools {
   async log(input: { folder: string; limit: number; path?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const target = input.path ? ["--", input.path] : [];
-    const args = ["log", `--max-count=${input.limit}`, "--no-color", "--pretty=format:%H%x1f%an%x1f%aI%x1f%s", ...target];
+    const args = ["log", ...noPrograms, `--max-count=${input.limit}`, "--no-color", "--pretty=format:%H%x1f%an%x1f%aI%x1f%s", ...target];
     const stdout = (await this.run(cwd, args, signal)).stdout;
     const versions = stdout.split("\n").filter(Boolean).map((line) => line.split("\x1f"))
       .map(([commit, author, at, subject]) => ({ commit: (commit ?? "").slice(0, 12), author, at, summary: (subject ?? "").slice(0, 200) }));
@@ -105,7 +105,7 @@ export class GitTools {
     const allowed = await this.visible(cwd, candidates);
     if (!allowed.length) throw new Error("There is nothing to save: no files have changed since the last saved version.");
     await this.run(cwd, ["add", "--", ...allowed], signal);
-    const staged = (await this.run(cwd, ["diff", "--cached", "--name-only"], signal)).stdout.split("\n").filter(Boolean);
+    const staged = (await this.run(cwd, ["diff", ...noPrograms, "--cached", "--name-only"], signal)).stdout.split("\n").filter(Boolean);
     if (!staged.length) throw new Error("There is nothing to save: no files have changed since the last saved version.");
     await this.run(cwd, ["commit", "--message", input.message], signal);
     const commit = (await this.run(cwd, ["rev-parse", "HEAD"], signal)).stdout.trim().slice(0, 12);
@@ -157,11 +157,11 @@ export class GitTools {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
     const against = input.against ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    const names = (await this.run(cwd, ["diff", "--name-only", `${against}...${branch}`], signal)).stdout.split("\n");
+    const names = (await this.run(cwd, ["diff", ...noPrograms, "--name-only", `${against}...${branch}`], signal)).stdout.split("\n");
     const files = await this.visible(cwd, names.filter(Boolean));
     if (!files.length) return { folder: input.folder, name: input.name, branch, against, files: [], text: "", truncated: false,
       note: "The plan changed nothing that is saved on its branch yet." };
-    const outcome = await this.run(cwd, ["diff", "--no-color", `${against}...${branch}`, "--", ...files], signal, { maxOutputBytes: 65536 });
+    const outcome = await this.run(cwd, ["diff", ...noPrograms, "--no-color", `${against}...${branch}`, "--", ...files], signal, { maxOutputBytes: 65536 });
     const text = outcome.stdout.slice(0, 24000);
     return { folder: input.folder, name: input.name, branch, against, files, text, truncated: outcome.truncated || outcome.stdout.length > text.length };
   }
@@ -211,6 +211,12 @@ export class GitTools {
 }
 
 const notes = (outcome: GitOutcome): string => `${outcome.stdout}\n${outcome.stderr}`.trim().slice(0, 2000);
+
+/**
+ * Q12: a diff or log never hands a file to a program a repository names (an external diff tool or a
+ * textconv filter); the change is shown as Git itself reads it. See pinnedGitConfig in git-run.ts.
+ */
+const noPrograms = ["--no-ext-diff", "--no-textconv"] as const;
 
 /** Every plan branch is named the same way, so one can never be mistaken for the owner's own. */
 export const planBranch = (name: string): string => `plan/${name}`;

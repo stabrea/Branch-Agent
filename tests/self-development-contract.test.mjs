@@ -345,9 +345,10 @@ test("a tool that works on a whole folder needs the allowed paths to cover all o
   const narrow = guardWith(() => answer(""));
   await assert.rejects(narrow.guard("git.pull", { folder: "." }, { runId: "r", signal: signal() }),
     /git\.pull works on the whole of the worktree, and the contract's allowed paths do not cover all of it/);
-  await assert.rejects(narrow.guard("git.pull", { folder: "src" }, { runId: "r", signal: signal() }), /works on the whole of src/);
+  // Below the worktree's root Git is refused outright (a nested repository's settings could start a program).
+  for (const folder of ["src", "src/ui"])
+    await assert.rejects(narrow.guard("git.pull", { folder }, { runId: "r", signal: signal() }), /Git runs in Branch's own source only at a self-development worktree's root/);
   assert.equal(narrow.calls.length, 0, "refused before Git is asked anything");
-  await narrow.guard("git.pull", { folder: "src/ui" }, { runId: "r", signal: signal() });
   const wide = guardWith(() => answer(""), { allowedPaths: ["**"] });
   await wide.guard("git.pull", { folder: "." }, { runId: "r", signal: signal() });
 });
