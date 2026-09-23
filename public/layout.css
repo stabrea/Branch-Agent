@@ -2634,9 +2634,26 @@ body.lx.lx-chat .thread-name {
 body.lx.lx-chat .thread-name:empty::before {
   content: attr(data-empty);
 }
+/* DG-099: the shared-conversation face stack, shown when the conversation has read-only or join participants */
+body.lx .lx-shared {
+  display: inline-flex;
+  margin-left: 8px;
+}
+body.lx .lx-stack {
+  display: inline-flex;
+}
+body.lx .lx-stack > span {
+  margin-left: -6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+body.lx .lx-stack > span:first-child {
+  margin-left: 0;
+}
 @media (max-width: 760px) {
   body.lx .lx-crumbs-mid,
-  body.lx .lx-crumbs-sep {
+  body.lx .lx-crumbs-sep,
+  body.lx .lx-shared {
     display: none;
   }
 }
