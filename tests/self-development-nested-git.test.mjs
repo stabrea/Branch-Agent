@@ -190,33 +190,42 @@ test("Q79: git.push and git.pull in source refuse LOCAL scoped credential.helper
   const { app, folder, cwd } = await plantedBare(t);
   const signal = AbortSignal.timeout(10_000);
   execFileSync("git", ["config", "--local", "credential.helper", "fake"], { cwd });
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*local scope/);
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*local scope/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
 });
 
 test("Q79: git.push and git.pull in source refuse LOCAL scoped core.askPass", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
   const signal = AbortSignal.timeout(10_000);
   execFileSync("git", ["config", "--local", "core.askPass", "/bin/false"], { cwd });
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /core\.askPass.*local scope/);
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /core\.askPass.*local scope/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /password prompt.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /password prompt.*local scope/);
 });
 
 test("Q79: git.push and git.pull in source refuse LOCAL scoped core.sshCommand", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
   const signal = AbortSignal.timeout(10_000);
   execFileSync("git", ["config", "--local", "core.sshCommand", "/bin/false"], { cwd });
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /core\.sshCommand.*local scope/);
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /core\.sshCommand.*local scope/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /SSH command.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /SSH command.*local scope/);
 });
 
 test("Q79: git.push and git.pull in source refuse WORKTREE scoped credential.helper", { skip: posixOnly }, async (t) => {
-  const { app, folder, cwd } = await plantedBare(t);
+  const root = await mkdtemp(join(tmpdir(), "branch-self-wtree-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const folder = "branch-agent-source/.branch-worktrees/self-worktree";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", args, { cwd, stdio: "pipe" });
+  git("init", "-q", "-b", "feature");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
+  git("remote", "add", "origin", "https://example.com/repo.git");
+  git("config", "--worktree", "credential.helper", "fake");
   const signal = AbortSignal.timeout(10_000);
-  try { execFileSync("git", ["config", "--unset-all", "credential.helper"], { cwd, stdio: "ignore" }); } catch {}
-  execFileSync("git", ["config", "--worktree", "credential.helper", "fake"], { cwd });
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*(local|worktree) scope/);
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*(local|worktree) scope/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
 });
 
 test("Q79: git.push and git.pull in source allow GLOBAL scoped credential.helper", { skip: posixOnly }, async (t) => {
