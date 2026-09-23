@@ -1037,8 +1037,9 @@ function showUpdateStatus(status) {
   if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus).catch(() => {}), installing ? 400 : 700);
 }
 async function renderUpdates() {
-  $("updates-card").hidden = !window.branchDesktop;
-  showVersions(null);
+  /* DG-192: the card is on show everywhere, as the sample's is; a browser has the version, not the checking or the channel. */
+  for (const id of ["updates-check", "updates-channel", "updates-channel-note"]) $(id).hidden = !window.branchDesktop;
+  showVersions(window.branchDesktop ? null : { phase: "unsupported" });
   if (!window.branchDesktop) return;
   try {
     const channel = (await api("comfort")).values.notify.releaseChannel;

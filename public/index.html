@@ -1365,9 +1365,20 @@
             <p class="subtle terms-line" id="chatgpt-terms"><strong data-t="terms.label">Terms:</strong> <span data-t="terms.chatgpt.route">ChatGPT plan sign-in. Unofficial: OpenAI documents this sign-in only for its own apps and has given no written permission for other apps, so it may stop working at any time. It stays off until you sign in, and an API key is the officially supported way.</span> <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noopener noreferrer" data-t="terms.chatgpt.sign-in-page">OpenAI's sign-in documentation ↗</a> · <a href="https://openai.com/policies/row-terms-of-use/" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
             <p class="subtle" data-t="terms.chatgpt.honest">Branch identifies itself as Branch Agent and never pretends to be another app.</p>
           </section>
-          <section id="updates-card" class="card" hidden>
-            <h2 data-t="settings.card.updates">Updates</h2>
-            <p id="updates-version" class="subtle"></p>
+          <!-- DG-192: the sample's Updates. Its section's heading names it, so the card's own title is read aloud, not
+               drawn; then where updates come from, Branch Agent and its version with Check for updates, and the channel.
+               A browser shows the version only: checking and installing are the desktop app's (public/app.js). -->
+          <section id="updates-card" class="card">
+            <h4 class="sr-only" data-t="settings.card.updates">Updates</h4>
+            <p class="subtle" data-t="updates.source">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
+            <div class="updates-brand">
+              <img src="/assets/icon.svg" alt="" width="56" height="56" />
+              <div><b>Branch Agent</b><span class="subtle" data-t="updates.brand.line">A personal assistant that runs on your own computer · open source</span></div>
+            </div>
+            <div class="updates-now">
+              <p id="updates-version"></p>
+              <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
+            </div>
             <fieldset id="updates-channel" class="update-channel-choices" aria-describedby="updates-channel-note">
               <legend data-t="updates.channel.label">Update channel</legend>
               <label><input type="radio" name="release-channel" value="stable" checked> <span data-t="updates.channel.stable">Stable</span></label>
@@ -1379,10 +1390,8 @@
             <p id="updates-status" role="status"></p>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
-              <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
               <button id="updates-install" type="button" hidden data-t="action.update-and-restart">Update and restart</button>
             </div>
-            <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
           <form id="projects-form" class="card">
             <h2 data-t="settings.card.projects">Projects</h2>
@@ -1941,8 +1950,13 @@
                in other products. It shows what would go before anything goes. -->
           <!-- mac7/diagnostics: manual reports are never sent; automatic reports are a separate,
                off-by-default opt-in limited to an already linked owner destination. -->
+          <!-- DG-192: the sample's The keeper, the acorn in a card of its own. Drag it, or use the arrow keys, to turn it (public/acorn.js). -->
+          <section id="about-keeper" class="card about-keeper" data-home="settings:about">
+            <canvas id="about-acorn" width="64" height="64" role="img" tabindex="0" title="Drag to turn" data-t-title="acorn.tip"
+              aria-label="The acorn. Drag or use the arrow keys to turn it." data-t-label="about.keeper.acorn"></canvas>
+          </section>
           <section id="problem-report-card" class="card">
-            <h2 data-t="settings.card.report">Report a problem</h2>
+            <h4 data-t="settings.card.report">Report a problem</h4>
             <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. This manual report is not sent automatically: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
             <label for="problem-report-summary" data-t="field.report-summary">What went wrong (optional)</label>
             <input id="problem-report-summary" maxlength="500" aria-describedby="problem-report-intro" />
@@ -1954,7 +1968,7 @@
               <button id="problem-report-issue" type="button" data-t="action.report-issue">Open a GitHub issue form</button>
             </div>
             <hr />
-            <h3 data-t="automatic-report.title">Send future problems automatically</h3>
+            <h5 data-t="automatic-report.title">Send future problems automatically</h5>
             <p id="automatic-problem-help" class="subtle" data-t="automatic-report.help">Off unless you turn it on. Branch sends only the report parts you choose, through an owner chat or GitHub account already linked here. You can preview the exact words first, and every attempt is written in Allowed &amp; audit.</p>
             <label for="automatic-problem-mode" data-t="automatic-report.field.mode">Automatic reports</label>
             <select id="automatic-problem-mode" aria-describedby="automatic-problem-help">
@@ -2038,7 +2052,7 @@
             <pre id="automatic-problem-preview" hidden></pre>
           </section>
           <section id="danger-zone" class="card danger-zone" data-home="settings:about">
-            <h2 data-t="danger.card.title">Danger zone</h2>
+            <h4 data-t="danger.card.title">Remove Branch from this computer</h4>
             <p class="subtle" data-t="danger.intro">Removing Branch closes it, takes away the app, the programs it downloaded to run models, the models themselves, and the entry that starts it when you sign in. Nothing here can be undone.</p>
             <p id="danger-status" role="status"></p>
             <div id="danger-list" class="card-list"></div>

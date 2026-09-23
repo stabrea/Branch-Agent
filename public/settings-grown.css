@@ -799,3 +799,56 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {
   display: none;
 }
+
+/* ---------- DG-192: Updates & about, as the sample draws it ---------- */
+/* Updating by itself: its section's heading already names it, and a choice saves as it is picked (DG-025). */
+#comfort-updates-card > .settings-card-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+#comfort-updates-card > .identity-actions {
+  display: none;
+}
+.updates-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+.updates-brand img {
+  width: 56px;
+  height: 56px;
+  flex: none;
+}
+.updates-brand b {
+  display: block;
+  font-size: 22px;
+  font-weight: 760;
+  letter-spacing: -.01em;
+}
+.updates-brand .subtle {
+  display: block;
+  font-size: 12.5px;
+}
+.updates-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.updates-now p {
+  margin: 0;
+  min-width: 0;
+}
+.about-keeper canvas {
+  display: block;
+  width: 160px;
+  height: 160px;
+  image-rendering: pixelated;
+  touch-action: none;
+  cursor: grab;
+}
