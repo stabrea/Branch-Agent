@@ -13,7 +13,7 @@ import { z } from "zod";
 import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
-import { RunInputSchema, errorText } from "./contracts.js";
+import { RunInputSchema, errorText, type Run } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
@@ -887,20 +887,26 @@ function toolInventory(app: Branch) {
     models: [...app.runtime.models.presets.keys()],
   };
 }
-/** Tasks waiting for the person's answer: the latest run of a conversation that stopped with a question. */
+/**
+ * Tasks waiting for the person: each conversation's newest task when it stopped to ask, or when Branch closed on it
+ * and it can be continued. Read with store.waitingRuns, as the Activity list reads its waiting tasks, so the two lists
+ * agree and a question stays listed however much other work finishes after it.
+ */
 function attention(app: Branch) {
-  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; who?: string; room?: string; open?: string };
-  const seen = new Set<string>(), waiting: Waiting[] = [];
-  for (const run of app.store.runs(app.runtime.owner)) {
-    if (seen.has(run.sessionId)) continue;
-    seen.add(run.sessionId);
-    if (run.status !== "needs_input") continue;
+  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
+  return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
     // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
     const by = app.trunks.conversations.answerer(run.sessionId);
-    waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt,
-      ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) });
-  }
-  return waiting;
+    return { runId: run.id, sessionId: run.sessionId, question: waitingWords(app, run), createdAt: run.createdAt,
+      ...(run.status === "interrupted" ? { canContinue: true as const } : {}),
+      ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) };
+  });
+}
+/** What a waiting task says: its question, or for one Branch closed on, the note that it can be continued. */
+function waitingWords(app: Branch, run: Run): string {
+  if (run.status !== "interrupted") return run.output;
+  const note = app.store.events(run.id).filter((event) => event.kind === "run.can_continue").at(-1)?.data.note;
+  return typeof note === "string" && note ? note : "Branch closed while this task was working. Continue it when you are ready.";
 }
 function state(app: Branch): unknown {
   const owner = app.runtime.owner;

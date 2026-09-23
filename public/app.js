@@ -654,6 +654,11 @@ function waitingMessageRow(item) {
     button(t("attention.notNow"), act("decline")));
   return row;
 }
+/* A task Branch closed on carries on from where it stopped, as the task list's own Continue does; the button stays
+   off while it is sent, so one press is one task. */
+function continueButton(item) {
+  return button(t("attention.continue"), async () => { await api("runs/" + item.runId + "/resume", {}); await refresh(); });
+}
 function renderAttention() {
   const waiting = state.attention || [];
   const messages = state.trunkWaiting || [];
@@ -663,6 +668,7 @@ function renderAttention() {
     const row = el("div", undefined, "attention-row");
     row.append(el("strong", needsYouTitle(item)), el("span", item.question),
       button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms
+    if (item.canContinue) row.append(continueButton(item));
     return row;
   }));
   for (const item of waiting) {
