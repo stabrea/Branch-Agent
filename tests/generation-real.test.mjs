@@ -26,9 +26,15 @@ import { Budget } from "../dist/contracts.js";
  * saved.
  *
  * So the stand-in services answer with files that really are what they claim. The picture is built
- * here and compressed properly. The video is a **genuinely encoded** two-second VP9 film kept at
- * `tests/fixtures/two-colours-vp9.mp4` — a red second and a blue second, 1,256 bytes. It was encoded
- * once, away from this test; nothing here needs ffmpeg on the computer running it.
+ * here and compressed properly. The video is a VP9 film kept at `tests/fixtures/two-colours-vp9.mp4` —
+ * a red second and a blue second — encoded once, away from this test; nothing here needs ffmpeg on the
+ * computer running it.
+ *
+ * **That paragraph used to vouch for the film itself** — "genuinely encoded", "two seconds", "1,256
+ * bytes" — which is prose, and prose goes on being reassuring about whatever bytes are at that path.
+ * The claims are checked now instead: its digest and size are pinned, and its container is read back
+ * field by field, in the test named for it below. Nothing here describes the fixture that is not also
+ * asserted about it.
  *
  * What Branch saved is then opened: the PNG back to its exact pixels, and the video **played by a real
  * browser**, which decodes two frames and hands back their colours. Branch's own reader is asked as
@@ -89,18 +95,29 @@ function realPng(width, height, colourAt) {
 function openPng(file) {
   const bytes = Buffer.from(file);
   assert.ok(bytes.subarray(0, 8).equals(PNG_MAGIC), "it begins the way a PNG begins");
-  let at = 8, header = null;
+  let at = 8, header = null, previous = null;
   const pressed = [];
   while (at + 12 <= bytes.length) {
     const size = bytes.readUInt32BE(at), type = bytes.subarray(at + 4, at + 8).toString("ascii");
     const data = bytes.subarray(at + 8, at + 8 + size);
     assert.equal(bytes.readUInt32BE(at + 8 + size), crc32(bytes.subarray(at + 4, at + 8 + size)),
       `the ${type} part's check number is right`);
+    /* The order is part of being a PNG, not decoration: the size has to come first, and nothing at all
+       may come after the end. Walking the parts without asking either question accepted a file whose
+       IHDR was second and one that carried a second IEND — both of which a half-written save looks
+       like, and both of which this test would then have called a real picture. */
+    if (previous === null) assert.equal(type, "IHDR", "the first part says how big it is");
+    else assert.notEqual(previous, "IEND", `a ${type} part follows the end of the picture`);
     if (type === "IHDR") header = { width: data.readUInt32BE(0), height: data.readUInt32BE(4),
       depth: data[8], colour: data[9], interlace: data[12] };
     if (type === "IDAT") pressed.push(data);
+    previous = type;
     at += 12 + size;
   }
+  /* And it has to be finished. The walk used to stop wherever it ran out, so a file with its ending cut
+     off, or with anything appended to it, was opened as happily as a whole one. */
+  assert.equal(previous, "IEND", "it ends where a finished picture ends");
+  assert.equal(at, bytes.length, "and nothing follows the end of it");
   assert.ok(header, "it says how big it is");
   assert.equal(header.depth, 8); assert.equal(header.colour, 2); assert.equal(header.interlace, 0);
   const flat = inflateSync(Buffer.concat(pressed));
@@ -282,4 +299,58 @@ test("the stand-in bytes the old fixtures used would not open", () => {
   const info = mediaInfo(pretend);
   assert.equal(info.seconds, null, "Branch cannot say how long it is");
   assert.equal(info.tracks, 0, "because there is no track in it");
+});
+
+/*
+ * What "a real picture" has to mean, held one shape at a time.
+ *
+ * The reader walked the parts and stopped wherever it ran out, asking nothing about the order they
+ * came in or whether anything followed the last one. Four files that are not finished PNGs were opened
+ * without complaint, and every one of them is what a half-written or tampered save looks like. The
+ * first two were named in review; the second two were found while fixing them.
+ */
+test("a file that is not a finished PNG is refused, four ways", () => {
+  const good = realPng(2, 1, () => [255, 0, 0]);
+  openPng(good); // the control: a whole one still opens
+
+  const broken = {
+    "anything appended after the end": Buffer.concat([good, Buffer.from("junk!")]),
+    "the ending cut off": good.subarray(0, good.length - 12),
+    "a part before the one that says how big it is":
+      Buffer.concat([PNG_MAGIC, chunk("tEXt", Buffer.from("x")), good.subarray(8)]),
+    "a second ending after the first": Buffer.concat([good, chunk("IEND", Buffer.alloc(0))]),
+  };
+  for (const [what, bytes] of Object.entries(broken))
+    assert.throws(() => openPng(bytes), /IEND|follows|first part|ends where/,
+      `opened a picture with ${what} (${bytes.length} bytes)`);
+
+  /* The two that a byte count alone cannot tell apart: appended rubbish leaves the walk short of the
+     end, while an appended *part* consumes it exactly — so one is caught by where the walk stopped and
+     the other only by what the last part was. Both assertions are load-bearing. */
+  assert.throws(() => openPng(Buffer.concat([good, Buffer.from("j")])), /nothing follows/);
+  assert.throws(() => openPng(Buffer.concat([good, chunk("IEND", Buffer.alloc(0))])), /follows the end/);
+});
+
+/*
+ * The film's provenance, checked instead of asserted.
+ *
+ * The header of this file used to say the fixture was "genuinely encoded", "two seconds", "1,256
+ * bytes" — prose that went on vouching for whatever bytes happened to be at that path. The digest is
+ * pinned here, so replacing the file fails rather than quietly passing, and nothing about this needs an
+ * encoder on the machine running it: the decoded-content evidence is the browser test above.
+ */
+test("the film fixture is the one that was encoded, by digest and not by description", async () => {
+  const { createHash } = await import("node:crypto");
+  const bytes = await readFile(join(import.meta.dirname, "fixtures", "two-colours-vp9.mp4"));
+  assert.equal(bytes.length, 1256, "the size it was encoded at");
+  assert.equal(createHash("sha256").update(bytes).digest("hex"),
+    "b5a7f22f5b3481289aa72fc14dfc6264845724ceff54fe77f7625e8d3d8ff0aa",
+    "a different film is in this file; re-record the digest deliberately or put the encoded one back");
+
+  // And it really is the film it claims to be, read out of the container itself.
+  /* And it really is the film it claims to be, read out of the container rather than out of the prose:
+     one video track of VP9 at 32x32, two seconds long, with 345 bytes of encoded picture in it. */
+  assert.deepEqual(describeMp4(bytes),
+    { tracks: 1, handler: "vide", codec: "vp09", width: 32, height: 32, seconds: 2, mediaBytes: 345 },
+    "the container no longer describes the film the digest pins");
 });
