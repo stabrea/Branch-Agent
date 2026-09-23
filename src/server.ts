@@ -158,6 +158,7 @@ import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wa
 import { dictationOwnerOnlyRefusal, dictationSettings, dictationView, saveDictationSettings } from "./voice-dictation.js"; // mac7/live-voice
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
+import { spokenDurationSeconds } from "./voice-output-audio.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
 import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.js";
 import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
@@ -3742,9 +3743,12 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       const spoken = await app.voice.speak(app.runtime.owner, {
         text: body.text, voice: body.voice ?? "", speed: body.speed ?? 1,
       });
+      // Real length, opened from the sound itself; absent rather than guessed for a squeezed format.
+      const seconds = spokenDurationSeconds(spoken.bytes, spoken.mediaType);
       response.writeHead(200, {
         "content-type": spoken.mediaType, "cache-control": "no-store",
         "x-voice-route": spoken.route, "x-voice-name": encodeURIComponent(spoken.voice),
+        ...(seconds !== null ? { "x-voice-seconds": String(seconds) } : {}),
       });
       response.end(Buffer.from(spoken.bytes));
     } catch (e) {
