@@ -72,6 +72,8 @@ test("DG-096 a phone has no strip, and the words are French in French", async (t
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   assert.equal(await page.locator("#lx-open-strip").isVisible(), false);
+  assert.notEqual(await page.evaluate(() => getComputedStyle(document.getElementById("composer-dock")).bottom), "48px",
+    "the message box is not lifted for a strip a phone does not show");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator("#lx-open-strip").waitFor({ state: "visible" });
   await page.evaluate(async () => { await (await import("/i18n.js")).setLanguage("fr"); });

@@ -40,11 +40,13 @@ const footLine = (page) => page.evaluate(() => [...document.querySelectorAll("#l
 
 for (const everything of [false, true]) {
   test(`DG-094 the foot is one icon line over the account row (Show everything ${everything ? "on" : "off"})`, async (t) => {
-    const { page, errors } = await signedIn(t, 1440, { showEverything: everything });
+    const { page, errors } = await signedIn(t, 1440);
+    if (everything) await page.evaluate(async () => (await import("/appearance.js")).changeAppearance({ showEverything: true }));
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.everything), everything ? "on" : "off");
     const line = await footLine(page);
     assert.deepEqual(line.map((b) => b.id).slice(0, 4), ["lx-foot-theme", "lx-foot-pet", "lx-foot-mode", "lx-foot-eye"]);
     assert.equal(line.length, 5, "and the Settings cog closes it");
-    assert.match(line[4].id, /^(lx-settings-row|rail-settings)$/);
+    assert.equal(line[4].id, everything ? "rail-settings" : "lx-settings-row");
     const box = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       const gear = [...document.querySelectorAll("#lx-foot-line > .sg-gear")].find((node) => node.checkVisibility()).getBoundingClientRect();
@@ -116,6 +118,8 @@ test("DG-092 Overview is the sidebar's first place, shown in the calm window, an
 for (const width of [1440, 1024, 390]) {
   test(`DG-095 at ${width} px a long owner line is shown whole`, async (t) => {
     const { page, errors } = await signedIn(t, width);
+    if (width < 761) await page.locator("#rail-toggle").click();
+    await page.locator("#owner-name").waitFor({ state: "visible" });
     const clipped = await page.evaluate(() => {
       const name = document.getElementById("owner-name");
       name.textContent = "Grandmother's workshop on the hill behind the orchard";

@@ -1729,8 +1729,10 @@ details.tool-step > summary:hover {
   color: var(--text);
 }
 /* the message box, which floats at the pane's foot, sits on top of the strip rather than over it */
-main:has(> .lx-open-strip:not([hidden])) .composer-dock {
-  bottom: 48px;
+@media (min-width: 761px) {
+  main:has(> .lx-open-strip:not([hidden])) .composer-dock {
+    bottom: 48px;
+  }
 }
 /* as in the sample, a phone has no room for it */
 @media (max-width: 760px) {
