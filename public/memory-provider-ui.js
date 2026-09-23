@@ -68,14 +68,16 @@ function build(view) {
   const url = input(view.settings.url, "url");
   const timeout = input(String(view.settings.timeoutMs), "number");
   Object.assign(timeout, { min: "500", max: "30000", step: "500" });
-  const active = plain("p", say("memprovider.active", `Right now: ${view.active}`, { active: view.active }), "meta");
+  const active = view.active === "outside"
+    ? make("p", "meta", "memprovider.activeOutside", "Right now: an outside memory service")
+    : make("p", "meta", "memprovider.activeBuiltin", "Right now: this computer's database");
   const urlField = described("memprovider-url", ["memprovider.url", "Outside service address"], ["memprovider.urlHint", "Needed once you switch to an outside service; your network rules apply."], url);
   const timeoutField = described("memprovider-timeout", ["memprovider.timeout", "Give up after (milliseconds)"], ["memprovider.timeoutHint", "How long one request to the outside service may take before Branch stops waiting."], timeout);
   const outsideOnly = [...urlField, ...timeoutField];
   const sync = () => { for (const field of outsideOnly) field.hidden = mode.value !== "outside"; };
   mode.addEventListener("change", sync);
   sync();
-  node.append(...described("memprovider-mode", ["memprovider.mode", "Keep facts in"], ["memprovider.modeHint", "An outside service must answer the six calls src/memory-backend.ts describes."], mode),
+  node.append(...described("memprovider-mode", ["memprovider.mode", "Keep facts in"], ["memprovider.modeHint", "An outside service must answer six requests: read, list, save, search, forget and count facts."], mode),
     ...outsideOnly, active,
     ...button(["memprovider.save", "Save"], ["memprovider.saveHint", "An outside service needs a usable address before it can be switched on."], async () => {
       try {

@@ -76,6 +76,15 @@ export interface RemoteMemoryConfig {
  * results are also filtered against `visibleTo` on this side: the service is never trusted alone to
  * keep a delegated specialist from seeing what it should not.
  */
+/** A fact the service sent back must be the one asked for: this owner's, and this identifier when one was named. */
+function mine(owner: string, record: MemoryRecord, id?: string): MemoryRecord {
+  if (record.owner !== owner) throw new Error("The outside memory service sent back a fact that belongs to someone else, so Branch did not use it");
+  if (id !== undefined && record.id !== id) throw new Error("The outside memory service sent back a different fact from the one asked for, so Branch did not use it");
+  return record;
+}
+const parseOne = (value: unknown): MemoryRecord => RemoteRecordSchema.parse(value) as MemoryRecord;
+const parseMany = (value: unknown): MemoryRecord[] => z.array(RemoteRecordSchema).parse(value) as MemoryRecord[];
+
 export class RemoteMemoryBackend implements MemoryBackend {
   readonly name = "an outside memory service";
   constructor(private readonly config: RemoteMemoryConfig) {}
@@ -95,23 +104,23 @@ export class RemoteMemoryBackend implements MemoryBackend {
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`The outside memory service refused to read a fact (status ${response.status})`);
-    return RemoteRecordSchema.parse(await response.json());
+    return mine(owner, parseOne(await response.json()), id);
   }
   async list(owner: string): Promise<MemoryRecord[]> {
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}`);
     if (!response.ok) throw new Error(`The outside memory service refused to list facts (status ${response.status})`);
-    return z.array(RemoteRecordSchema).parse(await response.json());
+    return parseMany(await response.json()).map((record) => mine(owner, record));
   }
   async write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> {
     const checked = MemoryDataSchema.parse(data); // never sends anything off this computer unvalidated
     const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, checked);
     if (!response.ok) throw new Error(`The outside memory service refused to save a fact (status ${response.status})`);
-    return RemoteRecordSchema.parse(await response.json());
+    return mine(owner, parseOne(await response.json()), id);
   }
   async search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> {
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/search?q=${encodeURIComponent(query)}`);
     if (!response.ok) throw new Error(`The outside memory service refused to search facts (status ${response.status})`);
-    const records = z.array(RemoteRecordSchema).parse(await response.json()) as unknown as MemoryRecord[];
+    const records = parseMany(await response.json()).map((record) => mine(owner, record));
     return records.filter((record) => visibleTo(record, agent));
   }
   async forget(owner: string, id: string): Promise<boolean> {
@@ -143,9 +152,9 @@ export class MemoryProvider implements MemoryBackend {
     private readonly guard: MemoryProviderGuard,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
   ) {}
-  /** What is switched on right now, and the setting behind it, for the Memory screen. */
-  view(owner: string): { settings: MemoryProviderSettings; active: string } {
-    return { settings: memoryProviderSettings(this.store, owner), active: this.current(owner).name };
+  /** What is switched on right now ("built-in" or "outside"), and the setting behind it, for the Memory screen. */
+  view(owner: string): { settings: MemoryProviderSettings; active: MemoryProviderSettings["mode"] } {
+    return { settings: memoryProviderSettings(this.store, owner), active: this.isOutside(owner) ? "outside" : "built-in" };
   }
   configure(owner: string, input: unknown): MemoryProviderSettings { return saveMemoryProviderSettings(this.store, owner, input); }
   private guardedFetch(): typeof fetch {
