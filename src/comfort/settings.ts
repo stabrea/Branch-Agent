@@ -54,6 +54,8 @@ export const ComfortNotifySchema = z.object({
   sound: z.enum(["off", "chime", "knock"]).default("off"),
   /** off: only when you press Check; check: look once a day and say so; install: also install, safely. */
   autoUpdate: z.enum(["off", "check", "install"]).default("off"),
+  /** Stable is the default; beta is an explicit owner choice for more frequent preview builds. */
+  releaseChannel: z.enum(["stable", "beta"]).default("stable"),
 }).strict();
 
 /** R17-S18: a key to hold while speaking, and the longest a recording may run. */

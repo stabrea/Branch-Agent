@@ -209,6 +209,25 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   await page.evaluate(() => { globalThis.__desktop = []; globalThis.__phase = undefined; window.branchDesktop = undefined; });
 });
 
+test("the owner can choose beta in Updates and return to stable", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  await page.evaluate(() => {
+    globalThis.__channelChecks = 0;
+    window.branchDesktop = {
+      updateStatus: async () => ({ phase: "idle", message: "Not checked", progress: null }),
+      checkForUpdates: async () => { globalThis.__channelChecks++; return { phase: "current", message: "Current", progress: null }; },
+    };
+  });
+  await openSettingFor(page, "#updates-card");
+  await page.locator('#updates-channel input[value="beta"]').check();
+  await page.waitForFunction(() => globalThis.__channelChecks === 1);
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "beta");
+  await page.locator('#updates-channel input[value="stable"]').check();
+  await page.waitForFunction(() => globalThis.__channelChecks === 2);
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "stable");
+  assert.deepEqual(errors, []);
+});
+
 test("at 400 px the comfort cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["comfort-keys-card", "comfort-display-card", "comfort-network-card"]) {

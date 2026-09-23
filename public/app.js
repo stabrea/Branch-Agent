@@ -1037,8 +1037,24 @@ async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
   showVersions(null);
   if (!window.branchDesktop) return;
+  try {
+    const channel = (await api("comfort")).values.notify.releaseChannel;
+    const choice = document.querySelector(`#updates-channel input[value="${channel}"]`);
+    if (choice) choice.checked = true;
+  } catch { /* The main-process updater fails closed when owner state is unavailable. */ }
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
 }
+$("updates-channel").addEventListener("change", async (event) => {
+  if (event.target?.name !== "release-channel") return;
+  try {
+    await api("comfort", { card: "notify", values: { releaseChannel: event.target.value } });
+    await globalThis.branchComfort?.refresh?.();
+    showUpdateStatus(await window.branchDesktop.checkForUpdates());
+  } catch (error) {
+    toast(error.message);
+    await renderUpdates();
+  }
+});
 $("updates-check").addEventListener("click", async () => {
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });

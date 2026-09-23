@@ -466,11 +466,13 @@ function attention(item) {
 }
 
 let updateTimer = null;
+let updateAttempt = false;
 async function autoUpdate() {
   const desktop = window.branchDesktop;
   /* Until the owner's choice has been read, treat it as off: never go looking for an update
      before we know it was wanted. */
-  if (!desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  if (updateAttempt || !desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  updateAttempt = true;
   try {
     let status = await desktop.updateStatus();
     let plan = await api("comfort/update-plan", { updaterPhase: status?.phase });
@@ -480,8 +482,9 @@ async function autoUpdate() {
     }
     // The same path as the Update button: checksum, a try on a copy of your work, a safety copy.
     if (plan.step === "install") await desktop.installUpdate();
-    else if (status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
+    else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
+  finally { updateAttempt = false; }
 }
 
 /* ---------- R17-S18: push-to-talk and the longest recording ---------- */
@@ -513,7 +516,7 @@ function apply() {
   clearInterval(updateTimer);
   if (view?.values.notify.autoUpdate !== "off" && window.branchDesktop) {
     void autoUpdate();
-    updateTimer = setInterval(() => void autoUpdate(), 60 * 60 * 1000);
+    updateTimer = setInterval(() => void autoUpdate(), view.values.notify.autoUpdate === "install" ? 30_000 : 60 * 60 * 1000);
   }
 }
 async function refresh() {
