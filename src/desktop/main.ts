@@ -18,6 +18,7 @@ import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
 import { installedAppRoot } from "./install-root.js";
+import { rememberedPort, rememberPort } from "./local-port.js";
 import { minimizedFlag, startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
 import { defaultPreset, providerFromEnv } from "../providers.js";
@@ -338,12 +339,15 @@ async function start(): Promise<void> {
     branch.browser = integrations.hosted.browser ?? null;
     branch.studies.browser = integrations.hosted.browser; // w911 (A1726) hook: MiniWoB studies open their page in this browser
     branch.issues = integrations.hosted.issues ?? null;
+    // Q45 leaf 0: the same port as last time when it is free, so the page's own stored choices survive a restart.
+    const portFile = join(dataDir, "local-port.json"); // in the data folder, which the assistant may never change
     const server = await startServer(branch, {
-      dataDir, port: 0, presence: "app",
+      dataDir, port: await rememberedPort(portFile), anyPortIfTaken: true, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
       installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
       quit: () => { quitReason = "command"; app.quit(); }, // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
     });
+    rememberPort(portFile, server.url);
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
       backup: () =>

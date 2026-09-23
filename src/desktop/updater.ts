@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { chmod, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
+import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -52,8 +53,12 @@ export interface UpdaterOptions {
   stallMs?: number;
   /** Windows: the registry key the update's recovery script is registered under (HKCU RunOnce); tests hand in their own. */
   runOnceKey?: string;
+  /** Dev channel: the commit this copy was built from (dist/build-info.json), or null when it is not known. */
+  currentCommit?: string | null;
+  /** Dev channel: runs git and npm; tests hand in their own. */
+  devRun?: Run;
 }
-export type UpdateChannel = "stable" | "beta";
+export type UpdateChannel = "stable" | "beta" | "dev";
 export class UpdateDeferredError extends Error {}
 export interface ReleaseInfo {
   currentVersion: string;
@@ -68,6 +73,8 @@ export interface ReleaseInfo {
   assetBytes: number;
   pageUrl: string;
   channel: UpdateChannel;
+  /** Dev: the commit that would be built. */
+  commit?: string;
 }
 export type UpdatePhase =
   | "idle" | "checking" | "current" | "available" | "downloading" | "verifying"
@@ -195,6 +202,12 @@ export class Updater {
     try {
       const release = await this.latestRelease();
       if (generation !== this.generation) return this.status;
+      if (release.channel === "dev") {
+        const change = release.commit?.slice(0, 7);
+        return release.available
+          ? this.set("available", `A newer Dev build (change ${change}) can be built and installed.`, null, release)
+          : this.set("current", `You have the newest Dev build (change ${change}).`, null, release);
+      }
       if (!release.available) return this.set("current", `You have the newest version (${release.currentVersion}).`, null, release);
       return this.set("available", `Version ${release.latestVersion} is ready to install.`, null, release);
     } catch (error) {
@@ -236,12 +249,20 @@ export class Updater {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
       if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
-      const archive = join(this.options.scratchDir, this.options.assetName!);
-      await this.download(release, archive);
-      await this.verify(archive, release);
+      let archive = join(this.options.scratchDir, this.options.assetName!), expectedVersion = release.latestVersion;
+      if (release.channel === "dev") {
+        ({ archive, version: expectedVersion } = await this.buildDevArchive(release));
+        // From here on the Dev release is the version it was built as: the check, the record and the next start agree.
+        release = { ...release, latestVersion: expectedVersion };
+        this.status = { ...this.status, release };
+      }
+      else {
+        await this.download(release, archive);
+        await this.verify(archive, release);
+      }
       const stagedDir = await this.unpack(archive);
-      await validateStagedPackage(stagedDir, release.latestVersion, this.platform);
-      await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
+      await validateStagedPackage(stagedDir, expectedVersion, this.platform);
+      await this.tryCanary(stagedDir, expectedVersion); // mac3/never-break; a Dev build reports the version it was built as
       await this.safetyCopy();
       await this.options.beforeStop?.();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
@@ -290,6 +311,7 @@ export class Updater {
     return this.options.stopDaemon();
   }
   private async latestRelease(): Promise<ReleaseInfo> {
+    if (this.channel === "dev") return this.newestDevBuild();
     const path = this.channel === "stable" ? "releases/latest" : "releases?per_page=100";
     const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/${path}`, {
       headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
@@ -324,6 +346,52 @@ export class Updater {
       };
     }
     throw new Error("No published Branch release is available yet.");
+  }
+  /** Dev: the newest merged change on Branch's main line, offered when it is not the one this copy was built from. */
+  private async newestDevBuild(): Promise<ReleaseInfo> {
+    const run = this.options.devRun ?? realRun(this.platform);
+    const missing = await devToolsMissing(run);
+    if (missing) throw new Error(missing);
+    const commit = await remoteHead(run, this.options.repo);
+    const short = commit.slice(0, 7);
+    return {
+      currentVersion: this.options.currentVersion, latestVersion: this.options.currentVersion, tag: `dev-${short}`,
+      available: commit !== this.options.currentCommit,
+      title: `Dev build of change ${short}`, notes: "", publishedAt: null,
+      assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.options.repo}/commit/${commit}`,
+      channel: "dev", commit,
+    };
+  }
+  /** Dev: builds the download from source on this computer; the steps after it are the same as for a release. */
+  private async buildDevArchive(release: ReleaseInfo): Promise<{ archive: string; version: string }> {
+    if (!release.commit || !/^[0-9a-f]{40}$/.test(release.commit))
+      throw new Error("The Dev build is not set up on this computer, so nothing was changed.");
+    const words: Record<DevPhase, string> = {
+      fetching: "Getting the newest change from GitHub…",
+      installing: "Installing what Branch needs to build (a few minutes)…",
+      building: "Building Branch on this computer (a few minutes)…",
+    };
+    // In the updater's own folder, which the assistant may never change and which this install has just emptied.
+    const sourceDir = join(this.options.scratchDir, "dev-source");
+    const built = await buildDev(this.options.devRun ?? realRun(this.platform), {
+      repo: this.options.repo, sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
+      onPhase: (phase) => this.set("downloading", words[phase], null, release),
+    });
+    // Without the change the running version was built from, its version is the only way to see going back.
+    if (!this.options.currentCommit && compareVersions(built.version, this.options.currentVersion) < 0)
+      throw new Error(`The newest Dev build (${built.version}) is older than the version running now (${this.options.currentVersion}), so nothing was changed. It is offered again once it catches up.`);
+    this.set("verifying", "Checking the build is whole…", null, release);
+    const expected = /^([a-f0-9]{64})\b/i.exec((await readFile(built.checksumFile, "utf8")).trim())?.[1]?.toLowerCase();
+    const hash = createHash("sha256");
+    const { createReadStream } = await import("node:fs");
+    for await (const chunk of createReadStream(built.archive)) hash.update(chunk as Buffer);
+    // This only proves the file was written whole; the trust in its contents comes from git over https.
+    if (!expected || hash.digest("hex") !== expected) throw new Error("The Dev build came out incomplete, so nothing was changed. Try the update again.");
+    // The download goes where a downloaded release would be, and the source (hundreds of megabytes) goes.
+    const archive = join(this.options.scratchDir, this.options.assetName!);
+    await rename(built.archive, archive);
+    await rm(sourceDir, { recursive: true, force: true });
+    return { archive, version: built.version };
   }
   /**
    * Q37: for minutes after a release is published, GitHub's release list (and its tag look-up) can still show no

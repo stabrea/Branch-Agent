@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const readinessSchema = z.object({
-  channel: z.enum(["stable", "beta"]),
+  channel: z.enum(["stable", "beta", "dev"]),
   busyTasks: z.number().int().nonnegative(),
 });
 

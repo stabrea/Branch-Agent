@@ -472,7 +472,7 @@ function scheduleUpdate() {
   const notify = view?.values.notify;
   if (!notify || notify.autoUpdate === "off" || !window.branchDesktop) return;
   const interval = notify.autoUpdate === "install" ? 30_000
-    : notify.releaseChannel === "beta" ? 5 * 60 * 1000 : 60 * 60 * 1000;
+    : notify.releaseChannel !== "stable" ? 5 * 60 * 1000 : 60 * 60 * 1000;
   updateTimer = setTimeout(() => void autoUpdate(), interval);
 }
 async function autoUpdate() {
