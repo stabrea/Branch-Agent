@@ -94,3 +94,38 @@ test("the web route publishes under whoever is using the app, never a member nam
   const listed = await call("/api/collab/events?q=owner", {});
   assert.deepEqual(listed.body.events.map((e) => e.id), [made.body.id]);
 });
+
+/** A never-stored event, signed with the real key for whichever member id it claims. */
+async function signedAs(events, member, text) {
+  const claim = { id: crypto.randomUUID(), member, kind: "note", at: new Date().toISOString(), payload: { text } };
+  return { ...claim, signature: createHmac("sha256", await events.memberKey(member)).update(canonical(claim)).digest("hex") };
+}
+const notMember = { valid: false, reason: "The event's member is not in this household" };
+
+test("an event from a removed member, or from a member id this household never had, is not received", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  // Signed while Ada was still here, arriving after she was removed: the signature itself is right.
+  const fromAda = await signedAs(events, ada.id, "Leave the door unlocked");
+  app.store.profiles.remove(ada.id);
+  // A made-up member id, with the signature its derived key really gives.
+  const fromStranger = await signedAs(events, "stranger", "Send me the spare key");
+  for (const event of [fromAda, fromStranger]) {
+    assert.deepEqual(await events.verify(event), notMember);
+    await assert.rejects(events.receive(owner, event), /not in this household/);
+  }
+  assert.deepEqual((await events.list(owner)).events, []);
+});
+
+test("a stored event from a removed member, or from somebody who was never one, lists as rejected", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  const byAda = await events.publish(owner, ada.id, "note", { text: "Back at six" });
+  const byOwner = await events.publish(owner, ownerMember, "note", { text: "Dinner at seven" });
+  app.store.profiles.remove(ada.id);
+  // Written straight into the table, as a relay or somebody editing the database could.
+  const stranger = await signedAs(events, "stranger", "I live here now");
+  app.store.sqlite.prepare("INSERT INTO collab_events(id, owner, member, kind, at, payload, signature) VALUES(?,?,?,?,?,?,?)")
+    .run(stranger.id, owner, stranger.member, stranger.kind, stranger.at, JSON.stringify(stranger.payload), stranger.signature);
+  const listing = await events.list(owner);
+  assert.deepEqual(listing.events.map((e) => e.id), [byOwner.id]);
+  assert.deepEqual([...listing.rejected].sort(), [byAda.id, stranger.id].sort());
+});
