@@ -6,6 +6,7 @@ import { z } from "zod";
 import { audit, auditOrigins, type AuditOrigin } from "./audit.js";
 import type { ToolContext } from "./contracts.js";
 import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
+import { commandFolder } from "./integrations/shell-config.js";
 import { cwdOf } from "./never-break/protected.js";
 import { isReadOnlyPermission } from "./policy.js";
 import type { ToolRegistry } from "./registry.js";
@@ -216,9 +217,10 @@ function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: 
     const worded = deps.registry.declaresTarget(name).target && !/^(files|documents|media|data|code)\./.test(deps.registry.permissionOf(name));
     if (resource?.kind === "path" && !worded) named.push(resource.value);
   }
-  // A command's working folder counts too, so a command started from the workspace inside a worktree is held to it.
+  // A command's working folder counts too, read exactly as the command tool reads it (from the
+  // workspace, not the active project: commandFolder), so the folder judged is the folder it runs in.
   const cwd = cwdOf(args).cwd;
-  if (cwd) named.push(cwd);
+  if (cwd) named.push(commandFolder(context.workspace || deps.workspace, cwd));
   return named.map((path) => workspacePath(deps.workspace, scope, path)).filter((path): path is string => path !== null);
 }
 

@@ -1,8 +1,9 @@
 import { stat } from 'node:fs/promises';
+import { relative } from 'node:path';
 import { WorkspaceFiles } from '../files.js';
 import type { ToolContext } from '../contracts.js';
 import type { ToolRegistry } from '../registry.js';
-import { ShellConfigSchema, ShellInputSchema, shellEnvironment, netlessEnvironment, validateExecutables, type ShellConfig, type ShellInput } from './shell-config.js';
+import { commandFolder, ShellConfigSchema, ShellInputSchema, shellEnvironment, netlessEnvironment, validateExecutables, type ShellConfig, type ShellInput } from './shell-config.js';
 import { ShellProcess, type ProcessResult } from './shell-process.js';
 import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
@@ -65,7 +66,8 @@ export class BranchShell {
     if (!executable) throw new Error('Executable alias is not configured');
     const signal = AbortSignal.any([context.signal, stopping]);
     signal.throwIfAborted();
-    const cwd = await new WorkspaceFiles(context.workspace).checked(input.cwd, true);
+    // Q12: the same folder the self-development contract judged (commandFolder), checked as a workspace path.
+    const cwd = await new WorkspaceFiles(context.workspace).checked(relative(context.workspace, commandFolder(context.workspace, input.cwd)) || '.', true);
     if (!(await stat(cwd)).isDirectory()) throw new Error('Command cwd must be a workspace directory');
     const tuned = this.tuning(); // R17-S10
     const limitMs = tuned.timeoutMs ?? this.config.timeoutMs;
