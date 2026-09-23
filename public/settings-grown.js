@@ -257,7 +257,7 @@ function watchPages() {
   }
 }
 
-/* ---------- the Settings list: groups, icons, places, the level, and a page picker for small screens ---------- */
+/* ---------- the Settings list: groups, icons, places, the level, and the pages as one strip on a phone ---------- */
 function dressNav() {
   const nav = document.querySelector(".lx-settings-nav");
   if (!nav || nav.dataset.sgDressed) return;
@@ -265,41 +265,26 @@ function dressNav() {
   for (const link of nav.querySelectorAll(".lx-settings-link")) withIcon(link, link.dataset.page);
   for (const [before, key, english] of NAV_GROUPS)
     nav.querySelector(`.lx-settings-link[data-page="${before}"]`)?.before(worded("p", "sg-nav-group", `settingsGrown.nav.${key}`, english));
-  nav.append(pagePicker(nav), levelBox());
+  nav.append(pageStrip(nav), levelBox());
   const version = $("lx-settings-version");
   if (version) nav.append(version);
 }
-/** On a phone the list of pages is one choice, not a row that scrolls sideways. */
-function pagePicker(nav) {
-  const label = make("label", "sg-picker");
-  const words = worded("span", "sr-only", "settings.pages", "Settings pages");
-  const select = make("select");
-  select.id = "sg-page-pick";
-  for (const link of nav.querySelectorAll(".lx-settings-link")) {
-    const option = make("option", "", link.textContent.trim());
-    option.value = link.dataset.page;
-    select.append(option);
-  }
-  select.addEventListener("change", () => nav.querySelector(`.lx-settings-link[data-page="${select.value}"]`)?.click());
-  label.append(words, select);
-  return label;
+/* DG-013: the pages and their group names sit in one holder. Wide, it is not a box of its own and they stay the
+   list; on a phone it is the approved sample's strip of page tabs (its `.set-pages` under 760px), which scrolls
+   sideways, never a dropdown. */
+function pageStrip(nav) {
+  const strip = make("div", "sg-pages");
+  strip.append(...nav.querySelectorAll(":scope > .lx-settings-link, :scope > .sg-nav-group"));
+  /* Every way to a page marks its tab, so the tab is followed rather than each way there. */
+  new MutationObserver(showCurrentTab).observe(strip, { subtree: true, attributes: true, attributeFilter: ["aria-current"] });
+  return strip;
 }
-function namePickerPages() {
-  for (const option of $("sg-page-pick")?.options ?? [])
-    option.textContent = document.querySelector(`.lx-settings-link[data-page="${option.value}"]`)?.textContent.trim() ?? option.textContent;
-}
-function syncPicker() {
-  const current = document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page;
-  const select = $("sg-page-pick");
-  if (!select || !current || select.value === current) return;
-  select.value = current;
-  select.dispatchEvent(new Event("branch-sync"));
-}
-function showOwnerPickerPage(owner) {
-  const option = $("sg-page-pick")?.querySelector('option[value="instructions"]');
-  if (!option) return;
-  option.hidden = !owner;
-  option.disabled = !owner;
+/** The page on show stays in sight in the strip, whichever way it was reached. */
+function showCurrentTab() {
+  const strip = document.querySelector(".sg-pages"), link = strip?.querySelector(".lx-settings-link[aria-current='true']");
+  if (!link || strip.scrollWidth <= strip.clientWidth + 1) return;
+  const box = strip.getBoundingClientRect(), tab = link.getBoundingClientRect();
+  if (tab.left < box.left || tab.right > box.right) strip.scrollLeft += tab.left - box.left - (box.width - tab.width) / 2;
 }
 
 /* ---------- Settings is a cog right after the account row (#37) ---------- */
@@ -550,7 +535,7 @@ function watchHold() {
 }
 function afterPageChange() {
   pageNow = currentPage();
-  syncPicker();
+  showCurrentTab();
 }
 
 /* ---------- pages that only drew themselves when the old Settings button was pressed ---------- */
@@ -583,10 +568,9 @@ function start() {
     /* Applying the household level can rearrange the Settings shell after layout handled the same
        event. Reapply the owner-only page guard last so Instructions cannot be exposed again. */
     globalThis.branchLayout?.showOwnerSettings(owner);
-    showOwnerPickerPage(owner);
-    queueMicrotask(syncPicker);
+    queueMicrotask(showCurrentTab);
   });
-  document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
+  document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); });
   document.body.classList.add("sg-ready");
 }
 if (document.body.classList.contains("lx-ready")) start();

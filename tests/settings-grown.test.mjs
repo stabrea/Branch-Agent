@@ -84,10 +84,8 @@ async function openSettings(page, name) {
     await cog(page).click();
   }
   if (!name) return;
-  const link = page.locator(`.lx-settings-link[data-page="${name}"]`);
-  /* On a phone the pages are one choice under the search box. */
-  if (await link.isVisible()) await link.click();
-  else await page.locator("#sg-page-pick").selectOption(name);
+  /* DG-013: on a phone the pages are a strip of tabs; a click scrolls the tab into view first. */
+  await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
 }
 /** Every place, every Settings page and every Models tab, so every module has drawn its cards. */
 async function visitEverything(page) {
@@ -96,7 +94,7 @@ async function visitEverything(page) {
     for (const home of globalThis.branchLayout.homes()) if (!home.startsWith("settings")) { globalThis.branchLayout.go(home); await wait(150); }
   });
   await openSettings(page);
-  const pages = await page.evaluate(() => [...document.querySelectorAll("#sg-page-pick option")].map((option) => option.value));
+  const pages = await page.evaluate(() => [...document.querySelectorAll(".lx-settings-link")].map((link) => link.dataset.page));
   for (const name of [...pages, "models"]) { await openSettings(page, name); await page.waitForTimeout(150); }
   for (const tab of await page.locator("#lx-page-models .lx-subtab").all()) { await tab.click(); await page.waitForTimeout(150); }
 }
@@ -323,10 +321,10 @@ test("S8 somebody else's profile sees Regular, cannot change the level, and sear
   assert.deepEqual(f.errors, []);
 });
 
-test("a household profile redirected from Instructions keeps the phone page picker in sync", async (t) => {
+test("a household profile redirected from Instructions keeps the phone page strip in sync", async (t) => {
   const f = await fixture(t, { width: 390, height: 844 });
   await openSettings(f.page, "instructions");
-  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "instructions");
+  assert.equal(await f.page.locator('.sg-pages .lx-settings-link[aria-current="true"]').getAttribute("data-page"), "instructions");
   const sam = await fetch(new URL("/api/profiles", f.url), {
     method: "POST", headers: f.headers, body: JSON.stringify({ name: "Sam", pin: "2468" }),
   }).then((response) => response.json());
@@ -336,7 +334,13 @@ test("a household profile redirected from Instructions keeps the phone page pick
   assert.equal(switched.status, 200);
   await f.page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 15000 });
   await f.page.waitForFunction(() => document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page === "general");
-  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "general");
+  /* General is the tab on show, in sight in the strip, and Instructions has left it. */
+  assert.deepEqual(await f.page.evaluate(() => {
+    const strip = document.querySelector(".sg-pages").getBoundingClientRect();
+    const tab = document.querySelector('.sg-pages .lx-settings-link[data-page="general"]').getBoundingClientRect();
+    return { inSight: tab.left >= strip.left - 0.5 && tab.right <= strip.right + 0.5,
+      instructions: document.querySelector('.lx-settings-link[data-page="instructions"]').checkVisibility() };
+  }), { inSight: true, instructions: false });
   assert.deepEqual(f.errors, []);
 });
 
@@ -489,7 +493,7 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
     await visitEverything(f.page);
     await switchEverythingOn(f.page);
     await openSettings(f.page, "general");
-    const pages = await f.page.evaluate(() => [...document.querySelectorAll("#sg-page-pick option")].map((option) => option.value));
+    const pages = await f.page.evaluate(() => [...document.querySelectorAll(".lx-settings-link")].map((link) => link.dataset.page));
     const problems = [];
     for (const name of pages) {
       await f.page.evaluate((page) => document.querySelector(`.lx-settings-link[data-page="${page}"]`).click(), name);
