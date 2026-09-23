@@ -185,35 +185,43 @@ export function setLockdown(store: Store, owner: string, input: unknown, by: Cha
  * what turning it on changed, so the two cancel out and an older change can still be undone.
  */
 type LockdownRecorder = (store: Store, owner: string, origin: { writer: ChangeWriter; detail: "on" | "off"; undoes?: string },
-  keys: readonly string[], write: () => void) => string | null;
-let recorder: LockdownRecorder = (_store, _owner, _origin, _keys, write) => { write(); return null; };
+  touches: (key: string) => boolean, write: () => void) => string | null;
+let recorder: LockdownRecorder = (_store, _owner, _origin, _touches, write) => { write(); return null; };
 /**
  * The settings kit hands in its recorder when it loads (src/settings-kit/recorded-write.ts). It is
  * handed in rather than imported because the catalogue imports the settings that import this file.
  */
 export function recordLockdownWith(record: LockdownRecorder): void { recorder = record; }
-const guardedKeys = guarded.map((entry) => entry.key);
+/**
+ * The settings Lockdown changes, as the settings kit shows them: the ones it writes over, and the
+ * ones read as off while it is on (where Branch listens reads as this computer only).
+ */
+const touches = (key: string): boolean => guarded.some((entry) => entry.key === key) || coveredSettings.some((pattern) => pattern.test(key));
 
 function turnOn(store: Store, owner: string, by: ChangeWriter): void {
   const before: Record<string, Record<string, unknown> | null> = {};
-  const record = recorder(store, owner, { writer: by, detail: "on" }, guardedKeys, () => {
+  const since = new Date().toISOString();
+  const state = (): SavedLockdown => ({ on: true, since, before });
+  // Lockdown's own record is saved inside the recorded write: what the kit shows can depend on it.
+  const record = recorder(store, owner, { writer: by, detail: "on" }, touches, () => {
     for (const entry of guarded) {
       const saved = store.get("settings", owner, entry.key);
       before[entry.key] = saved ? saved.data : null;
       store.save("settings", owner, entry.key, { ...(saved?.data ?? {}), ...entry.locked });
     }
+    store.save("settings", owner, stateKey, { ...state() });
   });
-  store.save("settings", owner, stateKey, { on: true, since: new Date().toISOString(), before, ...(record ? { record } : {}) });
+  if (record) store.save("settings", owner, stateKey, { ...state(), record });
 }
 
 function turnOff(store: Store, owner: string, current: SavedLockdown, by: ChangeWriter): void {
   const undoes = typeof current.record === "string" ? { undoes: current.record } : {};
-  recorder(store, owner, { writer: by, detail: "off", ...undoes }, guardedKeys, () => {
+  recorder(store, owner, { writer: by, detail: "off", ...undoes }, touches, () => {
     for (const entry of guarded) {
       const was = current.before[entry.key];
       if (was === null || was === undefined) store.delete("settings", owner, entry.key);
       else store.save("settings", owner, entry.key, was);
     }
+    store.save("settings", owner, stateKey, { on: false, since: null, before: {} });
   });
-  store.save("settings", owner, stateKey, { on: false, since: null, before: {} });
 }

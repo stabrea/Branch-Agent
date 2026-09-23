@@ -1,6 +1,6 @@
 import type { Store } from "../store.js";
 import { recordLockdownWith } from "../lockdown.js";
-import { specFor } from "./catalogue.js";
+import { settingsCatalogue, specFor } from "./catalogue.js";
 import { currentValue, type Value } from "./changes.js";
 import { recordSettingsChange, type ChangeEntry, type ChangeOrigin } from "./history.js";
 
@@ -53,5 +53,5 @@ export const inCatalogue = (key: string): string[] => (specFor(key) ? [key] : []
 export const byCard = (detail: string): ChangeOrigin => ({ writer: "owner-in-window", source: "card", detail });
 
 /** Q48 review: what Lockdown changes among these settings, turning on or off, is recorded here too. */
-recordLockdownWith((store, owner, origin, keys, write) =>
-  recordWrite(store, owner, { ...origin, source: "lockdown" }, keys.flatMap(inCatalogue), write).record);
+recordLockdownWith((store, owner, origin, touches, write) =>
+  recordWrite(store, owner, { ...origin, source: "lockdown" }, settingsCatalogue.map((spec) => spec.key).filter(touches), write).record);
