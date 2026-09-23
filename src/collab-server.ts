@@ -149,10 +149,18 @@ const NewPersonRoleSchema = z.enum(["adult", "child"]).default("adult");
 
 async function profilesApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const profiles = app.store.profiles;
-  if (request.method === "GET" && path === "/api/profiles")
+  if (request.method === "GET" && path === "/api/profiles") {
+    const allRoles = app.runtime.roles.all(profiles.list().map((profile) => profile.id));
+    // When a household person (not the owner) calls this, they see effective and categories only for their own entry
+    const roles = !profiles.isOwner() && profiles.active()
+      ? allRoles.map((entry) => entry.profileId === profiles.active()!.id
+          ? entry
+          : { profileId: entry.profileId, grant: entry.grant })
+      : allRoles;
     return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
       // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
-      roles: app.runtime.roles.all(profiles.list().map((profile) => profile.id)), roleLabels };
+      roles, roleLabels };
+  }
   if (request.method === "POST" && path === "/api/profiles") {
     profiles.requireOwner("Adding somebody to this computer");
     // The role comes with the name and PIN, and is checked before anybody is added, so a Child is
