@@ -155,8 +155,9 @@ export class TeamHandoffs {
       .get(claim.scope.owner, claim.scope.source, claim.taskId, claim.claimant, claim.generation);
   }
 
-  /** Why a recipient cannot hold the task: it must be on the task's team or an existing household profile. */
+  /** Why a recipient cannot hold the task: its team must still exist, and it must be on that team or an existing household profile. */
   private recipientGone(owner: string, teamId: string, to: string): string | null {
+    if (!this.store.get("governance", owner, `team:${teamId}`)) return "The task's team was removed.";
     const [kind, id] = [to.slice(0, to.indexOf(":")), to.slice(to.indexOf(":") + 1)];
     if (kind === "member") {
       const team = this.store.get("governance", owner, `team:${teamId}`)?.data as { members?: { specialistId: string }[] } | undefined;

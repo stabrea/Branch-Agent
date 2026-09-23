@@ -302,3 +302,107 @@ test("at accept the recipient is checked again: a member who left the team or a 
   tasks.linkParentRun(claim, "still the offerer's");
   assert.equal(row().parentRunId, "still the offerer's");
 });
+
+/** A server on the fixture's store, and a caller that can sign requests with the app key or a short-lived key. */
+async function served(t, app, root, teamId) {
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const call = async (method, suffix, body, key = server.token, team = teamId) => {
+    const response = await fetch(`${server.url}/api/teams/${team}/handoffs${suffix}`, { method, headers: { authorization: "Bearer " + key, origin: server.url, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  };
+  return { server, call };
+}
+function signInAs(t, app, household) {
+  app.store.profiles.switch({ profileId: household.id.slice("profile:".length), pin: "1234" });
+  t.after(() => { try { app.store.profiles.switch({ profileId: null }); } catch { /* already closed */ } });
+}
+
+test("over HTTP the recipient's reject leaves the task exactly where it was and records the rejection", async (t) => {
+  const { state, owner, team, claim, household, row, root } = await fixture(t);
+  const app = state.app;
+  const { call } = await served(t, app, root, team.id);
+  const handoffs = new TeamHandoffs(app.store);
+  const offer = handoffs.offer(claim, household.id, "Sam signs off the budget");
+  signInAs(t, app, household);
+  const before = row();
+  const answer = await call("POST", `/${offer.offerId}/reject`, { reason: "not my area" });
+  assert.equal(answer.status, 200, JSON.stringify(answer.body));
+  assert.equal(answer.body.state, "rejected");
+  assert.equal(answer.body.decisionReason, "not my area");
+  assert.deepEqual(row(), before, "the task row is unchanged: same claimant, same generation");
+  assert.equal(handoffs.get(owner, offer.offerId).state, "rejected");
+  assert.equal((await call("POST", `/${offer.offerId}/accept`, {})).status, 409, "a rejected offer cannot be accepted");
+});
+
+test("when accept fails between its two writes, both are rolled back and the offer can still be accepted", async (t) => {
+  const { state, owner, claim, planner, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, planner.id, "planner takes over");
+  const before = row();
+  const check = TeamHandoffs.prototype.recipientGone;
+  TeamHandoffs.prototype.recipientGone = function broken() { throw new Error("disk went away mid-accept"); };
+  t.after(() => { TeamHandoffs.prototype.recipientGone = check; });
+  assert.throws(() => handoffs.accept(planner, offer.offerId), /disk went away/);
+  TeamHandoffs.prototype.recipientGone = check;
+  assert.equal(handoffs.get(owner, offer.offerId).state, "offered", "the offer's own write was rolled back");
+  assert.deepEqual(row(), before);
+  assert.equal(handoffs.accept(planner, offer.offerId).generation, claim.generation + 1);
+});
+
+test("a short-lived key used while Sam is signed in is the key, not Sam: it sees none of Sam's offers", async (t) => {
+  const { state, owner, team, claim, household, root } = await fixture(t);
+  const app = state.app;
+  const { call } = await served(t, app, root, team.id);
+  const offer = new TeamHandoffs(app.store).offer(claim, household.id, "for Sam");
+  signInAs(t, app, household);
+  assert.deepEqual((await call("GET", "")).body.offers.map((o) => o.offerId), [offer.offerId], "Sam's own window sees it");
+  const key = app.sessionTokens.create(owner, { name: "script", scope: "run", minutes: 5 });
+  const asKey = await call("GET", "", undefined, key.token);
+  assert.equal(asKey.status, 200, JSON.stringify(asKey.body));
+  assert.deepEqual(asKey.body.offers, []);
+});
+
+test("an expired offer is not listed, in the class with an injected clock and over HTTP", async (t) => {
+  const { state, owner, team, claim, household, root } = await fixture(t);
+  let now = Date.parse("2026-09-01T00:00:00Z");
+  const clocked = new TeamHandoffs(state.app.store, () => now);
+  const offer = clocked.offer(claim, household.id, "quick one", 60_000);
+  assert.deepEqual(clocked.addressedTo(household).map((o) => o.offerId), [offer.offerId]);
+  now += 60_001;
+  assert.deepEqual(clocked.addressedTo(household), []);
+  assert.equal(clocked.get(owner, offer.offerId).state, "expired");
+  // Over HTTP (the real clock): an offer that ran out long ago is not listed either.
+  const other = new TeamTasks(state.app.store);
+  const second = other.observe(claim.scope, team.id, randomUUID(), "g");
+  const stale = new TeamHandoffs(state.app.store, () => Date.now() - 3_600_000).offer(other.claim(claim.scope, second.taskId), household.id, "long ago", 60_000);
+  assert.equal(new TeamHandoffs(state.app.store, () => Date.now() - 3_600_000).get(owner, stale.offerId).state, "offered", "it was open when it was made");
+  const { call } = await served(t, state.app, root, team.id);
+  signInAs(t, state.app, household);
+  assert.deepEqual((await call("GET", "")).body.offers, []);
+});
+
+test("GET lists only the offers for the team in the address", async (t) => {
+  const { state, owner, team, claim, household, root } = await fixture(t);
+  const members = team.members;
+  const otherTeam = state.app.teams.save({ name: "Other crew", members });
+  const tasks = new TeamTasks(state.app.store);
+  const theirs = tasks.observe(claim.scope, otherTeam.id, randomUUID(), "h");
+  const handoffs = new TeamHandoffs(state.app.store);
+  const mine = handoffs.offer(claim, household.id, "this team's");
+  const elsewhere = handoffs.offer(tasks.claim(claim.scope, theirs.taskId), household.id, "the other team's");
+  const { call } = await served(t, state.app, root, team.id);
+  signInAs(t, state.app, household);
+  assert.deepEqual((await call("GET", "")).body.offers.map((o) => o.offerId), [mine.offerId]);
+  assert.deepEqual((await call("GET", "", undefined, undefined, otherTeam.id)).body.offers.map((o) => o.offerId), [elsewhere.offerId]);
+  assert.equal(owner, claim.scope.owner);
+});
+
+test("an open offer lapses at accept once its team was removed", async (t) => {
+  const { state, owner, team, claim, household } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, household.id, "Sam then");
+  state.app.teams.remove(team.id);
+  assert.throws(() => handoffs.accept(household, offer.offerId), /team was removed/);
+  assert.equal(handoffs.get(owner, offer.offerId).state, "expired");
+});
