@@ -488,6 +488,16 @@ test("members that finished answering with no tool call, and no outcome recorded
   assert.match(row(app, requestId).error, /2 member\(s\) finished an answer/);
 });
 
+test("a turn that recovery put to the owner after a restart needs reconciliation even with no step left open", async (t) => {
+  const { app, taskId, parentRunId, sessionId } = await crashedTurn(t);
+  const next = carryOn(app, parentRunId, sessionId);
+  app.store.finish(next.id, "needs_input", "Carry on?");
+  app.store.event(next.id, "attention.needed", { question: "Carry on?", afterRestart: true });
+  const report = app.teams.reconcile(taskId);
+  assert.deepEqual(report.effects.filter((e) => e.outcome === "unknown"), [], "no open step decides it");
+  assert.equal(report.state, "needs_reconciliation");
+});
+
 test("a crashed turn whose own conversation the owner then deleted needs reconciliation, never 'nothing was done'", async (t) => {
   const { app, requestId, taskId, parentRunId, sessionId } = await crashedTurn(t);
   app.store.event(parentRunId, "tool.started", { name: "email.send", id: "e1" });
