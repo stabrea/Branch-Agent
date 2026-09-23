@@ -7,11 +7,11 @@ import { inflateRawSync } from "node:zlib";
  */
 export type DocumentType =
   | "txt" | "md" | "html" | "csv" | "json" | "docx" | "xlsx" | "pdf"
-  | "pptx" | "odt" | "ods" | "epub" | "rtf";
+  | "pptx" | "odt" | "ods" | "epub" | "rtf" | "org";
 const byExtension: Record<string, DocumentType> = {
   txt: "txt", text: "txt", log: "txt", md: "md", markdown: "md", html: "html", htm: "html",
   csv: "csv", tsv: "csv", json: "json", docx: "docx", docm: "docx", xlsx: "xlsx", xlsm: "xlsx", pdf: "pdf",
-  pptx: "pptx", pptm: "pptx", odt: "odt", ods: "ods", epub: "epub", rtf: "rtf",
+  pptx: "pptx", pptm: "pptx", odt: "odt", ods: "ods", epub: "epub", rtf: "rtf", org: "org",
 };
 /** The kind of file a name points at; anything unknown is read as plain text. */
 export function documentType(name: string): DocumentType {

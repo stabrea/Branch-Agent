@@ -14,7 +14,7 @@ import { documentType, extensionsFor, type DocumentType } from "./document-text.
  * worse than no filter at all.
  */
 export const documentKinds: DocumentType[] = [
-  "txt", "md", "html", "csv", "json", "docx", "xlsx", "pdf", "pptx", "odt", "ods", "epub", "rtf",
+  "txt", "md", "html", "csv", "json", "docx", "xlsx", "pdf", "pptx", "odt", "ods", "epub", "rtf", "org",
 ];
 export const RetrievalFilterSchema = z.object({
   /** Knowledge bases, by name or by id. Empty or missing means all of them. */
@@ -22,7 +22,7 @@ export const RetrievalFilterSchema = z.object({
   /** Files, by workspace path or by the file's own name. A folder path matches everything under it. */
   files: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
   /** Kinds of document, such as `pdf` or `xlsx`. */
-  kinds: z.array(z.enum(documentKinds as [DocumentType, ...DocumentType[]])).max(13).optional(),
+  kinds: z.array(z.enum(documentKinds as [DocumentType, ...DocumentType[]])).max(14).optional(),
   /** Only files Branch last saw change on or after this date, written as `2026-01-01`. */
   changedAfter: z.string().trim().min(4).max(40).optional(),
   /** Only files Branch last saw change before this date. */

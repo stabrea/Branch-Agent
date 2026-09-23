@@ -1,6 +1,7 @@
 import { documentType, extractText, type DocumentType } from "./document-text.js";
 import { readDocx, readPptx, readXlsx, type ReadStructure } from "./document-office.js";
 import { readEpub, readOds, readOdt, readRtf } from "./document-open.js";
+import { readOrg } from "./document-org.js";
 import { PdfLocked, pdfMarkedText, pdfText } from "./document-pdf.js";
 import { errorText } from "./contracts.js";
 
@@ -38,11 +39,11 @@ export const picturesMessage =
   "This PDF is pictures of text rather than text, so there are no words to lift out. Ask me to read it with a vision model and I will look at the pages instead.";
 /** The kinds a reader exists for, which is also what a knowledge base will walk into a collection. */
 export const readableTypes: DocumentType[] = [
-  "txt", "md", "html", "csv", "json", "docx", "xlsx", "pptx", "odt", "ods", "epub", "rtf", "pdf",
+  "txt", "md", "html", "csv", "json", "docx", "xlsx", "pptx", "odt", "ods", "epub", "rtf", "pdf", "org",
 ];
 
 const readers: Partial<Record<DocumentType, (bytes: Buffer) => ReadStructure>> = {
-  docx: readDocx, xlsx: readXlsx, pptx: readPptx, odt: readOdt, ods: readOds, epub: readEpub, rtf: readRtf,
+  docx: readDocx, xlsx: readXlsx, pptx: readPptx, odt: readOdt, ods: readOds, epub: readEpub, rtf: readRtf, org: readOrg,
 };
 
 /**
