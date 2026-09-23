@@ -394,3 +394,21 @@ test("removing a team forgets its tasks, except one whose turn is still running 
   assert.ok(tasks.get(scope, running.taskId));
   assert.equal(tasks.get(scope, kept.taskId).state, "completed", "another team's tasks are untouched");
 });
+
+test("a repeat of a result too large to keep says so plainly and points at the room, where the answers are", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const huge = "x".repeat(300_000);
+  const runtime = inertRuntime(state.app.store, owner);
+  runtime.fanout = async (_context, tasks) => ({ tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: huge, runId: `child-${index}` }])) });
+  const requestId = randomUUID();
+  const first = await state.app.teams.run(runtime, knowledge, team.id, "write a lot", { requestId });
+  assert.equal(first.answers[0].output.length, huge.length, "the live caller gets every answer");
+  const again = await state.app.teams.run(runtime, knowledge, team.id, "write a lot", { requestId });
+  assert.equal(runtime.dispatches, 1);
+  assert.equal(again.state, "completed");
+  assert.equal(again.truncated, true);
+  assert.match(again.note, /too large to keep for a repeat/);
+  assert.equal(again.roomSessionId, team.roomSessionId);
+  assert.equal(again.teamId, team.id);
+  assert.equal(state.app.teams.room(team.id).filter((m) => m.content.includes(huge)).length, 2, "every answer is in the room");
+});

@@ -111,11 +111,19 @@ export class Teams {
     if (this.tasks.claimedByEarlierBoot(this.tasks.get(scope, taskId)!)) reconcileTeamTask(this.store, this.tasks, scope, taskId);
     const task = this.tasks.get(scope, taskId)!;
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
-    if (task.state === "completed") return { ...(task.result as object), ...identity };
+    if (task.state === "completed") return this.recordedResult(task, identity);
     // A turn that stopped to ask the owner says what it asked, and what it had started so far.
     if (task.state === "waiting_owner")
       return { teamId: task.teamId, ...identity, question: task.question, parentRunId: task.parentRunId, effects: task.parentRunId ? turnEffects(this.store, task.parentRunId) : [] };
     return { teamId: task.teamId, ...identity };
+  }
+  /** A finished task's recorded result; one too large to keep says so plainly and points at the room, where every answer is. */
+  private recordedResult(task: { teamId: string; result: unknown }, identity: { taskId: string; requestId: string; state: string }) {
+    const result = task.result as { truncated?: boolean; chars?: number } | null;
+    if (!result?.truncated) return { ...result, ...identity };
+    const room = this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
+    return { teamId: task.teamId, roomSessionId: room, ...identity, truncated: true as const,
+      note: `The answers came to ${result.chars ?? "too many"} characters, too large to keep for a repeat, so they are not replayed here. Every answer is in the team's room.` };
   }
   private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress) {
     // The claim must still be this caller's before the runtime is asked for anything; if it moved, only observe.
