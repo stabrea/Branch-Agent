@@ -185,6 +185,15 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
 /** mac7/outside-review: what a queued message keeps of the task that queued it (see FollowUp). */
 /** mac7/residuals (4b): why a script in an Ask first conversation is asked about every time. */
 export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
+/** FQ-execution.browser: the answer to "always" for a call that named nothing a rule could be kept for. */
+export const unkeyedAlwaysRefusal = "This request does not say which website it is for, so a standing yes would cover every "
+  + "request of its kind. Answer it for this conversation or just this once instead";
+/**
+ * FQ-execution.browser: tools whose answers are kept for the websites they declare (their `target`,
+ * browser.flow's `flowTarget`). One of their calls that named none gets no standing yes: it would be
+ * a rule on "*", every call of the tool.
+ */
+const keyedOnDeclaredTargets: ReadonlySet<string> = new Set(["browser.flow"]);
 export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -2532,11 +2541,14 @@ ${run.output.slice(0, 6000)}`;
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     // A once-only question is never answered by a kept yes (R17-S-C integration review).
+    // FQ-execution.browser: a browser.flow on no website is only answered by a yes given for these very
+    // bytes: its kept answer names nothing else to tell two such flows apart.
+    const unkeyed = this.unkeyed(tool, target);
     const answered = decision === "ask" && !hold?.onceOnly
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact) : undefined;
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
     const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
-      remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
+      remember: hold?.onceOnly ? "never" : extra.exact || unkeyed ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
   }
   /**
@@ -2625,6 +2637,14 @@ ${run.output.slice(0, 6000)}`;
   }
   private readonly taskPeople = new Map<string, string | null>();
   /**
+   * FQ-execution.browser: a call that named nothing its answers are kept for — a `browser.flow` on no
+   * website. A standing rule for it would be one on "*", every call of the tool, so it is never
+   * written, and only a yes for the same bytes answers it.
+   */
+  private unkeyed(tool: string, target: string): boolean {
+    return !target && keyedOnDeclaredTargets.has(tool);
+  }
+  /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
    * workflow's step). "always" also writes it into the policy as a rule, exactly as answering a
    * paused task does, and the same row goes into the record of what was allowed.
@@ -2638,6 +2658,7 @@ ${run.output.slice(0, 6000)}`;
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (remember === "always" && this.unkeyed(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
     // Integration review (mac7/coding-next): a workflow or flow carried on past "Let Branch run this
     // project's tests?" is held to the same rules as the question card: Always is the owner's alone,
     // and a plain yes is a single pass for the next run of the tests.
@@ -2827,8 +2848,9 @@ ${run.output.slice(0, 6000)}`;
     // list rather than taking the place of whatever was already there. Only when the list is full
     // does one go, and then the task that was waiting on it is told, in plain words.
     const files = about.files?.length ? { files: about.files.map((one) => ({ kind: one.kind, path: this.hideSecrets(one.path) })) } : {};
+    const noAlways = this.unkeyed(about.tool, target) ? { noAlways: true } : {}; // FQ-execution.browser
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
-      label, question, source, remember, askedAt: new Date().toISOString(), ...files,
+      label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noAlways,
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
@@ -2837,7 +2859,7 @@ ${run.output.slice(0, 6000)}`;
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files,
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files, ...noAlways,
       ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
@@ -2889,6 +2911,8 @@ ${run.output.slice(0, 6000)}`;
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
+    if (remember === "always" && this.unkeyed(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
     // An answer that names a request must land on that request and no other. The only way to get
     // here having named one is through the fall-back above, which means nothing waiting carries
     // that name — including a question that carries no name at all, which an answer naming one was

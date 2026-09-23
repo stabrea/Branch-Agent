@@ -91,7 +91,7 @@ function renderWaiting() {
     const yeses = question.kind === "project-tests" ? [["Always for this folder", "always"], ["Once", "never"]]
       : [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]];
     for (const [label, remember] of yeses) {
-      if (remember === "always" && question.source !== "owner") continue;
+      if (remember === "always" && (question.source !== "owner" || question.noAlways)) continue;
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";

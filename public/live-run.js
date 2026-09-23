@@ -125,7 +125,7 @@ function askCard(question) {
   // Wave mac3 (tool-safety): a step the safety check advised against can only be allowed this once.
   if (question.onceOnly) card.append(el("p", t("live.onceOnly"), "meta"));
   for (const [label, decision, remember] of answers) {
-    if (remember === "always" && question.source !== "owner") continue;
+    if (remember === "always" && (question.source !== "owner" || question.noAlways)) continue;
     if (question.onceOnly && decision === "allow" && remember !== "never") continue;
     const choice = el("div", undefined, "live-ask-choice");
     choice.append(button(label, decision === "deny" ? "danger" : "", () => answerOnce(card, async () => {

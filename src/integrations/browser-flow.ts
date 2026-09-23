@@ -92,6 +92,22 @@ export function flowTargets(input: z.infer<typeof FlowSchema>, current: string):
 }
 
 /**
+ * What a question about the flow as a whole, and a standing yes to it, is kept for: the websites it
+ * declares (`flowTargets`), each once, in the order it reaches them — one host alone, or "2 websites:
+ * a, b". A flow that names no website, arguments that do not parse (the tool refuses them anyway), and
+ * a list too long to be kept whole are "", which may never be given a standing yes
+ * (`Runtime.approve`): cut text would be a start that other flows share, and a rule on it would cover
+ * them too.
+ */
+export function flowTarget(sent: unknown, current: string): string {
+  const parsed = FlowSchema.safeParse(sent);
+  if (!parsed.success) return '';
+  const hosts = [...new Set(flowTargets(parsed.data, current).map(target => new URL(target.url!).host))];
+  const text = hosts.length > 1 ? `${hosts.length} websites: ${hosts.join(', ')}` : hosts[0] ?? '';
+  return text.length > 300 ? '' : text;
+}
+
+/**
  * Every step judged before the first one runs, each as the single-step tool it stands for — the
  * same rules, the same questions, the same network policy as `browser.navigate`, `browser.click`,
  * `browser.fill` and `browser.wait` — so a refusal or a question stops the flow before anything is
@@ -156,6 +172,8 @@ export function registerBrowserFlow(registry: ToolRegistry, host: FlowHost): voi
       + 'navigate/click/screenshot by hand for each one.',
     parameters: FlowSchema,
     targets: (input, context) => flowTargets(input, host.hostFor(context)),
+    // A yes to one flow is kept for the websites it names, never for every flow (flowTarget).
+    target: (input, context) => flowTarget(input, host.hostFor(context)),
     execute: (input, context) => runFlow(registry, host, input, context),
   });
 }
