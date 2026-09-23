@@ -253,3 +253,48 @@ test("Q79: outside Branch's source, a LOCAL scoped credential.helper is not refu
   const signal = AbortSignal.timeout(10_000);
   await assert.rejects(app.git.push({ folder, remote: "origin", branch: "custom" }, signal), /reach the server|credential\.helper is set at/, "rejected for the invalid host or network, not refused by Q79 scope check");
 });
+
+test("Q82: git.push and git.pull in source refuse an scp-like remote with host starting with dash", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "attack", "git@-h:repo.git"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "feature" }, signal), /host starting with "-"/);
+  await assert.rejects(app.git.pull({ folder, remote: "attack", branch: "feature" }, signal), /host starting with "-"/);
+});
+
+test("Q82: git.push and git.pull in source refuse an ssh:// remote with host starting with dash", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "attack", "ssh://-oProxyCommand=id@example.com/repo.git"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "feature" }, signal), /host starting with "-"/);
+  await assert.rejects(app.git.pull({ folder, remote: "attack", branch: "feature" }, signal), /host starting with "-"/);
+});
+
+test("Q82: git.push and git.pull in source refuse a remote URL changed by url.<x>.insteadOf", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("Q82: outside Branch's source, an scp-like remote with dash host is not refused by Q82 check", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-outside-dash-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const folder = "normal-repo";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "custom"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial"], { cwd });
+  execFileSync("git", ["remote", "add", "attack", "git@-h:repo.git"], { cwd });
+  const signal = AbortSignal.timeout(10_000);
+  try {
+    await app.git.push({ folder, remote: "attack", branch: "custom" }, signal);
+    assert.fail("push should have been rejected");
+  } catch (error) {
+    assert.ok(!String(error).match(/host starting with "-" which could be a command-line flag/), "Q82 dash check should not run outside Branch's source");
+  }
+});

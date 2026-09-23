@@ -210,6 +210,34 @@ export class GitTools {
   }
 
   /**
+   * Q82: refuse scp-like or ssh:// URLs with a host starting with `-`, which
+   * could be interpreted as command-line flags by SSH.
+   */
+  private checkHostDash(url: string): string | void {
+    const sshMatch = /^ssh:\/\/([^@/]+)/.exec(url);
+    if (sshMatch?.[1]?.startsWith("-")) return `ssh:// URL has a host starting with "-", which could be a command-line flag: ${url}`;
+    const scpMatch = /^([^@]+)@([^:]+):/.exec(url);
+    if (scpMatch?.[2]?.startsWith("-")) return `scp-like URL has a host starting with "-", which could be a command-line flag: ${url}`;
+  }
+
+  /**
+   * Q82: refuse a remote whose URL has been rewritten by url.<x>.insteadOf or
+   * url.<x>.pushInsteadOf config, which could change what repository Git sends to.
+   */
+  private async checkInsteadOf(cwd: string, remote: string, signal: AbortSignal): Promise<string | void> {
+    const raw = await this.runner.run({ cwd, args: ["config", "--get-all", `remote.${remote}.url`], timeoutMs: 10_000 }, signal);
+    if (raw.status !== "completed") return;
+    const configured = raw.stdout.trim().split("\n").filter(Boolean);
+    const read = await this.runner.run({ cwd, args: ["remote", "get-url", "--push", "--all", remote], timeoutMs: 10_000 }, signal);
+    if (read.status !== "completed") return;
+    const resolved = read.stdout.trim().split("\n").filter(Boolean);
+    for (let i = 0; i < Math.min(configured.length, resolved.length); i++) {
+      if (configured[i] !== resolved[i])
+        return `Remote URL was changed by url.<x>.insteadOf or url.<x>.pushInsteadOf config, which can redirect to an unexpected repository.`;
+    }
+  }
+
+  /**
    * Q12: when Git run inside Branch's source, validate that a remote is configured
    * and uses only https:// or ssh:// (including scp-like user@host:path).
    * Refuses file://, plain paths, ext::, and other transports that could execute code.
@@ -223,9 +251,14 @@ export class GitTools {
     if (read.status !== "completed") return `Remote "${remote}" is not configured in this repository, so nothing was sent.`;
     const urls = read.stdout.trim().split("\n").filter(Boolean);
     if (!urls.length) return `Remote "${remote}" has no address, so nothing was sent.`;
-    for (const url of urls)
+    for (const url of urls) {
       if (!(/^https:\/\//.test(url) || /^ssh:\/\//.test(url) || /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:[a-zA-Z0-9._\/-]+$/.test(url)))
         return `Remote URL must use https://, ssh://, or scp-like format (user@host:path), but got: ${url}`;
+      const dashError = this.checkHostDash(url);
+      if (dashError) return dashError;
+    }
+    const insteadOfError = await this.checkInsteadOf(cwd, remote, signal);
+    if (insteadOfError) return insteadOfError;
   }
 
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
