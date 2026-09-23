@@ -487,3 +487,16 @@ test("members that finished answering with no tool call, and no outcome recorded
   assert.equal(report.state, "needs_reconciliation");
   assert.match(row(app, requestId).error, /2 member\(s\) finished an answer/);
 });
+
+test("a crashed turn whose own conversation the owner then deleted needs reconciliation, never 'nothing was done'", async (t) => {
+  const { app, requestId, taskId, parentRunId, sessionId } = await crashedTurn(t);
+  app.store.event(parentRunId, "tool.started", { name: "email.send", id: "e1" });
+  app.store.event(parentRunId, "tool.completed", { name: "email.send", id: "e1", result: {} });
+  assert.equal(app.store.run(parentRunId).status, "interrupted");
+  app.store.forgetSession(app.runtime.owner, sessionId);
+  const never = { run() { throw new Error("the team must not run again"); } };
+  const again = await app.teams.run(never, knowledge, row(app, requestId).team_id, "clean up", { requestId });
+  assert.equal(again.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /record was deleted, so what it did cannot be known/);
+  assert.equal(app.teams.reconcile(taskId).state, "needs_reconciliation");
+});

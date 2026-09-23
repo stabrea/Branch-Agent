@@ -302,10 +302,21 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   if (!claim) return report(tasks.get(scope, taskId)!.state, "This task changed while it was being checked.");
   const finished = finishFromRecord(store, tasks, claim, task.result as (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null);
   if (finished) return report(finished.state, finished.note);
+  // The owner deleted the turn's own conversation: what it did cannot be read back, so it is never "nothing was done".
+  if (recordDeleted(store, task)) {
+    tasks.markNeedsReconciliation(claim, "Its record was deleted, so what it did cannot be known; check before trying again.");
+    return report("needs_reconciliation", "Its record was deleted, so what it did cannot be known; check before trying again.");
+  }
   if (parent?.status === "needs_input")
     return waitingReport(report, settleWaiting(store, tasks, claim, parent.id, parent.output, root!));
   const state = settleUnfinished(store, tasks, claim, root, "the turn stopped before its result was recorded");
   return report(state, state === "failed" ? "Nothing was done, so a new request id may try again." : "Check these effects before trying again.");
+}
+
+/** True when the task names a turn run or a conversation that no longer exists: the owner deleted its record. */
+function recordDeleted(store: Store, task: { parentRunId: string | null; parentSessionId: string | null }): boolean {
+  if (task.parentRunId && !store.run(task.parentRunId)) return true;
+  return !!task.parentSessionId && !store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(task.parentSessionId);
 }
 
 function waitingReport(report: (state: TeamTaskState, note: string) => ReconcileReport, state: TeamTaskState): ReconcileReport {
