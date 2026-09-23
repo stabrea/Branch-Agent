@@ -1,7 +1,7 @@
 // This computer's own cards, each placed by its `data-home` (docs/places.md):
 //   settings:computer  what this computer allows (macOS and Linux), and how Branch uses the screen
 //   settings:voice     the computer's own voice: off, when needed or on
-//   settings:secrets   the Keychain entries Branch may read (macOS)
+//   settings:secrets   the Keychain entries Branch may read (macOS), with no heading of its own (DG-189)
 // Every word goes through a key, and every colour comes from the page's tokens.
 import { t } from "/i18n.js";
 
@@ -170,15 +170,21 @@ function field(name) {
    entry and removing one each save at once, so it has no Save button. */
 const saveKeychainNow = () => saveKeychain({ mode: $("keychain-card-mode").value, entries: keychain.entries })
   .finally(() => choiceSaved("keychain-card-mode"));
+/* DG-189: in the sample the Keychain sits in "Passwords and keys" with no heading of its own, so the card's name is
+   its switch's label ("Passwords from your Mac's Keychain") rather than a third-level heading under the section. */
 function keychainCard() {
   const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add", className: "quiet-button" });
   add.addEventListener("click", addEntry);
-  const [label, mode] = modeSelect("keychain-card-mode");
+  const [, mode] = modeSelect("keychain-card-mode");
+  const label = worded("label", "settings.card.keychain", { htmlFor: mode.id, id: "keychain-card-label" });
   mode.addEventListener("change", () => void saveKeychainNow());
-  const section = card("keychain-card", "settings:secrets", "keychain", label, mode,
+  const section = el("section", { id: "keychain-card", className: "card", hidden: true },
+    worded("p", "settings.intro.keychain"), label, mode,
     el("div", { id: "keychain-list", className: "card-list" }),
-    ...keychainFields.flatMap(field), add);
-  section.hidden = true;
+    ...keychainFields.flatMap(field), add,
+    el("p", { id: "keychain-card-status", className: "subtle", role: "status" }));
+  section.dataset.home = "settings:secrets";
+  section.setAttribute("aria-labelledby", label.id);
   return section;
 }
 

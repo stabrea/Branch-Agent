@@ -64,22 +64,36 @@ const seen = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-189 the page shows the sample's headings at every width and level, and no card heading of its own", async (t) => {
-  const { page, errors } = await settings(t);
-  const hiddenAtRegular = process.platform === "darwin" ? "3 more with Advanced" : "1 more with Technical";
-  for (const width of [1440, 860, 400]) {
-    await page.setViewportSize({ width, height: 950 });
-    for (const [one, more] of [["regular", [hiddenAtRegular]], ["advanced", null]]) {
-      await level(page, one);
-      await secrets(page);
-      const { headings, more: line } = await seen(page);
-      assert.deepEqual(headings, ["H2 Secrets", "H3 Keys your commands use", "H3 Passwords and keys"], `${width} px, ${one}`);
-      if (more) assert.deepEqual(line, more, `${width} px, ${one}: what is out of sight`);
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${width} px fits`);
+/* The Keychain card shows only where the computer has a Keychain, so the answer is given here, both ways: the page's
+   headings are the sample's with the card on show (as on a Mac) and without it, whatever computer runs the test. */
+for (const available of [true, false]) {
+  test(`DG-189 the page shows the sample's headings at every width and level, and no card heading of its own (Keychain ${available ? "here" : "not here"})`, async (t) => {
+    const { page, errors } = await settings(t, (page) => page.route("**/api/keychain/settings", (route) => route.fulfill({
+      json: { enabled: false, mode: "off", entries: [], available, references: [] } })));
+    const hiddenAtRegular = available ? "3 more with Advanced" : "1 more with Technical";
+    for (const width of [1440, 860, 400]) {
+      await page.setViewportSize({ width, height: 950 });
+      for (const [one, more] of [["regular", [hiddenAtRegular]], ["advanced", null]]) {
+        await level(page, one);
+        await secrets(page);
+        if (available && one === "advanced") assert.equal(await page.locator("#keychain-card").isVisible(), true, `${width} px: the Keychain card is on show`);
+        const { headings, more: line } = await seen(page);
+        assert.deepEqual(headings, ["H2 Secrets", "H3 Keys your commands use", "H3 Passwords and keys"], `${width} px, ${one}`);
+        if (more) assert.deepEqual(line, more, `${width} px, ${one}: what is out of sight`);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${width} px fits`);
+      }
     }
-  }
-  assert.deepEqual(errors, []);
-});
+    if (available) {
+      /* The card's words are its switch's label, in English and in French. */
+      assert.equal(await page.locator("#keychain-card").getAttribute("aria-labelledby"), "keychain-card-label");
+      assert.equal(await page.locator("#keychain-card-mode").evaluate((node) => node.labels[0].textContent), "Passwords from your Mac's Keychain");
+      await openPlace(page, "settings:appearance");
+      await page.locator("#appearance-language").selectOption("fr");
+      await page.waitForFunction(() => document.getElementById("keychain-card-label")?.textContent === "Mots de passe du trousseau de votre Mac");
+    }
+    assert.deepEqual(errors, []);
+  });
+}
 
 test("DG-053 where Branch reads saved sign-ins from: truthful tiles that save as you go, and French", async (t) => {
   const { app, page, errors } = await settings(t);

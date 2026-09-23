@@ -491,7 +491,15 @@ for (const width of [1440, 860, 400]) {
     for (const language of ["en", "fr"]) {
       await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
       await page.evaluate(() => globalThis.branchOsPermissions.render());
-      for (const id of cardIds) {
+      /* DG-189: the Keychain card sits in Secrets' "Passwords and keys" with no heading of its own; its words are its
+         switch's label. */
+      await openSettingFor(page, "#keychain-card");
+      assert.equal(await page.locator("#keychain-card").isVisible(), true, "keychain-card is a real visible card");
+      assert.equal(await page.locator("#keychain-card").locator("h1, h2, h3, h4").count(), 0, "keychain-card has no heading");
+      assert.equal(await page.locator("#keychain-card-label").getAttribute("for"), "keychain-card-mode");
+      assert.equal((await page.locator("#keychain-card-label").textContent()).trim(),
+        language === "fr" ? "Mots de passe du trousseau de votre Mac" : "Passwords from your Mac's Keychain");
+      for (const id of cardIds.filter((one) => one !== "keychain-card")) {
         await openSettingFor(page, `#${id}`);
         const card = page.locator(`#${id}`), heading = card.locator(":scope > [data-t]").first();
         assert.equal(await card.isVisible(), true, `${id} is a real visible card`);
@@ -599,7 +607,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   // Every word on the cards is behind a key, so French replaces all of them.
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   assert.equal(await page.locator("#os-permissions-card h3").textContent(), "Ce que cet ordinateur autorise");
-  assert.equal(await page.locator("#keychain-card h3").textContent(), "Mots de passe du trousseau de votre Mac");
+  assert.equal(await page.locator("#keychain-card-label").textContent(), "Mots de passe du trousseau de votre Mac");
   assert.equal(await page.locator("#system-voice-card button").textContent(), "Enregistrer ce choix");
   assert.equal(await buttons.first().textContent(), "Ouvrir les Réglages Système");
   assert.equal(await page.locator("#keychain-service").getAttribute("placeholder"), "par exemple api.github.com");
