@@ -108,7 +108,9 @@ test("DG-025: Chat apps & devices keeps each switch as it changes, with no Save 
   });
   assert.equal(await page.locator(`#channels-more-${kind}`).inputValue(), "when-needed", "a switch that did not save goes back");
 
-  /* Reaching Branch from other pages. */
+  /* Reaching Branch from other pages: a refusal from before the key was entered is gone once it has loaded. */
+  await page.waitForFunction(() => document.getElementById("embeds-status")?.textContent === "", null, { timeout: 10000 }).catch(() => undefined);
+  assert.equal(await page.locator("#embeds-status").textContent(), "", "no stale refusal on show");
   await page.locator("#embed-widget").check();
   assert.equal(await until(async () => (await call("embeds")).widget, true), true, "the small ask box is kept as it changes");
   await refused(page, "embeds", async () => {
