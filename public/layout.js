@@ -334,11 +334,7 @@ const SETTINGS_PAGES = [
 const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], ["defaults", "settings.models.defaults", "Defaults"],
   ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
 const SETTINGS_DIRECTORY = {
-  trunks: [
-    ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:specialists"],
-    ["overview", "place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "overview"],
-    ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
-  ],
+  /* DG-193: Trunks & people holds the real settings instead (public/settings-trunks.js), with a way to Trunks and People. */
   channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
   connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
   skills: [
