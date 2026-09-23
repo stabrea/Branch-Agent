@@ -267,6 +267,7 @@ import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
 import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
 import { webPagesApi, WebPagesApiError } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { audit, csvCell } from "./audit.js";
+import { unifiedSearch } from "./unified-search.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
@@ -1155,6 +1156,14 @@ async function api(
   }
   // ── end mac7/live-voice ──
   if (request.method === "GET" && path === "/api/state") return state(app);
+  // FQ-collaboration.unified-search: one query across conversations, saved workflows and the
+  // record of what the assistant was allowed to do. Owner-only: it reads across everything the
+  // owner has done, so a short-lived key and a household profile are both refused (src/short-lived-keys.ts).
+  if (request.method === "GET" && path === "/api/search") {
+    app.store.profiles.requireOwner("Search across everything");
+    const q = new URL(request.url ?? "/", "http://local").searchParams.get("q") ?? "";
+    return { results: unifiedSearch(app, app.runtime.owner, q) };
+  }
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
   if (collab !== notCollab) return collab;

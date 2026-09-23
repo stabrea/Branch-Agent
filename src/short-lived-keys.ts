@@ -150,6 +150,10 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // FQ-collaboration.unified-search: one query across every conversation, saved workflow and the
+  // record of what the assistant was allowed to do is a wider window than any one of those
+  // searches gives alone, so it stays the owner's the way the workflows and audit routes it reads do.
+  /^\/api\/search$/,
 ];
 
 /**

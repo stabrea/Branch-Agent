@@ -896,6 +896,9 @@ export const ROUTES = {
   "/api/schedules/:id/remove": "other POST",
   "/api/schedules/:id/trigger": "task POST",
   "/api/sdk-kit": "owner POST", // bucket 21: the switch for building on Branch
+  // FQ-collaboration.unified-search: one query across conversations, workflows and the audit
+  // record is a wider window than any one of those alone, so it is refused like a secret read.
+  "/api/search": "secret-read",
   "/api/second-opinion": "owner POST",
   "/api/secrets": "owner POST",
   "/api/secrets/audit": "look",
@@ -1077,6 +1080,9 @@ export const OUTBOUND = [
   /^src\/(local-models|tracing-export|voice|provider-batch)\.ts$/,
   // Callers of our own routes, and the route description, rather than the routes themselves.
   /^src\/(cli|cli-attach|api-openapi|short-lived-keys|household-routes)\.ts$/, /^src\/install\//, /^src\/desktop\//,
+  // FQ-collaboration.unified-search: builds links to already-classified routes (/api/sessions/:id,
+  // /api/workflows/:id, /api/audit), not a route of its own beyond /api/search, which src/server.ts defines.
+  /^src\/unified-search\.ts$/,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
   /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
   // r17-i: callers of other computers' routes and of the relay's, not routes of this one.
