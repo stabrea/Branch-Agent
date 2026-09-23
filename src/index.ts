@@ -106,6 +106,7 @@ import { soundStreamRunner, speechStreamRunner } from "./voice-dictation-host.js
 import { wakeCaptureRunner, wakeRunner } from "./voice-wake-host.js"; // mac7/wake-mic
 // Bucket 17.
 import { MediaUnderstanding, registerMediaUnderstanding } from "./media-understand.js";
+import { MediaClips, registerMediaClips } from "./media-clips.js"; // FQ-packages.clips
 import { SpeechEngineService } from "./speech-engine-service.js";
 import { registerTroubleshoot } from "./troubleshoot.js"; // w911 (A0374) hook.
 import { builtInSpeech } from "./speech-engines.js";
@@ -648,6 +649,9 @@ export async function createBranch(options: {
   // Bucket 17 hook: videos understood through the owner's own ffmpeg and yt-dlp, and speech plug-ins.
   const understanding = new MediaUnderstanding({ store, media, policy: web.policy });
   registerMediaUnderstanding(registry, understanding);
+  // FQ-packages.clips hook: a short clip, captions burned in, with a thumbnail (src/media-clips.ts).
+  const clips = new MediaClips({ store, media });
+  registerMediaClips(registry, clips);
   registerTroubleshoot(registry, runtime); // w911 (A0374) hook: the troubleshoot.run tool (switched, off by default).
   voice.engines = new SpeechEngineService({
     store, registry: builtInSpeech(), policy: web.policy, fetch: web.policy.guard(globalThis.fetch),

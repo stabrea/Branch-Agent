@@ -82,6 +82,8 @@ export const signInFillTools = ["signin.fill"] as const;
 export const sdkKitToolNames = ["sdk.routes", "sdk.route", "sdk.starter"] as const;
 /** Bucket 17: watching and saving videos with the owner's own ffmpeg and yt-dlp (src/media-understand.ts). */
 export const videoProgramTools = ["media.watch", "media.frames", "media.convert", "media.download", "media.captions"] as const;
+/** FQ-packages.clips: cutting a short clip with captions and a thumbnail (src/media-clips.ts); same switch, its own list so it does not change the count `videoProgramTools` tests read. */
+export const videoClipTools = ["media.clip"] as const;
 /** w911 (A2144): page notes, the owner pointing at one thing on a page (src/integrations/browser-notes-tool.ts). */
 export const pageNotesTools = ["browser.notes"] as const;
 
@@ -113,6 +115,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
   // Bucket 17 hook.
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
+  // FQ-packages.clips hook: same switch and settings record as the line above, its own tools list.
+  { reason: "watching and saving videos is switched on", tools: videoClipTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
   // w911 (A0374) hook: fixing a failed command (src/troubleshoot.ts; the name is written here to avoid an import loop).
   { reason: "fixing failed commands is switched on", tools: ["troubleshoot.run"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "troubleshoot") },
   // Optional JEV judgments send the bounded state to the provider the owner configured in JEV.
