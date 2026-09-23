@@ -8,6 +8,8 @@ import type { WebAccess } from "./integrations/web.js";
 import { applyContentPolicy, detectInjection } from "./content-guard.js";
 import type { DeliveryHandler } from "./scheduler.js";
 import { automationHealth, type Health, type HealthEntry } from "./heartbeat.js";
+import { MonitorObservations, type Observation } from "./monitor-history.js";
+export type { Observation } from "./monitor-history.js";
 
 /**
  * Keeping an eye on a page or a search for the person. Each watch remembers what it saw last time;
@@ -51,10 +53,12 @@ export function everyMinutes(value: number | string): number {
 
 export class Monitors {
   private readonly db: DatabaseSync;
+  private readonly observations: MonitorObservations;
   /** Watches being looked at right now: a beat that overlaps the last one must not look again. */
   private readonly inFlight = new Set<string>();
   constructor(private readonly store: Store, private readonly web: WebAccess, private readonly deliver?: DeliveryHandler) {
     this.db = store.sqlite;
+    this.observations = new MonitorObservations(this.db);
     this.db.exec(`CREATE TABLE IF NOT EXISTS monitors(id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind TEXT NOT NULL,
       target TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', every_minutes INTEGER NOT NULL, notify TEXT NOT NULL,
       hash TEXT, snapshot TEXT, checked_at TEXT, next_at TEXT NOT NULL, changes INTEGER NOT NULL DEFAULT 0,
@@ -75,7 +79,14 @@ export class Monitors {
   }
   remove(owner: string, id: string): { removed: string } {
     if (!this.db.prepare("DELETE FROM monitors WHERE owner=? AND id=?").run(owner, id).changes) throw new Error("There is no watch with that number");
+    this.observations.forget(id);
     return { removed: id };
+  }
+  /** The earlier looks this watch has taken, newest first: the prior snapshot behind a change is
+   * kept here rather than lost when the next look overwrites the watch's own current snapshot. */
+  history(owner: string, id: string): Observation[] {
+    this.one(owner, id);
+    return this.observations.list(id);
   }
   /** Starts a watch and takes the first look right away, so the next change is a real change. */
   async create(owner: string, input: unknown, signal?: AbortSignal): Promise<MonitorRecord> {
@@ -89,6 +100,8 @@ export class Monitors {
     const text = await this.observe(kind, target, signal).catch((error) => `Could not be read: ${errorText(error)}`);
     this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=? WHERE id=?")
       .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), id);
+    // The very first look is an observation too, kept so a later change has something to compare against.
+    this.observations.record(id, now.toISOString(), digest(text), text.slice(0, snapshotChars), false);
     return this.one(owner, id);
   }
   private one(owner: string, id: string): MonitorRecord {
@@ -127,6 +140,9 @@ export class Monitors {
       const delivered = changed ? await this.announce(owner, record, summary) : null;
       this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=?, next_at=?, changes=? WHERE id=?")
         .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), next, record.changes + (changed ? 1 : 0), id);
+      // The watch's own row above only ever holds the current snapshot; this look is appended here
+      // too, so the one it replaces is still there afterwards instead of being overwritten away.
+      this.observations.record(id, now.toISOString(), digest(text), text.slice(0, snapshotChars), changed);
       this.remember(id, { status: "completed", startedAt: started, finishedAt: new Date().toISOString() }, null);
       return { id, changed, summary, delivered };
     } finally { this.inFlight.delete(id); }
@@ -224,5 +240,11 @@ export function registerMonitors(registry: ToolRegistry, monitors: Monitors): vo
     description: "Stop a watch and forget what it had seen.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
     execute: async ({ id }, context) => monitors.remove(context.owner, id),
+  });
+  registry.register({
+    name: "monitor.history", permission: "monitors.read",
+    description: "The earlier looks a watch has taken, newest first, so the observation behind a past change is still there to check instead of only the latest snapshot.",
+    parameters: z.object({ id: z.string().uuid() }).strict(),
+    execute: async ({ id }, context) => ({ observations: monitors.history(context.owner, id) }),
   });
 }
