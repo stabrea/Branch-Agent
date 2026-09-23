@@ -53,3 +53,27 @@
     display: none;
   }
 }
+/* The mode menu's Lockdown row wears the red shield; each choice's number key sits where the tick goes. */
+.mode-item.mode-lock .mode-icon {
+  color: var(--bad);
+}
+.mode-item .mode-keys {
+  justify-self: end;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text-3);
+  font: 500 10.5px/15px var(--mono, ui-monospace, monospace);
+  text-align: center;
+}
+/* The usage list's foot: this month's sum on the left, Open Usage on the right. */
+.glance-foot {
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.glance-foot .glance-month {
+  flex: 1;
+  min-width: 0;
+}
