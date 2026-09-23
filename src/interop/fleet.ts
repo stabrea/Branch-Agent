@@ -99,7 +99,7 @@ export function registerFleetTools(registry: ToolRegistry, parts: FleetParts): v
     execute: async (_args, context) => { requireInterop(store, context.owner, "fleet"); return fleetStatus(parts); },
   });
   registry.register({
-    name: "fleet.send", group: "agents", permission: "specialists.use",
+    name: "fleet.send", reach: "outbound", group: "agents", permission: "specialists.use",
     description: "Send one job to several specialists and assistants elsewhere at once, and get every answer back.",
     parameters: z.object({
       job: z.string().trim().min(1).max(8000),

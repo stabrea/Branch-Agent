@@ -242,7 +242,7 @@ export function registerMediaUnderstanding(registry: ToolRegistry, understanding
 }
 function registerOnline(registry: ToolRegistry, understanding: MediaUnderstanding): void {
   registry.register({
-    name: "media.download", permission: "media.write",
+    name: "media.download", reach: "outbound", permission: "media.write",
     description: "Save a video, or only its sound, from a web page into the media folder of the workspace.",
     parameters: z.object({ url: urlSchema, soundOnly: z.boolean().default(false) }).strict(),
     target: (input) => input.url,

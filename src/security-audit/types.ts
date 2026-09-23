@@ -118,7 +118,7 @@ export interface IntegrationFacts {
 export interface PolicyRuleFact {
   tool: string;
   match: string;
-  applies: "any" | "changes";
+  applies: "any" | "changes" | "reads";
   decision: "allow" | "ask" | "deny";
   remember: "never" | "session" | "always";
   sandbox?: string;

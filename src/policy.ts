@@ -27,8 +27,12 @@ export const PolicyRuleSchema = z
     tool: z.string().min(1).max(100).default("*"),
     /** What the tool would touch: a file path, a command, or a web address's host. `*` matches anything. */
     match: z.string().min(1).max(500).default("*"),
-    /** "changes" limits the rule to tools that can change something; "any" covers every tool. */
-    applies: z.enum(["any", "changes"]).default("any"),
+    /**
+     * "changes" limits the rule to tools that can change something; "reads" to tools that only look
+     * (Q59: how Plan keeps the owner's own questions without turning its refusals into questions);
+     * "any" covers every tool.
+     */
+    applies: z.enum(["any", "changes", "reads"]).default("any"),
     decision: PolicyDecisionSchema,
     /** What a "yes" to this question is remembered as, unless the person picks differently. */
     remember: PolicyRememberSchema.default("session"),
@@ -104,28 +108,6 @@ export const PolicyInputSchema = z
 export type RunSource = "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp" | "channel";
 
 interface PresetDefinition { label: string; description: string; rules: z.input<typeof PolicyRuleSchema>[] }
-/**
- * Q59: every web action, the one list "Just do it inside my workspace" (Auto) asks about and the Ask
- * first and Plan modes add to their own lines (src/conversation-mode.ts), so the modes cannot drift
- * apart on what counts as the web. Opening a page and reading the web need only a look permission
- * (`browser.read`, `web.read`), so "ask before changes" alone lets them through. The web readers
- * not named web.* are listed by name; tests/conversation-mode-order.test.mjs checks that every
- * registered tool with the `web.read` permission is covered.
- */
-export const webActionRules: z.input<typeof PolicyRuleSchema>[] = [
-  { tool: "browser.click", decision: "ask", remember: "session" },
-  { tool: "browser.fill", decision: "ask", remember: "session" },
-  // Sending one of your own files to a website is always worth a question, whatever site it is.
-  { tool: "browser.upload", decision: "ask", remember: "session" },
-  { tool: "browser.navigate", decision: "ask", remember: "always" },
-  { tool: "web.*", decision: "ask", remember: "always" },
-  { tool: "media.captions", decision: "ask", remember: "always" },
-  { tool: "decisions.judge", decision: "ask", remember: "always" },
-  { tool: "answer.ask", decision: "ask", remember: "always" },
-  { tool: "assistant.market", decision: "ask", remember: "always" },
-];
-/** The web action lines as rules, for the conversation modes. */
-export const webActionLines = (): PolicyRule[] => webActionRules.map((rule) => PolicyRuleSchema.parse(rule));
 const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefinition> = {
   off: {
     label: "No approvals",
@@ -148,7 +130,17 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       // Batch 26 (wave 8): a program on somebody else's computer always asks, whatever the rule
       // for commands here says. It is a different computer.
       { tool: "remote.run", decision: "ask", remember: "session" },
-      ...webActionRules,
+      { tool: "browser.click", decision: "ask", remember: "session" },
+      { tool: "browser.fill", decision: "ask", remember: "session" },
+      // Sending one of your own files to a website is always worth a question, whatever site it is.
+      { tool: "browser.upload", decision: "ask", remember: "session" },
+      { tool: "browser.navigate", decision: "ask", remember: "always" },
+      { tool: "web.*", decision: "ask", remember: "always" },
+      // Q59 migration: the Auto mode adds a question for every outbound tool the registry holds
+      // (src/tool-reach.ts, `policyForMode`), which a preset cannot list because tools come and go.
+      // The lines above are what an owner saved when they picked this preset, and saved lines are
+      // never rewritten: a conversation that follows the owner's setting keeps exactly these, so
+      // there an outbound tool not named here (x.search, gmail.search, remote.read, ...) does not ask.
     ],
   },
   "read-only": {
@@ -239,6 +231,7 @@ export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | nu
 /** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
 function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
+  if (rule.applies === "reads" && !request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
   if (!matchesTarget(rule.match, request) && !namesWholeCall(rule, request)) return false;
   if (!rule.resource && rule.decision === "allow" && rule.match !== "*" && !commandTargetTrusted(request)) return false;

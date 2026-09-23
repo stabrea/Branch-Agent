@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
-import { presetRules, webActionLines, type Policy, type PolicyPresetName, type PolicyRule } from "./policy.js";
+import { presetRules, type Policy, type PolicyPresetName, type PolicyRule } from "./policy.js";
 
 /**
  * Redesign phase 1: how much the assistant may do in one conversation, picked from the message box.
@@ -9,6 +9,10 @@ import { presetRules, webActionLines, type Policy, type PolicyPresetName, type P
  *   plan  Plan          reads and proposes; changes nothing (a change is refused, not asked about;
  *                       a web action is asked about, so Plan is never looser than Ask first)
  *   auto  Auto          changes inside the workspace go ahead; commands and the web ask
+ *
+ * Q59: a web action is any tool that reaches beyond the workspace (src/tool-reach.ts): it sends a
+ * request over the network, or acts on a web page or another program's window. The registry says
+ * which tools those are, and Ask first, Plan and Auto each ask before every one of them.
  *   full  Full access   nothing is checked with you (commands no rule covers still ask, as always)
  *
  * The rule that decides what a conversation may do:
@@ -51,22 +55,42 @@ function ownRules(policy: Policy): PolicyRule[] {
 const broadYes = (rule: PolicyRule): boolean => rule.decision === "allow" && !rule.resource && rule.match === "*";
 
 /**
- * The lines a mode puts in place of the owner's preset. Q59: Ask first and Plan also ask about every
- * web action, the same list Auto asks about (`webActionLines`, src/policy.ts), so no mode is looser
- * than the next looser one: opening a page or reading the web only needs a look permission, which
- * "ask before changes" and "read only" let through. Plan keeps refusing changes: its refusal comes first.
+ * Q59: a question before each tool that reaches beyond the workspace. The tools come from the
+ * registry (`outboundTools`), so a tool added later is covered by what it does, not by a list here.
+ * Auto remembers a standing yes per website, as its preset does for the web; Ask first and Plan keep
+ * no standing yes at all (src/runtime.ts `approve`), so their lines only suggest the conversation.
  */
-function modeLines(mode: ConversationMode): PolicyRule[] {
-  const lines = presetRules(modePreset[mode]);
-  return mode === "ask" || mode === "plan" ? [...lines, ...webActionLines()] : lines;
+function outboundLines(outbound: readonly string[], mode: ConversationMode): PolicyRule[] {
+  const remember = mode === "auto" ? "always" : "session";
+  return outbound.map((tool) => ({ tool, match: "*", applies: "any", decision: "ask", remember }));
 }
+/**
+ * Q59: the owner's own questions, as Plan keeps them. Plan refuses every change, so an owner's
+ * question can only ever be about a read there: one that could also cover a change becomes one that
+ * covers reads only, so a folder rule that asks before writing can never turn Plan's refusal into a
+ * question (a rule naming a folder is weighed before Plan's own broad refusal, src/policy.ts).
+ */
+const planQuestions = (own: PolicyRule[]): PolicyRule[] =>
+  own.filter((rule) => rule.decision === "ask" && rule.applies !== "changes").map((rule) => ({ ...rule, applies: "reads" as const }));
 
-/** The policy one conversation is held to, before the outside hold and Lockdown's own checks. */
-export function policyForMode(policy: Policy, mode: ConversationMode, locked = false): Policy {
-  const lines = modeLines(mode);
+/**
+ * The policy one conversation is held to, before the outside hold and Lockdown's own checks.
+ * `outbound` is every registered tool that reaches beyond the workspace (src/registry.ts).
+ *
+ *   plan  Plan's refusal of every change, then the owner's refusals and questions, then a question
+ *         before each outbound tool; anything else only looks, and goes ahead
+ *   ask   the owner's refusals and questions, then a question before every change and every outbound tool
+ *   auto  the owner's rules except a broad yes, the workspace preset, then a question before every outbound tool
+ *   full  the owner's rules except a broad yes
+ */
+export function policyForMode(policy: Policy, mode: ConversationMode, locked = false, outbound: readonly string[] = []): Policy {
+  const lines = [...presetRules(modePreset[mode]), ...(mode === "full" ? [] : outboundLines(outbound, mode))];
   if (locked) return mode === "plan" ? { ...policy, rules: [...lines, ...policy.rules] } : policy;
   const own = ownRules(policy);
-  if (mode === "plan") return { ...policy, rules: [...own.filter((rule) => rule.decision === "deny"), ...lines] };
+  if (mode === "plan") {
+    const [refusal, ...questions] = lines;
+    return { ...policy, rules: [refusal!, ...own.filter((rule) => rule.decision === "deny"), ...planQuestions(own), ...questions] };
+  }
   if (mode === "ask") return { ...policy, rules: [...own.filter((rule) => rule.decision !== "allow"), ...lines] };
   return { ...policy, rules: [...own.filter((rule) => !broadYes(rule)), ...lines] };
 }

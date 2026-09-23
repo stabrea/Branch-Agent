@@ -2352,7 +2352,7 @@ ${run.output.slice(0, 6000)}`;
   private conversationPolicy(runId?: string): Policy {
     const saved = readPolicy(this.store, this.owner);
     const mode = this.heldConversationMode(saved, runId);
-    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner)) : saved;
+    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner), this.registry.outboundTools()) : saved; // Q59
   }
   /** The mode this task's conversation holds it to, or null when it follows the owner's setting. */
   private heldConversationMode(saved: Policy, runId?: string): ConversationMode | null {
