@@ -1005,11 +1005,11 @@
             <h4 class="sr-only" data-t="settings.card.assistant-identity">Assistant identity</h4>
             <fieldset id="identity-fields">
               <label for="identity-name" data-t="field.assistant-name">Assistant name</label>
-              <input id="identity-name" maxlength="80" required />
-              <p class="field-note" data-t="settings.note.assistant-name">What your assistant calls itself. It applies from the next message.</p>
+              <input id="identity-name" maxlength="80" required aria-describedby="identity-name-note" />
+              <p id="identity-name-note" class="field-note" data-t="settings.note.assistant-name">What your assistant calls itself. It applies from the next message.</p>
               <label for="identity-instructions" data-t="field.working-instructions">Working instructions</label>
-              <textarea id="identity-instructions" maxlength="4000" rows="5" placeholder="Describe how you want your assistant to work." data-t-placeholder="settings.placeholder.working-instructions"></textarea>
-              <p class="field-note" data-t="settings.note.working-instructions">Standing instructions read before every task, in every project.</p>
+              <textarea id="identity-instructions" maxlength="4000" rows="5" placeholder="Describe how you want your assistant to work." data-t-placeholder="settings.placeholder.working-instructions" aria-describedby="identity-instructions-note"></textarea>
+              <p id="identity-instructions-note" class="field-note" data-t="settings.note.working-instructions">Standing instructions read before every task, in every project.</p>
             </fieldset>
             <p id="identity-status" role="status"></p>
             <button id="identity-reload" type="button" class="quiet-button" data-t="action.reload-saved-identity" hidden>Reload saved identity</button>

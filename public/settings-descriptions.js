@@ -63,8 +63,6 @@ export const descriptions = [
   ["#people-share-conversation", "describe.share-conversation", "The conversation you are sharing."],
   ["#people-share-subject", "describe.share-subject", "The person or group you are sharing it with."],
   ["#people-share-relation", "describe.share-relation", "Whether they can only read it or also add to it."],
-  ["#identity-name", "describe.identity-name", "What your assistant calls itself. It applies from the next message."],
-  ["#identity-instructions", "describe.identity-instructions", "Standing instructions read before every task, in every project."],
   ["#appearance-language", "describe.language", "The language of this window, on this computer only. Replies follow the language you write in."],
   ["#appearance-motion", "describe.motion", "Stops things sliding and spinning. Nothing else changes."],
   ["#appearance-acorn", "describe.acorn", "Shows or hides the turning acorn. It is only a picture."],

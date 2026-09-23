@@ -184,9 +184,11 @@
   font-weight: 680;
   line-height: 1.2;
 }
-/* DG-011: Description line removed from bucket headers */
+/* DG-181: the section's line, as the sample's `.bk-p`: 13.5px, the second text colour, right under the heading. */
 .sg-head-line {
-  display: none;
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: 13.5px;
 }
 /* DG-073: the sample's link at the end of a section (design/Branch-Grown-Up.html, `.bk-lv .linkish`): 14px, the
    body's weight, copper text, underlined. Every level shows while searching, so it has nothing to offer then. */
@@ -216,6 +218,40 @@
 .sg-more:hover {
   background: transparent;
   opacity: 0.8;
+}
+/* DG-181: a row set on another page, as the sample's `.ctl.claimed`: its name, then a copper link ("Set in … ›"),
+   side by side, and one under the other where the sample stacks its rows (760px and narrower). */
+.file-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 20px;
+  align-items: center;
+  padding: 4px 0;
+  opacity: 0.85;
+}
+.file-link-name {
+  font-size: 14px;
+  font-weight: 520;
+}
+.file-link {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--copper-text);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+}
+.file-link:hover {
+  background: transparent;
+  opacity: 0.8;
+}
+@media (max-width: 760px) {
+  .file-link-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .sg-icon {
   width: 16px;
