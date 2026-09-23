@@ -584,6 +584,9 @@ async function staticFile(
     "/jev-decisions.js": ["jev-decisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (os-sandbox): the card for the wall around programs.
     "/os-sandbox.js": ["os-sandbox.js", "text/javascript; charset=utf-8"],
+    // FQ-operations.sandbox-lifecycle: the card for creating, snapshotting, stopping and restoring
+    // a configured agent sandbox.
+    "/agent-sandbox.js": ["agent-sandbox.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
