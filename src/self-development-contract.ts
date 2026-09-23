@@ -63,16 +63,21 @@ function canonical(value: unknown): string {
 export const contractHash = (contract: SelfDevelopmentContract): string =>
   createHash("sha256").update(canonical(contract)).digest("hex");
 
+/** Makes the contracts table and the two rules that refuse any change or removal, once. */
+export function ensureContractTable(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS self_development_contracts(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT NOT NULL, worktree TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL,
+    created_at TEXT NOT NULL, UNIQUE(owner, worktree, revision));
+    CREATE TRIGGER IF NOT EXISTS self_development_contracts_no_update BEFORE UPDATE ON self_development_contracts
+      BEGIN SELECT RAISE(ABORT, 'A self-development contract cannot be changed; widen it with a new revision'); END;
+    CREATE TRIGGER IF NOT EXISTS self_development_contracts_no_delete BEFORE DELETE ON self_development_contracts
+      BEGIN SELECT RAISE(ABORT, 'A self-development contract cannot be removed'); END;`);
+}
+
 /** The written contracts: one row per revision, never changed or removed once written. */
 export class ContractBook {
   constructor(private readonly db: DatabaseSync) {
-    this.db.exec(`CREATE TABLE IF NOT EXISTS self_development_contracts(id INTEGER PRIMARY KEY AUTOINCREMENT,
-      owner TEXT NOT NULL, worktree TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL,
-      created_at TEXT NOT NULL, UNIQUE(owner, worktree, revision));
-      CREATE TRIGGER IF NOT EXISTS self_development_contracts_no_update BEFORE UPDATE ON self_development_contracts
-        BEGIN SELECT RAISE(ABORT, 'A self-development contract cannot be changed; widen it with a new revision'); END;
-      CREATE TRIGGER IF NOT EXISTS self_development_contracts_no_delete BEFORE DELETE ON self_development_contracts
-        BEGIN SELECT RAISE(ABORT, 'A self-development contract cannot be removed'); END;`);
+    ensureContractTable(this.db);
   }
   /** Writes the first revision. Refused when the worktree already has a contract. */
   create(owner: string, input: { taskRunId: string; sourceSha: string; worktreePath: string; terms: ContractTerms }): SelfDevelopmentContract {

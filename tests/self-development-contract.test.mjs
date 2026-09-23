@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { AuditLog } from "../dist/audit.js";
+import { exportBackup, importBackup } from "../dist/backup.js";
 import { ToolRegistry } from "../dist/registry.js";
 import { ContractBook, contractGuard, globFits } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
@@ -230,4 +231,24 @@ test("a command started from the workspace with its folder inside a worktree is 
   await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: worktree }, { runId: "r" }),
     /shell\.execute is not one of the tools this contract allows/);
   assert.equal(log.list("local", { action: "self_development.contract" }).length, 2);
+});
+
+test("a backup keeps every contract revision, and a restore brings them back with hashes that still verify", async (t) => {
+  const from = await realBranch(t, []);
+  from.book.create(from.owner, { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms });
+  from.book.widen(from.owner, worktree, { taskRunId: "run-2", terms: { allowedPaths: ["src/ui/**", "tests/ui.test.mjs"] }, approvedBy: from.owner, reason: "tests" });
+  const archive = JSON.parse(JSON.stringify(exportBackup(from.app.store.sqlite, "test")));
+  assert.equal(archive.tables.self_development_contracts.length, 2);
+
+  const into = await realBranch(t, []);
+  importBackup(into.app.store.sqlite, archive, { replaceExisting: true });
+  const restored = into.book.history(into.owner, worktree);
+  assert.deepEqual(restored, from.book.history(from.owner, worktree), "every revision, each checked against its hash");
+  // Restoring over an install that already has them neither removes nor duplicates a revision.
+  importBackup(into.app.store.sqlite, archive, { replaceExisting: true });
+  assert.equal(into.book.history(into.owner, worktree).length, 2);
+  // A backup made before contracts existed still restores.
+  const { self_development_contracts: _gone, ...older } = archive.tables;
+  importBackup(into.app.store.sqlite, { ...archive, tables: older }, { replaceExisting: true });
+  assert.equal(into.book.history(into.owner, worktree).length, 2);
 });
