@@ -171,6 +171,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
  */
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
+  // Q59: a repository's status, changes, log and parallel copies, and the read-only review helpers.
+  "git.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
   // Looking at a picture or a sound file the person already has changes nothing.
   "media.read",
