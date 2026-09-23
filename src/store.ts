@@ -14,6 +14,7 @@ import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
+import { CollabEvents, ownerMember } from "./collab-events.js";
 import { AuditLog } from "./audit.js";
 import { achievementTallies, type AchievementTallies, type EventScan } from "./achievement-tallies.js"; // phase2/delight
 import { MemoryReview } from "./memory-review.js";
@@ -63,6 +64,7 @@ export class Store {
   private lockerStore: Locker | undefined;
   private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
+  private collabEventsStore: CollabEvents | undefined;
   /**
    * Set once the locker is open: every event is passed through it on the way to the log, so a
    * secret value can never be written down even if a tool put one in its result by mistake.
@@ -252,6 +254,9 @@ export class Store {
   /** Opens the secrets locker with a key source; values stay encrypted in the database. */
   openLocker(keys: LockerKeySource): Locker {
     this.receiptsStore ??= new Receipts(keys);
+    // Collaboration events are signed per member; a member is the owner or a profile on this computer.
+    this.collabEventsStore ??= new CollabEvents(this.db, keys,
+      (member) => member === ownerMember || this.profiles.list().some((profile) => profile.id === member));
     this.lockerStore ??= new Locker(this.db, keys);
     this.secretsStore ??= new Secrets(this.db, this.lockerStore);
     return this.lockerStore;
@@ -291,6 +296,11 @@ export class Store {
   get receipts(): Receipts {
     if (!this.receiptsStore) throw new Error("Receipts need the secrets locker to be open");
     return this.receiptsStore;
+  }
+  /** Signed collaboration events, published under a household member. */
+  get collabEvents(): CollabEvents {
+    if (!this.collabEventsStore) throw new Error("Collaboration events need the secrets locker to be open");
+    return this.collabEventsStore;
   }
   get locker(): Locker {
     if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");
