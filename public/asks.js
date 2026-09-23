@@ -145,7 +145,9 @@ async function nodesCard(modes) {
   const { node, status } = card("asks-nodes-card", "settings:computer", "asks.nodes.title", "Other computers running Branch",
     "asks.nodes.purpose", "Hand tasks to your other computers; a computer that is down or busy is passed over.");
   node.append(...switchFor("nodes", modes, status));
-  if (modes.nodes !== "off") {
+  /* DG-188: the list is there at every setting, as in the sample, so it can be written before the switch goes on;
+     checking the computers waits for the switch. */
+  {
     const { nodes } = await api("asks/nodes");
     const list = field("textarea", nodes.map((n) => [n.id, n.name, n.address, n.secret, n.labels.join(" ")].join(" | ")).join("\n"));
     const save = async () => {
@@ -156,7 +158,7 @@ async function nodesCard(modes) {
       try { status.textContent = (await api("asks/nodes/check", {})).nodes.map((h) => `${h.name}: ${h.ok ? "✓" : h.reason}`).join(" · "); } catch (error) { tell(status, error); }
     };
     node.append(...labelled("asks-nodes-list", "asks.nodes.list", "One per line: short name | name | address | saved secret with its key | labels", list),
-      row(button("asks.save", "Save", save), button("asks.nodes.check", "Check them now", check)));
+      row(button("asks.save", "Save", save), ...(modes.nodes !== "off" ? [button("asks.nodes.check", "Check them now", check)] : [])));
   }
   node.append(status);
   return node;

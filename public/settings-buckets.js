@@ -99,6 +99,9 @@ export const BUCKETS = {
       [["security-check", R], ["folder-trust-card", A], ["knobs-leak-guard-card", A], ["safety-codes-card", A], ["safety-extras-card", A], ["safety-chain-card", T], ["safety-wasm-card", T]]],
   ],
   computer: [
+    /* DG-051: the devices paired with this one (public/devices.js), before the rest as in the sample. */
+    ["paired", "window", "Paired devices", "The computers and phone paired with this one.",
+      [["paired-devices-card", R]]],
     ["screen", "monitor", "Your screen, keyboard and apps", "When Branch may look at and use your screen.",
       [["desktop-card", R], ["screen-switch-card", A], ["reach-background-card", R], ["reach-usb-card", A], ["os-permissions-card", A]]],
     ["commands", "terminal", "Running commands safely", "Where commands run and the wall around them.",
