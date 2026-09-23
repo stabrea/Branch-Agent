@@ -2126,6 +2126,22 @@
               </div>
               <button id="wsedit-save" type="button" data-t="action.save">Save</button>
             </div>
+            <!-- FQ-surfaces.editor-clients: query indexed knowledge and open the cited document. -->
+            <div id="wsedit-ask" class="wsedit-ask">
+              <h3 class="context-head" data-t="wsedit.ask.title">Ask your knowledge</h3>
+              <form id="wsedit-ask-form">
+                <label class="sr-only" for="wsedit-ask-question" data-t="wsedit.ask.label">Question</label>
+                <input id="wsedit-ask-question" type="text" maxlength="500"
+                  placeholder="Ask a question about what is indexed…" data-t-placeholder="wsedit.ask.placeholder" />
+                <button id="wsedit-ask-button" type="submit" data-t="wsedit.ask.button">Ask</button>
+              </form>
+              <p id="wsedit-ask-status" class="context-empty" role="status" aria-live="polite"></p>
+              <div id="wsedit-ask-answer" class="wsedit-ask-answer" hidden>
+                <p id="wsedit-ask-text"></p>
+                <p class="meta" data-t="wsedit.ask.sources">Sources</p>
+                <ul id="wsedit-ask-sources" class="wsedit-ask-sources"></ul>
+              </div>
+            </div>
           </div>
           <p id="wsedit-status" class="context-empty" role="status" aria-live="polite"></p>
         </details>

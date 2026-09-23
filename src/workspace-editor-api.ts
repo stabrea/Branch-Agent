@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FeatureModeSchema } from "./feature-switches.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { Store } from "./store.js";
+import { EditorAskSchema, type EditorKnowledgeAnswer } from "./workspace-editor-knowledge.js";
 
 /**
  * The code editor in the window (A0098): list a folder, open a text file, save it. Every path goes
@@ -33,6 +34,11 @@ export interface EditorHost {
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>;
   /** Branch's own guard (src/never-break/protected.ts): a reason when this path may not be read or changed. */
   guard?: (path: string, readOnly: boolean) => string | null;
+  /**
+   * FQ-surfaces.editor-clients: the editor's own knowledge search, when knowledge bases are wired
+   * in. Each source it hands back names the workspace path the editor's own `read` route can open.
+   */
+  askKnowledge?: (input: z.infer<typeof EditorAskSchema>, signal: AbortSignal) => Promise<EditorKnowledgeAnswer>;
 }
 
 export const handlesWorkspaceEditorPath = (path: string): boolean => /^\/api\/workspace-editor(\/|$)/.test(path);
@@ -69,6 +75,11 @@ export async function workspaceEditorApi(host: EditorHost, request: IncomingMess
   }
   if (request.method === "POST" && path === "/api/workspace-editor/save")
     return saveFile(host, SaveSchema.parse(await host.readBody(request, 128 * 1024)));
+  if (request.method === "POST" && path === "/api/workspace-editor/ask") {
+    if (!host.askKnowledge) throw new WorkspaceEditorApiError(404, "Knowledge bases are not available in this launch.");
+    const input = EditorAskSchema.parse(await host.readBody(request, 2048));
+    return host.askKnowledge(input, AbortSignal.timeout(60000));
+  }
   throw new WorkspaceEditorApiError(404, "Endpoint not found");
 }
 

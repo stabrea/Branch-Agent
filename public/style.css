@@ -785,6 +785,14 @@ label > input[type="radio"] {
   resize: vertical; background: transparent; color: var(--text); font: 0.8125rem/1.5 var(--font-mono); tab-size: 2; overflow: auto; }
 .wsedit-text:focus-visible { outline: 2px solid var(--copper); outline-offset: -2px; }
 #wsedit-unsaved { color: var(--warn); }
+/* FQ-surfaces.editor-clients: query indexed knowledge from the editor, and open the cited document. */
+.wsedit-ask { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line); }
+.wsedit-ask form { display: flex; gap: var(--s1); }
+.wsedit-ask form input { flex: 1; min-width: 0; }
+.wsedit-ask-answer { display: flex; flex-direction: column; gap: var(--s1); }
+.wsedit-ask-sources { display: flex; flex-direction: column; gap: var(--s1); margin: 0; padding: 0; list-style: none; }
+.wsedit-ask-sources li { display: flex; align-items: baseline; gap: var(--s1); flex-wrap: wrap; }
+.wsedit-ask-source-open { justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
 
 /* mac7/clean-uninstall: the danger zone, last in Settings. Marked with the warning colour from
    tokens only, so it reads the same in both themes and at 400 px. */
