@@ -233,7 +233,9 @@ function drawThemeTiles() {
   }
   if (!shown) gallery.append(worded("p", "lx-theme-none", "look.search.none", "No theme matches. Try All, or a shorter name."));
   const results = $("lx-theme-results");
-  if (results) results.textContent = shown === 1 ? say("look.search.one", "1 theme")
+  /* The language's own plural rule: French says "0 thème", English "0 themes". */
+  const single = new Intl.PluralRules(root.lang || "en").select(shown) === "one";
+  if (results) results.textContent = single ? say("look.search.one", "1 theme").replace("1", String(shown))
     : say("look.search.results", "{count} themes").replace("{count}", String(shown));
   for (const chip of document.querySelectorAll("#lx-theme-chips .lx-fchip"))
     chip.setAttribute("aria-pressed", String(chip.dataset.filter === themeFilter));
