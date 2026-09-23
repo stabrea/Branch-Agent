@@ -70,6 +70,8 @@ const seen = (page) => page.evaluate(() => {
     headings: [...host.querySelectorAll("h2, h3, h4, h5, h6")].filter(shown).map((node) => [Number(node.tagName[1]), text(node)]),
     more: [...host.querySelectorAll(".sg-more-line:not([hidden])")].filter(shown).map((line) => [line.dataset.bucket, text(line)]),
     directory: host.querySelectorAll(".settings-directory-card").length,
+    /* The sample lists a page's sections only on a longer page (four or more); Connections never has four. */
+    contents: [...host.querySelectorAll(".lx-on-this-page-link")].filter(shown).map(text),
     wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
   };
 });
@@ -89,6 +91,7 @@ for (const [width, scheme] of [[1440, "dark"], [860, "light"], [400, "dark"]]) {
     const regular = await seen(page);
     assert.deepEqual(regular.sections, SECTIONS, "the sample's sections, in its order");
     assert.deepEqual(regular.more, MORE);
+    assert.deepEqual(regular.contents, [], "no list of sections, and never one naming Under the hood at Regular");
     assert.equal(regular.directory, 0, "the cards are here, not a way to somewhere else");
     wellNested(regular.headings);
     assert.equal(regular.wide, false, "no sideways scrolling");
@@ -107,6 +110,7 @@ for (const [width, scheme] of [[1440, "dark"], [860, "light"], [400, "dark"]]) {
     await level(page, "technical");
     const technical = await seen(page);
     assert.deepEqual(technical.sections, [...SECTIONS, "Under the hood"], "Under the hood comes last, at Technical");
+    assert.deepEqual(technical.contents, [], "three sections are not a longer page");
     wellNested(technical.headings);
     assert.equal(technical.wide, false);
     assert.deepEqual(errors, []);
@@ -129,5 +133,28 @@ test("DG-195: in French the sections keep their order and words, and Customize �
   assert.equal(await page.locator("#lx-slot-customize-connections :is(#mcp-card, #interop-card, #personal-accounts-card)").count(), 0);
   await pointer.getByRole("button", { name: "Open Settings › Connections" }).click();
   await page.locator("#lx-page-connections").waitFor({ state: "visible" });
+  assert.deepEqual(errors, []);
+});
+
+test("DG-195: On this page lists only the sections drawn at the level, and only on a longer page", async (t) => {
+  const { page, errors } = await connectionsPage(t, 1440);
+  await openConnections(page);
+  await level(page, "regular");
+  await page.locator('.lx-settings-link[data-page="computer"]').click();
+  await page.locator("#lx-page-computer").waitFor({ state: "visible" });
+  const lists = () => page.evaluate(() => {
+    const host = document.getElementById("lx-page-computer");
+    const shown = (node) => node.getClientRects().length > 0;
+    const words = (nodes) => [...nodes].filter(shown).map((node) => node.textContent.trim());
+    return { sections: words(host.querySelectorAll(".sg-head-title")), contents: words(host.querySelectorAll(".lx-on-this-page-link")) };
+  });
+  const regular = await lists();
+  assert.ok(regular.sections.length >= 4, `Computer is a longer page: ${regular.sections.join(" · ")}`);
+  assert.deepEqual(regular.contents, regular.sections, "the list names exactly the sections on show");
+  assert.equal(regular.contents.includes("Under the hood"), false);
+  await level(page, "technical");
+  const technical = await lists();
+  assert.deepEqual(technical.contents, technical.sections, "the list follows the level");
+  assert.equal(technical.contents.at(-1), "Under the hood");
   assert.deepEqual(errors, []);
 });

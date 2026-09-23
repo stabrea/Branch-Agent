@@ -760,14 +760,14 @@ function buildOnThisPage(page) {
   // Remove any existing "On this page" navigation
   page.querySelector(".lx-on-this-page")?.remove();
 
-  // Find all section headings (h3 elements with ids)
+  /* DG-195: as in the approved sample, only the sections drawn at this level (never a head the level leaves out,
+     such as Under the hood at Regular), and only on a longer page: fewer than four sections have no list. */
   const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
-    // Only include headings that are not hidden by the current level
     const card = h.closest(".lx-page > *, .lx-subpanel > *");
-    return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
+    return card && !card.hidden && !card.matches(".sg-quiet, .sg-empty") && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
   });
 
-  if (headings.length === 0) return; // No sections to link to
+  if (headings.length < 4) return;
 
   // Create the navigation
   const nav = make("nav", "lx-on-this-page");
@@ -809,6 +809,9 @@ function showSettingsPage(id) {
   if (id === "data") void globalThis.branchUsage?.render().then(() => globalThis.branchAllowed?.render());
   if (id === "appearance") drawLookControls();
 }
+/* DG-195: the list follows the level's sections, and their words in the chosen language. */
+for (const event of ["branch-settings-level", "branch-language"])
+  document.addEventListener(event, () => { const page = $(`lx-page-${settingsPage}`); if (page) buildOnThisPage(page); });
 /** A card's own words: not what Settings adds to it, such as the "N more with Advanced" line (DG-073). */
 function wordsOf(card) {
   if (!card.querySelector("[data-no-search]")) return card.textContent;
