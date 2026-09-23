@@ -10,10 +10,13 @@ import { acceptValue, changesFor, currentValue, type Value } from "./changes.js"
  * already as asked left out.
  */
 
+/** Words that turn a request around ("don't", "never", "pas", "jamais"), with apostrophes taken out. */
+const negations = ["dont", "doesnt", "didnt", "shouldnt", "wont", "not", "never", "pas", "jamais"];
+
 /** Words that say what to do rather than which setting: they never pick a setting. */
 const filler = new Set(("a an and any are be branch branchs can change could do dont enable disable for from have i in is it its " +
   "let make me my of off on please put set setting settings should so start stop switch the then this to turn up down use want " +
-  "we when needed would you your yes no true false").split(" "));
+  "we when needed would you your yes no true false").split(" ").concat([...negations, "longer", "ne", "plus"]));
 
 /** A crude stem, so "learning", "learns" and "learn" are one word. */
 function stem(word: string): string {
@@ -27,6 +30,17 @@ const wordsOf = (text: string): string[] =>
 /** The words that name a setting, with filler and bare numbers taken out. */
 export function namingWords(request: string): string[] {
   return [...new Set(wordsOf(request).filter((word) => !filler.has(word) && !/^\d+$/.test(word)).map(stem))];
+}
+
+/**
+ * Whether the words say not to: "don't", "do not", "not", "never", "no longer", and in French
+ * "ne ... pas", "n'... plus", "jamais". A request like that is never planned as a change.
+ */
+export function negated(request: string): boolean {
+  const words = wordsOf(request);
+  if (words.some((word) => negations.includes(word)) || ` ${words.join(" ")} `.includes(" no longer ")) return true;
+  const frenchNe = words.includes("ne") || /(^|[^a-z])n['’][a-z]/i.test(request);
+  return frenchNe && words.includes("plus");
 }
 
 /** The value the words say, when they say one plainly: on, off, when needed. */
@@ -79,6 +93,17 @@ export function questionFor(request: string, found: readonly Candidate[]): strin
   return `That could be more than one setting. Do you mean ${listed(shown)}?`;
 }
 
+/** The one question for a request that says not to: nothing is planned until the owner says what they want. */
+function negatedQuestion(store: Store, owner: string, found: readonly Candidate[]): string {
+  const said = "Your words say not to, so nothing is planned.";
+  if (!found.length) return `${said} Which setting do you mean, and what should it be?`;
+  if (found.length === 1) {
+    const [only] = found as [Candidate];
+    return `${said} Should "${nameOf(only)}" change from ${String(currentValue(store, owner, only.spec, only.field))}, and to what?`;
+  }
+  return `${said} Should ${listed(found.slice(0, 5).map(nameOf))} change, and to what?`;
+}
+
 type Choice = { setting: string; name: string; value: Value };
 type Preview = { setting: string; name: string; label: string; from: Value; to: Value; lessCareful: boolean; pinned: boolean };
 export type Clarified =
@@ -95,6 +120,7 @@ export function clarifyRequest(store: Store, owner: string, input: { request: st
   const found = candidatesFor(input.request, asked);
   const choices = (list: readonly Candidate[]): Choice[] => list.slice(0, 20)
     .map((one) => ({ setting: idOf(one), name: nameOf(one), value: currentValue(store, owner, one.spec, one.field) }));
+  if (negated(input.request)) return { status: "ask", question: negatedQuestion(store, owner, found), choices: choices(found), planned: false };
   if (found.length !== 1) return { status: "ask", question: questionFor(input.request, found), choices: choices(found), planned: false };
   const [only] = found as [Candidate];
   const setting = idOf(only), now = currentValue(store, owner, only.spec, only.field);

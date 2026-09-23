@@ -100,3 +100,63 @@ test("in a conversation, an ambiguous request reaches the model as a question an
   assert.match(seen[1], /flowboards-kanban\.mode/);
   assert.deepEqual(await values(), before);
 });
+
+async function allRows(app) {
+  const rows = [];
+  for (let offset = 0; offset !== null;) {
+    const page = await app.registry.execute("settings.list", { offset }, app.runtime.context({ source: "owner" }));
+    rows.push(...page.shown);
+    offset = page.nextOffset;
+  }
+  return rows;
+}
+
+function assertAsksOnly(result, phrasing) {
+  assert.equal(result.status, "ask", `${phrasing}: ${JSON.stringify(result)}`);
+  assert.equal(result.planned, false, phrasing);
+  assert.equal(result.preview, undefined, `${phrasing}: nothing is planned`);
+  assert.equal(result.useTool, undefined, phrasing);
+  assert.equal((result.question.match(/\?/g) ?? []).length, 1, `${phrasing}: exactly one question`);
+  assert.match(result.question, /say not to/, phrasing);
+}
+
+test("a request that says not to is never planned as a change, for loosening settings too", async (t) => {
+  const { find, values } = await fixture(t);
+  const before = await values();
+  const screen = await find({ request: "don't turn on Your screen and keyboard" });
+  assertAsksOnly(screen, "don't turn on Your screen and keyboard");
+  assert.deepEqual(screen.choices, [{ setting: "desktop-control.mode", name: "Your screen and keyboard", value: "off" }]);
+  assert.match(screen.question, /"Your screen and keyboard" change from off/);
+  const phrasings = [
+    "Don’t turn on your screen and keyboard",
+    "do not turn on the wake word",
+    "please never switch on the model arena",
+    "no longer turn on skill bundles",
+    "not your screen and keyboard, turn it on",
+    "doesnt need the wake word on",
+    "don't turn off the learning",
+    "n'active pas le mot de réveil",
+    "ne mets jamais l'écran",
+    "n'allume plus la caméra",
+  ];
+  for (const request of phrasings) assertAsksOnly(await find({ request }), request);
+  assertAsksOnly(await find({ request: "don't turn on Your screen and keyboard", value: "on" }), "a said value does not override the not");
+  assert.equal((await find({ request: "turn on notes with rewriting" })).status, "ready", "notes is not a negation");
+  assert.deepEqual(await values(), before);
+});
+
+test("every setting that would loosen when asked plainly still asks when the words say don't", async (t) => {
+  const { app, find, values } = await fixture(t);
+  const before = await values();
+  let loosening = 0;
+  for (const row of await allRows(app)) {
+    const words = row.label === "Switch" ? row.name : `${row.name} ${row.label}`;
+    const plain = await find({ request: `turn on ${words}` });
+    if (plain.status !== "ready" || !plain.preview.some((one) => one.lessCareful)) continue;
+    loosening += 1;
+    assertAsksOnly(await find({ request: `don't turn on ${words}` }), `don't turn on ${words}`);
+    assertAsksOnly(await find({ request: `never turn on ${words}` }), `never turn on ${words}`);
+  }
+  assert.ok(loosening >= 17, `found ${loosening} loosening settings`);
+  assert.deepEqual(await values(), before);
+});
