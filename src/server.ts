@@ -174,7 +174,8 @@ import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
-import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { handlesWorkspaceEditorPath, workspaceEditorApi, workspaceEditorSettings, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { isVideoPath, readWorkspaceVideo, VideoFileError } from "./media-file.js"; // FQ-collaboration: media-comments
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 // mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
 import {
@@ -2710,9 +2711,8 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
 }
 /**
  * FQ-collaboration: comments pinned to a moment in a media file. `GET ?fileId=` lists them for one
- * file, earliest first; `POST` adds one. There is no video player screen yet to open them from, so
- * this is the data side only — see `public/media-comments.js` for the small hook a future player
- * would call to seek to one.
+ * file, earliest first; `POST` adds one. Opened from the Files browser (public/code-editor.js), which
+ * plays the video itself through `/api/media-comments/media` (in `rawApi`, below).
  */
 async function mediaCommentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner, comments = app.store.mediaComments;
@@ -3726,6 +3726,26 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(bytes);
     return true;
   }
+  // FQ-collaboration: the raw bytes of one video in the workspace, so the Files browser can play it
+  // and a comment's timestamp can reopen it at the same position (public/media-comments.js). Held to
+  // the same switch as the rest of the code editor, since that is the screen this is opened from.
+  if (request.method === "GET" && path === "/api/media-comments/media") {
+    if (workspaceEditorSettings(app.store, app.runtime.owner).mode === "off")
+      throw new HttpError(403, "The Files browser is switched off. Turn it on in Settings → Advanced to open a video there.");
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams.get("fileId") ?? "";
+    const played = await readWorkspaceVideo(app.files, wanted, (target) =>
+      protectedTarget({ tool: "files.read", readOnly: true, args: { path: target }, target, workspace: app.files.base }, app.runtime.protectedAreas),
+    ).catch((error: unknown) => {
+      throw error instanceof VideoFileError ? new HttpError(error.status, error.message) : error;
+    });
+    response.writeHead(200, {
+      "content-type": played.contentType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-disposition": `inline; filename="${played.name}"`,
+      "content-security-policy": "default-src 'none'; sandbox",
+    });
+    response.end(played.bytes);
+    return true;
+  }
   if (request.method === "POST" && path === "/api/voice/transcribe") {
     const contentType = request.headers["content-type"] ?? "";
     if (!contentType.includes("audio/") && !contentType.includes("application/octet-stream")) {
@@ -4018,7 +4038,8 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
-  if (handlesWorkspaceEditorPath(path))
+  // FQ-collaboration: the video bytes the code editor's own player opens are the same door.
+  if (handlesWorkspaceEditorPath(path) || path === "/api/media-comments/media")
     return "A short-lived key cannot use the code editor. Do that in the app window.";
   // mac7/bind: opening Branch's door to the private network is the owner's alone, and so is being
   // told where the door already is. A Trunk's message from another computer arrives with such a

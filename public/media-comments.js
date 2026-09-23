@@ -1,10 +1,10 @@
 /**
  * FQ-collaboration: comments pinned to a moment in a media file.
  *
- * There is no video player screen in the app yet (no page renders a `<video>` element), so this
- * file is the minimal hook a future one would call: it fetches the comments for a file, draws them
- * as a list with the timestamp shown, and wires each one to seek the given `<video>` to that
- * position when clicked. Whoever builds the player wires this in; nothing calls it today.
+ * Fetches the comments for a file, draws them as a list with the timestamp shown, and wires each
+ * one to seek the given `<video>` to that position when clicked. Called from the Files browser's
+ * video player (public/code-editor.js), which owns the `<video>` element and the "add a comment"
+ * form; this file stays about the comments themselves, not any one screen.
  */
 
 async function api(path, body) {
