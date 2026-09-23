@@ -31,10 +31,19 @@ export function isSafeLink(href: string): boolean {
 
 const namedEntities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
+/**
+ * A numeric reference past U+10FFFF (where String.fromCodePoint throws) or to a lone surrogate half
+ * becomes U+FFFD, the replacement character, so one bad title never takes the rest of the feed with it.
+ */
+function codePoint(value: number): string {
+  const valid = Number.isInteger(value) && value >= 0 && value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff);
+  return valid ? String.fromCodePoint(value) : "\uFFFD";
+}
+
 function decodeEntities(text: string): string {
   return text.replace(/&(#(\d+)|#x([0-9a-fA-F]+)|([a-zA-Z]+));/g, (whole, _all, dec, hex, name) => {
-    if (dec) return String.fromCodePoint(Number(dec));
-    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    if (dec) return codePoint(Number(dec));
+    if (hex) return codePoint(parseInt(hex, 16));
     return namedEntities[String(name).toLowerCase()] ?? whole;
   });
 }
@@ -172,6 +181,13 @@ function* feedBlocks(xml: string): Generator<Scan> {
   }
 }
 
+/** One block's title and link, or null when either is missing or the link is not http/https. */
+function readItem(body: Scan, source: string): BriefItem | null {
+  const title = firstTagText(body, "title");
+  const link = firstTagText(body, "link") || atomLinkHref(body);
+  return title && link && isSafeLink(link) ? { title, link, source } : null;
+}
+
 /**
  * A small, safe reader for RSS 2.0 `<item>` and Atom `<entry>` blocks. It reads title and link only
  * and never interprets the feed as anything runnable; a block missing a usable title or a safe link
@@ -180,10 +196,14 @@ function* feedBlocks(xml: string): Generator<Scan> {
 export function parseFeedItems(xml: string, source: string, limit = 8): BriefItem[] {
   const items: BriefItem[] = [];
   for (const body of feedBlocks(xml)) {
-    const title = firstTagText(body, "title");
-    const link = firstTagText(body, "link") || atomLinkHref(body);
-    if (!title || !link || !isSafeLink(link)) continue;
-    items.push({ title, link, source });
+    let item: BriefItem | null;
+    try {
+      item = readItem(body, source);
+    } catch {
+      item = null; // One unreadable block is skipped; the feed's other items still count.
+    }
+    if (!item) continue;
+    items.push(item);
     if (items.length >= limit) break;
   }
   return items;

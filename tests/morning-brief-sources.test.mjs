@@ -173,3 +173,14 @@ test("feed parser: a 1 MiB hostile body of unclosed tags parses in linear time, 
   const long = `<item>${" ".repeat(feedLimits.maxBlockChars)}<title>Late</title><link>https://news.example/late</link></item>`;
   assert.deepEqual(parseFeedItems(long, "x"), []);
 });
+
+test("feed parser: a numeric entity past U+10FFFF or a lone surrogate becomes U+FFFD, and the feed's other items stay", () => {
+  const feed = `<rss><channel>
+    <item><title>Good morning</title><link>https://news.example/good</link></item>
+    <item><title>Broken &#99999999; title &#xD800;</title><link>https://news.example/broken</link></item>
+  </channel></rss>`;
+  assert.deepEqual(parseFeedItems(feed, "s"), [
+    { title: "Good morning", link: "https://news.example/good", source: "s" },
+    { title: "Broken \uFFFD title \uFFFD", link: "https://news.example/broken", source: "s" },
+  ]);
+});
