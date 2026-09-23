@@ -113,6 +113,9 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
     if (!spec || !field || secretShaped.test(proposal.field)) { refused.push(`${id}: not a setting that can be changed from here`); continue; }
     const to = acceptValue(field, proposal.value);
     if (to === undefined) { refused.push(`${id}: not a value this setting can hold`); continue; }
+    // Q65 review: a setting that cannot be changed right now is refused here, before anything is written.
+    const refusal = spec.refuses?.(store, owner);
+    if (refusal) { refused.push(`${id}: ${refusal}`); continue; }
     const from = currentValue(store, owner, spec, field);
     if (from === to || seen.has(id)) continue;
     seen.add(id);

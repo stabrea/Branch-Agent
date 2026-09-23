@@ -5396,5 +5396,7 @@
   "secrets.kind.key": "{service} key",
   "secrets.kind.token": "{service} token",
   "secrets.kind.password": "{service} password",
-  "secrets.used-as": "Commands use it as {name}"
+  "secrets.used-as": "Commands use it as {name}",
+  "settings-kit.put-back.voice": "Put voice settings back as shipped",
+  "settings-kit.put-back-done": "Put back as shipped."
 }

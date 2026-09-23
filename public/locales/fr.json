@@ -5397,5 +5397,7 @@
   "secrets.kind.key": "Clé {service}",
   "secrets.kind.token": "Jeton {service}",
   "secrets.kind.password": "Mot de passe {service}",
-  "secrets.used-as": "Les commandes l'utilisent sous le nom {name}"
+  "secrets.used-as": "Les commandes l'utilisent sous le nom {name}",
+  "settings-kit.put-back.voice": "Remettre les réglages de la voix comme à l’origine",
+  "settings-kit.put-back-done": "Remis comme à l’origine."
 }

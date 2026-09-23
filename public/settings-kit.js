@@ -95,6 +95,9 @@ async function showPlan(holder, plan, status) {
   try { preview = await api("settings-kit/preview", plan); } catch (error) { status.textContent = error.message; return; }
   if (!preview.changes.length) {
     holder.append(el("p", "settings-kit.nothing", "Nothing would change: your settings already match.", "subtle"));
+    // Q65 review: a setting that cannot be changed from here says why, even when nothing else would change.
+    if (preview.refused.length)
+      holder.append(el("p", undefined, `${say("settings-kit.refused", "Left out, because they cannot be changed from here:")} ${preview.refused.join("; ")}`, "subtle"));
     return;
   }
   const list = el("div", undefined, undefined, "kit-changes");
@@ -191,7 +194,29 @@ function resetCard(overview) {
   section.append(...field("kit-reset-what", select, ["settings-kit.field.reset", "What to put back"],
     ["describe.kit-reset", "Choosing changes nothing yet. Press the button below to see each value before and after."]),
   quiet("settings-kit.show", "Show what would change", () => showPlan(holder, plan(), status)), holder, status);
+  section.append(...putBackRows(overview, status));
   return section;
+}
+
+/**
+ * Q65 review: a setting whose saved record cannot be read (voice) cannot be changed from here or from its own
+ * card, so it is offered back as Branch ships it, the whole record at once, with the reason beside it.
+ */
+function putBackRows(overview, status) {
+  return overview.settings.filter((spec) => spec.refused && spec.canPutBack).flatMap((spec) => {
+    const why = el("p", undefined, spec.refused, "field-note");
+    const button = quiet(`settings-kit.put-back.${spec.key}`, `Put ${spec.name.toLowerCase()} settings back as shipped`, async () => {
+      button.disabled = true;
+      try {
+        await api("settings-kit/put-back", { key: spec.key });
+        why.remove();
+        button.remove();
+        status.textContent = say("settings-kit.put-back-done", "Put back as shipped.");
+        globalThis.branchVoiceReady?.();
+      } catch (error) { status.textContent = error.message; button.disabled = false; }
+    });
+    return [why, button];
+  });
 }
 
 function fileCard() {

@@ -1009,6 +1009,8 @@ export const ROUTES = {
   "/api/settings-kit/apply": "owner POST",
   // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
   "/api/settings-kit/pins": "owner POST",
+  // Q65 review: putting an unreadable setting (voice) back as shipped is the owner's alone.
+  "/api/settings-kit/put-back": "owner POST",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",

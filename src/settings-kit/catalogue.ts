@@ -133,15 +133,23 @@ function ownListen(store: Store, owner: string): Record<string, unknown> {
  * and a change to it is refused in plain words: fixing one field there would make the whole record
  * readable again and bring every other field in it back, which the owner never saw.
  */
-const voiceHooks: Hooks = {
+export const putBackVoiceLabel = "Put voice settings back as shipped";
+const voiceUnreadable = (store: Store, owner: string): string | null =>
+  VoiceSettingsSchema.safeParse(store.get("settings", owner, "voice")?.data ?? {}).success ? null
+    : `The voice settings saved on this computer cannot be read, so they are not changed from here: changing one would bring back everything else in that record. "${putBackVoiceLabel}", under Settings, Put settings back, starts them again from how Branch ships.`;
+const voiceHooks: Pick<SettingSpec, "read" | "write" | "refuses" | "putBack"> = {
   read: (store, owner) => {
     try { return { ...voiceSettings(store, owner) }; } catch { return {}; }
   },
+  refuses: voiceUnreadable,
+  // The last lock: a change is refused before it gets here (refuses), and never repairs the record if it does.
   write: (store, owner, patch) => {
-    if (!VoiceSettingsSchema.safeParse(store.get("settings", owner, "voice")?.data ?? {}).success)
-      throw new Error("The voice settings saved on this computer cannot be read, so nothing was changed. Changing one of them here would bring back everything else in that record.");
+    const refusal = voiceUnreadable(store, owner);
+    if (refusal) throw new Error(refusal);
     saveVoiceSettings(store, owner, patch);
   },
+  // The whole record is replaced, not merged: the voice card's own save cannot read what is there either.
+  putBack: (store, owner) => { store.save("settings", owner, "voice", VoiceSettingsSchema.parse({})); },
 };
 
 /** Q65: the files you write, saved through their module, which takes one nested record ("files.soul" is `{ files: { soul } }`). */
@@ -185,6 +193,14 @@ export interface SettingSpec {
   write?: (store: Store, owner: string, patch: Record<string, unknown>) => void;
   /** A setting whose module reads a damaged record in its own way (the wall reads it as "on") is shown that way. */
   read?: (store: Store, owner: string) => Record<string, unknown>;
+  /**
+   * Q65 review: why this setting cannot be changed from here right now, or null. Asked when the changes are
+   * worked out, before anything is written, so a refusal lands in the refused list and every other change
+   * in the same plan is still made and written down.
+   */
+  refuses?: (store: Store, owner: string) => string | null;
+  /** Q65 review: puts a record that cannot be read back to how Branch ships, the way out of `refuses`. */
+  putBack?: (store: Store, owner: string) => void;
 }
 
 const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>

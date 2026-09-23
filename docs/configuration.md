@@ -9401,6 +9401,15 @@ settings — names and fixed values only — to anybody who uses this computer, 
 profile is shown that a setting is pinned. `GET /api/settings-kit` now marks each field `pinned`, and
 `POST /api/settings-kit/apply` answers `skipped` beside `applied`.
 
+**A setting that cannot be changed right now (Q65).** A setting may refuse to be changed from the kit
+while its saved record cannot be read (voice, whose own card stops on such a record rather than starting
+again from how Branch ships). The refusal is decided when the changes are worked out, so it is listed in
+`refused` by `/api/settings-kit/preview` and `/api/settings-kit/apply` while every other change in the
+same plan is made and written down once. `GET /api/settings-kit` gives each setting `refused` (the reason,
+or null) and `canPutBack`; `POST /api/settings-kit/put-back` with `{ key }` replaces the whole unreadable
+record with how Branch ships it ("Put voice settings back as shipped", under Put settings back). It is the
+owner's alone and refused while Lockdown is on.
+
 macOS and Linux: nothing in either of these two sections depends on the operating system, except
 which spotter and which recorder the wake word can use, both set out above. The tests
 (`tests/wake-word.test.mjs`, `tests/wake-mic.test.mjs`, `tests/wake-mac.test.mjs`) hand in a fake

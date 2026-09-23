@@ -8,6 +8,7 @@ import { createBranch } from "../dist/index.js";
 import { settingsCatalogue, specFor } from "../dist/settings-kit/catalogue.js";
 import { applyChanges, changesFor, currentValue } from "../dist/settings-kit/changes.js";
 import { settingsKitWriters } from "../dist/settings-kit/writers.js";
+import { startServer } from "../dist/server.js";
 import { setLockdown } from "../dist/lockdown.js";
 import { readPolicy } from "../dist/policy.js";
 import { reviewerSettings } from "../dist/approval-reviewer.js";
@@ -236,9 +237,14 @@ test("voice: an unreadable record shows the starting values, and reading it does
 test("voice: a kit write to an unreadable record is refused, and the record is left exactly as it was", async (t) => {
   const { app, store, owner } = await fixture(t);
   store.save("settings", owner, "voice", brokenVoice);
-  const { changes } = changesFor(store, owner, [{ key: "voice", field: "autoReadAloud", value: true }]);
-  assert.equal(changes.length, 1);
-  assert.throws(() => applyChanges(store, owner, changes, { ...all(changes), writers: settingsKitWriters(app) }), /cannot be read, so nothing was changed/);
+  // Refused when the changes are worked out, before anything is written, with the way out named.
+  const { changes, refused } = changesFor(store, owner, [{ key: "voice", field: "autoReadAloud", value: true }]);
+  assert.equal(changes.length, 0);
+  assert.equal(refused.length, 1);
+  assert.match(refused[0], /^voice\.autoReadAloud: The voice settings saved on this computer cannot be read/);
+  assert.match(refused[0], /Put voice settings back as shipped/);
+  // The write itself is the last lock: reached another way, it still refuses rather than repairing the record.
+  assert.throws(() => specFor("voice").write(store, owner, { autoReadAloud: true }), /cannot be read/);
   assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice);
   // A readable record is still changed through the voice card's own save.
   store.save("settings", owner, "voice", {});
@@ -276,3 +282,69 @@ test("a kit write of one field keeps every other field of a readable record, cat
       assert.deepEqual(inForce(reader, store, owner, field), before[field.field], `${spec.key}.${field.field}: kept when ${first.field} was written`);
   }
 });
+
+/** The window, over a real server, as the owner. */
+async function serve(t, app, root) {
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  return async (path, body) => {
+    const response = await fetch(server.url + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+}
+async function served(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-settings-kit-parse-http-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  return { app, store: app.store, owner: app.runtime.owner, call: await serve(t, app, root) };
+}
+const kitAudits = (store, owner, why) => store.audit.list(owner, { limit: 500 })
+  .filter((row) => row.action === "policy.changed" && row.subject.endsWith(`settings changed (${why})`));
+
+test("a preset with an unreadable voice record makes every other change, writes it down once, and lists voice as refused", async (t) => {
+  const { store, owner, call } = await served(t);
+  store.save("settings", owner, "voice", brokenVoice);
+  const plan = { source: "preset", preset: "private" };
+  const preview = await call("/api/settings-kit/preview", plan);
+  assert.ok(preview.body.refused.some((line) => line.startsWith("voice.keepAudioOnThisComputer: The voice settings")), JSON.stringify(preview.body.refused));
+  assert.ok(!preview.body.changes.some((change) => change.key === "voice"));
+  const accept = preview.body.changes.map((change) => change.id);
+  const applied = await call("/api/settings-kit/apply", { plan, accept, confirmLoosening: true });
+  assert.equal(applied.status, 200, JSON.stringify(applied.body));
+  assert.deepEqual(applied.body.applied.map((change) => change.id).sort(), [...accept].sort());
+  assert.ok(applied.body.refused.some((line) => line.startsWith("voice.keepAudioOnThisComputer:")));
+  // Before the fix: folder trust and the wall were written, local models were not, and nothing was written down.
+  assert.equal(folderTrustMode(store, owner), "on");
+  assert.equal(wallSettings(store, owner).mode, "on");
+  assert.equal(localModelsMode(store, owner), "on");
+  assert.equal(kitAudits(store, owner, "preset: Private and local").length, 1);
+  assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice, "the unreadable record is left alone");
+});
+
+test("the way out: an unreadable voice record is put back as shipped, then voice reads and its own card saves again", async (t) => {
+  const { store, owner, call } = await served(t);
+  store.save("settings", owner, "voice", brokenVoice);
+  assert.equal((await call("/api/voice/settings", { autoReadAloud: true })).status >= 400, true, "the voice card cannot save onto it either");
+  const before = (await call("/api/settings-kit")).body.settings.find((spec) => spec.key === "voice");
+  assert.match(before.refused, /Put voice settings back as shipped/);
+  assert.equal(before.canPutBack, true);
+  assert.equal((await call("/api/settings-kit/put-back", { key: "loop_guard" })).status, 404, "only a setting with a way back");
+  const back = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  assert.equal(back.body.overview.settings.find((spec) => spec.key === "voice").refused, null);
+  assert.deepEqual(voiceSettings(store, owner), (await import("../dist/voice.js")).VoiceSettingsSchema.parse({}));
+  assert.ok(store.audit.list(owner, { limit: 100 }).some((row) => row.subject === "Voice: put back as shipped"));
+  const saved = await call("/api/voice/settings", { autoReadAloud: true });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(voiceSettings(store, owner).autoReadAloud, true);
+  // Not while Lockdown holds the settings.
+  store.save("settings", owner, "voice", brokenVoice);
+  setLockdown(store, owner, { on: true });
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 409);
+  assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice);
+});
+
