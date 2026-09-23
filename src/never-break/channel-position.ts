@@ -25,8 +25,7 @@ export function channelPosition(store: unknown, channelId: string, owner = "loca
       return Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
     },
     save: (offset) => {
-      try { settings.save("settings", owner, key, { offset, savedAt: new Date().toISOString() }); }
-      catch { /* a position that is not saved only means a message may be fetched again */ }
+      settings.save("settings", owner, key, { offset, savedAt: new Date().toISOString() });
     },
   };
 }
