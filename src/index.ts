@@ -101,6 +101,7 @@ import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
+import { ManagedFileStore, registerManagedFiles } from "./managed-files.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
 import { startWakeWord, type ProgramPresent, type WakeCaptureRunner, type WakeRunner } from "./voice-wake.js"; // mac7/wake-mic
@@ -563,6 +564,8 @@ export async function createBranch(options: {
   // FQ-workspace.office: a Word or spreadsheet file the owner and one other person both change,
   // each edit merged onto the other's latest save rather than one side overwriting the other.
   const officeCoedit = new OfficeCoedit(store.sqlite, files);
+  const managedFiles = new ManagedFileStore(store);
+  registerManagedFiles(registry, managedFiles);
   registry.register({
     name: "user.ask", permission: "user.ask",
     description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
@@ -1332,6 +1335,7 @@ export async function createBranch(options: {
     documents,
     /** FQ-workspace.office: a Word or spreadsheet file two people are editing together right now. */
     officeCoedit,
+    managedFiles,
     /** Making and reading pictures, speech and sound files. */
     media,
     /** Writing speech out and reading text aloud, whichever service does the work. */
