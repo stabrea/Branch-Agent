@@ -61,6 +61,11 @@ function ownerHere(store: Store, context: ToolContext): void {
     throw new Error(`${what} happens only in a conversation you started yourself, not from a ${outside}. Ask Branch in the app.`);
 }
 
+/** Whether this call comes from the owner, in a conversation they started: `ownerHere` without the throw. */
+function ownerIsHere(store: Store, context: ToolContext): boolean {
+  try { ownerHere(store, context); return true; } catch { return false; }
+}
+
 type Shown = string | number | boolean;
 function choicesOf(field: FieldSpec): Shown[] | { min: number; max: number } {
   if (field.kind.type === "switch") return ["off", "when-needed", "on"];
@@ -154,6 +159,20 @@ const said = (change: Change): string => `${change.name}, ${change.label}: ${Str
  */
 function describe(input: ChangeInput): string {
   return input.changes.map((entry) => `${entry.setting} → ${String(entry.value)}`).join("; ").slice(0, 600);
+}
+
+/**
+ * Q50: the exact before and after a settings change would make, for the question the owner is asked
+ * ("Wake word, Mode: off → on"), or null. Worked out only once the caller is known to be the owner in
+ * a conversation they started, so a refused caller never gets Branch to read the owner's settings;
+ * `describe` above stays the call's target, which rules and kept answers match against.
+ */
+export function settingsPreview(store: Store, tool: string, args: unknown, context: ToolContext): string | null {
+  if (tool !== "settings.change" && tool !== "settings.loosen") return null;
+  const input = ChangeSchema.safeParse(args);
+  if (!input.success || !ownerIsHere(store, context)) return null;
+  const { changes } = plan(store, context.owner, input.data);
+  return (changes.length ? changes.map(said).join("; ") : "every setting is already as asked").slice(0, 600);
 }
 
 /** Both change tools: the same plan, the same save, one rule about which may make Branch less careful. */
