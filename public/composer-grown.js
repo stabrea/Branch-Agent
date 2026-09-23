@@ -49,8 +49,8 @@ function modelChoice(option, select, close) {
   row.setAttribute("aria-checked", String(option.value === select.value));
   row.addEventListener("click", () => {
     select.value = option.value;
+    /* The change saves the default model too: #models-form saves as each choice is made (DG-025). */
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    if (select.id === "models-active") $("models-form")?.requestSubmit();
     close();
   });
   return row;

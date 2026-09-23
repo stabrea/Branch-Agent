@@ -1179,15 +1179,25 @@ async function saveSessionModel() {
 globalThis.branchRefreshSessionModel = () => loadSessionModel();
 $("session-model").addEventListener("change", saveSessionModel);
 $("session-reasoning").addEventListener("change", saveSessionModel);
-form("models-form", async () => {
+/* DG-025: as in the sample, Models saves each choice as it is made; there is no Save button. One save at a time, each
+   reading the form when its turn comes, so two quick changes land in order. A refusal is said, as before. */
+async function saveModelsNow() {
   const fallbackOrder = [...$("models-fallback").querySelectorAll("input:checked")].map((box) => box.value);
-  await api("models", {
-    activePreset: $("models-active").value || null,
-    reasoning: $("models-reasoning").value || null,
-    fallbackOrder,
-    cooldownMs: Math.max(0, Math.round(Number($("models-cooldown").value) || 0)) * 1000,
-  });
-  await refresh();
+  try {
+    await api("models", {
+      activePreset: $("models-active").value || null,
+      reasoning: $("models-reasoning").value || null,
+      fallbackOrder,
+      cooldownMs: Math.max(0, Math.round(Number($("models-cooldown").value) || 0)) * 1000,
+    });
+    await refresh();
+  } catch (e) { toast(e.message); }
+}
+let modelsSaving = Promise.resolve();
+const saveModels = () => (modelsSaving = modelsSaving.then(saveModelsNow));
+$("models-form").addEventListener("submit", (event) => { event.preventDefault(); void saveModels(); });
+$("models-form").addEventListener("change", (event) => {
+  if (event.target.closest("#models-active, #models-reasoning, #models-cooldown, #models-fallback")) void saveModels();
 });
 function renderSkills() {
   if (document.activeElement !== $("skill-policy")) $("skill-policy").value = state.skillPolicy || "block";
