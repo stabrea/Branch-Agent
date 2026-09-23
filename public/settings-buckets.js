@@ -10,16 +10,18 @@ const R = "regular", A = "advanced", T = "technical";
 
 export const BUCKETS = {
   general: [
+    ["people-list", "people", "People on this computer", "Who else uses Branch here.",
+      [["lx-collab-people", R], ["lx-collab-labels", R]]],
+    ["owner-pin", "lock", "A PIN for switching back to you", "Make switching to you require a PIN.",
+      [["lx-collab-people", R]]],
     ["start", "power", "How Branch starts and keeps running", "Whether it starts with your computer and keeps going when the window is closed.",
       [["deployment-card", R], ["never-break-card", A]]],
     ["projects", "folder", "Your projects", "The folders Branch works in, and what it leaves alone there.",
       [["projects-form", R], ["context-project", A], ["asks-board-card", A], ["comfort-files-card", A]]],
-    ["people", "people", "People and sharing", "Who else uses Branch here, and what you share with them.",
-      [["lx-collab-people", R], ["lx-collab-labels", R], ["people-signin-admin", A]]],
     ["keys", "keyboard", "Keys and typed commands", "Shortcuts, and the commands you can type with a slash.",
       [["comfort-keys-card", A], ["commands-card", A]]],
-    ["whole", "sliders", "All your settings at once", "Start from a preset, put settings back, or keep them in one file.",
-      [["settings-kit-presets", A], ["settings-kit-reset", A]]],
+    ["admin", "user", "Signing in from other devices", "How other people sign in from their own device.",
+      [["people-signin-admin", A]]],
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",
