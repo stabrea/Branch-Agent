@@ -521,6 +521,7 @@ async function staticFile(
     "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
+    "/memory-provider-ui.js": ["memory-provider-ui.js", "text/javascript; charset=utf-8"], // FQ-memory.providers
     "/adapt.js": ["adapt.js", "text/javascript; charset=utf-8"], // mac7/adapt
     "/learn.js": ["learn.js", "text/javascript; charset=utf-8"], // mac7/learn
     "/popover.js": ["popover.js", "text/javascript; charset=utf-8"], // 0.18.1: how every popover opens and closes

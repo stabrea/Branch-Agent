@@ -564,15 +564,15 @@ test("the shipped backend answers every part of the contract it promises", async
   const { app } = await fixture(t);
   const backend = app.memory.backend;
   assert.equal(typeof backend.name, "string");
-  const saved = backend.write("local", "one", { text: "The gate sticks in wet weather.", source: "owner", kind: "procedure-hint" });
-  assert.equal(backend.read("local", "one").id, "one");
-  assert.equal(backend.read("local", "missing"), undefined, "a fact that is not there is an answer, not a failure");
-  assert.equal(backend.count("local"), 1);
-  assert.equal(backend.list("local").length, 1);
-  assert.ok(backend.search("local", "gate").some((record) => record.id === "one"));
-  assert.equal(backend.list("other-owner").length, 0, "owners never see each other's facts");
-  assert.equal(backend.forget("local", "one"), true);
-  assert.equal(backend.forget("local", "one"), false);
+  const saved = await backend.write("local", "one", { text: "The gate sticks in wet weather.", source: "owner", kind: "procedure-hint" });
+  assert.equal((await backend.read("local", "one")).id, "one");
+  assert.equal(await backend.read("local", "missing"), undefined, "a fact that is not there is an answer, not a failure");
+  assert.equal(await backend.count("local"), 1);
+  assert.equal((await backend.list("local")).length, 1);
+  assert.ok((await backend.search("local", "gate")).some((record) => record.id === "one"));
+  assert.equal((await backend.list("other-owner")).length, 0, "owners never see each other's facts");
+  assert.equal(await backend.forget("local", "one"), true);
+  assert.equal(await backend.forget("local", "one"), false);
   assert.equal(saved.data.kind, "procedure-hint");
 });
 
