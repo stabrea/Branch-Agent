@@ -3,8 +3,8 @@
    gets this layout too.
 
    - At phone width (560 px and under) a bar of places sits at the foot of the window, as in the sample:
-     Conversation, Inbox (with its count), Automations, Library and Settings. The message box sits
-     above it, never under it. Customize stays in the side list.
+     Conversation, Inbox (with its count), Automations, Library and Customize (DG-143). The message box
+     sits above it, never under it. Settings stays behind the gear in the side list and in More.
    - On a phone or tablet (900 px and under), a question the assistant stops on is scrolled into view above the message
      box when it arrives, so it can be answered without hunting for it.
    - The tablet layout (the side list kept as a column from 700 px) is CSS only (public/phone-layout.css).
@@ -22,7 +22,7 @@ const ICONS = {
   inbox: "M4 13l2.5-7h11L20 13v5H4zM4 13h4.5l1 2h5l1-2H20",
   automations: "M13 3 5 13h6l-1 8 8-10h-6z",
   library: "M5 4h9a4 4 0 014 4v12H9a4 4 0 01-4-4zM5 16a4 4 0 014-4h9",
-  settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
+  customize: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5a2 2 0 110 4 2 2 0 010-4zM10 15a2 2 0 110 4 2 2 0 010-4z",
 };
 /** [where it opens, word key, English] in the sample's order. */
 const BAR = [
@@ -30,7 +30,7 @@ const BAR = [
   ["inbox", "place.inbox", "Inbox"],
   ["automations", "place.automations", "Automations"],
   ["library", "place.library", "Library"],
-  ["settings", "settings.title", "Settings"],
+  ["customize", "place.customize", "Customize"],
 ];
 const nearby = matchMedia("(max-width: 900px)");
 
@@ -64,9 +64,8 @@ function barButton([target, key, english]) {
   return button;
 }
 
-/** Which button is lit: Settings while its window is open, else the place on screen. */
-function currentOf(body = document.body) {
-  if (body.classList.contains("lx-settings-open")) return "settings";
+/** Which button is lit: the place on screen. */
+function currentOf() {
   return document.querySelector('.lx-place-link[aria-current="page"]')?.dataset.place || "chat";
 }
 function syncBar() {
