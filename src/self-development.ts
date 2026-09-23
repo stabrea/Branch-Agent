@@ -107,7 +107,11 @@ async function bindContract(
   }
   // A worktree made before contracts existed is bound to the commit it is on now.
   const sha = await run(deps, at.existing ? join(deps.workspace, at.folder) : at.source, ["rev-parse", "--verify", `${at.existing ? "HEAD" : at.ref}^{commit}`], signal);
-  return deps.contracts.create(deps.owner, { taskRunId: at.runId, sourceSha: sha, worktreePath: at.folder, terms: at.terms });
+  const contract = deps.contracts.create(deps.owner, { taskRunId: at.runId, sourceSha: sha, worktreePath: at.folder, terms: at.terms });
+  audit(deps.store, deps.owner, { action: "self_development.contract", actor: deps.owner, subject: `${at.folder} revision 1`.slice(0, 300),
+    reason: `Paths ${at.terms.allowedPaths.join(", ")}; tools ${at.terms.permissions.join(", ")}`.slice(0, 500),
+    runId: at.runId ? at.runId.slice(0, 64) : null, outcome: "written" });
+  return contract;
 }
 
 export async function prepareBranchSourceChange(

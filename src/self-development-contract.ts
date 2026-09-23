@@ -122,9 +122,25 @@ export class ContractBook {
   }
 }
 
-/** Every request to widen a contract is put to the owner, once, whatever the rules say. */
-export function contractHold(tool: string): { reason: string; onceOnly: true } | null {
-  return tool === widenToolName ? { reason: widenReason, onceOnly: true } : null;
+export const firstContractReason = "Branch asks you every time before it starts changing its own source";
+
+/** The paths and tools a proposed contract asks for, in plain words, for the owner's question. */
+function askedFor(terms: unknown): string {
+  const asked = (terms ?? {}) as { allowedPaths?: unknown; permissions?: unknown };
+  const list = (value: unknown, none: string): string =>
+    Array.isArray(value) && value.length ? value.map(String).join(", ").slice(0, 400) : none;
+  return `It would be allowed to change ${list(asked.allowedPaths, "no new paths")}, using ${list(asked.permissions, "no new tools")}.`;
+}
+
+/**
+ * The first contract and every wider one are put to the owner, once each, whatever the rules say,
+ * so a model can never give itself `**` and every tool. The question names the paths and tools asked for.
+ */
+export function contractHold(tool: string, args: unknown): { reason: string; onceOnly: true } | null {
+  const input = (args ?? {}) as { contract?: unknown; changes?: unknown };
+  if (tool === prepareToolName) return { reason: `${firstContractReason}. ${askedFor(input.contract)}`, onceOnly: true };
+  if (tool === widenToolName) return { reason: `${widenReason}. ${askedFor(input.changes)}`, onceOnly: true };
+  return null;
 }
 
 /** A path glob: `**` spans folders, `*` and `?` stay inside one name, a trailing `/` means the whole folder. */
