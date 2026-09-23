@@ -660,6 +660,7 @@ async function staticFile(
     "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
     "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
+    "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
@@ -1421,8 +1422,12 @@ async function api(
         advice: app.runtime.advice(run.id),
       };
   }
-  if (request.method === "GET" && path === "/api/activity")
-    return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/activity") {
+    // Q51: `?waiting=1` adds the tasks waiting for the owner; stale is judged by the owner's own model and tool limits.
+    const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
+    const staleMs = Math.max(app.runtime.reliability.modelStallMs, app.runtime.reliability.toolTimeoutMs);
+    return liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  }
   if (request.method === "GET" && path === "/api/second-opinion")
     return secondOpinionSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/second-opinion")

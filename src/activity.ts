@@ -12,6 +12,80 @@ export interface RunActivity {
   runId: string; sessionId: string; prompt: string; status: Run["status"]; startedAt: string;
   current: string | null; steps: ActivityStep[]; working?: string;
   plan?: ActivityPlan; milestone?: string; verdict?: string;
+  /** Q51: what the task is really doing, from its events. */
+  task?: TaskState;
+}
+
+/**
+ * Q51: what a task that has not finished is really doing, told from its own event log and nothing else. The
+ * latest event that says so decides: it is working, waiting for the owner, waiting for a service (a rate pause, a
+ * retry, a model loading, a fallback, a summary being written) or blocked (a refusal nothing has moved on from
+ * yet). `why` is that event's kind, so the window can name it in the owner's language; `reason` is the event's
+ * own words (the question asked, the message, the reason given), never made up; `until` is when a wait ends, when
+ * the event says. There is no percentage: nothing records how much is left.
+ */
+export type TaskStateName = "working" | "waiting-owner" | "waiting-service" | "blocked" | "finished";
+export interface TaskState {
+  state: TaskStateName; why: string; reason: string;
+  /** When the task last recorded anything. */
+  lastUpdate: string;
+  /** Working or waiting for a service, and nothing recorded for longer than a model or a tool may take. */
+  stale: boolean;
+  until?: string;
+}
+
+const OWNER = new Set(["policy.ask", "attention.needed", "plan.awaiting_approval", "folder.trust_needed", "web.challenge", "run.can_continue"]);
+const SERVICE = new Set(["rate.paused", "model.retry_scheduled", "model.loading", "model.fallback", "model.stalled", "context.compacting"]);
+const BLOCKED = new Set(["policy.denied", "hook.blocked", "provider.refused", "reconciliation.required", "rounds.exhausted"]);
+const WORKING = new Set(["run.started", "run.resumed", "model.started", "model.completed", "tool.started", "tool.completed", "tool.failed",
+  "tool.stalled", "plan.approved", "plan.step.started", "run.milestone", "verify.verdict", "rate.resumed"]);
+const FINISHED = new Set<Run["status"]>(["completed", "failed", "cancelled", "budget_exceeded"]);
+
+/** Which of the four an event says, or null for one that says nothing about it (a note, a count). */
+function stateOf(event: Event): Exclude<TaskStateName, "finished"> | null {
+  const { kind, data } = event;
+  if (kind === "run.stuck") return data.action === "ask" ? "waiting-owner" : "waiting-service";
+  if (kind === "model.stall_recovery") return data.action === "fail" ? null : "waiting-service";
+  if (OWNER.has(kind)) return "waiting-owner";
+  if (SERVICE.has(kind)) return "waiting-service";
+  if (BLOCKED.has(kind)) return "blocked";
+  return WORKING.has(kind) ? "working" : null;
+}
+/** The event's own words for why, if it has any. */
+function reasonOf(event: Event): string {
+  const d = event.data;
+  const words = d.question ?? d.message ?? d.note ?? d.reason ?? d.label ?? d.error ?? d.site ?? d.folder ?? d.provider ?? d.name ?? "";
+  return short(words, 160);
+}
+/** When the wait an event describes ends, when it says. */
+function untilOf(event: Event): string | undefined {
+  const d = event.data, at = Date.parse(event.createdAt);
+  const wait = Number(d.waitMs ?? d.delayMs ?? (d.waitSeconds !== undefined ? Number(d.waitSeconds) * 1000 : NaN));
+  if (Number.isFinite(wait) && wait > 0 && Number.isFinite(at)) return new Date(at + wait).toISOString();
+  return typeof d.cooldownUntil === "string" ? d.cooldownUntil : undefined;
+}
+
+export function taskState(run: Run, events: Event[], options: { now?: number; staleMs?: number } = {}): TaskState {
+  const lastUpdate = events.at(-1)?.createdAt ?? run.updatedAt ?? run.createdAt;
+  if (FINISHED.has(run.status)) return { state: "finished", why: run.status, reason: "", lastUpdate, stale: false };
+  let decided: { state: Exclude<TaskStateName, "finished">; event: Event } | null = null;
+  for (let at = events.length - 1; at >= 0 && !decided; at--) {
+    const state = stateOf(events[at]!);
+    if (state) decided = { state, event: events[at]! };
+  }
+  /* A task that stopped to ask, or that Branch closed on, waits for the owner whatever came last. */
+  const waitsForOwner = run.status === "needs_input" || run.status === "interrupted";
+  if (waitsForOwner && decided?.state !== "waiting-owner") {
+    const asked = [...events].reverse().find((event) => stateOf(event) === "waiting-owner");
+    decided = asked ? { state: "waiting-owner", event: asked } : null;
+    if (!decided) return { state: "waiting-owner", why: run.status, reason: "", lastUpdate, stale: false };
+  }
+  if (!decided) return { state: "working", why: "run.started", reason: "", lastUpdate, stale: false };
+  const { state, event } = decided;
+  const quiet = (options.now ?? Date.now()) - Date.parse(lastUpdate);
+  const stale = (state === "working" || state === "waiting-service") && quiet > (options.staleMs ?? 90_000);
+  const until = state === "waiting-service" ? untilOf(event) : undefined;
+  return { state, why: event.kind, reason: state === "working" ? "" : reasonOf(event), lastUpdate, stale, ...(until ? { until } : {}) };
 }
 
 const short = (value: unknown, max = 60): string => {
@@ -91,7 +165,7 @@ export function describeToolCall(name: string, args: unknown): string {
 }
 
 /** Steps and the current activity of one run, from its events. */
-export function runActivity(run: Run, events: Event[]): RunActivity {
+export function runActivity(run: Run, events: Event[], options: { now?: number; staleMs?: number } = {}): RunActivity {
   const steps = new Map<string, ActivityStep>();
   for (const event of events) {
     const id = String(event.data.id ?? event.id), name = String(event.data.name ?? "tool");
@@ -110,6 +184,7 @@ export function runActivity(run: Run, events: Event[]): RunActivity {
   return {
     runId: run.id, sessionId: run.sessionId, prompt: run.prompt, status: run.status,
     startedAt: run.createdAt, current, steps: list.slice(-30), ...orchestrationState(events),
+    task: taskState(run, events, options),
   };
 }
 
@@ -136,10 +211,18 @@ function orchestrationState(events: Event[]): Partial<RunActivity> {
   };
 }
 
-/** Activity for every task of the owner that is still running, with what the conversation is doing. */
-export function liveActivity(store: Store, owner: string): RunActivity[] {
-  return store.runs(owner).filter((run) => run.status === "running").map((run) => {
+/**
+ * Activity for every task of the owner that is still running, with what the conversation is doing. With
+ * `waiting`, also each conversation's latest task when it stopped to ask the owner (Q51): the one the owner can
+ * still answer, never an older one a later task has moved past. The default stays running tasks only, since
+ * other screens count these as busy.
+ */
+export function liveActivity(store: Store, owner: string, options: { waiting?: boolean; staleMs?: number; now?: number } = {}): RunActivity[] {
+  const running = store.runs(owner).filter((run) => run.status === "running");
+  /* The store already knows which waiting task is still the newest in its conversation (`activeRuns`). */
+  const waiting = options.waiting === true ? store.activeRuns(owner).filter((run) => run.status === "needs_input") : [];
+  return [...running, ...waiting].map((run) => {
     const working = store.working.describe(run.sessionId);
-    return { ...runActivity(run, store.events(run.id)), ...(working ? { working } : {}) };
+    return { ...runActivity(run, store.events(run.id), options), ...(working ? { working } : {}) };
   });
 }
