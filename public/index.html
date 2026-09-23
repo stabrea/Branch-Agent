@@ -1866,20 +1866,27 @@
           <form id="models-form" class="card">
             <h2 data-t="settings.card.models">Models</h2>
             <p>Choose which model answers by default. Each conversation can pick its own. If a model is unavailable, Branch tries the next one on your list and rests the failed one for a while.</p>
-            <label for="models-active" data-t="field.default-model">Default model</label>
-            <select id="models-active"></select>
-            <label for="models-reasoning" data-t="field.default-thinking">Default thinking</label>
-            <select id="models-reasoning">
-              <option value="">Model's own default</option>
-              <option value="low">Quick</option>
-              <option value="medium">Balanced</option>
-              <option value="high">Thorough</option>
-            </select>
+            <!-- DG-043: each setting is one row, its words beside its control, as in the sample (settings-grown.css). -->
+            <div class="sg-ctl">
+              <label for="models-active" data-t="field.default-model">Default model</label>
+              <select id="models-active"></select>
+            </div>
+            <div class="sg-ctl">
+              <label for="models-reasoning" data-t="field.default-thinking">Default thinking</label>
+              <select id="models-reasoning">
+                <option value="">Model's own default</option>
+                <option value="low">Quick</option>
+                <option value="medium">Balanced</option>
+                <option value="high">Thorough</option>
+              </select>
+            </div>
             <p class="subtle">If the default fails, try these in order</p>
             <div id="models-fallback" class="check-list"></div>
             <p id="models-fallback-codex" class="field-note" data-t="models.fallback-codex" hidden>Codex on this computer signs in on its own. If it is signed in to a different ChatGPT plan of yours, work that reaches your ChatGPT limit can carry on there, on that plan. Branch cannot see which plan it uses.</p>
-            <label for="models-cooldown" data-t="field.rest-a-failed-model-for">Rest a failed model for (seconds)</label>
-            <input id="models-cooldown" type="number" min="0" max="3600" step="1" />
+            <div class="sg-ctl">
+              <label for="models-cooldown" data-t="field.rest-a-failed-model-for">Rest a failed model for (seconds)</label>
+              <input id="models-cooldown" type="number" min="0" max="3600" step="1" />
+            </div>
             <p id="models-note" class="subtle"></p>
             <button data-t="action.save-model-settings">Save model settings</button>
           </form>
@@ -1909,30 +1916,41 @@
             <h2 data-t="settings.card.model-connection">Model connection</h2>
             <p id="model-settings-note" class="subtle"></p>
             <fieldset id="model-settings-fields">
-              <label for="provider-preset" data-t="field.choose-a-provider">Choose a provider</label>
-              <select id="provider-preset"></select>
+              <!-- DG-043: each setting is one row, its words beside its control, as in the sample (settings-grown.css). -->
+              <div class="sg-ctl">
+                <label for="provider-preset" data-t="field.choose-a-provider">Choose a provider</label>
+                <select id="provider-preset"></select>
+              </div>
               <p id="provider-terms" class="subtle terms-line" role="note" hidden><strong data-t="terms.label">Terms:</strong> <span id="provider-terms-route"></span> <strong id="provider-terms-standing"></strong> <span id="provider-terms-warning"></span> <a id="provider-terms-link" href="#" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
               <div class="provider-actions">
                 <button id="provider-test" type="button" class="secondary" data-t="action.test-this-connection">Test this connection</button>
                 <button id="provider-local" type="button" class="secondary" data-t="action.use-the-model-running-on">Use the model running on this computer</button>
               </div>
-              <label for="model-provider" data-t="field.provider">Provider</label>
-              <select id="model-provider">
-                <option value="demo">Offline demonstration</option>
-                <option value="openai">OpenAI compatible</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
+              <div class="sg-ctl">
+                <label for="model-provider" data-t="field.provider">Provider</label>
+                <select id="model-provider">
+                  <option value="demo">Offline demonstration</option>
+                  <option value="openai">OpenAI compatible</option>
+                  <option value="anthropic">Anthropic</option>
+                </select>
+              </div>
               <div id="model-connection-fields" hidden>
-                <label for="model-endpoint" data-t="field.web-address-of-the-service">Web address of the service</label>
-                <input id="model-endpoint" type="url" maxlength="2048"
-                  placeholder="https://api.openai.com/v1" />
-                <label for="model-name" data-t="field.model-identifier">Model identifier</label>
-                <input id="model-name" maxlength="256" autocomplete="off" list="provider-model-suggestions" />
-                <datalist id="provider-model-suggestions"></datalist>
-                <label for="model-key" data-t="field.api-key">API key</label>
-                <input id="model-key" type="password" maxlength="8192"
-                  autocomplete="new-password" spellcheck="false" />
-                <p id="model-key-note" class="subtle"></p>
+                <div class="sg-ctl">
+                  <label for="model-endpoint" data-t="field.web-address-of-the-service">Web address of the service</label>
+                  <input id="model-endpoint" type="url" maxlength="2048"
+                    placeholder="https://api.openai.com/v1" />
+                </div>
+                <div class="sg-ctl">
+                  <label for="model-name" data-t="field.model-identifier">Model identifier</label>
+                  <input id="model-name" maxlength="256" autocomplete="off" list="provider-model-suggestions" />
+                  <datalist id="provider-model-suggestions"></datalist>
+                </div>
+                <div class="sg-ctl">
+                  <label for="model-key" data-t="field.api-key">API key</label>
+                  <input id="model-key" type="password" maxlength="8192"
+                    autocomplete="new-password" spellcheck="false" />
+                  <p id="model-key-note" class="subtle"></p>
+                </div>
               </div>
               <button data-t="action.save-model-connection">Save model connection</button>
             </fieldset>

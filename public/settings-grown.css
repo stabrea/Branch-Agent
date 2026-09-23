@@ -806,3 +806,61 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 body:not(.lx-settings-searching) #lx-models-connection > [data-sg-bucket] > :is(h2, h3, h4):first-child {
   display: none;
 }
+
+/* DG-043: a setting in the model connection cards is one row, as in the approved sample (its `.ctl`): the words on the
+   left, the control at the right edge, a rule between rows; a note under the words spans the row. Under 760px, the
+   sample's own breakpoint, the control goes under its words and takes the row's width. */
+.sg-ctl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 20px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.sg-ctl > label {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 520;
+  line-height: 1.55;
+  letter-spacing: normal;
+}
+.sg-ctl > :is(select, input) {
+  grid-column: 2;
+  grid-row: 1;
+  width: auto;
+  min-width: 180px;
+  max-width: 440px;
+  height: 36px;
+  margin: 0;
+  padding-block: 0;
+  border-radius: 10px;
+}
+.sg-ctl > input {
+  max-width: 260px;
+}
+.sg-ctl > input[type="number"] {
+  min-width: 0;
+  max-width: 140px;
+}
+.sg-ctl > :not(label, select, input, datalist) {
+  grid-column: 1 / -1;
+  max-width: 76ch;
+  margin: 0;
+}
+.sg-ctl > :empty:not(select, input) {
+  display: none;
+}
+@media (max-width: 760px) {
+  .sg-ctl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sg-ctl > :is(select, input),
+  .sg-ctl > input[type="number"] {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+    max-width: none;
+  }
+}
