@@ -461,7 +461,7 @@ test("following the computer's light or dark is noticed, and a flag is told once
   await openSettingFor(f.page, "#lx-mode");
   const mode = (name) => f.page.locator("#lx-mode").getByRole("button", { name, exact: true }).click();
   await mode("Follow this computer");
-  await mode("Dark");
+  await mode("Moonlight");
   await mode("Follow this computer");
   await f.page.waitForTimeout(500);
   assert.equal(told.filter((body) => body.includes("follow-system")).length, 1);

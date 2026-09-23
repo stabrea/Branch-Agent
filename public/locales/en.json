@@ -2697,6 +2697,8 @@
   "look.badge.default": "Default",
   "look.badge.high": "High contrast",
   "look.daylight": "Daylight",
+  "look.dayOrNight": "Day or night",
+  "look.dayOrNight.note": "Every theme has both. Switching keeps the theme you chose.",
   "look.moonlight": "Moonlight",
   "look.tile.title": "{name} · text contrast {ratio} to 1 ({light}), {daylight} to 1 in Daylight",
   "look.bringBack": "Bring the window back",
