@@ -1,7 +1,8 @@
 /* DG-197: Settings › Memory & library is the approved sample's page: its eight sections in the sample's order, each
    with the sample's "N more with …" line, and every card that held one of the page's settings moved here from the
    Library's tabs (none dropped). The cards read as rows of their section, so their own titles are not headings on
-   show (DG-008, DG-024). The same at 1440, 860 and 400 px, with Show everything on and off, and in French.
+   show (DG-008, DG-024). The same at 1440, 860 and 400 px, at Regular, Advanced (Show everything) and Technical,
+   and in French.
    Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -71,26 +72,26 @@ const shown = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-197 the page's sections and counts match the sample at 1440, 860 and 400, Show everything on and off, dark and light", async (t) => {
+test("DG-197 the page's sections and counts match the sample at 1440, 860 and 400, at every level", async (t) => {
   const { page, errors } = await fixture(t);
   for (const width of [1440, 860, 400]) {
     await page.setViewportSize({ width, height: 950 });
-    for (const [everything, scheme] of [["off", "dark"], ["on", "light"]]) {
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.evaluate((one) => { document.documentElement.dataset.everything = one; }, everything);
-      const where = `${width} px, Show everything ${everything}, ${scheme}`;
-      await level(page, "regular");
-      await page.waitForFunction((want) => [...document.querySelectorAll("#lx-page-memory .sg-more")]
-        .filter((node) => node.getClientRects().length).map((node) => node.textContent.trim()).join("|") === want, MORE.join("|"), { timeout: 8000 }).catch(() => {});
-      const regular = await shown(page);
-      assert.deepEqual(regular.headings, ["Memory & library", ...SECTIONS], where);
-      assert.deepEqual(regular.more, MORE, where);
-      assert.ok(regular.wide <= 0, `${where}: no sideways scrolling`);
-      await level(page, "technical");
-      const technical = await shown(page);
-      assert.deepEqual(technical.headings, ["Memory & library", ...SECTIONS], where);
-      assert.deepEqual(technical.more, [], where);
-    }
+    await level(page, "regular");
+    await page.waitForFunction((want) => [...document.querySelectorAll("#lx-page-memory .sg-more")]
+      .filter((node) => node.getClientRects().length).map((node) => node.textContent.trim()).join("|") === want, MORE.join("|"), { timeout: 8000 }).catch(() => {});
+    const regular = await shown(page);
+    assert.deepEqual(regular.headings, ["Memory & library", ...SECTIONS], `${width} px, Regular`);
+    assert.deepEqual(regular.more, MORE, `${width} px, Regular`);
+    assert.ok(regular.wide <= 0, `${width} px: no sideways scrolling`);
+    /* Show everything on is Advanced: the same sections, and only the Technical rows left out of sight. */
+    await level(page, "advanced");
+    const advanced = await shown(page);
+    assert.deepEqual(advanced.headings, ["Memory & library", ...SECTIONS], `${width} px, Advanced`);
+    assert.deepEqual(advanced.more, ["1 more with Technical", "2 more with Technical"], `${width} px, Advanced`);
+    await level(page, "technical");
+    const technical = await shown(page);
+    assert.deepEqual(technical.headings, ["Memory & library", ...SECTIONS], `${width} px, Technical`);
+    assert.deepEqual(technical.more, [], `${width} px, Technical`);
   }
   /* Search still shows a card's own title. */
   await page.locator("#lx-settings-search").fill("Hindsight");
