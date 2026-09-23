@@ -26,7 +26,7 @@ function example(service) {
 
 function row(service) {
   const node = make("details", undefined, "card-list");
-  node.append(make("summary", `${service.name} · ${t(`channels-more.position.${service.switch}`)}`));
+  node.append(make("summary", `${service.name} · ${t(`field.switch-${service.switch}`)}`));
   node.append(make("p", t(`channels-more.service.${service.kind}`), "subtle"));
   const id = `channels-more-${service.kind}`;
   const label = make("label", t("channels-more.switch"));
@@ -35,7 +35,7 @@ function row(service) {
   select.id = id;
   select.name = service.kind;
   for (const position of POSITIONS) {
-    const option = make("option", t(`channels-more.position.${position}`));
+    const option = make("option", t(`field.switch-${position}`));
     option.value = position;
     select.append(option);
   }

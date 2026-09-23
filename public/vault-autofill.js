@@ -59,7 +59,7 @@ function button(id, key, english, hintKey, hint, handler, primary = false) {
 
 const POSITIONS = [
   ["off", "vault-autofill.switch.off", "Off"],
-  ["when-needed", "vault-autofill.switch.when-needed", "Only when I ask for it"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "vault-autofill.switch.on", "On"],
 ];
 const SERVICES = [
@@ -93,7 +93,7 @@ function switchRow() {
   const control = chooser("vault-autofill-mode", POSITIONS, settings.mode);
   return described("vault-autofill-mode", "vault-autofill.field.switch", "Filling a saved sign-in",
     "vault-autofill.hint.switch",
-    "Off, Branch refuses and the assistant is not offered the tool at all. Only when I ask for it, and On, "
+    "Off, Branch refuses and the assistant is not offered the tool at all. When needed, and On, "
     + "it fills one of the sign-ins below when you ask for it by name. It is yours alone: a message from a chat app, "
     + "a short-lived key, another computer, someone else on this computer and a Trunk are all refused, and so is "
     + "everything while Lockdown is on.", control);

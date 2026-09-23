@@ -69,8 +69,8 @@ const quiet = (key, words, onClick) => {
 
 const modes = [
   ["off", "field.switch-off", "Off"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "field.switch-on", "On"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
 ];
 const methods = [
   ["pin", "people.admin.method.pin", "Their PIN"],

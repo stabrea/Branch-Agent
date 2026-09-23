@@ -40,8 +40,8 @@ async function api(path, body) {
 
 const positions = [
   ["off", "field.switch-off", "Off"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "field.switch-on", "On"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
 ];
 function field(card, { id, key, words, control }) {
   const label = said("label", key, words);
@@ -158,7 +158,7 @@ function lookBackCard(state) {
     ["library.card.looking-back", "Looking back over conversations"],
     ["library.note.looking-back", "Every so often your assistant rereads the latest turns of a conversation and suggests what to correct, merge or set aside in what it remembers, and how a skill could be better. Nothing changes until you say yes."]);
   const mode = field(node, { id: "look-back-switch", key: "field.looking-back", words: "Looking back", control: switchControl(state.settings.reflection) });
-  node.append(said("p", "library.note.looking-back-positions", "On: after every few of your turns, and whenever a long conversation is shortened. Only when it is needed: only when a long conversation is shortened, or when you ask.", "field-note"));
+  node.append(said("p", "library.note.looking-back-positions", "On: after every few of your turns, and whenever a long conversation is shortened. When needed: only when a long conversation is shortened, or when you ask.", "field-note"));
   const turns = field(node, { id: "look-back-turns", key: "field.turns-between-looks", words: "Your turns between two looks", control: numberControl(state.settings.everyTurns, 5, 500) });
   node.append(said("p", "library.note.looking-back-cost", "Each look is one question to your model, counted against the conversation it reads. A temporary conversation is never read.", "subtle"));
   const status = statusLine("learning-look-back");
@@ -250,7 +250,7 @@ function newSkillsCard(state, sessions) {
     ["skills.card.skills-your-assistant-wrote", "Skills your assistant wrote"],
     ["skills.note.skills-your-assistant-wrote", "Your assistant can write a new skill from something that went well. Each one arrives switched off, is tried on past tasks with and without it, and waits here for your yes."]);
   const mode = field(node, { id: "new-skills-switch", key: "field.writing-new-skills", words: "Writing new skills", control: switchControl(state.settings.newSkills) });
-  node.append(said("p", "skills.note.writing-positions", "Only when it is needed: only when you ask, by typing /learn in a conversation or with the box below. On: also after a task that looked like steps worth keeping.", "field-note"));
+  node.append(said("p", "skills.note.writing-positions", "When needed: only when you ask, by typing /learn in a conversation or with the box below. On: also after a task that looked like steps worth keeping.", "field-note"));
   const days = field(node, { id: "retire-days", key: "field.unused-days", words: "Offer to set aside a skill unused for this many days", control: numberControl(state.settings.retireAfterDays, 7, 365) });
   const status = statusLine("learning-new-skills");
   const save = said("button", "action.save", "Save");

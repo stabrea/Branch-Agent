@@ -44,7 +44,7 @@ function row(...children) {
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 
-const MODES = [["off", "devices.mode.off", "Off"], ["when-needed", "devices.mode.whenNeeded", "Only when it is needed"], ["on", "devices.mode.on", "On"]];
+const MODES = [["off", "devices.mode.off", "Off"], ["when-needed", "devices.mode.whenNeeded", "When needed"], ["on", "devices.mode.on", "On"]];
 const CAPS = {
   camera: "Take a photo with the camera", screen: "Take a picture of the screen", location: "Say where the device is",
   notify: "Show a notification", "clipboard-read": "Read what was copied", "clipboard-write": "Put text on the clipboard",

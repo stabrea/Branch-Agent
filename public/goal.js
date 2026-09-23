@@ -56,7 +56,7 @@ export function stripModel(goal, t) {
   };
 }
 
-export const MODES = ["off", "on", "when-needed"];
+export const MODES = ["off", "when-needed", "on"];
 /** The Goal button is shown only when goal mode is switched fully on. */
 export const showsGoalButton = (settings) => settings?.goal === "on";
 
