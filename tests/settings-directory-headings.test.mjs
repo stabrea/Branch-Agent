@@ -26,7 +26,8 @@ async function fixture(t, width) {
   return { page, errors };
 }
 
-const directories = ["trunks", "channels", "connections", "skills", "memory", "automations"];
+/* Automations & inbox holds its settings now (DG-198); its links wait at Technical, so they are checked there. */
+const directories = ["trunks", "channels", "connections", "skills", "memory"];
 for (const width of [1440, 860, 400]) {
   test(`DG-008 directory headings sit below the Settings page title at ${width}px`, async (t) => {
     const { page, errors } = await fixture(t, width);
@@ -53,7 +54,7 @@ for (const width of [1440, 860, 400]) {
         }
       }
     }
-    assert.equal(await page.locator(".settings-directory-title").count(), 16, "every existing directory is checked");
+    assert.equal(await page.locator(".settings-directory-title").count(), 16, "every existing directory is still drawn");
     assert.deepEqual(errors, []);
   });
 }
