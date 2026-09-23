@@ -329,11 +329,6 @@ const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], 
 const SETTINGS_DIRECTORY = {
   /* DG-193: Trunks & people holds the real settings instead (public/settings-trunks.js), with a way to Trunks and People. */
   connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
-  memory: [
-    ["memory", "place.library.memory", "Memory", "settingsDirectory.memory.line", "Review what Branch remembers and how it learns.", "library:memory"],
-    ["documents", "place.library.documents", "Documents", "settingsDirectory.documents.line", "Manage the documents Branch may use when it answers.", "library:documents"],
-    ["made", "place.library.made", "Made for you", "settingsDirectory.made.line", "Open the pages, articles and widgets Branch made.", "library:made"],
-  ],
   automations: [
     ["scheduled", "place.automations.scheduled", "Scheduled", "settingsDirectory.scheduled.line", "Manage work that runs at a particular time.", "automations:scheduled"],
     ["procedures", "place.automations.procedures", "Procedures", "settingsDirectory.procedures.line", "Manage saved ways of doing repeatable work.", "automations:procedures"],
@@ -346,7 +341,7 @@ const SETTINGS_DIRECTORY = {
 const MOVES = [
   ["policy-waiting-card", "lx-slot-inbox-needs"],
   ["automations-container", "lx-slot-automations-triggers"], ["hooks-card", "lx-slot-automations-triggers"],
-  ["obsidian-card", "documents"],
+  ["obsidian-card", "lx-page-memory"],
   ["plugins-card", "lx-slot-customize-plugins"],
   ["mcp-card", "lx-slot-customize-connections"],
   ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-page-channels"],

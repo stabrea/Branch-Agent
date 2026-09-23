@@ -26,7 +26,7 @@ async function fixture(t, width) {
   return { page, errors };
 }
 
-const directories = ["connections", "memory", "automations"];
+const directories = ["connections", "automations"];
 for (const width of [1440, 860, 400]) {
   test(`DG-008 directory headings sit below the Settings page title at ${width}px`, async (t) => {
     const { page, errors } = await fixture(t, width);
@@ -53,7 +53,7 @@ for (const width of [1440, 860, 400]) {
         }
       }
     }
-    assert.equal(await page.locator(".settings-directory-title").count(), 9, "every existing directory is checked");
+    assert.equal(await page.locator(".settings-directory-title").count(), 6, "every existing directory is checked");
     assert.deepEqual(errors, []);
   });
 }

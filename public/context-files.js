@@ -56,7 +56,7 @@ const cards = [
     files: ["agents"],
   },
   {
-    id: "context-memory-file", home: "library:memory",
+    id: "context-memory-file", home: "settings:memory",
     title: ["settings.card.memory-you-wrote-yourself", "Memory you wrote yourself"],
     purpose: ["settings.note.memory-file",
       "Everything else here your assistant remembered on its own. This is a file you write, so you can open it, read the whole thing and change your mind about any of it."],

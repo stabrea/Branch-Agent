@@ -76,7 +76,7 @@ const CARDS = [
     { name: "effortByModel", kind: "efforts", def: {} },
     { name: "serviceTier", kind: "select", def: "standard", options: ["standard", "priority", "flex"] }] },
   { id: "show-reasoning", card: "reasoning", home: "settings:appearance", fields: [{ name: "showReasoning", kind: "switch", def: true }] },
-  { id: "memory", card: "memory", home: "library:memory", fields: [
+  { id: "memory", card: "memory", home: "settings:memory", fields: [
     num("snapshotFacts", 0, 200, 20), num("snapshotChars", 0, 40000, 2000),
     { name: "memoryProvider", kind: "select", def: "branch", options: ["branch", "branch-and-hindsight"], outside: true },
     { name: "aboutYouOn", kind: "switch", def: false }, { name: "aboutYou", kind: "text", def: "" },

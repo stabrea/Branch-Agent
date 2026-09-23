@@ -5,9 +5,9 @@
    settings:data                Counting how Branch is used (consent first)
    settings:computer            Other computers running Branch
    settings:models:connection   Other agents answering a conversation
-   library:made                 Quick answers, pages kept, long articles, live tool pages
-   library:documents            Bringing in new items with a cursor
-   library:memory               A Hindsight memory server
+   settings:memory              Quick answers, pages kept, long articles, live tool pages
+   settings:memory              Bringing in new items with a cursor
+   settings:memory              A Hindsight memory server
    */
 import { segmented } from "/control-makers.js";
 /*
@@ -183,7 +183,7 @@ async function runtimesCard(modes) {
   return node;
 }
 
-/* ---------- library:made — answers, pages, articles, live pages ---------- */
+/* ---------- settings:memory — answers, pages, articles, live pages ---------- */
 function pageRow(page, status) {
   const item = plain("li", `${page.title} (${page.updatedAt.slice(0, 10)})`);
   item.append(" ", button("asks.pages.export", "Save as a file", async () => {
@@ -199,7 +199,7 @@ function pageRow(page, status) {
 }
 
 async function madeCard(modes) {
-  const { node, status } = card("asks-made-card", "library:made", "asks.made.title", "Answers, pages and articles",
+  const { node, status } = card("asks-made-card", "settings:memory", "asks.made.title", "Answers, pages and articles",
     "asks.made.purpose", "Quick answers with their sources, kept as pages you can hand on, and long articles written from research.");
   for (const part of ["answer-engine", "answer-pages", "article-writer", "live-surfaces"]) node.append(...switchFor(part, modes, status));
   if (modes["answer-engine"] !== "off") {
@@ -213,7 +213,7 @@ async function madeCard(modes) {
   if (modes["answer-pages"] !== "off") {
     const list = document.createElement("ul");
     list.id = "asks-pages-list";
-    node.append(make("h3", "", "asks.pages.title", "Pages kept"), list);
+    node.append(make("h4", "", "asks.pages.title", "Pages kept"), list);
   }
   if (modes["live-surfaces"] !== "off") node.append(...await surfacesBlock(status));
   node.append(status);
@@ -240,7 +240,7 @@ async function surfacesBlock(status) {
     frame.style.width = "100%";
     return frame;
   });
-  return [make("h3", "", "asks.surfaces.title", "Live tool pages"), ...frames,
+  return [make("h4", "", "asks.surfaces.title", "Live tool pages"), ...frames,
     ...labelled("asks-surface-tool", "asks.surfaces.tool", "Tool to ask again", tool),
     ...labelled("asks-surface-every", "asks.surfaces.every", "Every how many seconds", every),
     row(button("asks.surfaces.add", "Pin it", async () => {
@@ -248,9 +248,9 @@ async function surfacesBlock(status) {
     }))];
 }
 
-/* ---------- library:documents — sources ---------- */
+/* ---------- settings:memory — sources ---------- */
 async function sourcesCard(modes) {
-  const { node, status } = card("asks-sources-card", "library:documents", "asks.sources.title", "Bringing in new items",
+  const { node, status } = card("asks-sources-card", "settings:memory", "asks.sources.title", "Bringing in new items",
     "asks.sources.purpose", "New GitHub issues, mail and Telegram messages since the last time, written into sources/ in your workspace.");
   node.append(...switchFor("source-sync", modes, status));
   if (modes["source-sync"] !== "off") {
@@ -268,9 +268,9 @@ async function sourcesCard(modes) {
   return node;
 }
 
-/* ---------- library:memory — Hindsight ---------- */
+/* ---------- settings:memory — Hindsight ---------- */
 async function hindsightCard(modes) {
-  const { node, status } = card("asks-hindsight-card", "library:memory", "asks.hindsight.title", "A Hindsight memory server",
+  const { node, status } = card("asks-hindsight-card", "settings:memory", "asks.hindsight.title", "A Hindsight memory server",
     "asks.hindsight.purpose", "Also keep and find things in your own Hindsight server. Branch's own memory stays as it is.");
   node.append(...switchFor("hindsight", modes, status));
   if (modes.hindsight !== "off") {

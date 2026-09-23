@@ -3,7 +3,7 @@
 
    automations:procedures    Going back to an earlier step of a flow; checks for saved procedures
    automations:scheduled     The shared board; the waiting line and typing while it works
-   library:made              Live widgets the assistant builds
+   settings:memory           Live widgets the assistant builds
    settings:appearance       Focus view
    inbox:needs               Requests for new packages and tool servers
 
@@ -272,7 +272,7 @@ async function waitingCard(modes) {
   return node;
 }
 
-/* ---------- library:made — live widgets ---------- */
+/* ---------- settings:memory — live widgets ---------- */
 async function widgetsBody(node, status) {
   const { widgets, waiting } = await api("flows-boards/widgets");
   const asks = document.createElement("ul");
@@ -296,7 +296,7 @@ async function widgetsBody(node, status) {
   node.append(row(button("flowsBoards.widgets.refresh", "Check again", act(status, async () => undefined), false)));
 }
 async function widgetsCard(modes) {
-  const { node, status } = card("flows-widgets-card", "library:made", "flowsBoards.widgets.title", "Widgets the assistant built",
+  const { node, status } = card("flows-widgets-card", "settings:memory", "flowsBoards.widgets.title", "Widgets the assistant built",
     "flowsBoards.widgets.purpose", "Small pages that keep themselves up to date. The assistant suggests them; each one is shown in a sealed frame and can only look things up.");
   node.append(...switchFor("widgets", modes, status));
   if (modes.widgets !== "off") await widgetsBody(node, status);
