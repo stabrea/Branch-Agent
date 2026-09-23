@@ -86,9 +86,25 @@ test("Computer & browser: the sample's sections, counts and paired devices, at e
     assert.equal(await wide(), false, `nothing scrolls sideways at ${width} px`);
   }
 
+  /* DG-024, DG-025: where scripts run is saved as you go, and a place a script can run is not a heading. */
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+  const sandbox = page.locator("#sandbox-card");
+  await sandbox.locator("#sandbox-backends .card-row").first().waitFor({ timeout: 15000 });
+  assert.equal(await sandbox.locator("h3, h4").count(), 0, "no option is drawn as a heading");
+  assert.equal(await page.locator("#lx-page-computer button", { hasText: /^Save (where scripts run|this limit)$/ }).count(), 0, "no Save button");
+  const sandboxes = () => fetch(new URL("/api/sandboxes", server.url), { headers: { authorization: `Bearer ${server.token}` } })
+    .then((response) => response.json()).then((answer) => answer.settings);
+  await page.locator("#sandbox-distro").fill("Ubuntu");
+  await page.locator("#sandbox-distro").press("Tab");
+  for (let i = 0; i < 100 && (await sandboxes()).distro !== "Ubuntu"; i++) await page.waitForTimeout(50);
+  assert.equal((await sandboxes()).distro, "Ubuntu", "leaving the box saves it");
+  await page.locator("#sandbox-windows").check();
+  for (let i = 0; i < 100 && !(await sandboxes()).windowsSandbox; i++) await page.waitForTimeout(50);
+  assert.equal((await sandboxes()).windowsSandbox, true, "the switch saves when it flips");
+
   /* In French; and Remove here is the same Remove as on the Devices card. */
   await page.evaluate(() => globalThis.branchSettingsLevel.set("regular"));
-  await page.setViewportSize({ width: 1440, height: 1000 });
   await open("appearance");
   await page.locator("#appearance-language").selectOption("fr");
   await open("computer");

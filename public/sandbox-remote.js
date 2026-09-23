@@ -37,8 +37,10 @@ async function showSandboxes() {
   for (const backend of backends) {
     const row = document.createElement("div");
     row.className = "card-row";
-    const title = document.createElement("h4");
-    title.textContent = backend.available ? `Runs ${backend.runs}` : `Not on this computer: runs ${backend.runs}`;
+    /* DG-024: a place a script can run is a line of the card, not a heading. */
+    const title = document.createElement("p");
+    title.append(document.createElement("b"));
+    title.firstChild.textContent = backend.available ? `Runs ${backend.runs}` : `Not on this computer: runs ${backend.runs}`;
     row.append(title, line(backend.protects, "subtle"));
     if (!backend.available) row.append(line(backend.reason, "subtle"));
     where.append(row);
@@ -182,7 +184,8 @@ async function saveSandboxes() {
   } catch (error) { say("sandbox-status", error.message); }
 }
 
-$("sandbox-save")?.addEventListener("click", () => void saveSandboxes());
+/* DG-025: saved as you go, as in the sample: the switch when it flips, a name when you leave its box. */
+for (const id of ["sandbox-image", "sandbox-distro", "sandbox-windows"]) $(id)?.addEventListener("change", () => void saveSandboxes());
 $("firewall-test")?.addEventListener("click", () => void testAddress());
 $("limit-save")?.addEventListener("click", () => void saveLimits());
 $("remote-add")?.addEventListener("click", () => void addRemote());
