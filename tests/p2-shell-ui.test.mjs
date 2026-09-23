@@ -356,7 +356,7 @@ test("replies show the assistant's own face, and a Trunk set to 3D is a 3D stand
   assert.deepEqual(f.errors, []);
 });
 
-test("every name gives a face with one of the eight colours and a whole mouth", async (t) => {
+test("every name gives a face with one of the eight colours: a Trunk its pixel pattern, the assistant a whole mouth", async (t) => {
   const f = await fixture(t);
   await f.open();
   const broken = await f.page.evaluate(async () => {
@@ -364,11 +364,12 @@ test("every name gives a face with one of the eight colours and a whole mouth", 
     const bad = [];
     for (let n = 0; n < 300; n++) {
       const name = `Name ${n} ${String.fromCharCode(65 + (n % 26))}`;
-      for (const spec of [trunkSpec({ name }), assistantSpec(name)]) {
-        const drawn = face(spec, 28);
-        const mouth = drawn.querySelector(".fc-mouth")?.getAttribute("d") ?? "";
-        if (!/^var\(--series-[1-8]\)$/.test(spec.colour) || !/^M\d/.test(mouth)) bad.push(`${name}: ${spec.colour} ${mouth}`);
-      }
+      // DG-108: a Trunk's face made from its name is the pixel pattern; the assistant keeps its drawn face.
+      const trunk = trunkSpec({ name }), pixels = face(trunk, 28).querySelector("canvas.fc-pattern");
+      if (!/^var\(--series-[1-8]\)$/.test(trunk.colour) || !pixels) bad.push(`${name}: ${trunk.colour} no pattern`);
+      const spec = assistantSpec(name), drawn = face(spec, 28);
+      const mouth = drawn.querySelector(".fc-mouth")?.getAttribute("d") ?? "";
+      if (!/^var\(--series-[1-8]\)$/.test(spec.colour) || !/^M\d/.test(mouth)) bad.push(`${name}: ${spec.colour} ${mouth}`);
     }
     return bad;
   });
