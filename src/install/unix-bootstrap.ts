@@ -8,6 +8,7 @@ import { launcherMarker } from "./unix-install.js";
  * inside the app, run by the app's own runtime. It never asks anything and never downloads anything.
  *
  *   sh install-branch-agent.sh [--quiet] [--no-menu-entry] [--repair] [--assistant <file>]
+ *                              [--distribution <file>]
  *                              [--applications | --no-applications]
  *   sh install-branch-agent.sh --uninstall [--delete-data]
  *
@@ -112,6 +113,7 @@ export function unixBootstrapperScript(): string {
     "#!/bin/sh",
     "# Installs Branch Agent for this person on macOS or Linux, with no questions and no administrator.",
     "#   sh install-branch-agent.sh [--quiet] [--no-menu-entry] [--repair] [--assistant <file from branch export-agent>]",
+    "#                              [--distribution <file: branding and preset providers>]",
     "#     macOS also: [--applications | --no-applications] — where Branch Agent is put.",
     "#   sh install-branch-agent.sh --uninstall [--delete-data]",
     "set -eu",

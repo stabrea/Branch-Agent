@@ -13,13 +13,18 @@ import { performUnixInstall, unixLayout, type UnixLayout, type UnixPlatform } fr
  * `install-branch-agent.sh`:
  *
  *   install --source <app> [--quiet] [--no-menu-entry] [--repair] [--assistant <file>]
- *           [--applications | --no-applications]
+ *           [--distribution <file>] [--applications | --no-applications]
  *
- * `--assistant` makes a custom distribution: an assistant file made with `branch export-agent` is
- * brought in on a fresh install, so everyone who installs from that folder starts with the same
- * specialists, procedures and skills. It follows a market's rules: approval rules, model choices and
- * memory never come in this way, and new skills arrive switched off. It never replaces an assistant
- * that is already set up on this computer.
+ * `--assistant` and `--distribution` both make a custom distribution, and both are brought in on a
+ * fresh install only, never replacing anything already set up on this computer:
+ *   --assistant     an assistant file made with `branch export-agent`, brought in so everyone who
+ *                   installs from that folder starts with the same specialists, procedures and
+ *                   skills. It follows a market's rules: approval rules, model choices and memory
+ *                   never come in this way, and new skills arrive switched off.
+ *   --distribution  a plain JSON file (docs/features.json, operations.distribution) naming the
+ *                   assistant's branding and preset model connections. Presets arrive without a key
+ *                   — the owner still pastes their own — and approval rules and memory still never
+ *                   come in this way.
  *   uninstall [--delete-data]     removes Branch and everything it downloaded; conversations and
  *                                 files stay unless --delete-data is given
  */
@@ -84,14 +89,27 @@ async function versionOf(platform: UnixPlatform, source: string): Promise<string
 export type RunBranch = (launcher: string, args: string[]) => Promise<void>;
 const runBranch: RunBranch = async (launcher, args) => { await promisify(execFile)("/bin/sh", [launcher, ...args], { maxBuffer: 1048576 }); };
 
-async function bringAssistant(file: string, report: { dataDir: string; launcher: string }, run: RunBranch, print: (line: string) => void): Promise<void> {
-  if (existsSync(join(report.dataDir, databaseName))) {
+async function bringAssistant(file: string, report: { launcher: string }, fresh: boolean, run: RunBranch, print: (line: string) => void): Promise<void> {
+  if (!fresh) {
     print("An assistant is already set up on this computer, so the assistant file was not brought in.");
     return;
   }
   // The same rules as a market: only specialists, procedures and skills, and new skills switched off.
   await run(report.launcher, ["import-agent", resolve(file), "--sections", shareableSections.join(","), "--shareable-only"]);
   print(`The assistant in ${file} was brought in.`);
+}
+
+/**
+ * `--distribution`'s counterpart to `bringAssistant`: brings in branding and preset model
+ * connections (src/distribution.ts) the same way, on a fresh install only.
+ */
+async function bringDistribution(file: string, report: { launcher: string }, fresh: boolean, run: RunBranch, print: (line: string) => void): Promise<void> {
+  if (!fresh) {
+    print("Branch Agent is already set up on this computer, so the distribution file was not brought in.");
+    return;
+  }
+  await run(report.launcher, ["apply-distribution", resolve(file)]);
+  print(`The distribution in ${file} was brought in.`);
 }
 
 export async function unixInstall(
@@ -101,6 +119,8 @@ export async function unixInstall(
   if (!source) throw new Error("Tell the installer where the unpacked app is: --source <folder>");
   const assistant = flag(args, "assistant");
   if (assistant !== undefined && !existsSync(assistant)) throw new Error(`The assistant file ${assistant} was not found, so nothing was installed.`);
+  const distribution = flag(args, "distribution");
+  if (distribution !== undefined && !existsSync(distribution)) throw new Error(`The distribution file ${distribution} was not found, so nothing was installed.`);
   const applications = await wantsApplications(args, layout.platform, Boolean(process.stdin.isTTY), ask);
   const report = await performUnixInstall({
     layout, source, version: await versionOf(layout.platform, source),
@@ -116,7 +136,11 @@ export async function unixInstall(
   if (report.menuEntry) print(`It is in your applications menu (${report.menuEntry}).`);
   if (report.icons.length) print(`Its icon is in your icon theme (${report.icons.length} sizes).`);
   for (const line of afterInstallNotes(report, layout, applications)) print(line);
-  if (assistant !== undefined) await bringAssistant(assistant, report, run, print);
+  // Worked out once, before either is brought in: bringing in the assistant file first would create
+  // the database and make the distribution step think this computer was already set up.
+  const fresh = !existsSync(join(report.dataDir, databaseName));
+  if (assistant !== undefined) await bringAssistant(assistant, report, fresh, run, print);
+  if (distribution !== undefined) await bringDistribution(distribution, report, fresh, run, print);
   print(`Your conversations and files are kept in ${report.dataDir}.`);
 }
 
