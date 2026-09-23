@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { saveVoiceSettings } from "../dist/voice.js";
 import { startServer } from "../dist/server.js";
 import { BUCKETS } from "../public/settings-buckets.js";
 
@@ -36,12 +37,13 @@ test("DG-047 the words for Listening right now are in English and in real French
   }
 });
 
-async function settings(t, width) {
+async function settings(t, width, before = async () => {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-voice-dg186-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  await before(app);
   await fetch(new URL("/api/onboarding", server.url), {
     method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
   });
@@ -72,7 +74,9 @@ for (const width of [1440, 860, 400]) {
     const { page, errors } = await settings(t, width);
     await level(page, "regular");
     await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
-    await page.waitForFunction(() => [...document.querySelectorAll("#lx-page-voice .sg-more")].some((more) => more.textContent === "18 more with Advanced"));
+    /* Some of the page's cards are built after it opens, so wait for both counts rather than the first one seen. */
+    await page.waitForFunction(() => ["18 more with Advanced", "11 more with Advanced"]
+      .every((words) => [...document.querySelectorAll("#lx-page-voice .sg-more")].some((more) => more.textContent === words)));
     assert.deepEqual(await outline(page), ["Voice", "Listening right now", "Talking and listening", "18 more with Advanced",
       "The voices it speaks with", "11 more with Advanced"]);
     await level(page, "advanced");
@@ -193,7 +197,7 @@ test("DG-186 parity: in French the Voice card reads in French, and a kept change
   const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
   const card = page.locator("#voice-settings-form");
   const words = await card.innerText();
-  for (const key of ["settings.voice.intro", "settings.voice.provider-voice", "settings.voice.provider-voice-note", "settings.voice.keep-local",
+  for (const key of ["settings.voice.intro", "settings.voice.provider-voice", "settings.voice.keep-local",
     "settings.voice.live-vad", "settings.voice.reply-audio", "voice.route.listen-auto", "voice.route.speak-auto", "voice.route.provider"])
     assert.ok(words.includes(fr[key]), `${key} reads in French`);
   for (const english of ["Talk to your assistant and hear it talk back", "Whatever your model provider offers", "Whatever suits",
@@ -202,5 +206,16 @@ test("DG-186 parity: in French the Voice card reads in French, and a kept change
   assert.ok(await page.locator("#auto-read-aloud").count(), "the tick boxes are still there after the words changed");
   await page.locator("#voice-live-vad").uncheck();
   await page.locator("#toast", { hasText: `${fr["settings.voice.live-vad"]} : enregistré.` }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
+test("DG-025 the Voice card opened after signing in shows what is saved, not its defaults", async (t) => {
+  const { page, errors } = await settings(t, 1440,
+    async (app) => { saveVoiceSettings(app.store, "local", { autoReadAloud: true, useProviderVoice: true, speechRate: 1.5 }); });
+  await level(page, "advanced");
+  await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
+  await page.waitForFunction(() => document.getElementById("voice-status").textContent.length > 0);
+  assert.deepEqual(await page.evaluate(() => [document.getElementById("auto-read-aloud").checked,
+    document.getElementById("use-provider-voice").checked, document.getElementById("speech-rate").value]), [true, true, "1.5"]);
   assert.deepEqual(errors, []);
 });

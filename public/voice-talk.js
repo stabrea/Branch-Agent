@@ -213,6 +213,14 @@ async function loadVoicePlan() {
       const node = $(id);
       if (node) node[kind] = plan.settings[key] ?? (kind === "checked" ? false : "");
     }
+    /* The older settings too, so a card opened after signing in shows what is saved rather than its defaults.
+       A voice this window has not listed yet is left for public/voice.js, which keeps the choice when it lists it. */
+    for (const [id, key, kind] of olderFields) {
+      const node = $(id), saved = plan.settings[key];
+      if (!node || saved === undefined) continue;
+      if (id === "voice-select" && ![...node.options].some((option) => option.value === saved)) continue;
+      node[kind] = saved;
+    }
     showPlanLines(plan);
   } catch (error) {
     $("voice-status").textContent = error.message;
@@ -264,12 +272,12 @@ function wireVoiceSettings() {
   $("voice-settings-form")?.addEventListener("change", (event) => void keepOne(event));
   document.addEventListener("branch-language", () => { if (shownPlan) showPlanLines(shownPlan); });
   $("voice-test-speak")?.addEventListener("click", () =>
-    void globalThis.branchSpeak("This is how Branch Agent will read your replies aloud."));
+    void globalThis.branchSpeak(t("settings.voice.test-sentence")));
   $("voice-test-record")?.addEventListener("click", async () => {
     if (state !== "idle") return;
     await press();
     setTimeout(release, 3000);
-    say("Say something for three seconds; the words will appear in the message box.");
+    say(t("settings.voice.test-microphone"));
   });
   if (connected()) void loadVoicePlan();
 }
