@@ -211,7 +211,7 @@ body:has(#workspace[hidden]) .strip {
 }
 
 /* ---------- a phone: the strip is a row at the foot ---------- */
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx.lx-strip {
     padding-left: 6px;
     padding-bottom: calc(6px + 60px + 6px + env(safe-area-inset-bottom, 0px));
@@ -268,10 +268,6 @@ body:has(#workspace[hidden]) .strip {
 #household > .lx-tabs,
 #overview > .lx-place-head,
 #household > .lx-place-head {
-  display: none;
-}
-body:has(#overview:not([hidden])) #lx-crumb,
-body:has(#household:not([hidden])) #lx-crumb {
   display: none;
 }
 

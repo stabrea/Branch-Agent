@@ -3,11 +3,14 @@
    gets this layout too.
 
    - At phone width (560 px and under) a bar of places sits at the foot of the window, as in the sample:
-     Conversation, Inbox (with its count), Automations, Library and Settings. The message box sits
-     above it, never under it. Customize stays in the side list.
+     Conversation, Inbox (with its count), Automations, Library and Customize (DG-143). The message box
+     sits above it, never under it. Settings stays behind the gear in the side list and in More.
    - On a phone or tablet (900 px and under), a question the assistant stops on is scrolled into view above the message
      box when it arrives, so it can be answered without hunting for it.
    - The tablet layout (the side list kept as a column from 700 px) is CSS only (public/phone-layout.css).
+   - DG-145: at the sample's phone width (760 px and under) the usage ring moves into the title bar, just
+     before search, as a ring alone; wider, it stays on the line under the message box. The same element
+     moves (its list with it), so there is still one ring and one truth.
 
    Layout only: nothing here decides anything, and every place opens through displayView, the same way
    the side list opens it. Colours come from public/tokens.css through the stylesheet. */
@@ -22,7 +25,7 @@ const ICONS = {
   inbox: "M4 13l2.5-7h11L20 13v5H4zM4 13h4.5l1 2h5l1-2H20",
   automations: "M13 3 5 13h6l-1 8 8-10h-6z",
   library: "M5 4h9a4 4 0 014 4v12H9a4 4 0 01-4-4zM5 16a4 4 0 014-4h9",
-  settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
+  customize: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5a2 2 0 110 4 2 2 0 010-4zM10 15a2 2 0 110 4 2 2 0 010-4z",
 };
 /** [where it opens, word key, English] in the sample's order. */
 const BAR = [
@@ -30,9 +33,10 @@ const BAR = [
   ["inbox", "place.inbox", "Inbox"],
   ["automations", "place.automations", "Automations"],
   ["library", "place.library", "Library"],
-  ["settings", "settings.title", "Settings"],
+  ["customize", "place.customize", "Customize"],
 ];
 const nearby = matchMedia("(max-width: 900px)");
+const narrow = matchMedia("(max-width: 760px)");
 
 function icon(name) {
   const svg = document.createElementNS(SVG, "svg");
@@ -64,9 +68,8 @@ function barButton([target, key, english]) {
   return button;
 }
 
-/** Which button is lit: Settings while its window is open, else the place on screen. */
-function currentOf(body = document.body) {
-  if (body.classList.contains("lx-settings-open")) return "settings";
+/** Which button is lit: the place on screen. */
+function currentOf() {
   return document.querySelector('.lx-place-link[aria-current="page"]')?.dataset.place || "chat";
 }
 function syncBar() {
@@ -140,8 +143,25 @@ function watchQuestions() {
   if (dock) sizes.observe(dock);
 }
 
+/** DG-145: the ring's place follows the width; a marker keeps its spot under the message box. */
+function placeRing() {
+  const ring = $("status-bar"), search = $("head-search");
+  if (!ring || !search) return;
+  let spot = document.getElementById("status-bar-home");
+  if (!spot) {
+    spot = document.createElement("span");
+    spot.id = "status-bar-home";
+    spot.hidden = true;
+    ring.before(spot);
+  }
+  if (narrow.matches) { if (ring.nextElementSibling !== search) search.before(ring); }
+  else if (spot.nextElementSibling !== ring) spot.after(ring);
+  ring.classList.toggle("ew-ring-top", narrow.matches);
+}
 function start() {
   buildBar();
+  placeRing();
+  narrow.addEventListener("change", placeRing);
   watchQuestions();
 }
 if (document.body.classList.contains("lx-ready")) start();

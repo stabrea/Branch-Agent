@@ -3,7 +3,7 @@
    what shows. */
 
 /* ---------- the window uses the whole screen (#24) ---------- */
-@media (min-width: 861px) {
+@media (min-width: 761px) {
   .lx-settings-win {
     inset: 10px;
     max-width: none;
@@ -376,14 +376,14 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
   line-height: 1.35;
 }
 
-@media (min-width: 861px) {
+@media (min-width: 761px) {
   #settings-window .lx-settings-nav .sg-level {
     margin-top: auto;
   }
 }
 
 /* ---------- a phone: the search, the pages as the sample's strip of tabs, then the level ---------- */
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   .lx-settings-nav {
     flex-wrap: wrap;
     gap: 8px;
