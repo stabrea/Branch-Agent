@@ -140,7 +140,16 @@ test("a stream that fails part way through its thinking is still charged for it"
   assert.ok(broken.estimatedOutput >= 2000, `charged ${broken.estimatedOutput} for 8,000 characters of thinking`);
 });
 
-test("a connection that sends thinking for ever with no end is still caught as stalled", { timeout: 15000 }, async (t) => {
+/**
+ * The clock here is the model call's own. This test used to sit inside a 15-second limit that also
+ * covered building the app, and on a busy Windows runner building it is most of the cost: a neighbour
+ * in this file that takes 312 ms on an idle machine took 31 seconds there, and this one ran out of time
+ * without the watchdog having done anything wrong. So the app is built outside any limit; the hang
+ * guard starts only when the task does, and is long because it matters only if the watchdog is broken;
+ * and how quickly the call was ended is read from the store's own times for the model starting and the
+ * model stalling, which nothing before the call can inflate.
+ */
+test("a connection that sends thinking for ever with no end is still caught as stalled", async (t) => {
   let calls = 0;
   const forever = { name: "forever", async complete(request) {
     calls++;
@@ -148,11 +157,16 @@ test("a connection that sends thinking for ever with no end is still caught as s
   } };
   const { app } = await fixture(t, forever, { reliability: { modelStallMs: 5000, stallRecovery: "fail" } });
   app.runtime.reliability.modelStallMs = 40;
-  const started = Date.now();
-  const run = await app.runtime.run({ prompt: "think", onTextDelta: () => undefined });
+  // If the watchdog never fires, this ends the task instead, and the stall event below is missing.
+  const guard = AbortSignal.timeout(60000);
+  const run = await app.runtime.run({ prompt: "think", onTextDelta: () => undefined, signal: guard });
   assert.notEqual(run.status, "completed");
-  assert.ok(app.store.events(run.id).some((e) => e.kind === "model.stalled"), "the watchdog, not the run deadline, ended it");
-  assert.ok(Date.now() - started < 10000);
+  const events = app.store.events(run.id);
+  assert.ok(events.some((e) => e.kind === "model.stalled"), "the watchdog, not the guard or the run deadline, ended it");
+  const at = (kind) => Date.parse(events.find((e) => e.kind === kind).createdAt);
+  // Thinking keeps a call alive for ten stall windows (400 ms here), then one more window ends it.
+  const waited = at("model.stalled") - at("model.started");
+  assert.ok(waited < 5000, `the call was ended ${waited} ms after it started, not left to run`);
   assert.equal(calls, 1);
 });
 
