@@ -19,8 +19,23 @@ function valueOf(store: Store, owner: string, setting: string): Value | undefine
 }
 
 /** Why this record cannot be undone exactly as it stands, or null. Nothing is written here. */
-function undoRefusal(store: Store, owner: string, record: ChangeRecord): string | null {
+function undoRefusal(store: Store, owner: string, record: ChangeRecord, records: readonly ChangeRecord[]): string | null {
   if (record.undoneBy) return "That change was already undone.";
+  const gone = record.changes.filter((entry) => valueOf(store, owner, entry.setting) === undefined);
+  if (gone.length)
+    return `It cannot be put back, because ${gone.map((entry) => entry.setting).join(", ")} ${gone.length > 1 ? "are" : "is"} no longer a setting Branch has.`;
+  // A later recorded change to the same setting may have put back the very value this one made, so
+  // the value alone cannot tell: putting this one back would silently undo that later change too.
+  // A later change that was itself undone cancels out with its undo (an undo is only ever made when
+  // nothing touched those settings in between), so undoing newest first still works step by step.
+  const touched = new Set(record.changes.map((entry) => entry.setting));
+  const later = records.slice(records.indexOf(record) + 1)
+    .filter((entry) => !entry.undoneBy && !(entry.undoes && records.some((other) => other.id === entry.undoes)))
+    .flatMap((entry) => entry.changes.filter((change) => touched.has(change.setting)).map((change) => ({ at: entry.at, setting: change.setting })));
+  if (later.length) {
+    const names = [...new Set(later.map((entry) => entry.setting))];
+    return `It cannot be put back, because ${names.join(", ")} ${names.length > 1 ? "were" : "was"} changed again later (${later.at(-1)!.at}). Undo the later change first, or change it by hand.`;
+  }
   const moved = record.changes.filter((entry) => valueOf(store, owner, entry.setting) !== entry.after);
   if (moved.length)
     return `It cannot be put back exactly, because ${moved.map((entry) => entry.setting).join(", ")} changed again since. Change ${moved.length > 1 ? "them" : "it"} by hand instead.`;
@@ -39,9 +54,10 @@ export interface UndoChoice {
  * again since, a pinned setting or a missing yes refuses the whole undo before anything is written.
  */
 export function undoSettingsChange(store: Store, owner: string, id: string, choice: UndoChoice): { applied: Change[]; record: string | null } {
-  const record = settingsHistory(store, owner).find((entry) => entry.id === id);
+  const records = settingsHistory(store, owner);
+  const record = records.find((entry) => entry.id === id);
   if (!record) throw new UndoRefused(404, "There is no such change to undo.");
-  const refusal = undoRefusal(store, owner, record);
+  const refusal = undoRefusal(store, owner, record, records);
   if (refusal) throw new UndoRefused(409, refusal);
   const proposals = record.changes.map((entry) => {
     const dot = entry.setting.indexOf(".");

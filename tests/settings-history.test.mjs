@@ -87,7 +87,7 @@ test("an undo is refused as a whole while one of its settings is pinned, or chan
   await ask("POST", "/api/settings-kit/apply", { plan: { source: "set", key: first.key, field: first.field, value: first.from },
     accept: [first.id], confirmLoosening: true });
   await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record: done.record, confirmLoosening: true }),
-    refused(409, new RegExp(`${first.id.replace(/[.]/g, "\\.")} changed again since`)));
+    refused(409, new RegExp(`${first.id.replace(/[.]/g, "\\.")} was changed again later`)));
 });
 
 test("why is this on: a default, a talked change, an import, and a change nothing recorded", async (t) => {
@@ -143,4 +143,26 @@ test("a setting changed only by something that keeps no record says nothing was 
   assert.equal(answer.kind, "not-recorded");
   assert.equal(answer.record, null);
   assert.match(answer.words, /Nothing was recorded about who or what set it/);
+});
+
+test("undoing a change is refused when a later recorded change touched the same setting, even back to the same value", async (t) => {
+  const { ask, values, refused } = await fixture(t);
+  const flip = async (value) => (await ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "set", key: "fly-core", field: "mode", value }, accept: ["fly-core.mode"], confirmLoosening: true })).record;
+  const r1 = await flip("on"), r2 = await flip("off"), r3 = await flip("on");
+  // The value is what r1 made it, but only because r3 made it so: undoing r1 would silently undo r3.
+  await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record: r1, confirmLoosening: true }),
+    refused(409, /fly-core[.]mode was changed again later .*Undo the later change first/));
+  assert.equal((await values())["fly-core.mode"], "on", "a refused undo changed something");
+  // Newest first still works, one step at a time, because each undone change cancels with its undo.
+  for (const id of [r3, r2, r1]) await ask("POST", "/api/settings-kit/undo", { record: id, confirmLoosening: true });
+  assert.equal((await values())["fly-core.mode"], "off");
+});
+
+test("undoing a change to a setting Branch no longer has says so, not that it changed again", async (t) => {
+  const { app, owner, ask, refused } = await fixture(t);
+  app.store.save("settings", owner, "settings-history", { records: [{ id: "old-one", at: new Date().toISOString(),
+    writer: "owner-in-window", source: "switch", detail: "gone-setting.mode", changes: [{ setting: "gone-setting.mode", before: "off", after: "on" }] }] });
+  await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record: "old-one", confirmLoosening: true }),
+    refused(409, /gone-setting[.]mode is no longer a setting Branch has/));
 });
