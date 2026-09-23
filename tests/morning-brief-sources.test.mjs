@@ -200,9 +200,11 @@ test("feed titles follow the injection policy: block drops, redact keeps the lin
 });
 
 test("feed parser: a newline or tab in a title (or link) cannot break a line of the brief or fake an extra one", () => {
-  const feed = `<rss><channel><item><title>Title\n- fake line\t\r\n  more</title><link>https://news.example/a\n- fake</link></item></channel></rss>`;
-  const [item] = parseFeedItems(feed, "s");
-  assert.equal(item.title, "Title - fake line more");
-  assert.equal(item.link, "https://news.example/a-fake");
-  assert.equal(sourceLine(item).split("\n").length, 1);
+  const feed = `<rss><channel><item><title>Title\n- fake line\t\r\n  more</title><link>\n  https://news.example/a \n</link></item>`
+    + `<item><title>Spliced</title><link>https://news.example/a\n- fake</link></item></channel></rss>`;
+  const items = parseFeedItems(feed, "s");
+  assert.equal(items.length, 1, "a link with whitespace inside is skipped, never spliced into another address");
+  assert.equal(items[0].title, "Title - fake line more");
+  assert.equal(items[0].link, "https://news.example/a", "whitespace around a link is only trimmed");
+  assert.equal(sourceLine(items[0]).split("\n").length, 1);
 });

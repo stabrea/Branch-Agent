@@ -186,11 +186,12 @@ function* feedBlocks(xml: string): Generator<Scan> {
 
 /** One block's title and link, or null when either is missing or the link is not http/https. */
 function readItem(body: Scan, source: string): BriefItem | null {
-  // Each item is one line of the brief: a newline or tab in a title (or a link) from the feed must
-  // not start a line of its own, so whitespace runs become one space in the title and go from the link.
+  // Each item is one line of the brief: a newline or tab in a title from the feed must not start a line
+  // of its own, so whitespace runs become one space. A link with whitespace inside is not a link: taking
+  // the whitespace out could splice it into a different address, so the item is skipped instead.
   const title = firstTagText(body, "title")?.replace(/\s+/g, " ").trim();
-  const link = (firstTagText(body, "link") || atomLinkHref(body))?.replace(/\s+/g, "");
-  return title && link && isSafeLink(link) ? { title, link, source } : null;
+  const link = (firstTagText(body, "link") || atomLinkHref(body))?.trim();
+  return title && link && !/\s/.test(link) && isSafeLink(link) ? { title, link, source } : null;
 }
 
 /**
