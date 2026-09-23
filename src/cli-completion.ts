@@ -39,6 +39,7 @@ export const cliCommands: { name: string; summary: string; options: string[]; no
   // mac7/nodes: lend this computer's camera, screen, notifications and more to Branch elsewhere (src/devices/node/cli.ts).
   { name: "node", summary: "Lend this computer to your Branch elsewhere: node pair | run | status | never | forget", options: ["--name"] },
   { name: "daemon", summary: "Keep Branch working with the window closed: daemon install | uninstall | status", options: [] },
+  { name: "portable", summary: "Build a single-file executable for this computer's declared target and measure its cold start, memory, CPU and disk: portable build | targets", options: ["--out", "--json"] },
   { name: "login", summary: "Sign in to a ChatGPT account", options: [] },
   { name: "logout", summary: "Sign out of the ChatGPT account", options: [] },
   { name: "trigger", summary: "Run a schedule now", options: [] },

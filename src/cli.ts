@@ -67,6 +67,7 @@ import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 import { sayOnceIfNodeIsTooOld } from "./node-floor.js"; // mac7/node-floor
 import { phoneCommand } from "./phone-app/cli.js";
 import { scheduleCommand } from "./schedule-cli.js";
+import { portableCommand } from "./operations/portable-cli.js"; // FQ-operations.portable
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -174,6 +175,8 @@ async function main(): Promise<void> {
   // ---- end mac7/nodes ----
   if (command === "update") return updateCheckout();
   if (command === "daemon") return runDaemonCommand();
+  // FQ-operations.portable: build the single-binary launcher and measure it, without a running app.
+  if (command === "portable") { process.exitCode = await portableCommand(process.argv.slice(3)); return; }
   // Printing a completion script or the command list needs no workspace, database or integrations.
   if (command === "completion") { console.log(completionScript(process.argv[3] ?? "")); return; }
   if (["help", "--help", "-h"].includes(command)) { console.log(usageText()); return; }
