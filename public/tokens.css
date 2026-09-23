@@ -40,6 +40,30 @@
   --shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.65);
   --control-thumb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --control-selected-shadow: 0 1px 2px rgb(0 0 0 / 14%);
+  /* DG-138: the 3D acorn's and pets' own colours, the same in every theme (only their light follows
+     the theme). public/delight-3d.js reads them; each pet is its coat and its belly. */
+  --model-acorn-nut: #c8893e;
+  --model-acorn-cap: #6b4a2f;
+  --model-acorn-stem: #4a3220;
+  --model-eye: #1a1a1a;
+  --model-sun: #fff1dc;
+  --model-white: #ffffff;
+  --model-squirrel: #c0672e;
+  --model-squirrel-belly: #f0d2b0;
+  --model-owl: #8a6a4a;
+  --model-owl-belly: #e9d8b8;
+  --model-hedgehog: #7a6048;
+  --model-hedgehog-belly: #e8cfae;
+  --model-fox: #d9642a;
+  --model-fox-belly: #ffffff;
+  --model-robin: #7c5a44;
+  --model-robin-belly: #d9552f;
+  --model-rabbit: #b9aa98;
+  --model-rabbit-belly: #f4eee6;
+  --model-snail: #a8834f;
+  --model-snail-belly: #d8c4a0;
+  --model-fawn: #b07a4a;
+  --model-fawn-belly: #f2e4cc;
   color-scheme: dark;
 }
 

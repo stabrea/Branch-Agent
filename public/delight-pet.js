@@ -225,7 +225,8 @@ function inThreeD(pet) {
   const canvas = el("canvas", "pet-3d");
   canvas.setAttribute("aria-hidden", "true");
   pet.append(canvas);
-  pet3d = view3d(canvas, petModel(state.settings.pets.kind), { distance: 2.5, still, spin: 0.0009 });
+  // DG-138: as in the sample, the 3D pet stands three-quarters on and does not spin; it faces the way it walks.
+  pet3d = view3d(canvas, petModel(state.settings.pets.kind), { distance: 4.41, fov: 0.61, pitch: 0.068, yaw: 0.6, still, spin: 0 });
   if (pet3d) pet.classList.add("in-3d"); else canvas.remove();
 }
 function label() {
@@ -296,6 +297,8 @@ export function applyPet() {
   if (document.hidden) stop(); else start();
 }
 document.addEventListener("visibilitychange", () => { if (on("pets") && !document.hidden) start(); else stop(); });
+/* The pet's name and kind are its tooltip, so they follow a change of language at once (DG-130). */
+document.addEventListener("branch-language", label);
 onDelight(applyPet);
 
 /* ---------- its own menu: right-click it ---------- */
