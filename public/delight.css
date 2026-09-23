@@ -225,15 +225,67 @@
   gap: var(--s2);
   min-width: 0;
 }
+.delight-tries span {
+  font-size: 13px;
+  color: var(--muted);
+}
+/* DG-134: the sample's "Try a celebration" row (`.ctl.stack` holding `.acts` of `btn sm`): the label, the tiers three
+   and three, and the note beside them; with less room the note, then the tiers, go under the label. */
+.delight-celebrate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  min-width: 0;
+}
+.delight-celebrate-label {
+  font-size: 14px;
+  font-weight: 520;
+}
+.delight-celebrate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 8px;
+}
+.delight-celebrate-note {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.delight-try {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  margin: 0;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 540;
+}
+/* The sample's tier dots (`.tdot`), in its own colours. */
+.delight-tier-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 50%;
+}
+.delight-tier-dot.t-bronze { background: #b0793f; }
+.delight-tier-dot.t-silver { background: #aeb6bd; }
+.delight-tier-dot.t-gold { background: #d9a82e; }
+.delight-tier-dot.t-diamond { background: #6fc8ea; }
+.delight-tier-dot.t-godly { background: conic-gradient(#f7c56b, #f07ab8, #8f8cf5, #6fd6e8, #f7c56b); }
+.delight-tier-dot.t-sssp { background: linear-gradient(90deg, #ff2d6f, #2de1ff); }
 .delight-ach-count,
 .delight-bg-name {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 13px;
-}
-.delight-tries span {
-  font-size: 13px;
-  color: var(--muted);
 }
 .delight-card .secondary,
 .ach-sheet .secondary {
