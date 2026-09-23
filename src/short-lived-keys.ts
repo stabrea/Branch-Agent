@@ -156,6 +156,10 @@ const ownerOnlyReads: readonly RegExp[] = [
   // once, gzipped or not — more than any one "look" (the single-run trajectory route) was ever
   // meant to. The owner reads it in the app window; a script's key never does, even a "run" one.
   /^\/api\/runs\/trajectories\/batch(\.jsonl\.gz)?$/,
+  // FQ-collaboration.unified-search: one query across every conversation, saved workflow and the
+  // record of what the assistant was allowed to do is a wider window than any one of those
+  // searches gives alone, so it stays the owner's the way the workflows and audit routes it reads do.
+  /^\/api\/search$/,
 ];
 
 /**

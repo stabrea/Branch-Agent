@@ -7,6 +7,9 @@ import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
 import { face } from "/faces.js";
+// FQ-collaboration.unified-search: conversation, workflow and audit results the palette's own local
+// entries() below cannot see, fetched from the owner-only GET /api/search route.
+import { unifiedSearchEntries } from "/unified-search.js";
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -542,10 +545,7 @@ function entries() {
     });
   return found;
 }
-function drawPalette(query) {
-  const needle = query.trim().toLowerCase();
-  matches = entries().filter((item) => item.label.toLowerCase().includes(needle)).slice(0, 40);
-  chosen = 0;
+function renderMatches() {
   const list = palette.querySelector(".cmd-list");
   list.replaceChildren();
   if (!matches.length) {
@@ -568,6 +568,31 @@ function drawPalette(query) {
     button.addEventListener("click", () => choose(index));
     list.append(button);
   });
+}
+/* FQ-collaboration.unified-search: each keystroke bumps this, so a slow /api/search reply for an
+   earlier query never lands after a newer one, or after the palette has been closed. */
+let searchToken = 0;
+let searchTimer = null;
+function drawPalette(query) {
+  const needle = query.trim().toLowerCase();
+  matches = entries().filter((item) => item.label.toLowerCase().includes(needle)).slice(0, 40);
+  chosen = 0;
+  renderMatches();
+  clearTimeout(searchTimer);
+  const token = ++searchToken;
+  searchTimer = setTimeout(() => {
+    void unifiedSearchEntries(query).then((remote) => {
+      if (token !== searchToken || palette?.hidden !== false) return;
+      const knownLabels = new Set(matches.map((item) => item.label));
+      // A conversation already in the rail's own recent list is offered above by its real title
+      // (entries(), from `conversations`); the same conversation's generic row from /api/search
+      // would only repeat it.
+      const knownSessions = new Set(conversations.map((entry) => entry.sessionId));
+      matches = matches.concat(remote.filter((item) =>
+        !knownLabels.has(item.label) && !(item.sessionId && knownSessions.has(item.sessionId))));
+      renderMatches();
+    });
+  }, 150);
 }
 function highlight(step) {
   if (!matches.length) return;
