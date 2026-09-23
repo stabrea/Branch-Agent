@@ -800,8 +800,9 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
   display: none;
 }
 
-/* DG-185: on Models › Connection, ChatGPT account and Check your connections are each a section of one card, as in
-   the sample, so the section's heading is the card's; search shows no section headings and keeps the card's own. */
-body:not(.lx-settings-searching) :is(#chatgpt-card, #model-probe-card)[data-sg-bucket] > h2 {
+/* DG-185, DG-008: on Models › Connection a card inside one of the sample's sections has no heading of its own, as in
+   the sample: the section's heading and line say what its rows are for (coordinator ruling, 2026-09-23). The title
+   is the card's first child, h2 or a re-levelled h3; search shows no section headings, so it keeps the card's own. */
+body:not(.lx-settings-searching) #lx-models-connection > [data-sg-bucket] > :is(h2, h3, h4):first-child {
   display: none;
 }

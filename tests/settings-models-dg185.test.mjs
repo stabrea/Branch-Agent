@@ -1,7 +1,8 @@
 /**
  * DG-185: Settings › Models opens on its Connection tab with the approved sample's sections, in order:
  * ChatGPT account · Check your connections · Your model connection · N more with Advanced · Other model services
- * · 8 more with Advanced. The other tabs keep their sections. A card that is its whole section is headed once.
+ * · 8 more with Advanced. The other tabs keep their sections. Only the sections are headed: a card inside one has no
+ * heading of its own (DG-008, coordinator ruling), and search still names each card.
  * Checked at 1440 and 400, at Regular (Show everything off) and Advanced (on), and in French.
  */
 import test from "node:test";
@@ -68,7 +69,8 @@ for (const width of [1440, 400]) {
     await page.waitForTimeout(300);
     const regular = await seen(page);
     assert.deepEqual(regular.sections, SECTIONS, "the sample's sections, in its order");
-    assert.equal(new Set(regular.headings).size, regular.headings.length, `no heading is drawn twice: ${regular.headings.join(" · ")}`);
+    /* DG-008: a card inside a section has no heading of its own; the section's heading is the only one. */
+    assert.deepEqual(regular.headings, SECTIONS, "only the sections are headed");
     assert.deepEqual(regular.more, [
       /* the sample's 7 also counts the Accounts card's 2 rows, which live on the Accounts page here */
       ["models:connection:connection", "5 more with Advanced"],
@@ -81,7 +83,7 @@ for (const width of [1440, 400]) {
     await page.waitForTimeout(300);
     const advanced = await seen(page);
     assert.deepEqual(advanced.sections, SECTIONS, "Show everything keeps the same sections");
-    assert.equal(new Set(advanced.headings).size, advanced.headings.length, `no heading is drawn twice: ${advanced.headings.join(" · ")}`);
+    assert.deepEqual(advanced.headings, SECTIONS, "Show everything heads only the sections too");
     assert.deepEqual(errors, []);
   });
 }
@@ -101,6 +103,11 @@ test("DG-185: the Connection tab's sections have French words, and search still 
   await page.locator(".lx-settings input[type=search]").first().fill("ChatGPT");
   await page.waitForFunction(() => {
     const title = document.querySelector("#chatgpt-card > h2");
+    return title && title.getClientRects().length > 0;
+  });
+  await page.locator(".lx-settings input[type=search]").first().fill("OpenRouter");
+  await page.waitForFunction(() => {
+    const title = document.querySelector("#savings-openrouter-card > :first-child");
     return title && title.getClientRects().length > 0;
   });
   assert.deepEqual(errors, []);
