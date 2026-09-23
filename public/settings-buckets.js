@@ -23,7 +23,7 @@ export const BUCKETS = {
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",
-      [["context-assistant", R], ["identity-form", A], ["autonomy-instructions-card", A]]],
+      [["identity-form", R], ["context-assistant", A], ["autonomy-instructions-card", A]]],
   ],
   instructions: [
     ["files", "instructions", "Its files", "The plain files that shape how Branch works and talks to you.",

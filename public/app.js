@@ -1294,29 +1294,44 @@ function setIdentityDraft(identity) {
   $("identity-name").value = identity.name;
   $("identity-instructions").value = identity.instructions;
 }
-async function changeIdentity(reload) {
-  if (identityBusy || !identityDraft) return;
-  identityBusy = true; $("identity-fields").disabled = true;
-  $("identity-status").textContent = reload ? "Reloading saved identity…" : "Saving identity…";
+/* DG-025: each field is saved when you leave it, as the sample does; there is no Save button. The fields stay
+   usable while a save is on its way (a frozen field would take the cursor away mid-sentence); a change made
+   meanwhile is saved right after. Reload shows only when a save did not go through, to take the saved identity. */
+let identityAgain = false;
+async function saveIdentity() {
+  if (!identityDraft || !identityDirty) return;
+  if (identityBusy) { identityAgain = true; return; }
+  identityBusy = true; $("identity-status").textContent = "Saving identity…";
+  const sent = { name: identityDraft.name, instructions: identityDraft.instructions };
   try {
-    const saved = reload ? (await api("state")).identity : await api("identity", {
-      name: identityDraft.name, instructions: identityDraft.instructions, expectedRevision: identityDraft.revision,
-    });
-    setIdentityDraft(saved);
-    $("identity-status").textContent = reload ? "Saved identity loaded." : "Identity saved. Changes apply to the next task.";
+    const saved = await api("identity", { ...sent, expectedRevision: identityDraft.revision });
+    identityDraft.revision = saved.revision;
+    if (identityDraft.name === sent.name && identityDraft.instructions === sent.instructions) setIdentityDraft(saved);
+    $("identity-reload").hidden = true;
+    $("identity-status").textContent = "Identity saved. Changes apply to the next task.";
+  } catch (error) { $("identity-status").textContent = error.message; $("identity-reload").hidden = false; }
+  finally { identityBusy = false; }
+  if (identityAgain) { identityAgain = false; await saveIdentity(); }
+}
+async function reloadIdentity() {
+  if (identityBusy || !identityDraft) return;
+  identityBusy = true; $("identity-fields").disabled = true; $("identity-reload").disabled = true;
+  $("identity-status").textContent = "Reloading saved identity…";
+  try {
+    setIdentityDraft((await api("state")).identity);
+    $("identity-reload").hidden = true;
+    $("identity-status").textContent = "Saved identity loaded.";
   } catch (error) { $("identity-status").textContent = error.message; }
-  finally { identityBusy = false; $("identity-fields").disabled = false; }
+  finally { identityBusy = false; $("identity-fields").disabled = false; $("identity-reload").disabled = false; }
 }
-let identitySaveTimer = null;
-function scheduleIdentitySave() {
-  if (identitySaveTimer) clearTimeout(identitySaveTimer);
-  identitySaveTimer = setTimeout(() => { if (identityDirty) void changeIdentity(false); }, 1500);
-}
+$("identity-form").addEventListener("submit", event => { event.preventDefault(); void saveIdentity(); });
+$("identity-reload").addEventListener("click", () => { void reloadIdentity(); });
 for (const [id, key] of [["identity-name", "name"], ["identity-instructions", "instructions"]]) {
   const input = $(id);
   input.addEventListener("input", () => {
-    if (!identityBusy && identityDraft) { identityDraft[key] = input.value; identityDirty = true; scheduleIdentitySave(); }
+    if (identityDraft && !$("identity-fields").disabled) { identityDraft[key] = input.value; identityDirty = true; }
   });
+  input.addEventListener("change", () => { void saveIdentity(); });
 }
 /** Plain language for one tool call, so the step row reads like a sentence. */
 function stepLabel(calls) {

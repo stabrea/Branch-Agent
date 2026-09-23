@@ -61,7 +61,8 @@ test("each switch is on the screen that already owns its subject, not on a scree
     const card = page.locator("#" + id);
     await openPlace(page, home);
     await card.waitFor({ state: "visible", timeout: 10000 });
-    assert.ok((await card.locator("h2").innerText()).trim().length > 0, `${id} has a title on ${home}`);
+    /* DG-181: on the Assistant page the title sits under the section's heading, read aloud (h4). */
+    assert.ok((await card.locator("h2, h4").first().textContent()).trim().length > 0, `${id} has a title on ${home}`);
     /* And it is genuinely on that screen rather than everywhere: leaving takes it away again. */
     await openPlace(page, "chat");
     assert.equal(await card.isVisible(), false, `${id} shows only on ${home}`);
@@ -118,7 +119,7 @@ test("every word on these cards can be said in French", async (t) => {
       if (!card) { out.push(`${id} missing`); continue; }
       /* A status note is assembled from a file's own name and size, so it has no static key; it is
          still translated, through t(), and the card is drawn again when the language changes. */
-      for (const node of card.querySelectorAll("h2, p:not(.field-note), label, option, button"))
+      for (const node of card.querySelectorAll("h2, h4, p:not(.field-note), label, option, button"))
         if (!node.dataset.t && node.textContent.trim()) out.push(`${id}: "${node.textContent.trim().slice(0, 40)}"`);
     }
     return out;

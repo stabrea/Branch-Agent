@@ -44,6 +44,9 @@ const cards = [
     purpose: ["settings.note.persona-files",
       "Write these in plain words and your assistant reads them before it does anything else. What you put in the first one replaces its built-in character rather than being added to it."],
     files: ["soul", "identity", "user"],
+    /* DG-181: a row of the page's one section, as in the sample: its title is read aloud under the section's
+       heading (DG-008) and each switch is kept the moment it moves (DG-025). */
+    inSection: true,
   },
   {
     id: "context-project", home: "settings:general",
@@ -154,36 +157,41 @@ function buildCard(spec, reports, settings, save) {
   // DG-032: on the Assistant page this card's title repeats the bucket heading above it, which the
   // sample does not show twice. The heading still belongs to the card -- it is what gives the page
   // its structure and what a screen reader announces -- so it is hidden, not removed.
-  const heading = el("h2", spec.title[1]);
+  const heading = el(spec.inSection ? "h4" : "h2", spec.title[1]);
   heading.dataset.t = spec.title[0];
-  if (spec.id === "context-assistant") heading.className = "sr-only";
+  if (spec.inSection) heading.className = "sr-only";
   card.append(heading);
   const purpose = el("p", spec.purpose[1]);
   purpose.dataset.t = spec.purpose[0];
   card.append(purpose);
-  const chosen = {};
-  for (const key of spec.files) {
-    chosen[key] = settings.files?.[key] ?? "off";
-    card.append(switchRow(key, reports.find((entry) => entry.key === key), chosen[key], (value) => { chosen[key] = value; }));
-  }
-  const note = el("p",
-    "A file can change how your assistant works and how it talks to you. It cannot give it permission it does not already have — your approval rules decide that, every time a tool runs.",
-    "subtle");
-  note.dataset.t = "settings.note.files-cannot-grant";
   const status = el("p", undefined, "meta");
   status.setAttribute("role", "status");
-  const button = el("button", "Save");
-  button.dataset.t = "action.save";
-  button.type = "button";
-  button.addEventListener("click", async () => {
-    button.disabled = true;
+  const keep = async (button) => {
+    if (button) button.disabled = true;
     try {
       await save({ files: chosen });
       status.textContent = "Saved. It applies to your next task.";
     } catch (error) {
       status.textContent = error.message;
-    } finally { button.disabled = false; }
-  });
+    } finally { if (button) button.disabled = false; }
+  };
+  const chosen = {};
+  for (const key of spec.files) {
+    chosen[key] = settings.files?.[key] ?? "off";
+    card.append(switchRow(key, reports.find((entry) => entry.key === key), chosen[key], (value) => {
+      chosen[key] = value;
+      if (spec.inSection) void keep();
+    }));
+  }
+  const note = el("p",
+    "A file can change how your assistant works and how it talks to you. It cannot give it permission it does not already have — your approval rules decide that, every time a tool runs.",
+    "subtle");
+  note.dataset.t = "settings.note.files-cannot-grant";
+  if (spec.inSection) { card.append(note, status); return card; }
+  const button = el("button", "Save");
+  button.dataset.t = "action.save";
+  button.type = "button";
+  button.addEventListener("click", () => keep(button));
   card.append(note, button, status);
   return card;
 }
