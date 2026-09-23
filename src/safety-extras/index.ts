@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { NetworkPolicy } from "../network-policy.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import { wallSettings } from "../sandbox.js";
@@ -15,7 +16,11 @@ import { followSafetySwitches, safetyLabels, safetyMode, safetyParts, safetyTool
  * the server hands it /api/safety-extras/. Every part ships off; a part's tools are in the catalog
  * only while its switch is not off.
  */
-export interface SafetyExtrasDeps { runtime: Runtime; registry: ToolRegistry; dataDir: string }
+export interface SafetyExtrasDeps {
+  runtime: Runtime; registry: ToolRegistry; dataDir: string;
+  /** security.credentials: the same network rules the rest of the assistant's web calls run under. */
+  networkPolicy: NetworkPolicy;
+}
 
 export class SafetyExtras {
   readonly chain: ActivityChain;
@@ -33,7 +38,7 @@ export class SafetyExtras {
     this.stopFollowing = followActivity(store, owner, this.chain);
     this.scripts = new ToolScripts({ host: runtime, registry,
       unreadable: () => [...new Set([...wallSettings(store, owner).unreadable, wallEdgeFor(store).dataDir ?? deps.dataDir, deps.dataDir])] });
-    this.wasm = new WasmAddOns(store, owner, join(deps.dataDir, "wasm-add-ons"));
+    this.wasm = new WasmAddOns(store, owner, join(deps.dataDir, "wasm-add-ons"), { store, policy: deps.networkPolicy });
     this.wasmBuilder = new WasmBuilder(this.wasm, store, owner);
     this.registrars = {
       "tool-scripts": () => registerToolScripts(registry, this.scripts),

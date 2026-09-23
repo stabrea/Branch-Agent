@@ -10,6 +10,7 @@ import type { Store } from "../store.js";
 import { requireSafety } from "./settings.js";
 import { capabilityRefusal } from "./wasm-capabilities.js";
 import { capabilityNames, deriveCapabilities, readWasmShape, wasmRefusal, type WasmCapability } from "./wasm-check.js";
+import { fetchForAddOn, WasmCredentialCallSchema, type WasmCredentialCall, type WasmCredentialHost } from "./wasm-credentials.js";
 
 /**
  * mac7/r17-g (R17-062): add-ons written as WebAssembly, run in a sealed box. This sits beside the
@@ -39,8 +40,14 @@ export const WasmInstallSchema = z.object({
   /** What this tool may reach, declared up front rather than left to whatever it happens to import.
    *  Left out, it keeps the old behaviour: it gets whatever branch capabilities it imports. */
   capabilities: z.array(z.enum(capabilityNames)).max(capabilityNames.length).optional(),
+  /**
+   * security.credentials: the one host-side request this add-on needs, if any. Declared here so the
+   * owner sees it before installing; never the secret's value, only which locker name to send and
+   * where. See wasm-credentials.ts for why the module itself never touches it.
+   */
+  call: WasmCredentialCallSchema.optional(),
 }).strict();
-export interface WasmManifest { name: string; description: string; sha256: string; bytes: number; maxMemoryMb: number; timeoutMs: number; installedAt: string; capabilities: WasmCapability[] }
+export interface WasmManifest { name: string; description: string; sha256: string; bytes: number; maxMemoryMb: number; timeoutMs: number; installedAt: string; capabilities: WasmCapability[]; call?: WasmCredentialCall }
 export const WasmRunSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), input: z.string().max(1_000_000).default("") }).strict();
 export interface WasmRun { ok: boolean; code: number | null; output: string; log: string; error?: string; durationMs: number }
 
@@ -113,7 +120,11 @@ export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: {
 
 export class WasmAddOns {
   private running = 0;
-  constructor(private readonly store: Store, private readonly owner: string, private readonly folder: string) {}
+  constructor(
+    private readonly store: Store, private readonly owner: string, private readonly folder: string,
+    /** Used only for an add-on's declared host-side credential call, if it has one (wasm-credentials.ts). */
+    private readonly credentialHost?: WasmCredentialHost,
+  ) {}
 
   private file(name: string, ending: "wasm" | "json"): string { return join(this.folder, `${name}.${ending}`); }
 
@@ -137,7 +148,7 @@ export class WasmAddOns {
     const refusal = wasmRefusal(bytes, pages(value.maxMemoryMb), capabilities);
     if (refusal) throw new Error(refusal);
     const manifest: WasmManifest = { name: value.name, description: value.description, sha256: sha(bytes), bytes: bytes.length,
-      maxMemoryMb: value.maxMemoryMb, timeoutMs: value.timeoutMs, installedAt: new Date().toISOString(), capabilities };
+      maxMemoryMb: value.maxMemoryMb, timeoutMs: value.timeoutMs, installedAt: new Date().toISOString(), capabilities, ...(value.call ? { call: value.call } : {}) };
     await mkdir(this.folder, { recursive: true, mode: 0o700 });
     await writeFile(this.file(value.name, "wasm"), bytes, { mode: 0o600 });
     await writeFile(this.file(value.name, "json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
@@ -161,7 +172,7 @@ export class WasmAddOns {
   /** The kept limits and capabilities, as the owner installed them; the note beside the file must
    *  agree on the fingerprint. Capabilities come from the store record, the same source of truth as
    *  the fingerprint: rewriting the note beside the file cannot widen what a tool is given. */
-  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number }; capabilities: WasmCapability[] }> {
+  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number }; capabilities: WasmCapability[]; call?: WasmCredentialCall }> {
     const manifest = (await this.list()).find((entry) => entry.name === name);
     if (!manifest) throw new Error(`There is no WebAssembly add-on called ${name}.`);
     const kept = this.store.get("settings", this.owner, fingerprintKey(name))?.data as { sha256?: unknown; maxMemoryMb?: unknown; timeoutMs?: unknown; capabilities?: unknown } | undefined;
@@ -175,7 +186,7 @@ export class WasmAddOns {
       : deriveCapabilities(bytes);
     const refusal = wasmRefusal(bytes, pages(limits.maxMemoryMb), capabilities);
     if (refusal) throw new Error(refusal);
-    return { bytes, limits, capabilities };
+    return { bytes, limits, capabilities, ...(manifest.call ? { call: manifest.call } : {}) };
   }
 
   async run(input: z.input<typeof WasmRunSchema>, context?: Pick<ToolContext, "runId">): Promise<WasmRun> {
@@ -184,9 +195,19 @@ export class WasmAddOns {
     if (this.running >= maxRunsAtOnce) throw new Error(`${maxRunsAtOnce} WebAssembly add-ons are already running. Try again when one has finished.`);
     this.running++;
     try {
-      const { bytes, limits, capabilities } = await this.checked(name);
-      const run = await runWasm(bytes, text, limits, capabilities);
-      if (context?.runId) this.store.event(context.runId, "wasm.ran", { name, ok: run.ok, durationMs: run.durationMs });
+      const { bytes, limits, capabilities, call } = await this.checked(name);
+      // security.credentials: when the add-on declared a host-side request, the host makes it and
+      // hands the module only the (scrubbed) answer — never the caller's own text, and never the
+      // credential. The module was never given a way to ask for either itself.
+      let fed = text, usedCredential = false;
+      if (call) {
+        if (!this.credentialHost) throw new Error(`${name} needs a host-side credential call, and this launch has no network policy set up for one.`);
+        const answer = await fetchForAddOn(this.credentialHost, this.owner, call);
+        fed = answer.body;
+        usedCredential = true;
+      }
+      const run = await runWasm(bytes, fed, limits, capabilities);
+      if (context?.runId) this.store.event(context.runId, "wasm.ran", { name, ok: run.ok, durationMs: run.durationMs, credential: usedCredential });
       return run;
     } finally { this.running--; }
   }
