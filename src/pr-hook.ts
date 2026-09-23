@@ -11,6 +11,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { WorkspaceFiles } from "./files.js";
 import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
+import { pushRefusal } from "./self-development-contract.js"; // Q12
 
 /**
  * Opening a pull request from a task's changes (A0300, after SWE-agent's "open PR" hook).
@@ -153,6 +154,10 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: PullR
   };
   const refusal = deps.preflight?.("github.open_pull_request", opening, input.runId);
   if (refusal) throw new Error(refusal);
+  // Q12: a push from Branch's own source is held to its contract here, where it happens, whoever asked for it.
+  const heldBack = await pushRefusal({ store: deps.store, owner: deps.owner, workspace: deps.files.root, git: deps.git,
+    folder: cwd, runId: input.runId, signal: input.signal });
+  if (heldBack) throw new Error(heldBack);
   await gitText(deps, cwd, ["switch", "--create", head], input.signal);
   // Names are taken literally (a "*" is a file called "*"), and only the named files are committed,
   // whatever else happened to be staged already.

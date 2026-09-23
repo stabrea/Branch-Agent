@@ -243,7 +243,7 @@ function termsBroken(contract: SelfDevelopmentContract, name: string, paths: str
 }
 
 /** Why a remote step breaks the contract (the source commit, or a changed file outside it), or null. */
-async function remoteBroken(deps: ContractGuardDeps, contract: SelfDevelopmentContract, signal: AbortSignal): Promise<string | null> {
+async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal): Promise<string | null> {
   const cwd = resolve(deps.workspace, contract.worktreePath);
   const git = (args: string[]) => deps.git({ cwd, args, timeoutMs: 60_000 }, signal);
   if ((await git(["merge-base", "--is-ancestor", contract.sourceSha, "HEAD"])).status !== "completed")
@@ -261,7 +261,7 @@ async function remoteBroken(deps: ContractGuardDeps, contract: SelfDevelopmentCo
  * against the task named as the actor; what started that task goes in the origin column. The owner
  * did not do this, so the row does not say they did.
  */
-function refuse(deps: ContractGuardDeps, context: ToolContext, name: string, worktree: string, why: string): never {
+function refuse(deps: Pick<ContractGuardDeps, "store" | "owner">, context: Pick<ToolContext, "runId" | "source">, name: string, worktree: string, why: string): never {
   // A task says nothing of where it came from when the owner started it, as elsewhere (`context.source ?? "owner"`).
   const from = context.source ?? "owner";
   const started = (auditOrigins as readonly string[]).includes(from) ? { origin: from as AuditOrigin } : {};
@@ -366,4 +366,33 @@ export function contractPreflight(deps: ContractGuardDeps): (name: string, args:
   return (name, args, context) => {
     try { heldTerms(deps, name, args, context); return null; } catch (error) { return (error as Error).message; }
   };
+}
+
+const pullRequestTool = "github.pull_request_from_changes";
+
+/**
+ * Q12: a pull request's push from Branch's own source, checked where the push happens
+ * (`pullRequestFromChanges`), so every way there is held to it: the tool, the hook that runs when a
+ * task finishes, anything added later. The folder must be a worktree with a sound contract that
+ * lists the pull request step, still start from the contract's source commit, and change nothing
+ * outside its allowed paths. A sentence refuses (and is audited); null lets the push go. Anything
+ * that goes wrong while checking a folder inside the source refuses too.
+ */
+export async function pushRefusal(input: {
+  store: Store; owner: string; workspace: string; git: ContractGuardDeps["git"]; folder: string; runId?: string | undefined; signal: AbortSignal;
+}): Promise<string | null> {
+  const where = workspacePath(input.workspace, "", input.folder);
+  if (where === null || !insideSource(where)) return null;
+  const worktree = worktreeOf(where), context = { runId: input.runId ?? "" };
+  try {
+    if (!worktree) refuse(input, context, pullRequestTool, "", "The protected Branch Agent source checkout is never sent directly; work in a self-development worktree.");
+    let contract: SelfDevelopmentContract | null;
+    try { contract = new ContractBook(input.store.sqlite).current(input.owner, worktree); } catch (error) { refuse(input, context, pullRequestTool, worktree, (error as Error).message); }
+    if (!contract) refuse(input, context, pullRequestTool, worktree, `no contract: ${worktree} has no self-development contract, so nothing in it may be sent.`);
+    if (!contract.permissions.includes(pullRequestTool))
+      refuse(input, context, pullRequestTool, worktree, `${pullRequestTool} is not one of the tools this contract allows (${contract.permissions.join(", ")}).`);
+    const broken = await remoteBroken(input, contract, input.signal);
+    if (broken) refuse(input, context, pullRequestTool, worktree, broken);
+    return null;
+  } catch (error) { return error instanceof Error ? error.message : "Branch could not check this push against its contract."; }
 }
