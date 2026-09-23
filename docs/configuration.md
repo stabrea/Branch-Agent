@@ -4892,6 +4892,33 @@ given the secrets locker at all, so there is no path by which a saved password c
   down, because ticking "use my screen and keyboard" is not the same as saying "run programs from
   my workspace". Running something has its own switch: the host-command tool.
 - **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.
+## The shared Linux desktop (FQ-execution.desktop)
+A throwaway Linux desktop of its own, separate from this computer's screen: Xvfb draws it inside a
+Docker container and x11vnc serves it on `127.0.0.1` only, with a fresh password each time. The
+assistant starts and works it with `desktop.shared.start`, `desktop.shared.open` (`xdotool exec`),
+`desktop.shared.type`, `desktop.shared.key` and `desktop.shared.stop`, all behind the
+`desktop.control` permission. (Code: `src/integrations/linux-desktop.ts`,
+`src/integrations/linux-desktop-tools.ts`, `src/integrations/linux-desktop-banner.ts`.)
+- **The switch.** Settings → Computer & browser → **Shared Linux desktop** (the Grown-Up sample has
+  no place for it, so it sits with the other desktop control, straight after "Using your screen and
+  keyboard"). It writes `linux-desktop` as `{ mode, image }` and ships `off`. The switch is read
+  again before every start and every action, and switching it off takes a running desktop down at
+  once; so does Lockdown, and the desktop reads as off for as long as Lockdown is on.
+- **Taking over.** While a desktop runs, a notice with a **Take over** button sits on top of
+  everything (on Windows a PowerShell window; on a Mac or Linux the desktop app's own notice window,
+  the same one the screen control Stop notice uses, with its own words). The Settings card has a
+  Take over button too, for a computer with nowhere to show a notice. Once the owner takes over,
+  `desktop.shared.start`, `desktop.shared.stop` and every action are refused until the owner presses
+  **Hand back** on the card. No tool hands it back.
+- **Routes.** `GET /api/linux-desktop` returns `{ mode, image, running, control }` and never the VNC
+  password. `POST /api/linux-desktop` saves `mode` and/or `image`; `POST /api/linux-desktop/take-over`
+  and `POST /api/linux-desktop/hand-back` do what they say. All three changes are the owner's alone:
+  a household profile and a short-lived key are refused.
+- **The image.** Nothing is ever pulled (`--pull=never`), and the repository does not build the
+  default image `branch-linux-desktop:latest`. A minimal recipe is in
+  `docs/examples/linux-desktop/Dockerfile` (`docker build -t branch-linux-desktop:latest
+  docs/examples/linux-desktop`); it has not been built or run as part of the test suite, which only
+  ever uses a fake Docker. Any image with `sh`, `Xvfb`, `x11vnc` and `xdotool` on its path works.
 ## The client library, issue context, and what the assistant was allowed to do (batch 19, wave 6)
 ### A client for scripts on this computer
 `packages/sdk/` is a single file of plain JavaScript that talks to the Branch Agent already running

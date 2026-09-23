@@ -139,6 +139,7 @@ import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { LinuxDesktopSandbox } from "./integrations/linux-desktop.js";
+import { TakeOverBanner } from "./integrations/linux-desktop-banner.js";
 import { registerLinuxDesktop } from "./integrations/linux-desktop-tools.js";
 import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
 import { migrateFeatureSwitches } from "./feature-switch-migration.js";
@@ -456,7 +457,11 @@ export async function createBranch(options: {
   registerDesktop(registry, desktop);
   // FQ-execution.desktop: a throwaway Linux desktop of its own, drawn by Xvfb and served over VNC,
   // which the owner may watch or take over — separate from this computer's own screen above.
-  const linuxDesktop = new LinuxDesktopSandbox(store);
+  // On a Mac or Linux its "Take over" notice is the desktop app's own window, the same maker the
+  // Stop notice above uses, handed the notice's own words.
+  const linuxDesktop = new LinuxDesktopSandbox(store, {
+    banner: new TakeOverBanner(undefined, options.bannerWindow ? { window: options.bannerWindow } : {}),
+  });
   registerLinuxDesktop(registry, linuxDesktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.

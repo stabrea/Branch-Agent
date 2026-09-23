@@ -7,7 +7,7 @@ import type { LinuxDesktopSandbox } from './linux-desktop.js';
  * each one asks `LinuxDesktopSandbox` again, so turning the switch off, or the owner pressing
  * "Take over", stops work already under way instead of the tools quietly vanishing.
  */
-const bounds = 'Only works while "Shared Linux desktop" is on in Settings. While the owner holds the desktop (they pressed "Take over"), every one of these is refused until they hand it back.';
+const bounds = 'Only works while "Shared Linux desktop" is on in Settings. While the owner holds the desktop (they pressed "Take over"), every one of these, stopping and starting included, is refused until the owner hands it back; only the owner can.';
 const OpenSchema = z.object({ app: z.string().trim().min(1).max(100).regex(/^[a-z0-9 ._-]+$/i, 'Use the plain name of a program') }).strict();
 const TypeSchema = z.object({ text: z.string().min(1).max(4000) }).strict();
 const KeySchema = z.object({ chord: z.string().trim().min(1).max(60) }).strict();

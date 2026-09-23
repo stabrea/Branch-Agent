@@ -89,7 +89,7 @@ export const BUCKETS = {
   ],
   computer: [
     ["screen", "monitor", "Your screen, keyboard and apps", "When Branch may look at and use your screen.",
-      [["desktop-card", R], ["screen-switch-card", A], ["reach-background-card", R], ["reach-usb-card", A], ["os-permissions-card", A]]],
+      [["desktop-card", R], ["linux-desktop-card", R], ["screen-switch-card", A], ["reach-background-card", R], ["reach-usb-card", A], ["os-permissions-card", A]]],
     ["commands", "terminal", "Running commands safely", "Where commands run and the wall around them.",
       [["sandbox-card", A], ["os-sandbox-card", A], ["knobs-commands-card", A], ["firewall-card", A], ["knobs-launch-file-card", T]]],
     ["browser", "globe", "The browser", "Sites it stays signed in to, and how carefully it clicks.",

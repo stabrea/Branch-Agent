@@ -164,6 +164,8 @@ export const descriptions = [
   ["#security-malware-mode", "describe.security-malware", "Checks add-ons for known malware before they are used."],
   ["#desktop-enabled", "describe.desktop-enabled", "Branch may look at your screen and use the keyboard and mouse. Turning it off stops that at once."],
   ["#desktop-cap", "describe.desktop-cap", "A task must stop and ask again after this many screen actions."],
+  ["#linux-desktop-mode", "describe.linux-desktop-mode", "Off: Branch cannot start a shared Linux desktop, and one that is running is taken down at once. When needed or on: Branch may start one in a container and work in it."],
+  ["#linux-desktop-image", "describe.linux-desktop-image", "The container image a shared desktop starts from. It must already be on this computer; Branch never downloads it."],
   ["#sandbox-image", "describe.sandbox-image", "The container scripts run in, when they run in a container."],
   ["#sandbox-distro", "describe.sandbox-distro", "Which Linux scripts run in, when they run on the Linux side."],
   ["#sandbox-windows", "describe.sandbox-windows", "Scripts may run in Windows' throwaway desktop, which is wiped afterwards."],

@@ -475,6 +475,7 @@ async function staticFile(
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
     "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
+    "/linux-desktop.js": ["linux-desktop.js", "text/javascript; charset=utf-8"], // FQ-execution.desktop
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/activity-log.js": ["activity-log.js", "text/javascript; charset=utf-8"], // mac7/diagnostics
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
@@ -1365,6 +1366,25 @@ async function api(
     return readDesktopSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/desktop/settings")
     return saveDesktopSettings(app.store, app.runtime.owner, await readBody(request));
+  // FQ-execution.desktop: the shared Linux desktop's switch, and the owner taking it over and handing
+  // it back. Reading the card is a look (it never carries the VNC password); every change is the
+  // owner's alone, and no tool reaches these, so the assistant can never hand the desktop to itself.
+  if (request.method === "GET" && path === "/api/linux-desktop")
+    return app.linuxDesktop.status(app.runtime.owner);
+  if (request.method === "POST" && path === "/api/linux-desktop") {
+    app.store.profiles.requireOwner("The shared Linux desktop");
+    return app.linuxDesktop.saveSettings(app.runtime.owner, await readBody(request));
+  }
+  if (request.method === "POST" && path === "/api/linux-desktop/take-over") {
+    app.store.profiles.requireOwner("The shared Linux desktop");
+    await app.linuxDesktop.takeOver(app.runtime.owner);
+    return app.linuxDesktop.status(app.runtime.owner);
+  }
+  if (request.method === "POST" && path === "/api/linux-desktop/hand-back") {
+    app.store.profiles.requireOwner("The shared Linux desktop");
+    await app.linuxDesktop.handBack(app.runtime.owner);
+    return app.linuxDesktop.status(app.runtime.owner);
+  }
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);

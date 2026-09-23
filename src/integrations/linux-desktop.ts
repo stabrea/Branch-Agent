@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createServer, connect } from 'node:net';
 import { z } from 'zod';
-import { FeatureModeSchema } from '../feature-switches.js';
+import { FeatureModeSchema, optionalFields, sentFields } from '../feature-switches.js';
+import { lockdownActive, lockdownOverrides, lockdownToolRefusalText, onLockdownChange } from '../lockdown.js';
 import type { Store } from '../store.js';
 import { TakeOverBanner } from './linux-desktop-banner.js';
 
@@ -13,36 +14,46 @@ import { TakeOverBanner } from './linux-desktop-banner.js';
  * entirely: a throwaway Linux one, drawn by Xvfb inside a container and served over VNC, so the
  * assistant never touches anything of the owner's own. The owner may still watch or take it over —
  * point any VNC viewer at the address this hands back, or press "Take over" on the notice
- * (`linux-desktop-banner.ts`) — and while they hold it, every assistant action here is refused
- * until they hand it back. Nothing is ever pulled: the container image must already be on this
- * computer, exactly as the browser sandbox works (`browser-container.ts`).
+ * (`linux-desktop-banner.ts`) or on its Settings card — and while they hold it, every assistant
+ * action here is refused until they hand it back from that card. Nothing is ever pulled: the
+ * container image must already be on this computer, exactly as the browser sandbox works
+ * (`browser-container.ts`). The repository carries no recipe for the default image; a minimal
+ * example is in docs/examples/linux-desktop/Dockerfile.
  */
 export const settingsKey = 'linux-desktop';
 export const LinuxDesktopSchema = z.object({
-  /** The three-way switch. Off: `desktop.shared.*` refuse in one sentence. */
+  /** The three-way switch. Off: `desktop.shared.*` refuse in one sentence, and a running desktop stops. */
   mode: FeatureModeSchema.default('off'),
   /** The container image a shared desktop starts from. Nothing is ever pulled. */
   image: z.string().trim().min(1).max(200).default('branch-linux-desktop:latest'),
 }).strict();
 export type LinuxDesktopSettings = z.infer<typeof LinuxDesktopSchema>;
-export const LinuxDesktopInputSchema = LinuxDesktopSchema.partial();
+/** Only what was sent: saving the mode alone must not put the image back to its default. */
+export const LinuxDesktopInputSchema = optionalFields(LinuxDesktopSchema);
 
-export function readLinuxDesktop(store: Pick<Store, 'get'>, owner: string): LinuxDesktopSettings {
+function savedLinuxDesktop(store: Pick<Store, 'get'>, owner: string): LinuxDesktopSettings {
   const saved = LinuxDesktopSchema.safeParse(store.get('settings', owner, settingsKey)?.data ?? {});
   return saved.success ? saved.data : LinuxDesktopSchema.parse({});
 }
-export function saveLinuxDesktop(store: Store, owner: string, input: unknown): LinuxDesktopSettings {
-  const next = LinuxDesktopSchema.parse({ ...readLinuxDesktop(store, owner), ...LinuxDesktopInputSchema.parse(input ?? {}) });
-  store.save('settings', owner, settingsKey, next);
-  return next;
+/** The switch as it stands right now. While Lockdown is on it reads off, whatever was saved. */
+export function readLinuxDesktop(store: Pick<Store, 'get'>, owner: string): LinuxDesktopSettings {
+  const settings = savedLinuxDesktop(store, owner);
+  return lockdownOverrides(store, owner, settingsKey) ? { ...settings, mode: 'off' } : settings;
+}
+export function saveLinuxDesktop(store: Pick<Store, 'get' | 'save'>, owner: string, input: unknown): LinuxDesktopSettings {
+  const sent = sentFields(LinuxDesktopInputSchema.parse(input ?? {}), input);
+  store.save('settings', owner, settingsKey, LinuxDesktopSchema.parse({ ...savedLinuxDesktop(store, owner), ...sent }));
+  return readLinuxDesktop(store, owner);
 }
 
 export const switchedOffMessage =
-  'Branch is not allowed to start a shared Linux desktop. Turn on "Shared Linux desktop" in Settings first.';
+  'Branch is not allowed to use a shared Linux desktop. Turn on "Shared Linux desktop" in Settings → Computer & browser first.';
 export const sandboxRefusal = (reason: string): string => `The shared Linux desktop cannot be used: ${reason}`;
 export const takenOverMessage =
-  'You have taken over the shared desktop, so Branch has let go of it. Press "Hand back" on the notice, or call desktop.shared.release, before asking Branch to act in it again.';
+  'You have taken over the shared desktop, so Branch has let go of it. Only you can hand it back, with "Hand back" on the Shared Linux desktop card in Settings → Computer & browser.';
 export const notRunningMessage = 'No shared Linux desktop is running. Start one with desktop.shared.start first.';
+export const stoppedWhileStartingMessage = sandboxRefusal('it was stopped before it finished starting.');
+export const closingMessage = sandboxRefusal('Branch is closing.');
 
 // ---------------------------------------------------------------- the commands themselves
 
@@ -62,9 +73,12 @@ export type SharedDesktopAction =
   | { type: 'open'; app: string }
   | { type: 'type'; text: string }
   | { type: 'key'; chord: string };
-/** xdotool's argument list for one action. Nothing here ever reaches a shell: it is one argv, run directly. */
+/**
+ * xdotool's argument list for one action. Nothing here ever reaches a shell: it is one argv, run
+ * directly. A program is started with `xdotool exec`, which starts it and returns without waiting.
+ */
 export function xdotoolArgv(action: SharedDesktopAction): string[] {
-  if (action.type === 'open') return ['spawn', action.app];
+  if (action.type === 'open') return ['exec', action.app];
   if (action.type === 'type') return ['type', '--clearmodifiers', action.text];
   return ['key', '--clearmodifiers', action.chord];
 }
@@ -117,12 +131,25 @@ export function freePort(): Promise<number> {
 }
 
 export interface SharedDesktopInfo { host: string; port: number; display: string; password: string }
+/** What the Settings card shows. Never the VNC password: reading the card is only a look. */
+export interface SharedDesktopStatus extends LinuxDesktopSettings { running: boolean; control: 'agent' | 'user' | 'none' }
 interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user' }
+/** The notice with the "Take over" button on it, or a stand-in for one. */
+export interface TakeOverNotice { show(onTakeOver: () => void): Promise<void>; hide(): Promise<void> }
+
+const infoOf = (session: Session): SharedDesktopInfo =>
+  ({ host: session.host, port: session.port, display, password: session.password });
 
 /**
  * One shared Linux desktop per owner, started on first use. Whoever holds `control` is the only
- * one Branch will act for: the owner takes it with `takeOver` (the notice's button does the same),
- * and every `act` call is refused in the meantime, in words that say so plainly.
+ * one Branch will act for: the owner takes it with `takeOver` (the notice's button and the Settings
+ * card do the same) and gives it back with `handBack`, which only the owner's own Settings route
+ * calls. While the owner holds it, everything the assistant can reach — `start`, `act` and `stop` —
+ * is refused, in words that say so plainly. `end` is the owner's and the app's own way to take a
+ * desktop down, whoever holds it: the switch going off, Lockdown, and the app closing.
+ *
+ * Starting takes a while, so it is tracked: two starts at once share one, and a stop (or the app
+ * closing) while one is under way calls it off and still takes its container down.
  */
 export class LinuxDesktopSandbox {
   runner: ProgramRunner = runProgram;
@@ -131,10 +158,20 @@ export class LinuxDesktopSandbox {
   password: () => string = () => randomBytes(6).toString('hex');
   waitMs = 30_000;
   pauseMs = 300;
+  banner: TakeOverNotice;
   private readonly sessions = new Map<string, Session>();
-  private readonly banner: TakeOverBanner;
-  constructor(private readonly store: Pick<Store, 'get' | 'save' | 'event'>, options: { banner?: TakeOverBanner } = {}) {
+  private readonly starting = new Map<string, Promise<Session>>();
+  private readonly stopping = new Map<string, Promise<void>>();
+  /** Bumped by every stop, so a start under way can tell it has been called off. */
+  private readonly epochs = new Map<string, number>();
+  private closed = false;
+  private readonly stopListening: () => void;
+  constructor(private readonly store: Pick<Store, 'get' | 'save' | 'event'>, options: { banner?: TakeOverNotice } = {}) {
     this.banner = options.banner ?? new TakeOverBanner();
+    // Lockdown takes the desktop down at once, rather than at the assistant's next action.
+    this.stopListening = onLockdownChange((changed, owner, on) => {
+      if (on && changed === this.store) void this.end(owner);
+    });
   }
 
   private settings(owner: string): LinuxDesktopSettings {
@@ -144,6 +181,17 @@ export class LinuxDesktopSandbox {
    * one down here is best-effort and never the reason a start, a take-over or a stop fails. */
   private log(id: string, kind: string, data: Record<string, unknown>): void {
     try { this.store.event(id, kind, data); } catch { /* no run to attach the record to; not fatal */ }
+  }
+  private epoch(owner: string): number { return this.epochs.get(owner) ?? 0; }
+  /**
+   * Asked before everything the assistant does: while the switch is off (or Lockdown is on) the
+   * desktop is taken down if it is still running, and the request is refused.
+   */
+  private async allowed(owner: string): Promise<LinuxDesktopSettings> {
+    const settings = this.settings(owner);
+    if (settings.mode !== 'off') return settings;
+    await this.end(owner);
+    throw new Error(lockdownActive(this.store, owner) ? lockdownToolRefusalText : switchedOffMessage);
   }
   /** Whether the shared desktop is available at all right now, and why not when it is not. */
   async available(owner: string): Promise<{ ok: boolean; reason: string }> {
@@ -156,36 +204,67 @@ export class LinuxDesktopSandbox {
     }
     return { ok: true, reason: '' };
   }
-  /** Starts a shared desktop for this owner, or hands back the one already running. */
+  /** Starts a shared desktop for this owner, or hands back the one already running (the assistant's). */
   async start(owner: string): Promise<SharedDesktopInfo> {
-    const existing = this.sessions.get(owner);
-    if (existing) return { host: existing.host, port: existing.port, display, password: existing.password };
-    const settings = this.settings(owner);
-    if (settings.mode === 'off') throw new Error(switchedOffMessage);
+    if (this.closed) throw new Error(closingMessage);
+    await this.stopping.get(owner); // a stop under way finishes first, notice and all
+    const settings = await this.allowed(owner);
+    const running = this.sessions.get(owner);
+    if (running) {
+      if (running.control !== 'agent') throw new Error(takenOverMessage);
+      return infoOf(running);
+    }
+    let pending = this.starting.get(owner);
+    if (!pending) {
+      const started: Promise<Session> = this.launch(owner, settings, this.epoch(owner))
+        .finally(() => { if (this.starting.get(owner) === started) this.starting.delete(owner); });
+      this.starting.set(owner, started);
+      pending = started;
+    }
+    return infoOf(await pending);
+  }
+  private async launch(owner: string, settings: LinuxDesktopSettings, epoch: number): Promise<Session> {
     const check = await this.available(owner);
     if (!check.ok) throw new Error(check.reason);
+    if (this.epoch(owner) !== epoch) throw new Error(stoppedWhileStartingMessage);
     const port = await this.port();
     const password = this.password();
     let id = '';
     try { id = (await this.runner('docker', dockerRunArgv(settings.image, port, password), 30_000)).trim().split('\n').at(-1) ?? ''; }
     catch { throw new Error(sandboxRefusal('Docker could not start the container.')); }
     if (!/^[a-f0-9]{12,64}$/.test(id)) throw new Error(sandboxRefusal('Docker did not say which container it started.'));
+    // The container exists from here on, so every way out that is not a running desktop takes it down.
+    try { await this.answering(owner, epoch, port); }
+    catch (error) {
+      await this.runner('docker', dockerStopArgv(id), 15_000).catch(() => undefined);
+      throw error;
+    }
+    const session: Session = { id, host: '127.0.0.1', port, password, control: 'agent' };
+    this.sessions.set(owner, session);
+    this.log(owner, 'shared-desktop.started', { port });
+    await this.showNotice(owner);
+    return session;
+  }
+  /** Waits for the VNC server to answer, giving up the moment a stop calls the start off. */
+  private async answering(owner: string, epoch: number, port: number): Promise<void> {
     for (const until = Date.now() + this.waitMs; Date.now() < until;) {
+      if (this.epoch(owner) !== epoch) throw new Error(stoppedWhileStartingMessage);
       if (await this.probe(port)) {
-        this.sessions.set(owner, { id, host: '127.0.0.1', port, password, control: 'agent' });
-        this.log(owner, 'shared-desktop.started', { port });
-        // Best-effort: a computer with nowhere to show a window (a headless server) still shares
-        // the desktop over VNC, it just has no local notice or "Take over" button of its own.
-        await this.banner.show(() => this.takeOver(owner)).catch(() => undefined);
-        return { host: '127.0.0.1', port, display, password };
+        if (this.epoch(owner) !== epoch) throw new Error(stoppedWhileStartingMessage);
+        return;
       }
       await new Promise((resolve) => setTimeout(resolve, this.pauseMs));
     }
-    await this.runner('docker', dockerStopArgv(id), 15_000).catch(() => undefined);
     throw new Error(sandboxRefusal(`the desktop did not answer within ${Math.round(this.waitMs / 1000)} seconds.`));
+  }
+  /** Best-effort: a computer with nowhere to show a window (a headless server) still shares the
+   * desktop over VNC, and the owner can still take it over from the Settings card. */
+  private async showNotice(owner: string): Promise<void> {
+    await this.banner.show(() => { void this.takeOver(owner).catch(() => undefined); }).catch(() => undefined);
   }
   /** Something done inside the shared desktop. Refused outright while the owner holds it. */
   async act(owner: string, action: SharedDesktopAction): Promise<{ ran: string }> {
+    await this.allowed(owner);
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     if (session.control !== 'agent') throw new Error(takenOverMessage);
@@ -193,35 +272,65 @@ export class LinuxDesktopSandbox {
     this.log(owner, 'shared-desktop.action', { type: action.type });
     return { ran: action.type };
   }
-  /** The owner has pressed "Take over" (or called this directly): Branch lets go until it is handed back. */
-  takeOver(owner: string): void {
+  /** The owner has pressed "Take over": Branch lets go until the owner hands it back. */
+  async takeOver(owner: string): Promise<void> {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     session.control = 'user';
     this.log(owner, 'shared-desktop.taken-over', {});
+    await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
   }
-  /** The owner hands the desktop back. */
-  release(owner: string): void {
+  /** The owner hands the desktop back (their Settings route only; no tool calls this). */
+  async handBack(owner: string): Promise<void> {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
+    if (session.control === 'agent') return;
     session.control = 'agent';
-    this.log(owner, 'shared-desktop.released', {});
+    this.log(owner, 'shared-desktop.handed-back', {});
+    await this.showNotice(owner); // so the owner can take it over again from the screen
   }
   /** Who holds it right now, for a caller that wants to ask rather than try and fail. */
   controlOf(owner: string): 'agent' | 'user' | 'none' {
     return this.sessions.get(owner)?.control ?? 'none';
   }
+  status(owner: string): SharedDesktopStatus {
+    return { ...this.settings(owner), running: this.sessions.has(owner), control: this.controlOf(owner) };
+  }
+  /** The Settings card's save: switching it off takes a running desktop down straight away. */
+  async saveSettings(owner: string, input: unknown): Promise<SharedDesktopStatus> {
+    const next = saveLinuxDesktop(this.store, owner, input);
+    if (next.mode === 'off') await this.end(owner);
+    return this.status(owner);
+  }
+  /** The assistant's stop. Refused while the owner holds the desktop: it is theirs until handed back. */
   async stop(owner: string): Promise<void> {
+    if (this.sessions.get(owner)?.control === 'user') throw new Error(takenOverMessage);
+    await this.end(owner);
+  }
+  /** Takes the desktop down whoever holds it, calling off a start under way. Never the assistant's. */
+  end(owner: string): Promise<void> {
+    const under = this.stopping.get(owner);
+    if (under) return under;
+    const job: Promise<void> = this.teardown(owner)
+      .finally(() => { if (this.stopping.get(owner) === job) this.stopping.delete(owner); });
+    this.stopping.set(owner, job);
+    return job;
+  }
+  private async teardown(owner: string): Promise<void> {
+    this.epochs.set(owner, this.epoch(owner) + 1);
+    await this.starting.get(owner)?.catch(() => undefined); // it takes its own container down, or finishes
     const session = this.sessions.get(owner);
     if (!session) return;
     this.sessions.delete(owner);
-    await this.runner('docker', dockerStopArgv(session.id), 15_000).catch(() => undefined);
     await this.banner.hide().catch(() => undefined);
+    await this.runner('docker', dockerStopArgv(session.id), 15_000).catch(() => undefined);
     this.log(owner, 'shared-desktop.stopped', {});
   }
-  /** Stops every shared desktop this launch started. */
+  /** Stops every shared desktop this launch started, and every one still starting. */
   async close(): Promise<void> {
-    const owners = [...this.sessions.keys()];
-    for (const owner of owners) await this.stop(owner);
+    this.closed = true;
+    this.stopListening();
+    const owners = new Set([...this.sessions.keys(), ...this.starting.keys()]);
+    await Promise.all([...owners].map((owner) => this.end(owner)));
   }
 }

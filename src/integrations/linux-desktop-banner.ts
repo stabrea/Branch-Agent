@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { powerShellPath, scriptEnvironment } from './desktop-script.js';
-import type { BannerWindow, BannerWindowFactory } from './desktop-banner.js';
+import type { BannerNotice, BannerWindow, BannerWindowFactory } from './desktop-banner.js';
 
 /**
  * The notice that sits on top of everything while a shared Linux desktop is running, with a
@@ -12,6 +12,8 @@ import type { BannerWindow, BannerWindowFactory } from './desktop-banner.js';
  * exactly as `LinuxDesktopSandbox.takeOver` does, so the two are always the same action.
  */
 export const takeOverBannerTitle = 'Branch is using a shared desktop';
+/** The same words on a Mac or Linux, where the notice is the desktop app's own window (`src/desktop/banner-window.ts`). */
+export const takeOverNotice: BannerNotice = { title: takeOverBannerTitle, text: 'Branch is using a shared Linux desktop', button: 'Take over' };
 const bannerScript = String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -102,7 +104,7 @@ export class TakeOverBanner {
       this.window = undefined;
       onTakeOver();
     };
-    made = await factory(closed).catch(() => { throw new Error(bannerFailed); });
+    made = await factory(closed, takeOverNotice).catch(() => { throw new Error(bannerFailed); });
     if (gone || !made.showing) {
       made.close();
       throw new Error(bannerFailed);

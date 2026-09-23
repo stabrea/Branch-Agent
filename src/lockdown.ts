@@ -105,6 +105,8 @@ const coveredSettings: readonly RegExp[] = [
   // mac7/clean-uninstall: letting an installer put a program outside Branch reaches further still,
   // so Lockdown reads it as no. (Removing Branch is not here: Lockdown must never trap the owner.)
   /^local-runner-place$/,
+  // FQ-execution.desktop: the shared Linux desktop reads off, and a running one is taken down.
+  /^linux-desktop$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */

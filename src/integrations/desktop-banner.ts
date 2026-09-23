@@ -61,11 +61,14 @@ export interface BannerWindow {
   readonly showing: boolean;
   close(): void;
 }
+/** What a notice says and the one button on it. Left out, it is the screen control Stop notice. */
+export interface BannerNotice { title: string; text: string; button: string }
 /**
  * Makes the notice window. It resolves only once the window is really on the screen, and throws
- * otherwise. `closed` is called whenever the window goes, whether Stop was pressed or it was taken down.
+ * otherwise. `closed` is called whenever the window goes, whether its button was pressed or it was
+ * taken down. The shared Linux desktop hands in its own words (a "Take over" notice).
  */
-export type BannerWindowFactory = (closed: () => void) => Promise<BannerWindow>;
+export type BannerWindowFactory = (closed: () => void, notice?: BannerNotice) => Promise<BannerWindow>;
 
 export const noBannerRefusal = 'Branch can only use your screen and keyboard from the Branch Agent app on this computer, where a notice with a Stop button can sit on top of everything. Open the app and ask again.';
 const bannerFailed = 'The notice with the Stop button could not be shown, so Branch has not touched your screen.';
