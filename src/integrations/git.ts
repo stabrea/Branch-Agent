@@ -194,17 +194,27 @@ export class GitTools {
   }
 
   /**
-   * Q79: when Git run inside Branch's source, refuse LOCAL or WORKTREE scoped
-   * settings that could run a program during sign-in or key management.
+   * Q79, A1: when Git run inside Branch's source, refuse LOCAL or WORKTREE scoped
+   * settings that could run a program during sign-in, key management, or includes.
    */
   private async checkScopeKeys(cwd: string, signal: AbortSignal): Promise<string | void> {
-    const keys = ["credential.helper", "core.askPass", "core.sshCommand"];
-    for (const key of keys) {
-      const result = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-all", key], timeoutMs: 10_000 }, signal);
-      if (result.status !== "completed") continue;
+    const checks: { pattern: string; desc: string }[] = [
+      { pattern: "^credential\\..*helper$", desc: "credential helper" },
+      { pattern: "^core\\.askPass$", desc: "password prompt command" },
+      { pattern: "^core\\.sshCommand$", desc: "SSH command" },
+      { pattern: "^include\\.path$", desc: "included config file" },
+      { pattern: "^includeIf\\..*\\.path$", desc: "conditional included config file" },
+    ];
+    for (const check of checks) {
+      const result = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", check.pattern], timeoutMs: 10_000 }, signal);
+      if (result.status === "completed" && result.exitCode === 1) continue; // Exit 1 means no match
+      if (result.status !== "completed") {
+        if (result.stderr || result.exitCode !== 1) return `Could not read Git config, so nothing was sent.`;
+        continue;
+      }
       for (const line of result.stdout.split("\n")) {
         const match = /^(local|worktree)\s+/.exec(line);
-        if (match) return `Git config "${key}" is set at ${match[1]} scope, which could run a program during sign-in or key management.`;
+        if (match) return `Git config "${check.desc}" is set at ${match[1]} scope, which could run a program or load untrusted settings.`;
       }
     }
   }
@@ -220,33 +230,31 @@ export class GitTools {
   }
 
   /**
-   * Q82: refuse a remote whose URL has been rewritten by url.<x>.insteadOf or
+   * Q82, B: refuse a remote whose URL has been rewritten by url.<x>.insteadOf or
    * url.<x>.pushInsteadOf config, which could change what repository Git sends to.
    */
-  private async checkInsteadOf(cwd: string, remote: string, signal: AbortSignal): Promise<string | void> {
+  private async checkInsteadOf(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
     const raw = await this.runner.run({ cwd, args: ["config", "--get-all", `remote.${remote}.url`], timeoutMs: 10_000 }, signal);
     if (raw.status !== "completed") return;
     const configured = raw.stdout.trim().split("\n").filter(Boolean);
-    const read = await this.runner.run({ cwd, args: ["remote", "get-url", "--push", "--all", remote], timeoutMs: 10_000 }, signal);
+    const getUrlArgs = isPush ? ["remote", "get-url", "--push", "--all", remote] : ["remote", "get-url", "--all", remote];
+    const read = await this.runner.run({ cwd, args: getUrlArgs, timeoutMs: 10_000 }, signal);
     if (read.status !== "completed") return;
     const resolved = read.stdout.trim().split("\n").filter(Boolean);
-    for (let i = 0; i < Math.min(configured.length, resolved.length); i++) {
+    if (configured.length !== resolved.length)
+      return `Remote URL was changed by url.<x>.insteadOf or url.<x>.pushInsteadOf config, which can redirect to an unexpected repository.`;
+    for (let i = 0; i < configured.length; i++) {
       if (configured[i] !== resolved[i])
         return `Remote URL was changed by url.<x>.insteadOf or url.<x>.pushInsteadOf config, which can redirect to an unexpected repository.`;
     }
   }
 
   /**
-   * Q12: when Git run inside Branch's source, validate that a remote is configured
-   * and uses only https:// or ssh:// (including scp-like user@host:path).
-   * Refuses file://, plain paths, ext::, and other transports that could execute code.
+   * C: validates remote URLs (for push or fetch) against safe format and insteadOf rewrites.
    */
-  private async validateRemoteURL(cwd: string, remote: string, signal: AbortSignal): Promise<string | void> {
-    if (!inBranchSource(cwd)) return;
-    const scopeError = await this.checkScopeKeys(cwd, signal);
-    if (scopeError) return scopeError;
-    // Git reads a name nobody configured as a folder; only a configured network remote may be used here.
-    const read = await this.runner.run({ cwd, args: ["remote", "get-url", "--push", "--all", remote], timeoutMs: 10_000 }, signal);
+  private async validateURLs(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
+    const getUrlArgs = isPush ? ["remote", "get-url", "--push", "--all", remote] : ["remote", "get-url", "--all", remote];
+    const read = await this.runner.run({ cwd, args: getUrlArgs, timeoutMs: 10_000 }, signal);
     if (read.status !== "completed") return `Remote "${remote}" is not configured in this repository, so nothing was sent.`;
     const urls = read.stdout.trim().split("\n").filter(Boolean);
     if (!urls.length) return `Remote "${remote}" has no address, so nothing was sent.`;
@@ -256,14 +264,26 @@ export class GitTools {
       const dashError = this.checkHostDash(url);
       if (dashError) return dashError;
     }
-    const insteadOfError = await this.checkInsteadOf(cwd, remote, signal);
+    const insteadOfError = await this.checkInsteadOf(cwd, remote, isPush, signal);
     if (insteadOfError) return insteadOfError;
+  }
+
+  /**
+   * Q12, C: when Git run inside Branch's source, validate that a remote is configured
+   * and uses only https:// or ssh:// (including scp-like user@host:path).
+   * Refuses file://, plain paths, ext::, and other transports that could execute code.
+   */
+  private async validateRemoteURL(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
+    if (!inBranchSource(cwd)) return;
+    const scopeError = await this.checkScopeKeys(cwd, signal);
+    if (scopeError) return scopeError;
+    return this.validateURLs(cwd, remote, isPush, signal);
   }
 
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
   async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
-    const urlError = await this.validateRemoteURL(cwd, input.remote, signal);
+    const urlError = await this.validateRemoteURL(cwd, input.remote, true, signal);
     if (urlError) throw new Error(urlError);
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     if (/^(main|master)$/i.test(branch) && !input.confirmed)
@@ -273,7 +293,7 @@ export class GitTools {
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
-    const urlError = await this.validateRemoteURL(cwd, input.remote, signal);
+    const urlError = await this.validateRemoteURL(cwd, input.remote, false, signal);
     if (urlError) throw new Error(urlError);
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     const outcome = await this.run(cwd, ["pull", "--ff-only", input.remote, branch], signal, { timeoutMs: 120000 });
