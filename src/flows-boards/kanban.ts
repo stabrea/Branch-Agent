@@ -4,6 +4,8 @@ import { errorText } from "../contracts.js";
 import type { ProjectBoard, ProjectBoards } from "../asks/project-board.js";
 import { askMode } from "../asks/settings.js";
 import type { Runtime } from "../runtime.js";
+import { Teams } from "../teams.js";
+import { TrunkRecords } from "../trunks/record.js";
 import { oneLine, partRecord, requirePart } from "./settings.js";
 
 /**
@@ -27,9 +29,18 @@ export type Lane = (typeof lanes)[number];
 const assistantLanes: readonly Lane[] = ["todo", "doing", "review"];
 export type Actor = "owner" | "assistant";
 
+/** Who a card can be with: the owner, the assistant, a checked Trunk, or a checked team; never free text (R17-071 gap). */
+export const assigneeTypes = ["owner", "assistant", "trunk", "team"] as const;
+export type AssigneeType = (typeof assigneeTypes)[number];
+/** A picked assignee: its kind, the record id it was checked against (none for owner/assistant), and the name to show. */
+export interface Assignee { type: AssigneeType; id: string | null; name: string }
+/** One line for a picker: `value` is what `assignee`/`to` takes, `label` is what the owner reads. */
+export interface AssigneeOption { value: string; label: string }
+
 export interface CardNote { at: string; by: Actor; what: string }
 export interface Card {
   id: string; project: string; title: string; notes: string; lane: Lane; assignee: string;
+  assigneeType: AssigneeType; assigneeId: string | null;
   failures: number; stuck: boolean; runId: string | null; history: CardNote[]; createdAt: string; updatedAt: string;
 }
 
@@ -40,15 +51,17 @@ export const BoardSettingsSchema = z.object({
 }).strict();
 const settingsKey = "flowboards-kanban-settings";
 
+/** "owner", "assistant", `trunk:<id>` or `team:<id>` — one of the checked options `roster()` lists, never free text. */
+const AssigneeRefSchema = z.string().trim().min(1).max(80)
+  .describe("\"owner\", \"assistant\", or a `trunk:<id>`/`team:<id>` value from the board's roster. Never a free-text name.");
 export const CardInputSchema = z.object({
   project: z.string().trim().min(1).max(64).optional(),
   title: z.string().trim().min(1).max(200),
   notes: z.string().max(4000).default(""),
-  /** "owner", "assistant", or a specialist's name. */
-  assignee: z.string().trim().min(1).max(64).default("assistant"),
+  assignee: AssigneeRefSchema.default("assistant"),
 }).strict();
 export const MoveSchema = z.object({ lane: z.enum(lanes), note: z.string().max(500).optional() }).strict();
-export const HandoffSchema = z.object({ to: z.string().trim().min(1).max(64), note: z.string().trim().min(1).max(500) }).strict();
+export const HandoffSchema = z.object({ to: AssigneeRefSchema, note: z.string().trim().min(1).max(500) }).strict();
 
 export interface SharedBoard {
   project: { id: string; name: string; active: boolean };
@@ -56,18 +69,58 @@ export interface SharedBoard {
   items: Omit<ProjectBoard, "project"> | null;
   lanes: Record<Lane, Card[]>;
   stopAfter: number;
+  /** The checked Trunks and teams a card may be handed to, for the picker; owner and assistant are always first. */
+  roster: AssigneeOption[];
 }
 
 export class KanbanBoard {
   private readonly working = new Map<string, Promise<void>>();
+  private readonly trunks: TrunkRecords;
+  private readonly teams: Teams;
   constructor(private readonly runtime: Runtime, private readonly boards: ProjectBoards) {
     runtime.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS board_cards(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
       project TEXT NOT NULL, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', lane TEXT NOT NULL,
-      assignee TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0, stuck INTEGER NOT NULL DEFAULT 0,
+      assignee TEXT NOT NULL, assignee_type TEXT NOT NULL DEFAULT 'assistant', assignee_id TEXT,
+      failures INTEGER NOT NULL DEFAULT 0, stuck INTEGER NOT NULL DEFAULT 0,
       run_id TEXT, history TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    // Older boards were created before R17-071's checked assignee; add the columns a fresh table already has.
+    const columns = new Set(runtime.store.sqlite.prepare("PRAGMA table_info(board_cards)").all().map((c) => String((c as { name: string }).name)));
+    if (!columns.has("assignee_type")) runtime.store.sqlite.exec("ALTER TABLE board_cards ADD COLUMN assignee_type TEXT NOT NULL DEFAULT 'assistant'");
+    if (!columns.has("assignee_id")) runtime.store.sqlite.exec("ALTER TABLE board_cards ADD COLUMN assignee_id TEXT");
+    this.trunks = new TrunkRecords(runtime.store, runtime.owner);
+    this.teams = new Teams(runtime.store, runtime.owner);
   }
   private get store() { return this.runtime.store; }
   private get owner() { return this.runtime.owner; }
+
+  /** The owner and assistant, plus every checked Trunk and team, as picker options. */
+  roster(): AssigneeOption[] {
+    return [
+      { value: "owner", label: "Owner" },
+      { value: "assistant", label: "Assistant" },
+      ...this.trunks.list().map((t) => ({ value: `trunk:${t.id}`, label: `Trunk: ${t.name}` })),
+      ...this.teams.list().map((t) => ({ value: `team:${t.id}`, label: `Team: ${t.name}` })),
+    ];
+  }
+
+  /** Checks a picker value (`owner`, `assistant`, `trunk:<id>` or `team:<id>`) against the real Trunks and teams; never free text. */
+  private resolveAssignee(ref: string): Assignee {
+    const value = ref.trim();
+    if (value === "owner") return { type: "owner", id: null, name: "Owner" };
+    if (value === "assistant") return { type: "assistant", id: null, name: "Assistant" };
+    const at = value.indexOf(":"), kind = at < 0 ? value : value.slice(0, at), id = at < 0 ? "" : value.slice(at + 1);
+    if (kind === "trunk" && id) {
+      const trunk = this.trunks.find(id);
+      if (!trunk) throw new Error("That Trunk no longer exists. Pick one from the list.");
+      return { type: "trunk", id: trunk.id, name: trunk.name };
+    }
+    if (kind === "team" && id) {
+      let team; try { team = this.teams.get(id); } catch { team = undefined; }
+      if (!team) throw new Error("That team no longer exists. Pick one from the list.");
+      return { type: "team", id: team.id, name: team.name };
+    }
+    throw new Error(`"${ref}" is not the owner, the assistant, a checked Trunk or a checked team. Pick one from the list.`);
+  }
 
   settings(): z.infer<typeof BoardSettingsSchema> {
     return partRecord(this.store, this.owner, settingsKey, BoardSettingsSchema);
@@ -96,7 +149,7 @@ export class KanbanBoard {
     }
     const cards = this.cards(project.id);
     const byLane = Object.fromEntries(lanes.map((lane) => [lane, cards.filter((card) => card.lane === lane)])) as Record<Lane, Card[]>;
-    return { project, items, lanes: byLane, stopAfter: this.settings().stopAfter };
+    return { project, items, lanes: byLane, stopAfter: this.settings().stopAfter, roster: this.roster() };
   }
 
   cards(projectId: string): Card[] {
@@ -112,14 +165,15 @@ export class KanbanBoard {
   add(input: unknown, by: Actor): Card {
     requirePart(this.store, this.owner, "kanban");
     const value = CardInputSchema.parse(input);
+    const assignee = this.resolveAssignee(value.assignee);
     const project = this.project(value.project);
     const count = Number(this.store.sqlite.prepare("SELECT COUNT(*) AS n FROM board_cards WHERE owner=? AND project=?").get(this.owner, project.id)?.n ?? 0);
     if (count >= maxCards) throw new Error(`A board holds at most ${maxCards} cards; remove some that are done first.`);
     const id = randomUUID(), now = new Date().toISOString();
     const history: CardNote[] = [{ at: now, by, what: `Added to "to do"` }];
-    this.store.sqlite.prepare(`INSERT INTO board_cards(id,owner,project,title,notes,lane,assignee,failures,stuck,run_id,history,created_at,updated_at)
-      VALUES(?,?,?,?,?,'todo',?,0,0,NULL,?,?,?)`).run(id, this.owner, project.id, oneLine(value.title, 200), value.notes,
-      oneLine(value.assignee, 64), JSON.stringify(history), now, now);
+    this.store.sqlite.prepare(`INSERT INTO board_cards(id,owner,project,title,notes,lane,assignee,assignee_type,assignee_id,failures,stuck,run_id,history,created_at,updated_at)
+      VALUES(?,?,?,?,?,'todo',?,?,?,0,0,NULL,?,?,?)`).run(id, this.owner, project.id, oneLine(value.title, 200), value.notes,
+      assignee.name, assignee.type, assignee.id, JSON.stringify(history), now, now);
     return this.card(id);
   }
 
@@ -138,8 +192,10 @@ export class KanbanBoard {
     const { to, note } = HandoffSchema.parse(input);
     const card = this.card(id);
     if (by === "assistant" && (card.stuck || card.lane === "done")) throw new Error("A card that is done or stuck is the owner's to hand on.");
+    const assignee = this.resolveAssignee(to);
     const lane: Lane = card.lane === "doing" ? "todo" : card.lane;
-    return this.write(card, { assignee: oneLine(to, 64), lane }, by, `Handed from ${card.assignee} to ${oneLine(to, 64)}: ${oneLine(note, 500)}`);
+    return this.write(card, { assignee: assignee.name, assigneeType: assignee.type, assigneeId: assignee.id, lane }, by,
+      `Handed from ${card.assignee} to ${assignee.name}: ${oneLine(note, 500)}`);
   }
 
   /** The owner looked at a stopped card: it goes back to "to do" with its count cleared. */
@@ -184,11 +240,11 @@ export class KanbanBoard {
       stop ? `Stopped after ${failures} failed tries in a row (${oneLine(how, 120)})` : `The work did not finish (${oneLine(how, 120)})`);
   }
 
-  private write(card: Card, change: Partial<Pick<Card, "lane" | "assignee" | "failures" | "stuck">>, by: Actor, what: string): Card {
+  private write(card: Card, change: Partial<Pick<Card, "lane" | "assignee" | "assigneeType" | "assigneeId" | "failures" | "stuck">>, by: Actor, what: string): Card {
     const next = { ...card, ...change };
     const history = [...card.history, { at: new Date().toISOString(), by, what: oneLine(what, 600) }].slice(-maxHistory);
-    this.store.sqlite.prepare(`UPDATE board_cards SET lane=?, assignee=?, failures=?, stuck=?, history=?, updated_at=? WHERE owner=? AND id=?`)
-      .run(next.lane, next.assignee, next.failures, next.stuck ? 1 : 0, JSON.stringify(history), new Date().toISOString(), this.owner, card.id);
+    this.store.sqlite.prepare(`UPDATE board_cards SET lane=?, assignee=?, assignee_type=?, assignee_id=?, failures=?, stuck=?, history=?, updated_at=? WHERE owner=? AND id=?`)
+      .run(next.lane, next.assignee, next.assigneeType, next.assigneeId, next.failures, next.stuck ? 1 : 0, JSON.stringify(history), new Date().toISOString(), this.owner, card.id);
     return this.card(card.id);
   }
 }
@@ -196,7 +252,10 @@ export class KanbanBoard {
 function toCard(row: Record<string, unknown>): Card {
   return {
     id: String(row.id), project: String(row.project), title: String(row.title), notes: String(row.notes),
-    lane: String(row.lane) as Lane, assignee: String(row.assignee), failures: Number(row.failures), stuck: Number(row.stuck) === 1,
+    lane: String(row.lane) as Lane, assignee: String(row.assignee),
+    assigneeType: (row.assignee_type ? String(row.assignee_type) : "assistant") as AssigneeType,
+    assigneeId: row.assignee_id === null || row.assignee_id === undefined ? null : String(row.assignee_id),
+    failures: Number(row.failures), stuck: Number(row.stuck) === 1,
     runId: row.run_id === null ? null : String(row.run_id), history: JSON.parse(String(row.history)) as CardNote[],
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };

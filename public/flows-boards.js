@@ -181,7 +181,9 @@ async function recipeCard(modes) {
 const LANES = [["todo", "flowsBoards.lane.todo", "To do"], ["doing", "flowsBoards.lane.doing", "Doing"],
   ["review", "flowsBoards.lane.review", "To check"], ["done", "flowsBoards.lane.done", "Done"], ["blocked", "flowsBoards.lane.blocked", "Stuck"]];
 const NEXT = { todo: "doing", doing: "review", review: "done" };
-function cardRow(item, status) {
+/** The board's roster (owner, assistant, every checked Trunk and team) as `choice()` options. */
+const rosterOptions = (roster) => roster.map((option) => [option.value, "", option.label]);
+function cardRow(item, roster, status) {
   const line = plain("li", `${item.title} · ${item.assignee}${item.failures ? ` · ${item.failures}×` : ""}`);
   const to = (lane) => act(status, () => api(`flows-boards/board/cards/${item.id}/move`, { lane }));
   const actions = [];
@@ -190,10 +192,10 @@ function cardRow(item, status) {
   if (item.stuck) actions.push(button("flowsBoards.board.reset", "Reset", act(status, () => api(`flows-boards/board/cards/${item.id}/reset`, {}))));
   actions.push(button("flowsBoards.board.remove", "Remove", act(status, () => api(`flows-boards/board/cards/${item.id}/remove`, {}))));
   const more = document.createElement("details");
-  const to_ = field("input");
+  const to_ = choice(rosterOptions(roster), `${item.assigneeType}${item.assigneeId ? `:${item.assigneeId}` : ""}`);
   const why = field("input");
   more.append(make("summary", "", "flowsBoards.board.handoffOpen", "Hand on"),
-    ...described(`flows-card-to-${item.id}`, "flowsBoards.board.handoffTo", "To whom", "flowsBoards.board.handoffToNote", "owner, assistant, or a specialist's name.", to_),
+    ...described(`flows-card-to-${item.id}`, "flowsBoards.board.handoffTo", "To whom", "flowsBoards.board.handoffToNote", "A checked Trunk or team, or the owner or the assistant.", to_),
     ...described(`flows-card-why-${item.id}`, "flowsBoards.board.handoffWhy", "Why", "flowsBoards.board.handoffWhyNote", "A short note that stays on the card.", why),
     row(button("flowsBoards.board.handoff", "Hand it on", act(status, () => api(`flows-boards/board/cards/${item.id}/handoff`, { to: to_.value, note: why.value })))),
     plain("p", item.history.slice(-3).map((h) => h.what).join(" · "), "field-note"));
@@ -207,15 +209,15 @@ async function boardBody(node, status) {
     node.append(make("p", "lx-eyebrow", key, english));
     const list = document.createElement("ul");
     list.dataset.lane = lane;
-    list.append(...view.lanes[lane].map((item) => cardRow(item, status)));
+    list.append(...view.lanes[lane].map((item) => cardRow(item, view.roster, status)));
     node.append(list);
   }
-  const title = field("input"), notes = field("textarea"), who = field("input", "assistant");
+  const title = field("input"), notes = field("textarea"), who = choice(rosterOptions(view.roster), "assistant");
   const stop = field("input", String(view.stopAfter), "number");
   node.append(
     ...described("flows-board-title", "flowsBoards.board.cardTitle", "New card", "flowsBoards.board.cardTitleNote", "What needs doing, in a few words.", title),
     ...described("flows-board-notes", "flowsBoards.board.notes", "Notes", "flowsBoards.board.notesNote", "Anything that helps whoever picks it up.", notes),
-    ...described("flows-board-who", "flowsBoards.board.assignee", "Who has it", "flowsBoards.board.assigneeNote", "owner, assistant, or a specialist's name.", who),
+    ...described("flows-board-who", "flowsBoards.board.assignee", "Who has it", "flowsBoards.board.assigneeNote", "A checked Trunk or team, or the owner or the assistant.", who),
     row(button("flowsBoards.board.add", "Add card", act(status, () => api("flows-boards/board/cards", { title: title.value, notes: notes.value, assignee: who.value })), false)),
     ...described("flows-board-stop", "flowsBoards.board.stopAfter", "Stop a card after this many failed tries", "flowsBoards.board.stopAfterNote", "A stopped card waits in Stuck until you reset it.", stop),
     row(button("flowsBoards.board.saveStop", "Save", act(status, () => api("flows-boards/board/settings", { stopAfter: Number(stop.value) })))));
