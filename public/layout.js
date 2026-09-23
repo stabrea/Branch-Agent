@@ -383,25 +383,21 @@ function tabButton(placeId, tab, key, english, oldView) {
   trigger.dataset.tab = tab;
   trigger.removeAttribute("title");
 
-  // DG-140: Add count badge to Inbox "needs" tab
-  if (placeId === "inbox" && tab === "needs") {
-    const count = make("span", "lx-tab-count");
-    count.id = "lx-needs-tab-count";
-    count.hidden = true;
-    trigger.append(count);
-    // Sync count with the Inbox badge
-    const syncCount = () => {
-      const badge = $("lx-inbox-badge");
-      if (badge) {
-        count.textContent = badge.textContent;
-        count.hidden = badge.hidden;
-      }
-    };
-    syncCount();
-    new MutationObserver(syncCount).observe($("lx-inbox-badge"), { attributes: true, childList: true, characterData: true });
-  }
-
+  if (placeId === "inbox" && tab === "needs") countOnNeedsTab(trigger);
   return trigger;
+}
+/** DG-140: the "Needs you" tab carries the Inbox's live count, the same number as the side list's badge. */
+function countOnNeedsTab(trigger) {
+  const badge = $("lx-inbox-badge");
+  const count = make("span", "lx-tab-count");
+  count.id = "lx-needs-tab-count";
+  trigger.append(count);
+  const sync = () => {
+    count.textContent = badge ? badge.textContent.trim() : "";
+    count.hidden = !badge || badge.hidden || !count.textContent;
+  };
+  sync();
+  if (badge) new MutationObserver(sync).observe(badge, { attributes: true, childList: true, characterData: true, subtree: true });
 }
 /** A one-line ask box on every place, so a question never means going back to the conversation first. */
 function askDock(id, english) {
