@@ -1,18 +1,16 @@
 /**
- * FQ-surfaces.generation: the remaining gap was that nothing actually decoded the picture and the
- * video that generation saves — `media.info` read an MP4's headers without decoding its content, and
- * the video-generation tests reached for stand-in bytes rather than a file that truly opens as a
- * movie. This file drives the real generation adapters (image and video) end to end with fakes for
- * the outside service only, then genuinely decodes what was saved: a picture's real pixel data
- * (inflated and unfiltered, not merely its header), and a video's real movie structure (`moov`,
- * `mvhd`, at least one `trak`), and shows that a file which only opens the right way and then trails
- * into unrelated bytes — what a header-only check lets through — is refused by name.
+ * FQ-surfaces.generation: the remaining gap was that nothing actually decoded the picture that
+ * generation saves. This file drives the real image generation adapter end to end with a fake for the
+ * outside service only, then genuinely decodes what was saved: its real pixel data, inflated and
+ * unfiltered, not merely its header. A small file that unpacks into far more than its own size says
+ * is refused without being unpacked. A video is only read from its headers, and `media.info` makes
+ * no claim to have decoded one.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { crc32, deflateSync } from "node:zlib";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { crc32, createDeflate, deflateSync } from "node:zlib";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -21,7 +19,7 @@ import { MediaTools } from "../dist/media.js";
 import { OpenAIProvider } from "../dist/providers.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
 import { Budget } from "../dist/contracts.js";
-import { decodeMp4, decodePng } from "../dist/media-decode.js";
+import { decodePng } from "../dist/media-decode.js";
 import { makeVideo } from "../dist/reach/video.js";
 import { saveReachMode } from "../dist/reach/settings.js";
 
@@ -93,7 +91,7 @@ function realPng(width, height, [r, g, b, a]) {
   const idat = deflateSync(raw);
   return Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", idat), pngChunk("IEND", Buffer.alloc(0))]);
 }
-/** A real, structurally complete MP4: ftyp, moov with mvhd and one trak, and mdat with real bytes. */
+/** An MP4 laid out the usual way: ftyp, moov with mvhd and one trak, and mdat with some bytes. */
 function realMp4(seconds, sample) {
   const mvhd = Buffer.alloc(20);
   mvhd.writeUInt32BE(600, 12); // time scale: 600 ticks a second
@@ -105,8 +103,8 @@ function realMp4(seconds, sample) {
     mp4Box("mdat", sample),
   ]);
 }
-/** What a service sending only stand-in header bytes looks like: no real movie inside. */
-const headerOnlyBytes = () => Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from("ftypisom"), Buffer.alloc(4), Buffer.from("more video")]);
+/** The media tools with no model behind them: enough for media.info, which calls none. */
+const plainMedia = (app) => new MediaTools(app.store, app.files, app.runtime.models, new NetworkPolicy({ allowPrivateAddresses: true }), fetch);
 
 test("the picture media.image saves genuinely decodes: real pixels, not just a header", async (t) => {
   const { app } = await scratchApp(t);
@@ -138,11 +136,10 @@ test("the picture media.image saves genuinely decodes: real pixels, not just a h
   assert.throws(() => decodePng(corrupted), /checksum does not match/);
 });
 
-test("the video makeVideo saves genuinely decodes its real movie structure, and stand-in header bytes are refused", async (t) => {
+test("media.info reads a saved video from its headers and makes no claim to have decoded it", async (t) => {
   const { app, root } = await scratchApp(t);
   saveReachMode(app.store, owner, "video", { mode: "on" });
-  const sample = Buffer.from("nine real seconds of picture data, not a stand-in");
-  const source = realMp4(9, sample);
+  const source = realMp4(9, Buffer.from("nine seconds of picture data"));
   const states = ["queued", "in_progress", "completed"];
   const fetcher = async (url) => {
     const u = String(url);
@@ -152,21 +149,108 @@ test("the video makeVideo saves genuinely decodes its real movie structure, and 
   };
   const deps = { fetcher, secret: async () => "sk-test", files: app.files, sleep: async () => undefined, now: () => new Date("2026-09-23T09:00:00Z") };
   const made = await makeVideo(app.store, owner, deps, { prompt: "a nine second clip" }, AbortSignal.timeout(5000));
+  assert.deepEqual(await readFile(join(root, "workspace", made.path)), source, "the exact bytes the service sent are what was saved");
 
-  const savedBytes = await readFile(join(root, "workspace", made.path));
-  assert.deepEqual(savedBytes, source, "the exact bytes the service sent are what was saved");
-  const decoded = decodeMp4(savedBytes);
-  assert.equal(decoded.brand, "isom");
-  assert.equal(decoded.tracks, 1);
-  assert.equal(decoded.seconds, 9);
+  const info = await plainMedia(app).info({ path: made.path });
+  assert.equal(info.format, "mp4");
+  assert.equal(info.seconds, 9);
+  assert.equal(info.tracks, 1);
+  assert.ok(!("decoded" in info), `an MP4 is not decoded here, yet media.info said ${JSON.stringify(info)}`);
+  assert.match(info.note, /^Read from the file's own headers\./, "the note says it was read from headers, not decoded");
+  const described = app.registry.descriptions(new Set(app.registry.permissions())).find((tool) => tool.name === "media.info");
+  assert.ok(described, "media.info is registered");
+  assert.doesNotMatch(described.description, /movie structure|genuinely decoded/i);
+});
 
-  // What a header-only check lets through: something that opens like an MP4 and then is not one.
-  assert.throws(() => decodeMp4(headerOnlyBytes()), /No moov box/);
-  assert.throws(() => decodeMp4(Buffer.from("not a video at all, just words")), /No ftyp box/);
-  const noTrack = Buffer.concat([
-    mp4Box("ftyp", Buffer.concat([Buffer.from("isom", "latin1"), Buffer.alloc(4)])),
-    mp4Box("moov", mp4Box("mvhd", Buffer.alloc(20))),
-    mp4Box("mdat", sample),
-  ]);
-  assert.throws(() => decodeMp4(noTrack), /carries no trak/);
+/** Paeth's predictor, written out again here so the fixture does not borrow the decoder's own. */
+function paethOf(a, b, c) {
+  const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+/** An RGB PNG whose every row uses filter 4 (Paeth), over a gradient steep enough that it picks `b`. */
+function paethPng(width, height) {
+  const channels = 3;
+  const stride = width * channels;
+  const pixels = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let ch = 0; ch < channels; ch++)
+    pixels[y * stride + x * channels + ch] = (x * 3 + y * 50 + ch * 7) & 0xff;
+  const rows = [];
+  for (let y = 0; y < height; y++) {
+    const row = Buffer.alloc(stride + 1);
+    row[0] = 4;
+    for (let i = 0; i < stride; i++) {
+      const at = y * stride + i;
+      const a = i >= channels ? pixels[at - channels] : 0;
+      const b = y > 0 ? pixels[at - stride] : 0;
+      const c = y > 0 && i >= channels ? pixels[at - stride - channels] : 0;
+      row[i + 1] = (pixels[at] - paethOf(a, b, c)) & 0xff;
+    }
+    rows.push(row);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; ihdr[9] = 2; // 8-bit RGB
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const png = Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", deflateSync(Buffer.concat(rows))), pngChunk("IEND", Buffer.alloc(0))]);
+  return { png, pixels };
+}
+test("a Paeth-filtered PNG decodes back to its exact pixels, and media.info says it was decoded", async (t) => {
+  const { app } = await scratchApp(t);
+  const { png, pixels } = paethPng(5, 4);
+  assert.deepEqual([...decodePng(png).pixels], [...pixels]);
+  await writeFile(join(app.runtime.workspace, "gradient.png"), png);
+  const info = await plainMedia(app).info({ path: "gradient.png" });
+  assert.equal(info.format, "png");
+  assert.equal(info.width, 5);
+  assert.equal(info.height, 4);
+  assert.equal(info.channels, 3);
+  assert.equal(info.decoded, true);
+});
+
+test("media.info on a PNG with a broken checksum gives the picture's own reason", async (t) => {
+  const { app } = await scratchApp(t);
+  const broken = realPng(2, 2, [1, 2, 3, 255]);
+  broken[broken.length - 6] ^= 0xff; // a byte inside the last chunk's checksum
+  await writeFile(join(app.runtime.workspace, "broken.png"), broken);
+  await assert.rejects(plainMedia(app).info({ path: "broken.png" }), (error) => {
+    assert.match(error.message, /checksum does not match/);
+    assert.doesNotMatch(error.message, /Only MP4 video and WAV/);
+    return true;
+  });
+});
+
+/** Zeros deflated a megabyte at a time, so the test itself never holds them all at once. */
+async function deflatedZeros(megabytes) {
+  const deflate = createDeflate({ level: 9 });
+  const out = [];
+  deflate.on("data", (chunk) => out.push(chunk));
+  const done = new Promise((resolve, reject) => { deflate.on("end", resolve); deflate.on("error", reject); });
+  const zeros = Buffer.alloc(1024 * 1024);
+  for (let i = 0; i < megabytes; i++) if (!deflate.write(zeros)) await new Promise((resolve) => deflate.once("drain", resolve));
+  deflate.end();
+  await done;
+  return Buffer.concat(out);
+}
+test("a tiny PNG whose pixel data unpacks into 128 MB is refused quickly, without unpacking it", async () => {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8; ihdr[9] = 6; // one 8-bit RGBA pixel: five bytes once unpacked
+  const bomb = Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", await deflatedZeros(128)), pngChunk("IEND", Buffer.alloc(0))]);
+  assert.ok(bomb.length < 256 * 1024, `the file itself is small (${bomb.length} bytes)`);
+  const rssBefore = process.memoryUsage().rss;
+  const started = performance.now();
+  assert.throws(() => decodePng(bomb), /unpacks to more than the 5 bytes its own size says/);
+  const took = performance.now() - started;
+  const grew = process.memoryUsage().rss - rssBefore;
+  assert.ok(took < 1000, `refusing it took ${Math.round(took)} ms`);
+  assert.ok(grew < 48 * 1024 * 1024, `refusing it grew memory by ${Math.round(grew / 1e6)} MB`);
+
+  const huge = Buffer.from(ihdr);
+  huge.writeUInt32BE(100000, 0);
+  huge.writeUInt32BE(100000, 4);
+  const giant = Buffer.concat([signature, pngChunk("IHDR", huge), pngChunk("IDAT", deflateSync(Buffer.alloc(8))), pngChunk("IEND", Buffer.alloc(0))]);
+  assert.throws(() => decodePng(giant), /claims to be 100000x100000/);
 });
