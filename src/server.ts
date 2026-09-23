@@ -204,6 +204,7 @@ import { GatewayAuth } from "./remote/gateway-auth.js";
 // ---- mac7/nodes: the owner's devices (src/devices/) ----
 import type { Duplex } from "node:stream";
 import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
+import { handlesWebPushPath, webPushApi, WebPushHttpError } from "./web-push.js";
 import { handlesPhoneAppPath, PhoneApp, phoneAppApi, PhoneAppRefusal } from "./phone-app/index.js";
 import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
 import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
@@ -3317,6 +3318,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end mac7/nodes ----
+        // ---- FQ-surfaces.mobile-push: the /api/push/* routes (src/web-push.ts); the owner's alone. ----
+        if (handlesWebPushPath(path)) {
+          app.store.profiles.requireOwner("Push notifications on this device");
+          const answer = await webPushApi({ webPush: app.webPush, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4096) }, path).catch((error: unknown) => {
+            throw error instanceof WebPushHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end FQ-surfaces.mobile-push ----
         // ---- mac6/bucket-23: the smaller asks under /api/asks (src/asks/api.ts); the owner's alone. ----
         if (handlesAsksPath(path)) {
           app.store.profiles.requireOwner("These parts of Branch");

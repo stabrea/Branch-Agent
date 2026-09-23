@@ -76,6 +76,7 @@ import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { SlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
 import { Webhooks } from "./webhooks.js";
+import { WebPushService } from "./web-push.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
 import { afterTaskMetrics, executionMetricsDeps } from "./execution-metrics.js"; // bucket 14 (A1751)
@@ -768,10 +769,15 @@ export async function createBranch(options: {
   webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   // A webhook's signing key lives in the locker with the other secrets, named rather than copied.
   webhooks.secretFor = lockerSecret("webhook");
+  // FQ-surfaces.mobile-push: a device the owner subscribed, told the same events a webhook is, over
+  // Web Push rather than an HTTP callback (src/web-push.ts filters most of them out on its own).
+  const webPush = new WebPushService(store, runtime.owner, web.policy);
   // Wave 8: while Lockdown is on, no note about what happened reaches another program either.
   const notify = webhooks.notifier(runtime.owner);
   const guardedNotify: typeof notify = (event, payload) => {
-    if (!lockedDown(store, runtime.owner)) notify(event, payload);
+    if (lockedDown(store, runtime.owner)) return;
+    notify(event, payload);
+    webPush.notify(event, payload);
   };
   runtime.notifyEvent = guardedNotify;
   channels.deliveries.notifyEvent = guardedNotify;
@@ -1418,6 +1424,8 @@ export async function createBranch(options: {
     studies,
     triggers,
     webhooks,
+    /** FQ-surfaces.mobile-push: the owner's subscribed devices and the VAPID key they push through. */
+    webPush,
     slackAutomations, // mac6/bucket-16
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
     workflows,
