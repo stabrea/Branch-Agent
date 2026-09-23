@@ -324,8 +324,7 @@ const SETTINGS_PAGES = [
   ["memory", "settings.page.memory", "Memory & library", "What it remembers, your documents and what it has made."],
   ["automations", "settings.page.automations", "Automations & inbox", "Work that runs by itself, and how Inbox keeps the record."],
 ];
-const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], ["defaults", "settings.models.defaults", "Defaults"],
-  ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
+// Models page no longer uses tabs - all sections are in a single "models" page (DG-185)
 const SETTINGS_DIRECTORY = {
   trunks: [
     ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:specialists"],
@@ -364,10 +363,10 @@ const MOVES = [
   ["identity-form", "lx-page-assistant"],
   ["settings-form", "lx-page-appearance"],
   ["voice-settings-form", "lx-page-voice"],
-  ["model-settings-form", "lx-models-connection"], ["chatgpt-card", "lx-models-connection"], ["gemini-signin-card", "lx-models-connection"],
-  ["models-form", "lx-models-connection"], ["model-probe-card", "lx-models-connection"],
-  ["model-profiles-card", "lx-models-defaults"], ["local-models-card", "lx-models-local"],
-  ["second-opinion-form", "lx-models-second"], ["media-form", "lx-models-media"],
+  ["model-settings-form", "lx-page-models"], ["chatgpt-card", "lx-page-models"], ["gemini-signin-card", "lx-page-models"],
+  ["models-form", "lx-page-models"], ["model-probe-card", "lx-page-models"],
+  ["model-profiles-card", "lx-page-models"], ["local-models-card", "lx-page-models"],
+  ["second-opinion-form", "lx-page-models"], ["media-form", "lx-page-models"],
   ["policy-card", "lx-page-permissions"], ["limits-card", "lx-page-permissions"],
   ["desktop-card", "lx-page-computer"], ["sandbox-card", "lx-page-computer"], ["firewall-card", "lx-page-computer"],
   ["browser-card", "lx-page-computer"], ["remote-card", "lx-page-computer"],
@@ -563,7 +562,6 @@ function buildSettings() {
   win.append(nav, body, close);
   shell.append(scrim, win);
   document.body.append(shell);
-  buildModelTabs();
   buildAppearanceBlock();
 }
 /** Honest Settings directories for controls that live in Branch's full places. */
@@ -622,32 +620,7 @@ function settingsSearch() {
   wrap.append(input);
   return wrap;
 }
-function buildModelTabs() {
-  const page = $("lx-page-models");
-  const tabs = make("div", "lx-subtabs");
-  tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "Models");
-  page.append(tabs);
-  for (const [id, key, english] of MODEL_TABS) {
-    const trigger = button("lx-subtab", key, english);
-    trigger.setAttribute("role", "tab");
-    trigger.dataset.sub = id;
-    trigger.addEventListener("click", () => showModelTab(id));
-    tabs.append(trigger);
-    const panel = make("div", "lx-subpanel");
-    panel.id = `lx-models-${id}`;
-    panel.dataset.sub = id;
-    panel.setAttribute("role", "tabpanel");
-    page.append(panel);
-  }
-  showModelTab("connection");
-}
-function showModelTab(id) {
-  for (const node of document.querySelectorAll("#lx-page-models [data-sub]")) {
-    if (node.classList.contains("lx-subtab")) node.setAttribute("aria-selected", String(node.dataset.sub === id));
-    else node.hidden = node.dataset.sub !== id;
-  }
-}
+// Model tabs removed - all sections now in a single "models" page (DG-185)
 /** The 44 themes, light or dark, the season and contrast, above the existing reading controls. */
 function buildAppearanceBlock() {
   const block = make("div", "lx-look");

@@ -42,31 +42,19 @@ export const BUCKETS = {
     ["attention", "bell", "When Branch gets your attention", "Sounds, banners and the times it should leave you alone.",
       [["comfort-notify-card", R], ["lx-collab-days-off", R], ["quiet-interruptions", A]]],
   ],
-  "models:connection": [
+  "models": [
+    ["which", "spark", "Models", "A strong model for hard work and a quick one for small jobs.",
+      [["model-profiles-card", R], ["knobs-reasoning-card", R]]],
+    ["chatgpt", "chip", "ChatGPT account", "Your OpenAI account and how Branch signs in.",
+      [["chatgpt-card", R]]],
+    ["check", "eye", "Check your connections", "Test that each service is working.",
+      [["model-probe-card", R]]],
     ["connection", "chip", "Your model connection", "Which service answers, and how Branch signs in to it.",
-      [["model-settings-form", R], ["chatgpt-card", R], ["models-form", R], ["model-probe-card", R]]],
+      [["model-settings-form", R], ["models-form", R], ["savings-phases-card", A], ["savings-difficulty-card", A], ["knobs-compaction-card", A], ["knobs-subtasks-card", A], ["local-models-card", A], ["second-opinion-form", A]]],
     ["services", "swap", "Other model services", "Extra services Branch can use.",
-      [["gemini-signin-card", A], ["savings-openrouter-card", A], ["asks-runtimes-card", A]]],
-  ],
-  "models:defaults": [
-    ["which", "spark", "Which model does what", "A strong model for hard work and a quick one for small jobs.",
-      [["model-profiles-card", R], ["knobs-reasoning-card", R], ["savings-phases-card", A], ["savings-difficulty-card", A]]],
-    ["long", "layers", "Long conversations and side jobs", "What happens when a conversation grows long or splits into side tasks.",
-      [["knobs-compaction-card", A], ["knobs-subtasks-card", A]]],
+      [["gemini-signin-card", A], ["savings-openrouter-card", A], ["asks-runtimes-card", A], ["savings-mixtures-card", A], ["reach-arena-card", A], ["media-form", A], ["video-programs-card", A], ["reach-video-card", A]]],
     ["under", "wrench", "Under the hood", "Counting and caching details. Rarely needed.",
       [["savings-reported-tokens-card", T], ["savings-keep-alive-card", T]]],
-  ],
-  "models:local": [
-    ["local", "chip", "Models on this computer", "Models that run here, without sending anything away.",
-      [["local-models-card", R]]],
-  ],
-  "models:second": [
-    ["second", "people", "A second opinion", "Let another model check the answer first.",
-      [["second-opinion-form", R], ["savings-mixtures-card", A], ["reach-arena-card", A]]],
-  ],
-  "models:media": [
-    ["media", "image", "Pictures, sound and video", "Reading and making pictures, sound and video.",
-      [["media-form", R], ["video-programs-card", A], ["reach-video-card", A]]],
   ],
   /* phase2/accounts gave Accounts a page of its own (integration). */
   accounts: [
