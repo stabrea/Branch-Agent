@@ -12,7 +12,7 @@
    Nothing here changes what a setting does. */
 import { fromEnglish, language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
-import { BUCKETS, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
+import { BUCKETS, ICON_PATHS, NAV_GROUPS, ONE_CARD_SECTIONS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
 import { levelRows, RANK as ROW_RANK } from "/settings-rows.js";
 
@@ -269,7 +269,7 @@ function countHidden() {
     head.classList.toggle("sg-quiet", !shown.length && (under || !hidden.length));
     head.classList.toggle("sg-empty", cards.length === 0);
     head.classList.toggle("sg-thin", !under && cards.length > 0 && above.length === cards.length);
-    const quiet = under || !hidden.length;
+    const quiet = under || ONE_CARD_SECTIONS.has(head.dataset.bucket) || !hidden.length;
     if (line.hidden !== quiet) line.hidden = quiet;
     /* DG-073: at the end of the section, after its last card on show; in the head when none is on show. */
     const home = !quiet && shown.length ? shown.at(-1) : head;

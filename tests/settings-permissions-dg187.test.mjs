@@ -54,10 +54,9 @@ const headings = (page) => page.evaluate(() => {
   return [...host.querySelectorAll(".lx-page-title, .sg-head-title, .sg-more-line:not([hidden]) .sg-more")]
     .filter((node) => node.checkVisibility()).map((node) => node.textContent.replace(/\s+/g, " ").trim());
 });
-/* Two known gaps, left to the coordinator: a section that is one card of the sample's own still says what it keeps
-   out of sight, and the emergency stop's setup stays on show at Regular (DG-199), so it is not counted. */
+/* One known gap, left to the coordinator: the emergency stop's setup stays on show at Regular (DG-199), so it is not
+   counted. */
 const withoutKnownGaps = (list) => list
-  .filter((words, at) => !(["When to check with me", "Settings you have pinned"].includes(list[at - 1]) && /^\d+ more/.test(words)))
   .map((words, at, all) => (all[at - 1] === "When Branch checks with you" && words === "2 more with Advanced" ? "3 more with Advanced" : words));
 
 for (const [width, height] of [[1440, 950], [860, 900], [400, 844]]) {
@@ -69,6 +68,23 @@ for (const [width, height] of [[1440, 950], [860, 900], [400, 844]]) {
     });
   }
 }
+
+/* The sample draws its own cards (When to check with me, Lockdown, Settings you have pinned) with no "N more" line
+   under them at any level, though the first and the last keep something out of sight below Technical. */
+test("DG-187 a section that is one card of the sample's own says no \"N more\" at any level", async (t) => {
+  const { page, errors } = await fixture(t, { preferences: { settingsLevel: "regular" } });
+  const lines = () => page.evaluate(() => ["policy", "lockdown", "pinned"].map((id) => {
+    const line = document.querySelector(`#lx-page-permissions .sg-more-line[data-bucket="permissions:${id}"]`);
+    return line && !line.hidden && line.checkVisibility() ? `${id}: ${line.textContent.trim()}` : null;
+  }).filter(Boolean));
+  for (const level of ["regular", "advanced", "technical"]) {
+    await page.evaluate((to) => globalThis.branchSettingsLevel.set(to), level);
+    await page.waitForFunction((to) => document.documentElement.dataset.settingsLevel === to, level);
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    assert.deepEqual(await lines(), [], `at ${level}`);
+  }
+  assert.deepEqual(errors, []);
+});
 
 test("DG-187 the sections keep their order in French and in Daylight", async (t) => {
   const { page, errors } = await fixture(t);

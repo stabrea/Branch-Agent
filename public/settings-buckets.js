@@ -8,6 +8,10 @@
    at approvals, updates and what runs in the background stay regular (tests/settings-grown.test.mjs S15). */
 const R = "regular", A = "advanced", T = "technical";
 
+/* DG-187: sections that are one card of the sample's own (not a group of its settings). The sample draws no
+   "N more with …" line under them at any level; what they keep out of sight shows with the level or a search. */
+export const ONE_CARD_SECTIONS = new Set(["permissions:policy", "permissions:lockdown", "permissions:pinned"]);
+
 export const BUCKETS = {
   general: [
     ["start", "power", "How Branch starts and keeps running", "Whether it starts with your computer and keeps going when the window is closed.",
