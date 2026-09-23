@@ -18,9 +18,13 @@ test("the desktop window has no system title bar, fills the screen first, and re
     const page = await electron.firstWindow();
     await connected(page);
     await page.waitForFunction(() => document.body.classList.contains("lx-desktop-frame"));
-    assert.equal(await mainWindow(electron, (win) => win.isMaximized()), true, "the first launch fills the screen");
+    // Linux build machines draw windows with no window manager (Xvfb), and nothing can be maximised there;
+    // the choice itself is tested in window-state.test.mjs.
+    if (process.platform !== "linux")
+      assert.equal(await mainWindow(electron, (win) => win.isMaximized()), true, "the first launch fills the screen");
+    // Windows counts a frameless window's invisible resize borders in its outer size (16 px); a system title bar is 30 or more.
     const [outer, inner] = await mainWindow(electron, (win) => [win.getBounds().height, win.getContentBounds().height]);
-    assert.equal(inner, outer, "no title bar sits above the app's own top row");
+    assert.ok(outer - inner < 24, `no title bar sits above the app's own top row (${outer} outside, ${inner} inside)`);
     const regions = await page.evaluate(() => ({
       header: getComputedStyle(document.querySelector("body.lx header")).webkitAppRegion,
       button: getComputedStyle(document.querySelector("body.lx header button")).webkitAppRegion,
@@ -28,7 +32,7 @@ test("the desktop window has no system title bar, fills the screen first, and re
     assert.deepEqual(regions, { header: "drag", button: "no-drag" }, "the top row moves the window; its buttons still press");
     assert.equal(await page.evaluate(() => window.branchDesktop.windowLook(false)), true);
     await assert.rejects(page.evaluate(() => window.branchDesktop.windowLook("#ff0000")), /Light or dark only/);
-    await mainWindow(electron, (win) => { win.unmaximize(); win.setBounds({ x: 60, y: 60, width: 1100, height: 760 }); return true; });
+    await mainWindow(electron, (win) => { win.unmaximize(); win.setBounds({ x: 60, y: 60, width: 900, height: 640 }); return true; });
     await page.waitForTimeout(800);
   } finally {
     await electron.close();
@@ -39,7 +43,7 @@ test("the desktop window has no system title bar, fills the screen first, and re
     await connected(page);
     assert.equal(await mainWindow(again, (win) => win.isMaximized()), false, "it reopens the way it was left");
     const bounds = await mainWindow(again, (win) => win.getNormalBounds());
-    assert.deepEqual([bounds.width, bounds.height], [1100, 760]);
+    assert.deepEqual([bounds.width, bounds.height], [900, 640], "a size small enough that no build machine's screen counts it as filled");
   } finally {
     await again.close();
   }

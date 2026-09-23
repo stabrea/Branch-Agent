@@ -165,7 +165,8 @@ async function createWindow(
     if (window && !window.isDestroyed() && !window.isMinimized())
       writeWindowState(statePath, { maximized: window.isMaximized(), bounds: window.getNormalBounds() });
   };
-  for (const change of ["maximize", "unmaximize", "resized", "moved"] as const) window.on(change as "resized", remember);
+  // "close" too: a size set without dragging (and the last one before quitting) fires none of the others everywhere.
+  for (const change of ["maximize", "unmaximize", "resized", "moved", "close"] as const) window.on(change as "resized", remember);
   protectWindow(window, url, token);
   registerWindowLookIpc(ipcMain, window, url);
   registerEditMenu(window, (template) => Menu.buildFromTemplate(template));
