@@ -46,7 +46,7 @@ export const cliCommands: { name: string; summary: string; options: string[]; no
   { name: "backup", summary: "Write a backup file", options: [] },
   // operations.hibernation: suspend a running operation's compute and resume it with its workspace
   // intact (src/hibernation.ts, src/hibernation-api.ts).
-  { name: "hibernation", summary: "Suspend and resume an operation: hibernation list | start <step>... | show | advance | suspend | resume <id> | settings [environment]", options: ["--json"] },
+  { name: "hibernation", summary: "Suspend and resume an operation: hibernation list | start <step>... | show | advance | suspend | resume <id> | settings [environment]", options: ["--json", "--accept-changes"] },
   { name: "export-agent", summary: "Write the assistant itself to one file you can hand on", options: ["--memory", "--redact"] },
   { name: "import-agent", summary: "Read an assistant file: it shows what is inside, then --sections says what to bring in", options: ["--sections"] },
   { name: "restore", summary: "Read a backup file back in", options: [] },

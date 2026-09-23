@@ -67,7 +67,7 @@ import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 import { sayOnceIfNodeIsTooOld } from "./node-floor.js"; // mac7/node-floor
 import { phoneCommand } from "./phone-app/cli.js";
 import { scheduleCommand } from "./schedule-cli.js";
-import { HibernationStore, hibernationSettings, saveHibernationSettings, type OperationRecord } from "./hibernation.js"; // operations.hibernation
+import { HibernationStore, OperationNotFoundError, hibernationSettings, saveHibernationSettings, type HibernationSettings, type OperationRecord, type WorkspaceCheck } from "./hibernation.js"; // operations.hibernation
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -273,7 +273,7 @@ async function main(): Promise<void> {
       return;
     }
     // operations.hibernation: `branch hibernation list | start | show | advance | suspend | resume | settings`.
-    if (command === "hibernation") { await hibernationCommand(app, dataDir); return; }
+    if (command === "hibernation") { await hibernationCommand(localHibernation(app, dataDir)); return; }
     if (command === "token") { await tokenCommand(ownKeys(app)); return; }
     // mac7/phone-qr: the "Get Branch on your phone" code, in the terminal (src/phone-app/cli.ts).
     if (command === "phone") {
@@ -430,55 +430,103 @@ async function tokenCommand(keys: TokenAccess): Promise<void> {
 }
 
 /**
- * `branch hibernation list | start <step>... | show <id> | advance <id> | suspend <id> | resume <id>
- * | settings [environment]`. Reads and writes straight to `<dataDir>/hibernation/`, the same store
- * the HTTP routes in src/hibernation-api.ts use, so it works whether or not the owner ever opens the
- * window. See src/hibernation.ts for what suspend and resume actually mean for the local adapter.
+ * What `branch hibernation` works through: the store in `<dataDir>/hibernation/` when this terminal
+ * opened the saved work itself, or the routes in src/hibernation-api.ts of the Branch already open
+ * (see overRunningBranch), so the same words and the same one-call-at-a-time rule apply either way.
  */
-async function hibernationCommand(app: Awaited<ReturnType<typeof createBranch>>, dataDir: string): Promise<void> {
+interface HibernationDoor {
+  settings(environment?: string): Promise<HibernationSettings>;
+  list(): Promise<OperationRecord[]>;
+  start(steps: string[]): Promise<OperationRecord>;
+  show(id: string): Promise<OperationRecord>;
+  advance(id: string): Promise<OperationRecord>;
+  suspend(id: string): Promise<OperationRecord>;
+  resume(id: string, acceptChanges: boolean): Promise<{ record: OperationRecord; workspace: WorkspaceCheck }>;
+}
+
+function localHibernation(app: Awaited<ReturnType<typeof createBranch>>, dataDir: string): HibernationDoor {
   const store = new HibernationStore(dataDir);
+  const settings = () => hibernationSettings(app.store, app.runtime.owner);
+  return {
+    settings: async (environment) => environment ? saveHibernationSettings(app.store, app.runtime.owner, { environment }) : settings(),
+    list: () => store.list(),
+    start: (steps) => store.start(settings().environment, steps),
+    show: (id) => store.read(id),
+    advance: (id) => store.advance(id),
+    suspend: (id) => store.suspend(id),
+    resume: (id, acceptChanges) => store.resume(id, { acceptChanges }),
+  };
+}
+
+function runningHibernation(client: Client): HibernationDoor {
+  // The route only answers an id shaped like one the store makes; say the same words as the store for any other.
+  const at = (id: string) => /^[a-f0-9-]{36}$/.test(id) ? Promise.resolve(id) : Promise.reject(new OperationNotFoundError(id));
+  return {
+    settings: (environment) => environment ? client.post("/api/hibernation/settings", { environment }) : client.get("/api/hibernation"),
+    list: () => client.get("/api/hibernation/operations"),
+    start: (steps) => client.post("/api/hibernation/start", { steps }),
+    show: (id) => at(id).then((known) => client.get(`/api/hibernation/${known}`)),
+    advance: (id) => client.post("/api/hibernation/advance", { id }),
+    suspend: (id) => client.post("/api/hibernation/suspend", { id }),
+    resume: (id, acceptChanges) => client.post("/api/hibernation/resume", { id, acceptChanges }),
+  };
+}
+
+/**
+ * `branch hibernation list | start <step>... | show <id> | advance <id> | suspend <id>
+ * | resume <id> [--accept-changes] | settings [environment]`. With no Branch open it reads and
+ * writes `<dataDir>/hibernation/` itself; with one open it goes through that Branch's routes.
+ * A resume whose workspace changed is refused until --accept-changes says to continue anyway.
+ * See src/hibernation.ts for what suspend and resume actually mean for the local adapter.
+ */
+async function hibernationCommand(door: HibernationDoor): Promise<void> {
   const action = process.argv[3] ?? "list";
   const asJson = process.argv.includes("--json");
+  const words = process.argv.slice(4).filter((word) => !word.startsWith("--"));
   const say = (record: OperationRecord) => {
     if (asJson) { console.log(JSON.stringify(record, null, 2)); return; }
     console.log(`${record.id}\t${record.environment}\t${record.status}\tstep ${record.step}/${record.steps.length}`);
   };
   if (action === "settings") {
-    const wanted = process.argv[4] && !process.argv[4].startsWith("--") ? process.argv[4] : undefined;
-    const settings = wanted ? saveHibernationSettings(app.store, app.runtime.owner, { environment: wanted })
-      : hibernationSettings(app.store, app.runtime.owner);
+    const settings = await door.settings(words[0]);
     if (asJson) { console.log(JSON.stringify(settings)); return; }
     console.log(`Serverless environment: ${settings.environment}`);
     return;
   }
   if (action === "list") {
-    const records = await store.list();
+    const records = await door.list();
     if (asJson) { console.log(JSON.stringify(records, null, 2)); return; }
     if (!records.length) { console.log('No hibernation operations yet. Start one with: branch hibernation start "step one" "step two"'); return; }
     for (const record of records) say(record);
     return;
   }
   if (action === "start") {
-    const steps = process.argv.slice(4).filter((word) => word !== "--json");
-    if (!steps.length) throw new Error('Name the operation\'s steps: branch hibernation start "write the brief" "write the draft"');
-    const settings = hibernationSettings(app.store, app.runtime.owner);
-    say(await store.start(settings.environment, steps));
-    return;
+    if (!words.length) throw new Error('Name the operation\'s steps: branch hibernation start "write the brief" "write the draft"');
+    return void say(await door.start(words));
   }
-  const id = process.argv.slice(4).find((word) => word !== "--json");
+  const id = words[0];
   if (!id) throw new Error(`Name the operation: branch hibernation ${action} <id>`);
-  if (action === "show") return void say(await store.read(id));
-  if (action === "advance") return void say(await store.advance(id));
-  if (action === "suspend") return void say(await store.suspend(id));
-  if (action === "resume") {
-    const { record, workspace } = await store.resume(id);
-    if (asJson) { console.log(JSON.stringify({ record, workspace }, null, 2)); return; }
-    say(record);
-    console.log(workspace.intact ? "The workspace came back exactly as it was when it was suspended."
-      : `The workspace changed since it was suspended: ${workspace.changed.join(", ")}`);
-    return;
+  if (action === "show") return void say(await door.show(id));
+  if (action === "advance") return void say(await door.advance(id));
+  if (action === "suspend") return void say(await door.suspend(id));
+  if (action === "resume") return hibernationResume(door, id, asJson, say);
+  throw new Error("Usage: branch hibernation list | start <step>... | show <id> | advance <id> | suspend <id> | resume <id> [--accept-changes] | settings [environment]");
+}
+
+async function hibernationResume(door: HibernationDoor, id: string, asJson: boolean, say: (record: OperationRecord) => void): Promise<void> {
+  let resumed: Awaited<ReturnType<HibernationDoor["resume"]>>;
+  try {
+    resumed = await door.resume(id, process.argv.includes("--accept-changes"));
+  } catch (error) {
+    if (error instanceof Error && /changed since it was suspended/.test(error.message))
+      throw new Error(`${error.message.replace(/ It stays suspended;.*$/, "")} It stays suspended. To continue with the workspace as it is now: branch hibernation resume ${id} --accept-changes`);
+    throw error;
   }
-  throw new Error("Usage: branch hibernation list | start <step>... | show <id> | advance <id> | suspend <id> | resume <id> | settings [environment]");
+  const { record, workspace } = resumed;
+  if (asJson) { console.log(JSON.stringify({ record, workspace }, null, 2)); return; }
+  say(record);
+  console.log(workspace.intact ? "The workspace came back exactly as it was when it was suspended."
+    : `The workspace changed since it was suspended: ${workspace.changed.join(", ")}`);
 }
 
 /**
@@ -490,12 +538,12 @@ async function hibernationCommand(app: Awaited<ReturnType<typeof createBranch>>,
  * code, or null when nothing is running and this copy should open the saved work itself.
  *
  * What is here: `doctor` (the checks), `trace` (one task's steps), `token` (a short-lived key for a
- * script — the one moment a script needs one is while Branch is running), and every terminal place
- * that only looks. Everything else would fight the running Branch for the same files and still
+ * script — the one moment a script needs one is while Branch is running), `hibernation` (through the
+ * open Branch's own routes, with this computer's key), and every terminal place that only looks. Everything else would fight the running Branch for the same files and still
  * refuses, in a sentence that now says which commands do work.
  */
 async function overRunningBranch(command: string, dataDir: string): Promise<number | null> {
-  const wanted = ["doctor", "trace", "token"].includes(command) || readOnlyTerminalCommands.has(command);
+  const wanted = ["doctor", "trace", "token", "hibernation"].includes(command) || readOnlyTerminalCommands.has(command);
   if (!wanted) return null;
   // `branch doctor --fix` repairs things, so it is not one of the ones that only look.
   if (command === "doctor" && (process.argv.includes("--fix") || process.argv.includes("--repair"))) return null;
@@ -503,6 +551,8 @@ async function overRunningBranch(command: string, dataDir: string): Promise<numb
   if (!found) return null;
   const client = clientFor(found);
   if (command === "token") { await tokenCommand(runningKeys(client)); return 0; }
+  // operations.hibernation: the operations live in the saved work, so they go through the open Branch.
+  if (command === "hibernation") { await hibernationCommand(runningHibernation(client)); return 0; }
   if (command === "doctor") {
     const health = await client.get<unknown>(`/api/health${process.argv.includes("--probe") ? "?probe=1" : ""}`);
     console.log(JSON.stringify({ from: `the Branch already open at ${client.url}`, dataDir, health }, null, 2));

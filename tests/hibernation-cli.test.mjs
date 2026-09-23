@@ -6,7 +6,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -76,8 +76,13 @@ test("HC4 `branch hibernation resume` reports a changed workspace in plain words
   const { writeFile } = await import("node:fs/promises");
   const filePath = join(root, "data", "hibernation", record.id, "workspace", "step-0.txt");
   await writeFile(filePath, "tampered", "utf8");
-  const resumed = await branchCli(root, ["hibernation", "resume", record.id]);
+  await assert.rejects(branchCli(root, ["hibernation", "resume", record.id]),
+    (error) => /workspace changed since it was suspended: step-0\.txt/.test(error.stderr) && /--accept-changes/.test(error.stderr));
+  const still = JSON.parse((await branchCli(root, ["hibernation", "show", record.id, "--json"])).stdout);
+  assert.equal(still.status, "suspended", "a refused resume leaves the operation suspended");
+  const resumed = await branchCli(root, ["hibernation", "resume", "--accept-changes", record.id]);
   assert.match(resumed.stdout, /workspace changed since it was suspended: step-0\.txt/);
+  assert.match(resumed.stdout, /\trunning\t/);
 });
 
 test("HC5 `branch hibernation settings` reads and renames the configured environment", async (t) => {
@@ -116,4 +121,27 @@ test("HC7 GET /api/hibernation/operations lists every operation, for any client"
   const listed = await call("/operations", undefined);
   assert.equal(listed.length, 1);
   assert.equal(listed[0].id, started.id);
+});
+
+test("HC8 `branch hibernation` works through the Branch that is already open, instead of stopping", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-hibernation-cli-open-"));
+  const dataDir = join(root, "data");
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider: { name: "scripted", complete: async () => ({ content: "ok", toolCalls: [] }) } });
+  const server = await startServer(app, { dataDir, port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+
+  const record = JSON.parse((await branchCli(root, ["hibernation", "start", "--json", "write the brief", "write the draft"])).stdout);
+  assert.equal(record.status, "running");
+  assert.equal(JSON.parse((await branchCli(root, ["hibernation", "advance", record.id, "--json"])).stdout).step, 1);
+  const listed = JSON.parse((await branchCli(root, ["hibernation", "list", "--json"])).stdout);
+  assert.deepEqual(listed.map((item) => item.id), [record.id]);
+  assert.match((await branchCli(root, ["hibernation", "suspend", record.id])).stdout, /\tsuspended\t/);
+  await writeFile(join(dataDir, "hibernation", record.id, "workspace", "step-0.txt"), "tampered", "utf8");
+  await assert.rejects(branchCli(root, ["hibernation", "resume", record.id]), (error) => /changed since it was suspended: step-0\.txt/.test(error.stderr));
+  const resumed = await branchCli(root, ["hibernation", "resume", record.id, "--accept-changes"]);
+  assert.match(resumed.stdout, /\trunning\tstep 1\/2/);
+  assert.match(resumed.stdout, /workspace changed since it was suspended: step-0\.txt/);
+  assert.match((await branchCli(root, ["hibernation", "settings", "test-cloud"])).stdout, /Serverless environment: test-cloud/);
+  assert.match((await branchCli(root, ["hibernation", "show", record.id])).stdout, new RegExp(`^${record.id}\tlocal\trunning`));
+  await assert.rejects(branchCli(root, ["hibernation", "show", "not-a-real-id"]), /No operation by the id not-a-real-id/);
 });

@@ -150,6 +150,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // operations.hibernation: the operations, their steps and their frozen workspace are the owner's,
+  // reading included (src/hibernation-api.ts); every change is refused by the fail-closed rule.
+  /^\/api\/hibernation(\/|$)/,
 ];
 
 /**

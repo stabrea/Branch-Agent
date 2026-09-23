@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { HibernationStore, OperationNotFoundError, hibernationSettings, saveHibernationSettings, type SettingsStore } from "./hibernation.js";
+import { HibernationStore, OperationNotFoundError, OperationStateError, WorkspaceChangedError, hibernationSettings, saveHibernationSettings, type SettingsStore } from "./hibernation.js";
 
 /**
  * The web routes for src/hibernation.ts: the configured serverless environment, starting an
@@ -12,8 +12,12 @@ import { HibernationStore, OperationNotFoundError, hibernationSettings, saveHibe
  *   POST /api/hibernation/start           { steps: ["…", "…"] } → an operation
  *   POST /api/hibernation/advance         { id } → runs the next step
  *   POST /api/hibernation/suspend         { id } → freezes the workspace, stops the compute
- *   POST /api/hibernation/resume          { id } → checks the workspace, continues from its step
- *   GET  /api/hibernation/{id}            the operation as it stands
+ *   POST /api/hibernation/resume          { id, acceptChanges? } → checks the workspace, continues from
+ *                                         its step; a changed workspace is refused (409) unless acceptChanges
+ *   GET  /api/hibernation/{id}            the operation as it stands (an id is always a uuid)
+ *
+ * Every one of these is the owner's: a short-lived key is refused the changes by the fail-closed rule
+ * and the reads by ownerOnlyReads (src/short-lived-keys.ts).
  *
  * Only the local adapter is real (see HibernationStore). A cloud provider such as Fly Machines or
  * Cloud Run needs a paid account and its own API client, so it is out of scope here; the seam is
@@ -24,6 +28,7 @@ export class HibernationApiError extends Error {
 }
 
 const IdSchema = z.object({ id: z.string().trim().min(1).max(80) }).strict();
+const ResumeSchema = z.object({ id: z.string().trim().min(1).max(80), acceptChanges: z.boolean().optional() }).strict();
 const StartSchema = z.object({ steps: z.array(z.string().trim().min(1).max(200)).min(1).max(50) }).strict();
 
 export interface HibernationDeps {
@@ -35,15 +40,21 @@ export interface HibernationDeps {
 export const handlesHibernationPath = (path: string): boolean =>
   path === "/api/hibernation" || path.startsWith("/api/hibernation/");
 
+/** The store's own refusals, as the status a client can act on. */
+async function answered(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof OperationNotFoundError) throw new HibernationApiError(404, error.message);
+    if (error instanceof OperationStateError || error instanceof WorkspaceChangedError) throw new HibernationApiError(409, error.message);
+    throw error;
+  }
+}
+
 async function withId(body: () => Promise<unknown>, run: (id: string) => Promise<unknown>): Promise<unknown> {
   const parsed = IdSchema.safeParse(await body());
   if (!parsed.success) throw new HibernationApiError(400, "Say { \"id\": \"…\" } naming the operation.");
-  try {
-    return await run(parsed.data.id);
-  } catch (error) {
-    if (error instanceof OperationNotFoundError) throw new HibernationApiError(404, error.message);
-    throw error;
-  }
+  return answered(() => run(parsed.data.id));
 }
 
 export async function hibernationApi(deps: HibernationDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
@@ -58,15 +69,14 @@ export async function hibernationApi(deps: HibernationDeps, method: string, path
   }
   if (method === "POST" && path === "/api/hibernation/advance") return withId(body, (id) => deps.hibernation.advance(id));
   if (method === "POST" && path === "/api/hibernation/suspend") return withId(body, (id) => deps.hibernation.suspend(id));
-  if (method === "POST" && path === "/api/hibernation/resume") return withId(body, (id) => deps.hibernation.resume(id));
-  if (method === "GET" && path.startsWith("/api/hibernation/") && path !== "/api/hibernation/") {
-    const id = decodeURIComponent(path.slice("/api/hibernation/".length));
-    try {
-      return await deps.hibernation.read(id);
-    } catch (error) {
-      if (error instanceof OperationNotFoundError) throw new HibernationApiError(404, error.message);
-      throw error;
-    }
+  if (method === "POST" && path === "/api/hibernation/resume") {
+    const parsed = ResumeSchema.safeParse(await body());
+    if (!parsed.success) throw new HibernationApiError(400, "Say { \"id\": \"…\" } naming the operation, and \"acceptChanges\": true to continue with a changed workspace.");
+    const { id, acceptChanges } = parsed.data;
+    return answered(() => deps.hibernation.resume(id, { acceptChanges: acceptChanges === true }));
   }
+  // Only an id the store could have made is looked up; the address is never decoded into a path.
+  const one = method === "GET" ? /^\/api\/hibernation\/([a-f0-9-]{36})$/.exec(path) : null;
+  if (one) return answered(() => deps.hibernation.read(one[1]!));
   throw new HibernationApiError(404, "Endpoint not found");
 }

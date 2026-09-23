@@ -99,7 +99,10 @@ test("H4 resume reports what changed when a suspended workspace file is edited o
   const original = await readFile(filePath, "utf8");
   await writeFile(filePath, `${original} tampered`, "utf8");
 
-  const resumed = await call("/resume", { id: started.id });
+  // A changed workspace is not picked back up on its own: the owner is told what changed and asked.
+  await assert.rejects(call("/resume", { id: started.id }), /workspace changed since it was suspended: step-0\.txt/);
+  assert.equal((await call(`/${started.id}`, undefined)).status, "suspended");
+  const resumed = await call("/resume", { id: started.id, acceptChanges: true });
   assert.equal(resumed.workspace.intact, false);
   assert.deepEqual(resumed.workspace.changed, ["step-0.txt"]);
 });
@@ -107,5 +110,7 @@ test("H4 resume reports what changed when a suspended workspace file is edited o
 test("H5 an unknown operation id is a 404, not a crash", async (t) => {
   const { call } = await fixture(t);
   await assert.rejects(call("/suspend", { id: "not-a-real-id" }), /No operation by the id/);
-  await assert.rejects(call("/does-not-exist", undefined), /No operation by the id/);
+  await assert.rejects(call("/00000000-0000-4000-8000-000000000000", undefined), /No operation by the id/);
+  // An address that could not be an operation's id is not one of these routes at all.
+  await assert.rejects(call("/does-not-exist", undefined), /Endpoint not found/);
 });
