@@ -2,7 +2,7 @@ import { z } from "zod";
 import { audit } from "./audit.js";
 import type { ToolContext, ToolDefinition } from "./contracts.js";
 import type { CredentialRef, CredentialService } from "./credential-cli.js";
-import { FeatureModeSchema, sentFields, settleSwitch } from "./feature-switches.js";
+import { FeatureModeSchema, optionalFields, settleSwitch } from "./feature-switches.js";
 import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import { lockdownActive } from "./lockdown.js";
 import type { ToolRegistry } from "./registry.js";
@@ -94,7 +94,7 @@ export function readVaultAutofillSettings(store: Reader, owner: string): VaultAu
 
 export function saveVaultAutofillSettings(store: Store, owner: string, input: unknown): VaultAutofillSettings {
   const current = readVaultAutofillSettings(store, owner);
-  const value = sentFields(VaultAutofillSettingsSchema.partial().parse(input ?? {}), input);
+  const value = optionalFields(VaultAutofillSettingsSchema).parse(input ?? {}); // Q65: one helper for a patch
   const next = VaultAutofillSettingsSchema.parse({ ...current, ...value, ...settleSwitch(current, value) });
   if (new Set(next.logins.map((one) => one.name)).size !== next.logins.length)
     throw new Error("Two of those sign-ins have the same name");

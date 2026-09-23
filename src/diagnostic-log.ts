@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renam
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import { scrubText } from "./diagnostics.js";
 import { redactLeaks } from "./leak-guard.js";
 import type { Store } from "./store.js";
@@ -50,9 +51,7 @@ export function diagnosticLogSettings(store: Pick<Store, "get">, owner: string):
 export function saveDiagnosticLogSettings(store: Store, owner: string, input: unknown): DiagnosticLogSettings {
   // zod 4's .partial() still fills each missing field with its default, so only the fields that were
   // really sent are laid over what is saved; otherwise saving the log's mode would switch crash capture off.
-  const parsed = DiagnosticLogSettingsSchema.partial().parse(input ?? {});
-  const sent = input && typeof input === "object" ? Object.keys(input) : [];
-  const changed = Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.includes(key)));
+  const changed = optionalFields(DiagnosticLogSettingsSchema).parse(input ?? {});
   const next = DiagnosticLogSettingsSchema.parse({ ...diagnosticLogSettings(store, owner), ...changed });
   store.save("settings", owner, settingsKey, next);
   return next;
