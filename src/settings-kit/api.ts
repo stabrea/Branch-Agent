@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { lockedDown } from "../lockdown.js";
-import { settingsCatalogue } from "./catalogue.js";
+import { settingsCatalogue, switchPositions, type FieldSpec } from "./catalogue.js";
 import { acceptValue, applyWithPins, changesFor, currentValue, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
 import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
@@ -141,6 +141,14 @@ const PutBackBody = z.object({ key: z.string().max(80), confirmLoosening: z.bool
 const readPathRaw = (data: Record<string, unknown>, field: string): unknown =>
   field.split(".").reduce<unknown>((node, part) => (node && typeof node === "object" ? (node as Record<string, unknown>)[part] : undefined), data);
 
+/** Every value a field can hold (a number's two ends): enough to tell whether one value is its most careful. */
+function holdable(field: FieldSpec): Value[] {
+  const kind = field.kind;
+  if (kind.type === "switch") return [...switchPositions];
+  if (kind.type === "yes-no") return [true, false];
+  if (kind.type === "choice") return [...kind.options];
+  return [kind.min, kind.max];
+}
 function putBack(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = PutBackBody.parse(input);
@@ -157,10 +165,12 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
     const rawValue = readPathRaw(raw, field.field);
     const acceptedValue = acceptValue(field, rawValue);
     const shipped = field.initial as Value;
-    // Only check if we have an actual saved value different from undefined and it's valid for this field
-    if (acceptedValue !== undefined && acceptedValue !== shipped && loosens(field, acceptedValue, shipped, spec)) {
+    // A saved value the field cannot read held the setting closed: putting back asks unless the shipped
+    // value is already the most careful one the field can hold.
+    const unreadable = rawValue !== undefined && acceptedValue === undefined
+      && holdable(field).some((value) => loosens(field, value, shipped, spec));
+    if (unreadable || (acceptedValue !== undefined && acceptedValue !== shipped && loosens(field, acceptedValue, shipped, spec)))
       loosenings.push(field.label);
-    }
   }
   if (loosenings.length && !body.confirmLoosening)
     throw new SettingsKitError(409, `${loosenings.length} of these make Branch less careful (${loosenings.join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);

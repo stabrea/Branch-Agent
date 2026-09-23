@@ -140,3 +140,23 @@ test("every word the new cards show is on file in English", async (t) => {
   assert.ok(keys.length > 20);
   assert.deepEqual([...new Set(keys.filter((key) => !(key in en)))], []);
 });
+
+test("Q83: putting back a record that held something closed asks the same less-careful yes, and the tick is right there", async (t) => {
+  const { app, page, errors } = await fixture(t);
+  const owner = app.runtime.owner;
+  const garbled = { systemVoice: "on", keepAudioOnThisComputer: "yes" };
+  app.store.save("settings", owner, "voice", garbled);
+  await openSettings(page, "general");
+  await page.evaluate(async () => { await (await import("/settings-kit.js")).drawKit(); }); // the card reads the record as it is now
+  const reset = page.locator("#settings-kit-reset");
+  const putBack = reset.getByRole("button", { name: /Put voice settings back as shipped/i });
+  await putBack.waitFor({ timeout: 30000 });
+  await putBack.click();
+  await reset.locator("[role=status]", { hasText: "less careful" }).waitFor();
+  assert.deepEqual(app.store.get("settings", owner, "voice").data, garbled, "nothing put back without the yes");
+  await reset.getByLabel("Yes, make it less careful").last().check();
+  await putBack.click();
+  await reset.locator("[role=status]", { hasText: "Put back as shipped" }).waitFor();
+  assert.notDeepEqual(app.store.get("settings", owner, "voice").data, garbled);
+  assert.deepEqual(errors, []);
+});

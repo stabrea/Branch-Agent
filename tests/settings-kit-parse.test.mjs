@@ -402,3 +402,15 @@ test("settings.change and settings.loosen are refused while Lockdown is on, as t
   await app.registry.execute("settings.change", { changes: [{ setting: "loop_guard.mode", value: "on" }] }, as());
   assert.equal(loopGuardMode(store, owner), "on");
 });
+
+test("put-back: a guarding field whose saved value cannot be read counts as less careful, so it asks", async (t) => {
+  const { store, owner, call } = await served(t);
+  // "yes" is not a value the switch can hold: the voice module fails closed on it, as if audio were kept.
+  const garbled = { systemVoice: "on", keepAudioOnThisComputer: "yes" };
+  store.save("settings", owner, "voice", garbled);
+  const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.match(JSON.stringify(refused.body), /less careful/, "refused as loosening, not as a record that reads fine");
+  assert.deepEqual(store.get("settings", owner, "voice").data, garbled, "nothing was put back");
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true })).status, 200);
+});
