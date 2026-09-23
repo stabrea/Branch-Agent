@@ -394,7 +394,7 @@ async function confineCommand(deps: ContractGuardDeps, name: string, args: unkno
     refuse(deps, context, name, worktree, `${whileCheckedOut}${name} is refused: Branch cannot hold the program it starts to one folder. Only shell.execute runs then, from the active self-development worktree, behind the OS sandbox.`);
   const folder = workspacePath(deps.workspace, "", commandFolder(context.workspace || deps.workspace, cwdOf(args).cwd));
   if (!worktree || folder === null || worktreeOf(folder) !== worktree)
-    refuse(deps, context, name, worktree, `${whileCheckedOut}a command runs only inside the active self-development worktree: make its project active and set cwd to ${worktree || "branch-agent-source/.branch-worktrees/self-<name>"}.`);
+    refuse(deps, context, name, worktree, `${whileCheckedOut}a command runs only inside the active self-development worktree: make its project active and set cwd to a folder in ${worktree || "branch-agent-source/.branch-worktrees/self-<name>"}. Commands run anywhere else again once the self-development work is finished and branch-agent-source is removed from the workspace.`);
   heldTerms(deps, name, args, context);
   if (!(await (deps.confinement ?? canConfineWrites)()))
     refuse(deps, context, name, worktree, `${whileCheckedOut}commands are refused on this computer: it has no sandbox that can hold a command's writes to one folder.`);

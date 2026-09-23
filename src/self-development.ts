@@ -83,6 +83,7 @@ function projectInstructions(name: string, base: string): string {
     "Keep the requested change scoped, preserve the Branch Grown Up design direction, and do not remove provider support or legal notices.",
     "Every change is held to the contract written when this worktree was prepared: only its allowed paths, only its listed tools.",
     `A refused call means the contract does not cover it; ask the owner and use ${widenToolName} rather than working around it.`,
+    `Commands run only through shell.execute, with cwd set to a folder under branch-agent-source/.branch-worktrees/self-${name} that the contract's allowed paths cover whole, behind the OS sandbox; its writes stay in that folder.`,
     "Run the relevant focused tests and npm run build, then inspect git.diff before offering the result.",
     `When the owner asks for a pull request, use github.pull_request_from_changes with name ${name}, targetRepository ${branchRepository}, and base ${base}.`,
     "The pull-request summary must include a Why merge this section. Open a draft; never merge it or change a shared branch yourself.",
