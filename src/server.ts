@@ -4050,6 +4050,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
   if (path === "/api/memory/history")
     return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";
+  // FQ-memory.providers: where facts are kept is the owner's setting and the locker secret is the owner's alone.
+  if (path === "/api/memory/provider")
+    return "A short-lived key cannot change where facts are kept or which key an outside memory service uses. Do that in the app window.";
   // bucket-18 (A0300): where work is sent on GitHub is the owner's to decide.
   if (path === "/api/developer/pull-requests")
     return "A short-lived key cannot change how work is sent to GitHub. Do that in the app window.";

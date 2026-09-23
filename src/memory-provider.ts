@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { z } from "zod";
+import { redactLeaksIn } from "./leak-guard.js";
 import { SecretName } from "./learning-more/providers.js";
 import type { MemoryBackend } from "./memory-backend.js";
 import { MemoryDataSchema, visibleTo, type MemoryRecord } from "./memory.js";
@@ -156,7 +157,8 @@ export class RemoteMemoryBackend implements MemoryBackend {
   }
   async write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> {
     const checked = MemoryDataSchema.parse(data); // never sends anything off this computer unvalidated
-    const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, checked);
+    const clean = redactLeaksIn(checked).value; // remove any accidental secrets before sending to the outside service
+    const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, clean);
     if (!response.ok) throw new Error(`The outside memory service refused to save a fact (status ${response.status})`);
     return mine(owner, parseOne(await response.json()), id);
   }
