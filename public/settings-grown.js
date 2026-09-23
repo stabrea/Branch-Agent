@@ -14,6 +14,7 @@ import { fromEnglish, language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
 import { BUCKETS, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
+import { levelRows, RANK as ROW_RANK } from "/settings-rows.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -162,6 +163,8 @@ function otherHead(page) {
   return head;
 }
 const heads = new Map();
+/** Each card's leveled rows, as found when the page was last put in order. */
+const rowsByCard = new WeakMap();
 function headFor(page, bucket) {
   const key = `${page}:${bucket[0]}`;
   if (!heads.has(key)) heads.set(key, bucket[0] === "other" ? otherHead(page) : bucketHead(page, bucket));
@@ -180,7 +183,11 @@ function wanted(page, host) {
     for (const [ref, level] of bucket[4]) {
       const card = cardIn(host, ref);
       if (!card) continue;
-      mark(card, "level", level);
+      /* DG-199: its rows at the sample's levels, and the card at its lowest row's; Under the hood is Technical. */
+      const leveled = levelRows(card, level, mark);
+      rowsByCard.set(card, leveled);
+      mark(card, "level", bucket[0] === "under" ? "technical" : leveled.level);
+      mark(card, "sgSectionLevel", level); // what its section gives it, before its rows decide
       if (peeked.has(card.id) || peekedPages.has(page.split(":")[0])) mark(card, "sgPeek", "1");
       mark(card, "sgBucket", head.dataset.bucket);
       ids.push(card.id || ref);
@@ -234,24 +241,43 @@ function putKeys(card) {
 }
 
 /* ---------- "N more with Advanced" ---------- */
+/**
+ * DG-199: what a section keeps out of sight at this level, counted as the sample counts it: each setting row out
+ * of sight, in a card on show or in a card out of sight. A card with no setting rows counts for nothing (coordinator).
+ */
+function outOfSight(cards, now) {
+  const levels = [];
+  for (const card of cards) {
+    const { shown = [], every = [] } = rowsByCard.get(card) ?? {};
+    const out = RANK[card.dataset.level ?? "regular"] > now ? every : shown.filter((one) => ROW_RANK[one.level] > now);
+    levels.push(...out.map((one) => one.level));
+  }
+  return levels;
+}
 function countHidden() {
   const now = RANK[levelNow()];
   for (const head of heads.values()) {
     const cards = head.dataset.cards.split(" ").filter(Boolean).map((id) => $(id) ?? head.parentElement?.querySelector(`:scope > .${CSS.escape(id)}`)).filter((card) => card && !card.hidden);
     const above = cards.filter((card) => RANK[card.dataset.level ?? "regular"] > now);
     const shown = cards.filter((card) => !above.includes(card));
+    const hidden = outOfSight(cards, now);
     for (const card of cards) card.classList.toggle("sg-solo", shown.length === 1 && card === shown[0]);
     const line = moreLines.get(head), more = line.querySelector(".sg-more");
+    /* The sample's Under the hood: never a thin head or an "N more" line, and not there at all with nothing on show.
+       Nor is any section with nothing on show and no setting kept out of sight (DG-199). */
+    const under = head.dataset.bucket.endsWith(":under");
+    head.classList.toggle("sg-quiet", !shown.length && (under || !hidden.length));
     head.classList.toggle("sg-empty", cards.length === 0);
-    head.classList.toggle("sg-thin", cards.length > 0 && above.length === cards.length);
-    if (line.hidden !== (above.length === 0)) line.hidden = above.length === 0;
+    head.classList.toggle("sg-thin", !under && cards.length > 0 && above.length === cards.length);
+    const quiet = under || !hidden.length;
+    if (line.hidden !== quiet) line.hidden = quiet;
     /* DG-073: at the end of the section, after its last card on show; in the head when none is on show. */
-    const home = above.length && shown.length ? shown.at(-1) : head;
+    const home = !quiet && shown.length ? shown.at(-1) : head;
     if (home.lastElementChild !== line) home.append(line);
-    if (!above.length) continue;
-    const to = above.some((card) => card.dataset.level === "advanced") ? "advanced" : "technical";
+    if (quiet) continue;
+    const to = hidden.includes("advanced") ? "advanced" : "technical";
     mark(more, "to", to);
-    const words = say(`settingsGrown.more.${to}`, `${above.length} more with ${LEVEL_WORDS[to]}`, { count: above.length });
+    const words = say(`settingsGrown.more.${to}`, `${hidden.length} more with ${LEVEL_WORDS[to]}`, { count: hidden.length });
     /* Written only when it changes: this runs whenever the page changes, and a write is itself a change. */
     if (more.textContent !== words) more.textContent = words;
   }
