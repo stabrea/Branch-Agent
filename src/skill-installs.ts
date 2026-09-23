@@ -5,6 +5,7 @@ import { FeatureModeSchema } from "./feature-switches.js";
 import { PackageInstallSchema } from "./skill-packages.js";
 import { agentSkillPackage, readAgentSkill, writeAgentSkill } from "./agent-skills.js";
 import { describeFindings, scanSkill } from "./skill-scan.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Bucket 12 (A2374, A0776): installing and removing a skill while Branch runs, with a written
@@ -147,7 +148,7 @@ async function change(app: Branch, path: string, body: unknown): Promise<unknown
   app.store.profiles.requireOwner("Installing skills");
   if (path === "/api/skill-installs/settings") {
     const value = SkillInstallSettingsSchema.parse(body ?? {});
-    app.store.save("settings", owner, settingsKey, value);
+    recordedWrite(app.store, owner, byCard(settingsKey), [settingsKey], () => app.store.save("settings", owner, settingsKey, value));
     return value;
   }
   if (skillInstallMode(app) === "off") throw new Error(skillInstallsOff);

@@ -155,7 +155,7 @@ import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsK
 import { settingsKitWriters } from "./settings-kit/writers.js";
 import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
 import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
-import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48 review
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48 review
 import { dictationOwnerOnlyRefusal, dictationSettings, dictationView, saveDictationSettings } from "./voice-dictation.js"; // mac7/live-voice
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
@@ -1040,7 +1040,9 @@ async function api(
     if (request.method !== "POST") throw new HttpError(405, "Use GET or POST here.");
     const refused = listenChangeRefusal(app.store, app.runtime.owner);
     if (refused) throw new HttpError(403, refused);
-    saveListenSettings(app.store, app.runtime.owner, await readBody(request, 4096));
+    const where = await readBody(request, 4096);
+    recordedWrite(app.store, app.runtime.owner, byCard("listen-address"), ["listen-address"],
+      () => saveListenSettings(app.store, app.runtime.owner, where));
     return { ...listenView(app.store, app.runtime.owner, listen), note: "Saved. It takes effect the next time Branch starts." };
   }
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
@@ -1062,7 +1064,9 @@ async function api(
   // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
   if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
   if (path === "/api/approval-reviewer" && request.method === "POST") {
-    saveReviewerSettings(app.store, app.runtime.owner, await readBody(request));
+    const reviewer = await readBody(request);
+    recordedWrite(app.store, app.runtime.owner, byCard("approval_reviewer"), ["approval_reviewer"],
+      () => saveReviewerSettings(app.store, app.runtime.owner, reviewer));
     return reviewerView(app.store, app.runtime.owner);
   }
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
@@ -1078,7 +1082,8 @@ async function api(
   }
   // ── mac2/fly-core-2: the learning core's switch, what it has learned, and forgetting it. ──
   if (handlesLearningCorePath(path))
-    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
+    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: (input: unknown) =>
+      recordedWrite(app.store, app.runtime.owner, byCard("fly-core"), ["fly-core"], () => app.learningCore.configure(input)) },
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
     });
@@ -1151,7 +1156,9 @@ async function api(
       return { open: app.dictation.open, refusal,
         state: dictationView(app.store, app.runtime.owner, app.dictation.platform, true, app.dictation.open, app.dictation.present) };
     }
-    saveDictationSettings(app.store, app.runtime.owner, await readBody(request));
+    const dictation = await readBody(request);
+    recordedWrite(app.store, app.runtime.owner, byCard("live-dictation"), ["live-dictation"],
+      () => saveDictationSettings(app.store, app.runtime.owner, dictation));
     app.dictation.refresh(); // the switch going off stops it and lets go of the microphone at once
     return { settings: dictationSettings(app.store, app.runtime.owner),
       state: dictationView(app.store, app.runtime.owner, app.dictation.platform, true, app.dictation.open, app.dictation.present) };
@@ -1251,8 +1258,11 @@ async function api(
       settings: contextFileSettings(app.store, app.runtime.owner),
       files: contextFileStatus(app.store, app.runtime.owner, app.runtime.workspace),
     };
-  if (request.method === "POST" && path === "/api/context-files")
-    return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/context-files") {
+    const chosen = await readBody(request);
+    return recordedWrite(app.store, app.runtime.owner, byCard("context-files"), ["context-files"],
+      () => saveContextFileSettings(app.store, app.runtime.owner, chosen));
+  }
   // ── mac3/reflection-skills: looking back over conversations and skills written from experience. ──
   if (path.startsWith("/api/reflection")) {
     // What the assistant learns is the owner's, so only the owner changes how it learns.
@@ -1357,7 +1367,11 @@ async function api(
   if (path === "/api/vault-autofill/settings") {
     app.store.profiles.requireOwner("Your saved sign-ins");
     if (request.method === "GET") return readVaultAutofillSettings(app.store, app.runtime.owner);
-    if (request.method === "POST") return saveVaultAutofillSettings(app.store, app.runtime.owner, await readBody(request));
+    if (request.method === "POST") {
+      const autofill = await readBody(request);
+      return recordedWrite(app.store, app.runtime.owner, byCard("vault-autofill"), ["vault-autofill"],
+        () => saveVaultAutofillSettings(app.store, app.runtime.owner, autofill));
+    }
     throw new HttpError(405, "That is not something Branch can do with your saved sign-ins");
   }
   // mac2/desktop-ui: which Keychain entries Branch may read on a Mac (names only, off by default).
@@ -1366,8 +1380,11 @@ async function api(
   // Using this computer's screen and keyboard: off until the owner turns it on here.
   if (request.method === "GET" && path === "/api/desktop/settings")
     return readDesktopSettings(app.store, app.runtime.owner);
-  if (request.method === "POST" && path === "/api/desktop/settings")
-    return saveDesktopSettings(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/desktop/settings") {
+    const desktop = await readBody(request);
+    return recordedWrite(app.store, app.runtime.owner, byCard("desktop-control"), ["desktop-control"],
+      () => saveDesktopSettings(app.store, app.runtime.owner, desktop));
+  }
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
@@ -1886,10 +1903,12 @@ async function developerApi(app: Branch, request: IncomingMessage, path: string)
   if (path === "/api/developer/running" && request.method === "GET")
     return { languageServers: app.languageServers.list(), services: app.openApiTools.list() };
   // bucket-18 (A0300): pull requests from a task's changes; off until the owner says otherwise.
-  if (path === "/api/developer/pull-requests")
-    return request.method === "POST"
-      ? savePullRequestHookSettings(app.store, owner, await readBody(request))
-      : pullRequestHookSettings(app.store, owner);
+  if (path === "/api/developer/pull-requests") {
+    if (request.method !== "POST") return pullRequestHookSettings(app.store, owner);
+    const hook = await readBody(request);
+    return recordedWrite(app.store, owner, byCard("pull-request-hook"), ["pull-request-hook"],
+      () => savePullRequestHookSettings(app.store, owner, hook));
+  }
   throw new HttpError(404, "Endpoint not found");
 }
 
@@ -1897,10 +1916,13 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   // Wave 6: saved facts belong to whoever's profile is switched on, not always to the owner.
   const owner = app.store.profiles.scope();
   // bucket-18 (A2317): the history of what is remembered; the owner's switch and the versions so far.
-  if (path === "/api/memory/history")
-    return request.method === "POST"
-      ? app.memoryHistory.configure(app.runtime.owner, await readBody(request))
-      : { ...app.memoryHistory.settings(app.runtime.owner), ...app.memoryHistory.status(app.runtime.owner), versions: await app.memoryHistory.versions(30) };
+  if (path === "/api/memory/history") {
+    if (request.method !== "POST")
+      return { ...app.memoryHistory.settings(app.runtime.owner), ...app.memoryHistory.status(app.runtime.owner), versions: await app.memoryHistory.versions(30) };
+    const history = await readBody(request);
+    return recordedWrite(app.store, app.runtime.owner, byCard("memory-history"), ["memory-history"],
+      () => app.memoryHistory.configure(app.runtime.owner, history));
+  }
   if (request.method === "GET" && path === "/api/memory/export") {
     audit(app.store, owner, { action: "data.exported", actor: owner, subject: "your saved notes",
       reason: "The facts the assistant remembers were written out", outcome: "saved" });
@@ -2501,7 +2523,11 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
   if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
   // mac7/chat-allowlist: the switch and the list for what a chat's task may use beyond talking.
-  if (request.method === "POST" && path === "/api/channels/permissions") return { permissions: app.channels.setPermissionSettings(await readBody(request)) };
+  if (request.method === "POST" && path === "/api/channels/permissions") {
+    const permissions = await readBody(request);
+    return { permissions: recordedWrite(app.store, app.runtime.owner, byCard("chat-permissions"), ["chat-permissions"],
+      () => app.channels.setPermissionSettings(permissions)) };
+  }
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);

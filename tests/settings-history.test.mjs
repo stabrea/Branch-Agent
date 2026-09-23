@@ -307,3 +307,84 @@ test("in a conversation, settings.why says who set a setting and settings.undo p
   await assert.rejects(run("settings.undo", { record: careful.record }), /less careful.*Recent changes card/);
   assert.deepEqual(await values(), before, "a refused undo changed something");
 });
+
+test("every card that saves a Settings setting around the kit writes a change record naming its card", async (t) => {
+  const { root, app, ask } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const cards = [
+    ["/api/listen", { where: "private-network" }, "listen-address.where"],
+    ["/api/voice/dictation", { mode: "on" }, "live-dictation.mode"],
+    ["/api/approval-reviewer", { mode: "on" }, "approval_reviewer.mode"],
+    ["/api/learning-core/settings", { mode: "on" }, "fly-core.mode"],
+    ["/api/context-files", { files: { soul: "on" } }, "context-files.files.soul"],
+    ["/api/vault-autofill/settings", { mode: "on" }, "vault-autofill.mode"],
+    ["/api/desktop/settings", { mode: "on" }, "desktop-control.mode"],
+    ["/api/developer/pull-requests", { mode: "on" }, "pull-request-hook.mode"],
+    ["/api/memory/history", { mode: "on" }, "memory-history.mode"],
+    ["/api/channels/permissions", { extras: true }, "chat-permissions.extras"],
+    ["/api/loop-guard", { mode: "on" }, "loop_guard.mode"],
+    ["/api/folder-trust", { mode: "on" }, "folder_trust_mode.mode"],
+    ["/api/keychain/settings", { mode: "on" }, "keychain-entries.mode"],
+    ["/api/recordings", { mode: "on" }, "run-recording.mode"],
+    ["/api/event-loop", { mode: "on" }, "event-loop-watch.mode"],
+    ["/api/usage/limits/settings", { mode: "on" }, "usage-limits.mode"],
+    ["/api/media/programs", { mode: "on" }, "media-programs.mode"],
+    ["/api/usage/counters", { mode: "on" }, "execution-metrics.mode"],
+    ["/api/usage/report/settings", { mode: "on" }, "usage-report.mode"],
+    ["/api/move-in/switch", { mode: "on" }, "move-in-switch.mode"],
+    ["/api/sdk-kit", { mode: "on" }, "sdk-kit.mode"],
+    ["/api/local-models/switch", { mode: "on" }, "local-models.mode"],
+    ["/api/local-models/install/switch", { mode: "on" }, "local-runner-install.mode"],
+    ["/api/adapt/switch", { mode: "on" }, "adapt.mode"],
+    ["/api/prompts/settings", { mode: "on" }, "prompt-library.mode"],
+    ["/api/commands/settings", { mode: "on" }, "command-catalog.mode"],
+    ["/api/reflection/settings", { reflection: "on" }, "reflection.reflection"],
+    ["/api/skill-installs/settings", { mode: "on" }, "skill-installs.mode"],
+    ["/api/workspace-editor/settings", { mode: "on" }, "workspace-editor.mode"],
+    ["/api/security-check/settings", { audit: "on" }, "security-check.audit"],
+    ["/api/goal-undo/settings", { goal: "on" }, "goal-undo.goal"],
+    ["/api/voice/engines", { mode: "on" }, "speech-engines.mode"],
+    ["/api/rules/add", { tool: "file.read", match: "*", decision: "allow" }, "policy.preset"],
+    ["/api/comfort", { card: "keys", values: { vim: true } }, "comfort-keys.vim"],
+    ["/api/safety-extras/switch", { part: "command-scan", mode: "on" }, "safety-command-scan.mode"],
+    ["/api/flows-boards/switch", { part: "kanban", mode: "on" }, "flowboards-kanban.mode"],
+    ["/api/reach/switch", { part: "notes", mode: "on" }, "reach-notes.mode"],
+    ["/api/asks/switch", { part: "nodes", mode: "on" }, "asks-nodes.mode"],
+  ];
+  const wrong = [];
+  for (const [path, body, setting] of cards) {
+    const before = await ask("GET", `/api/settings-kit/why/${setting}`);
+    const answer = await fetch(server.url + path, { method: "POST", body: JSON.stringify(body),
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } });
+    if (answer.status !== 200) { wrong.push(`${path}: ${answer.status} ${(await answer.text()).slice(0, 200)}`); continue; }
+    const why = await ask("GET", `/api/settings-kit/why/${setting}`);
+    const key = setting.slice(0, setting.indexOf("."));
+    if (why.value === before.value) wrong.push(`${path}: ${setting} did not move from ${before.value}`);
+    else if (why.kind !== "recorded" || why.record.source !== "card" || why.record.writer !== "owner-in-window" || why.record.detail !== key)
+      wrong.push(`${path}: ${why.kind} ${why.record?.source ?? ""} ${why.record?.detail ?? ""}: ${why.words}`);
+  }
+  assert.deepEqual(wrong, []);
+});
+
+test("a switch /adapt turns on after the owner's yes is recorded as that yes", async (t) => {
+  const { root, app, ask } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const post = async (path, body) => {
+    const answer = await fetch(server.url + path, { method: "POST", body: JSON.stringify(body),
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } });
+    assert.equal(answer.status, 200, `${path}: ${await answer.clone().text()}`);
+    return answer.json();
+  };
+  await post("/api/adapt/switch", { mode: "on" });
+  await post("/api/adapt/stopped", { what: "Write out the call", nextStep: "write out the call",
+    said: "Models on this computer are switched off. Turn them on in Settings." });
+  const plan = await post("/api/adapt/plan", {});
+  assert.ok(plan.fix?.fingerprint, JSON.stringify(plan));
+  await post("/api/adapt/go", { agreed: plan.fix.fingerprint });
+  const why = await ask("GET", "/api/settings-kit/why/local-models.mode");
+  assert.equal(why.value, "when-needed");
+  assert.equal(why.kind, "recorded", why.words);
+  assert.deepEqual([why.record.writer, why.record.source, why.record.detail], ["owner-in-window", "card", "adapt"]);
+});

@@ -8,6 +8,7 @@ import type { Store } from "./store.js";
 import { limitsView, saveUsageLimitsSettings, usageLimitsSettings, type LimitsAccount, type LimitsView } from "./usage-limits.js";
 import { askable, nextDelayMs, OpenRouterKeyReader } from "./usage-limits-openrouter.js";
 import { glanceFrom, saveProgressNote, saveUsageGlanceSettings, usageGlanceSettings, type UsageGlance } from "./usage-glance.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * mac7/usage-bar: the screen's one way in.
@@ -140,7 +141,11 @@ export async function usageLimitsRoute(app: LimitsApp, request: IncomingMessage,
   }
   if (path === "/api/usage/limits/settings") {
     requireOwnerHere(app.store);
-    if (method === "POST") return { usageLimits: saveUsageLimitsSettings(app.store, app.runtime.owner, await readBody()) };
+    if (method === "POST") {
+      const input = await readBody();
+      return { usageLimits: recordedWrite(app.store, app.runtime.owner, byCard("usage-limits"), ["usage-limits"],
+        () => saveUsageLimitsSettings(app.store, app.runtime.owner, input)) };
+    }
     return { usageLimits: usageLimitsSettings(app.store, app.runtime.owner) };
   }
   if (method !== "GET") throw new UsageLimitsError(405, "Use GET");
