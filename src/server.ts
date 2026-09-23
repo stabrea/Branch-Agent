@@ -536,6 +536,8 @@ async function staticFile(
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     // Wave 9: the advisor switch and the two debate bounds.
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
+    // FQ-collaboration.unified-search: the palette's fetch of GET /api/search, kept out of shell.js.
+    "/unified-search.js": ["unified-search.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
