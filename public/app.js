@@ -1179,22 +1179,25 @@ async function saveSessionModel() {
 globalThis.branchRefreshSessionModel = () => loadSessionModel();
 $("session-model").addEventListener("change", saveSessionModel);
 $("session-reasoning").addEventListener("change", saveSessionModel);
-/* DG-025: as in the sample, Models saves each choice as it is made; there is no Save button. One save at a time, each
-   reading the form when its turn comes, so two quick changes land in order. A refusal is said, as before. */
-async function saveModelsNow() {
-  const fallbackOrder = [...$("models-fallback").querySelectorAll("input:checked")].map((box) => box.value);
+/* DG-025: as in the sample, Models saves each choice as it is made; there is no Save button. The form is read when the
+   choice is made (a redraw after the save before must not put an older value back first), and the saves go one at a
+   time, so two quick changes land in order. A refusal is said, as before. */
+function modelsChoice() {
+  return {
+    activePreset: $("models-active").value || null,
+    reasoning: $("models-reasoning").value || null,
+    fallbackOrder: [...$("models-fallback").querySelectorAll("input:checked")].map((box) => box.value),
+    cooldownMs: Math.max(0, Math.round(Number($("models-cooldown").value) || 0)) * 1000,
+  };
+}
+async function sendModels(choice) {
   try {
-    await api("models", {
-      activePreset: $("models-active").value || null,
-      reasoning: $("models-reasoning").value || null,
-      fallbackOrder,
-      cooldownMs: Math.max(0, Math.round(Number($("models-cooldown").value) || 0)) * 1000,
-    });
+    await api("models", choice);
     await refresh();
   } catch (e) { toast(e.message); }
 }
 let modelsSaving = Promise.resolve();
-const saveModels = () => (modelsSaving = modelsSaving.then(saveModelsNow));
+const saveModels = () => { const choice = modelsChoice(); return (modelsSaving = modelsSaving.then(() => sendModels(choice))); };
 $("models-form").addEventListener("submit", (event) => { event.preventDefault(); void saveModels(); });
 $("models-form").addEventListener("change", (event) => {
   if (event.target.closest("#models-active, #models-reasoning, #models-cooldown, #models-fallback")) void saveModels();

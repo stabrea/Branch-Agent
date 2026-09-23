@@ -48,7 +48,7 @@ async function fixture(t) {
   const saved = () => app.runtime.models.settings(app.runtime.owner);
   const until = async (check, what) => {
     for (let i = 0; i < 100 && !check(saved()); i++) await page.waitForTimeout(100);
-    assert.ok(check(saved()), what);
+    assert.ok(check(saved()), `${what}: ${JSON.stringify(saved())}`);
   };
   return { page, errors, saves, saved, until };
 }
@@ -85,5 +85,18 @@ test("DG-025: a refused save is said, and the saved default stays", async (t) =>
   await page.locator("#models-active").selectOption("save-claude");
   await page.locator("#toast", { hasText: "Models could not be saved (test)." }).waitFor({ state: "visible" });
   assert.equal(saved().activePreset, "save-local", "nothing was saved");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-025: a change made while the page is still redrawing after the last save is the one saved", async (t) => {
+  const { page, errors, until } = await fixture(t);
+  /* The redraw after a save reads the state; hold that back so the next change lands while it is on its way. */
+  await page.route("**/api/state", async (route) => { await new Promise((done) => setTimeout(done, 1500)); await route.continue(); });
+  await page.locator("#models-active").selectOption("save-gpt");
+  await page.locator("#models-cooldown").fill("45");
+  await page.locator("#models-cooldown").press("Tab");
+  await until((now) => now.activePreset === "save-gpt" && now.cooldownMs === 45000, "both changes are kept");
+  await page.waitForTimeout(4000);
+  await until((now) => now.activePreset === "save-gpt" && now.cooldownMs === 45000, "and stay kept once the redraws are done");
   assert.deepEqual(errors, []);
 });
