@@ -39,19 +39,137 @@ function decodeEntities(text: string): string {
   });
 }
 
+/**
+ * The feed body arrives from a host the owner does not control (and over plain http:// anyone on the
+ * path can rewrite it), so every scan below is a single forward pass with `indexOf`: a missing close
+ * tag stops the scan instead of rescanning from the next start, which is what made the old lazy
+ * `<item>([\s\S]*?)</item>` regexes quadratic on unclosed tags. The work is also capped outright:
+ * only the first `maxFeedChars` of the body are read, at most `maxBlocks` item/entry blocks are
+ * looked at, and each block is cut to `maxBlockChars` before its title and link are read.
+ */
+export const feedLimits = { maxFeedChars: 512 * 1024, maxBlocks: 50, maxBlockChars: 8 * 1024 } as const;
+
+/** Text alongside an ASCII-only lowercase copy of the same length, so indexes line up in both. */
+interface Scan { text: string; lower: string }
+
+function scanOf(text: string): Scan {
+  // Only A-Z is folded: a full toLowerCase() can change a string's length (U+0130 becomes two code
+  // units), which would shift every index found in the copy away from the original text.
+  return { text, lower: text.replace(/[A-Z]+/g, (run) => run.toLowerCase()) };
+}
+
+function sliceScan(scan: Scan, from: number, to: number): Scan {
+  return { text: scan.text.slice(from, to), lower: scan.lower.slice(from, to) };
+}
+
+const wordChar = /[A-Za-z0-9_]/;
+
+/** Where the next `<name` begins at or after `from` (and not `<names`), or -1. */
+function openTagAt(scan: Scan, name: string, from: number): number {
+  for (let at = scan.lower.indexOf(`<${name}`, from); at !== -1; at = scan.lower.indexOf(`<${name}`, at + 1)) {
+    const next = scan.lower.charAt(at + name.length + 1);
+    if (!next || !wordChar.test(next)) return at;
+  }
+  return -1;
+}
+
+/**
+ * The inner text of `<name ...>inner</name>` blocks, in order, starting at the first one. Stops at
+ * the first open tag with no `>` or no `</name>` after it: nothing further on can close either.
+ */
+function* elements(scan: Scan, name: string): Generator<Scan> {
+  let from = 0;
+  for (;;) {
+    const open = openTagAt(scan, name, from);
+    if (open === -1) return;
+    const gt = scan.lower.indexOf(">", open + name.length + 1);
+    if (gt === -1) return;
+    const close = scan.lower.indexOf(`</${name}>`, gt + 1);
+    if (close === -1) return;
+    yield sliceScan(scan, gt + 1, close);
+    from = close + name.length + 3;
+  }
+}
+
+/** CDATA sections unwrapped in one forward pass; an unclosed one is left as it is. */
+function unwrapCdata(text: string): string {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf("<![CDATA[", from);
+    const close = open === -1 ? -1 : text.indexOf("]]>", open + 9);
+    if (close === -1) return out + text.slice(from);
+    out += text.slice(from, open) + text.slice(open + 9, close);
+    from = close + 3;
+  }
+}
+
 /** The text of the first `<tag>...</tag>` in a block, CDATA and entities unwrapped, or null. */
-function firstTagText(block: string, tag: string): string | null {
-  const match = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i").exec(block);
-  if (!match) return null;
-  const inner = match[1]!.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
-  return decodeEntities(inner).trim();
+function firstTagText(block: Scan, tag: string): string | null {
+  const first = elements(block, tag).next();
+  if (first.done) return null;
+  return decodeEntities(unwrapCdata(first.value.text)).trim();
+}
+
+/** The end of the tag that starts at `open`: the first `>` outside a quoted value, or -1. */
+function tagEnd(text: string, open: number): number {
+  let quote = "";
+  for (let at = open + 1; at < text.length; at += 1) {
+    const char = text[at]!;
+    if (quote) { if (char === quote) quote = ""; }
+    else if (char === '"' || char === "'") quote = char;
+    else if (char === ">") return at;
+  }
+  return -1;
+}
+
+/** The value of the `href` attribute in one tag's attribute text, walked once, or null. */
+function hrefAttribute(attributes: string): string | null {
+  let at = 0;
+  while (at < attributes.length) {
+    while (at < attributes.length && /[\s/]/.test(attributes[at]!)) at += 1;
+    const nameStart = at;
+    while (at < attributes.length && !/[\s=/]/.test(attributes[at]!)) at += 1;
+    const name = attributes.slice(nameStart, at).toLowerCase();
+    while (at < attributes.length && /\s/.test(attributes[at]!)) at += 1;
+    if (attributes[at] !== "=") { at = Math.max(at, nameStart + 1); continue; }
+    at += 1;
+    while (at < attributes.length && /\s/.test(attributes[at]!)) at += 1;
+    const quote = attributes[at];
+    if (quote !== '"' && quote !== "'") continue;
+    const close = attributes.indexOf(quote, at + 1);
+    if (close === -1) return null;
+    if (name === "href") return attributes.slice(at + 1, close);
+    at = close + 1;
+  }
+  return null;
 }
 
 /** Atom's `<link href="...">` carries the address as an attribute, not as element text. */
-function atomLinkHref(block: string): string | null {
-  const match = /<link\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*\/?>/i.exec(block);
-  const href = match ? (match[1] ?? match[2] ?? "") : null;
-  return href ? decodeEntities(href).trim() : null;
+function atomLinkHref(block: Scan): string | null {
+  for (let open = openTagAt(block, "link", 0); open !== -1; ) {
+    const end = tagEnd(block.text, open);
+    if (end === -1) return null;
+    const raw = hrefAttribute(block.text.slice(open + 5, end));
+    if (raw !== null) {
+      const href = decodeEntities(raw).trim();
+      return href || null;
+    }
+    open = openTagAt(block, "link", end + 1);
+  }
+  return null;
+}
+
+/** Every `<item>` block, then every `<entry>` block, cut to size, stopping after `maxBlocks` in all. */
+function* feedBlocks(xml: string): Generator<Scan> {
+  const scan = scanOf(xml.slice(0, feedLimits.maxFeedChars));
+  let seen = 0;
+  for (const name of ["item", "entry"]) {
+    for (const block of elements(scan, name)) {
+      if (seen++ >= feedLimits.maxBlocks) return;
+      yield sliceScan(block, 0, feedLimits.maxBlockChars);
+    }
+  }
 }
 
 /**
@@ -61,9 +179,7 @@ function atomLinkHref(block: string): string | null {
  */
 export function parseFeedItems(xml: string, source: string, limit = 8): BriefItem[] {
   const items: BriefItem[] = [];
-  const blocks = [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi), ...xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)];
-  for (const block of blocks) {
-    const body = block[1] ?? "";
+  for (const body of feedBlocks(xml)) {
     const title = firstTagText(body, "title");
     const link = firstTagText(body, "link") || atomLinkHref(body);
     if (!title || !link || !isSafeLink(link)) continue;

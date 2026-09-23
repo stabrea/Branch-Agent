@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { MorningBrief } from "../dist/brief.js";
-import { parseFeedItems, isSafeLink, fetchNewsItems, noHealthConnected } from "../dist/brief-sources.js";
+import { parseFeedItems, isSafeLink, fetchNewsItems, noHealthConnected, feedLimits } from "../dist/brief-sources.js";
 
 /** A stand-in for the app's network rules: everything is allowed, so the test needs no real policy. */
 function openPolicy() { return { assertAllowed: async () => undefined }; }
@@ -105,4 +105,71 @@ test("morning brief: the running app itself, not just the library, reads news fe
   assert.match(preview.markdown, /City council approves new park/);
   assert.match(preview.markdown, new RegExp(`${feedUrl.replace(/[.]/g, "\\.")}\\/park`));
   assert.match(preview.markdown, /No health data source is connected\./, "health is honest with nothing wired up");
+});
+
+/*
+ * Review finding (NAS, brief-sources.ts:64): the old lazy `<item>([\s\S]*?)</item>` scans were
+ * quadratic on unclosed tags and ran synchronously on up to the fetch byte limit, so one hostile feed
+ * (or anyone on the path of an http:// one) could stall the whole server at every preview, send and
+ * tick. These fixtures were run through the old regex parser and its output recorded below; the
+ * linear scanner has to give exactly the same answer on well-formed feeds.
+ */
+const rss = `<?xml version="1.0"?><rss version="2.0"><channel><title>Chan</title><link>https://chan.example/</link>
+<items>not an item</items>
+<item id="1"><title><![CDATA[Rates & <b>markets</b>]]></title><link>https://news.example/a?x=1&amp;y=2</link><description>d</description></item>
+<ITEM><TITLE>Upper &#233;t&#xE9; &quot;q&quot;</TITLE><LINK> https://news.example/b </LINK></ITEM>
+<item><title>No link</title></item>
+<item><title>Bad link</title><link>data:text/html,x</link></item>
+<item>
+  <title type="html">Spaced</title>
+  <link>http://news.example/c</link>
+</item>
+</channel></rss>`;
+const atom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>F</title><link href="https://feed.example/"/>
+<entry><title>First entry</title><link rel="alternate" href="https://feed.example/1"/><link rel="self" href='https://feed.example/1.xml'/></entry>
+<entry xml:lang="en"><title>Second &amp; last</title><link href='https://feed.example/2?a=1&amp;b=2' /></entry>
+<entry><title>Unsafe</title><link href="javascript:alert(1)"/></entry>
+<entry><title></title><link href="https://feed.example/empty"/></entry>
+</feed>`;
+const mixed = `<rss><channel><entry><title>Atom inside</title><link href="https://m.example/e"/></entry><item><title>Rss inside</title><link>https://m.example/i</link></item><item><title>Rss two</title><link>https://m.example/j</link></item></channel></rss>`;
+
+test("feed parser: well-formed RSS, Atom and mixed feeds parse exactly as the old regex parser did", () => {
+  assert.deepEqual(parseFeedItems(rss, "s"), [{"title": "Rates & <b>markets</b>", "link": "https://news.example/a?x=1&y=2", "source": "s"}, {"title": "Upper été \"q\"", "link": "https://news.example/b", "source": "s"}, {"title": "Spaced", "link": "http://news.example/c", "source": "s"}]);
+  assert.deepEqual(parseFeedItems(atom, "s"), [{"title": "First entry", "link": "https://feed.example/1", "source": "s"}, {"title": "Second & last", "link": "https://feed.example/2?a=1&b=2", "source": "s"}]);
+  assert.deepEqual(parseFeedItems(mixed, "s"), [{"title": "Rss inside", "link": "https://m.example/i", "source": "s"}, {"title": "Rss two", "link": "https://m.example/j", "source": "s"}, {"title": "Atom inside", "link": "https://m.example/e", "source": "s"}]);
+  assert.deepEqual(parseFeedItems(mixed, "s", 2), [{"title": "Rss inside", "link": "https://m.example/i", "source": "s"}, {"title": "Rss two", "link": "https://m.example/j", "source": "s"}]);
+});
+
+test("feed parser: a 1 MiB hostile body of unclosed tags parses in linear time, and the caps hold", () => {
+  const mib = 1024 * 1024;
+  const shapes = {
+    "repeated <item> with no close": "<item>",
+    "repeated <item with no >": "<item",
+    "repeated <entry> with no close": "<entry>",
+    "repeated unclosed <item><title>": "<item><title>",
+  };
+  for (const [label, unit] of Object.entries(shapes)) {
+    const body = unit.repeat(Math.ceil(mib / unit.length));
+    const started = performance.now();
+    assert.deepEqual(parseFeedItems(body, "x"), []);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 200, `${label}: ${elapsed.toFixed(1)} ms`);
+  }
+  // Closed items whose own title never closes: the per-item scan has to stay linear too.
+  const closed = `<item><title>${"<title>".repeat(1200)}</item>`.repeat(200);
+  const started = performance.now();
+  assert.deepEqual(parseFeedItems(closed, "x"), []);
+  assert.ok(performance.now() - started < 200, "unclosed titles inside closed items");
+
+  // At most maxBlocks blocks are looked at, however many good items follow the bad ones.
+  const good = (n) => `<item><title>Item ${n}</title><link>https://news.example/${n}</link></item>`;
+  const skipped = "<item><title>no link</title></item>".repeat(feedLimits.maxBlocks);
+  assert.deepEqual(parseFeedItems(skipped + good(1), "x"), [], "the 51st block is never read");
+  assert.equal(parseFeedItems(good(1), "x").length, 1);
+  // Only the first maxFeedChars of the body are read.
+  const padding = " ".repeat(feedLimits.maxFeedChars);
+  assert.deepEqual(parseFeedItems(padding + good(2), "x"), []);
+  // Each block is cut to maxBlockChars before its title and link are read.
+  const long = `<item>${" ".repeat(feedLimits.maxBlockChars)}<title>Late</title><link>https://news.example/late</link></item>`;
+  assert.deepEqual(parseFeedItems(long, "x"), []);
 });
