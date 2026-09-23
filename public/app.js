@@ -1348,7 +1348,12 @@ function message(role, content, source) {
   if (role === "assistant" && source?.author) by.classList.add("message-specialist");
   node.append(by);
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
-  if (role === "user") node.append(document.createTextNode(content));
+  if (role === "user") {
+    node.append(document.createTextNode(content));
+    // FQ-surfaces.playback: a sound or video file attached to this message plays inline, right here,
+    // both the moment it is sent and every time the conversation is redrawn afterwards.
+    globalThis.branchPlaybackRender?.(node, content, source?.clips);
+  }
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
      through the voice service so the free Windows voice works with no key and no internet. */
@@ -1839,7 +1844,9 @@ $("chat-form").addEventListener("submit", async (event) => {
   const prompt = answering ? `Delegate to specialist ${answering.id}: ${asked}` : asked;
   setConversationBusy(true);
   if (!sessionId) $("conversation").replaceChildren();
-  message("user", asked);
+  // FQ-surfaces.playback: the sound/video file just attached, handed to this one message's bubble.
+  const clips = globalThis.branchPlaybackAttachments?.() ?? [];
+  message("user", asked, clips.length ? { clips } : undefined);
   $("prompt").value = "";
   const stopActivity = watchActivity(prompt);
   // Wave 6: the live row you can step into while it works.
