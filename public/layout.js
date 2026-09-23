@@ -906,11 +906,13 @@ let paneSeg = null;
    short. Measured, not guessed from a width, because the width that fits depends on the font. */
 function fitPaneTabs() {
   if (!paneSeg || !paneSeg.getClientRects().length) return;
-  paneSeg.classList.remove("lx-tabs-tight");
+  paneSeg.classList.remove("lx-tabs-tight", "lx-tabs-fit");
   /* A name can overflow its tab without being cut inside its own words, so the tabs themselves are measured too. */
   const over = (node) => node.getClientRects().length && node.scrollWidth > node.clientWidth + 1;
-  const cut = [...paneSeg.querySelectorAll(".lx-pane-tab, .lx-words")].some(over);
-  paneSeg.classList.toggle("lx-tabs-tight", cut);
+  const cut = () => [...paneSeg.querySelectorAll(".lx-pane-tab, .lx-words")].some(over);
+  /* DG-115: a longer name (French "Navigateur") first borrows room from the shorter ones, so all six names stay. */
+  if (cut()) paneSeg.classList.add("lx-tabs-fit");
+  paneSeg.classList.toggle("lx-tabs-tight", cut());
 }
 /* phase2/panels: the calm window's pane can be shut while work runs; it opens by itself again for the next task. */
 let paneShut = false;

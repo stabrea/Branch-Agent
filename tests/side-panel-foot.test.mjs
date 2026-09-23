@@ -119,3 +119,19 @@ test("DG-118 the card's own close and Escape put it away, hand the keyboard back
   }
   assert.deepEqual(errors, []);
 });
+
+test("DG-115 in French all six tabs keep their names in the 340 px card", async (t) => {
+  const { page, errors } = await fixture(t);
+  await openCard(page);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  for (const id of ["activity", "browser", "terminal"]) {
+    await tab(page, id);
+    await page.waitForFunction(() => document.querySelector('.lx-pane-tab[data-pane="browser"] .lx-words')?.textContent === "Navigateur");
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const words = await page.evaluate(() => [...document.querySelectorAll("#context-panel .lx-pane-tab .lx-words")]
+      .map((word) => ({ text: word.textContent, shown: word.getClientRects().length > 0, cut: word.scrollWidth > word.clientWidth + 1 })));
+    assert.equal(words.length, 6);
+    assert.deepEqual(words.filter((word) => !word.shown || word.cut).map((word) => word.text), [], `${id}: every name shows whole`);
+  }
+  assert.deepEqual(errors, []);
+});

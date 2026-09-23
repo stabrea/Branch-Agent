@@ -179,6 +179,11 @@ body.lx.lx-working #aside-toggle::after {
   color: var(--text);
   font-weight: 600;
 }
+/* DG-115: when a name is too long for an equal column, each tab takes the width of its own name instead. */
+.context-panel #lx-pane-tabs.lx-tabs-fit .lx-pane-tab,
+.context-panel #lx-pane-tabs.lx-tabs-fit .lx-pane-tab[aria-pressed="true"] {
+  flex: 1 1 auto;
+}
 /* Too narrow for six names (public/layout.js measures it): every tab is its picture, and the chosen one also says its
    name, so nothing wraps or is cut short. */
 .context-panel #lx-pane-tabs.lx-tabs-tight .lx-pane-tab .lx-words {
