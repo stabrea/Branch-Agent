@@ -509,6 +509,8 @@ async function staticFile(
     "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
     "/faces.css": ["faces.css", "text/css; charset=utf-8"],
     "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
+    // FQ-surfaces.mobile-push: subscribing this device, and the Notifications settings card.
+    "/push.js": ["push.js", "text/javascript; charset=utf-8"],
     "/strip.css": ["strip.css", "text/css; charset=utf-8"],
     "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
     "/studio.css": ["studio.css", "text/css; charset=utf-8"],

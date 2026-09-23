@@ -49,3 +49,31 @@ self.addEventListener("fetch", (event) => {
         ?? Response.error()),
   );
 });
+
+/**
+ * FQ-surfaces.mobile-push: shows a notification even while nothing is open — the whole point of a
+ * push. public/push.js decides whether the owner wants one at all (public/comfort.js's "This
+ * window only" is honored on the server, before anything is sent here); this worker just shows what
+ * it is given. A push whose body is not JSON still shows a plain fallback rather than nothing.
+ */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { /* shown with the fallback text below */ }
+  event.waitUntil(self.registration.showNotification(data.title || "Branch", {
+    body: data.body || "",
+    tag: data.tag || "branch-task",
+    data: { runId: data.runId ?? null, sessionId: data.sessionId ?? null },
+  }));
+});
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const opened = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of opened) {
+      /* The page itself decides what "open" means for its own conversation list; the worker only says which one. */
+      client.postMessage({ type: "branch-push-open", runId: event.notification.data?.runId ?? null, sessionId: event.notification.data?.sessionId ?? null });
+      return client.focus();
+    }
+    return self.clients.openWindow("/");
+  })());
+});
