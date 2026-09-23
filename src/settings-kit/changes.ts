@@ -71,13 +71,13 @@ export function currentValue(store: Store, owner: string, spec: SettingSpec, fie
   return field.kind.type === "choice" && typeof saved === "string" ? saved.slice(0, 40) : field.initial;
 }
 
-/** How careful a value is, as a number: higher is less careful. */
+/** Ordered magnitude; loosens() applies the field's protective or reach direction. */
 function reachOf(field: FieldSpec, value: Value): number {
   const kind = field.kind;
   if (kind.type === "switch") return switchPositions.indexOf(value as (typeof switchPositions)[number]);
   if (kind.type === "yes-no") return value ? 1 : 0;
   if (kind.type === "choice") return kind.options.indexOf(String(value));
-  return 0;
+  return value as number;
 }
 
 export function loosens(field: FieldSpec, from: Value, to: Value, spec?: Pick<SettingSpec, "key">): boolean {
