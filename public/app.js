@@ -322,19 +322,9 @@ async function showMemoryHistory(node, record) {
   }
   node.append(box);
 }
-/** Q54-L1: Format a fact kind in plain words. */
-function kindName(kind) {
-  if (!kind) return "";
-  const kindLabels = {
-    "preference": "Preference",
-    "fact-about-person": "Fact about you",
-    "fact-about-world": "Fact about the world",
-    "procedure-hint": "How-to hint",
-    "project-note": "Project note",
-    "task-scratch": "Task note",
-  };
-  return kindLabels[kind] || kind;
-}
+/** Q54: a fact's kind in plain words, as it was recorded when the fact was saved (src/memory-layers.ts). */
+const memoryKinds = ["preference", "fact-about-person", "fact-about-world", "procedure-hint", "project-note", "task-scratch"];
+const kindName = (kind) => (memoryKinds.includes(kind) ? t(`memory.kind.${kind}`) : "");
 function memoryCard(record) {
   const node = recordCard(record.data.text);
   /* A saved fact is one line, so it keeps its heading and gets the inline formatting only:
@@ -345,21 +335,22 @@ function memoryCard(record) {
   edit.disabled = memoryEditors.has(record.id);
   // Q54-L1: Show recorded fields only: kind, conversation link (if run exists), source, revision
   const metaLine = el("p", undefined, "memory-meta");
-  if (record.data.kind) metaLine.append(el("span", kindName(record.data.kind)));
+  if (kindName(record.data.kind)) metaLine.append(el("span", kindName(record.data.kind), "memory-kind"));
   // Add conversation link if originRunId or sourceRunId resolves to a run from state
   const runId = record.data.originRunId || record.data.sourceRunId;
   if (runId && state?.runs) {
     const run = state.runs.find(r => r.id === runId);
     if (run) {
       if (metaLine.children.length > 0) metaLine.append(" · ");
-      const link = el("a", "From this conversation");
+      const link = el("a", t("memory.from-conversation"), "memory-from");
       link.href = "#";
       link.addEventListener("click", (e) => { e.preventDefault(); displayView("chat"); openConversation(run.sessionId); });
       metaLine.append(link);
     }
   }
-  metaLine.append(` · revision ${record.revision}`);
-  if (metaLine.children.length > 0 || metaLine.textContent) node.append(metaLine);
+  if (metaLine.children.length > 0) metaLine.append(" · ");
+  metaLine.append(t("memory.revision", { n: record.revision }));
+  node.append(metaLine);
   if (record.data.entity) node.append(el("p", `About ${record.data.entity}${record.data.attribute ? " · " + record.data.attribute : ""} · from ${date(record.data.validFrom || record.createdAt)}${record.data.validTo ? " until " + date(record.data.validTo) : ""}`, "meta"));
   if (record.data.scope && record.data.scope !== "private") node.append(el("p", record.data.scope === "shared" ? "Specialists may see this" : `Only the ${record.data.scope.slice(6)} specialist sees this`, "meta"));
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,

@@ -248,3 +248,36 @@ test("memory with kind displays recorded field; edit updates and retrieval finds
   assert.equal(retrieved.data.text, "Tea and coffee lover");
   assert.ok(!retrieved.data.text.includes("Coffee lover"));
 });
+
+test("Q54 the memory list shows what was recorded about a fact, and opens the conversation it came from", async (t) => {
+  const { chromium } = await import("playwright");
+  const steps = [
+    { content: "", toolCalls: [{ id: "m1", name: "memory.put", arguments: JSON.stringify({ text: "The owner drinks tea, not coffee", source: "Said in chat" }) }] },
+    { content: "Saved.", toolCalls: [] },
+  ];
+  const root = await mkdtemp(join(tmpdir(), "branch-q54-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return steps.shift() ?? { content: "Done.", toolCalls: [] }; } } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt: "remember that I drink tea" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  errors.length = 0;
+  const card = page.locator("#memory-list [data-memory-id]").first();
+  await card.waitFor({ state: "attached", timeout: 15000 });
+  const meta = await card.locator(".memory-meta").textContent();
+  assert.match(meta, /From this conversation · revision 1$/, meta);
+  await card.locator("a.memory-from").evaluate((link) => link.click());
+  await page.waitForFunction((id) => document.getElementById("conversation")?.dataset.sessionId === id, run.sessionId, { timeout: 15000 });
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await page.evaluate(async () => (await import("/i18n.js")).t("memory.from-conversation")), "De cette conversation");
+  assert.deepEqual(errors, []);
+});
