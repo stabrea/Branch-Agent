@@ -199,7 +199,16 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   saveComfort(app.store, "local", "notify", { autoUpdate: "check" });
   await refresh(page);
   await page.waitForFunction(() => globalThis.__desktop.includes("check"));
-  await page.evaluate(() => { globalThis.__desktop = []; return globalThis.branchComfort.autoUpdate(); });
+  /* The automatic look is still finishing after its check starts, and a second look never overlaps
+     one in flight, so wait until a look of our own is actually made before asserting what it did. */
+  await page.evaluate(async () => {
+    for (let tries = 0; tries < 200; tries++) {
+      globalThis.__desktop = [];
+      await globalThis.branchComfort.autoUpdate();
+      if (globalThis.__desktop.length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  });
   assert.deepEqual(await page.evaluate(() => globalThis.__desktop), ["status"], "looked for less than a day ago");
   saveComfort(app.store, "local", "notify", { autoUpdate: "install" });
   await page.evaluate(() => { globalThis.__desktop = []; globalThis.__phase = "available"; });
