@@ -7,7 +7,7 @@
    and a link to one setting still show a row whatever the level. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -33,6 +33,16 @@ test("DG-199 Under the hood is Technical and last on every page that has it", ()
     assert.equal(at, buckets.length - 1, `${page}: last`);
     assert.deepEqual([...new Set(buckets[at][4].map(([, level]) => level))], ["technical"], `${page}: Technical`);
   }
+});
+
+/* DG-180, DG-181 and DG-183 each drew rows the sample shows as a "Set in … ›" line and counts in its "N more"; they
+   are one table, which the page levels by and this file counts by. */
+test("DG-199 the rows drawn as a pointer to another place come from one table", async () => {
+  const source = await readFile(new URL("../public/settings-rows.js", import.meta.url), "utf8");
+  assert.match(source, /export const POINTERS = \[/, "one table, exported so the count here reads the same one");
+  const others = new RegExp(["LINK" + "ED", "LINK_" + "ROWS"].map((name) => `\\b${name}\\b`).join("|"));
+  assert.doesNotMatch(source, others, "no second table beside it in public/settings-rows.js");
+  assert.doesNotMatch(await readFile(new URL(import.meta.url), "utf8"), others, "nor one of its own in this file");
 });
 
 async function settings(t) {
@@ -87,19 +97,18 @@ test("DG-199 each marked row holds one setting and its words, never a title or a
 const onPage = (page, name) => page.evaluate(async (name) => {
   const { SETTINGS_INDEX } = await import("/settings-index.js");
   const { ROW_LEVELS } = await import("/settings-row-levels.js");
-  const { LINKED } = await import("/settings-rows.js"); // rows the sample draws as a "Set in …" link (DG-180)
-  const levelOf = (id) => ROW_LEVELS[id] ?? LINKED[id];
+  const { POINTERS } = await import("/settings-rows.js"); // rows the sample draws as a "Set in … ›" line
+  const pointed = new Map(POINTERS.map(([id, , level]) => [id, level]));
+  const levelOf = (id) => ROW_LEVELS[id] ?? pointed.get(id);
   const rank = { regular: 0, advanced: 1, technical: 2 };
   const now = rank[document.documentElement.dataset.settingsLevel];
   const host = document.getElementById(`lx-page-${name}`);
   const rows = [...host.querySelectorAll("[data-sg-row]")].filter((piece) => piece.closest("[data-sg-bucket]")?.checkVisibility());
-  /* A card's leveled settings, and the rows the sample draws as a link to another page (DG-181), which are marked in
-     the card though they are not settings of their own: the sample counts those too. */
-  const leveled = (card) => {
-    const ids = new Set(SETTINGS_INDEX.filter((row) => row[2] === card.id && levelOf(row[0])).map((row) => row[0]));
-    for (const piece of card.querySelectorAll("[data-sg-row]")) ids.add(piece.dataset.sgRow);
-    return [...ids];
-  };
+  /* A card's leveled settings, and its pointer rows, which are not settings of their own: the sample counts those too. */
+  const leveled = (card) => [...new Set([
+    ...SETTINGS_INDEX.filter((row) => row[2] === card.id && levelOf(row[0])).map((row) => row[0]),
+    ...POINTERS.filter((row) => row[1] === card.id).map((row) => row[0]),
+  ])];
   const sections = [...host.querySelectorAll(".sg-head")].map((head) => {
     const cards = head.dataset.cards.split(" ").filter(Boolean).map((id) => document.getElementById(id)).filter((card) => card && !card.hidden);
     let expected = 0;
@@ -172,6 +181,28 @@ test("DG-199 a card shows at the lowest level of its rows", async (t) => {
     return out;
   });
   assert.deepEqual(wrong, []);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-199 each pointer row is a row of its card, at the level the sample shows it", async (t) => {
+  const { page, errors } = await settings(t);
+  await level(page, "technical");
+  for (const name of await pages(page)) await open(page, name);
+  const seen = await page.evaluate(async () => {
+    const { POINTERS, rowsIn } = await import("/settings-rows.js");
+    const word = { R: "regular", A: "advanced", T: "technical" };
+    return POINTERS.map(([id, card, level]) => {
+      const node = document.getElementById(card);
+      const row = node && rowsIn(node).rows.find((one) => one.id === id);
+      return { id, card, want: word[level], got: row?.level ?? null, found: Boolean(row?.pieces.length) };
+    });
+  });
+  assert.deepEqual(seen.map((one) => one.id),
+    ["context-switch-agents", "context-link-soul", "context-link-identity", "context-link-user", "appearance-contrast-link"]);
+  for (const one of seen) {
+    assert.equal(one.got, one.want, `${one.id} is a row of ${one.card} at ${one.want}`);
+    assert.ok(one.found, `${one.id} is found in ${one.card}`);
+  }
   assert.deepEqual(errors, []);
 });
 

@@ -8,12 +8,6 @@ import { ROW_LEVELS } from "/settings-row-levels.js";
 
 export const RANK = { regular: 0, advanced: 1, technical: 2 };
 const WORD = { R: "regular", A: "advanced", T: "technical" };
-/* DG-181: rows the sample draws as a line that sends you to another page ("Set in … ›") instead of as a control, so
-   the snapshot, read from controls, leaves them out; the sample still counts them in "N more with …". Card id ->
-   [the row's own id, its level]; the whole row is the piece that hides and shows. */
-const LINK_ROWS = {
-  "context-assistant": [["context-link-soul", "A"], ["context-link-identity", "A"], ["context-link-user", "A"]],
-};
 const NOTE = ":is(p, small, span, div):is(.subtle, .field-note, .note, .hint, .meta, .studio-note, .check-note)";
 
 /**
@@ -30,26 +24,34 @@ export const ALWAYS = {
   "desktop-card": null, "reach-background-card": null, "deployment-card": null, "updates-card": null, "comfort-updates-card": null,
 };
 for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: true });
-/* DG-180: rows the sample draws as a "Set in … ›" link to where they are set, which the generated levels skip. The
-   sample shows each at this level and counts it in its section's "N more": AGENTS.md makes Your projects "9 more". */
-export const LINKED = { "context-switch-agents": "A" };
-/* DG-183: rows the sample draws as a pointer to a setting kept in another section ("Set in Theme ›"), at the level the
-   sample shows the pointer. They are not settings of their own, so public/settings-index.js does not list them, but
-   the sample counts them in its section's "N more with Advanced". [card, [row id, selector, level], ...]. */
-const POINTERS = [
-  ["settings-form", ["appearance-contrast-link", null, "advanced"]],
+/* DG-180, DG-181, DG-183: rows the sample draws as a "Set in … ›" line that sends you to where a setting is kept,
+   at the level the sample shows each, counted in their section's "N more with …". One table for every page, which
+   tests/settings-row-levels.test.mjs counts by too: [row id, card id, level]. A row that is a setting of its own
+   (listed in public/settings-index.js) takes only its level from here, since the generated levels skip it; any
+   other is a row of its card, and the whole row is the piece that hides and shows. */
+export const POINTERS = [
+  ["context-switch-agents", "context-project", "A"], // AGENTS.md makes Your projects "9 more" (DG-180)
+  ["context-link-soul", "context-assistant", "A"], // the Assistant page's three files (DG-181)
+  ["context-link-identity", "context-assistant", "A"],
+  ["context-link-user", "context-assistant", "A"],
+  ["appearance-contrast-link", "settings-form", "A"], // "Set in Theme ›" (DG-183)
 ];
-for (const [card, ...rows] of POINTERS) BY_CARD.set(card, { rows: [...rows], partial: false });
+const POINTED = new Map(POINTERS.map(([id, , level]) => [id, level]));
+const INDEXED = new Set(SETTINGS_INDEX.map((row) => row[0]));
+for (const [id, card, level] of POINTERS) {
+  if (INDEXED.has(id)) continue;
+  const entry = BY_CARD.get(card) ?? { rows: [], partial: false };
+  entry.rows.push([id, null, WORD[level]]);
+  BY_CARD.set(card, entry);
+}
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   if (!card) continue;
   const entry = BY_CARD.get(card) ?? { rows: [], partial: false };
-  const level = WORD[ROW_LEVELS[id] ?? LINKED[id]];
+  const level = WORD[ROW_LEVELS[id] ?? POINTED.get(id)];
   if (level) entry.rows.push([id, selector, level]);
   else entry.partial = true;
   BY_CARD.set(card, entry);
 }
-
-for (const [card, rows] of Object.entries(LINK_ROWS)) BY_CARD.set(card, { rows: rows.map(([id, level]) => [id, null, WORD[level]]), partial: false });
 
 const shared = (a, b) => { let node = a; while (node && !node.contains(b)) node = node.parentElement; return node; };
 const childOf = (box, node) => { while (node && node.parentElement !== box) node = node.parentElement; return node; };
