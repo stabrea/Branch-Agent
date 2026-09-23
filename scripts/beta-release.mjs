@@ -76,6 +76,10 @@ async function mergeHeadCurrent(sha, pullHead, repo, gh) {
   // Squash and rebase merges take the exhaustive acceptance lane instead.
   if (merge.sha !== sha || merge.parents?.length !== 2 ||
       !shaPattern.test(base) || merge.parents[1]?.sha !== pullHead) return false;
+  const reviewed = JSON.parse(await gh(["api", "--method", "GET", `repos/${repo}/commits/${pullHead}`]));
+  const reviewedTree = reviewed.commit?.tree?.sha;
+  if (reviewed.sha !== pullHead || !shaPattern.test(reviewedTree) ||
+      merge.commit?.tree?.sha !== reviewedTree) return false;
   const comparison = JSON.parse(await gh(["api", "--method", "GET",
     `repos/${repo}/compare/${base}...${pullHead}`]));
   return comparison.behind_by === 0;

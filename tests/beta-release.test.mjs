@@ -45,6 +45,8 @@ test("only the exact installed reviewer App bot can approve a fast beta", () => 
   assert.equal(approvedExactHead([{ ...appApproval, user: { ...appApproval.user, type: "User" } }], pull), false);
   assert.equal(approvedExactHead([{ ...appApproval, user: { ...appApproval.user, login: "other[bot]" } }], pull), false);
   assert.equal(approvedExactHead([{ ...appApproval, commit_id: sha }], pull), false);
+  assert.equal(approvedExactHead([appApproval, { ...approval, id: 2, state: "CHANGES_REQUESTED" }], pull), false,
+    "a different trusted reviewer's unresolved objection vetoes approval");
 });
 
 test("beta version is strictly after the current stable patch and monotonic per workflow run", () => {
@@ -66,21 +68,35 @@ test("fast proof requires exact merged PR, independent exact-head approval and l
   const base = "c".repeat(40);
   let reviews = [approval], runs = [fast(8), fast(9)], behindBy = 0;
   let mergeParents = [{ sha: base }, { sha: head }];
+  let mergeTree = "d".repeat(40), headTree = mergeTree;
+  let rollupRun = null;
   const gh = async (args) => {
     const path = args[3] ?? args[1];
     if (path.includes(`/commits/${sha}/pulls`)) return JSON.stringify([pull]);
-    if (path === `repos/${repo}/commits/${sha}`) return JSON.stringify({ sha, parents: mergeParents });
+    if (path === `repos/${repo}/commits/${sha}`) return JSON.stringify({ sha, parents: mergeParents, commit: { tree: { sha: mergeTree } } });
+    if (path === `repos/${repo}/commits/${head}`) return JSON.stringify({ sha: head, commit: { tree: { sha: headTree } } });
     if (path === `repos/${repo}/compare/${base}...${head}`)
       return JSON.stringify({ behind_by: behindBy });
     if (path.includes("/reviews")) return JSON.stringify(reviews);
     if (path.includes("/pr-fast.yml/runs")) return JSON.stringify({ workflow_runs: runs });
     if (args[0] === "pr" && args[1] === "checks") return JSON.stringify([{ name: "verify-fast",
-      state: "SUCCESS", workflow: "PR Fast Checks", link: `https://github.test/actions/runs/${runs.at(-1).id}/job/5` }]);
+      state: "SUCCESS", workflow: "PR Fast Checks", link: `https://github.test/actions/runs/${rollupRun ?? runs.at(-1).id}/job/5` }]);
     throw new Error(`Unexpected API: ${args.join(" ")}`);
   };
   const proof = await fastProof(sha, repo, gh);
   assert.deepEqual({ kind: proof.kind, id: proof.run.id, pullHead: proof.pullHead },
     { kind: "reviewed-fast", id: 9, pullHead: head });
+  mergeTree = "e".repeat(40);
+  assert.equal(await fastProof(sha, repo, gh), null, "merge must contain exactly the reviewed head's files");
+  mergeTree = headTree;
+  for (const missing of [undefined, "not-a-tree"]) {
+    headTree = missing;
+    assert.equal(await fastProof(sha, repo, gh), null, "missing or invalid reviewed tree fails closed");
+  }
+  headTree = mergeTree;
+  rollupRun = 1;
+  assert.equal(await fastProof(sha, repo, gh), null, "PR check rollup must bind to this exact accepted run");
+  rollupRun = null;
   runs = [fast(8), fast(10, "failure")];
   assert.equal(await fastProof(sha, repo, gh), null, "newer failure vetoes older success");
   runs = [fast(11)];
