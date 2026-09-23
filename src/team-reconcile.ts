@@ -145,14 +145,39 @@ export function finishTeamTask(store: Store, tasks: TeamTasks, claim: TeamTaskCl
 }
 
 /**
- * Why the answers can no longer be written, when the owner deleted where they go: the room, or the
- * turn's own run (the finish records "team.ran" on it). Null while both are still there.
+ * The parent-side record that the members were sent out, written on the team's own run before the
+ * fanout starts. Member runs live in conversations of their own, which the owner may delete; this
+ * record and the runtime's "delegation.fanout" (which names each member's run) stay with the parent.
+ */
+export const membersSentKind = "team.members_sent";
+
+/** True when a run named here no longer exists: the owner deleted the conversation it was in. */
+export function memberRunGone(store: Store, runIds: readonly unknown[]): boolean {
+  return runIds.some((runId) => typeof runId === "string" && !store.run(runId));
+}
+
+/**
+ * Why the answers can no longer be written, when the owner deleted where they go or where one came
+ * from: the room, the turn's own run (the finish records "team.ran" on it), or a member's run (a
+ * team task keeps no copy of answers from a conversation the owner deleted). Null while all remain.
  */
 function answersHomeDeleted(store: Store, result: TeamRunResult): string | null {
   if (!store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(result.roomSessionId))
     return "The team's room was deleted while it worked; its answers could not be written there.";
   if (!store.run(result.parentRunId)) return "The team's own conversation was deleted while it worked; its answers could not be written to the room.";
+  if (memberRunGone(store, (result.answers ?? []).map((answer) => answer.runId)))
+    return "A member's conversation was deleted while the team worked; its answers are gone and were not written to the room.";
   return null;
+}
+
+/**
+ * The live turn's check before its result is recorded: if the owner deleted a conversation the
+ * answers go to or came from, nothing is kept or written, and the task is settled for a person.
+ */
+export function answersDeletedBeforeRecord(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, result: TeamRunResult): boolean {
+  const deleted = answersHomeDeleted(store, result);
+  if (deleted) tasks.markAnswersDeleted(claim, deleted);
+  return deleted !== null;
 }
 
 /**
@@ -316,10 +341,11 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   if (!claim) return report(tasks.get(scope, taskId)!.state, "This task changed while it was being checked.");
   const finished = finishFromRecord(store, tasks, claim, task.result as (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null);
   if (finished) return report(finished.state, finished.note);
-  // The owner deleted the turn's own conversation: what it did cannot be read back, so it is never "nothing was done".
-  if (recordDeleted(store, task)) {
-    tasks.markNeedsReconciliation(claim, "Its record was deleted, so what it did cannot be known; check before trying again.");
-    return report("needs_reconciliation", "Its record was deleted, so what it did cannot be known; check before trying again.");
+  // The owner deleted the turn's own conversation or a member's: what it did cannot be read back, so it is never "nothing was done".
+  const deleted = recordDeleted(store, task, root);
+  if (deleted) {
+    tasks.markNeedsReconciliation(claim, deleted);
+    return report("needs_reconciliation", deleted);
   }
   if (parent?.status === "needs_input")
     return waitingReport(report, settleWaiting(store, tasks, claim, parent.id, parent.output, root!));
@@ -327,10 +353,32 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   return report(state, state === "failed" ? "Nothing was done, so a new request id may try again." : "Check these effects before trying again.");
 }
 
-/** True when the task names a turn run or a conversation that no longer exists: the owner deleted its record. */
-function recordDeleted(store: Store, task: { parentRunId: string | null; parentSessionId: string | null }): boolean {
-  if (task.parentRunId && !store.run(task.parentRunId)) return true;
-  return !!task.parentSessionId && !store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(task.parentSessionId);
+/**
+ * Why the turn's record is incomplete because the owner deleted part of it, or null: the task names a
+ * turn run or conversation that no longer exists, or the parent's own record names members whose runs are gone.
+ */
+function recordDeleted(store: Store, task: { parentRunId: string | null; parentSessionId: string | null }, root: string | null): string | null {
+  const own = (task.parentRunId && !store.run(task.parentRunId))
+    || (!!task.parentSessionId && !store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(task.parentSessionId));
+  if (own) return "Its record was deleted, so what it did cannot be known; check before trying again.";
+  if (root && lineageRuns(store, root).some((runId) => membersMissing(store, runId)))
+    return "Its record is incomplete: a member's conversation was deleted, so what it did cannot be known; check before trying again.";
+  return null;
+}
+
+/**
+ * True when this run's own record says it sent members out and not all of them are still on record:
+ * its "delegation.fanout" names a member run that is gone, or (cut off before that was written) it
+ * sent more members than there are runs still started under it.
+ */
+function membersMissing(store: Store, runId: string): boolean {
+  const recorded = (kind: string) => store.sqlite.prepare("SELECT data FROM events WHERE run_id=? AND kind=?").all(runId, kind)
+    .map((row) => JSON.parse(String(row.data)) as { tasks?: Record<string, { runId?: unknown }>; members?: unknown });
+  const fanouts = recorded("delegation.fanout");
+  if (fanouts.some((fanout) => memberRunGone(store, Object.values(fanout.tasks ?? {}).map((member) => member.runId)))) return true;
+  if (fanouts.length) return false;
+  const started = Number(store.sqlite.prepare("SELECT COUNT(*) AS n FROM events WHERE kind='run.started' AND json_extract(data,'$.parentRunId')=?").get(runId)?.n ?? 0);
+  return recorded(membersSentKind).some((sent) => started < Number(sent.members ?? 0));
 }
 
 function waitingReport(report: (state: TeamTaskState, note: string) => ReconcileReport, state: TeamTaskState): ReconcileReport {

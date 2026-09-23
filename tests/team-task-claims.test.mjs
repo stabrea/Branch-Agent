@@ -35,6 +35,13 @@ async function fixture(t) {
   const reopen = async () => { await state.app.close(); state.app = await open(root); return state.app; };
   return { state, owner, team, reopen, root };
 }
+/** A member's run as the real runtime makes one: in a conversation of its own, started under the parent. Its answer is not kept on it. */
+function memberRun(store, owner, parentRunId, status = "completed") {
+  const run = store.createRun(owner, "member");
+  store.event(run.id, "run.started", { parentRunId });
+  store.finish(run.id, status, "");
+  return run.id;
+}
 /** A runtime that counts dispatches, can be held open, can throw after dispatch and can fail members. */
 function inertRuntime(store, owner, options = {}) {
   const runtime = { dispatches: 0, async run(runOptions) {
@@ -46,11 +53,11 @@ function inertRuntime(store, owner, options = {}) {
     // With `settle`, the parent run is finished in the store too, as the real runtime does.
     if (options.settle) store.finish(parent.id, "completed", "");
     return { id: parent.id, status: "completed", output: "" };
-  }, context: ({ runId }) => ({ runId }), async fanout(_context, tasks) {
+  }, context: ({ runId }) => ({ runId }), async fanout(context, tasks) {
     if (options.throwAfterDispatch) throw new Error("the connection dropped after the members started");
     return { tasks: Object.fromEntries(tasks.map((task, index) => {
       const failed = options.failed?.includes(index);
-      return [task.id, { status: failed ? "failed" : "completed", output: failed ? "" : `answer ${index}`, runId: `child-${index}` }];
+      return [task.id, { status: failed ? "failed" : "completed", output: failed ? "" : `answer ${index}`, runId: memberRun(store, owner, context.runId, failed ? "failed" : "completed") }];
     })) };
   } };
   return runtime;
@@ -402,7 +409,7 @@ test("a repeat of a result too large to keep says so plainly and points at the r
   const { state, owner, team } = await fixture(t);
   const huge = "x".repeat(300_000);
   const runtime = inertRuntime(state.app.store, owner);
-  runtime.fanout = async (_context, tasks) => ({ tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: huge, runId: `child-${index}` }])) });
+  runtime.fanout = async (context, tasks) => ({ tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: huge, runId: memberRun(state.app.store, owner, context.runId) }])) });
   const requestId = randomUUID();
   const first = await state.app.teams.run(runtime, knowledge, team.id, "write a lot", { requestId });
   assert.equal(first.answers[0].output.length, huge.length, "the live caller gets every answer");
@@ -443,7 +450,7 @@ async function answeredTask(t) {
   const fx = await fixture(t);
   const secret = `private-answer-${randomUUID()}`;
   const runtime = inertRuntime(fx.state.app.store, fx.owner, { settle: true });
-  runtime.fanout = async (_context, tasks) => ({ tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: `child-${index}` }])) });
+  runtime.fanout = async (context, tasks) => ({ tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: memberRun(fx.state.app.store, fx.owner, context.runId) }])) });
   const requestId = randomUUID();
   const first = await fx.state.app.teams.run(runtime, knowledge, fx.team.id, "tell me", { requestId });
   assert.ok(first.answers[0].output.startsWith(secret));
@@ -481,10 +488,10 @@ function gatedTurn(state, owner, secret) {
   const gate = new Promise((resolve) => { release = resolve; });
   const started = new Promise((resolve) => { begun = resolve; });
   const runtime = inertRuntime(state.app.store, owner, { settle: true });
-  runtime.fanout = async (_context, tasks) => {
+  runtime.fanout = async (context, tasks) => {
     begun();
     await gate;
-    return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: `child-${index}` }])) };
+    return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: memberRun(state.app.store, owner, context.runId) }])) };
   };
   return { runtime, started, release };
 }
@@ -572,9 +579,9 @@ test("the owner deleting the turn's own conversation while members work settles 
     state.app.store.finish(parent.id, "completed", "");
     return { id: parent.id, status: "completed", output: "" };
   };
-  runtime.fanout = async (_context, tasks) => {
+  runtime.fanout = async (context, tasks) => {
     state.app.store.forgetSession(owner, taskRow(state.app, requestId).parent_session_id);
-    return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: `child-${index}` }])) };
+    return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: memberRun(state.app.store, owner, context.runId) }])) };
   };
   const requestId = randomUUID();
   assert.equal((await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId })).state, "needs_reconciliation");

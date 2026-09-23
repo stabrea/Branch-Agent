@@ -215,14 +215,21 @@ export function forgetTeamResults(db: Store["sqlite"], sessionId: string): numbe
 }
 
 /**
- * Conversations a claimed team task still needs: its team's room and its turn's own conversation.
- * The answers are written to the room when the turn ends, so deleting either mid-turn leaves them
- * nowhere to go. The retention rule leaves these out until the task is settled.
+ * Conversations a claimed team task still needs: its team's room, its turn's own conversation, and
+ * the conversation of every run in its turn's lineage (members, their helpers and carry-ons after a
+ * restart). The answers are written to the room when the turn ends, so deleting either mid-turn
+ * leaves them nowhere to go, and a member's conversation is what reconcile reads the turn back from.
+ * The retention rule leaves these out until the task is settled.
  */
 export function teamWorkSessions(db: Store["sqlite"], owner: string): Set<string> {
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_tasks'").get()) return new Set();
-  const rows = db.prepare(`SELECT json_extract(g.data,'$.roomSessionId') AS id FROM team_tasks t
+  const rows = db.prepare(`WITH RECURSIVE lineage(id) AS (
+      SELECT parent_run_id FROM team_tasks WHERE owner=?1 AND state='claimed' AND parent_run_id IS NOT NULL
+      UNION SELECT e.run_id FROM events e JOIN lineage l
+        ON (e.kind='run.started' AND json_extract(e.data,'$.parentRunId')=l.id) OR (e.kind='run.resumed' AND json_extract(e.data,'$.from')=l.id))
+    SELECT json_extract(g.data,'$.roomSessionId') AS id FROM team_tasks t
       JOIN governance g ON g.owner=t.owner AND g.id='team:' || t.team_id WHERE t.owner=?1 AND t.state='claimed'
-    UNION SELECT parent_session_id FROM team_tasks WHERE owner=?1 AND state='claimed' AND parent_session_id IS NOT NULL`).all(owner);
+    UNION SELECT parent_session_id FROM team_tasks WHERE owner=?1 AND state='claimed' AND parent_session_id IS NOT NULL
+    UNION SELECT session_id FROM tasks WHERE id IN (SELECT id FROM lineage)`).all(owner);
   return new Set(rows.map((row) => String(row.id)));
 }

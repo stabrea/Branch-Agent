@@ -231,10 +231,12 @@ function heldRuntime(store, owner, hold) {
     // Q63: like the real runtime, the run is announced before it does anything, and settles as completed.
     async run(runOptions) { const parent = store.createRun(owner, "team parent"); runOptions.onStarted?.(parent); return { id: parent.id, status: "completed", output: "" }; },
     context: ({ runId }) => ({ runId }),
-    async fanout(_context, tasks) {
+    async fanout(context, tasks) {
       started();
       await hold;
-      return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `answer ${index}`, runId: `child-${index}` }])) };
+      // Each member's run as the real runtime makes one: in a conversation of its own, started under the parent.
+      const member = () => { const run = store.createRun(owner, "member"); store.event(run.id, "run.started", { parentRunId: context.runId }); store.finish(run.id, "completed", ""); return run.id; };
+      return { tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `answer ${index}`, runId: member() }])) };
     },
   };
 }

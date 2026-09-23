@@ -5,7 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message, Run } from "./contracts.js";
 import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
-import { dispatchHeld, finishLiveTurn, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import { answersDeletedBeforeRecord, dispatchHeld, finishLiveTurn, holdDispatch, reconcileTeamTask, membersSentKind, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -127,7 +127,8 @@ export class Teams {
     if (this.tasks.orphaned(this.tasks.get(scope, taskId)!, dispatchHeld(this.store, taskId))) reconcileTeamTask(this.store, this.tasks, scope, taskId);
     const task = this.tasks.get(scope, taskId)!;
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
-    if (task.state === "completed") return this.recordedResult(task, identity);
+    // A task whose answers went with a conversation the owner deleted says so, whether it finished or needs a person.
+    if (task.state === "completed" || (task.result as { deleted?: unknown } | null)?.deleted) return this.recordedResult(task, identity);
     // A turn that stopped to ask the owner says what it asked, and what it had started so far.
     if (task.state === "waiting_owner")
       return { teamId: task.teamId, ...identity, question: task.question, parentRunId: task.parentRunId, effects: task.parentRunId ? turnEffects(this.store, task.parentRunId) : [] };
@@ -137,7 +138,8 @@ export class Teams {
   private recordedResult(task: { teamId: string; result: unknown }, identity: { taskId: string; requestId: string; state: string }) {
     const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean; unwritten?: boolean; roomSessionId?: string } | null;
     if (result?.deleted) return { teamId: task.teamId, ...identity, deleted: true as const,
-      note: "The owner deleted a conversation this task's answers were in, so they are gone. Send a new request id to run it again." };
+      note: `The owner deleted a conversation this task's answers were in, so they are gone. ${identity.state === "completed"
+        ? "Send a new request id to run it again." : "Check what the team did before sending a new request id."}` };
     if (!result?.truncated) return { ...result, ...identity };
     const room = result.roomSessionId ?? this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
     return { teamId: task.teamId, roomSessionId: room, ...identity, truncated: true as const,
@@ -154,10 +156,14 @@ export class Teams {
     this.store.message(team.roomSessionId, { role: "user", content: prompt });
     const tasks = team.members.map((member, index) => ({ id: `m${index}`, prompt: `Your role in team "${team.name}": ${member.role}. ${member.brief}\n\nTask: ${prompt}`, dependsOn: [] as string[] }));
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
+    // Written on the team's own run before any member starts, so reconcile knows members were sent even if their conversations are deleted.
+    this.store.event(parent.id, membersSentKind, { members: tasks.length });
     turn.membersStarted = true;
     const outcome = await runtime.fanout(context, tasks, (taskId) => specs.get(taskId)!);
     const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcome.tasks[`m${index}`]! }));
     const result: TeamRunResult = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
+    // A conversation the answers go to or came from was deleted while the members worked: nothing is kept or written.
+    if (answersDeletedBeforeRecord(this.store, this.tasks, claim, result)) return this.observed(claim.scope, claim.taskId);
     // Kept on the task first, so a crash before the finish below can still be finished from it without running anything.
     this.tasks.recordOutcome(claim, result);
     turn.recorded = true;
