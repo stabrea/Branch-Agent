@@ -12,6 +12,7 @@
 import { api } from "/app.js";
 import { t } from "/i18n.js";
 import { dropdown } from "/control-makers.js";
+import { choice as keptChoice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english) => { const word = t(key); return word === key ? english : word; };
@@ -307,7 +308,7 @@ async function widgetsCard(modes) {
 /* ---------- settings:appearance — focus view ---------- */
 const FOCUS_KEY = "branch-focus-view";
 let focusOn = false;
-try { focusOn = localStorage.getItem(FOCUS_KEY) === "1"; } catch { /* private window: starts off */ }
+focusOn = keptChoice(FOCUS_KEY) === "1";
 let focusAllowed = false;
 function markConversation() {
   const holder = $("conversation");
@@ -322,9 +323,9 @@ function markConversation() {
     else if (node.dataset.focusHidden) { delete node.dataset.focusHidden; node.style.display = ""; }
   });
 }
-function applyFocus(on) {
+function applyFocus(on, save = true) {
   focusOn = on;
-  try { localStorage.setItem(FOCUS_KEY, on ? "1" : "0"); } catch { /* kept for this page only */ }
+  if (save) keepChoice(FOCUS_KEY, on ? "1" : "0"); // drawing the card only shows the choice; it saves nothing
   document.body.dataset.focusView = focusAllowed && on ? "on" : "off";
   markConversation();
 }
@@ -345,10 +346,10 @@ async function focusCard(modes) {
   focusAllowed = modes.focus !== "off";
   if (focusAllowed) {
     const now = choice([["off", "flowsBoards.focus.showAll", "Show every step"], ["on", "flowsBoards.focus.onlyAnswers", "Only what I asked and the answers"]], focusOn ? "on" : "off");
-    node.append(...described("flows-focus-now", "flowsBoards.focus.now", "In this window", "flowsBoards.focus.nowNote", "Kept in this browser only.", now),
+    node.append(...described("flows-focus-now", "flowsBoards.focus.now", "In this window", "flowsBoards.focus.nowNote", "Kept with your workspace, so an update keeps it too.", now),
       row(button("flowsBoards.focus.apply", "Apply", async () => applyFocus(now.value === "on"), false)));
   }
-  applyFocus(focusOn);
+  applyFocus(focusOn, false);
   watchConversation();
   node.append(status);
   return node;

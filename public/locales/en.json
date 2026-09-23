@@ -2053,7 +2053,7 @@
   "flowsBoards.busy.steer": "Pass it on straight away",
   "flowsBoards.focus.apply": "Apply",
   "flowsBoards.focus.now": "In this window",
-  "flowsBoards.focus.nowNote": "Kept in this browser only.",
+  "flowsBoards.focus.nowNote": "Kept with your workspace, so an update keeps it too.",
   "flowsBoards.focus.off": "Focus view is switched off in Settings › Appearance.",
   "flowsBoards.focus.onlyAnswers": "Only what I asked and the answers",
   "flowsBoards.focus.purpose": "Show only what you asked and the final answers, with the steps in between folded away. /focus switches it from the message box.",

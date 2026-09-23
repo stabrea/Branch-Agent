@@ -72,6 +72,8 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/batch/run"),
     own("/api/coding/ci"),
     own("/api/conversation-mode"), // redesign phase 1: never looser than the owner's setting (src/conversation-mode-api.ts)
+    own("/api/ui-preferences"), // Q45: a person's own window choices, saved under their profile
+    own("/api/ui-preferences/import"), // Q45: answers a household person without importing anything
     own("/api/documents"),
     own("/api/documents/:id", "DELETE"),
     own("/api/documents/reindex"),

@@ -2054,7 +2054,7 @@
   "flowsBoards.busy.steer": "Le transmettre tout de suite",
   "flowsBoards.focus.apply": "Appliquer",
   "flowsBoards.focus.now": "Dans cette fenêtre",
-  "flowsBoards.focus.nowNote": "Gardé dans ce navigateur uniquement.",
+  "flowsBoards.focus.nowNote": "Gardé avec votre espace de travail : une mise à jour le conserve aussi.",
   "flowsBoards.focus.off": "La vue concentrée est désactivée dans Réglages › Apparence.",
   "flowsBoards.focus.onlyAnswers": "Seulement mes demandes et les réponses",
   "flowsBoards.focus.purpose": "N’afficher que vos demandes et les réponses finales, les étapes intermédiaires repliées. /focus la bascule depuis la zone de message.",

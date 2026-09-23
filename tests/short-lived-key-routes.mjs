@@ -1017,6 +1017,9 @@ export const ROUTES = {
   "/api/triggers/:id/remove": "owner POST,DELETE",
   "/api/triggers/:id/rotate-secret": "owner POST",
   "/api/troubleshoot": "owner POST", // w911 (A0374) hook.
+  // Q45: the window's own choices; a household person keeps their own, a script's key changes none.
+  "/api/ui-preferences": "other POST",
+  "/api/ui-preferences/import": "other POST",
   "/api/usage": "look",
   "/api/usage/budget": "owner POST",
   "/api/usage/counters": "owner POST",

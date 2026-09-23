@@ -16,6 +16,7 @@ import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-b
 import { paint as paintGrove, seasonToday } from "/grove.js";
 import { popover } from "/popover.js";
 import { installGrownComposer } from "/composer-grown.js";
+import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -858,7 +859,7 @@ function buildRail() {
 /* ---------- the title bar: the side pane, clear the view, lockdown ---------- */
 const PANE_TABS = [["activity", "pane.activity", "Activity"], ["plan", "pane.plan", "Plan"], ["files", "pane.files", "Files"], ["memory", "pane.memory", "Memory"],
   ["browser", "pane.browser", "Browser"], ["terminal", "pane.terminal", "Terminal"]]; // phase2/panels: Browser and Terminal (public/panels.js)
-let paneTab = store.get("branch-pane-tab") || "activity";
+let paneTab = choice("branch-pane-tab") || "activity";
 function buildTitleBar() {
   const seg = make("div", "lx-pane-tabs");
   seg.id = "lx-pane-tabs";
@@ -944,7 +945,7 @@ function choosePaneTab(id) {
   const open = paneOpen();
   document.body.classList.toggle("lx-pane-float", !(open && paneTab === id));
   paneTab = id;
-  store.set("branch-pane-tab", id === "activity" ? null : id);
+  keepChoice("branch-pane-tab", id);
   syncPane();
 }
 function tagPaneBlocks() {
