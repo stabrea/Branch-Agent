@@ -280,13 +280,15 @@
   color: var(--copper-text);
 }
 .sg-nav-group {
-  /* DG-076: Make nav group headings smaller and quieter */
-  margin: 18px 0 2px;
-  padding: 0 10px;
+  /* DG-076: the approved sample's group heading (design/Branch-Grown-Up.html, `.set-pages .chip`): 11.5px at 560 in
+     the quiet text colour, no tracking, its text 26.5px below the page link above and 17.3px above the one below. The
+     nav is a flex column with a 2px gap, so the sample's collapsing 11.5px margins are 9.5px here. */
+  margin: 9.5px 0;
+  padding: 14px 10px 4px;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 560;
-  letter-spacing: 0.1em;
+  line-height: 1.55;
 }
 .sg-picker {
   display: none;
