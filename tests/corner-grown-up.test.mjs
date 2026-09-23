@@ -137,3 +137,144 @@ test("3D: the acorn and the pets are the sample's shapes, faceted where it is, i
   assert.deepEqual(drawn, { size: [58, 58], ink: true }, "the 3D acorn is drawn at the tile's 58px");
   assert.deepEqual(errors, []);
 });
+
+const turnOn = (page, body) => page.evaluate((wanted) => fetch("/api/delight/settings", {
+  method: "POST",
+  headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" },
+  body: JSON.stringify(wanted),
+}).then(() => globalThis.branchDelight.reload()), body);
+
+/* DG-138: the 3D oak is the sample's, part for part, with its seasons and its shadow. */
+test("3D: the oak is the sample's trunk, branches and crown, dressed for each season, with a shadow on the ground", { timeout: 180000 }, async (t) => {
+  const f = await fixture(t);
+  const { page, errors } = await open(f, { width: 1440, scheme: "light", everything: true });
+  const oak = await page.evaluate(async () => {
+    const { oakModel } = await import("/delight-3d.js");
+    const root = document.documentElement, colour = (name) => getComputedStyle(root).getPropertyValue(name).trim();
+    const each = Object.fromEntries(["spring", "summer", "autumn", "winter"].map((season) => [season, oakModel(season)]));
+    const summer = each.summer, shadow = summer[0], trunk = summer[1], crown = summer[5];
+    const ys = (part) => part.positions.filter((_, i) => i % 3 === 1), high = (part) => Math.max(...ys(part)), low = (part) => Math.min(...ys(part));
+    const saved = root.dataset.season;
+    root.dataset.season = "winter";
+    const byAttribute = oakModel().length;
+    root.dataset.season = saved;
+    return {
+      counts: Object.fromEntries(Object.entries(each).map(([season, parts]) => [season, parts.length])),
+      shadow: { alpha: shadow.alpha, colour: shadow.color, y: shadow.positions[1] },
+      trunk: [trunk.flat, low(trunk), high(trunk), trunk.indices.length], crown: [crown.flat, crown.indices.length],
+      winterFlat: high(each.winter[5]) - low(each.winter[5]), autumnDeep: each.autumn[5].color, autumnLeaf: each.autumn[6].color,
+      summerLeaf: crown.color, springPetal: each.spring.at(-1).color, byAttribute, seasonShown: saved,
+      tokens: ["--model-oak-autumn-deep", "--model-oak-autumn", "--model-oak-summer", "--model-oak-petal"].map(colour),
+    };
+  });
+  // shadow, trunk, three branches, six crowns (three in winter), and spring's eighteen petals
+  assert.deepEqual(oak.counts, { spring: 29, summer: 11, autumn: 11, winter: 8 });
+  assert.deepEqual(oak.shadow, { alpha: 0.12, colour: [0, 0, 0], y: 0.01 }, "a see-through black shadow just above the ground");
+  assert.deepEqual(oak.trunk, [true, 0, 2.4, 7 * 6 + 2 * 7 * 3], "a closed, faceted seven-sided trunk from the ground to 2.4");
+  assert.deepEqual(oak.crown, [true, 20 * 3], "each crown a faceted twenty-sided ball");
+  assert.ok(Math.abs(oak.winterFlat - 2 * 1.3 * 0.35 * 0.8507) < 0.01, `winter's crowns lie flat under snow (${oak.winterFlat})`);
+  const rgb = (value) => value.map((v) => Math.round(v * 255));
+  assert.deepEqual([rgb(oak.autumnDeep), rgb(oak.autumnLeaf), rgb(oak.summerLeaf), rgb(oak.springPetal)],
+    [[185, 74, 44], [217, 119, 43], [63, 127, 58], [243, 181, 200]], "the colours are the tokens'");
+  assert.deepEqual(oak.tokens, ["#b94a2c", "#d9772b", "#3f7f3a", "#f3b5c8"]);
+  assert.equal(oak.byAttribute, 8, "with no season named, the oak wears the window's season");
+  assert.ok(["spring", "summer", "autumn", "winter"].includes(oak.seasonShown), "the window names its season");
+  // Only the see-through shadow is drawn unlit: no speck of a solid part shows its raw, unlit colour.
+  const raw = await page.evaluate(async () => {
+    const { oakModel, view3d } = await import("/delight-3d.js");
+    const canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:fixed;left:0;top:0;width:300px;height:300px";
+    document.body.append(canvas);
+    const trunk = oakModel("summer")[1], view = view3d(canvas, [trunk], { distance: 4, spin: 0, place: () => [0, -1.2, 0] });
+    view.stop();
+    view.draw();
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width; copy.height = canvas.height;
+    const g = copy.getContext("2d");
+    g.drawImage(canvas, 0, 0);
+    canvas.remove();
+    const data = g.getImageData(0, 0, copy.width, copy.height).data, bark = trunk.color.map((v) => Math.round(v * 255));
+    let solid = 0, unlit = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 255) continue;
+      solid += 1;
+      if ([0, 1, 2].every((k) => Math.abs(data[i + k] - bark[k]) <= 3)) unlit += 1;
+    }
+    return { solid, unlit };
+  });
+  assert.ok(raw.solid > 2000, "the trunk is drawn");
+  assert.equal(raw.unlit, 0, "every solid pixel is lit");
+  assert.deepEqual(errors, []);
+});
+
+/** How much of a canvas is inked, where its ink's middle is across it (0 to 1), and a fingerprint of it. */
+const inkOf = (page, selector) => page.locator(selector).evaluate((canvas) => {
+  const copy = document.createElement("canvas");
+  copy.width = canvas.width; copy.height = canvas.height;
+  const g = copy.getContext("2d");
+  g.drawImage(canvas, 0, 0);
+  const data = g.getImageData(0, 0, copy.width, copy.height).data;
+  let inked = 0, across = 0, print = 0;
+  for (let i = 3; i < data.length; i += 4) {
+    print = (print * 31 + data[i - 3] + data[i - 2] * 7 + data[i - 1] * 13 + data[i]) % 1000000007;
+    if (data[i] > 200) { inked += 1; across += ((i - 3) / 4) % copy.width; }
+  }
+  return { inked, middle: inked ? across / inked / copy.width : 0, print };
+});
+const WALL = "#delight-wall canvas.delight-3d";
+for (const [width, scheme] of [[1440, "dark"], [860, "light"], [400, "light"]]) {
+  test(`3D: the oak behind the glass is framed as in the sample and follows the season (${width}px, ${scheme})`, { timeout: 180000 }, async (t) => {
+    const f = await fixture(t);
+    const { page, errors } = await open(f, { width, scheme, everything: width !== 860 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await turnOn(page, { background: { on: true } });
+    await page.evaluate(async () => { await (await import("/delight-background.js")).chooseBuiltIn("oak"); });
+    await page.waitForFunction(async (selector) => Boolean((await import("/delight-3d.js")).views.get(document.querySelector(selector))), WALL);
+    const before = await inkOf(page, WALL);
+    assert.ok(before.inked > 1000, "the oak is drawn");
+    if (width >= 860) assert.ok(before.middle > 0.55, `on a wide window the oak stands right of the middle (${before.middle})`);
+    else assert.ok(Math.abs(before.middle - 0.5) < 0.08, `on a tall window it stands in the middle (${before.middle})`);
+    const next = await page.evaluate(() => { const root = document.documentElement; root.dataset.season = root.dataset.season === "winter" ? "spring" : "winter"; return root.dataset.season; });
+    await page.waitForTimeout(100);
+    const after = await inkOf(page, WALL);
+    assert.notEqual(after.print, before.print, `a new season (${next}) dresses the oak again, even held still`);
+    assert.deepEqual(errors, []);
+  });
+}
+
+/* DG-138: the corner acorn breathes as the sample's does, and the 3D pet takes a new theme's light. */
+test("3D: the corner acorn breathes, and the pet is lit again when the theme changes", { timeout: 180000 }, async (t) => {
+  const f = await fixture(t);
+  const { page, errors } = await open(f, { width: 1440, scheme: "dark", everything: true });
+  assert.deepEqual(await page.evaluate(async () => {
+    const { breathing } = await import("/delight-3d.js");
+    return [breathing(0), breathing(700 * Math.PI / 2).map((v) => Math.round(v * 10000) / 10000)];
+  }), [[1, 1, 1], [1.025, 0.9756, 1.025]]);
+  await turnOn(page, { look: { style: "3d" } });
+  await page.locator("#acorn-3d").waitFor();
+  await page.locator("#pet .pet-3d").waitFor();
+  const sizes = [];
+  for (let i = 0; i < 4; i++) {
+    sizes.push(await page.evaluate(async () => (await import("/delight-3d.js")).views.get(document.getElementById("acorn-3d")).size));
+    await page.waitForTimeout(500);
+  }
+  assert.ok(sizes.some(([x]) => Math.abs(x - 1) > 0.002), `the acorn grows and shrinks a little (${JSON.stringify(sizes)})`);
+  assert.ok(sizes.every(([x, y, z]) => x === z && Math.abs(x * y - 1) < 1e-9 && Math.abs(x - 1) <= 0.025), "wider as it is shorter, never more than 2.5%");
+  const sky = () => page.evaluate(async () => {
+    const { views } = await import("/delight-3d.js");
+    return { sky: views.get(document.querySelector("#pet .pet-3d")).light.sky.map((v) => Math.round(v * 255)), surface: getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() };
+  });
+  const dark = await sky();
+  await page.evaluate(() => {
+    const follow = document.getElementById("appearance-follow"), select = document.getElementById("appearance");
+    if (follow.checked) { follow.checked = false; follow.dispatchEvent(new Event("change", { bubbles: true })); }
+    select.value = "daylight";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "daylight");
+  await page.waitForTimeout(100);
+  const light = await sky();
+  assert.notEqual(light.surface, dark.surface, "the theme really changed");
+  assert.notDeepEqual(light.sky, dark.sky, "the pet's sky light is the new theme's");
+  assert.deepEqual(errors, []);
+});

@@ -5,7 +5,7 @@
    mac7/residuals: switching it off keeps the file for next time; "Remove picture" (with a yes first)
    is what throws it away, removing the window's storage for it. */
 import { el, notice, on, onDelight, say, state, still } from "/delight-kit.js";
-import { acornModel, oakModel, readGlb, view3d } from "/delight-3d.js";
+import { acornModel, OAK_VIEW, oakModel, readGlb, view3d } from "/delight-3d.js";
 
 const $ = (id) => document.getElementById(id);
 export const LIMITS = { picture: 8, animation: 8, video: 25, "3d": 5 };
@@ -134,8 +134,8 @@ async function object3d(saved) {
   let parts;
   try { parts = saved.model ? BUILT_IN[saved.model]() : readGlb(await saved.blob.arrayBuffer()); } catch { parts = acornModel(); }
   shownModel = saved.model ?? "";
-  const distance = { oak: 7, acorn: 3.8 }[saved.model] ?? 4.4;
-  requestAnimationFrame(() => { turning = view3d(canvas, parts, { distance, still, spin: 0.00025 }); });
+  const framing = saved.model === "oak" ? OAK_VIEW : { distance: saved.model === "acorn" ? 3.8 : 4.4, spin: 0.00025 };
+  requestAnimationFrame(() => { turning = view3d(canvas, parts, { ...framing, still }); });
   return canvas;
 }
 function media(saved, url, fit) {
@@ -178,7 +178,8 @@ function motion() {
 }
 document.addEventListener("visibilitychange", motion);
 new MutationObserver(motion).observe(document.documentElement, { attributes: true, attributeFilter: ["data-motion"] });
-/* Branch's own 3D objects wear the theme's colours, so a new theme paints them again. */
+/* Branch's own 3D objects are lit by the theme and the oak dresses for the season, so a new theme or
+   season draws them again. */
 new MutationObserver(() => { if (turning && BUILT_IN[shownModel]) turning.setParts(BUILT_IN[shownModel]()); })
-  .observe(document.documentElement, { attributes: true, attributeFilter: ["data-palette", "data-theme"] });
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["data-palette", "data-theme", "data-season"] });
 onDelight(() => void applyBackground());

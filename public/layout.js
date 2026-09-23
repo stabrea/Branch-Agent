@@ -107,6 +107,7 @@ function applyLook() {
   const surface = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55);
   root.style.setProperty("--surface", surface);
   paintGrove({ mode, season: look.season || seasonToday() });
+  root.dataset.season = look.season || seasonToday(); // DG-138: the 3D oak dresses for it too
   drawLookControls();
   /* DG-176: the desktop window's own minimise, maximise and close are drawn to read on this light. */
   globalThis.branchDesktop?.windowLook?.(mode === "dark").catch?.(() => undefined);

@@ -229,6 +229,8 @@ function inThreeD(pet) {
   pet3d = view3d(canvas, petModel(state.settings.pets.kind), { distance: 4.41, fov: 0.61, pitch: 0.068, yaw: 0.6, still, spin: 0 });
   if (pet3d) pet.classList.add("in-3d"); else canvas.remove();
 }
+/* DG-138: the pet's coat keeps its own colours, but its light is the theme's, so a new theme lights it again. */
+new MutationObserver(() => pet3d?.relight()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-palette", "data-theme"] });
 function label() {
   const pet = $("pet");
   if (!pet) return;

@@ -36,8 +36,9 @@ export function ellipsoid([cx, cy, cz], [rx, ry, rz], color, { seg = 16, rows = 
   }
   return { positions, normals, indices, color, flat };
 }
-/** A cone or a cylinder along y, from `bottom` to `top`, with the two radii given. */
-export function cone([cx, cy, cz], height, r0, r1, color, seg = 12, { flat = false } = {}) {
+/** A cone or a cylinder along y, from `bottom` to `top`, with the two radii given; `caps` closes its
+    two ends, as the sample's cylinders are closed. */
+export function cone([cx, cy, cz], height, r0, r1, color, seg = 12, { flat = false, caps = false } = {}) {
   const positions = [], normals = [], indices = [], slope = (r0 - r1) / height;
   for (let i = 0; i <= 1; i++) for (let j = 0; j <= seg; j++) {
     const u = (j / seg) * Math.PI * 2, r = i ? r1 : r0, c = Math.cos(u), s = Math.sin(u);
@@ -46,7 +47,55 @@ export function cone([cx, cy, cz], height, r0, r1, color, seg = 12, { flat = fal
     normals.push(c / len, slope / len, s / len);
   }
   for (let j = 0; j < seg; j++) indices.push(j, j + seg + 1, j + 1, j + seg + 1, j + seg + 2, j + 1);
+  if (caps) for (const [y, r, up] of [[cy, r0, -1], [cy + height, r1, 1]]) {
+    const centre = positions.length / 3;
+    positions.push(cx, y, cz);
+    normals.push(0, up, 0);
+    for (let j = 0; j <= seg; j++) {
+      const u = (j / seg) * Math.PI * 2;
+      positions.push(cx + r * Math.cos(u), y, cz + r * Math.sin(u));
+      normals.push(0, up, 0);
+      if (j < seg) indices.push(centre, centre + 1 + j, centre + 2 + j);
+    }
+  }
   return { positions, normals, indices, color, flat };
+}
+/** A twenty-sided ball of radius `size` (the sample's IcosahedronGeometry at detail 0), always faceted;
+    `scale` squashes it (the winter oak's snow-laden crowns). */
+export function icosahedron([cx, cy, cz], size, color, { scale = [1, 1, 1] } = {}) {
+  const t = (1 + Math.sqrt(5)) / 2, corners = [];
+  for (const a of [-1, 1]) for (const b of [-t, t]) corners.push([a, b, 0], [0, a, b], [b, 0, a]);
+  const positions = [], normals = [], indices = [], near = (i, j) => Math.abs(Math.hypot(...corners[i].map((v, k) => v - corners[j][k])) - 2) < 1e-6;
+  for (const [x, y, z] of corners) {
+    const len = Math.hypot(x, y, z);
+    positions.push(cx + (x / len) * size * scale[0], cy + (y / len) * size * scale[1], cz + (z / len) * size * scale[2]);
+    normals.push(x / len, y / len, z / len);
+  }
+  for (let i = 0; i < 12; i++) for (let j = i + 1; j < 12; j++) for (let k = j + 1; k < 12; k++)
+    if (near(i, j) && near(j, k) && near(i, k)) indices.push(i, j, k);
+  return { positions, normals, indices, color, flat: true };
+}
+/** A flat disc lying on the ground, `rx` across and `rz` deep, unlit and see-through (a shadow). */
+export function disc([cx, cy, cz], rx, rz, color, alpha, seg = 20) {
+  const positions = [cx, cy, cz], normals = [0, 1, 0], indices = [];
+  for (let j = 0; j <= seg; j++) {
+    const u = (j / seg) * Math.PI * 2;
+    positions.push(cx + rx * Math.cos(u), cy, cz + rz * Math.sin(u));
+    normals.push(0, 1, 0);
+    if (j < seg) indices.push(0, 1 + j, 2 + j);
+  }
+  return { positions, normals, indices, color, alpha };
+}
+/** A part turned about z by `angle` (normals too), then moved to `at`. */
+function tilted(part, angle, [x, y, z]) {
+  const c = Math.cos(angle), s = Math.sin(angle), turn = (list, k, move) => {
+    const px = list[k], py = list[k + 1];
+    list[k] = px * c - py * s + (move ? x : 0);
+    list[k + 1] = px * s + py * c + (move ? y : 0);
+    list[k + 2] += move ? z : 0;
+  };
+  for (let k = 0; k < part.positions.length; k += 3) { turn(part.positions, k, true); turn(part.normals, k, false); }
+  return part;
 }
 /** A ring standing up and facing the viewer (a snail's shell is one of these): `seg` steps around the
     ring and `sides` around its tube. */
@@ -76,17 +125,34 @@ export function acornModel() {
     cone([0, 0.72 - 0.15 + lift, 0], 0.3, 0.07, 0.05, tone("--model-acorn-stem"), 6, { flat: true }),
   ];
 }
-export function oakModel() {
-  const green = tone("--ok", "#2e7d4f"), text = tone("--text", "#23343e"), copper = tone("--copper", "#b8562e");
-  const bark = mix(text, copper, 0.35), leaf = mix(green, [1, 1, 1], 0.1), deep = mix(green, text, 0.25);
-  return [
-    cone([0, -1.2, 0], 1.6, 0.28, 0.18, bark),
-    ellipsoid([0, 0.75, 0], [1.1, 0.8, 1.1], leaf, { seg: 10 }),
-    ellipsoid([-0.75, 0.35, 0.2], [0.7, 0.55, 0.7], deep, { seg: 9 }),
-    ellipsoid([0.8, 0.4, -0.1], [0.72, 0.58, 0.72], deep, { seg: 9 }),
-    ellipsoid([0.1, 1.25, -0.2], [0.65, 0.5, 0.65], leaf, { seg: 9 }),
-  ];
+const SEASONS = ["spring", "summer", "autumn", "winter"];
+/** DG-138: the sample's oak, part for part: a seven-sided trunk, three angled branches, a crown of
+    twenty-sided blobs in the season's leaf (autumn's every third in deep red, winter's half of them
+    snow-flattened), spring's petals, and a soft shadow on the ground. Its foot is at 0. */
+export function oakModel(season = root.dataset.season) {
+  season = SEASONS.includes(season) ? season : "summer";
+  const bark = tone("--model-oak-bark"), leaf = tone(`--model-oak-${season}`), deep = tone("--model-oak-autumn-deep");
+  const parts = [disc([0, 0.01, 0], 2.2, 1.1, tone("--model-shadow"), 0.12)];
+  parts.push(cone([0, 0, 0], 2.4, 0.42, 0.28, bark, 7, { flat: true, caps: true }));
+  for (const [x, y, z, r] of [[-0.7, 2.3, 0.2, -0.7], [0.75, 2.2, -0.1, 0.8], [0.1, 2.6, 0.5, 0.2]])
+    parts.push(tilted(cone([0, -0.65, 0], 1.3, 0.14, 0.08, bark, 5, { flat: true, caps: true }), r, [x * 0.6, y, z * 0.6]));
+  const blobs = [[0, 3.4, 0, 1.3], [-1.1, 2.9, 0.2, 0.95], [1.1, 2.95, -0.1, 1], [0.3, 2.8, 0.9, 0.85], [-0.3, 3.0, -0.9, 0.9], [0.6, 3.7, -0.4, 0.8]];
+  blobs.forEach(([x, y, z, size], i) => {
+    if (season === "winter" && i % 2) return;
+    const colour = season === "autumn" && i % 3 === 0 ? deep : leaf;
+    parts.push(season === "winter" ? icosahedron([x, y + 0.25, z], size, colour, { scale: [1, 0.35, 1] }) : icosahedron([x, y, z], size, colour));
+  });
+  if (season === "spring") for (let i = 0; i < 18; i++)
+    parts.push(icosahedron([Math.sin(i * 2.4) * 1.3, 2.6 + (i % 5) * 0.3, Math.cos(i * 2.4) * 1.1], 0.08, tone("--model-oak-petal")));
+  return parts;
 }
+/** The sample's framing of the oak behind the glass: a 35° lens 13 away looking level, the tree to the
+    right of the middle and low (in the middle on a tall window), turning very slowly about its trunk. */
+const WALL_HEIGHT = 2 * 13 * Math.tan((17.5 * Math.PI) / 180);
+export const OAK_VIEW = {
+  distance: 13, fov: (35 * Math.PI) / 180, pitch: 0, yaw: 0, spin: 0.0015 / 33,
+  place: (aspect) => (aspect < 0.9 ? [0, -0.24 * WALL_HEIGHT, 0] : [0.14 * WALL_HEIGHT * aspect, -0.3 * WALL_HEIGHT, 0]),
+};
 /** A cone the way the sample places one: centred on its point, not standing on it. */
 const centredCone = ([x, y, z], radius, height, color, seg) => cone([x, y - height / 2, z], height, radius, 0, color, seg, { flat: true });
 export function petModel(kind) {
@@ -123,15 +189,20 @@ function turn(yaw, pitch) {
   return multiply(rx, ry);
 }
 const moved = (x, y, z) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+const sized = (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1];
+/** DG-138: the sample's gentle breathing, wider as it is shorter: 2.5% either way, about every 4.4 s. */
+export const breathing = (ms) => { const k = 1 + Math.sin(ms / 700) * 0.025; return [k, 1 / k, k]; };
 
 /* ---------- drawing ---------- */
-const VERTEX = `attribute vec3 p; attribute vec3 n; attribute vec3 c; uniform mat4 mvp; uniform mat4 rot; varying vec3 vn; varying vec3 vc;
+const VERTEX = `attribute vec3 p; attribute vec3 n; attribute vec4 c; uniform mat4 mvp; uniform mat4 rot; varying vec3 vn; varying vec4 vc;
 void main() { vn = (rot * vec4(n, 0.0)).xyz; vc = c; gl_Position = mvp * vec4(p, 1.0); }`;
 /* DG-138: the sample's light: a sky-and-ground light (the theme's surface, whitened, above; its accent
-   below) and a warm sun from the upper right, then shown in screen colour (gamma 2.2). */
-const FRAGMENT = `precision mediump float; varying vec3 vn; varying vec3 vc; uniform vec3 light; uniform vec3 sky; uniform vec3 ground; uniform vec3 sun;
-void main() { vec3 N = normalize(vn); float d = max(dot(N, light), 0.0); vec3 hemi = mix(ground, sky, 0.5 + 0.5 * N.y);
-  vec3 lit = vc * (0.9 * hemi + 0.9 * sun * d); gl_FragColor = vec4(pow(clamp(lit, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0); }`;
+   below) and a warm sun from the upper right, then shown in screen colour (gamma 2.2). A see-through
+   part (the oak's shadow) is drawn unlit, as the sample's basic material is. */
+const FRAGMENT = `precision mediump float; varying vec3 vn; varying vec4 vc; uniform vec3 light; uniform vec3 sky; uniform vec3 ground; uniform vec3 sun;
+void main() { if (vc.a < 0.99) { gl_FragColor = vec4(vc.rgb * vc.a, vc.a); return; }
+  vec3 N = normalize(vn); float d = max(dot(N, light), 0.0); vec3 hemi = mix(ground, sky, 0.5 + 0.5 * N.y);
+  vec3 lit = vc.rgb * (0.9 * hemi + 0.9 * sun * d); gl_FragColor = vec4(pow(clamp(lit, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0); }`;
 const SUN = [3, 5, 4].map((v) => v / Math.hypot(3, 5, 4));
 /** The light's colours from the theme, read again whenever the parts are (a theme change). */
 const lights = () => ({ sky: mix(tone("--surface"), [1, 1, 1], 0.5), ground: tone("--copper"), sun: tone("--model-sun") });
@@ -144,18 +215,21 @@ function program(gl) {
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("3D could not start here.");
   return p;
 }
-/** All the parts in one set of buffers: position, normal and colour for each corner. Copied value by
+/** All the parts in one set of buffers: position, normal and colour (with its opacity) for each corner. Copied value by
     value, never spread into push, which a big model overflows (integration review). */
 function merge(parts) {
   parts = parts.map((part) => (part.flat ? faceted(part) : part));
   const corners = parts.reduce((n, part) => n + part.positions.length, 0), count = parts.reduce((n, part) => n + part.indices.length, 0);
-  const pos = new Float32Array(corners), nor = new Float32Array(corners), col = new Float32Array(corners), idx = new Uint32Array(count);
+  const pos = new Float32Array(corners), nor = new Float32Array(corners), col = new Float32Array((corners / 3) * 4), idx = new Uint32Array(count);
   let at = 0, i = 0;
   for (const part of parts) {
     const base = at / 3;
     pos.set(part.positions, at);
     nor.set(part.normals, at);
-    for (let k = 0; k < part.positions.length; k++) col[at + k] = part.color[k % 3] ?? 0.8;
+    for (let k = 0; k < part.positions.length / 3; k++) {
+      for (let d = 0; d < 3; d++) col[(base + k) * 4 + d] = part.color[d] ?? 0.8;
+      col[(base + k) * 4 + 3] = part.alpha ?? 1;
+    }
     for (const index of part.indices) idx[i++] = base + index;
     at += part.positions.length;
   }
@@ -175,26 +249,29 @@ function faceted(part) {
     f = f.map((x) => (x / len) * (along < 0 ? -1 : 1));
     for (const i of [a, b, c]) { out.push(positions.length / 3); positions.push(p[i], p[i + 1], p[i + 2]); normals.push(...f); }
   }
-  return { positions, normals, indices: out, color: part.color };
+  return { positions, normals, indices: out, color: part.color, alpha: part.alpha };
 }
 function upload(gl, prog, parts) {
   const data = merge(parts);
-  for (const [name, values] of [["p", data.pos], ["n", data.nor], ["c", data.col]]) {
+  for (const [name, values, size] of [["p", data.pos, 3], ["n", data.nor, 3], ["c", data.col, 4]]) {
     const buffer = gl.createBuffer(), at = gl.getAttribLocation(prog, name);
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, values, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(at);
-    gl.vertexAttribPointer(at, 3, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(at, size, gl.FLOAT, false, 0, 0);
   }
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
   return data.idx.length;
 }
+/** Each running view by its canvas, so the window can ask what one is showing. */
+export const views = new WeakMap();
 /**
  * A turning 3D view on a canvas. `still()` says whether it may move on its own; dragging turns it
- * either way. Returns null where WebGL is not available, so the caller keeps the pixel look.
+ * either way. `breathe` adds the sample's breathing; `place(aspect)` moves the turning model away from
+ * the middle of the view. Returns null where WebGL is not available, so the caller keeps the pixel look.
  */
-export function view3d(canvas, parts, { distance = 3.2, still = () => false, spin = 0.0006, fov = 0.7, yaw: startYaw = 0.6, pitch: startPitch = 0.18 } = {}) {
+export function view3d(canvas, parts, { distance = 3.2, still = () => false, spin = 0.0006, fov = 0.7, yaw: startYaw = 0.6, pitch: startPitch = 0.18, breathe = false, place = null } = {}) {
   const gl = canvas.getContext("webgl2", { alpha: true, antialias: true, preserveDrawingBuffer: true })
     ?? canvas.getContext("webgl", { alpha: true, antialias: true, preserveDrawingBuffer: true });
   if (!gl) return null;
@@ -205,7 +282,8 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     gl.useProgram(prog);
     count = upload(gl, prog, parts);
   } catch { return null; } // no 3D here: the caller keeps the pixel look
-  let yaw = startYaw, pitch = startPitch, frame = 0, last = 0, drag = null, light = lights();
+  let yaw = startYaw, pitch = startPitch, frame = 0, last = 0, drag = null, light = lights(), size = [1, 1, 1];
+  const born = performance.now();
   const where = (name) => gl.getUniformLocation(prog, name);
   function draw() {
     const w = canvas.width = Math.max(1, Math.round(canvas.clientWidth * Math.min(devicePixelRatio || 1, 2)));
@@ -214,8 +292,10 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
-    const rot = turn(yaw, pitch);
-    gl.uniformMatrix4fv(where("mvp"), false, multiply(perspective(fov, w / h, 0.1, 50), multiply(moved(0, 0, -distance), rot)));
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const rot = turn(yaw, pitch), [x, y, z] = place ? place(w / h) : [0, 0, 0];
+    gl.uniformMatrix4fv(where("mvp"), false, multiply(perspective(fov, w / h, 0.1, 50), multiply(moved(x, y, z - distance), multiply(rot, sized(...size)))));
     gl.uniformMatrix4fv(where("rot"), false, rot);
     gl.uniform3fv(where("light"), SUN);
     for (const name of ["sky", "ground", "sun"]) gl.uniform3fv(where(name), light[name]);
@@ -225,6 +305,7 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     frame = 0;
     if (!canvas.isConnected || document.hidden || still()) return;
     if (!drag) yaw += Math.min(100, last ? now - last : 16) * spin;
+    if (breathe) size = breathing(now - born);
     last = now;
     draw();
     frame = requestAnimationFrame(tick);
@@ -243,7 +324,12 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     start() { if (!frame) { last = 0; frame = requestAnimationFrame(tick); } draw(); },
     stop() { cancelAnimationFrame(frame); frame = 0; },
     setParts(next) { count = upload(gl, prog, next); light = lights(); draw(); },
+    /** The theme's light again, for a theme change that leaves the shapes' own colours alone. */
+    relight() { light = lights(); draw(); },
+    get light() { return light; },
+    get size() { return size; },
   };
+  views.set(canvas, api);
   api.start();
   return api;
 }
