@@ -178,3 +178,16 @@ test('branch approve on the command line keeps a standing yes for a tool that ca
   const rules = readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'house.chime');
   assert.deepEqual(rules.map((r) => r.match), ['*']);
 });
+
+test('a tool that names the chat or delivery it reaches gets no standing yes when that is left out', async (t) => {
+  const state = await harness(t, 'q76-chat-arguments');
+  for (const name of ['channels.digest', 'schedules.create', 'brief.configure', 'monitors.screen.create']) {
+    assert.notEqual(state.app.registry.permissionOf(name), '', `${name} is registered here`);
+    assert.equal(state.app.registry.noStandingTarget(name, ''), true, name);
+  }
+  const {z} = await import('zod');
+  state.app.registry.register({name: 'house.tell', permission: 'channels.send', description: 'tell', execute: async () => ({ok: true}),
+    parameters: z.object({channel: z.string(), chatId: z.string(), text: z.string()}).strict()});
+  assert.equal(state.app.registry.noStandingTarget('house.tell', ''), true, 'channel and chatId name where it reaches');
+  assert.equal(state.app.registry.noStandingTarget('house.tell', 'telegram:111'), false);
+});

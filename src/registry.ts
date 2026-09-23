@@ -12,6 +12,12 @@ import { underTask } from "./task-scope.js"; // household-followups
 
 /** Tools `policyTarget` reads a target for by name rather than from a `url` or `path`. */
 const targetedByName: ReadonlySet<string> = new Set(["shell.execute", "shell.session.run", "shell.session.open"]);
+/**
+ * Q76: arguments that name where a call reaches though the tool declares no target of its own: the two
+ * `policyTarget` reads, and the chat a message or a digest goes to. Every other name that points at a
+ * thing makes the tool declare a target (tests/tool-targets.test.mjs), which already counts.
+ */
+const targetArguments: ReadonlySet<string> = new Set(["url", "path", "channel", "chatId", "deliverTo", "notifyVia"]);
 /** Q76: a target of only spaces or invisible characters (a zero-width space, a joiner) names nothing. */
 export const blankTarget = (target: string): boolean => !target.replace(/[\p{Cf}\s]/gu, "");
 
@@ -122,7 +128,7 @@ export class ToolRegistry {
     const tool = this.tools.get(name);
     if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
     const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
-    return !shape || "url" in shape || "path" in shape;
+    return !shape || Object.keys(shape).some((key) => targetArguments.has(key));
   }
   /** Every registered tool with its permission, for the capability inventory. */
   inventory(): { name: string; permission: string; description: string }[] {
