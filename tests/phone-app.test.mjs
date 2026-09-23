@@ -228,8 +228,16 @@ test("the door only ever opens on one home network or Tailscale address, the def
   assert.deepEqual(doorAddresses(all, null), ["10.20.86.3", "10.146.133.246", "100.118.59.45"]);
   assert.deepEqual(doorAddresses([{ name: "eth0", address: "203.0.113.9", internal: false }], "eth0"), [], "a public address is never offered");
   for (const bad of ["0.0.0.0", "127.0.0.1", "8.8.8.8", "169.254.1.1", "::", "fe80::1", "172.32.0.1"])
-    assert.throws(() => assertDoorAddress(bad), /home network or Tailscale/, bad);
-  for (const good of ["192.168.1.20", "10.0.0.2", "172.16.4.4", "100.100.1.1"]) assert.doesNotThrow(() => assertDoorAddress(good));
+    await assert.rejects(() => assertDoorAddress(bad), /home network or Tailscale/, bad);
+  // Home network addresses are accepted without Tailscale probing
+  for (const good of ["192.168.1.20", "10.0.0.2", "172.16.4.4"])
+    await assert.doesNotReject(() => assertDoorAddress(good));
+  // A 100.64/10 address is accepted only when Tailscale reports it
+  const tailscaleReporting = async () => ({ present: true, running: true, address: "100.100.1.1", hostname: "desk.ts.net", message: "" });
+  await assert.doesNotReject(() => assertDoorAddress("100.100.1.1", tailscaleReporting));
+  // An unreported 100.64/10 address is rejected
+  const otherTailscale = async () => ({ present: true, running: true, address: "100.101.1.1", hostname: "desk.ts.net", message: "" });
+  await assert.rejects(() => assertDoorAddress("100.100.1.1", otherTailscale), /does not report/);
   assert.equal(homeNetworkAddress("172.31.255.1"), true);
   // A work VPN carrying the default route hands out a 10.x address too; the door never goes there.
   const vpn = [{ name: "utun4", address: "10.8.0.12", internal: false }, { name: "ppp0", address: "192.168.200.3", internal: false }, ...all];

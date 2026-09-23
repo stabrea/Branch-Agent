@@ -7,6 +7,7 @@ import { candidateAddresses, type Runner, runQuietly } from "./address.js";
 import { PhoneDoor, type DoorView } from "./door.js";
 import { appRoot, damagedReason, findPhoneApp, readCheckedApp } from "./file.js";
 import { loadDictionaries } from "./page.js";
+import type { ProbeTailscale } from "../remote/tailscale.js";
 
 /**
  * mac7/phone-qr: "Get Branch on your phone" — the card in the window and `branch phone`.
@@ -29,6 +30,7 @@ export interface PhoneAppDeps {
   run?: Runner;
   /** The addresses the door may use, best first; read from this computer when left out. */
   addresses?: () => Promise<string[]>;
+  tailscale?: ProbeTailscale;
   now?: () => number;
 }
 
@@ -42,7 +44,7 @@ export class PhoneApp {
   constructor(private readonly deps: PhoneAppDeps = {}) { this.door = new PhoneDoor(deps.now); }
   private root(): string { return this.deps.root ?? appRoot(); }
   addresses(): Promise<string[]> {
-    return this.deps.addresses?.() ?? candidateAddresses(this.deps.platform ?? process.platform, this.deps.run ?? runQuietly);
+    return this.deps.addresses?.() ?? candidateAddresses(this.deps.platform ?? process.platform, this.deps.run ?? runQuietly, this.deps.tailscale);
   }
   /** What the card shows: whether the app is here, where it can be offered, and the live code. */
   async overview(): Promise<Record<string, unknown>> {
@@ -64,7 +66,17 @@ export class PhoneApp {
     const address = asked.address ?? addresses[0];
     if (!address) throw new PhoneAppRefusal(409, noAddressRefusal);
     const dictionaries = await loadDictionaries(join(this.root(), "public", "locales"));
-    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}) });
+    try {
+      const startInput: Parameters<typeof this.door.start>[0] = {
+        file: found.file, bytes, address, dictionaries,
+        ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}),
+      };
+      if (this.deps.tailscale) startInput.tailscale = this.deps.tailscale;
+      return await this.door.start(startInput);
+    } catch (error) {
+      if (error instanceof PhoneAppRefusal) throw error;
+      throw new PhoneAppRefusal(409, error instanceof Error ? error.message : String(error));
+    }
   }
   stop(): void { this.door.stop(); }
 }
