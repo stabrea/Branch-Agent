@@ -363,6 +363,11 @@ export class Store {
       .all(owner)
       .map((row) => this.toRun(row));
   }
+  /** All task IDs in this person's conversation, without the recent-task window's limit. */
+  sessionRunIds(owner: string, sessionId: string): string[] {
+    return this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND owner=?")
+      .all(sessionId, owner).map((row) => String(row.id));
+  }
   /** Running or waiting work that is still the newest task in its conversation. */
   activeRuns(owner: string): Run[] {
     return this.db.prepare(`SELECT current.* FROM tasks current

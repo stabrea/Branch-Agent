@@ -337,19 +337,10 @@
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="voice-live-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="voice-dictate-status" class="meta" hidden></span></p>
-          <!-- Wave 8: the helper line and the room meter share one quiet row under the box. -->
+          <!-- The sample keeps only a quiet, real-data cost line under the box. -->
           <div class="composer-foot">
             <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
-            <!-- Wave 6: how much room this conversation has used, and what it has cost
-                 (public/token-meter.js). Quiet by default; the numbers open on click. -->
-            <div id="meter-row" class="meter-row" hidden>
-              <button id="meter-button" class="meter-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="How much room this conversation has left" data-t-label="composer.room">
-                <span class="meter-track"><span id="meter-fill" class="meter-fill"></span></span>
-                <span id="meter-text"></span>
-                <span id="meter-cost"></span>
-              </button>
-              <div id="meter-popover" class="meter-popover" hidden role="dialog" aria-label="This conversation"></div>
-            </div>
+            <span id="conversation-cost" class="conversation-cost" aria-live="polite"></span>
           </div>
           <!-- Redesign phase 1: what the tightest connection has left, and the list behind it
                (public/usage-glance.js). Only the owner's window ever fills it; hidden in Settings › Data & usage. -->
@@ -2229,7 +2220,7 @@
     <script src="/usage-report.js" type="module"></script>
     <script src="/folder-trust.js" type="module"></script>
     <script src="/knobs.js" type="module"></script>
-    <!-- R17-E: models, cheaper and smarter; and the per-round chart beside the meter -->
+    <!-- R17-E: models, cheaper and smarter; the per-round chart lives in Data & usage -->
     <script src="/model-savings.js" type="module"></script>
     <script src="/round-chart.js" type="module"></script>
     <!-- R17-S-C: shortcuts, vim keys, status line, message times, notifications, voice keys, browser care, proxy -->

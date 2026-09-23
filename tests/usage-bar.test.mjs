@@ -244,13 +244,13 @@ test("a household person is refused the owner's figures outright, not shown a th
     (error) => error.status === 403, "a person's own key is refused too");
 });
 
-test("the panel is the Usage screen's, not the meter's: the two measure different things", async () => {
+test("the allowance panel and conversation cost line measure different things", async () => {
   const configuration = await readFile(join(import.meta.dirname, "..", "docs", "configuration.md"), "utf8");
   assert.match(configuration, /### What each connection has left \(mac7\/usage-bar\)/);
   assert.match(configuration, /This service does not say what it allows/);
-  assert.match(configuration, /meter under the message box measures how much of \*this\ns?conversation's\* room/);
+  assert.match(configuration, /cost line under the message box estimates what the current\nconversation has cost/);
   const screen = await readFile(join(import.meta.dirname, "..", "public", "usage.js"), "utf8");
   assert.match(screen, /renderLimits\(view\);/, "the panel is drawn on the Usage screen");
-  const popover = await readFile(join(import.meta.dirname, "..", "public", "model-savings.js"), "utf8");
-  assert.ok(!/usage\/limits/.test(popover), "and never in the meter popover, which is a context-window figure");
+  const cost = await readFile(join(import.meta.dirname, "..", "public", "conversation-cost.js"), "utf8");
+  assert.ok(!/usage\/limits/.test(cost), "the conversation cost line never conflates money with an allowance");
 });

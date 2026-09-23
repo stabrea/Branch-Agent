@@ -1,7 +1,7 @@
 /**
  * R17-E: the model cards open where docs/places.md says, every control is described by its own
  * sentence, a change saved on the screen reaches the server, a mixture appears in the model list,
- * the cards fit at 400 px, and the round-by-round chart shows up under the meter when switched on.
+ * the cards fit at 400 px, and the round-by-round chart shows up in Data & usage when switched on.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, readSavings, saveSavings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettingFor, showEverything } from "./places.mjs";
+import { openPlace, openSettingFor, showEverything } from "./places.mjs";
 
 const homes = {
   "savings-phases-card": "#lx-models-defaults",
@@ -111,26 +111,24 @@ test("the French words are real, and the cards fit at 400 px", async (t) => {
   assert.deepEqual(copied, [], "every word has its own French");
 });
 
-test("R17-049 the round-by-round chart appears in the meter's popover only when switched on", async (t) => {
+test("R17-049 the round-by-round chart appears in Data & usage only when switched on", async (t) => {
   const { app, page, errors } = await openApp(t);
   const run = await app.runtime.run({ prompt: "hello" });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
-  await page.evaluate(() => window.branchTokenMeter.refresh());
-  await page.locator("#meter-row").waitFor({ state: "visible" });
-  await page.locator("#meter-button").click();
-  await page.waitForTimeout(300);
+  await openPlace(page, "usage");
+  await page.locator("#usage .usage-summary").waitFor();
   assert.equal(await page.locator("#round-chart:not([hidden])").count(), 0, "off: no chart");
-  await page.locator("#meter-button").click();
 
   saveSavings(app.store, "local", "roundChart", { mode: "on" });
   await page.evaluate(() => window.branchModelSavings.refresh());
-  await page.locator("#meter-button").click();
   await page.locator("#round-chart svg rect").first().waitFor();
   const summary = await page.locator("#round-chart-summary").textContent();
   assert.match(summary, /1 rounds, 700 tokens in, 500 served from the cache, 0 summaries/);
-  // The meter redraws its numbers every few seconds; the chart stays.
-  await page.evaluate(() => window.branchTokenMeter.refresh());
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator("#meter-popover #round-chart svg").count(), 1);
+  await page.evaluate(() => window.branchUsage.render());
+  await page.locator("#usage #round-chart svg").waitFor();
+  assert.equal(await page.locator("#usage #round-chart svg").count(), 1);
+  await page.evaluate(() => document.dispatchEvent(new Event("branch-profile")));
+  assert.equal(await page.locator("#round-chart").isHidden(), true, "profile changes hide the previous person's chart");
+  assert.equal(await page.locator("#round-chart svg").count(), 0, "the previous person's numbers are removed");
   assert.deepEqual(errors, []);
 });
