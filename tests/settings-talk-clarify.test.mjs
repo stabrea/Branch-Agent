@@ -138,14 +138,24 @@ test("a request that says not to is never planned as a change, for loosening set
     "n'active pas le mot de réveil",
     "ne mets jamais l'écran",
     "n'allume plus la caméra",
+    "no wake word on please",
+    "Your screen and keyboard on? No.",
+    "stop your screen and keyboard on",
+    "non, allume l'écran et le clavier",
+    "arrête d'allumer le mot de réveil",
+    "Arrêter : your screen and keyboard on",
+    "STOP turning on the wake word",
   ];
   for (const request of phrasings) assertAsksOnly(await find({ request }), request);
   assertAsksOnly(await find({ request: "don't turn on Your screen and keyboard", value: "on" }), "a said value does not override the not");
   assert.equal((await find({ request: "turn on notes with rewriting" })).status, "ready", "notes is not a negation");
+  const label = "When to check with me A command no rule mentions";
+  assert.doesNotMatch((await find({ request: `turn on ${label}` })).question ?? "", /say not to/, "a setting's own name holding no is not a negation");
+  assertAsksOnly(await find({ request: `${label} on? No.` }), "a no beside that name still is");
   assert.deepEqual(await values(), before);
 });
 
-test("every setting that would loosen when asked plainly still asks when the words say don't", async (t) => {
+test("every setting that would loosen when asked plainly still asks when the words say don't, no or stop", async (t) => {
   const { app, find, values } = await fixture(t);
   const before = await values();
   let loosening = 0;
@@ -155,8 +165,10 @@ test("every setting that would loosen when asked plainly still asks when the wor
     if (plain.status !== "ready" || !plain.preview.some((one) => one.lessCareful)) continue;
     loosening += 1;
     assertAsksOnly(await find({ request: `don't turn on ${words}` }), `don't turn on ${words}`);
-    assertAsksOnly(await find({ request: `never turn on ${words}` }), `never turn on ${words}`);
+    for (const request of [`don't turn on ${words}`, `never turn on ${words}`, `no ${words} on please`, `${words} on? No.`,
+      `stop ${words} on`, `turn on ${words}, stop`, `non, turn on ${words}`, `arrête : turn on ${words}`, `arreter ${words} on`])
+      assertAsksOnly(await find({ request }), request);
   }
-  assert.ok(loosening >= 17, `found ${loosening} loosening settings`);
+  assert.ok(loosening >= 42, `found ${loosening} loosening settings: a cue word must not stop plain "turn on X"`);
   assert.deepEqual(await values(), before);
 });

@@ -10,8 +10,13 @@ import { acceptValue, changesFor, currentValue, type Value } from "./changes.js"
  * already as asked left out.
  */
 
-/** Words that turn a request around ("don't", "never", "pas", "jamais"), with apostrophes taken out. */
-const negations = ["dont", "doesnt", "didnt", "shouldnt", "wont", "not", "never", "pas", "jamais"];
+/**
+ * Words that turn a request around or may ("don't", "never", "no", "stop", "pas", "jamais", "non",
+ * "arrête"), with apostrophes and accents taken out. Any one of them anywhere means asking, never
+ * planning: asking is always the careful answer.
+ */
+const negations = ["dont", "doesnt", "didnt", "shouldnt", "wont", "not", "never", "no", "stop", "pas", "jamais", "non",
+  "arrete", "arreter", "arretez"];
 
 /** Words that say what to do rather than which setting: they never pick a setting. */
 const filler = new Set(("a an and any are be branch branchs can change could do dont enable disable for from have i in is it its " +
@@ -32,12 +37,22 @@ export function namingWords(request: string): string[] {
   return [...new Set(wordsOf(request).filter((word) => !filler.has(word) && !/^\d+$/.test(word)).map(stem))];
 }
 
+/** Words with accents taken out as well, so "arrête" is "arrete". */
+const plainWords = (text: string): string[] => wordsOf(text.normalize("NFD").replace(/[̀-ͯ]/g, ""));
+
+/** Setting names and labels that hold a cue themselves ("A command no rule mentions"): said whole, they only name a setting. */
+const namesWithCues = [...new Set(settingsCatalogue.flatMap((spec) => [spec.name, ...spec.fields.map((field) => field.label)]))]
+  .map((text) => plainWords(text).join(" ")).filter((phrase) => phrase.split(" ").some((word) => negations.includes(word)));
+
 /**
- * Whether the words say not to: "don't", "do not", "not", "never", "no longer", and in French
- * "ne ... pas", "n'... plus", "jamais". A request like that is never planned as a change.
+ * Whether the words say not to, or might: "don't", "do not", "not", "never", "no", "stop", "no longer",
+ * and in French "ne ... pas", "n'... plus", "jamais", "non", "arrête". A request like that is never
+ * planned as a change.
  */
 export function negated(request: string): boolean {
-  const words = wordsOf(request);
+  let said = ` ${plainWords(request).join(" ")} `;
+  for (const phrase of namesWithCues) said = said.replaceAll(` ${phrase} `, " ");
+  const words = said.split(" ").filter(Boolean);
   if (words.some((word) => negations.includes(word)) || ` ${words.join(" ")} `.includes(" no longer ")) return true;
   const frenchNe = words.includes("ne") || /(^|[^a-z])n['’][a-z]/i.test(request);
   return frenchNe && words.includes("plus");
