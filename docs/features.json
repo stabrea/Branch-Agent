@@ -2437,20 +2437,26 @@
       "family": "workspace",
       "name": "Explicit topic context sharing",
       "acceptance_criterion": "Attach another topic as context and record which topic was accessed for the task.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/history.ts",
+          "src/activity.ts",
           "src/store.ts",
-          "tests/history.test.mjs"
+          "tests/history.test.mjs",
+          "tests/history-attach.test.mjs"
         ],
         "tests": [
-          "assistant retrieves a previous conversation without mistaking its current prompt for evidence",
-          "history full-text search returns originating sessions and enforces owner/role bounds"
+          "another conversation is brought in by words or id, and the task records which one it read",
+          "only another of the owner's own conversations, never this one, never a made-up one",
+          "history stays with the person the task is filed under, whichever way the window switch goes",
+          "two conversations that open the same way are still two: the words alone never pick one",
+          "a temporary conversation cannot be reached by its id either",
+          "the most it can be asked for fits in one answer, and nothing is cut through a character"
         ],
-        "detail": "history.search and history.read let a task read another conversation, and those calls are logged. There is no explicit way to attach a topic as context and no dedicated record of which topic was accessed."
+        "detail": "history.attach is the explicit way to attach another topic: it takes a conversation by id or by words from it, returns its latest messages, and writes a context.topic event on the task naming the sessionId, title and message count it read — the record of which topic was accessed. It refuses the current conversation, anyone else's, temporary and hidden ones, and any ambiguous match (offering the candidates rather than guessing); it stays inside the person the task is filed under (historyScope) regardless of which profile the window later switches to; and its reply is clipped by whole character and kept inside the tool-output budget. The activity feed describes the call as \"Reading another conversation for context\", so the owner sees it happen, not only a library function called internally."
       },
-      "remaining": "An explicit way to attach another topic as context, with a record of which topic was read."
+      "remaining": ""
     },
     {
       "id": "workspace.managed-files",
