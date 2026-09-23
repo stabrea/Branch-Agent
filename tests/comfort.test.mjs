@@ -399,6 +399,23 @@ test("R17-S17: automatic updates are off as shipped, look once a day, and only i
   assert.equal(updatePlan(store, "local", { busyTasks: 0, updaterPhase: "available", now }).step, "install");
 });
 
+test("beta checks every five minutes without changing stable or interrupting busy work", () => {
+  const records = { "comfort-notify": { autoUpdate: "check", releaseChannel: "beta" } };
+  const store = { get: (_k, _o, key) => ({ data: records[key] }), save: (_k, _o, key, data) => { records[key] = data; } };
+  const start = new Date("2026-09-23T06:00:00Z");
+  noteUpdateCheck(store, "local", start);
+  const facts = (milliseconds, extra = {}) => ({ busyTasks: 0, now: new Date(+start + milliseconds), ...extra });
+  assert.equal(updatePlan(store, "local", facts(299_999)).step, "nothing");
+  assert.equal(updatePlan(store, "local", facts(300_000)).step, "check");
+  records["comfort-notify"].releaseChannel = "stable";
+  assert.equal(updatePlan(store, "local", facts(300_000)).step, "nothing");
+  records["comfort-notify"] = { autoUpdate: "install", releaseChannel: "beta" };
+  assert.equal(updatePlan(store, "local", facts(300_000, { busyTasks: 1, updaterPhase: "available" })).step, "nothing");
+  assert.equal(updatePlan(store, "local", facts(300_000, { updaterPhase: "available" })).step, "install");
+  records["comfort-notify"].autoUpdate = "off";
+  assert.equal(updatePlan(store, "local", facts(300_000)).step, "nothing");
+});
+
 test("R17-S16: the status line says the pieces picked, in order, or nothing when kept as always", () => {
   const facts = { model: "Demo", used: 32000, room: 128000, folder: "/Users/sam/work/garden", cost: "$0.0100", now: new Date(2026, 8, 17, 9, 5) };
   assert.equal(statusLineText(null, facts), null);

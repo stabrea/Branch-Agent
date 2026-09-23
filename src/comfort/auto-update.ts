@@ -14,6 +14,7 @@ export interface UpdatePlan { mode: "off" | "check" | "install"; step: UpdateSte
 
 const lastKey = "comfort-update-last";
 export const checkEveryMs = 24 * 60 * 60 * 1000;
+export const betaCheckEveryMs = 5 * 60 * 1000;
 
 export function lastUpdateCheck(store: Pick<Store, "get">, owner: string): string | null {
   const at = store.get("settings", owner, lastKey)?.data?.at;
@@ -42,12 +43,14 @@ export interface PlanFacts {
 
 /** What is due, in plain words. */
 export function updatePlan(store: Pick<Store, "get">, owner: string, facts: PlanFacts): UpdatePlan {
-  const mode = readComfort(store, owner, "notify").autoUpdate;
+  const settings = readComfort(store, owner, "notify");
+  const mode = settings.autoUpdate;
   const lastCheckedAt = lastUpdateCheck(store, owner);
   const plan = (step: UpdateStep, reason: string): UpdatePlan => ({ mode, step, reason, lastCheckedAt });
   if (mode === "off") return plan("nothing", "Updates are only looked for when you press Check.");
   const now = (facts.now ?? new Date()).getTime();
-  const due = lastCheckedAt === null || now - Date.parse(lastCheckedAt) >= checkEveryMs;
+  const interval = settings.releaseChannel === "beta" ? betaCheckEveryMs : checkEveryMs;
+  const due = lastCheckedAt === null || now - Date.parse(lastCheckedAt) >= interval;
   if (mode === "install" && facts.updaterPhase === "available") {
     if (facts.busyTasks > 0) return plan("nothing", "A newer version is ready; it installs once no task is working.");
     return plan("install", "A newer version is ready and nothing is working, so it is installed now, safely.");
@@ -56,6 +59,8 @@ export function updatePlan(store: Pick<Store, "get">, owner: string, facts: Plan
   // starts idle, so look again even if yesterday's check timestamp is still fresh.
   if (mode === "install" && facts.updaterPhase === "idle")
     return plan("check", "Checking for an update that may have waited through the last restart.");
-  if (!due) return plan("nothing", "Updates were looked for less than a day ago.");
+  if (!due) return plan("nothing", settings.releaseChannel === "beta"
+    ? "Beta updates were looked for less than five minutes ago."
+    : "Updates were looked for less than a day ago.");
   return plan("check", mode === "install" ? "Looking for a newer version to install." : "Looking for a newer version to tell you about.");
 }

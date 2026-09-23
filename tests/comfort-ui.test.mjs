@@ -228,6 +228,25 @@ test("the owner can choose beta in Updates and return to stable", async (t) => {
   assert.deepEqual(errors, []);
 });
 
+test("beta automatic checks wake every five minutes and install retries stay brief", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  await page.evaluate(() => {
+    const schedule = window.setInterval.bind(window);
+    globalThis.__updateIntervals = [];
+    window.setInterval = (fn, ms, ...args) => {
+      globalThis.__updateIntervals.push(ms);
+      return schedule(fn, ms, ...args);
+    };
+    window.branchDesktop = { updateStatus: async () => ({ phase: "current" }), checkForUpdates: async () => ({ phase: "current" }) };
+  });
+  for (const [releaseChannel, autoUpdate, interval] of [["beta", "check", 300_000], ["stable", "check", 3_600_000], ["beta", "install", 30_000]]) {
+    saveComfort(app.store, "local", "notify", { releaseChannel, autoUpdate });
+    await refresh(page);
+    assert.equal(await page.evaluate(() => globalThis.__updateIntervals.at(-1)), interval);
+  }
+  assert.deepEqual(errors, []);
+});
+
 test("at 400 px the comfort cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["comfort-keys-card", "comfort-display-card", "comfort-network-card"]) {

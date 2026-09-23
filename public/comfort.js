@@ -516,7 +516,10 @@ function apply() {
   clearInterval(updateTimer);
   if (view?.values.notify.autoUpdate !== "off" && window.branchDesktop) {
     void autoUpdate();
-    updateTimer = setInterval(() => void autoUpdate(), view.values.notify.autoUpdate === "install" ? 30_000 : 60 * 60 * 1000);
+    const notify = view.values.notify;
+    const interval = notify.autoUpdate === "install" ? 30_000
+      : notify.releaseChannel === "beta" ? 5 * 60 * 1000 : 60 * 60 * 1000;
+    updateTimer = setInterval(() => void autoUpdate(), interval);
   }
 }
 async function refresh() {
