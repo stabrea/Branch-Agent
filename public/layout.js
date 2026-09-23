@@ -969,6 +969,20 @@ function tagPaneBlocks() {
   const head = make("div", "lx-pane-head");
   head.append(top, paneSeg); // phase2/panels: the tabs sit in the panel's own head
   $("context-panel").prepend(head);
+  /* DG-116: footer with "Open this by itself while a task works" checkbox */
+  const foot = make("label", "pane-foot");
+  const checkbox = make("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "sw";
+  checkbox.id = "pane-auto";
+  checkbox.addEventListener("change", () => {
+    try { localStorage.setItem("branch-pane-auto", String(checkbox.checked)); } catch { /* private window */ }
+  });
+  const span = make("span", "", say("pane.autoOpen", "Open this by itself while a task works"));
+  foot.append(checkbox, span);
+  $("context-panel").append(foot);
+  /* Restore saved state */
+  try { checkbox.checked = localStorage.getItem("branch-pane-auto") === "true"; } catch { /* private window */ }
 }
 /** The pane belongs to the conversation: shown there when open, or anywhere while help is being read. */
 function syncPane() {

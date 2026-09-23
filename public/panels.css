@@ -72,6 +72,11 @@ body.lx.lx-working #aside-toggle::after {
 .context-panel[data-pane="terminal"] > [data-pane]:not([data-pane="terminal"]) {
   display: none;
 }
+/* DG-119: suppress empty sections - hide a block if it has only an empty message */
+.context-block:has(> .context-rows:only-child:empty),
+.context-block:has(> .context-rows:only-of-type > .context-empty:only-child) {
+  display: none;
+}
 
 /* Below 1180 px the panel floats over the conversation; it stops above the message box, so the text
    field is never covered. */
@@ -195,6 +200,49 @@ body.lx.lx-working #aside-toggle::after {
 body.lx-help .lx-pane-close {
   display: none;
 }
+/* DG-116: footer checkbox for "Open this by itself while a task works" */
+.pane-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.pane-foot input[type="checkbox"] {
+  width: 40px;
+  height: 24px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--press);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.pane-foot input[type="checkbox"]:checked {
+  background: var(--copper);
+  border-color: var(--copper);
+}
+.pane-foot input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  top: 2px;
+  left: 2px;
+  transition: left 0.2s;
+}
+.pane-foot input[type="checkbox"]:checked::before {
+  left: 18px;
+}
 
 /* ---------- Browser and Terminal ---------- */
 .panels-work {
@@ -246,6 +294,25 @@ body.lx-help .lx-pane-close {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--well);
+}
+/* DG-117: Terminal empty state action button */
+.panels-empty-action {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--copper);
+  background: var(--copper);
+  color: var(--on-copper);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.panels-empty-action:hover {
+  opacity: 0.9;
+}
+.panels-empty-action:active {
+  opacity: 0.8;
 }
 .panels-picture figcaption,
 .panels-when {

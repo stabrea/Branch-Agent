@@ -127,6 +127,19 @@ function footOf(tab) {
   nodes.push(link);
   return nodes;
 }
+/* DG-117: Terminal empty state action to open a terminal */
+function terminalEmptyAction() {
+  const action = make("button", "panels-empty-action", say("panels.terminal.open", "Open a terminal for me"));
+  action.type = "button";
+  action.addEventListener("click", async () => {
+    try {
+      await api("panels/terminal/open");
+    } catch (error) {
+      console.error("Failed to open terminal:", error);
+    }
+  });
+  return action;
+}
 function statusLine(tab, work, entries) {
   const live = entries.some((entry) => entry.state === "running");
   const words = live
@@ -153,7 +166,11 @@ async function draw(tab, work) {
     if (status) nodes.push(status);
     if (tab === "browser") { const shot = await pictureNode(work.browser.picture); if (shot) nodes.push(shot); }
     if (entries.length) nodes.push(...[...entries].reverse().map((entry) => entryRow(tab, entry)));
-    else nodes.push(make("p", "context-empty", say(TABS[tab].empty[0], TABS[tab].empty[1])));
+    else {
+      nodes.push(make("p", "context-empty", say(TABS[tab].empty[0], TABS[tab].empty[1])));
+      /* DG-117: Terminal empty state has "Open a terminal for me" action */
+      if (tab === "terminal") nodes.push(terminalEmptyAction());
+    }
   }
   block.replaceChildren(...nodes, ...footOf(tab));
   markLive(work);
