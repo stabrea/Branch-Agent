@@ -131,7 +131,7 @@ function shell(id, home, warn) {
   card.className = "card";
   card.id = `savings-${id}-card`;
   card.dataset.home = home;
-  card.append(keyed("h2", `savings.${id}.title`), keyed("p", `savings.${id}.lead`, "subtle"));
+  card.append(keyed("h3", `savings.${id}.title`, "settings-card-title"), keyed("p", `savings.${id}.lead`, "subtle"));
   if (warn) card.append(keyed("p", warn, "field-note"));
   return card;
 }
@@ -199,7 +199,7 @@ function mixturesCard() {
   const refs = referenceTicks("savings-mixtures-references");
   const writer = connectionSelect("savings-mixtures-aggregator", "aggregator", null, "savings.option.pick");
   const cap = Object.assign(document.createElement("input"), { type: "number", min: "64", max: "4096", step: "1", value: "1024" });
-  card.append(keyed("h3", "savings.mixture.add"), ...labelled("savings-mixtures-name", "mixtureName", nameBox),
+  card.append(keyed("h4", "savings.mixture.add", "settings-card-subtitle"), ...labelled("savings-mixtures-name", "mixtureName", nameBox),
     ...refs.nodes, ...writer.nodes, ...labelled("savings-mixtures-cap", "referenceMaxTokens", cap));
   const add = () => {
     const name = nameBox.value.trim();
