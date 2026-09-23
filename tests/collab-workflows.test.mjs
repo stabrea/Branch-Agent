@@ -681,7 +681,7 @@ test("a workflow left working when the app closed is marked and can be carried o
 
 /* ---------- Q75 regression: effective grant in /api/profiles ---------- */
 
-test("Q75 regression: /api/profiles shows effective grant, not saved grant, when narrowed", async (t) => {
+test("Q75 regression: /api/profiles shows effective grant narrowed by groups, not saved grant", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-q75-"));
   const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
@@ -693,35 +693,48 @@ test("Q75 regression: /api/profiles shows effective grant, not saved grant, when
       ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
     return { status: response.status, body: await response.json().catch(() => ({})) };
   };
-  
-  // Create a person with Adult role (saved grant allows read, files, commands, browse, message)
+
+  // Enable People so groups can be used
+  await call("/api/people/settings", { enabled: true });
+
+  // Create a person with Adult role, saved grant has all projects (projects: []) and no daily limit (0)
   const person = app.store.profiles.create({ name: "Alice", pin: "1234" });
-  app.runtime.roles.save(person.id, { role: "adult" });
-  
-  // Add a narrower that restricts to only "read" category
-  app.runtime.roles.narrowers.push((profileId, grant) => {
-    if (profileId === person.id) {
-      return { ...grant, categories: ["read"] };
-    }
-    return grant;
-  });
-  
-  // Call /api/profiles
+  app.runtime.roles.save(person.id, { role: "adult", projects: [], dailySpendLimit: 0 });
+
+  // Create a group that limits members to one project and a daily limit
+  const groupResp = await call("/api/people/groups", { name: "TestGroup", members: [person.id], projects: ["limited-project"], dailySpendLimit: 10 });
+  assert.equal(groupResp.status, 200, JSON.stringify(groupResp.body));
+
+  // Verify saved grant is wide: projects: [] and dailySpendLimit: 0
+  const savedGrant = app.runtime.roles.get(person.id);
+  assert.deepEqual(savedGrant.projects, []);
+  assert.equal(savedGrant.dailySpendLimit, 0);
+
+  // Call /api/profiles as owner: must show effective grant (narrowed by group)
   const profiles = await call("/api/profiles");
-  assert.equal(profiles.status, 200);
-  
+  assert.equal(profiles.status, 200, JSON.stringify(profiles.body));
+
   const personRole = profiles.body.roles.find((r) => r.profileId === person.id);
   assert.ok(personRole, "Person should be in roles array");
-  
-  const effectiveCategories = ["read"];
-  
-  // BEFORE FIX: personRole.grant.categories would show SAVED categories (full list)
-  // AFTER FIX: personRole.grant.categories should show EFFECTIVE categories (narrowed list)
-  
-  assert.deepEqual(personRole.grant.categories, effectiveCategories, 
-    "roles array should contain effective categories, not saved categories");
-  
+
+  // BEFORE FIX: personRole.grant.projects would show [] (saved grant with all projects)
+  //             personRole.grant.dailySpendLimit would show 0 (saved grant with no limit)
+  // AFTER FIX: personRole.grant.projects should show ["limited-project"] (effective, narrowed by group)
+  //            personRole.grant.dailySpendLimit should show 10 (effective, narrowed by group)
+
+  assert.deepEqual(personRole.grant.projects, ["limited-project"],
+    "roles array should show effective projects (narrowed by group), not saved projects");
+  assert.equal(personRole.grant.dailySpendLimit, 10,
+    "roles array should show effective daily limit (narrowed by group), not saved limit");
+
+  // Also test the person's own view after switching: they should see the same narrowed values
+  const switchResp = await call("/api/profiles/switch", { profileId: person.id, pin: "1234" });
+  assert.equal(switchResp.status, 200, JSON.stringify(switchResp.body));
+
+  // The person's own effective grant must also be narrowed
   const effective = app.runtime.roles.effective(person.id);
-  assert.deepEqual(personRole.grant.categories, effective.categories,
-    "API should return categories from effective grant");
+  assert.deepEqual(effective.projects, ["limited-project"],
+    "person's own effective grant must show narrowed projects");
+  assert.equal(effective.dailySpendLimit, 10,
+    "person's own effective grant must show narrowed daily limit");
 });
