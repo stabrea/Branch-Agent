@@ -313,6 +313,12 @@ export interface ToolDefinition<T = unknown> {
   /** From a connected server, a plugin or a skill package: its description is somebody else's text. */
   external?: boolean;
   permission: string;
+  /**
+   * Q59: "outbound" when the tool sends a request over the network or acts on a web page or another
+   * program's window, "local" when it does not. Left out, its permission decides (src/tool-reach.ts);
+   * a tool whose permission does not say enough declares it here.
+   */
+  reach?: "local" | "outbound";
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */
   target?: (args: T, context: ToolContext) => string | null;

@@ -80,17 +80,17 @@ export class Hindsight {
 
 export function registerHindsight(registry: ToolRegistry, hindsight: Hindsight): void {
   registry.register({
-    name: "hindsight.retain", permission: "memory.write",
+    name: "hindsight.retain", reach: "outbound", permission: "memory.write",
     description: "Keep something in the owner's Hindsight memory server, in addition to Branch's own memory.",
     parameters: RetainSchema, execute: async (input) => hindsight.retain(input),
   });
   registry.register({
-    name: "hindsight.recall", permission: "memory.read",
+    name: "hindsight.recall", reach: "outbound", permission: "memory.read",
     description: "Find what the owner's Hindsight memory server keeps about something.",
     parameters: RecallSchema, execute: async (input) => hindsight.recall(input),
   });
   registry.register({
-    name: "hindsight.reflect", permission: "memory.read",
+    name: "hindsight.reflect", reach: "outbound", permission: "memory.read",
     description: "Ask the owner's Hindsight memory server for a reasoned answer from what it keeps.",
     parameters: ReflectSchema, execute: async (input) => hindsight.reflect(input),
   });

@@ -422,7 +422,7 @@ test("the card sits on the Permissions page, ships off, saves, and fits a narrow
     await card.waitFor({ state: "visible" });
     assert.equal(await card.getAttribute("data-home"), "settings:permissions");
     assert.ok(await page.evaluate(() => Boolean(document.getElementById("approval-reviewer-card").closest("#lx-page-permissions"))));
-    assert.equal(await card.locator("h2").textContent(), "A second look before approvals");
+    assert.equal(await card.locator("h3.settings-card-title").textContent(), "A second look before approvals"); // DG-008 (69ffcef1): card titles are level three
     await page.waitForFunction(() => document.querySelector("#approval-reviewer-connection option[value='reviewer']"));
     assert.equal(await page.getByLabel("Second look", { exact: true }).inputValue(), "off");
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `no sideways scroll at ${width}`);

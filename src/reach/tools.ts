@@ -55,7 +55,7 @@ export function ownerOnly(registry: ToolRegistry, reach: Reach): Pick<ToolRegist
 
 const machines: Registrar = (registry, reach) => {
   registry.register({
-    name: "machines.list", group: "agents", permission: "nodes.read",
+    name: "machines.list", reach: "local", group: "agents", permission: "nodes.read",
     description: "The owner's other computers running Branch that this window can show side by side.",
     parameters: z.object({}).strict(), execute: async () => ({ machines: reach.machines.list() }),
   });
@@ -69,12 +69,12 @@ const machines: Registrar = (registry, reach) => {
 
 const remoteTrunks: Registrar = (registry, reach) => {
   registry.register({
-    name: "trunks.remote.roster", group: "agents", permission: "specialists.read",
+    name: "trunks.remote.roster", reach: "outbound", group: "agents", permission: "specialists.read",
     description: "The Trunks on the owner's other computers, each with its @name-computer handle.",
     parameters: z.object({}).strict(), execute: async () => ({ computers: await reach.remoteTrunks.roster() }),
   });
   registry.register({
-    name: "trunks.remote.message", group: "agents", permission: "specialists.use",
+    name: "trunks.remote.message", reach: "outbound", group: "agents", permission: "specialists.use",
     description: "Send a direct message to a Trunk on another computer (@name-computer). Returns a receipt; one retry at most.",
     parameters: RemoteMessageSchema, execute: async (args) => reach.remoteTrunks.send(args, reach.machineName()),
     target: (args) => args.to,
@@ -93,7 +93,7 @@ const background: Registrar = (registry, reach) => {
 
 const video: Registrar = (registry, reach) => {
   registry.register({
-    name: "video.generate", group: "media", permission: "media.write",
+    name: "video.generate", reach: "outbound", group: "media", permission: "media.write",
     description: "Make a short video (4, 8 or 12 seconds) from a description, through the video service the owner chose. It costs money at the service. The file is saved under made/videos/.",
     parameters: VideoRequestSchema,
     // mac7/reach-leftovers: the task is handed over, so the video counts against its spending limit.
@@ -105,7 +105,7 @@ const video: Registrar = (registry, reach) => {
 
 const bundles: Registrar = (registry, reach) => {
   registry.register({
-    name: "skills.bundle.preview", group: "skills", permission: "skills.read",
+    name: "skills.bundle.preview", reach: "outbound", group: "skills", permission: "skills.read",
     description: "Look inside a skill bundle (a .branch-skills file in the workspace, or an https address). Nothing is installed.",
     parameters: z.object({ path: z.string().max(300).optional(), url: z.string().url().max(2000).optional() }).strict(),
     execute: async (args) => reach.bundles.preview(args),

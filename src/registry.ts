@@ -9,6 +9,7 @@ import { policyTarget } from "./policy.js";
 import { resourceOf, type PolicyResource } from "./policy-resources.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
 import { underTask } from "./task-scope.js"; // household-followups
+import { reachOf, type ToolReach } from "./tool-reach.js"; // Q59
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
@@ -166,6 +167,15 @@ export class ToolRegistry {
     const resource = resourceOf(name, this.permissionOf(name), target, args);
     const scope = this.pathScope();
     return resource?.kind === "path" && scope ? { ...resource, inWorkspace: `${scope}/${resource.value}` } : resource;
+  }
+  /** Q59: whether a tool reaches beyond the workspace (src/tool-reach.ts); an unknown tool counts as outbound. */
+  reachOf(name: string): ToolReach {
+    const tool = this.tools.get(name);
+    return tool ? reachOf(tool) : "outbound";
+  }
+  /** Q59: every registered tool that reaches beyond the workspace, for the conversation modes' questions. */
+  outboundTools(): string[] {
+    return [...this.tools.values()].filter((tool) => reachOf(tool) === "outbound").map((tool) => tool.name);
   }
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];

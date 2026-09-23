@@ -69,7 +69,7 @@ function innerFolderRule(policy: Policy, call: TargetsCall, target: ToolTarget, 
   // Inside a project's folder, "." is that folder: the rules are written about the workspace.
   const folder = tidyPath(inWorkspace ?? target.path).toLowerCase();
   return policy.rules.find((rule) => rule.resource?.kind === "path" && rule.decision !== "allow"
-    && !(rule.applies === "changes" && target.kind === "read")
+    && !(rule.applies === "changes" && target.kind === "read") && !(rule.applies === "reads" && target.kind !== "read")
     && globMatches(rule.tool, call.tool) && globMatches(rule.match, target.path!)
     && couldBeInside(tidyPath(rule.resource.pattern).toLowerCase(), folder)) ?? null;
 }

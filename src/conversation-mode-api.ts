@@ -7,7 +7,7 @@ import { clearSessionPlanAct, saveSessionPlanAct } from "./plan-act.js";
 import { policyPresets, readPolicy } from "./policy.js";
 import { conversationCarrier, outsideSourceOf } from "./outside-origin.js"; // mac7/outside-review
 import {
-  ConversationModeSchema, clearConversationMode, conversationModeSettings, modeChoices, newConversationMode,
+  ConversationModeSchema, clearConversationMode, conversationModeSettings, modeChoices,
   readConversationMode, saveConversationMode, saveConversationModeSettings, type ConversationMode,
 } from "./conversation-mode.js";
 
@@ -47,12 +47,18 @@ function view(app: ModeApp, sessionId: string | null) {
   const label = policyPresets().find((preset) => preset.id === policy.preset)?.label ?? "Your own rules";
   const choices = modeChoices(policy.preset, { locked, owner });
   const settings = conversationModeSettings(app.store, app.runtime.owner);
-  const startable = settings.newConversation === "ask" && choices.some((choice) => choice.mode === newConversationMode && choice.available);
+  /* The owner's default for a new conversation; when it cannot be picked here (Lockdown, somebody else
+     in the house, a short-lived key) the conversation follows the owner's setting instead. */
+  const wanted = settings.newConversation === "follow" ? null : settings.newConversation;
+  const startable = wanted !== null && choices.some((choice) => choice.mode === wanted && choice.available);
+  /* Lockdown blocking the default starts the conversation on Ask first, not on the owner's setting: the
+     conversation outlives Lockdown, and the owner's setting can be looser than the default they chose. */
+  const fallback = locked && wanted !== null && !startable && choices.some((choice) => choice.mode === "ask" && choice.available) ? "ask" : null;
   return {
     sessionId,
     mode: readConversationMode(app.store, app.runtime.owner, sessionId)?.mode ?? null,
     /* What a conversation started in the window is given; null when that would be looser than allowed here. */
-    newConversation: startable ? newConversationMode : null,
+    newConversation: startable ? wanted : fallback,
     following: { preset: policy.preset, label },
     locked, owner, choices, settings,
     /* mac7/outside-review: where the work this conversation carries on came from, when that was outside

@@ -6,8 +6,13 @@ import { presetRules, type Policy, type PolicyPresetName, type PolicyRule } from
  * Redesign phase 1: how much the assistant may do in one conversation, picked from the message box.
  *
  *   ask   Ask first     reading is free; any change, command or web action waits for a yes
- *   plan  Plan          reads and proposes; changes nothing (a change is refused, not asked about)
+ *   plan  Plan          reads and proposes; changes nothing (a change is refused, not asked about;
+ *                       a web action is asked about, so Plan is never looser than Ask first)
  *   auto  Auto          changes inside the workspace go ahead; commands and the web ask
+ *
+ * Q59: a web action is any tool that reaches beyond the workspace (src/tool-reach.ts): it sends a
+ * request over the network, or acts on a web page or another program's window. The registry says
+ * which tools those are, and Ask first, Plan and Auto each ask before every one of them.
  *   full  Full access   nothing is checked with you (commands no rule covers still ask, as always)
  *
  * The rule that decides what a conversation may do:
@@ -49,12 +54,43 @@ function ownRules(policy: Policy): PolicyRule[] {
 /** A yes that covers everything of a kind, rather than one named thing. */
 const broadYes = (rule: PolicyRule): boolean => rule.decision === "allow" && !rule.resource && rule.match === "*";
 
-/** The policy one conversation is held to, before the outside hold and Lockdown's own checks. */
-export function policyForMode(policy: Policy, mode: ConversationMode, locked = false): Policy {
-  const lines = presetRules(modePreset[mode]);
+/**
+ * Q59: a question before each tool that reaches beyond the workspace. The tools come from the
+ * registry (`outboundTools`), so a tool added later is covered by what it does, not by a list here.
+ * Auto remembers a standing yes per website, as its preset does for the web; Ask first and Plan keep
+ * no standing yes at all (src/runtime.ts `approve`), so their lines only suggest the conversation.
+ */
+function outboundLines(outbound: readonly string[], mode: ConversationMode): PolicyRule[] {
+  const remember = mode === "auto" ? "always" : "session";
+  return outbound.map((tool) => ({ tool, match: "*", applies: "any", decision: "ask", remember }));
+}
+/**
+ * Q59: the owner's own questions, as Plan keeps them. Plan refuses every change, so an owner's
+ * question can only ever be about a read there: one that could also cover a change becomes one that
+ * covers reads only, so a folder rule that asks before writing can never turn Plan's refusal into a
+ * question (a rule naming a folder is weighed before Plan's own broad refusal, src/policy.ts).
+ */
+const planQuestions = (own: PolicyRule[]): PolicyRule[] =>
+  own.filter((rule) => rule.decision === "ask" && rule.applies !== "changes").map((rule) => ({ ...rule, applies: "reads" as const }));
+
+/**
+ * The policy one conversation is held to, before the outside hold and Lockdown's own checks.
+ * `outbound` is every registered tool that reaches beyond the workspace (src/registry.ts).
+ *
+ *   plan  Plan's refusal of every change, then the owner's refusals and questions, then a question
+ *         before each outbound tool; anything else only looks, and goes ahead
+ *   ask   the owner's refusals and questions, then a question before every change and every outbound tool
+ *   auto  the owner's rules except a broad yes, the workspace preset, then a question before every outbound tool
+ *   full  the owner's rules except a broad yes
+ */
+export function policyForMode(policy: Policy, mode: ConversationMode, locked = false, outbound: readonly string[] = []): Policy {
+  const lines = [...presetRules(modePreset[mode]), ...(mode === "full" ? [] : outboundLines(outbound, mode))];
   if (locked) return mode === "plan" ? { ...policy, rules: [...lines, ...policy.rules] } : policy;
   const own = ownRules(policy);
-  if (mode === "plan") return { ...policy, rules: [...own.filter((rule) => rule.decision === "deny"), ...lines] };
+  if (mode === "plan") {
+    const [refusal, ...questions] = lines;
+    return { ...policy, rules: [refusal!, ...own.filter((rule) => rule.decision === "deny"), ...planQuestions(own), ...questions] };
+  }
   if (mode === "ask") return { ...policy, rules: [...own.filter((rule) => rule.decision !== "allow"), ...lines] };
   return { ...policy, rules: [...own.filter((rule) => !broadYes(rule)), ...lines] };
 }
@@ -62,11 +98,13 @@ export function policyForMode(policy: Policy, mode: ConversationMode, locked = f
 /* ---------- what a new conversation starts on ---------- */
 
 /**
- * The owner's one switch for the default: a conversation begun in the window starts on Ask first (the
- * owner's decision for the redesign), or follows their setting the way every conversation used to.
+ * The owner's one switch for the default: a conversation begun in the window starts on one of the four
+ * modes (Ask first unless the owner picks another), or follows their setting the way every conversation
+ * used to. The mode picked here goes through `policyForMode` and every guard, exactly like the chip.
  */
+export const newConversationChoices = [...conversationModes, "follow"] as const;
 export const ConversationModeSettingsSchema = z.object({
-  newConversation: z.enum(["ask", "follow"]).default("ask"),
+  newConversation: z.enum(newConversationChoices).default(newConversationMode),
 }).strict();
 export type ConversationModeSettings = z.infer<typeof ConversationModeSettingsSchema>;
 const settingsKey = "conversation-mode-settings";

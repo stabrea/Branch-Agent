@@ -179,8 +179,8 @@ const actionWords: Record<string, { words: string; bareHost?: boolean }> = {
   "email.*": { words: "sending email" },
 };
 
-function action(tool: string, applies: "any" | "changes"): { words: string; bareHost?: boolean } {
-  if (tool === "*") return { words: applies === "changes" ? "changing anything" : "anything" };
+function action(tool: string, applies: "any" | "changes" | "reads"): { words: string; bareHost?: boolean } {
+  if (tool === "*") return { words: applies === "changes" ? "changing anything" : applies === "reads" ? "looking at anything" : "anything" };
   const known = actionWords[tool];
   if (known) return known;
   const group = actionWords[tool.replace(/\.[^.]+$/, ".*")];
@@ -195,7 +195,7 @@ const prepositions: Record<ResourceKind, string> = { path: "under", host: "on", 
  * "Never allow browsing example.com". The settings screen shows these instead of the raw patterns.
  */
 export function ruleSentence(rule: {
-  tool: string; match: string; applies: "any" | "changes"; decision: "allow" | "ask" | "deny";
+  tool: string; match: string; applies: "any" | "changes" | "reads"; decision: "allow" | "ask" | "deny";
   resource?: ResourceMatcher | undefined;
   /** How tightly a program the rule covers is held, when the owner chose. */
   sandbox?: SandboxChoice | undefined;

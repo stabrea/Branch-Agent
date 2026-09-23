@@ -91,12 +91,20 @@ export const BUCKETS = {
       [["system-voice-card", A], ["personal-voice-card", A], ["speech-engines-card", T]]],
   ],
   permissions: [
-    ["checks", "shield", "When Branch checks with you", "What it may do without asking, and the stop switches.",
-      [["policy-card", R], ["safety-stop-card", R], ["approval-reviewer-card", R], ["pins-form", A]]],
+    /* DG-187: the sample's sections in its order. The first three are one card each, so the card carries no title of
+       its own; Lockdown is the rail's own switch, also here (public/lockdown-card.js). */
+    ["policy", "shield", "When to check with me", "Decide how much Branch may get on with by itself.",
+      [["policy-card", R]]],
+    ["lockdown", "lock", "Lockdown", "The one switch that refuses commands and makes everything else wait for your yes.",
+      [["lockdown-card", R]]],
+    ["pinned", "lock", "Settings you have pinned", "Pin a setting and it is fixed.",
+      [["pins-form", R]]],
     ["limits", "gauge", "Limits on one task and one person", "How far one task may go, and how much one person may ask for.",
       [["limits-card", A], ["knobs-limits-card", A], ["loop-guard-card", A]]],
+    ["checks", "shield", "When Branch checks with you", "What it may do without asking, and the stop switches.",
+      [["approval-reviewer-card", R], ["safety-stop-card", R]]],
     ["safe", "lock", "Keeping things safe", "Hiding secrets, trusted folders and security checks.",
-      [["security-check", R], ["folder-trust-card", A], ["knobs-leak-guard-card", A], ["safety-codes-card", A], ["safety-extras-card", A], ["safety-chain-card", T], ["safety-wasm-card", T]]],
+      [["knobs-leak-guard-card", A], ["folder-trust-card", A], ["safety-extras-card", A], ["safety-codes-card", A], ["security-check", A], ["safety-chain-card", T], ["safety-wasm-card", T]]],
   ],
   computer: [
     /* DG-051: the devices paired with this one (public/devices.js), before the rest as in the sample. */

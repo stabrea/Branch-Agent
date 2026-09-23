@@ -27,7 +27,7 @@ export function registerDesktop(registry: ToolRegistry, desktop: DesktopControl)
     execute: (input, context) => desktop.screenshot(input, context),
   });
   registry.register({
-    name: 'desktop.windows', permission: 'desktop.view',
+    name: 'desktop.windows', reach: 'outbound', permission: 'desktop.view',
     description: `List the windows that are open, or bring one to the front, minimise it, or close it. ${bounds}`,
     parameters: DesktopWindowsSchema,
     target: (input) => input.window ?? 'all windows',

@@ -104,7 +104,7 @@ export function registerData(registry: ToolRegistry, tables: DataTables, artifac
 }
 function dataTools(tables: DataTables, artifacts?: RunArtifacts): ToolDefinition<never>[] {
   const load: ToolDefinition<{ path?: string | undefined; url?: string | undefined; text?: string | undefined; name?: string | undefined }> = {
-    name: "data.load", permission: "data.read",
+    name: "data.load", reach: "outbound", permission: "data.read",
     description: `Open a table of figures from a workspace file (.csv, .tsv, .json, .xlsx), a public address, or pasted text. Returns the columns, the row count and a small preview — never the whole table. Up to ${maxRows} rows are kept for this task only.`,
     parameters: z.object({
       path: z.string().min(1).max(500).optional(), url: z.string().url().max(2048).optional(),

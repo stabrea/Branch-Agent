@@ -694,7 +694,7 @@ function requireIndex(index: number | undefined): number {
 export function registerBrowser(registry: ToolRegistry, browser: BranchBrowser): void {
   registry.onRunFinished(context => browser.closeRun(context));
   const host = (_a: unknown, c: ToolContext) => browser.hostFor(c);
-  registry.register({ name: 'browser.navigate', permission: 'browser.read',
+  registry.register({ name: 'browser.navigate', reach: 'outbound', permission: 'browser.read',
     description: 'Open a configured origin in an isolated browser.',
     parameters: z.object({ url: z.string().url().max(2000) }).strict(), execute: (a, c) => browser.navigate(a.url, c) });
   registry.register({ name: 'browser.snapshot', permission: 'browser.read',

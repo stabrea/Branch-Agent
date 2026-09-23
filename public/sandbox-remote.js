@@ -187,7 +187,8 @@ async function saveSandboxes() {
 /* DG-025: saved as you go, as in the sample: the switch when it flips, a name when you leave its box. */
 for (const id of ["sandbox-image", "sandbox-distro", "sandbox-windows"]) $(id)?.addEventListener("change", () => void saveSandboxes());
 $("firewall-test")?.addEventListener("click", () => void testAddress());
-$("limit-save")?.addEventListener("click", () => void saveLimits());
+// DG-025: saved as you go, as the sample saves a number: when the box is left or Enter is pressed.
+for (const id of Object.values(limitIds)) $(id)?.addEventListener("change", () => void saveLimits());
 $("remote-add")?.addEventListener("click", () => void addRemote());
 $("retention-save")?.addEventListener("click", () => void saveRetention());
 $("retention-prune")?.addEventListener("click", () => void prune());

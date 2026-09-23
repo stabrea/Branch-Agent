@@ -35,6 +35,12 @@ export interface PendingApproval {
    */
   onceOnly?: boolean;
   /**
+   * Q59: asked in an Ask first or Plan conversation. Those drop every yes the owner's rules hold, so
+   * a "Yes, always" would write a rule they never read: only "just now" and "for this conversation"
+   * are offered, and `approve` refuses "always" for it.
+   */
+  noStanding?: boolean;
+  /**
    * mac7/coding-next: a question with answers of its own. "project-tests" is "Let Branch run this
    * project's tests?", answered Always for this folder / Once / No (src/coding/project-tests.ts).
    */

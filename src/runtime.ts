@@ -187,6 +187,8 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
 /** mac7/outside-review: what a queued message keeps of the task that queued it (see FollowUp). */
 /** mac7/residuals (4b): why a script in an Ask first conversation is asked about every time. */
 export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
+/** Q59: Ask first and Plan keep no standing yes, so "Yes, always" is not an answer there (src/approvals.ts `noStanding`). */
+export const noStandingRefusal = "Ask first and Plan first never keep a yes for good. Answer it just now, or for this conversation.";
 export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -2383,7 +2385,7 @@ ${run.output.slice(0, 6000)}`;
   private conversationPolicy(runId?: string): Policy {
     const saved = readPolicy(this.store, this.owner);
     const mode = this.heldConversationMode(saved, runId);
-    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner)) : saved;
+    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner), this.registry.outboundTools()) : saved; // Q59
   }
   /** The mode this task's conversation holds it to, or null when it follows the owner's setting. */
   private heldConversationMode(saved: Policy, runId?: string): ConversationMode | null {
@@ -2835,8 +2837,11 @@ ${run.output.slice(0, 6000)}`;
     // list rather than taking the place of whatever was already there. Only when the list is full
     // does one go, and then the task that was waiting on it is told, in plain words.
     const files = about.files?.length ? { files: about.files.map((one) => ({ kind: one.kind, path: this.hideSecrets(one.path) })) } : {};
+    // Q59: Ask first and Plan read no standing yes, so their questions offer none (src/approvals.ts).
+    const mode = about.kind ? null : this.heldConversationMode(readPolicy(this.store, this.owner), context.runId);
+    const noStanding = mode === "ask" || mode === "plan" ? { noStanding: true } : {};
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
-      label, question, source, remember, askedAt: new Date().toISOString(), ...files,
+      label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noStanding,
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
@@ -2845,7 +2850,7 @@ ${run.output.slice(0, 6000)}`;
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files,
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files, ...noStanding,
       ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
@@ -2897,6 +2902,7 @@ ${run.output.slice(0, 6000)}`;
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
     // An answer that names a request must land on that request and no other. The only way to get
     // here having named one is through the fall-back above, which means nothing waiting carries
     // that name — including a question that carries no name at all, which an answer naming one was

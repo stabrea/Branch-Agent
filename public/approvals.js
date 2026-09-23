@@ -92,6 +92,7 @@ function renderWaiting() {
       : [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]];
     for (const [label, remember] of yeses) {
       if (remember === "always" && question.source !== "owner") continue;
+      if (remember === "always" && question.noStanding) continue; // Q59: Ask first and Plan keep no standing yes
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";
@@ -195,5 +196,6 @@ async function render() {
 }
 
 $("policy-preset").addEventListener("change", (event) => void save({ preset: event.target.value }));
-$("policy-limits-save").addEventListener("click", () => void saveLimits());
+// DG-025: saved as you go, as the sample saves a number: when the box is left or Enter is pressed.
+for (const id of limitBoxes) $(id)?.addEventListener("change", () => void saveLimits());
 window.branchApprovals = { render };
