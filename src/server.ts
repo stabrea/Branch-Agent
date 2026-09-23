@@ -109,6 +109,8 @@ import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
 // mac2/fly-core-2: the learning core's owner routes.
 import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
+import { handlesHibernationPath, hibernationApi, HibernationApiError } from "./hibernation-api.js";
+import { HibernationStore } from "./hibernation.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
@@ -1129,6 +1131,13 @@ async function api(
     return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // operations.hibernation: suspend the configured serverless environment, resume an operation with
+  // its persisted workspace intact (src/hibernation.ts, src/hibernation-api.ts).
+  if (handlesHibernationPath(path))
+    return hibernationApi({ store: app.store, owner: app.runtime.owner, hibernation: new HibernationStore(dataDir) },
+      request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof HibernationApiError ? new HttpError(error.status, error.message) : error;
     });
   // Optional JEV decisions are the owner's: even reading this card names a local program and provider.
   if (path === "/api/jev") {
