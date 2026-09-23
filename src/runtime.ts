@@ -2637,18 +2637,16 @@ ${run.output.slice(0, 6000)}`;
   }
   private readonly taskPeople = new Map<string, string | null>();
   /**
-   * FQ-execution.browser: a call that named nothing its answers are kept for — a `browser.flow` on no
-   * website. A standing rule for it would be one on "*", every call of the tool, so it is never
-   * written, and only a yes for the same bytes answers it.
-   */
-  /**
-   * Q76: any call with no standing target should not be given a standing yes; it would become a
-   * rule on "*", every call of the tool. This check applies to all tools.
+   * Q76: a call that names no target gets no standing yes: the rule would be one on "*", every call
+   * of the tool (browser.flow on no website, channels.broadcast, research.run, git with no path).
    */
   private hasNoStandingTarget(target: string): boolean {
     return !target?.trim();
   }
-    private unkeyed(tool: string, target: string): boolean {
+  /**
+   * FQ-execution.browser: a `browser.flow` on no website is answered only by a yes for the same bytes.
+   */
+  private unkeyed(tool: string, target: string): boolean {
     return !target && keyedOnDeclaredTargets.has(tool);
   }
   /**

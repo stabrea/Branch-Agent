@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp} from 'node:fs/promises';
+import {discardTemp} from './temp-dir.mjs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createBranch} from '../dist/index.js';
@@ -10,11 +11,7 @@ import {addPolicyRule, readPolicy, savePolicy} from '../dist/policy.js';
  * Q76: tools with empty targets refuse "Yes, always" (fix generalization)
  */
 
-async function scratch(label) {
-  const base = join(process.env.LOCALAPPDATA ?? tmpdir(), 'Temp', 'claude-session-files');
-  await mkdir(base, {recursive: true});
-  return mkdtemp(join(base, `${label}-`));
-}
+const scratch = (label) => mkdtemp(join(tmpdir(), `branch-${label}-`));
 
 function scriptedModel(nextCall) {
   let count = 0;
@@ -38,7 +35,7 @@ async function harness(t, label) {
   const calls = [];
   const model = scriptedModel(() => calls.shift());
   const state = {app: await boot(root, model), calls, root};
-  t.after(async () => { await state.app.close(); await rm(root, {recursive: true, force: true}); });
+  t.after(async () => { await state.app.close(); await discardTemp(root); });
   return state;
 }
 
