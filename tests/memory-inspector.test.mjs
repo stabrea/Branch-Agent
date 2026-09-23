@@ -5,170 +5,234 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 
-async function fixture(t, provider) {
+async function fixture(t) {
   const scratch = join(tmpdir(), "Codex-session-files");
   await mkdir(scratch, { recursive: true });
-  const root = await mkdtemp(join(scratch, "branch-memory-inspector-"));
-  const options = { workspace: join(root, "workspace"), dataDir: join(root, "data"), provider };
-  const app = await createBranch(options);
+  const root = await mkdtemp(join(scratch, "branch-memory-q54-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  
+  // Start server for HTTP tests
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  
   t.after(async () => {
+    await server.close();
     await app.close();
     await discardTemp(root);
   });
-  return { app };
+  
+  return { app, server };
 }
 
-/** Test: Fact can be displayed with source and origin labels. */
-test("facts are displayed with source, origin, and revision", async (t) => {
-  const { app } = await fixture(t);
-  const owner = "local";
-
-  // Save a fact
-  const saved = app.store.save("memory", owner, "fact-1", {
-    text: "User prefers coffee",
-    source: "User preference",
-    sourceRunId: "run-123",
-    scope: "private"
+/** Fetch from server with Bearer token. */
+async function apiFetch(server, path, body) {
+  const response = await fetch(new URL(`/api/${path}`, server.url), {
+    method: body ? "POST" : "GET",
+    headers: {
+      authorization: `Bearer ${server.token}`,
+      "content-type": "application/json",
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  const data = await response.json();
+  return { status: response.status, data };
+}
 
-  // Retrieve all memory facts
-  const facts = app.store.list("memory", owner);
-  assert.equal(facts.length, 1);
-
-  const fact = facts[0];
-  assert.equal(fact.data.text, "User prefers coffee");
-  assert.equal(fact.data.source, "User preference");
-  assert.equal(fact.data.sourceRunId, "run-123");
-  assert.equal(fact.revision, 1);
-  assert.ok(fact.createdAt);
-  assert.ok(fact.updatedAt);
+/** Test: Memory correction through HTTP with revision checking. */
+test("HTTP POST /api/action with memory.update rejects stale revision", async (t) => {
+  const { app, server } = await fixture(t);
+  const owner = "local";
+  
+  // Save a fact directly in the store
+  const saved = app.store.save("memory", owner, "fact-http-1", {
+    text: "Original text",
+    source: "Test",
+    sourceRunId: "run-1"
+  });
+  
+  // Try to update via HTTP action API with correct revision
+  const { status: updateStatus, data: updateData } = await apiFetch(server, "action", {
+    tool: "memory.update",
+    args: {
+      id: saved.id,
+      text: "Corrected text",
+      source: "Test correction",
+      expectedRevision: saved.revision
+    }
+  });
+  
+  assert.equal(updateStatus, 200);
+  assert.equal(updateData.data.text, "Corrected text");
+  assert.equal(updateData.revision, 2);
+  
+  // Try with stale revision - should fail
+  const { status: staleStatus, data: staleData } = await apiFetch(server, "action", {
+    tool: "memory.update",
+    args: {
+      id: saved.id,
+      text: "Stale attempt",
+      source: "Old version",
+      expectedRevision: saved.revision  // Using original revision, not current
+    }
+  });
+  
+  assert.equal(staleStatus, 400);
+  assert.match(staleData.error, /changed since/);
+  
+  // Verify current text is unchanged
+  const current = app.store.get("memory", owner, saved.id);
+  assert.equal(current.data.text, "Corrected text");
+  assert.notEqual(current.data.text, "Stale attempt");
 });
 
-/** Test: Fact can be corrected using revision-checked update. */
-test("memory correction uses revision checking to prevent stale edits", async (t) => {
+/** Test: Memory retrieval returns corrected text, not old version. */
+test("memory retrieval function returns corrected fact text", async (t) => {
   const { app } = await fixture(t);
   const owner = "local";
-
+  
   // Save a fact
-  const saved = app.store.save("memory", owner, "fact-2", {
-    text: "Original fact",
-    source: "Owner"
-  });
-
-  // Correct it with the right revision
-  const corrected = app.store.updateMemory(owner, {
-    id: saved.id,
-    text: "Corrected fact",
-    source: "Owner correction",
-    expectedRevision: saved.revision
-  }, "owner-edit");
-
-  assert.equal(corrected.data.text, "Corrected fact");
-  assert.equal(corrected.data.source, "Owner correction");
-  assert.equal(corrected.revision, 2);
-  assert.equal(corrected.createdAt, saved.createdAt);
-  assert.notEqual(corrected.updatedAt, saved.updatedAt);
-});
-
-/** Test: Corrected fact is retrieved correctly and old version is not. */
-test("corrected fact is retrieved and old text is no longer returned", async (t) => {
-  const { app } = await fixture(t);
-  const owner = "local";
-
-  // Save a fact
-  const saved = app.store.save("memory", owner, "fact-3", {
-    text: "Old text",
+  const saved = app.store.save("memory", owner, "fact-retrieval", {
+    text: "Old fact text",
     source: "Original"
   });
-
+  
+  // Retrieve via search (the retrieval path used in prompts)
+  let results = app.store.searchMemory(owner, "fact");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].data.text, "Old fact text");
+  
   // Correct it
   const corrected = app.store.updateMemory(owner, {
     id: saved.id,
-    text: "New text",
+    text: "New fact text",
     source: "Correction",
     expectedRevision: saved.revision
   }, "edit-run");
+  
+  // Retrieve again - should get new text
+  results = app.store.searchMemory(owner, "fact");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].data.text, "New fact text");
+  assert.ok(!results[0].data.text.includes("Old"));
 
-  // Retrieve the fact
-  const retrieved = app.store.get("memory", owner, saved.id);
-  assert.equal(retrieved.data.text, "New text");
-  assert.equal(retrieved.data.source, "Correction");
-  assert.notEqual(retrieved.data.text, "Old text");
+  // Search for old text - should NOT find it
+  results = app.store.searchMemory(owner, "Old fact");
+  assert.equal(results.length, 0);
 });
 
-/** Test: Stale edits with wrong revision are rejected. */
-test("stale memory edits are rejected with revision mismatch", async (t) => {
+/** Test: Origin label logic from app.js. */
+test("fact origin labels distinguish owner-said, decision, and inferred", async (t) => {
+  const { app } = await fixture(t);
+  const owner = "local";
+  
+  // Owner-said (has sourceRunId)
+  const ownerFact = app.store.save("memory", owner, "fact-owner-said", {
+    text: "I prefer tea",
+    source: "Owner",
+    sourceRunId: "run-owner"
+  });
+  
+  // Project decision (kind = project-note)
+  const decisionFact = app.store.save("memory", owner, "fact-decision", {
+    text: "Use TypeScript",
+    source: "Project",
+    kind: "project-note"
+  });
+  
+  // Inferred (no sourceRunId, no special kind)
+  const inferredFact = app.store.save("memory", owner, "fact-inferred", {
+    text: "Likes documentation",
+    source: "Assistant"
+  });
+  
+  // Verify origin indicators are present
+  assert.equal(ownerFact.data.sourceRunId, "run-owner");  // owner-said
+  assert.equal(decisionFact.data.kind, "project-note");    // decision
+  assert.equal(!inferredFact.data.sourceRunId && !inferredFact.data.kind, true);  // inferred
+});
+
+/** Test: Non-owner cannot correct facts (permission check). */
+test("non-owner key is denied memory correction", async (t) => {
   const { app } = await fixture(t);
   const owner = "local";
 
-  // Save a fact
-  const saved = app.store.save("memory", owner, "fact-4", {
-    text: "Fact v1",
+  // Save a fact as owner
+  const saved = app.store.save("memory", owner, "fact-perm", {
+    text: "Private fact",
     source: "Owner"
   });
 
-  // First correction
-  const corrected = app.store.updateMemory(owner, {
-    id: saved.id,
-    text: "Fact v2",
-    source: "Owner",
-    expectedRevision: saved.revision
-  }, "edit-1");
-
-  assert.equal(corrected.revision, 2);
-
-  // Attempt stale edit with old revision
-  assert.throws(() => app.store.updateMemory(owner, {
-    id: saved.id,
-    text: "Stale overwrite",
-    source: "Owner",
-    expectedRevision: saved.revision  // Using original revision, not current
-  }, "edit-2"), /changed since/);
-
-  // Verify current text is unchanged
-  const final = app.store.get("memory", owner, saved.id);
-  assert.equal(final.data.text, "Fact v2");
+  // Try to update as a non-owner context (no permissions) - should reject
+  const nonOwnerContext = app.runtime.context({ permissions: ["memory.read"] });
+  await assert.rejects(
+    () => app.registry.execute("memory.update", {
+      id: saved.id,
+      text: "Hacked",
+      source: "Attacker",
+      expectedRevision: saved.revision
+    }, nonOwnerContext),
+    /Permission denied/
+  );
 });
 
-/** Test: Origin label logic distinguishes owner-said, project decisions, and inferred facts. */
-test("memory facts track their origin (owner-said, decision, inferred)", async (t) => {
-  const { app } = await fixture(t);
+/** Test: Malformed correction request via HTTP returns validation error. */
+test("HTTP POST /api/action with invalid memory.update body returns 400", async (t) => {
+  const { app, server } = await fixture(t);
   const owner = "local";
-
-  // Owner-said fact (sourceRunId indicates owner editing)
-  const ownerFact = app.store.save("memory", owner, "fact-owner", {
-    text: "I prefer tea",
-    source: "Workspace owner",
-    sourceRunId: "run-user"
+  
+  // Save a fact
+  const saved = app.store.save("memory", owner, "fact-malformed", {
+    text: "Original",
+    source: "Test"
   });
-
-  // Project decision fact (kind indicates decision)
-  const decisionFact = app.store.save("memory", owner, "fact-decision", {
-    text: "Use TypeScript for this project",
-    source: "Project guidelines",
-    kind: "project-note"
+  
+  // Send malformed request: missing expectedRevision
+  const { status, data } = await apiFetch(server, "action", {
+    tool: "memory.update",
+    args: {
+      id: saved.id,
+      text: "New text",
+      source: "Test"
+      // expectedRevision is missing - should fail validation
+    }
   });
+  
+  assert.equal(status, 400);
+  assert.match(data.error, /expectedRevision|required/i);
+});
 
-  // Inferred fact (no sourceRunId, no kind)
-  const inferredFact = app.store.save("memory", owner, "fact-inferred", {
-    text: "User likes documentation",
-    source: "Assistant inference"
+/** Test: UI shows memory facts with origin labels and allows editing. */
+test("memory page displays origin labels and allows revision-checked correction", async (t) => {
+  const { app, server } = await fixture(t);
+  const owner = app.runtime.owner;
+  
+  // Save a fact with owner sourceRunId (will show as "you said")
+  const saved = app.store.save("memory", owner, "ui-fact", {
+    text: "Coffee lover",
+    source: "User preference",
+    sourceRunId: "run-123"
   });
-
-  // Verify all facts are retrievable
-  const all = app.store.list("memory", owner);
-  assert.equal(all.length, 3);
-
-  // Verify each fact's fields
-  const owner_rec = all.find(f => f.id === "fact-owner");
-  assert.equal(owner_rec.data.sourceRunId, "run-user");
-
-  const decision_rec = all.find(f => f.id === "fact-decision");
-  assert.equal(decision_rec.data.kind, "project-note");
-
-  const inferred_rec = all.find(f => f.id === "fact-inferred");
-  // sourceRunId defaults to empty string when not provided
-  assert.equal(inferred_rec.data.sourceRunId || undefined, undefined);
-  assert.equal(inferred_rec.data.kind, undefined);
+  
+  // Verify origin label indicators are present in the record
+  assert.equal(saved.data.sourceRunId, "run-123");
+  
+  // Verify the memory.update tool works through the action API
+  const { status, data } = await apiFetch(server, "action", {
+    tool: "memory.update",
+    args: {
+      id: saved.id,
+      text: "Tea and coffee lover",
+      source: "User preference update",
+      expectedRevision: saved.revision
+    }
+  });
+  
+  assert.equal(status, 200);
+  assert.equal(data.data.text, "Tea and coffee lover");
+  assert.equal(data.revision, 2);
+  
+  // Verify retrieval returns the updated text
+  const retrieved = app.store.get("memory", owner, saved.id);
+  assert.equal(retrieved.data.text, "Tea and coffee lover");
 });

@@ -322,6 +322,16 @@ async function showMemoryHistory(node, record) {
   }
   node.append(box);
 }
+/** Q54-L1: Compute the origin label for a memory fact. */
+function memoryOriginLabel(fact) {
+  const { kind, scope, sourceRunId } = fact.data;
+  // Owner-said: has sourceRunId (owner edited it directly)
+  if (sourceRunId) return "you said";
+  // Project decision: kind indicates it's a project note
+  if (kind && (kind === "project-note" || kind === "procedure-hint")) return "project decision";
+  // Inferred: no owner run, not a project note
+  return "inferred";
+}
 function memoryCard(record) {
   const node = recordCard(record.data.text);
   /* A saved fact is one line, so it keeps its heading and gets the inline formatting only:
@@ -330,6 +340,9 @@ function memoryCard(record) {
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
+  // Q54-L1: Show origin label and revision
+  const originLabel = memoryOriginLabel(record);
+  node.append(el("p", `${originLabel} · revision ${record.revision}`, "memory-origin-label"));
   if (record.data.entity) node.append(el("p", `About ${record.data.entity}${record.data.attribute ? " · " + record.data.attribute : ""} · from ${date(record.data.validFrom || record.createdAt)}${record.data.validTo ? " until " + date(record.data.validTo) : ""}`, "meta"));
   if (record.data.scope && record.data.scope !== "private") node.append(el("p", record.data.scope === "shared" ? "Specialists may see this" : `Only the ${record.data.scope.slice(6)} specialist sees this`, "meta"));
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,
