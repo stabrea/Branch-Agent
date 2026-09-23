@@ -66,8 +66,14 @@ test("DG-035 the theme search names the real count and narrows the tiles to name
   assert.equal(await page.locator("#lx-theme-gallery .lx-eyebrow").count(), 0, "no group heading over nothing");
   assert.equal(await page.locator(".lx-theme-none").textContent(), "No theme matches. Try All, or a shorter name.");
   assert.equal(await page.locator("#lx-theme-results").textContent(), "0 themes");
-  await search.fill("");
+  /* In French, none left is singular ("0 thème"), as French counts it. */
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.documentElement.lang === "fr");
+  await page.waitForFunction(() => document.getElementById("lx-theme-results").textContent === "0 thème");
+  assert.equal(await page.getByRole("searchbox", { name: "Chercher un thème" }).getAttribute("placeholder"), `Chercher parmi ${THEMES.length} thèmes`);
+  await page.locator("#lx-theme-search").fill("");
   assert.equal((await shownThemes(page)).length, THEMES.length);
+  assert.equal(await page.locator("#lx-theme-results").textContent(), `${THEMES.length} thèmes`);
   assert.deepEqual(errors, []);
 });
 
