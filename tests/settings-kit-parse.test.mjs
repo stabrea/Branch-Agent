@@ -348,3 +348,20 @@ test("the way out: an unreadable voice record is put back as shipped, then voice
   assert.deepEqual(store.get("settings", owner, "voice").data, brokenVoice);
 });
 
+test("settings.change and settings.loosen are refused while Lockdown is on, as the window is", async (t) => {
+  const { app, store, owner } = await fixture(t);
+  const as = () => {
+    const run = store.createRun(owner, "change a setting");
+    store.event(run.id, "run.started", { source: "owner" });
+    return app.runtime.context({ runId: run.id, source: "owner" });
+  };
+  setLockdown(store, owner, { on: true });
+  const desktopBefore = store.get("settings", owner, "desktop-control")?.data;
+  await assert.rejects(app.registry.execute("settings.loosen", { changes: [{ setting: "desktop-control.mode", value: "on" }] }, as()), /Lockdown is on/);
+  await assert.rejects(app.registry.execute("settings.change", { changes: [{ setting: "loop_guard.mode", value: "on" }] }, as()), /Lockdown is on/);
+  assert.deepEqual(store.get("settings", owner, "desktop-control")?.data, desktopBefore);
+  assert.equal(loopGuardMode(store, owner), "off");
+  setLockdown(store, owner, { on: false });
+  await app.registry.execute("settings.change", { changes: [{ setting: "loop_guard.mode", value: "on" }] }, as());
+  assert.equal(loopGuardMode(store, owner), "on");
+});

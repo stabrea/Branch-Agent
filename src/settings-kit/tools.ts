@@ -6,6 +6,7 @@ import type { Store } from "../store.js";
 import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./catalogue.js";
 import { applyWithPins, changesFor, currentValue, type Change, type Proposal, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
+import { lockedDown } from "../lockdown.js"; // Q65 review
 
 /**
  * Changing Branch's own settings by asking for it: "turn the wake word on", "switch off the learning
@@ -150,6 +151,9 @@ function describe(input: ChangeInput): string {
 function changeTool(loosen: boolean, store: Store, writers: () => Record<string, Writer>) {
   return async (input: ChangeInput, context: ToolContext) => {
     ownerHere(store, context);
+    // Q65 review: as in the window (src/settings-kit/api.ts). Lockdown keeps its own copy of what it took over and
+    // writes it back when it ends, so a change made underneath it would loosen it now or be thrown away then.
+    if (lockedDown(store, context.owner)) throw new Error("Lockdown is on, so settings cannot be changed. The owner turns it off in Settings first.");
     const { changes, refused } = plan(store, context.owner, input);
     const loose = changes.filter((change) => change.loosens);
     if (!loosen && loose.length)

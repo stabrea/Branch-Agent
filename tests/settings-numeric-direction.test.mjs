@@ -224,8 +224,14 @@ test("a voice change made during Lockdown keeps the owner's own switch for when 
   app.store.save("settings", owner, "wake-word", { mode: "on", word: "hey branch", sureness: 80, windowSeconds: 2 });
   app.store.save("settings", owner, "live-dictation", { mode: "on", silenceSeconds: 4 });
   setLockdown(app.store, owner, { on: true });
-  /* The live app saves these through the voice savers (src/settings-kit/writers.ts), not the kit's own write. */
-  await tool("settings.change", { changes: [{ setting: "wake-word.sureness", value: 90 }, { setting: "live-dictation.silenceSeconds", value: 3 }] });
+  // Q65 review: a change asked for in a conversation is refused while Lockdown is on, as the window's is, so nothing is written.
+  await assert.rejects(tool("settings.change", { changes: [{ setting: "wake-word.sureness", value: 90 }, { setting: "live-dictation.silenceSeconds", value: 3 }] }), /Lockdown is on/);
+  assert.equal(app.store.get("settings", owner, "wake-word").data.sureness, 80);
+  /* The voice cards' own saves (the same ones src/settings-kit/writers.ts uses) still keep the owner's own switch. */
+  const { saveWakeWordSettings } = await import("../dist/voice-wake.js");
+  const { saveDictationSettings } = await import("../dist/voice-dictation.js");
+  saveWakeWordSettings(app.store, owner, { sureness: 90 });
+  saveDictationSettings(app.store, owner, { silenceSeconds: 3 });
   assert.equal(app.store.get("settings", owner, "wake-word").data.mode, "on", "the wake word's own switch is kept");
   assert.equal(app.store.get("settings", owner, "wake-word").data.sureness, 90);
   assert.equal(app.store.get("settings", owner, "live-dictation").data.mode, "on", "dictation's own switch is kept");

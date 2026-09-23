@@ -9408,7 +9408,8 @@ again from how Branch ships). The refusal is decided when the changes are worked
 same plan is made and written down once. `GET /api/settings-kit` gives each setting `refused` (the reason,
 or null) and `canPutBack`; `POST /api/settings-kit/put-back` with `{ key }` replaces the whole unreadable
 record with how Branch ships it ("Put voice settings back as shipped", under Put settings back). It is the
-owner's alone and refused while Lockdown is on.
+owner's alone and refused while Lockdown is on. `settings.change` and `settings.loosen` are refused while
+Lockdown is on, as the window's changes are.
 
 macOS and Linux: nothing in either of these two sections depends on the operating system, except
 which spotter and which recorder the wake word can use, both set out above. The tests
