@@ -540,6 +540,7 @@ async function staticFile(
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
     "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/dictation.js": ["dictation.js", "text/javascript; charset=utf-8"], // mac7/live-voice
+    "/voice-listening.js": ["voice-listening.js", "text/javascript; charset=utf-8"], // DG-047
     "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.

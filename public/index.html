@@ -1128,6 +1128,11 @@
           </form>
           <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
           <!-- mac7/wake-pins: a word that starts a turn, and the settings the owner has pinned. -->
+          <!-- DG-047: what is listening this moment, read from the listeners themselves (public/voice-listening.js). -->
+          <section id="voice-listening-card" class="card" data-home="settings:voice">
+            <h2 data-t="settings.voice-listening.title">Listening right now</h2>
+            <p id="voice-listening-now" aria-live="polite"></p>
+          </section>
           <form id="wake-word-form" class="card" data-home="settings:voice">
             <h2 data-t="settings.card.wake-word">A word that starts a turn</h2>
             <p data-t="settings.wake-word.intro">Say your own word and Branch starts a turn, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, no file is written, and nothing is recorded or kept before your word has been heard — one window of sound is held, asked about, and dropped. Not every computer can listen: the line below says what this one really does, and whether it is listening this moment. While the switch is off, nothing listens at all and the microphone is let go of. Holding Talk stays the ordinary way in, and the word gives nothing away — the turn it starts is asked about exactly as the same words typed into the box would be, with the same questions. It carries only the one window your word was in, a second or two: nothing said after that window is heard, because no further sound is recorded. On Windows the engine listens for that one phrase alone, so there the turn carries just your word and nothing else.</p>
@@ -1148,7 +1153,6 @@
             <p id="wake-word-how" class="field-note" aria-live="polite"></p>
             <p id="wake-word-refusal" class="field-note" aria-live="polite"></p>
             <p id="wake-word-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.save-wake-word">Save the wake word</button>
           </form>
           <form id="dictation-form" class="card" data-home="settings:voice">
             <h2 data-t="settings.card.dictation">Speak and see the words</h2>
@@ -1170,7 +1174,6 @@
             <p id="dictation-how" class="field-note" aria-live="polite"></p>
             <p id="dictation-refusal" class="field-note" aria-live="polite"></p>
             <p id="dictation-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.save-dictation">Save dictation</button>
           </form>
           <form id="pins-form" class="card" data-home="settings:permissions">
             <h2 data-t="settings.card.pins">Settings you have pinned</h2>
@@ -1250,7 +1253,7 @@
             <label class="check-row">
               <input id="use-provider-voice" type="checkbox" /> Use higher-quality voice from my provider
             </label>
-            <p class="subtle">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
+            <p class="subtle" data-level="advanced">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
             <!-- Wave 7: which service writes speech out, which reads it aloud, and the one switch
                  that keeps every recording on this computer. Wired in public/voice-talk.js. -->
             <label class="check-row">
@@ -1291,8 +1294,8 @@
             <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
-            <p class="field-note">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" />
+            <p class="field-note" data-level="technical">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <label for="voice-local-model" data-t="field.its-model-file-or-model">Its model file or model name</label>
             <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" />
             <label class="check-row">
@@ -2220,6 +2223,7 @@
     <script src="/chat-permissions.js" type="module"></script>
     <script src="/wake-word.js" type="module"></script>
     <script src="/dictation.js" type="module"></script>
+    <script src="/voice-listening.js" type="module"></script>
     <script src="/pins.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
     <!-- Bucket 17: watching videos and speech plug-ins. -->
