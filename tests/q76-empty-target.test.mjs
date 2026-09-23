@@ -143,3 +143,38 @@ test('a tool whose path was left out gets no standing yes, though it declares no
   assert.equal(asked.noAlways, true);
   assert.throws(() => state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint), /does not say/);
 });
+
+test('a path of only spaces or invisible characters names nothing, so it gets no standing yes', async (t) => {
+  for (const path of [' ', '\t', '​', ' ', '‍ ­']) {
+    const state = await harness(t, 'q76-blank-path');
+    state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '/tmp/repo', path})});
+    const run = await state.app.runtime.run({prompt: 'run'});
+    const asked = waitingIn(state, run);
+    assert(asked, `should ask for ${JSON.stringify(path)}`);
+    assert.equal(asked.noAlways, true, JSON.stringify(path));
+    assert.throws(() => state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint), /does not say/, JSON.stringify(path));
+    assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'git.log').length, 0);
+  }
+});
+
+test('branch approve on the command line writes no "*" rule for a call that left its target out', async (t) => {
+  const {answerFromCommand} = await import('../dist/cli-run.js');
+  const state = await harness(t, 'q76-cli-empty');
+  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '/tmp/repo'})});
+  const run = await state.app.runtime.run({prompt: 'run'});
+  assert(waitingIn(state, run), 'should ask');
+  assert.throws(() => answerFromCommand(state.app.runtime, run.id, 'yes'), /does not say/);
+  assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'git.log').length, 0);
+});
+
+test('branch approve on the command line keeps a standing yes for a tool that can name nothing', async (t) => {
+  const {answerFromCommand} = await import('../dist/cli-run.js');
+  const state = await withTool(t, 'q76-cli-no-arguments', (z) => ({name: 'house.chime', parameters: z.object({}).strict()}));
+  state.calls.push({id: 'c1', name: 'house.chime', arguments: '{}'});
+  const run = await state.app.runtime.run({prompt: 'run'});
+  assert(waitingIn(state, run), 'should ask');
+  const answered = answerFromCommand(state.app.runtime, run.id, 'yes');
+  assert.equal(answered.rule, 'house.chime on anything');
+  const rules = readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'house.chime');
+  assert.deepEqual(rules.map((r) => r.match), ['*']);
+});

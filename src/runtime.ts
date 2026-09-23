@@ -39,7 +39,7 @@ import type {
   ToolTarget,
 } from "./contracts.js";
 import type { Store } from "./store.js";
-import type { ToolRegistry } from "./registry.js";
+import { blankTarget, type ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
@@ -2640,7 +2640,7 @@ ${run.output.slice(0, 6000)}`;
    * FQ-execution.browser: a `browser.flow` on no website is answered only by a yes for the same bytes.
    */
   private unkeyed(tool: string, target: string): boolean {
-    return !target && keyedOnDeclaredTargets.has(tool);
+    return blankTarget(target) && keyedOnDeclaredTargets.has(tool);
   }
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved

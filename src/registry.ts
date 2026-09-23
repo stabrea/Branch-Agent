@@ -12,6 +12,8 @@ import { underTask } from "./task-scope.js"; // household-followups
 
 /** Tools `policyTarget` reads a target for by name rather than from a `url` or `path`. */
 const targetedByName: ReadonlySet<string> = new Set(["shell.execute", "shell.session.run", "shell.session.open"]);
+/** Q76: a target of only spaces or invisible characters (a zero-width space, a joiner) names nothing. */
+export const blankTarget = (target: string): boolean => !target.replace(/[\p{Cf}\s]/gu, "");
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
@@ -116,7 +118,7 @@ export class ToolRegistry {
    * An unknown tool, or arguments whose shape cannot be read, count as able to name one.
    */
   noStandingTarget(name: string, target: string): boolean {
-    if (target.trim()) return false;
+    if (!blankTarget(target)) return false;
     const tool = this.tools.get(name);
     if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
     const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
