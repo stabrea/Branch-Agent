@@ -5,7 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message, Run } from "./contracts.js";
 import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
-import { finishTeamTask, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import { finishTeamTask, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -104,7 +104,11 @@ export class Teams {
   private observed(scope: { owner: string; source: string }, taskId: string) {
     const task = this.tasks.get(scope, taskId)!;
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
-    return task.state === "completed" ? { ...(task.result as object), ...identity } : { teamId: task.teamId, ...identity };
+    if (task.state === "completed") return { ...(task.result as object), ...identity };
+    // A turn that stopped to ask the owner says what it asked, and what it had started so far.
+    if (task.state === "waiting_owner")
+      return { teamId: task.teamId, ...identity, question: task.question, parentRunId: task.parentRunId, effects: task.parentRunId ? turnEffects(this.store, task.parentRunId) : [] };
+    return { teamId: task.teamId, ...identity };
   }
   private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress) {
     const parent = await this.startParent(runtime, team, prompt, claim, turn);
@@ -140,8 +144,9 @@ export class Teams {
   /** The parent turn did not complete, so the members are not started; the task ends by what the turn did. */
   private stopBeforeMembers(claim: TeamTaskClaim, parent: Run) {
     const why = `the team's own turn ended ${parent.status}: ${parent.output.slice(0, 500)}`;
-    if (runStopped(parent.status)) settleUnfinished(this.store, this.tasks, claim, parent.id, why);
-    // A run waiting on a question may still act once it is answered, so a person has to look.
+    // A turn that stopped to ask the owner is a known outcome: the task waits, and the members are not started.
+    if (parent.status === "needs_input") settleWaiting(this.store, this.tasks, claim, parent.id, parent.output);
+    else if (runStopped(parent.status)) settleUnfinished(this.store, this.tasks, claim, parent.id, why);
     else this.tasks.markNeedsReconciliation(claim, why);
     return { ...this.observed(claim.scope, claim.taskId), parentRunId: parent.id };
   }

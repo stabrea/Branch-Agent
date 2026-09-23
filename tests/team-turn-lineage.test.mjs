@@ -5,7 +5,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch } from "../dist/index.js";
+import { createBranch, savePolicy } from "../dist/index.js";
 import { TeamTasks } from "../dist/team-tasks.js";
 
 // Q63: a team turn names its run before the run does anything, and an outcome nobody saw is
@@ -190,4 +190,41 @@ test("a crash before the team's turn did anything is reconciled as failed after 
   assert.equal(report.state, "failed");
   assert.deepEqual(report.effects, []);
   assert.equal(after.parentCalls + after.memberCalls, 0);
+});
+
+test("a turn that stops to ask the owner waits with its question, starts no member, and is not a reconciliation case", async (t) => {
+  const provider = scripted([() => write("w1", "notes.txt", "one"), () => say("parent done")]);
+  const { state, team } = await fixture(t, provider);
+  savePolicy(state.app.store, state.app.runtime.owner, { preset: "ask-before-changes" });
+  const requestId = randomUUID();
+  const seen = await state.app.teams.run(state.app.runtime, knowledge, team.id, "write the notes", { requestId });
+  assert.equal(seen.state, "waiting_owner");
+  assert.match(seen.question, /Writing notes\.txt/);
+  assert.ok(seen.parentRunId);
+  assert.equal(state.app.store.run(seen.parentRunId).status, "needs_input");
+  assert.equal(provider.memberCalls, 0, "no member is started while the owner is being asked");
+  assert.deepEqual(seen.effects.map((e) => [e.name, e.toolCallId]), [["files.write", "w1"]]);
+  const task = row(state.app, requestId);
+  assert.equal(task.state, "waiting_owner");
+  assert.equal(task.question, seen.question);
+  // reconcile leaves it alone, and the same request id answers from the record without dispatching.
+  assert.equal(state.app.teams.reconcile(seen.taskId).state, "waiting_owner");
+  assert.equal(row(state.app, requestId).state, "waiting_owner");
+  const retry = counted(state.app.runtime);
+  const again = await state.app.teams.run(retry, knowledge, team.id, "write the notes", { requestId });
+  assert.equal(again.state, "waiting_owner");
+  assert.equal(again.question, seen.question);
+  assert.equal(retry.dispatches, 0);
+  // Once the owner has decided, a new request id is new work.
+  savePolicy(state.app.store, state.app.runtime.owner, { preset: "off" });
+  const fresh = await state.app.teams.run(retry, knowledge, team.id, "write the notes", { requestId: randomUUID() });
+  assert.equal(retry.dispatches, 1);
+  assert.notEqual(fresh.state, "waiting_owner");
+});
+
+test("a second Branch cannot open the same data folder while one has it, so no other process can hold a team claim", async (t) => {
+  const { state } = await fixture(t, scripted());
+  const dataDir = state.app.store.folder;
+  await assert.rejects(createBranch({ workspace: join(dataDir, "..", "workspace"), dataDir, provider: scripted() }), /already open/);
+  assert.equal(state.app.store.isOpen, true, "the first Branch keeps working");
 });

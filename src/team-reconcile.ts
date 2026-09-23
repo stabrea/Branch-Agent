@@ -83,6 +83,17 @@ export function finishTeamTask(store: Store, tasks: TeamTasks, claim: TeamTaskCl
   announce();
 }
 
+/**
+ * Ends a claimed task whose turn stopped to ask the owner (a run that needs input): a known outcome,
+ * not an unknown one. The question comes from the runtime's own "attention.needed" record.
+ */
+export function settleWaiting(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, parentRunId: string, fallback: string): TeamTaskState {
+  const asked = store.sqlite.prepare("SELECT data FROM events WHERE run_id=? AND kind='attention.needed' ORDER BY id DESC LIMIT 1").get(parentRunId);
+  const question = asked ? String((JSON.parse(String(asked.data)) as { question?: unknown }).question ?? fallback) : fallback;
+  tasks.markWaitingOwner(claim, question || "The team's turn stopped to ask you something.");
+  return "waiting_owner";
+}
+
 /** Ends a claimed task that stopped without a result: failed if its turn started no tool call, otherwise it needs a person. */
 export function settleUnfinished(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, parentRunId: string | null, why: string): TeamTaskState {
   const effects = parentRunId ? turnEffects(store, parentRunId) : [];
@@ -106,7 +117,10 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   if (task.state !== "claimed") return report(task.state, "This task is already settled.");
   if (working(store).has(taskId)) return report("claimed", "This task is still running here.");
   const parent = task.parentRunId ? store.run(task.parentRunId) : undefined;
-  // Another process may still be working on it (a member run is going): it is left to that claimant.
+  // No other process can be the claimant: a second Branch cannot open this database while one has it
+  // (the store opens SQLite with locking_mode=EXCLUSIVE, src/store.ts; tests/team-turn-lineage.test.mjs
+  // proves a second createBranch on the folder is refused). So a claimed task not held by this store
+  // belongs to a process that is gone. A run under it still going is left alone all the same.
   if (task.parentRunId && lineageRuns(store, task.parentRunId).some((runId) => store.run(runId)?.status === "running"))
     return report("claimed", "Its run, or a member's, is still going.");
   const claim = tasks.standingClaim(scope, taskId);
@@ -116,8 +130,8 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
     finishTeamTask(store, tasks, claim, recorded);
     return report("completed", "Finished from the result the turn recorded; nothing was run again.");
   }
-  if (parent && !runStopped(parent.status) && parent.status !== "completed")
-    { tasks.markNeedsReconciliation(claim, `Its run is ${parent.status} and may still act.`); return report("needs_reconciliation", `Its run is ${parent.status}.`); }
+  if (parent?.status === "needs_input")
+    return report(settleWaiting(store, tasks, claim, parent.id, parent.output), "Its turn stopped to ask the owner; nothing more is run for it.");
   const state = settleUnfinished(store, tasks, claim, task.parentRunId, "the turn stopped before its result was recorded");
   return report(state, state === "failed" ? "Nothing was done, so a new request id may try again." : "Check these effects before trying again.");
 }

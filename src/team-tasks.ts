@@ -10,16 +10,18 @@ import type { Store } from "./store.js";
  * stays claimed across a restart. A task that stopped before anything was done is "failed" (a new
  * request id may try again); one that stopped after something may have been done is
  * "needs_reconciliation": a person has to check what happened, and it is never run again on its own.
+ * One whose turn stopped to ask the owner something is "waiting_owner": a known, clean stop with the
+ * question kept, not a crash; a new request id runs it again once the owner has answered.
  * Every write after the claim names the owner, the source, the task, the claimant and the
  * generation, so a stale or wrong claimant changes nothing. Nothing here expires a claim or lets
  * another caller take it over.
  */
-export type TeamTaskState = "pending" | "claimed" | "completed" | "failed" | "needs_reconciliation";
+export type TeamTaskState = "pending" | "claimed" | "completed" | "failed" | "needs_reconciliation" | "waiting_owner";
 export interface TeamTaskScope { owner: string; source: string }
 export interface TeamTask {
   taskId: string; owner: string; source: string; teamId: string; requestId: string; fingerprint: string;
   state: TeamTaskState; claimant: string | null; generation: number; parentRunId: string | null;
-  result: unknown; error: string | null; createdAt: string; updatedAt: string;
+  result: unknown; error: string | null; question: string | null; createdAt: string; updatedAt: string;
 }
 /** A claim the caller holds; later writes must present all of it. */
 export interface TeamTaskClaim { scope: TeamTaskScope; taskId: string; claimant: string; generation: number }
@@ -37,10 +39,11 @@ export function teamRequestFingerprint(input: { teamId: string; prompt: string; 
 
 export class TeamTasks {
   constructor(private readonly store: Store) {
+    // Q61 and Q63 must land together: this table has no migration, so a database made by Q61 alone would need one.
     this.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS team_tasks(
       task_id TEXT PRIMARY KEY, owner TEXT NOT NULL, source TEXT NOT NULL, team_id TEXT NOT NULL, request_id TEXT NOT NULL,
-      fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','failed','needs_reconciliation')),
-      claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, parent_run_id TEXT, result TEXT, error TEXT,
+      fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','failed','needs_reconciliation','waiting_owner')),
+      claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, parent_run_id TEXT, result TEXT, error TEXT, question TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner, source, team_id, request_id))`);
   }
   /** Records the request once, or finds the one already recorded; a changed request under a reused id is refused. */
@@ -86,6 +89,10 @@ export class TeamTasks {
   markFailed(claim: TeamTaskClaim, error: string): void {
     this.fenced(claim, "state='failed', error=?", [error.slice(0, 2000)]);
   }
+  /** Ends a task whose turn stopped to ask the owner something; the question is kept, and nothing more runs for it. */
+  markWaitingOwner(claim: TeamTaskClaim, question: string): void {
+    this.fenced(claim, "state='waiting_owner', question=?", [question.slice(0, 2000)]);
+  }
   /** Ends a task whose effects may have happened: a person must check them; it is never run again on its own. */
   markNeedsReconciliation(claim: TeamTaskClaim, error: string): void {
     this.fenced(claim, "state='needs_reconciliation', error=?", [error.slice(0, 2000)]);
@@ -127,6 +134,7 @@ function toTask(row: Record<string, unknown>): TeamTask {
     claimant: row.claimant == null ? null : String(row.claimant), generation: Number(row.generation),
     parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id),
     result: row.result == null ? null : JSON.parse(String(row.result)), error: row.error == null ? null : String(row.error),
+    question: row.question == null ? null : String(row.question),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
 }
