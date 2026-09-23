@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { discardTemp } from "./temp-dir.mjs";
 import { OpenAIProvider, AnthropicProvider } from "../dist/providers.js";
+import { OpenAIStream } from "../dist/provider-stream.js";
 import { createBranch } from "../dist/index.js";
 
 function deferred() {
@@ -39,6 +40,34 @@ const request = {
 };
 const sse = (data) => `data: ${typeof data === "string" ? data : JSON.stringify(data)}\r\n\r\n`;
 const chunk = (delta, finish_reason = null) => ({ choices: [{ index: 0, delta, finish_reason }] });
+
+test("OpenAI accepts repeated empty terminal choice before DONE", async (t) => {
+  const f = await fixture(t, async (_body, res) => res.end(
+    sse(chunk({ content: "answer" })) + sse(chunk({}, "stop")) +
+    sse(chunk({}, "stop")) + sse({ choices: [], usage: { prompt_tokens: 3, completion_tokens: 2 } }) +
+    sse("[DONE]")));
+  const deltas = [];
+  const result = await new OpenAIProvider(options(f.endpoint)).complete({ ...request,
+    onTextDelta: (text) => deltas.push(text) });
+  assert.equal(result.content, "answer");
+  assert.deepEqual(result.toolCalls, []);
+  assert.deepEqual(result.usage, { input: 3, output: 2 });
+  assert.deepEqual(deltas, ["answer"]);
+});
+
+test("OpenAI rejects content or tool fragments after finish even with repeated terminal reason", async (t) => {
+  for (const delta of [
+    { content: "late" },
+    { reasoning_content: "late thinking" },
+    { tool_calls: [{ index: 0, id: "late", function: { name: "files.read", arguments: "{}" } }] },
+  ]) {
+    const stream = new OpenAIStream(() => {});
+    stream.consume(JSON.stringify(chunk({ content: "answer" })));
+    stream.consume(JSON.stringify(chunk({}, "stop")));
+    assert.throws(() => stream.consume(JSON.stringify(chunk(delta, "stop"))),
+      /Provider sent choices after finish/);
+  }
+});
 
 async function runtimeFixture(t, provider) {
   const scratch = join(tmpdir(), "Codex-session-files");
