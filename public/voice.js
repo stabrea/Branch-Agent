@@ -215,40 +215,6 @@ async function loadVoiceSettings() {
   }
 }
 
-/**
- * Save voice settings to the server.
- */
-async function saveVoiceSettings() {
-  try {
-    const autoReadEl = $("auto-read-aloud");
-    const voiceSelectEl = $("voice-select");
-    const rateEl = $("speech-rate");
-    const providerVoiceEl = $("use-provider-voice");
-
-    const settings = {
-      autoReadAloud: autoReadEl?.checked ?? false,
-      voiceId: voiceSelectEl?.value ?? "default",
-      speechRate: parseFloat(rateEl?.value ?? "1"),
-      useProviderVoice: providerVoiceEl?.checked ?? false,
-    };
-
-    const response = await fetch("/api/voice/settings", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer " + voiceToken(),
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(settings),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to save settings");
-    }
-  } catch (e) {
-    console.error("Failed to save voice settings:", e);
-  }
-}
-
 /** The voices already on this computer (Windows, `say` on a Mac, espeak-ng on Linux), asked for when the list is opened. */
 var systemVoiceNames = [];
 var systemVoicesAsked = false;

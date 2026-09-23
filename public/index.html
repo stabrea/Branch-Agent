@@ -1240,38 +1240,38 @@
           </form>
           <form id="voice-settings-form" class="card">
             <h2 data-t="settings.card.voice">Voice</h2>
-            <p>Talk to your assistant and hear it talk back. Recording uses your microphone. Read aloud uses your browser's voice or a higher-quality voice from your model provider.</p>
+            <p data-t="settings.voice.intro">Talk to your assistant and hear it talk back. Recording uses your microphone. Read aloud uses your browser's voice or a higher-quality voice from your model provider.</p>
             <label class="check-row">
               <input id="auto-read-aloud" type="checkbox" /> <span data-t="comfort.read-aloud">Read replies aloud automatically</span>
             </label>
             <label for="voice-select" data-t="field.voice">Voice</label>
             <select id="voice-select">
-              <option value="default">Default</option>
+              <option value="default" data-t="voice.default">Default</option>
             </select>
             <label for="speech-rate" data-t="field.speech-speed">Speech speed</label>
             <input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="1" />
             <label class="check-row">
-              <input id="use-provider-voice" type="checkbox" /> Use higher-quality voice from my provider
+              <input id="use-provider-voice" type="checkbox" /> <span data-t="settings.voice.provider-voice">Use higher-quality voice from my provider</span>
             </label>
-            <p class="subtle" data-level="advanced">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
+            <p class="subtle" data-level="advanced" data-t="settings.voice.provider-voice-note">A higher-quality voice needs a model service that offers one, with its key. The voice in this window works without the internet and is always there.</p>
             <!-- Wave 7: which service writes speech out, which reads it aloud, and the one switch
                  that keeps every recording on this computer. Wired in public/voice-talk.js. -->
             <label class="check-row">
-              <input id="voice-keep-local" type="checkbox" /> Keep audio on this computer (never send a recording anywhere)
+              <input id="voice-keep-local" type="checkbox" /> <span data-t="settings.voice.keep-local">Keep audio on this computer (never send a recording anywhere)</span>
             </label>
             <label for="voice-stt-route" data-t="field.who-writes-out-what-you">Who writes out what you say</label>
             <select id="voice-stt-route">
-              <option value="auto">Whatever your model provider offers</option>
-              <option value="openai">Your model provider</option>
-              <option value="gemini">Gemini</option>
-              <option value="local">A speech program on this computer</option>
+              <option value="auto" data-t="voice.route.listen-auto">Whatever your model provider offers</option>
+              <option value="openai" data-t="voice.route.provider">Your model provider</option>
+              <option value="gemini" data-t="voice.route.gemini">Gemini</option>
+              <option value="local" data-t="voice.route.listen-local">A speech program on this computer</option>
             </select>
             <label for="voice-tts-route" data-t="field.who-reads-replies-aloud">Who reads replies aloud</label>
             <select id="voice-tts-route">
-              <option value="auto">Whatever suits</option>
-              <option value="windows">The voice that comes with Windows (free, works offline)</option>
-              <option value="openai">Your model provider</option>
-              <option value="gemini">Gemini</option>
+              <option value="auto" data-t="voice.route.speak-auto">Whatever suits</option>
+              <option value="windows" data-t="voice.route.system-windows">The voice that comes with Windows (free, works offline)</option>
+              <option value="openai" data-t="voice.route.provider">Your model provider</option>
+              <option value="gemini" data-t="voice.route.gemini">Gemini</option>
             </select>
             <!-- Wave 8: the limits a live conversation runs under. Wired in public/voice-talk.js. -->
             <label for="voice-live-minutes" data-t="field.a-live-conversation-stops-itself">A live conversation stops itself after this many minutes</label>
@@ -1279,10 +1279,10 @@
             <label for="voice-live-dollars" data-t="field.or-once-it-has-cost">…or once it has cost this much (US dollars)</label>
             <input id="voice-live-dollars" type="number" min="0.1" max="100" step="0.1" value="1" />
             <label class="check-row">
-              <input id="voice-live-vad" type="checkbox" checked /> Let the service work out when you have stopped speaking
+              <input id="voice-live-vad" type="checkbox" checked /> <span data-t="settings.voice.live-vad">Let the service work out when you have stopped speaking</span>
             </label>
             <label class="check-row">
-              <input id="voice-live-record" type="checkbox" /> Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)
+              <input id="voice-live-record" type="checkbox" /> <span data-t="settings.voice.live-record">Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)</span>
             </label>
             <!-- phase2/rooms: Talk live in a view of its own (public/voice-view.js). Off by default. -->
             <label for="voice-live-view" data-t="field.voice-live-view">Talk live in its own view</label>
@@ -1292,20 +1292,19 @@
             </select>
             <p id="voice-live-view-note" class="field-note" data-t="settings.voice.liveViewNote">On: pressing Talk live, or the send button while the message box is empty, opens a calm view with a circle that moves with the sound, what each of you says as it is said, Mute and End. The microphone is asked for the first time you press it, never before. Off: Talk live is the plain button it always was.</p>
             <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
-            <input id="voice-language" maxlength="20" placeholder="for example en" />
+            <input id="voice-language" maxlength="20" placeholder="for example en" data-t-placeholder="settings.voice.language-example" />
             <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
-            <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" />
-            <p class="field-note" data-level="technical">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
+            <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" data-t-placeholder="settings.voice.local-exe-empty" />
+            <p class="field-note" data-level="technical" data-t="settings.voice.local-exe-note">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <label for="voice-local-model" data-t="field.its-model-file-or-model">Its model file or model name</label>
-            <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" />
+            <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" data-t-placeholder="settings.voice.local-model-example" />
             <label class="check-row">
-              <input id="voice-reply-audio" type="checkbox" /> Answer a voice note on a chat app with a voice note back
+              <input id="voice-reply-audio" type="checkbox" /> <span data-t="settings.voice.reply-audio">Answer a voice note on a chat app with a voice note back</span>
             </label>
             <p class="subtle" id="voice-where"></p>
             <p class="subtle" id="voice-prices"></p>
             <button type="button" id="voice-test-speak" data-t="action.test-reading-aloud">Test reading aloud</button>
             <button type="button" id="voice-test-record" data-t="action.test-the-microphone">Test the microphone</button>
-            <button type="button" id="voice-settings-save" data-t="action.save-voice-settings">Save voice settings</button>
             <p id="voice-status" role="status"></p>
           </form>
           <!-- Wave 7: named routing profiles and a live check of each connection (public/model-profiles.js). -->

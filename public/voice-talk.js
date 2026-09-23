@@ -3,6 +3,8 @@
  * is written out, sent as an ordinary message, and the answer is read aloud. Press Talk again to
  * cut it off. The four states this moves through are the same four the server knows about.
  */
+import { formatNumber, t } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -182,9 +184,27 @@ const fields = [
   ["voice-live-record", "keepLiveRecordings", "checked"],
   ["voice-live-view", "liveView", "value"], // phase2/rooms: Talk live in its own view (public/voice-view.js)
 ];
-/** The two limits are numbers on the way back out; everything else on this form is text or a tick. */
-const numberFields = new Set(["liveMaxMinutes", "liveMaxDollars"]);
+/** The older settings on the same card, which public/voice.js fills in. They are kept as you go like the rest. */
+const olderFields = [
+  ["auto-read-aloud", "autoReadAloud", "checked"],
+  ["voice-select", "voiceId", "value"],
+  ["speech-rate", "speechRate", "value"],
+  ["use-provider-voice", "useProviderVoice", "checked"],
+];
+/** These are numbers on the way back out; everything else on this form is text or a tick. */
+const numberFields = new Set(["liveMaxMinutes", "liveMaxDollars", "speechRate"]);
+/** A reason read from the server already ends in a full stop; the line adds its own. */
+const clause = (words) => String(words ?? "").trim().replace(/\.+$/, "");
 
+let shownPlan = null;
+/** The lines under the card that follow from the settings: where sound goes, what it costs, what each route does. */
+function showPlanLines(plan) {
+  shownPlan = plan;
+  $("voice-where").textContent = plan.whereAudioGoes;
+  $("voice-prices").textContent = priceLine(plan.prices) + " " + plan.realtimeNote;
+  $("voice-status").textContent = t("settings.voice.plan-line",
+    { listen: clause(plan.speechToText.reason), speak: clause(plan.readAloud.reason) });
+}
 async function loadVoicePlan() {
   if (!$("voice-keep-local")) return;
   try {
@@ -193,40 +213,56 @@ async function loadVoicePlan() {
       const node = $(id);
       if (node) node[kind] = plan.settings[key] ?? (kind === "checked" ? false : "");
     }
-    $("voice-where").textContent = plan.whereAudioGoes;
-    $("voice-prices").textContent = priceLine(plan.prices) + " " + plan.realtimeNote;
-    const note = `Writing out what you say: ${plan.speechToText.reason}. Reading aloud: ${plan.readAloud.reason}.`;
-    $("voice-status").textContent = note;
+    showPlanLines(plan);
   } catch (error) {
     $("voice-status").textContent = error.message;
   }
 }
+/** A price in the chosen language's own way of writing numbers, to a tenth of a cent. */
+const price = (each) => formatNumber(each, { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 function priceLine(prices) {
-  const minute = Object.entries(prices.perMinute).map(([model, each]) => `${model} $${each.toFixed(3)} a minute`).join(", ");
-  const characters = Object.entries(prices.perThousandCharacters).map(([model, each]) => `${model} $${each.toFixed(3)} per thousand characters`).join(", ");
-  return `Published prices, read on ${prices.transcriptionPricedAt}: ${minute}. Reading aloud: ${characters}. A voice on this computer costs nothing.`;
+  const minute = Object.entries(prices.perMinute)
+    .map(([model, each]) => t("settings.voice.price-minute", { model, each: price(each) })).join(", ");
+  const characters = Object.entries(prices.perThousandCharacters)
+    .map(([model, each]) => t("settings.voice.price-characters", { model, each: price(each) })).join(", ");
+  return t("settings.voice.prices", { date: prices.transcriptionPricedAt, minute, characters });
 }
 
-async function saveVoicePlan() {
-  const body = {};
-  for (const [id, key, kind] of fields) {
-    const node = $(id);
-    if (node) body[key] = numberFields.has(key) ? Number.parseFloat(node[kind]) : node[kind];
-  }
-  // The older settings on this same card are saved together, so one form means one record.
-  body.autoReadAloud = $("auto-read-aloud")?.checked ?? false;
-  body.voiceId = $("voice-select")?.value || "default";
-  body.speechRate = Number.parseFloat($("speech-rate")?.value ?? "1") || 1;
-  body.useProviderVoice = $("use-provider-voice")?.checked ?? false;
+/** The words a person reads beside a control: its own label, in the language now chosen. */
+const labelOf = (node) => (node.labels?.[0]?.textContent ?? node.id).replace(/\s+/g, " ").trim();
+function valueOf(node, key, kind) {
+  if (key === "speechRate") return Number.parseFloat(node.value) || 1;
+  if (key === "voiceId") return node.value || "default";
+  return numberFields.has(key) ? Number.parseFloat(node[kind]) : node[kind];
+}
+/**
+ * DG-025: kept as you go, as in the approved sample, with no Save button. Only the setting that changed
+ * is sent (the server keeps the rest), so a control this page has not filled in yet can never
+ * overwrite what is saved. A refusal says why and puts that one control back as it is saved.
+ */
+async function keepOne(event) {
+  const entry = [...fields, ...olderFields].find(([id]) => id === event.target?.id);
+  if (!entry) return;
+  const [, key, kind] = entry;
+  const node = event.target;
+  const label = labelOf(node);
   try {
-    await request("/api/voice/settings", body);
-    say("Voice settings saved.");
-    await loadVoicePlan();
-  } catch (error) { say(error.message); }
+    await request("/api/voice/settings", { [key]: valueOf(node, key, kind) });
+    say(t("settings.voice.saved-one", { label }));
+    showPlanLines(await request("/api/voice/plan"));
+  } catch (error) {
+    say(t("settings.voice.not-saved", { label, reason: clause(error.message) }));
+    try {
+      const saved = (await request("/api/voice/plan")).settings?.[key];
+      if (saved !== undefined) node[kind] = saved;
+    } catch { /* the line above has already said it was not kept */ }
+  }
 }
 
 function wireVoiceSettings() {
-  $("voice-settings-save")?.addEventListener("click", () => void saveVoicePlan());
+  $("voice-settings-form")?.addEventListener("submit", (event) => event.preventDefault());
+  $("voice-settings-form")?.addEventListener("change", (event) => void keepOne(event));
+  document.addEventListener("branch-language", () => { if (shownPlan) showPlanLines(shownPlan); });
   $("voice-test-speak")?.addEventListener("click", () =>
     void globalThis.branchSpeak("This is how Branch Agent will read your replies aloud."));
   $("voice-test-record")?.addEventListener("click", async () => {
@@ -237,7 +273,6 @@ function wireVoiceSettings() {
   });
   if (connected()) void loadVoicePlan();
 }
-
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
 else start();
 function start() {

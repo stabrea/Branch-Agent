@@ -56,7 +56,7 @@ async function settings(t, width) {
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   await page.keyboard.press("Control+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
-  return { page, errors, server };
+  return { page, errors, server, app };
 }
 const level = (page, value) => page.evaluate((one) => globalThis.branchSettingsLevel.set(one), value)
   .then(() => page.waitForFunction((one) => document.documentElement.dataset.settingsLevel === one, value));
@@ -67,7 +67,7 @@ const outline = (page) => page.evaluate(() => {
   return [...host.querySelectorAll("h1, h2, h3, h4, h5, .sg-more")].filter(seen).map((node) => node.textContent.trim());
 });
 
-for (const width of [1440, 400]) {
+for (const width of [1440, 860, 400]) {
   test(`DG-186 at ${width} px the Voice page shows the sample's headings and counts, with Show everything off and on`, async (t) => {
     const { page, errors } = await settings(t, width);
     await level(page, "regular");
@@ -129,5 +129,78 @@ test("DG-025 the word that starts a turn and dictation are kept as you go, with 
   await page.locator("#wake-word-sureness").press("Tab");
   await page.locator("#wake-word-state", { hasText: "Saved" }).waitFor();
   assert.equal((await read("voice/wake")).settings.sureness, 90);
+  assert.deepEqual(errors, []);
+});
+
+const voicePlan = (server) => fetch(new URL("/api/voice/plan", server.url), { headers: { authorization: `Bearer ${server.token}` } })
+  .then((answer) => answer.json()).then((plan) => plan.settings);
+
+test("DG-025 the Voice card keeps each change as you make it, sends only that change, and puts a refused one back", async (t) => {
+  const { page, errors, server } = await settings(t, 1440);
+  /* Saved before this window read anything: a card that sent all its controls would overwrite it with what it shows. */
+  await fetch(new URL("/api/voice/settings", server.url), {
+    method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ autoReadAloud: true, useProviderVoice: true, speechRate: 1.5 }),
+  });
+  await level(page, "technical");
+  await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
+  const card = page.locator("#voice-settings-form");
+  await card.waitFor({ state: "visible" });
+  assert.equal(await card.getByRole("button", { name: /^Save/ }).count(), 0, "the Voice card has no Save button");
+  assert.equal(await page.locator("#voice-settings-save").count(), 0);
+
+  await page.locator("#voice-live-minutes").fill("25");
+  await page.locator("#voice-live-minutes").press("Tab");
+  await page.locator("#toast", { hasText: "A live conversation stops itself after this many minutes: saved." }).waitFor();
+  let saved = await voicePlan(server);
+  assert.equal(saved.liveMaxMinutes, 25);
+  assert.deepEqual([saved.autoReadAloud, saved.useProviderVoice, saved.speechRate], [true, true, 1.5],
+    "a change to one control left every other saved setting as it was");
+
+  await page.locator("#voice-live-record").check();
+  await page.locator("#toast", { hasText: "Note in the task's record how much sound a live conversation carried" }).waitFor();
+  assert.equal((await voicePlan(server)).keepLiveRecordings, true);
+
+  /* A refusal says so and puts that one control back as it is saved. */
+  await page.locator("#voice-live-minutes").fill("500");
+  await page.locator("#voice-live-minutes").press("Tab");
+  await page.locator("#toast", { hasText: "A live conversation stops itself after this many minutes: not saved." }).waitFor();
+  await page.waitForFunction(() => document.getElementById("voice-live-minutes").value === "25");
+  saved = await voicePlan(server);
+  assert.equal(saved.liveMaxMinutes, 25);
+  assert.equal(saved.autoReadAloud, true);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-023 the Voice card's words are plain, and the line about each route has one full stop", async (t) => {
+  const { page, errors } = await settings(t, 1440);
+  await level(page, "technical");
+  await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
+  await page.waitForFunction(() => document.getElementById("voice-status").textContent.startsWith("Writing out what you say:"));
+  const words = await page.locator("#voice-settings-form").innerText();
+  assert.doesNotMatch(words, /OpenAI-compatible|API key/, "no machine words in the Voice card");
+  const status = await page.locator("#voice-status").innerText();
+  assert.doesNotMatch(status, /\.\.$/, status);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-186 parity: in French the Voice card reads in French, and a kept change says so in French", async (t) => {
+  const { page, errors } = await settings(t, 860);
+  await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
+  await level(page, "advanced");
+  await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
+  await page.waitForFunction(() => document.getElementById("voice-status").textContent.startsWith("Transcription de ce que vous dites"));
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  const card = page.locator("#voice-settings-form");
+  const words = await card.innerText();
+  for (const key of ["settings.voice.intro", "settings.voice.provider-voice", "settings.voice.provider-voice-note", "settings.voice.keep-local",
+    "settings.voice.live-vad", "settings.voice.reply-audio", "voice.route.listen-auto", "voice.route.speak-auto", "voice.route.provider"])
+    assert.ok(words.includes(fr[key]), `${key} reads in French`);
+  for (const english of ["Talk to your assistant and hear it talk back", "Whatever your model provider offers", "Whatever suits",
+    "Published prices", "Writing out what you say"]) assert.ok(!words.includes(english), `"${english}" is still in English`);
+  assert.equal(await page.locator("#voice-language").getAttribute("placeholder"), fr["settings.voice.language-example"]);
+  assert.ok(await page.locator("#auto-read-aloud").count(), "the tick boxes are still there after the words changed");
+  await page.locator("#voice-live-vad").uncheck();
+  await page.locator("#toast", { hasText: `${fr["settings.voice.live-vad"]} : enregistré.` }).waitFor();
   assert.deepEqual(errors, []);
 });

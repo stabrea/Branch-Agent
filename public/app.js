@@ -2188,17 +2188,6 @@ if (typeof initVoiceRecording !== "undefined") {
   $("voice-record").addEventListener("mouseleave", stopVoiceRecording);
   $("voice-record").addEventListener("touchcancel", stopVoiceRecording);
 }
-if ($("voice-settings-save")) {
-  $("voice-settings-save").addEventListener("click", async () => {
-    try {
-      await saveVoiceSettings();
-      await loadVoiceSettings();
-      toast("Voice settings saved");
-    } catch (e) {
-      toast("Failed to save voice settings: " + (e instanceof Error ? e.message : String(e)));
-    }
-  });
-}
 if (token && typeof loadVoiceSettings !== "undefined") {
   loadVoiceSettings().catch((e) => console.error("Failed to load voice settings:", e));
 }
