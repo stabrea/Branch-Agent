@@ -55,8 +55,9 @@ function status() {
 function recordingsCard(state) {
   const card = make("section", "card");
   card.id = "recordings-card";
-  card.dataset.home = "inbox:history";
-  card.append(make("h2", "", "recordings.title", "Watch a task again"),
+  card.dataset.home = "settings:automations";
+  /* Its section heading already says "Watch a task again": the title stays for a screen reader, not shown twice (DG-032). */
+  card.append(make("h3", "settings-card-title sr-only", "recordings.title", "Watch a task again"),
     make("p", "subtle", "recordings.purpose", "Play back what a finished task did, one step at a time, see the path it took, and keep it as a page or a workflow."));
   const label = make("label", "", "recordings.switch", "Recordings of tasks");
   label.htmlFor = "recordings-mode";

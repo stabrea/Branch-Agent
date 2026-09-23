@@ -89,7 +89,9 @@ function card(id, home, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = home;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-198: a card on Settings › Automations & inbox is titled under its section heading (DG-008). */
+  const titled = home === "settings:automations";
+  node.append(make(titled ? "h3" : "h2", titled ? "settings-card-title" : "", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };
@@ -233,8 +235,10 @@ async function mailCard(modes) {
 
 /* ---------- automations:triggers — the webhook-only address ---------- */
 async function tunnelCard(modes) {
-  const { node, status } = card("personal-tunnel-card", "automations:triggers", "personal.tunnel.title", "A public address for webhooks",
+  const { node, status } = card("personal-tunnel-card", "settings:automations", "personal.tunnel.title", "A public address for webhooks",
     "personal.tunnel.purpose", "Chat services and triggers can reach Branch from the internet through your own tunnel program. Only webhook addresses pass; the window never does.");
+  /* Its section heading already says "A public address for webhooks": the title stays for a screen reader, not shown twice (DG-032). */
+  node.querySelector(":scope > h3")?.classList.add("sr-only");
   node.append(...switchFor("tunnel", modes, status));
   if (modes.tunnel !== "off") {
     node.append(make("p", "field-note", "personal.tunnel.warning",

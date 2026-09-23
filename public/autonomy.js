@@ -82,7 +82,9 @@ function card(id, home, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = home;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-198: a card on Settings › Automations & inbox is titled under its section heading (DG-008). */
+  const titled = home === "settings:automations";
+  node.append(make(titled ? "h3" : "h2", titled ? "settings-card-title" : "", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };
@@ -125,7 +127,7 @@ function blueprintForm(catalogue, status) {
 
 let showStarters = false;
 async function suggestionsCard(modes) {
-  const { node, status } = card("autonomy-suggestions-card", "automations:scheduled", "autonomy.suggestions.title", "Suggested automations",
+  const { node, status } = card("autonomy-suggestions-card", "settings:automations", "autonomy.suggestions.title", "Suggested automations",
     "autonomy.suggestions.purpose", "Ideas worked out on this computer from what Branch remembers and what is connected. Nothing is made until you say yes, and a no is never offered again.");
   node.append(...switchFor("suggestions", modes, status));
   if (modes.suggestions !== "off") {
@@ -175,7 +177,7 @@ function orderForm(status) {
 }
 
 async function ordersCard(modes) {
-  const { node, status } = card("autonomy-orders-card", "automations:scheduled", "autonomy.orders.title", "Standing orders",
+  const { node, status } = card("autonomy-orders-card", "settings:automations", "autonomy.orders.title", "Standing orders",
     "autonomy.orders.purpose", "A programme you hand over for good: what it may do, when it runs, and when it must stop and ask you. Your approval rules still apply.");
   node.append(...switchFor("orders", modes, status));
   const { orders } = await api("autonomy/orders");
@@ -189,7 +191,7 @@ async function ordersCard(modes) {
 
 /* ---------- automations:scheduled — loops, and the limits on automatic work ---------- */
 async function loopsCard(modes) {
-  const { node, status } = card("autonomy-loops-card", "automations:scheduled", "autonomy.loops.title", "Repeating in conversations",
+  const { node, status } = card("autonomy-loops-card", "settings:automations", "autonomy.loops.title", "Repeating in conversations",
     "autonomy.loops.purpose", "Type /loop or /heartbeat in a conversation to have it asked again every so often. Each stops by itself after a set number of turns.");
   node.append(...switchFor("loops", modes, status), ...switchFor("session-commands", modes, status));
   const { loops } = await api("autonomy/loops");
@@ -205,7 +207,7 @@ async function loopsCard(modes) {
 }
 
 async function limitsCard() {
-  const { node, status } = card("autonomy-limits-card", "automations:scheduled", "autonomy.limits.title", "Limits on automatic work",
+  const { node, status } = card("autonomy-limits-card", "settings:automations", "autonomy.limits.title", "Limits on automatic work",
     "autonomy.limits.purpose", "How much standing orders, procedures and repeating conversations may do between them. A turn past a limit waits and says why.");
   const { limits } = await api("autonomy");
   const runs = field("input", String(limits.runsPerDay), "number"), steps = field("input", String(limits.stepsPerTurn), "number"),
@@ -254,7 +256,7 @@ function procedureForm(status) {
 }
 
 async function proceduresCard(modes) {
-  const { node, status } = card("autonomy-procedures-card", "automations:procedures", "autonomy.procedures.title", "Procedures that start themselves",
+  const { node, status } = card("autonomy-procedures-card", "settings:automations", "autonomy.procedures.title", "Procedures that start themselves",
     "autonomy.procedures.purpose", "Steps that start on a clock or after a task, asking you as often as you choose. One that keeps failing goes back to asking first.");
   node.append(...switchFor("procedures", modes, status));
   const { procedures } = await api("autonomy/procedures");

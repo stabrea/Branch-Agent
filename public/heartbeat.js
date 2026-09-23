@@ -126,7 +126,7 @@ function fillCheckIn(card, { settings, mode, state, health }, switches, file) {
   const fields = checkInFields(settings, switches.checkIn ?? mode);
   const source = plain("p", fileWords(file), "subtle");
   source.append(" ", fileLink());
-  card.replaceChildren(node("h2", "schedules.checkin.title"), node("p", "schedules.checkin.intro", "subtle"),
+  card.replaceChildren(node("h3", "schedules.checkin.title", "settings-card-title"), node("p", "schedules.checkin.intro", "subtle"),
     field("schedules.switch.check-in", fields.mode), field("schedules.checkin.every", fields.every),
     field("schedules.checkin.from", fields.from), field("schedules.checkin.to", fields.to),
     field("schedules.checkin.zone", fields.zone), source, field("schedules.checkin.list", fields.list),
@@ -165,7 +165,7 @@ function scheduleRow(item) {
 /* automations:scheduled — how each schedule is doing, and whether check scripts may run. */
 function fillHealth(card, schedules, switches) {
   const scripts = modeSelect("quiet-switch-scripts", switches.scriptGates);
-  card.replaceChildren(node("h2", "schedules.health.title"), node("p", "schedules.health.intro", "subtle"),
+  card.replaceChildren(node("h3", "schedules.health.title", "settings-card-title"), node("p", "schedules.health.intro", "subtle"),
     field("schedules.switch.scripts", scripts));
   if (!schedules.length) card.append(node("p", "schedules.health.empty", "subtle"));
   for (const item of schedules) card.append(scheduleRow(item));
@@ -216,8 +216,8 @@ function fill(id, home, draw) {
 function render() {
   if (!latest) return;
   const { switches, heartbeat, schedules, file } = latest;
-  fill("quiet-checkin", "automations:scheduled", (card) => fillCheckIn(card, heartbeat, switches, file));
-  fill("quiet-health", "automations:scheduled", (card) => fillHealth(card, schedules, switches));
+  fill("quiet-checkin", "settings:automations", (card) => fillCheckIn(card, heartbeat, switches, file));
+  fill("quiet-health", "settings:automations", (card) => fillHealth(card, schedules, switches));
   fill("quiet-interruptions", "settings:notifications", (card) => fillInterruptions(card, heartbeat.settings, switches));
 }
 async function load() {

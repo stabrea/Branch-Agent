@@ -60,14 +60,14 @@ const cards = [
     files: ["memory"],
   },
   {
-    id: "context-heartbeat", home: "automations:scheduled",
+    id: "context-heartbeat", home: "settings:automations",
     title: ["settings.card.what-to-check-when-it-wakes", "What to check when it wakes"],
     purpose: ["settings.note.heartbeat-file",
       "A list your assistant reads each time it wakes on a schedule. An empty file means there is nothing to do and it goes back to sleep without spending anything."],
     files: ["heartbeat"],
   },
   {
-    id: "context-sop", home: "automations:procedures",
+    id: "context-sop", home: "settings:automations",
     title: ["settings.card.how-you-want-things-done", "How you want things done"],
     purpose: ["settings.note.sop-file",
       "Steps you want followed the same way every time, written as prose rather than built as a procedure."],
@@ -154,8 +154,11 @@ function buildCard(spec, reports, settings, save) {
   // DG-032: on the Assistant page this card's title repeats the bucket heading above it, which the
   // sample does not show twice. The heading still belongs to the card -- it is what gives the page
   // its structure and what a screen reader announces -- so it is hidden, not removed.
-  const heading = el("h2", spec.title[1]);
+  // DG-198: a card on Settings › Automations & inbox is titled under its section heading (DG-008).
+  const titled = spec.home === "settings:automations";
+  const heading = el(titled ? "h3" : "h2", spec.title[1]);
   heading.dataset.t = spec.title[0];
+  if (titled) heading.className = "settings-card-title";
   if (spec.id === "context-assistant") heading.className = "sr-only";
   card.append(heading);
   const purpose = el("p", spec.purpose[1]);

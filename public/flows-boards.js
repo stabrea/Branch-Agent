@@ -91,7 +91,9 @@ function card(id, home, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = home;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-198: a card on Settings › Automations & inbox is titled under its section heading (DG-008). */
+  const titled = home === "settings:automations";
+  node.append(make(titled ? "h3" : "h2", titled ? "settings-card-title" : "", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };
@@ -130,7 +132,7 @@ async function timeTravelBody(node, status) {
     row(button("flowsBoards.travel.fork", "Run a copy from here", fork, false)));
 }
 async function timeTravelCard(modes) {
-  const { node, status } = card("flows-travel-card", "automations:procedures", "flowsBoards.travel.title", "Go back in a flow",
+  const { node, status } = card("flows-travel-card", "settings:automations", "flowsBoards.travel.title", "Go back in a flow",
     "flowsBoards.travel.purpose", "Pick a step a flow has already passed, change a value, and run a copy from there. Every tool it uses is checked by your approval rules again.");
   node.append(...switchFor("time-travel", modes, status));
   if (modes["time-travel"] !== "off") await timeTravelBody(node, status);
@@ -169,7 +171,7 @@ async function recipeBody(node, status) {
     row(button("flowsBoards.recipes.save", "Save checks", save, false), button("flowsBoards.recipes.run", "Run with checks", run)));
 }
 async function recipeCard(modes) {
-  const { node, status } = card("flows-recipes-card", "automations:procedures", "flowsBoards.recipes.title", "Checks for procedures",
+  const { node, status } = card("flows-recipes-card", "settings:automations", "flowsBoards.recipes.title", "Checks for procedures",
     "flowsBoards.recipes.purpose", "Say how to tell that a saved procedure really worked, what to tidy up when it did not, and how many times to try.");
   node.append(...switchFor("recipe-checks", modes, status));
   if (modes["recipe-checks"] !== "off") await recipeBody(node, status);
@@ -221,7 +223,7 @@ async function boardBody(node, status) {
     row(button("flowsBoards.board.saveStop", "Save", act(status, () => api("flows-boards/board/settings", { stopAfter: Number(stop.value) })))));
 }
 async function boardCard(modes) {
-  const { node, status } = card("flows-board-card", "automations:scheduled", "flowsBoards.board.title", "Shared board",
+  const { node, status } = card("flows-board-card", "settings:automations", "flowsBoards.board.title", "Shared board",
     "flowsBoards.board.purpose", "Cards you and the assistant work from, for the active project. The assistant can add and move cards; only you start work, finish or reset one.");
   node.append(...switchFor("kanban", modes, status));
   if (modes.kanban !== "off") await boardBody(node, status);
@@ -264,7 +266,7 @@ async function waitingBody(node, status) {
   if (!tasks.children.length) node.append(make("p", "field-note", "flowsBoards.waiting.none", "Nothing is waiting."));
 }
 async function waitingCard(modes) {
-  const { node, status } = card("flows-waiting-card", "automations:scheduled", "flowsBoards.waiting.title", "Change the waiting line",
+  const { node, status } = card("flows-waiting-card", "settings:automations", "flowsBoards.waiting.title", "Change the waiting line",
     "flowsBoards.waiting.purpose", "Reword, move or take out what is waiting, and choose what happens when you type while a task works.");
   node.append(...switchFor("waiting-line", modes, status));
   if (modes["waiting-line"] !== "off") await waitingBody(node, status);
@@ -376,7 +378,7 @@ function requestRow(item, status) {
   return line;
 }
 async function installsCard(modes) {
-  const { node, status } = card("flows-installs-card", "inbox:needs", "flowsBoards.installs.title", "Package and tool server requests",
+  const { node, status } = card("flows-installs-card", "settings:automations", "flowsBoards.installs.title", "Package and tool server requests",
     "flowsBoards.installs.purpose", "What the assistant or a chat asked to add. The list of harmful packages is checked first, only you can answer, and nothing installs itself.");
   node.append(...switchFor("install-requests", modes, status));
   if (modes["install-requests"] !== "off") {

@@ -147,11 +147,21 @@ export const BUCKETS = {
     ["open", "memory", "Memory, documents and things made", "Open the real Library page for each kind of item.",
       [["settings-directory-memory-memory", R], ["settings-directory-memory-documents", R], ["settings-directory-memory-made", R]]],
   ],
+  /* DG-198: the sample's four sections, filled in the order it fills them. The links to the Automations and Inbox
+     places have no home in the sample; they wait at Technical beside what they open, for the coordinator. */
   automations: [
-    ["open", "automations", "Automations and their record", "Open the real Automations or Inbox page.",
-      [["settings-directory-automations-scheduled", R], ["settings-directory-automations-procedures", R],
-        ["settings-directory-automations-triggers", R], ["settings-directory-automations-needs", R],
-        ["settings-directory-automations-history", R]]],
+    ["running", "automations", "Keep it running by itself", "Check-ins and standing orders that run on their own.",
+      [["quiet-checkin", R], ["autonomy-suggestions-card", R], ["autonomy-orders-card", A], ["context-heartbeat", A],
+        ["autonomy-loops-card", A], ["settings-directory-automations-scheduled", T]]],
+    ["limits", "gauge", "Limits and the waiting line", "How much automatic work may run, and in what order.",
+      [["quiet-health", R], ["flows-board-card", R], ["flows-waiting-card", A], ["autonomy-limits-card", A],
+        ["flows-travel-card", A], ["flows-recipes-card", A], ["prompts-card", A], ["context-sop", A],
+        ["autonomy-procedures-card", A], ["settings-directory-automations-procedures", T]]],
+    ["webhooks", "globe", "A public address for webhooks", "Chat services and triggers can reach Branch from the internet through your own tunnel program.",
+      [["personal-tunnel-card", R], ["flows-installs-card", R], ["settings-directory-automations-triggers", T],
+        ["settings-directory-automations-needs", T]]],
+    ["watch", "eye", "Watch a task again", "Play back what a finished task did, one step at a time.",
+      [["recordings-card", R], ["settings-directory-automations-history", T]]],
   ],
 };
 

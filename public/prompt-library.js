@@ -283,8 +283,8 @@ async function importFile(input) {
 function buildCard(view, choices) {
   const card = make("section", "card");
   card.id = "prompts-card";
-  card.dataset.home = "automations:procedures";
-  card.append(make("h2", "", "prompts.card.title", "Your saved prompts"),
+  card.dataset.home = "settings:automations";
+  card.append(make("h3", "settings-card-title", "prompts.card.title", "Your saved prompts"),
     make("p", "", "prompts.card.purpose", "The things you ask for often, kept in groups, each with a command of its own if you like, such as /weekly."),
     ...switchRow(view.settings.mode));
   const said = make("p", "subtle");
