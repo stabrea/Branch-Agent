@@ -248,3 +248,17 @@ body.lx {
     border-radius: 0 0 3px 3px;
   }
 }
+
+/* ---------- DG-145: a phone's usage ring in the title bar, a ring alone (public/phone-layout.js moves it) ---------- */
+.status-bar.ew-ring-top {
+  flex: none;
+  min-height: 0;
+  margin-top: 0;
+}
+.status-bar.ew-ring-top .usage-ring {
+  height: 32px;
+  padding: 0 6px;
+}
+.status-bar.ew-ring-top .glance-words {
+  display: none;
+}
