@@ -6,6 +6,7 @@ import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
 import { applyLanguage, t } from "/i18n.js";
+import { taskWhen, taskWords } from "/task-state.js"; // Q51
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 /* One notice area, one timer. A second notice inside the six seconds has to cancel the first
@@ -1903,7 +1904,10 @@ function watchActivity(prompt) {
   const box = $("activity");
   const marks = { done: "✓", failed: "✗", stopped: "⏱", working: "…" };
   const render = (item) => {
-    box.replaceChildren(el("strong", item.current || "Finishing up"));
+    /* Q51: waiting for you, for a service, or blocked, in words, before what it last did. */
+    box.replaceChildren(el("strong", taskWords(item.task) || item.current || "Finishing up"));
+    const when = taskWhen(item.task);
+    if (when) box.append(el("p", when, "meta task-when"));
     const steps = item.steps.slice(-6);
     if (steps.length) box.append(el("p", steps.map((s) => `${marks[s.status] || ""} ${s.label}`).join("  ·  "), "meta"));
     if (item.followUps) box.append(el("p", `${item.followUps} message(s) waiting to be answered next`, "meta"));
@@ -1911,7 +1915,7 @@ function watchActivity(prompt) {
   };
   const poll = async () => {
     try {
-      const running = await api("activity");
+      const running = await api("activity?waiting=1");
       const mine = running.find((r) => (sessionId ? r.sessionId === sessionId : r.prompt === prompt));
       if (mine) render(mine); else if (!box.hidden) box.replaceChildren(el("strong", "Finishing up"));
     } catch { /* the reply itself will report problems */ }
