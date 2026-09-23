@@ -63,7 +63,7 @@ test("DG-099 at 1440 px a new conversation reads: this computer / New conversati
 
 test("DG-099 a place shows its own name after the computer's", async (t) => {
   const { page, errors } = await signedIn(t, 1440);
-  await openPlace(page, "library");
+  await openPlace(page, "library:memory");
   const now = await crumbs(page);
   assert.ok(now.mid && now.mid.length > 0);
   assert.equal(now.sep, true);
