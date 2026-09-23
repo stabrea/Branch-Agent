@@ -61,7 +61,7 @@ function kitCard() {
     mode.dataset.edited = "1";
     try {
       const saved = await api("sdk-kit", { mode: mode.value });
-      delete mode.dataset.edited;
+      if (mode.value === saved.settings.mode) delete mode.dataset.edited; // a later choice still on its way stays on screen
       drawKit(saved);
       status(id, t("sdk-kit.saved"));
     } catch (error) { status(id, error.message); }

@@ -47,12 +47,13 @@ function cardShape(page, id) {
   }, id);
 }
 
-function assertAnatomy(shape, id, home) {
+/* A card whose switches save themselves has no filled button (DG-025); one with a Save has exactly one. */
+function assertAnatomy(shape, id, home, filled = 1) {
   assert.equal(shape.home, home, id);
   assert.equal(shape.tag, "SECTION");
   assert.equal(shape.headings, 1);
   assert.ok(shape.sentence.length > 10, `${id} says what it is for`);
-  assert.equal(shape.filled, 1, `${id} has one filled button`);
+  assert.equal(shape.filled, filled, `${id} has ${filled} filled button(s)`);
   assert.equal(shape.unnamed, 0, `${id}: every control can be named`);
   assert.equal(shape.keyless, 0, `${id}: every word goes through a key`);
 }
@@ -110,7 +111,7 @@ test("Is Branch keeping up: lives in Settings, Advanced, and its switch is saved
   await page.locator("#event-loop-card").waitFor({ state: "attached" });
   await openSettingFor(page, "#event-loop-card");
   await page.locator("#event-loop-card h3.settings-card-title").waitFor({ state: "visible" });
-  assertAnatomy(await cardShape(page, "event-loop-card"), "event-loop-card", "settings:advanced");
+  assertAnatomy(await cardShape(page, "event-loop-card"), "event-loop-card", "settings:advanced", 0);
   // DG-025: one choice, so it is saved the moment it changes, with no Save button.
   assert.equal(await page.locator("#event-loop-card").getByRole("button", { name: "Save", exact: true }).count(), 0, "no Save button");
   await page.locator("#event-loop-mode").selectOption("when-needed");

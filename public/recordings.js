@@ -238,8 +238,7 @@ function loopCard(state) {
     try { const next = await api("event-loop", { mode: select.value }); reading.textContent = next.reading ? readingWords(next.reading) : ""; said.textContent = say("recordings.saved", "Saved."); }
     catch (error) { said.textContent = error.message; }
   });
-  /* With the switch saving itself, "Check now" is the card's one action, so it is the filled button. */
-  const check = button("event-loop.check", "Check now", "", async () => {
+  const check = button("event-loop.check", "Check now", "quiet-button", async () => {
     try { const next = await api("event-loop?read=1"); reading.textContent = next.reading ? readingWords(next.reading) : say("event-loop.off", "The check is off."); }
     catch (error) { said.textContent = error.message; }
   });
