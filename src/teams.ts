@@ -4,6 +4,7 @@ import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message } from "./contracts.js";
+import { TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -24,7 +25,10 @@ export const TeamSchema = z.object({
 export interface Team { id: string; name: string; purpose: string; members: z.infer<typeof TeamMemberSchema>[]; roomSessionId: string; createdAt: string; updatedAt: string }
 
 export class Teams {
-  constructor(private readonly store: Store, private readonly owner: string) {}
+  private readonly tasks: TeamTasks;
+  constructor(private readonly store: Store, private readonly owner: string) {
+    this.tasks = new TeamTasks(store);
+  }
   list(): Team[] {
     return this.store.list("governance", this.owner).filter((r) => r.id.startsWith("team:")).map((r) => r.data as unknown as Team).sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -54,18 +58,48 @@ export class Teams {
   room(id: string): Message[] {
     return this.store.messages(this.get(id).roomSessionId);
   }
-  /** Sends one task to every member (each with its role and brief) and records the answers in the room, in member order. */
-  async run(runtime: Runtime, knowledge: Knowledge, id: string, prompt: string) {
+  /**
+   * Sends one task to every member (each with its role and brief) and records the answers in the room,
+   * in member order. With a request id, a repeat of the same request never runs the team again: it
+   * gets the recorded result, or the task's state while it is running or its outcome is unknown.
+   * The source is who is asking (decided by the caller from the signed-in context, never the body).
+   */
+  async run(runtime: Runtime, knowledge: Knowledge, id: string, prompt: string, request: { requestId?: string | undefined; source?: string } = {}) {
     const team = this.get(id);
+    const scope = { owner: this.owner, source: request.source ?? "window" };
+    const requestId = request.requestId ?? randomUUID();
+    const task = this.tasks.observe(scope, team.id, requestId, teamRequestFingerprint({ teamId: team.id, prompt, ...team }));
+    const claim = task.state === "pending" ? this.tasks.claim(scope, task.taskId) : null;
+    if (!claim) return this.observed(scope, task.taskId);
+    try {
+      return await this.dispatch(runtime, knowledge, team, prompt, claim);
+    } catch (error) {
+      // The run may have done things before it threw, so the task is left uncertain and never replayed.
+      try { this.tasks.markUncertain(claim, error instanceof Error ? error.message : String(error)); } catch { /* the claim is already gone */ }
+      throw error;
+    }
+  }
+  /** What a caller that did not win the claim sees: the recorded result, or only the task's state. */
+  private observed(scope: { owner: string; source: string }, taskId: string) {
+    const task = this.tasks.get(scope, taskId)!;
+    const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
+    return task.state === "completed" ? { ...(task.result as object), ...identity } : { teamId: task.teamId, ...identity };
+  }
+  private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim) {
     const parent = await runtime.run({ prompt: `Team ${team.name}: ${prompt}` });
+    this.tasks.linkParentRun(claim, parent.id);
     const context = runtime.context({ runId: parent.id });
     this.store.message(team.roomSessionId, { role: "user", content: prompt });
     const tasks = team.members.map((member, index) => ({ id: `m${index}`, prompt: `Your role in team "${team.name}": ${member.role}. ${member.brief}\n\nTask: ${prompt}`, dependsOn: [] as string[] }));
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
     const outcome = await runtime.fanout(context, tasks, (taskId) => specs.get(taskId)!);
     const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcome.tasks[`m${index}`]! }));
-    for (const answer of answers) this.store.message(team.roomSessionId, { role: "assistant", content: `[${answer.role}] ${answer.output || `(no answer: ${answer.status})`}` });
-    this.store.event(parent.id, "team.ran", { teamId: team.id, roomSessionId: team.roomSessionId, answers: answers.map((a) => ({ role: a.role, status: a.status, runId: a.runId })) });
-    return { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
+    const result = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
+    // The finished task and the room's answers are written together, or not at all.
+    this.tasks.complete(claim, result, () => {
+      for (const answer of answers) this.store.message(team.roomSessionId, { role: "assistant", content: `[${answer.role}] ${answer.output || `(no answer: ${answer.status})`}` });
+      this.store.event(parent.id, "team.ran", { teamId: team.id, roomSessionId: team.roomSessionId, answers: answers.map((a) => ({ role: a.role, status: a.status, runId: a.runId })) });
+    });
+    return { ...result, taskId: claim.taskId, requestId: this.tasks.get(claim.scope, claim.taskId)!.requestId, state: "completed" as const };
   }
 }

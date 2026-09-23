@@ -1465,8 +1465,12 @@ async function api(
   if (team && request.method === "GET" && !team[2]) return app.teams.get(team[1]!);
   if (team && request.method === "GET" && team[2] === "room") return { messages: app.teams.room(team[1]!) };
   if (team && request.method === "POST" && team[2] === "run") {
-    const { prompt } = z.object({ prompt: z.string().trim().min(1).max(8000) }).strict().parse(await readBody(request));
-    return app.teams.run(app.runtime, app.knowledge, team[1]!, prompt);
+    // Q61: owner and source come from who signed in, never the body (strict refuses such fields).
+    const { prompt, requestId } = z.object({ prompt: z.string().trim().min(1).max(8000), requestId: z.string().uuid().optional() }).strict().parse(await readBody(request));
+    const person = currentPerson(), profile = app.store.profiles.active();
+    const source = person ? `person:${person.profileId}` : startedWithShortLivedKey() ? `key:${shortLivedKeyMark().keyId ?? `unnamed:${crypto.randomUUID()}`}`
+      : profile && !app.store.profiles.isOwner() ? `profile:${profile.id}` : "window";
+    return app.teams.run(app.runtime, app.knowledge, team[1]!, prompt, { requestId, source });
   }
   if (team && request.method === "POST" && team[2] === "remove") return app.teams.remove(team[1]!);
   if (request.method === "POST" && path === "/api/registry/browse") {
