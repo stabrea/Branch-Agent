@@ -1165,7 +1165,7 @@ ${run.output.slice(0, 6000)}`;
       // message; one still waiting for the owner's yes stays, because that task stopped to ask.
       if (status !== "completed") this.orchestration.dropAbandonedPlan(run.sessionId, status);
     }
-    const settled = this.finish(run, status, output);
+    const settled = this.finish(run, status, output, context);
     this.saveTrace(run.id);
     this.sendSpans(run.id);
     return settled;
@@ -1217,10 +1217,15 @@ ${run.output.slice(0, 6000)}`;
       );
     } catch { /* a trace file is never worth failing a task for */ }
   }
-  private finish(run: Run, status: Run["status"], output: string): Run {
+  private finish(run: Run, status: Run["status"], output: string, context: ToolContext): Run {
     const finished = this.store.finish(run.id, status, output);
     this.store.event(run.id, "run.finished", { status, output });
-    this.notifyEvent(status === "completed" ? "run.completed" : "run.failed", { runId: run.id, sessionId: run.sessionId, status });
+    // FQ-surfaces.mobile-push: `top`, `isolated` and `source` ride along for src/web-push.ts's
+    // notifier, which is far pickier than a webhook about what deserves to buzz someone's phone —
+    // every existing webhook payload still gets exactly what it always did, plus these three fields.
+    const top = (context.scratchRoot ?? run.id) === run.id;
+    this.notifyEvent(status === "completed" ? "run.completed" : "run.failed",
+      { runId: run.id, sessionId: run.sessionId, status, top, isolated: Boolean(context.isolated), source: context.source ?? "owner" });
     return finished;
   }
   /**
