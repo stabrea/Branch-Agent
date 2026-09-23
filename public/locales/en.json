@@ -1690,6 +1690,7 @@
   "devices.mode.on": "On",
   "devices.mode.whenNeeded": "When needed",
   "devices.none": "No device is paired yet.",
+  "devices.paired.remove": "Remove",
   "devices.pair": "Pair a device",
   "devices.picker.any": "Any connected device",
   "devices.picker.label": "Which device to use",
