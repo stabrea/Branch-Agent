@@ -216,17 +216,33 @@ test("the shared desktop is reachable as tools, and takeOver reaches through the
   saveLinuxDesktop(app.store, "local", { mode: "on" });
   const { calls, runner } = fakeRunner();
   desktop.runner = runner;
-  desktop.port = async () => 15901;
+  desktop.feeder = async () => {}; // mock password feeder
+  desktop.spawnerFn = () => ({
+    stdin: { write: () => {}, end: () => {} },
+    stdout: { on: () => {} },
+    stderr: { on: () => {} },
+    on: () => {},
+    kill: () => {},
+    pid: 12345,
+  });
   desktop.password = () => "test-pass";
   desktop.pauseMs = 1;
   desktop.banner = { async show() {}, async hide() {} };
   let probes = 0;
   desktop.probe = async () => { probes += 1; return probes >= 2; };
+  // Mock listener creation to return a fake server
+  desktop.createListener = async (containerId, tunnels) => {
+    const { createServer } = await import("node:net");
+    return new Promise((resolve) => {
+      const server = createServer();
+      server.listen(0, "127.0.0.1", () => resolve(server));
+    });
+  };
   const permissions = ["desktop.control"];
   const ctx = () => runContext("run-1", "local", permissions);
 
   const started = await app.registry.execute("desktop.shared.start", {}, ctx());
-  assert.equal(started.port, 15901);
+  assert(started.port > 0, "port is assigned");
   const opened = await app.registry.execute("desktop.shared.open", { app: "xterm" }, ctx());
   assert.equal(opened.ran, "open");
 
@@ -265,6 +281,15 @@ function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store)) {
     if (args[0] === "stop" && hold.stop) await hold.stop.promise;
     return "";
   };
+  desktop.feeder = async () => {}; // mock password feeder
+  desktop.spawnerFn = () => ({
+    stdin: { write: () => {}, end: () => {} },
+    stdout: { on: () => {} },
+    stderr: { on: () => {} },
+    on: () => {},
+    kill: () => {},
+    pid: 12345,
+  });
   const banner = { visible: false, shown: 0, async show() { this.shown += 1; this.visible = true; }, async hide() { this.visible = false; } };
   desktop.banner = banner;
   desktop.port = async () => 15902;
