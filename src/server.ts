@@ -16,7 +16,7 @@ import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
-import { liveActivity, staleAfterMs } from "./activity.js";
+import { liveActivity, staleAfterMs, type RunActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import {
   PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
@@ -1424,9 +1424,36 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/activity") {
     // Q51: `?waiting=1` adds the tasks waiting for the owner; stale is judged by the owner's own model and tool limits.
+    // Q58: queued tasks show they are waiting their turn, with position and what they wait behind.
     const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
     const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
-    return liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    if (!waiting) return activities;
+    // Q58: add queued tasks for each conversation
+    const sessionQueued = new Map<string, RunActivity[]>();
+    for (const activity of activities) {
+      const queued = app.runtime.queued(activity.sessionId);
+      if (!queued.length) continue;
+      const items: RunActivity[] = [];
+      for (let i = 0; i < queued.length; i++) {
+        const item = queued[i]!;
+        const waitingBehind = i === 0 && activity.task?.state === "working" ? activity.prompt.slice(0, 60) : i === 0 ? "(waiting for the conversation)" : queued[i - 1]!.prompt.slice(0, 60);
+        items.push({
+          runId: item.id, sessionId: activity.sessionId, prompt: item.prompt,
+          status: "running" as const, startedAt: item.createdAt, current: null,
+          steps: [], task: { state: "queued" as const, why: "run.queued", reason: "", lastUpdate: item.createdAt, stale: false, position: i + 1, waitingBehind },
+        });
+      }
+      sessionQueued.set(activity.sessionId, items);
+    }
+    // Flatten queued tasks into the activities list
+    const result: RunActivity[] = [];
+    for (const activity of activities) {
+      result.push(activity);
+      const items = sessionQueued.get(activity.sessionId);
+      if (items) result.push(...items);
+    }
+    return result;
   }
   if (request.method === "GET" && path === "/api/second-opinion")
     return secondOpinionSettings(app.store, app.runtime.owner);

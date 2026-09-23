@@ -238,3 +238,75 @@ test("Q51 'no update' waits as long as the owner's own limits allow a silence", 
   saveKnobs(app.store, owner, "limits", { localFirstReplySeconds: 1800 });
   assert.equal(staleAfterMs(app.store, owner, limits), 1_800_000 + 30_000, "a model on this computer starting its reply, with its grace");
 });
+
+test("Q58 a queued task shows it is waiting its turn, with position and what it waits behind", async (t) => {
+  const { app, call, working } = await branch(t);
+  const owner = app.runtime.owner;
+  const sessionId = working.sessionId;
+  // Prevent drain by marking the session as active
+  app.runtime.activeSessions.add(sessionId);
+  // Queue two messages while the conversation is busy (it has a working task)
+  const q1 = app.runtime.followUp(sessionId, "First queued message");
+  const q2 = app.runtime.followUp(sessionId, "Second queued message");
+  assert.equal(q1.position, 1, "first queued message is at position 1");
+  assert.equal(q2.position, 2, "second queued message is at position 2");
+  // Remove active marker for clean state
+  app.runtime.activeSessions.delete(sessionId);
+  // Check the activity list with waiting=1 includes queued tasks
+  const activity = await call("/api/activity?waiting=1");
+  const queued = activity.filter((one) => one.task?.state === "queued");
+  assert.equal(queued.length, 2, "both queued messages are listed");
+  const first = queued[0];
+  assert.equal(first.prompt, "First queued message");
+  assert.equal(first.task.position, 1);
+  assert.ok(first.task.waitingBehind, "shows what it waits behind");
+  const second = queued[1];
+  assert.equal(second.prompt, "Second queued message");
+  assert.equal(second.task.position, 2);
+  assert.ok(second.task.waitingBehind.includes("First queued"), "waits behind the first queued message");
+});
+
+test("Q58 when a queued task is cancelled, others move up in the queue", async (t) => {
+  const { app, call, working } = await branch(t);
+  const owner = app.runtime.owner;
+  const sessionId = working.sessionId;
+  // Prevent drain by marking the session as active
+  app.runtime.activeSessions.add(sessionId);
+  // Queue three messages
+  const q1 = app.runtime.followUp(sessionId, "Message 1");
+  const q2 = app.runtime.followUp(sessionId, "Message 2");
+  const q3 = app.runtime.followUp(sessionId, "Message 3");
+  assert.equal(q1.position, 1);
+  assert.equal(q2.position, 2);
+  assert.equal(q3.position, 3);
+  // Simulate cancelling the first queued message by removing it from storage
+  const queued = app.runtime.queued(sessionId);
+  assert.equal(queued.length, 3);
+  app.store.save("settings", owner, `followups:${sessionId}`, { items: queued.slice(1) });
+  // Remove active marker for clean state
+  app.runtime.activeSessions.delete(sessionId);
+  // Check positions updated
+  const activity = await call("/api/activity?waiting=1");
+  const remaining = activity.filter((one) => one.task?.state === "queued");
+  assert.equal(remaining.length, 2, "one was cancelled");
+  assert.equal(remaining[0].task.position, 1, "second became first");
+  assert.equal(remaining[1].task.position, 2, "third became second");
+});
+
+test("Q58 a queued task shows when it was queued in lastUpdate", async (t) => {
+  const { app, call, working } = await branch(t);
+  const owner = app.runtime.owner;
+  const sessionId = working.sessionId;
+  // Prevent drain by marking the session as active
+  app.runtime.activeSessions.add(sessionId);
+  const before = new Date().toISOString();
+  const q = app.runtime.followUp(sessionId, "Queued now");
+  const after = new Date().toISOString();
+  // Remove active marker for clean state
+  app.runtime.activeSessions.delete(sessionId);
+  const activity = await call("/api/activity?waiting=1");
+  const queued = activity.find((one) => one.task?.state === "queued");
+  assert.ok(queued?.task?.lastUpdate, "has a lastUpdate");
+  assert.ok(Date.parse(queued.task.lastUpdate) >= Date.parse(before), "lastUpdate is after queue time");
+  assert.ok(Date.parse(queued.task.lastUpdate) <= Date.parse(after), "lastUpdate is before now");
+});

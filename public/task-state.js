@@ -34,6 +34,10 @@ const WORDS = {
     "rounds.exhausted": ["task.blocked.rounds", "Stopped at the most rounds allowed"],
     "": ["task.blocked", "Blocked"],
   },
+  queued: {
+    "run.queued": ["task.queued", "Waiting its turn"],
+    "": ["task.queued", "Waiting its turn"],
+  },
 };
 
 /** The state in words, with the task's own reason after it; null while it simply works. */
@@ -42,6 +46,12 @@ export function taskWords(task) {
   const table = WORDS[task.state] ?? {};
   const [key, fallback] = table[task.why] ?? table[""] ?? ["", ""];
   const words = say(key, fallback);
+  // Q58: for queued tasks, show position and what it waits behind
+  if (task.state === "queued") {
+    const position = task.position ?? 1;
+    const behind = task.waitingBehind ? say("task.queued.behind", `#${position} waiting for: ${task.waitingBehind}`, { position, behind: task.waitingBehind }) : say("task.queued.position", `#${position} in queue`, { position });
+    return behind;
+  }
   return task.reason ? say("task.with", `${words}: ${task.reason}`, { words, reason: task.reason }) : words;
 }
 

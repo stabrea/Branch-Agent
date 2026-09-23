@@ -5421,5 +5421,8 @@
   "task.updated": "Updated {time}",
   "task.stale": "No update for {n} min",
   "task.until": "until about {time}",
-  "task.with": "{words}: {reason}"
+  "task.with": "{words}: {reason}",
+  "task.queued": "Waiting its turn",
+  "task.queued.position": "#{position} in queue",
+  "task.queued.behind": "#{position} waiting for: {behind}"
 }

@@ -5422,5 +5422,8 @@
   "task.updated": "Mis à jour {time}",
   "task.stale": "Aucune nouvelle depuis {n} min",
   "task.until": "jusqu’à environ {time}",
-  "task.with": "{words} : {reason}"
+  "task.with": "{words} : {reason}",
+  "task.queued": "En attente de son tour",
+  "task.queued.position": "#{position} dans la queue",
+  "task.queued.behind": "#{position} attend : {behind}"
 }

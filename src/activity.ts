@@ -36,8 +36,9 @@ export interface RunActivity {
  * yet). `why` is that event's kind, so the window can name it in the owner's language; `reason` is the event's
  * own words (the question asked, the message, the reason given), never made up; `until` is when a wait ends, when
  * the event says. There is no percentage: nothing records how much is left.
+ * Q58: "queued" means the task is waiting for a busy conversation to become free. Position and waitingBehind are set for queued tasks.
  */
-export type TaskStateName = "working" | "waiting-owner" | "waiting-service" | "blocked" | "finished";
+export type TaskStateName = "working" | "waiting-owner" | "waiting-service" | "blocked" | "finished" | "queued";
 export interface TaskState {
   state: TaskStateName; why: string; reason: string;
   /** When the task last recorded anything. */
@@ -45,6 +46,10 @@ export interface TaskState {
   /** Working or waiting for a service, and nothing recorded for longer than a model or a tool may take. */
   stale: boolean;
   until?: string;
+  /** Q58: position in queue (1-based), set for queued tasks. */
+  position?: number;
+  /** Q58: description of what this task is waiting behind, for queued tasks. */
+  waitingBehind?: string;
 }
 
 const OWNER = new Set(["policy.ask", "attention.needed", "plan.awaiting_approval", "folder.trust_needed", "web.challenge", "run.can_continue"]);
