@@ -322,15 +322,18 @@ async function showMemoryHistory(node, record) {
   }
   node.append(box);
 }
-/** Q54-L1: Compute the origin label for a memory fact. */
-function memoryOriginLabel(fact) {
-  const { kind, scope, sourceRunId } = fact.data;
-  // Owner-said: has sourceRunId (owner edited it directly)
-  if (sourceRunId) return "you said";
-  // Project decision: kind indicates it's a project note
-  if (kind && (kind === "project-note" || kind === "procedure-hint")) return "project decision";
-  // Inferred: no owner run, not a project note
-  return "inferred";
+/** Q54-L1: Format a fact kind in plain words. */
+function kindName(kind) {
+  if (!kind) return "";
+  const kindLabels = {
+    "preference": "Preference",
+    "fact-about-person": "Fact about you",
+    "fact-about-world": "Fact about the world",
+    "procedure-hint": "How-to hint",
+    "project-note": "Project note",
+    "task-scratch": "Task note",
+  };
+  return kindLabels[kind] || kind;
 }
 function memoryCard(record) {
   const node = recordCard(record.data.text);
@@ -340,9 +343,23 @@ function memoryCard(record) {
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
-  // Q54-L1: Show origin label and revision
-  const originLabel = memoryOriginLabel(record);
-  node.append(el("p", `${originLabel} · revision ${record.revision}`, "memory-origin-label"));
+  // Q54-L1: Show recorded fields only: kind, conversation link (if run exists), source, revision
+  const metaLine = el("p", undefined, "memory-meta");
+  if (record.data.kind) metaLine.append(el("span", kindName(record.data.kind)));
+  // Add conversation link if originRunId or sourceRunId resolves to a run from state
+  const runId = record.data.originRunId || record.data.sourceRunId;
+  if (runId && state?.runs) {
+    const run = state.runs.find(r => r.id === runId);
+    if (run) {
+      if (metaLine.children.length > 0) metaLine.append(" · ");
+      const link = el("a", "From this conversation");
+      link.href = "#";
+      link.addEventListener("click", (e) => { e.preventDefault(); displayView("chat"); openConversation(run.sessionId); });
+      metaLine.append(link);
+    }
+  }
+  metaLine.append(` · revision ${record.revision}`);
+  if (metaLine.children.length > 0 || metaLine.textContent) node.append(metaLine);
   if (record.data.entity) node.append(el("p", `About ${record.data.entity}${record.data.attribute ? " · " + record.data.attribute : ""} · from ${date(record.data.validFrom || record.createdAt)}${record.data.validTo ? " until " + date(record.data.validTo) : ""}`, "meta"));
   if (record.data.scope && record.data.scope !== "private") node.append(el("p", record.data.scope === "shared" ? "Specialists may see this" : `Only the ${record.data.scope.slice(6)} specialist sees this`, "meta"));
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,

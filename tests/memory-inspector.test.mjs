@@ -121,35 +121,43 @@ test("memory retrieval function returns corrected fact text", async (t) => {
   assert.equal(results.length, 0);
 });
 
-/** Test: Origin label logic from app.js. */
-test("fact origin labels distinguish owner-said, decision, and inferred", async (t) => {
+/** Test: Recorded fact fields (kind, originRunId, source, revision). */
+test("fact displays recorded kind, conversation link when originRunId exists, and revision", async (t) => {
   const { app } = await fixture(t);
   const owner = "local";
-  
-  // Owner-said (has sourceRunId)
-  const ownerFact = app.store.save("memory", owner, "fact-owner-said", {
-    text: "I prefer tea",
-    source: "Owner",
-    sourceRunId: "run-owner"
+
+  // Fact with kind (will display "Project note" in UI)
+  const projectNote = app.store.save("memory", owner, "fact-decision", {
+    text: "Use TypeScript for this project",
+    source: "Project guideline",
+    kind: "project-note",
+    originRunId: "run-project-123"  // Links to a conversation
   });
-  
-  // Project decision (kind = project-note)
-  const decisionFact = app.store.save("memory", owner, "fact-decision", {
-    text: "Use TypeScript",
-    source: "Project",
-    kind: "project-note"
+
+  // Fact with different kind
+  const prefFact = app.store.save("memory", owner, "fact-pref", {
+    text: "I prefer coffee",
+    source: "User input",
+    kind: "preference",
+    sourceRunId: "run-user-456"
   });
-  
-  // Inferred (no sourceRunId, no special kind)
-  const inferredFact = app.store.save("memory", owner, "fact-inferred", {
-    text: "Likes documentation",
-    source: "Assistant"
+
+  // Fact without kind
+  const noKindFact = app.store.save("memory", owner, "fact-no-kind", {
+    text: "Learned something",
+    source: "Task output"
   });
-  
-  // Verify origin indicators are present
-  assert.equal(ownerFact.data.sourceRunId, "run-owner");  // owner-said
-  assert.equal(decisionFact.data.kind, "project-note");    // decision
-  assert.equal(!inferredFact.data.sourceRunId && !inferredFact.data.kind, true);  // inferred
+
+  // Verify recorded fields
+  assert.equal(projectNote.data.kind, "project-note");
+  assert.equal(projectNote.data.originRunId, "run-project-123");
+  assert.equal(projectNote.revision, 1);
+
+  assert.equal(prefFact.data.kind, "preference");
+  assert.equal(prefFact.data.sourceRunId, "run-user-456");
+
+  assert.equal(noKindFact.data.kind, undefined);
+  assert.ok(!noKindFact.data.originRunId && !noKindFact.data.sourceRunId);
 });
 
 /** Test: Non-owner cannot correct facts (permission check). */
@@ -202,21 +210,24 @@ test("HTTP POST /api/action with invalid memory.update body returns 400", async 
   assert.match(data.error, /expectedRevision|required/i);
 });
 
-/** Test: UI shows memory facts with origin labels and allows editing. */
-test("memory page displays origin labels and allows revision-checked correction", async (t) => {
+/** Test: Memory with kind and originRunId is editable and retrieves new text. */
+test("memory with kind displays recorded field; edit updates and retrieval finds new text", async (t) => {
   const { app, server } = await fixture(t);
   const owner = app.runtime.owner;
-  
-  // Save a fact with owner sourceRunId (will show as "you said")
+
+  // Save a fact with kind (will display as "Preference") and originRunId (links to conversation)
   const saved = app.store.save("memory", owner, "ui-fact", {
     text: "Coffee lover",
     source: "User preference",
-    sourceRunId: "run-123"
+    kind: "preference",
+    originRunId: "run-123"
   });
-  
-  // Verify origin label indicators are present in the record
-  assert.equal(saved.data.sourceRunId, "run-123");
-  
+
+  // Verify recorded fields are set correctly
+  assert.equal(saved.data.kind, "preference");
+  assert.equal(saved.data.originRunId, "run-123");
+  assert.equal(saved.revision, 1);
+
   // Verify the memory.update tool works through the action API
   const { status, data } = await apiFetch(server, "action", {
     tool: "memory.update",
@@ -227,12 +238,13 @@ test("memory page displays origin labels and allows revision-checked correction"
       expectedRevision: saved.revision
     }
   });
-  
+
   assert.equal(status, 200);
   assert.equal(data.data.text, "Tea and coffee lover");
   assert.equal(data.revision, 2);
-  
-  // Verify retrieval returns the updated text
+
+  // Verify retrieval returns the updated text (not old)
   const retrieved = app.store.get("memory", owner, saved.id);
   assert.equal(retrieved.data.text, "Tea and coffee lover");
+  assert.ok(!retrieved.data.text.includes("Coffee lover"));
 });
