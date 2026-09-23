@@ -57,7 +57,7 @@ const kanban: Registrar = (registry, boards) => {
     parameters: z.object({ project: z.string().trim().min(1).max(64).optional() }).strict(),
     execute: async (args, context) => { reader(boards, context); return boards.kanban.view(args.project); } });
   registry.register({ name: "board.card_add", permission: "boards.write",
-    description: "Add a card to \"to do\" on the shared board. It is not worked on until the owner starts it.",
+    description: "Add a card to \"to do\" on the shared board. It is not worked on until the owner starts it. `assignee` must be \"owner\", \"assistant\", or a `trunk:<id>`/`team:<id>` from board.cards' roster — never a free-text name.",
     parameters: CardInputSchema,
     execute: async (args, context) => { writer(boards, context); return boards.kanban.add(args, "assistant"); } });
   registry.register({ name: "board.card_move", permission: "boards.write",
@@ -65,7 +65,7 @@ const kanban: Registrar = (registry, boards) => {
     parameters: MoveSchema.extend({ id }).strict(),
     execute: async ({ id: card, ...move }, context) => { writer(boards, context); return boards.kanban.move(card, move, "assistant"); } });
   registry.register({ name: "board.card_handoff", permission: "boards.write",
-    description: "Hand a card to somebody else (the owner, the assistant or a specialist by name) with a note saying why.",
+    description: "Hand a card to the owner, the assistant, or a checked Trunk or team from board.cards' roster (`to`: \"owner\", \"assistant\", `trunk:<id>` or `team:<id>`), with a note saying why. Never a free-text name.",
     parameters: HandoffSchema.extend({ id }).strict(),
     execute: async ({ id: card, ...handoff }, context) => { writer(boards, context); return boards.kanban.handoff(card, handoff, "assistant"); } });
 };

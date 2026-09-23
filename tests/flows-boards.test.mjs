@@ -169,8 +169,12 @@ test("R17-071 the shared board: lanes, hand-offs, what the assistant may not do,
   await assert.rejects(callAs(app, mine, "board.card_move", { id: card.id, lane: "done" }), /owner's/);
   const moved = await callAs(app, mine, "board.card_move", { id: card.id, lane: "doing" });
   assert.equal(moved.lane, "doing");
-  const handed = await callAs(app, mine, "board.card_handoff", { id: card.id, to: "gardener", note: "you know the soil" });
-  assert.equal(handed.assignee, "gardener");
+  // R17-071 gap: a card is handed to a checked Trunk, team, owner or assistant — never free text
+  // (tests/flows-boards-task-board.test.mjs covers a Trunk and a team end to end).
+  await assert.rejects(callAs(app, mine, "board.card_handoff", { id: card.id, to: "gardener", note: "you know the soil" }),
+    /is not the owner, the assistant, a checked Trunk or a checked team/);
+  const handed = await callAs(app, mine, "board.card_handoff", { id: card.id, to: "owner", note: "you know the soil" });
+  assert.equal(handed.assignee, "Owner");
   assert.equal(handed.lane, "todo");
   assert.match(handed.history.at(-1).what, /you know the soil/);
 
