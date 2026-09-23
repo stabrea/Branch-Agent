@@ -1,6 +1,6 @@
 /* DG-035/DG-036: Appearance has the approved sample's theme tools (design/Branch-Grown-Up.html, `.theme-tools`):
    a search over the themes' names with the real count in its placeholder, and one row of filter chips (All, each
-   theme group Branch really has, Light-friendly, High contrast). Typing and choosing narrow the tiles without
+   theme group Branch really has, Easy in daylight, High contrast). Typing and choosing narrow the tiles without
    false matches, a screen reader hears how many are left, and none matching says so. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -12,7 +12,17 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openSettings } from "./places.mjs";
-import { THEMES, THEME_GROUPS } from "../public/theme-catalogue.js";
+import { THEMES, THEME_GROUPS, TOKEN_NAMES } from "../public/theme-catalogue.js";
+
+/* The sample's measure, worked out here from the catalogue itself rather than read back from the page. */
+function contrast(theme, mode) {
+  const token = (name) => theme[3][mode][TOKEN_NAMES.indexOf(name)];
+  const light = (hex) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    .reduce((sum, c, index) => sum + c * [0.2126, 0.7152, 0.0722][index], 0);
+  const [a, b] = [light(token("--text")), light(token("--ground"))];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
 
 async function appearance(t, width = 1440) {
   const root = await mkdtemp(join(tmpdir(), "branch-theme-search-"));
@@ -72,10 +82,13 @@ test("DG-036 the filter chips show a group, the light-friendly and the high-cont
     assert.deepEqual((await shownThemes(page)).sort(), THEMES.filter((theme) => theme[2] === group).map((theme) => theme[0]).sort(), group);
     assert.deepEqual((await chipsPressed(page)).filter(([, pressed]) => pressed === "true").map(([value]) => value), [group]);
   }
-  for (const filter of ["lightok", "high"]) {
+  /* The sample's effective `tilesHTML` (the later of its two) keeps 14:1 for both: in daylight, and in the light shown. */
+  const mode = await page.evaluate(() => (document.documentElement.dataset.theme === "daylight" ? "light" : "dark"));
+  for (const [filter, measured] of [["lightok", "light"], ["high", mode]]) {
     await page.locator(`#lx-theme-chips .lx-fchip[data-filter="${filter}"]`).click();
-    const shown = await shownThemes(page);
-    assert.ok(shown.length > 0 && shown.length < THEMES.length, `${filter} narrows the list without emptying it (${shown.length})`);
+    const expected = THEMES.filter((theme) => contrast(theme, measured) >= 14).map((theme) => theme[0]);
+    assert.ok(expected.length > 0 && expected.length < THEMES.length, `${filter}: the threshold splits the themes (${expected.length})`);
+    assert.deepEqual((await shownThemes(page)).sort(), expected.sort(), `${filter}: exactly the themes at 14:1 or more`);
   }
   /* The chip and the words combine, and a new light or theme keeps both. */
   await page.locator('#lx-theme-chips .lx-fchip[data-filter="all"]').click();

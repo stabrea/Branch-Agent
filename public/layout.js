@@ -180,11 +180,11 @@ function textContrast(family, mode) {
   const a = light(tokens["--text"]), b = light(tokens["--ground"]);
   return a === null || b === null ? 0 : (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
-/** The sample's filters: a group by name, readable in daylight, or high contrast in the light shown now. */
+/** The sample's filters (its effective, later `tilesHTML`): a group, 14:1 in daylight, or 14:1 in the light shown now. */
 function themeShown(family) {
   if (themeQuery && !family[1].toLowerCase().includes(themeQuery)) return false;
-  if (themeFilter === "lightok") return textContrast(family, "light") >= 12;
-  if (themeFilter === "high") return textContrast(family, modeNow()) >= 13;
+  if (themeFilter === "lightok") return textContrast(family, "light") >= 14;
+  if (themeFilter === "high") return textContrast(family, modeNow()) >= 14;
   return themeFilter === "all" || family[2] === themeFilter;
 }
 function drawThemeTiles() {
@@ -630,7 +630,7 @@ function buildAppearanceBlock() {
 /** The sample's `.theme-tools`: a search over the themes' names and one row of filter chips. */
 const THEME_CHIPS = [["all", "look.filter.all", "All"], ["branch", "look.filter.branch", "Branch"],
   ["keepoak", "look.filter.keepoak", "KeepOak"], ["editors", "look.filter.editors", "Editors & terminals"],
-  ["lightok", "look.filter.lightok", "Light-friendly"], ["high", "look.filter.high", "High contrast"]];
+  ["lightok", "look.filter.lightok", "Easy in daylight"], ["high", "look.filter.high", "High contrast"]];
 function themeTools() {
   const tools = make("div", "lx-theme-tools");
   const field = make("label", "lx-search lx-theme-search");
