@@ -176,10 +176,20 @@ export function initAppearance(save, onError) {
   darkQuery?.addEventListener("change", () => {
     if (current.followSystem) applyAppearance(current);
   });
+  $("appearance-contrast-link")?.addEventListener("click", showContrast);
   applyAppearance(current);
 }
 
-/** What the Save button sends. */
+/* DG-183: as in the sample, Theme and lettering points to the contrast switch, which lives with the theme. */
+function showContrast() {
+  const box = $("lx-contrast");
+  if (!box) return;
+  globalThis.branchSettingsLevel?.peek(box);
+  box.scrollIntoView({ block: "center" });
+  box.focus({ preventScroll: true });
+}
+
+/** The look as it is now. */
 export function currentAppearance() {
   return { ...current };
 }

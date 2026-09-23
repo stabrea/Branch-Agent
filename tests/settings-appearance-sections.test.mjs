@@ -2,7 +2,7 @@
    every card it had still has a place on the page. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -12,6 +12,16 @@ import { startServer } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 const { BUCKETS } = await import("../public/settings-buckets.js");
+/* The approved sample (design/Branch-Grown-Up.html, blob a6aa8ea4ddc336acf3baeb32decb8363d22677cb) at Regular, read
+   from its rendered Settings › Appearance. It is private, so its lists are copied here, never read in CI.
+   Theme and lettering shows these rows, in this order (Text size stands under its "More options"): */
+const SAMPLE_LETTERING_ROWS = ["Keep things still (no sliding or spinning)", "Show the acorn", "Language", "Text size"];
+/* ...and keeps these out of sight until Advanced ("6 more with Advanced"). lx-contrast is its pointer row, "Set in Theme ›". */
+const SAMPLE_LETTERING_HIDDEN = ["lx-contrast", "appearance-everything", "appearance-voice", "look-accent", "look-density", "look-font"];
+/* What a conversation shows keeps these out of sight ("5 more with Advanced"). */
+const SAMPLE_SHOWS_HIDDEN = ["comfort-timestamps", "flows-switch-focus", "flows-focus-now", "comfort-statusLine-mode", "statusline-items"];
+/* Branch's row that stands for a sample pointer row. */
+const POINTER_FOR = { "appearance-contrast-link": "lx-contrast" };
 const CARDS = ["lx-look", "delight-bg-card", "delight-pet-card", "delight-ach-card", "settings-form", "shell-look-card",
   "knobs-show-reasoning-card", "savings-round-chart-card", "comfort-display-card", "flows-focus-card", "panels-onscreen"];
 
@@ -48,16 +58,36 @@ async function open(t, { width, everything }) {
 }
 /** The page's headings and "N more" lines, in order, as a person sees them. */
 const outline = (page) => page.evaluate(() => [...document.querySelectorAll("#lx-page-appearance :is(h2, h3, h4, .sg-more-line:not([hidden]) .sg-more)")]
-  .filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
+  .filter((node) => node.checkVisibility() && !node.closest(".sr-only")).map((node) => node.textContent.trim()));
+/** The words of each row of Theme and lettering a person sees, in order: a field's label, or each switch's words. */
+const letteringRows = (page) => page.evaluate(() => [...document.querySelectorAll("#settings-form .appearance-field")].flatMap((field) => {
+  const shown = (node) => node.checkVisibility() && !node.closest(".sr-only");
+  const switches = [...field.querySelectorAll(":scope > .check-row")].filter(shown);
+  if (switches.length) return switches.map((row) => row.textContent.trim());
+  const label = field.querySelector(":scope > :is(label, span)");
+  return label && shown(label) && shown(field) ? [label.textContent.trim()] : [];
+}));
+/** The settings of Theme and lettering kept out of sight at this level, by the sample's ids. */
+const letteringHidden = (page) => page.evaluate((pointers) => [...new Set([...document.querySelectorAll("#settings-form [data-sg-row]")]
+  .filter((node) => !node.checkVisibility()).map((node) => pointers[node.dataset.sgRow] ?? node.dataset.sgRow))], POINTER_FOR);
 
-for (const width of [1440, 400]) {
-  test(`at ${width} px the default level shows the sample's sections and counts`, async (t) => {
+for (const width of [1440, 860, 400]) {
+  test(`at ${width} px the default level shows the sample's sections, rows and counts`, async (t) => {
     const { page, errors } = await open(t, { width, everything: false });
     await page.waitForFunction(() => document.querySelectorAll("#lx-page-appearance .sg-more-line:not([hidden])").length === 2);
     assert.deepEqual((await outline(page)).filter((words) => !/^Showing a model's thinking$|^Round-by-round chart$/.test(words)),
-      ["Appearance", "Theme", "A pet", "Theme and lettering", "5 more with Advanced", "What a conversation shows", "5 more with Advanced"]);
+      ["Appearance", "Theme", "A pet", "Theme and lettering", `${SAMPLE_LETTERING_HIDDEN.length} more with Advanced`,
+        "What a conversation shows", `${SAMPLE_SHOWS_HIDDEN.length} more with Advanced`]);
+    assert.deepEqual(await letteringRows(page), SAMPLE_LETTERING_ROWS, "Theme and lettering shows the sample's rows, in its order");
+    assert.deepEqual((await letteringHidden(page)).sort(), [...SAMPLE_LETTERING_HIDDEN].sort(), "and keeps the sample's rows for Advanced");
+    assert.equal(await page.evaluate(() => [...document.querySelectorAll("#settings-form .appearance-field")].filter((field) => field.checkVisibility()
+      && ![...field.children].some((node) => node.checkVisibility() && !node.matches(".sr-only"))).length), 0, "no empty cell is left where rows went");
     assert.equal(await page.locator("#lx-page-appearance .sg-other").isVisible(), false, "no card is left over under More on this page");
-    assert.equal(await page.locator("#settings-form h2").count(), 0, "the lettering card has no second Appearance title");
+    /* Q4: the pet card and the lettering card keep a title, for screen readers only: the sample shows its section's heading there. */
+    for (const [card, title] of [["delight-pet-card", "A pet"], ["settings-form", "Theme and lettering"]]) {
+      assert.equal(await page.locator(`#${card} > h2.sr-only`).textContent(), title, `${card} keeps its title for screen readers`);
+      assert.equal(await page.locator(`#${card} > h2:not(.sr-only)`).count(), 0, `${card} shows no second title`);
+    }
     assert.deepEqual(errors, []);
   });
   test(`at ${width} px with Show everything on the same sections stand in the same order`, async (t) => {
@@ -82,4 +112,31 @@ test("DG-025: Appearance saves as you go, with no Save button, and says so when 
   await page.locator("#appearance-acorn").click();
   await page.waitForFunction(() => /could not be saved/.test(document.getElementById("toast")?.textContent ?? ""));
   assert.deepEqual(errors, []);
+});
+
+test("DG-183: at Advanced, Theme and lettering points to the contrast switch with the theme, in French too", async (t) => {
+  const { page, errors } = await open(t, { width: 1440, everything: false });
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("advanced"));
+  await page.waitForFunction(() => document.getElementById("appearance-contrast-link").checkVisibility());
+  /* Every row shows at Advanced, save the highlight colour: Branch chooses it with the theme (public/layout.js). */
+  assert.deepEqual(await letteringHidden(page), ["look-accent"], "every row of Theme and lettering shows at Advanced");
+  const link = page.locator("#appearance-contrast-link");
+  assert.equal(await link.textContent(), "Set in Theme ›");
+  assert.equal(await page.getByRole("button", { name: "More contrast between text and background Set in Theme ›", exact: true }).count(), 1);
+  await link.click();
+  await page.waitForFunction(() => document.activeElement?.id === "lx-contrast");
+  assert.ok(await page.locator("#lx-contrast").isVisible(), "the contrast switch is brought into view");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("regular"));
+  await page.locator("#appearance-language").selectOption("fr");
+  await page.waitForFunction(() => document.getElementById("appearance-contrast-link").textContent === "À régler dans Thème ›");
+  assert.equal(await page.locator("#settings-form > h2.sr-only").textContent(), "Thème et écriture");
+  await page.waitForFunction((count) => [...document.querySelectorAll("#lx-page-appearance .sg-more-line:not([hidden]) .sg-more")]
+    .some((node) => node.textContent === `${count} de plus en Avancé`), SAMPLE_LETTERING_HIDDEN.length);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-025: the desktop test no longer presses the removed Save appearance button", async () => {
+  const desktop = await readFile(new URL("./desktop.test.mjs", import.meta.url), "utf8");
+  assert.equal(desktop.includes("Save appearance"), false, "tests/desktop.test.mjs would wait for a button that is gone");
+  assert.match(desktop, /appearanceSaved\(\)/, "it waits for the change to be saved instead");
 });

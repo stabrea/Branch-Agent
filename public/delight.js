@@ -28,7 +28,9 @@ function card(id, key, english, noteKey, note, titled = true) {
   box.id = id;
   box.dataset.home = "settings:appearance";
   box.setAttribute("aria-label", say(key, english));
-  if (titled) box.append(el("h2", "", say(key, english)));
+  /* DG-183: a card its section's heading already names keeps its title for screen readers only, as the sample
+     shows one heading there (Q4 in tests/shell-ui.test.mjs: every card carries a title). */
+  box.append(el("h2", titled ? "" : "sr-only", say(key, english)));
   box.append(el("p", "field-note", say(noteKey, note)));
   return box;
 }
