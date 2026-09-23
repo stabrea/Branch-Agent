@@ -23,7 +23,7 @@ import { createBranch, savePolicy } from "../dist/index.js";
 import { AuditLog } from "../dist/audit.js";
 import { exportBackup, importBackup } from "../dist/backup.js";
 import { ToolRegistry } from "../dist/registry.js";
-import { ContractBook, contractGuard, globFits } from "../dist/self-development-contract.js";
+import { ContractBook, contractGuard, contractHold, globFits } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 const worktree = "branch-agent-source/.branch-worktrees/self-remove-button";
@@ -355,4 +355,19 @@ test("a push is walked commit by commit, both sides of each change, for the bran
   assert.ok(side.calls.includes(`merge-base --is-ancestor ${sha} side`));
   const clean = walk("M\tsrc/ui/button.ts\n");
   await clean.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() });
+});
+
+test("the owner's question shows every broad glob first and says how many narrow ones it left out", () => {
+  const narrow = Array.from({ length: 49 }, (_, index) => `src/area${index}/**`);
+  const tools = Array.from({ length: 40 }, (_, index) => `tool.number${index}`);
+  for (const [tool, args] of [["branch.prepare_source_change", { contract: { allowedPaths: [...narrow, "**"], permissions: tools } }],
+    ["branch.widen_source_contract", { changes: { allowedPaths: [...narrow, "*.ts", "**"], permissions: tools } }]]) {
+    const { reason } = contractHold(tool, args);
+    if (tool === "branch.prepare_source_change") assert.match(reason, /allowed to change \*\*, src\/area0\//, `${tool}: the bare ** comes first`);
+    else assert.match(reason, /allowed to change \*\.ts, \*\*, src\/area0\//, `${tool}: every broad glob comes first`);
+    assert.match(reason, /and \d+ more, using /, `${tool}: the cut path list says how many are left out`);
+    assert.match(reason, /tool\.number0, .* and \d+ more\.$/, `${tool}: so does the tool list`);
+  }
+  assert.match(contractHold("branch.prepare_source_change", { contract: { allowedPaths: ["src/ui/**"], permissions: ["files.write"] } }).reason,
+    /allowed to change src\/ui\/\*\*, using files\.write\.$/, "a short list is shown whole");
 });

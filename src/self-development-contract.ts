@@ -133,12 +133,30 @@ export class ContractBook {
 
 export const firstContractReason = "Branch asks you every time before it starts changing its own source";
 
+/** A path glob with no fixed leading folder (`**`, `*`, `*.ts`, or a wildcard first folder) can reach anywhere in the worktree. */
+const broadGlob = (pattern: string): boolean => /[*?[]/.test(pattern.split("/")[0] ?? "");
+
+/**
+ * A list for the owner's question: every broad glob first, always shown in full, then the rest as
+ * long as they fit, and "and N more" when some are left out, so nothing wide can hide at the end.
+ */
+function listed(values: string[], none: string): string {
+  if (!values.length) return none;
+  const ordered = [...values.filter(broadGlob), ...values.filter((value) => !broadGlob(value))];
+  const shown: string[] = [];
+  for (const value of ordered) {
+    if (!broadGlob(value) && shown.join(", ").length + value.length > 300) break;
+    shown.push(value);
+  }
+  const rest = ordered.length - shown.length;
+  return rest ? `${shown.join(", ")} and ${rest} more` : shown.join(", ");
+}
+
 /** The paths and tools a proposed contract asks for, in plain words, for the owner's question. */
 function askedFor(terms: unknown): string {
   const asked = (terms ?? {}) as { allowedPaths?: unknown; permissions?: unknown };
-  const list = (value: unknown, none: string): string =>
-    Array.isArray(value) && value.length ? value.map(String).join(", ").slice(0, 400) : none;
-  return `It would be allowed to change ${list(asked.allowedPaths, "no new paths")}, using ${list(asked.permissions, "no new tools")}.`;
+  const strings = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : []);
+  return `It would be allowed to change ${listed(strings(asked.allowedPaths), "no new paths")}, using ${listed(strings(asked.permissions), "no new tools")}.`;
 }
 
 /**
