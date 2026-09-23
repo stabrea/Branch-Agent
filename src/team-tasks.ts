@@ -162,9 +162,18 @@ export class TeamTasks {
   }
 }
 
+/**
+ * The result as stored. One too large to keep keeps everything but the answers' text: which team,
+ * run and room, and each member's role, status and run, so a crash after it was recorded can still
+ * be finished from it (each answer's text is in that member's own run).
+ */
 function boundedResult(result: unknown): string {
   const text = JSON.stringify(result ?? null);
-  return text.length <= maximumResultChars ? text : JSON.stringify({ truncated: true, chars: text.length });
+  if (text.length <= maximumResultChars) return text;
+  const whole = (result ?? {}) as { teamId?: unknown; parentRunId?: unknown; roomSessionId?: unknown; answers?: unknown };
+  const answers = Array.isArray(whole.answers)
+    ? whole.answers.map(({ specialistId, role, status, runId }: Record<string, unknown>) => ({ specialistId, role, status, runId })) : undefined;
+  return JSON.stringify({ truncated: true, chars: text.length, teamId: whole.teamId, parentRunId: whole.parentRunId, roomSessionId: whole.roomSessionId, answers });
 }
 
 function toTask(row: Record<string, unknown>): TeamTask {

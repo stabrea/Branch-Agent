@@ -120,11 +120,11 @@ export class Teams {
   }
   /** A finished task's recorded result; one too large to keep says so plainly and points at the room, where every answer is. */
   private recordedResult(task: { teamId: string; result: unknown }, identity: { taskId: string; requestId: string; state: string }) {
-    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean } | null;
+    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean; roomSessionId?: string } | null;
     if (result?.deleted) return { teamId: task.teamId, ...identity, deleted: true as const,
       note: "The owner deleted a conversation this task's answers were in, so they are gone. Send a new request id to run it again." };
     if (!result?.truncated) return { ...result, ...identity };
-    const room = this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
+    const room = result.roomSessionId ?? this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
     return { teamId: task.teamId, roomSessionId: room, ...identity, truncated: true as const,
       note: `The answers came to ${result.chars ?? "too many"} characters, too large to keep for a repeat, so they are not replayed here. Every answer is in the team's room.` };
   }

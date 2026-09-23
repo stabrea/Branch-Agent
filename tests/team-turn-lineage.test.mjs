@@ -426,3 +426,64 @@ test("recovery carries on a team turn the task did name", async (t) => {
   assert.deepEqual(report.filter((r) => r.runId === parentRunId).map((r) => r.outcome), ["resumed"]);
   assert.deepEqual(resumed, [parentRunId]);
 });
+
+test("a crash after a too-large result was recorded is finished from that record: completed, never 'nothing was done'", async (t) => {
+  const provider = scripted();
+  const { state, team, reopen } = await fixture(t, provider);
+  const owner = state.app.runtime.owner;
+  // A model answer is at most 65,536 characters and the real fanout runs at most 4 members at once, so
+  // the members' runs are written directly here with answers long enough to go over the 512,000 kept.
+  const huge = "y".repeat(300_000);
+  const writers = { run: (options) => state.app.runtime.run(options), context: (o) => state.app.runtime.context(o),
+    async fanout(context, tasks) {
+      return { tasks: Object.fromEntries(tasks.map((task) => {
+        const member = state.app.store.createRun(owner, task.prompt);
+        state.app.store.event(member.id, "run.started", { parentRunId: context.runId });
+        state.app.store.finish(member.id, "completed", `${task.id} ${huge}`);
+        return [task.id, { status: "completed", output: `${task.id} ${huge}`, runId: member.id }];
+      })) };
+    } };
+  const requestId = randomUUID();
+  // The process "dies" after the outcome was recorded (too large, so without the answers' text) and before completion.
+  const complete = TeamTasks.prototype.complete;
+  TeamTasks.prototype.complete = function skipped() {};
+  t.after(() => { TeamTasks.prototype.complete = complete; });
+  const lost = await state.app.teams.run(writers, knowledge, team.id, "write at length", { requestId });
+  TeamTasks.prototype.complete = complete;
+  assert.equal(lost.answers.length, 2);
+  const stored = JSON.parse(row(state.app, requestId).result);
+  assert.equal(stored.truncated, true);
+  assert.deepEqual(stored.answers.map((a) => a.runId), lost.answers.map((a) => a.runId), "the record keeps each member's run");
+  assert.equal(row(state.app, requestId).state, "claimed");
+  const roomBefore = state.app.teams.room(team.id).length;
+  const after = scripted();
+  const app = await reopen(after);
+  const retry = counted(app.runtime);
+  const seen = await app.teams.run(retry, knowledge, team.id, "write at length", { requestId });
+  assert.equal(seen.state, "completed");
+  assert.equal(seen.truncated, true);
+  assert.equal(seen.roomSessionId, team.roomSessionId);
+  assert.match(seen.note, /too large to keep for a repeat.*Every answer is in the team's room/);
+  assert.doesNotMatch(row(app, requestId).error ?? "", /Nothing was done/);
+  const answers = app.teams.room(team.id).slice(roomBefore);
+  assert.deepEqual(answers.map((m) => m.content.length > huge.length), [true, true], "each member's answer reached the room, read back from its own run");
+  assert.equal(retry.dispatches + after.parentCalls + after.memberCalls, 0, "nothing was run again");
+});
+
+test("members that finished answering with no tool call, and no outcome recorded, need reconciliation, not failed", async (t) => {
+  const provider = scripted();
+  const { state, team, reopen } = await fixture(t, provider);
+  const requestId = randomUUID();
+  const { recordOutcome, complete } = TeamTasks.prototype;
+  TeamTasks.prototype.recordOutcome = function skipped() {};
+  TeamTasks.prototype.complete = function skipped() {};
+  t.after(() => Object.assign(TeamTasks.prototype, { recordOutcome, complete }));
+  const lost = await state.app.teams.run(state.app.runtime, knowledge, team.id, "just talk", { requestId });
+  Object.assign(TeamTasks.prototype, { recordOutcome, complete });
+  assert.equal(row(state.app, requestId).result, null);
+  const app = await reopen(scripted());
+  const report = app.teams.reconcile(lost.taskId);
+  assert.deepEqual(report.effects, [], "no tool call was made");
+  assert.equal(report.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /2 member\(s\) finished an answer/);
+});

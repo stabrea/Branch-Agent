@@ -154,13 +154,36 @@ export function settleWaiting(store: Store, tasks: TeamTasks, claim: TeamTaskCla
 }
 
 /**
- * Ends a claimed task that stopped without a result: failed if its turn started no tool call and no
- * run in it can still be carried on; otherwise it needs a person.
+ * Finishes a task whose recorded result was too large to keep in full. Each member's answer is read
+ * back from that member's own run, so the room gets every answer; nothing is run again. A marker
+ * without the members' runs (so nothing to read back) is finished as it is.
+ */
+function finishTruncated(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, recorded: TeamRunResult & { truncated?: boolean }): void {
+  if (!Array.isArray(recorded.answers) || !recorded.roomSessionId) return tasks.complete(claim, recorded, () => {});
+  const answers = recorded.answers.map((answer) => ({ ...answer, output: store.run(answer.runId)?.output ?? "" }));
+  finishTeamTask(store, tasks, claim, { ...recorded, answers });
+}
+
+/** Member runs under the turn that finished: their answers exist, even if the turn never recorded them. */
+function membersAnswered(store: Store, parentRunId: string | null): number {
+  if (!parentRunId) return 0;
+  return lineageRuns(store, parentRunId).filter((runId) => store.run(runId)?.status === "completed"
+    && store.sqlite.prepare("SELECT 1 FROM events WHERE run_id=? AND kind='run.started' AND json_extract(data,'$.parentRunId') IS NOT NULL").get(runId)).length;
+}
+
+/**
+ * Ends a claimed task that stopped without a result: failed only if its turn started no tool call,
+ * no member finished an answer and no run in it can still be carried on; otherwise it needs a person.
  */
 export function settleUnfinished(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, parentRunId: string | null, why: string): TeamTaskState {
   const effects = parentRunId ? turnEffects(store, parentRunId) : [];
   if (effects.length) {
     tasks.markNeedsReconciliation(claim, `Stopped after ${effects.length} tool call(s) whose effects must be checked before this is tried again: ${why}`);
+    return "needs_reconciliation";
+  }
+  const answered = membersAnswered(store, parentRunId);
+  if (answered) {
+    tasks.markNeedsReconciliation(claim, `${answered} member(s) finished an answer that was never recorded; check them before trying again: ${why}`);
     return "needs_reconciliation";
   }
   if (mayStillAct(store, parentRunId)) {
@@ -212,7 +235,11 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
     return report("claimed", "Its run, or a member's, is still going.");
   const claim = tasks.standingClaim(scope, taskId);
   if (!claim) return report(tasks.get(scope, taskId)!.state, "This task changed while it was being checked.");
-  const recorded = task.result as TeamRunResult | null;
+  const recorded = task.result as (TeamRunResult & { truncated?: boolean }) | null;
+  if (recorded?.truncated) {
+    finishTruncated(store, tasks, claim, recorded);
+    return report("completed", "Finished from the result the turn recorded, which was too large to keep in full; the members' answers were written to the room from their own runs. Nothing was run again.");
+  }
   if (recorded && Array.isArray(recorded.answers)) {
     finishTeamTask(store, tasks, claim, recorded);
     return report("completed", "Finished from the result the turn recorded; nothing was run again.");
