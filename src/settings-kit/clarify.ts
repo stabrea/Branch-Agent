@@ -39,8 +39,13 @@ function stem(word: string): string {
   return word;
 }
 
+/** Every mark people type as an apostrophe (straight, curly, the modifier letter, an acute or grave accent, a prime). */
+const apostropheMarks = "'\\u2018\\u2019\\u02BC\\u00B4\\u0060\\u2032\\uFF07";
+const apostrophes = new RegExp(`[${apostropheMarks}]`, "g");
+
+/** Invisible format characters (zero-width joiners and spaces, soft hyphens) are taken out, and full-width letters read as plain ones. */
 const wordsOf = (text: string): string[] =>
-  text.toLowerCase().replace(/['’]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
+  text.replace(/\p{Cf}/gu, "").replace(apostrophes, "").normalize("NFKC").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
 /** The words that name a setting, with filler and bare numbers taken out. */
 export function namingWords(request: string): string[] {
@@ -63,7 +68,7 @@ export function negated(request: string): boolean {
   for (const phrase of namesWithCues) said = said.replaceAll(` ${phrase} `, " ");
   if (holdsCue(said)) return true;
   const words = said.split(" ").filter(Boolean);
-  const frenchNe = words.includes("ne") || /(^|[^a-z])n['’][a-z]/i.test(request);
+  const frenchNe = words.includes("ne") || new RegExp(`(^|[^a-z])n[${apostropheMarks}][a-z]`, "i").test(request.replace(/\p{Cf}/gu, ""));
   return frenchNe && words.includes("plus");
 }
 

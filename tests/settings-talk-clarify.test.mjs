@@ -194,6 +194,13 @@ test("cue words match whole words only, so a name that holds or is waiting is no
     "nopes and holdings", "hanging on", "the waited list"]) assert.equal(negated(request), false, request);
   for (const request of ["hold, turn it on", "Wait. Turn it on", "hang on turn it on", "Cancel", "nope", "nah", "never mind",
     "annule", "attends", "pas maintenant"]) assert.equal(negated(request), true, request);
+  // However the apostrophe is typed, hidden characters inside the word, or full-width letters: still "don't".
+  for (const mark of ["'", "‘", "’", "ʼ", "´", "`", "′", "＇", "‍", "​", "­"]) {
+    assert.equal(negated(`don${mark}t turn on the learning`), true, `don${mark}t (U+${mark.codePointAt(0).toString(16)})`);
+  }
+  assert.equal(negated("do‍n’t turn on the learning"), true, "a joiner inside the word");
+  assert.equal(negated("ｄｏｎｔ turn on the learning"), true, "full-width letters");
+  assert.equal(negated("n‘est plus"), true, "French n'... plus with a curly opening mark");
 });
 
 test("a choice or number that would loosen when named plainly still asks when the words say not to", async (t) => {
