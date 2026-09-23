@@ -372,6 +372,15 @@ test("a reused tool call id is paired with the latest start still open", async (
   assert.deepEqual(turnEffects(state.app.store, third.id).map((e) => e.outcome), ["failed", "completed"]);
 });
 
+test("a call cut off by its time limit may have happened: its outcome stays unknown", async (t) => {
+  /* NAS review of Q63: "tool.stalled" was reported as failed, though the call may have gone ahead. */
+  const { state } = await fixture(t, scripted());
+  const run = state.app.store.createRun(state.app.runtime.owner, "slow call");
+  const ev = (kind, id) => state.app.store.event(run.id, kind, { name: "files.write", id });
+  ev("tool.started", "s"); ev("tool.stalled", "s"); ev("tool.started", "s"); ev("tool.completed", "s");
+  assert.deepEqual(turnEffects(state.app.store, run.id).map((e) => e.outcome), ["unknown", "completed"]);
+});
+
 test("a parent run the runtime never announces is refused before any member starts", async (t) => {
   const provider = scripted();
   const { state, team } = await fixture(t, provider);

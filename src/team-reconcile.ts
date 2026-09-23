@@ -110,21 +110,27 @@ export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
  * first ("policy.ask", naming the call) or the tool itself asked (user.ask, say), which ends the run
  * with "attention.needed" right after the call started. A question recovery put after a restart
  * (afterRestart) says nothing about the call: its outcome stays unknown.
+ * A call cut off by its time limit ("tool.stalled") may still have happened: it is ended, but its
+ * outcome stays unknown.
  */
 function runEffects(store: Store, runId: string): TurnEffect[] {
   const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed') ORDER BY id").all(runId);
   const effects: TurnEffect[] = [];
+  // Calls that ended without a known outcome, so a later ending with the same id is not matched to them.
+  const ended = new Set<TurnEffect>();
   rows.forEach((row, index) => {
     const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown };
     if (row.kind === "attention.needed") {
-      const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown");
+      const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown" && !ended.has(effect));
       if (asking) asking.outcome = "asked_owner";
       return;
     }
     const toolCallId = data.id == null ? `#${index}` : String(data.id);
     if (row.kind === "tool.started") { effects.push({ runId, toolCallId, name: String(data.name ?? ""), outcome: "unknown" }); return; }
-    const started = effects.findLast((effect) => effect.toolCallId === toolCallId && effect.outcome === "unknown");
-    if (started) started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "asked_owner" : "failed";
+    const started = effects.findLast((effect) => effect.toolCallId === toolCallId && effect.outcome === "unknown" && !ended.has(effect));
+    if (!started) return;
+    if (row.kind === "tool.stalled") ended.add(started);
+    else started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "asked_owner" : "failed";
   });
   return effects;
 }
