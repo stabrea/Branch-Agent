@@ -262,13 +262,17 @@ function colourSection() {
     swatch.setAttribute("aria-pressed", String(d.look.colour === n));
     row.append(swatch);
   }
-  const follow = make("label", "studio-check");
+  /* DG-106: the sample's switch row (a `.ctl` holding `.sw`): the words, the switch beside them, the note beneath. */
+  const follow = make("label", "studio-follow");
   const box = document.createElement("input");
   box.type = "checkbox";
   box.id = "studio-follow";
+  box.className = "sw";
+  box.setAttribute("role", "switch");
   box.checked = d.look.colour === "theme";
   box.addEventListener("change", () => { d.look.colour = box.checked ? "theme" : 1; redraw(); });
-  follow.append(box, make("span", "", "studio.follow", "Follow my theme: take the highlight colour of whichever theme is on"));
+  follow.append(make("span", "studio-follow-words", "studio.follow", "Follow my theme"), box,
+    make("span", "studio-follow-note", "studio.follow.note", "Takes the highlight colour of whichever theme is on."));
   part.append(row, follow);
   return part;
 }

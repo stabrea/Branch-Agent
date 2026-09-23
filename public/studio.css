@@ -271,6 +271,28 @@
 .studio-swatch[aria-pressed="true"] {
   box-shadow: 0 0 0 2px var(--text);
 }
+/* DG-106: "Follow my theme" is the sample's control row: words and switch on one line, the note across beneath.
+   Scoped to the dialog, so it outranks style.css's rule for a label holding a tick box. */
+.studio-dlg label.studio-follow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 20px;
+  margin: 0;
+  padding: 4px 0 0;
+}
+.studio-follow-words {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 520;
+  line-height: 1.55;
+}
+.studio-follow-note {
+  grid-column: 1 / -1;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
 .studio-check,
 .shell-switch {
   display: flex;
