@@ -47,6 +47,7 @@ function button(className, key, english) {
 }
 const ICONS = {
   inbox: "M4 13l2.5-7h11L20 13v5H4zM4 13h4.5l1 2h5l1-2H20",
+  overview: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-5h4v5", // DG-092
   up: "M12 19V5M6 11l6-6 6 6",
   plus: "M12 5v14M5 12h14",
   stop: "M7 7h10v10H7z",
@@ -962,13 +963,15 @@ function buildRail() {
   const nav = $("sections-nav");
   for (const id of Object.keys(PLACES)) {
     const spec = PLACES[id];
-    if (spec.strip) continue; // phase2/shell: reached from the strip
+    /* phase2/shell: reached from the strip; DG-092: Overview is also the sidebar's first place, as in the sample */
+    if (spec.strip && id !== "overview") continue;
     const row = button("lx-place-link", spec.key, spec.english);
     iconAndWords(row, id);
     row.dataset.place = id;
     if (id === "inbox") row.append(Object.assign(make("span", "lx-badge"), { id: "lx-inbox-badge", hidden: true }));
     row.addEventListener("click", () => displayView(`${id}:${lastTab[id]}`));
-    nav.append(row);
+    if (id === "overview") nav.prepend(row);
+    else nav.append(row);
   }
   /* The old Settings button becomes the gear beside search; the old Conversation button the way back. */
   const gear = document.querySelector('.nav[data-view="settings"]');

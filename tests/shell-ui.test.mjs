@@ -463,7 +463,7 @@ test("this computer's reduce-motion setting is honoured before anyone opens Appe
   await f.page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal((await speed()) < 0.01, true, "this computer's setting switches it off");
   await f.page.emulateMedia({ reducedMotion: "no-preference" });
-  await f.page.locator("#appearance-shortcut").click();
+  await f.page.locator("#lx-foot-theme").click(); // DG-159: the leaf in the sidebar's foot
   await f.page.locator("#appearance-motion").check();
   assert.equal((await speed()) < 0.01, true, "so does the Appearance choice");
   assert.deepEqual(f.errors, []);
@@ -563,7 +563,7 @@ test("Send keeps its label on one line and the helper note sits under the compos
 
 test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const f = await fixture(t);
-  await f.page.locator("#appearance-shortcut").click();
+  await f.page.locator("#lx-foot-theme").click(); // DG-159: the leaf in the sidebar's foot
   await f.page.getByRole("button", { name: "Daylight", exact: true }).click();
   await f.page.locator(".lx-settings-close").click();
   await f.page.locator("#prompt").fill("Say hello");
@@ -627,18 +627,18 @@ test("Tab walks the rail first, then the title bar, the messages and the compose
   /* A reload puts the focus back at the top of the document before the walk. */
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  assert.deepEqual(await tabStops(f.page, 5), [
+  /* DG-159: the old half-moon beside the computer's name is gone; day/night sits in the rail's foot. */
+  assert.deepEqual(await tabStops(f.page, 4), [
     "app-switcher",
     "cmd-open",
-    "appearance-shortcut",
     "rail-new",
     "rail-find",
   ]);
   const walk = await tabStops(f.page, 60);
   const at = (id) => walk.indexOf(id);
   assert.equal(at("rail-toggle") > -1, true, "the title bar is reachable");
-  /* phase2/settings: the Settings cog sits right after the account row, at the foot of the rail. */
-  assert.equal(at("rail-settings"), at("owner-menu-button") + 1, "the cog comes right after the account row");
+  /* DG-094: the Settings cog ends the icon line at the foot of the rail, right before the account row. */
+  assert.equal(at("rail-settings"), at("owner-menu-button") - 1, "the cog comes right before the account row");
   assert.equal(at("conversation") > -1, true, "the messages are a stop of their own");
   assert.equal(at("rail-toggle") < at("conversation"), true, "title bar before the messages");
   assert.equal(at("conversation") < at("prompt"), true, "messages before the composer");

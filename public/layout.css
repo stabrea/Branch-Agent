@@ -1574,7 +1574,8 @@ body.lx #connection[data-state="lost"] {
   display: none !important;
 }
 /* the places stay one click away in More; Inbox comes back to the rail while something waits in it */
-:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]),
+/* DG-092: Overview stays, as the sample's first place under New conversation */
+:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]):not([data-place="overview"]),
 :root:not([data-everything="on"]) body:not(.lx-inbox-waiting) .lx-places .lx-place-link[data-place="inbox"],
 :root:not([data-everything="on"]) .rail-group[data-group="sections"] > h2 {
   display: none;
@@ -2676,4 +2677,57 @@ select.glass[aria-expanded="true"] {
   flex: 1 1 200px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* DG-099: the top bar says where you are, as the sample's .crumbs: the face and name of the computer or Trunk, "/",
+   then the conversation's title or the place's name (public/topbar-crumbs.js). */
+body.lx .lx-crumbs-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+body.lx .lx-crumbs-mark svg {
+  width: 20px;
+  height: 20px;
+}
+body.lx .lx-crumbs-mid,
+body.lx .lx-crumbs-sep {
+  font-size: 13.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+body.lx .lx-crumbs-mid {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.lx .lx-crumbs-mid:empty,
+body.lx .lx-crumbs-mid:empty + .lx-crumbs-sep {
+  display: none;
+}
+/* In a conversation its own title is the one on show; the place's heading stays for a screen reader. */
+body.lx.lx-chat #page-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+body.lx.lx-chat .thread-name {
+  display: inline;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+body.lx.lx-chat .thread-name:empty::before {
+  content: attr(data-empty);
+}
+@media (max-width: 760px) {
+  body.lx .lx-crumbs-mid,
+  body.lx .lx-crumbs-sep {
+    display: none;
+  }
 }
