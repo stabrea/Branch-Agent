@@ -81,5 +81,5 @@ test("the cards sit in their homes, a blueprint is made from the window, and not
   const placed = await page.evaluate(() => Object.fromEntries(["autonomy-instructions-card", "autonomy-readiness-card"]
     .map((id) => [id, document.getElementById(id)?.closest("[id^='lx-page-'], [id^='lx-slot-'], #skills")?.id ?? null])));
   assert.equal(placed["autonomy-instructions-card"], "lx-page-assistant");
-  assert.ok(placed["autonomy-readiness-card"], "the readiness card has a home in Customize");
+  assert.equal(placed["autonomy-readiness-card"], "lx-page-skills", "the readiness card has a home in Settings › Skills & plugins");
 });

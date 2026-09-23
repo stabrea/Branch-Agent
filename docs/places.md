@@ -36,7 +36,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `library:memory` | Remembered facts, tidying, how much it keeps, import and export, checkpoints |
 | `library:documents` | Documents, knowledge bases, the notes folder |
 | `library:made` | Pictures, files and reports the assistant made |
-| `customize:skills` | Installed skills, installing and sharing, suggestions, what happens when a skill looks risky |
+| `customize:skills` | Installed skills, installing one, set-aside and suggested better versions |
 | `customize:specialists` | Specialists and proposing new ones |
 | `customize:plugins` | Plugins |
 | `customize:connections` | MCP in both directions: servers the assistant uses, other AI tools using Branch |
@@ -64,7 +64,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `settings:trunks` | Directory to the real Trunks, Overview and People places |
 | `settings:channels` | Directory to the real chat apps and devices controls |
 | `settings:connections` | Directory to the real tool-server and app connections controls |
-| `settings:skills` | Directory to the real Skills, Specialists and Plugins places |
+| `settings:skills` | Skills (a risky skill, sharing through git, bundles, the install record, TOOLS.md, skills it wrote, what skills need), add-ons other people wrote, and under the hood: intents, skill usage, Trunks on other computers, ways of working (DG-196) |
 | `settings:memory` | Directory to the real Memory, Documents and Made for you places |
 | `settings:automations` | Directory to the real Automations and Inbox places |
 
@@ -103,16 +103,16 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Widgets the assistant built (`mac7/r17-h`) | `library:made`, beside the live tool pages they are made from |
 | Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
 | Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
-| What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
+| What installed skills need on this computer (`mac7/r17-b`) | `settings:skills` |
 | Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
 | Where Branch listens (`mac7/bind`) | `settings:computer` |
-| Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
+| Trunks on other computers (`mac7/r17-i`) | `settings:skills`, under the hood |
 | Making videos (`mac7/r17-i`) | `settings:models:media` |
 | The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |
-| Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `customize:skills` |
+| Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `settings:skills` |
 | Notes with rewriting (`mac7/r17-i`) | `library:documents` |
 | Model arena (`mac7/r17-i`) | `settings:models:second` |
-| TOOLS.md | `customize:skills` |
+| TOOLS.md | `settings:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |
 | Cheaper and faster model routing | `settings:models:defaults` |
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
@@ -123,19 +123,19 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
-| Learning, deeper: memory blocks, the timeline, meaning search, lessons, preferences from Claude Code and Codex, expiring memories, note read-back, outside memory (R17-F) | `library:memory`; skill usage and merging in `customize:skills` |
+| Learning, deeper: memory blocks, the timeline, meaning search, lessons, preferences from Claude Code and Codex, expiring memories, note read-back, outside memory (R17-F) | `library:memory`; skill usage and merging in `settings:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 | Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
 | Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
 | Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
 | Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `customize:connections` |
-| Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
+| Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `settings:skills`, under the hood |
 | A conversation handed over from another device (`#handoff=<id>`) | Opens the conversation itself; no screen of its own |
 | Building on Branch: the switch for the app-builder tools, and the clients for each language (bucket 21) | `settings:advanced` |
 | Flows written out and read back as YAML files (bucket 21) | `automations:procedures` |
 | Saved prompts, your own commands and the example tool server (bucket 12) | `automations:procedures`, beside saved procedures; the commands themselves live in the message box's `/` menu |
-| Installing and removing skills with a written account, Agent Skills folders (bucket 12) | `customize:skills` |
+| Installing and removing skills with a written account, Agent Skills folders (bucket 12) | `settings:skills` |
 | Several accounts per connection (`mac6/accounts`) | `settings:models:connection`, one Accounts card (ChatGPT's list inside the ChatGPT card); the account chip sits in the title bar beside the page name, because it only names and switches what the conversation's model uses |
 | Signing in from other devices, groups and sharing a conversation (bucket 19) | `settings:general`, beside the people on this computer; a person's own page at `/people`, not a place |
 | One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
@@ -146,7 +146,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Quick answers, pages kept, long articles and live tool pages (`mac6/bucket-23`) | `library:made` |
 | Bringing in new items from GitHub, mail and Telegram (`mac6/bucket-23`) | `library:documents` |
 | A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
-| Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
+| Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `settings:skills`, under the hood |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
 | Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `customize:channels`; the "which device" picker lives in the message box, because it changes the next message |
 | Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |

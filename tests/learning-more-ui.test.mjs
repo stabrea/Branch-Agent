@@ -77,8 +77,8 @@ test("the cards sit in their homes, start off, open when switched on, and nothin
   app.learningMore.setMode("curator", { mode: "when-needed" });
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 }).catch(() => undefined);
-  await openPlace(page, "customize:skills");
+  await openPlace(page, "settings:skills");
   await page.locator("#lmore-curator-card").waitFor();
-  assert.equal(await page.locator("#lmore-curator-card").getAttribute("data-home"), "customize:skills");
+  assert.equal(await page.locator("#lmore-curator-card").getAttribute("data-home"), "settings:skills");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
 });

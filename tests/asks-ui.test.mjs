@@ -40,7 +40,7 @@ test("the cards sit in their homes, the switches work from the window, and nothi
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
 
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-  await openPlace(page, "customize:skills");
+  await openPlace(page, "settings:skills");
   const intents = page.locator("#asks-intents-card");
   await intents.waitFor();
   assert.equal(await intents.locator("h2").innerText(), "Sending requests where they belong");

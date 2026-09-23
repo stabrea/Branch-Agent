@@ -50,7 +50,7 @@ const homes = [
   ["context-memory-file", "library:memory"],
   ["context-heartbeat", "automations:scheduled"],
   ["context-sop", "automations:procedures"],
-  ["context-tools-file", "customize:skills"],
+  ["context-tools-file", "settings:skills"],
 ];
 
 test("each switch is on the screen that already owns its subject, not on a screen of its own", async (t) => {

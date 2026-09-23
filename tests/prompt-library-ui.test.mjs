@@ -73,7 +73,7 @@ test("saved prompts and the install record fit a 400 px window, and a skill fold
   await page.locator("#prompts-editor").waitFor({ state: "visible" });
   assert.ok(await sideways(page) <= 0, "no sideways scrolling in Procedures");
 
-  await openPlace(page, "customize:skills");
+  await openPlace(page, "settings:skills");
   const card = page.locator("#skill-installs-card");
   await card.waitFor({ state: "visible" });
   await page.getByLabel("Install record", { exact: true }).selectOption("on");
