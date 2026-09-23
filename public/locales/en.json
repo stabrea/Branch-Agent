@@ -4605,6 +4605,8 @@
   "settingsGrown.bucket.skills.open.line": "Open the real place for each kind of capability.",
   "settingsGrown.bucket.trunks.open": "Trunks, computers and people",
   "settingsGrown.bucket.trunks.open.line": "Open the real places where you manage each one.",
+  "settingsGrown.bucket.computer.paired": "Paired devices",
+  "settingsGrown.bucket.computer.paired.line": "The computers and phone paired with this one.",
   "settingsGrown.bucket.computer.browser": "The browser",
   "settingsGrown.bucket.computer.browser.line": "Sites it stays signed in to, and how carefully it clicks.",
   "settingsGrown.bucket.computer.commands": "Running commands safely",
