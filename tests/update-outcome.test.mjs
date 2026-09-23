@@ -6,6 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -66,8 +67,9 @@ test("a hand-over that could not start gives the claim back and says what was ke
 test("the newest activation is read without writing, and an unconfirmed update settles as failed", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "branch-update-outcome-"));
   t.after(() => discardTemp(dataDir));
-  assert.equal(lastActivation(dataDir), null, "nothing recorded, and no journal is created by looking");
   const path = join(dataDir, "activation.sqlite");
+  assert.equal(lastActivation(dataDir), null, "nothing recorded");
+  assert.equal(existsSync(path), false, "and no journal is created by looking");
   const journal = new ActivationJournal(path);
   const entry = { kind: "update", target: join(dataDir, "app"), previous: null, candidate: null, launcher: null,
     executableName: "Branch Agent.exe", understood: 1, databases: [], backups: [] };

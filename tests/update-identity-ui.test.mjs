@@ -66,11 +66,13 @@ test("the installed build shows its version and commit, and the offered release 
   assert.deepEqual(errors, []);
 });
 
-test("a build without a recorded commit says so, and a release with no notes says that too", async (t) => {
+test("a build without a recorded commit says so, and a Dev offer is named by its change", async (t) => {
   const { page, errors } = await openApp(t, { phase: "available", message: "A newer Dev build can be built.", progress: null,
-    installed: { version: "0.19.3", commit: null }, outcome: null, release: { ...offered, channel: "dev", notes: "" } });
+    installed: { version: "0.19.3", commit: null }, outcome: null, release: { ...offered, channel: "dev", notes: "", latestVersion: "0.19.3", commit: "fedcba9876543210fedcba9876543210fedcba98" } });
   await page.waitForFunction(() => document.querySelector("#updates-build-commit")?.textContent === "not recorded");
-  assert.equal(await text(page, "#updates-notes-text"), "No notes were published for this version.");
+  // Dev offers the running version until it is built, so it is named by its change instead.
+  assert.equal(await text(page, "#updates-notes-title"), "What's new in change fedcba9");
+  assert.equal(await text(page, "#updates-notes-text"), "Dev builds come straight from a merged change and have no release notes of their own.");
   assert.deepEqual(errors, []);
 });
 
@@ -87,14 +89,14 @@ test("a failed update says what was kept, in English and in French", async (t) =
   await page.locator("#updates-install").click();
   await page.waitForFunction(() => !document.querySelector("#updates-outcome")?.hidden);
   assert.equal(await text(page, "#updates-status"), "The download stopped.");
-  assert.equal(await text(page, "#updates-outcome"), "Nothing was changed: Branch Agent 0.19.3 is still installed, and your work is as it was.");
+  assert.equal(await text(page, "#updates-outcome"), "Branch Agent 0.19.3 was kept: it is still installed, and your work is as it was.");
 
   // The language changes after the card was drawn, so the filled-in sentences must be redrawn, not left as templates.
   await openPlace(page, "settings:appearance");
   await page.locator("#appearance-language").selectOption("fr");
   await openPlace(page, "settings:about");
-  await page.waitForFunction(() => document.querySelector("#updates-outcome")?.textContent.startsWith("Rien n’a changé"));
-  assert.equal(await text(page, "#updates-outcome"), "Rien n’a changé : Branch Agent 0.19.3 est toujours installé, et votre travail est resté tel quel.");
+  await page.waitForFunction(() => document.querySelector("#updates-outcome")?.textContent.startsWith("Branch Agent 0.19.3 a été conservé"));
+  assert.equal(await text(page, "#updates-outcome"), "Branch Agent 0.19.3 a été conservé : il est toujours installé, et votre travail est resté tel quel.");
   assert.equal(await text(page, "#updates-notes-title"), "Nouveautés de la version 9.9.9");
   assert.equal(await page.locator("#updates-build dt").first().textContent(), "Version installée");
   assert.equal(await text(page, "#updates-build-commit"), COMMIT.slice(0, 12));
@@ -134,4 +136,12 @@ test("with no update on record, nothing is said about one", async (t) => {
   const { page } = await openApp(t, { phase: "idle", message: "", progress: null, installed: { version: "0.19.3", commit: COMMIT }, outcome: null, release: null });
   await page.waitForFunction(() => document.querySelector("#updates-build-commit")?.textContent !== "");
   assert.equal(await page.locator("#updates-restored").isVisible(), false);
+});
+
+test("a Stable release published without notes says so", async (t) => {
+  const { page } = await openApp(t, { phase: "available", message: "Version 9.9.9 is ready to install.", progress: null,
+    installed: { version: "0.19.3", commit: COMMIT }, outcome: null, release: { ...offered, notes: "  " } });
+  await page.waitForFunction(() => document.querySelector("#updates-notes-text")?.textContent !== "");
+  assert.equal(await text(page, "#updates-notes-title"), "What's new in 9.9.9");
+  assert.equal(await text(page, "#updates-notes-text"), "No notes were published for this version.");
 });

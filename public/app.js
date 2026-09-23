@@ -1039,11 +1039,14 @@ function showBuild(status) {
   const release = status?.release;
   $("updates-notes").hidden = !release?.available;
   if (!release?.available) return;
-  $("updates-notes-title").textContent = t("updates.notes.title", { version: release.latestVersion });
-  $("updates-notes-text").textContent = release.notes?.trim() || t("updates.notes.none");
+  // A Dev build has no version of its own until it is built; it is named by its change.
+  const dev = release.channel === "dev" && release.commit;
+  $("updates-notes-title").textContent = dev ? t("updates.notes.title-dev", { change: release.commit.slice(0, 7) }) : t("updates.notes.title", { version: release.latestVersion });
+  $("updates-notes-text").textContent = release.notes?.trim() || t(dev ? "updates.notes.none-dev" : "updates.notes.none");
 }
 /* Q55: an update the hand-over could not finish is settled by the next start; say what runs now. */
 let lastActivation = null;
+let lastActivationRead = null;
 function showRestored(last) {
   lastActivation = last;
   const line = $("updates-restored");
@@ -1081,7 +1084,9 @@ async function renderUpdates() {
     if (choice) choice.checked = true;
   } catch { /* The main-process updater fails closed when owner state is unavailable. */ }
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
-  try { showRestored((await api("never-break/last-update")).last); } catch { showRestored(null); }
+  // The record only changes when Branch starts, so it is read once per page, not on every redraw.
+  lastActivationRead ??= api("never-break/last-update").then((answer) => answer.last, () => null);
+  showRestored(await lastActivationRead);
 }
 $("updates-channel").addEventListener("change", async (event) => {
   if (event.target?.name !== "release-channel") return;
