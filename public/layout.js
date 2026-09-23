@@ -104,7 +104,7 @@ function applyLook() {
   const family = themeById(look.family), mode = modeNow();
   const tokens = tokensFor(family, mode, look.contrast);
   wearTokens(root, family, tokens);
-  const surface = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55);
+  const surface = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.045 : 0.62);
   root.style.setProperty("--surface", surface);
   paintGrove({ mode, season: look.season || seasonToday() });
   drawLookControls();
