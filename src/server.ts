@@ -3002,10 +3002,30 @@ export async function pairingRequest(
   send(response, 200, device ? { ...redeemed, deviceId: device.device.id, deviceKey: device.secret } : redeemed);
   return true;
 }
+/**
+ * Q45 leaf 0: listens on `port`; when it is taken and `anyPortIfTaken` is set, on any free port instead, on the same
+ * server, so nothing set up before listening is set up twice.
+ */
+export function listenOn(server: Server, port: number, address: string, anyPortIfTaken = false): Promise<void> {
+  const bind = (at: number) => new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(at, address, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return bind(port).catch((error: NodeJS.ErrnoException) => {
+    if (anyPortIfTaken && port && error?.code === "EADDRINUSE") return bind(0);
+    throw error;
+  });
+}
+
 export async function startServer(
   app: Branch,
   options: {
     dataDir: string; port?: number;
+    /** Q45 leaf 0: when the asked-for port is taken, take any free one instead of failing the start. */
+    anyPortIfTaken?: boolean;
     /** The installed program file and folder, when Branch runs from an install rather than source. */
     executable?: string | null; installRoot?: string | null;
     /** Announce this engine to other launches, so a second window joins it instead of starting again. */
@@ -3541,13 +3561,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     liveConnections.add(socket);
     socket.once("close", () => liveConnections.delete(socket));
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port ?? 3210, listen.address, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
+  await listenOn(server, options.port ?? 3210, listen.address, options.anyPortIfTaken === true);
   const address = server.address();
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");

@@ -49,18 +49,21 @@ export function updatePlan(store: Pick<Store, "get">, owner: string, facts: Plan
   const plan = (step: UpdateStep, reason: string): UpdatePlan => ({ mode, step, reason, lastCheckedAt });
   if (mode === "off") return plan("nothing", "Updates are only looked for when you press Check.");
   const now = (facts.now ?? new Date()).getTime();
-  const interval = settings.releaseChannel === "beta" ? betaCheckEveryMs : checkEveryMs;
+  const interval = settings.releaseChannel === "stable" ? checkEveryMs : betaCheckEveryMs;
   const due = lastCheckedAt === null || now - Date.parse(lastCheckedAt) >= interval;
-  if (mode === "install" && facts.updaterPhase === "available") {
+  /* Dev builds Branch on this computer from every merged change, several times an hour: it is only ever offered,
+     never built and restarted by itself, whatever "update by itself" says. */
+  const install = mode === "install" && settings.releaseChannel !== "dev";
+  if (install && facts.updaterPhase === "available") {
     if (facts.busyTasks > 0) return plan("nothing", "A newer version is ready; it installs once no task is working.");
     return plan("install", "A newer version is ready and nothing is working, so it is installed now, safely.");
   }
   // An available update is remembered by GitHub, not by this process. After a restart the updater
   // starts idle, so look again even if yesterday's check timestamp is still fresh.
-  if (mode === "install" && facts.updaterPhase === "idle")
+  if (install && facts.updaterPhase === "idle")
     return plan("check", "Checking for an update that may have waited through the last restart.");
-  if (!due) return plan("nothing", settings.releaseChannel === "beta"
-    ? "Beta updates were looked for less than five minutes ago."
+  if (!due) return plan("nothing", settings.releaseChannel !== "stable"
+    ? `${settings.releaseChannel === "dev" ? "Dev" : "Beta"} updates were looked for less than five minutes ago.`
     : "Updates were looked for less than a day ago.");
-  return plan("check", mode === "install" ? "Looking for a newer version to install." : "Looking for a newer version to tell you about.");
+  return plan("check", install ? "Looking for a newer version to install." : "Looking for a newer version to tell you about.");
 }
