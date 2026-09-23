@@ -90,6 +90,23 @@ export class HibernationStore {
     }
   }
 
+  /** Every operation on file, oldest id first. Used by `branch hibernation list` and by
+   *  `GET /api/hibernation/operations` for any client that wants the same list; nothing is kept in
+   *  memory between calls, so a fresh instance sees the same list. */
+  async list(): Promise<OperationRecord[]> {
+    let ids: string[];
+    try {
+      ids = (await readdir(join(this.dataDir, "hibernation"))).sort();
+    } catch {
+      return [];
+    }
+    const records: OperationRecord[] = [];
+    for (const id of ids) {
+      try { records.push(await this.read(id)); } catch { /* not an operation folder */ }
+    }
+    return records;
+  }
+
   /** Starts a new operation in the configured environment, with its work laid out as named steps. */
   async start(environment: string, steps: string[]): Promise<OperationRecord> {
     const id = randomUUID();

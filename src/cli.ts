@@ -67,6 +67,7 @@ import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 import { sayOnceIfNodeIsTooOld } from "./node-floor.js"; // mac7/node-floor
 import { phoneCommand } from "./phone-app/cli.js";
 import { scheduleCommand } from "./schedule-cli.js";
+import { HibernationStore, hibernationSettings, saveHibernationSettings, type OperationRecord } from "./hibernation.js"; // operations.hibernation
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -271,6 +272,8 @@ async function main(): Promise<void> {
       console.log(`Backup written to ${target}. Secrets are not included; they stay on this device.`);
       return;
     }
+    // operations.hibernation: `branch hibernation list | start | show | advance | suspend | resume | settings`.
+    if (command === "hibernation") { await hibernationCommand(app, dataDir); return; }
     if (command === "token") { await tokenCommand(ownKeys(app)); return; }
     // mac7/phone-qr: the "Get Branch on your phone" code, in the terminal (src/phone-app/cli.ts).
     if (command === "phone") {
@@ -424,6 +427,58 @@ async function tokenCommand(keys: TokenAccess): Promise<void> {
   if (!entries.length) return void console.log("You have not made any short-lived keys.");
   for (const entry of entries)
     console.log([entry.id, entry.scope, entry.name, entry.revokedAt ? "taken back" : `until ${entry.expiresAt}`, `${entry.uses} use(s)`].join("\t"));
+}
+
+/**
+ * `branch hibernation list | start <step>... | show <id> | advance <id> | suspend <id> | resume <id>
+ * | settings [environment]`. Reads and writes straight to `<dataDir>/hibernation/`, the same store
+ * the HTTP routes in src/hibernation-api.ts use, so it works whether or not the owner ever opens the
+ * window. See src/hibernation.ts for what suspend and resume actually mean for the local adapter.
+ */
+async function hibernationCommand(app: Awaited<ReturnType<typeof createBranch>>, dataDir: string): Promise<void> {
+  const store = new HibernationStore(dataDir);
+  const action = process.argv[3] ?? "list";
+  const asJson = process.argv.includes("--json");
+  const say = (record: OperationRecord) => {
+    if (asJson) { console.log(JSON.stringify(record, null, 2)); return; }
+    console.log(`${record.id}\t${record.environment}\t${record.status}\tstep ${record.step}/${record.steps.length}`);
+  };
+  if (action === "settings") {
+    const wanted = process.argv[4] && !process.argv[4].startsWith("--") ? process.argv[4] : undefined;
+    const settings = wanted ? saveHibernationSettings(app.store, app.runtime.owner, { environment: wanted })
+      : hibernationSettings(app.store, app.runtime.owner);
+    if (asJson) { console.log(JSON.stringify(settings)); return; }
+    console.log(`Serverless environment: ${settings.environment}`);
+    return;
+  }
+  if (action === "list") {
+    const records = await store.list();
+    if (asJson) { console.log(JSON.stringify(records, null, 2)); return; }
+    if (!records.length) { console.log('No hibernation operations yet. Start one with: branch hibernation start "step one" "step two"'); return; }
+    for (const record of records) say(record);
+    return;
+  }
+  if (action === "start") {
+    const steps = process.argv.slice(4).filter((word) => word !== "--json");
+    if (!steps.length) throw new Error('Name the operation\'s steps: branch hibernation start "write the brief" "write the draft"');
+    const settings = hibernationSettings(app.store, app.runtime.owner);
+    say(await store.start(settings.environment, steps));
+    return;
+  }
+  const id = process.argv.slice(4).find((word) => word !== "--json");
+  if (!id) throw new Error(`Name the operation: branch hibernation ${action} <id>`);
+  if (action === "show") return void say(await store.read(id));
+  if (action === "advance") return void say(await store.advance(id));
+  if (action === "suspend") return void say(await store.suspend(id));
+  if (action === "resume") {
+    const { record, workspace } = await store.resume(id);
+    if (asJson) { console.log(JSON.stringify({ record, workspace }, null, 2)); return; }
+    say(record);
+    console.log(workspace.intact ? "The workspace came back exactly as it was when it was suspended."
+      : `The workspace changed since it was suspended: ${workspace.changed.join(", ")}`);
+    return;
+  }
+  throw new Error("Usage: branch hibernation list | start <step>... | show <id> | advance <id> | suspend <id> | resume <id> | settings [environment]");
 }
 
 /**

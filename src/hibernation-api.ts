@@ -8,6 +8,7 @@ import { HibernationStore, OperationNotFoundError, hibernationSettings, saveHibe
  *
  *   GET  /api/hibernation                 the configured environment
  *   POST /api/hibernation/settings        { environment: "local" }
+ *   GET  /api/hibernation/operations      every operation on file, oldest first
  *   POST /api/hibernation/start           { steps: ["…", "…"] } → an operation
  *   POST /api/hibernation/advance         { id } → runs the next step
  *   POST /api/hibernation/suspend         { id } → freezes the workspace, stops the compute
@@ -48,6 +49,7 @@ async function withId(body: () => Promise<unknown>, run: (id: string) => Promise
 export async function hibernationApi(deps: HibernationDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
   if (method === "GET" && path === "/api/hibernation") return hibernationSettings(deps.store, deps.owner);
   if (method === "POST" && path === "/api/hibernation/settings") return saveHibernationSettings(deps.store, deps.owner, await body());
+  if (method === "GET" && path === "/api/hibernation/operations") return deps.hibernation.list();
   if (method === "POST" && path === "/api/hibernation/start") {
     const parsed = StartSchema.safeParse(await body());
     if (!parsed.success) throw new HibernationApiError(400, "Say { \"steps\": [\"…\"] } naming the operation's work.");
