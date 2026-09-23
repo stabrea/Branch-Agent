@@ -164,38 +164,46 @@ export const unresolved = (text: string): boolean => /\$[{(A-Za-z_]|`|%[A-Za-z_]
 /** Q12: the most words one brace pattern, or one call, may stand for before the call is refused as unreadable. */
 const braceLimit = 64, callBraceLimit = 256;
 
+/** One character of a shell word, and whether quoting or a backslash made it plain text. */
+interface Letter { c: string; quoted: boolean }
+const lettersOf = (word: string): Letter[] => [...word].map((c) => ({ c, quoted: false }));
+const textOf = (word: readonly Letter[]): string => word.map((letter) => letter.c).join("");
+const bare = (letter: Letter | undefined, c: string): boolean => !!letter && !letter.quoted && letter.c === c;
+
+/** The words one brace group stands for, or null when it is not one the shell opens (undefined: too many). */
+function braceParts(word: Letter[], open: number, close: number, commas: number[], limit: number): Letter[][] | null | undefined {
+  if (commas.length) {
+    const cuts = [open, ...commas, close];
+    return cuts.slice(0, -1).map((at, part) => word.slice(at + 1, cuts[part + 1]));
+  }
+  const body = word.slice(open + 1, close);
+  if (body.some((letter) => letter.quoted)) return null;
+  const middles = sequence(textOf(body), limit);
+  return middles === undefined ? undefined : middles && middles.map(lettersOf);
+}
+
 /**
- * Q12: a word with its brace groups spelled out the way bash, zsh and macOS's /bin/sh do it:
- * `~/.local/share/{branch-agent,x}` is two paths, `branch-agent{,}` is the name twice, a group
- * inside a group opens too, and `branch-agen{s..u}` is a sequence. Any other group is left as written. Null when the word stands for
- * more than `limit` words, which the caller refuses rather than guess at.
+ * Q12: brace groups spelled out the way bash, zsh and macOS's /bin/sh do it, on the word's unquoted
+ * structure: only a `{`, `,` or `}` that no quote or backslash covers counts, and a quoted part
+ * (`{branch-agent,"a b"}`) stays one piece of the word. Null past `limit` words.
  */
-export function expandBraces(word: string, limit = braceLimit): string[] | null {
-  for (let open = word.indexOf("{"); open >= 0; open = word.indexOf("{", open + 1)) {
+function expandLetters(word: Letter[], limit: number): Letter[][] | null {
+  for (let open = 0; open < word.length; open++) {
+    if (!bare(word[open], "{")) continue;
     let depth = 0, close = -1;
     const commas: number[] = [];
     for (let at = open; at < word.length && close < 0; at++) {
-      const char = word[at];
-      if (char === "{") depth++;
-      else if (char === "}" && --depth === 0) close = at;
-      else if (char === "," && depth === 1) commas.push(at);
+      if (bare(word[at], "{")) depth++;
+      else if (bare(word[at], "}") && --depth === 0) close = at;
+      else if (bare(word[at], ",") && depth === 1) commas.push(at);
     }
     if (close < 0) return [word];
-    const middles = commas.length ? null : sequence(word.slice(open + 1, close), limit);
-    if (middles === undefined) return null;
-    if (!commas.length && !middles) continue;
-    if (middles) {
-      const out: string[] = [];
-      for (const middle of middles) {
-        const more = expandBraces(word.slice(0, open) + middle + word.slice(close + 1), limit - out.length);
-        if (!more || out.length + more.length > limit) return null;
-        out.push(...more);
-      }
-      return out;
-    }
-    const cuts = [open, ...commas, close], out: string[] = [];
-    for (let part = 0; part < cuts.length - 1; part++) {
-      const more = expandBraces(word.slice(0, open) + word.slice(cuts[part]! + 1, cuts[part + 1]) + word.slice(close + 1), limit - out.length);
+    const parts = braceParts(word, open, close, commas, limit);
+    if (parts === undefined) return null;
+    if (!parts) continue;
+    const out: Letter[][] = [];
+    for (const part of parts) {
+      const more = expandLetters([...word.slice(0, open), ...part, ...word.slice(close + 1)], limit - out.length);
       if (!more || out.length + more.length > limit) return null;
       out.push(...more);
     }
@@ -203,6 +211,47 @@ export function expandBraces(word: string, limit = braceLimit): string[] | null 
   }
   return [word];
 }
+
+/**
+ * Q12: a word with its brace groups spelled out: `~/.local/share/{branch-agent,x}` is two paths,
+ * `branch-agent{,}` is the name twice, a group inside a group opens too, and `branch-agen{s..u}` is
+ * a sequence. Any other group is left as written. Null when the word stands for more than `limit`
+ * words, which the caller refuses rather than guess at.
+ */
+export function expandBraces(word: string, limit = braceLimit): string[] | null {
+  const out = expandLetters(lettersOf(word), limit);
+  return out && out.map(textOf);
+}
+
+type ShellPiece = { raw: string } | { raw: string; word: Letter[] };
+
+/** A command line cut into words (with what quoting and backslashes made plain) and the text between them. */
+function shellPieces(text: string): ShellPiece[] {
+  const pieces: ShellPiece[] = [];
+  let at = 0;
+  while (at < text.length) {
+    if (/[\s;|&<>()]/.test(text[at]!)) { pieces.push({ raw: text[at]! }); at++; continue; }
+    const start = at, word: Letter[] = [];
+    while (at < text.length && !/[\s;|&<>()]/.test(text[at]!)) {
+      const char = text[at]!;
+      if (char === "'") { const end = text.indexOf("'", at + 1); const stop = end < 0 ? text.length : end;
+        for (const c of text.slice(at + 1, stop)) word.push({ c, quoted: true }); at = stop + 1; continue; }
+      if (char === '"') { at++;
+        while (at < text.length && text[at] !== '"') {
+          if (text[at] === "\\" && /["\\$`]/.test(text[at + 1] ?? "")) at++;
+          word.push({ c: text[at]!, quoted: true }); at++;
+        }
+        at++; continue; }
+      if (char === "\\" && at + 1 < text.length) { word.push({ c: text[at + 1]!, quoted: true }); at += 2; continue; }
+      word.push({ c: char, quoted: false }); at++;
+    }
+    pieces.push({ raw: text.slice(start, at), word });
+  }
+  return pieces;
+}
+
+/** One word written back for the shell readers after it: in single quotes, so a space or quote in it stays inside it. */
+const quotedWord = (word: readonly Letter[]): string => `'${textOf(word).replace(/'/g, "'\\''")}'`;
 
 /**
  * A brace sequence's words: `{a..e}`, `{1..10}`, `{10..1..3}` (single letters or whole numbers, an
@@ -223,17 +272,20 @@ function sequence(body: string, limit: number): string[] | null | undefined {
   return words;
 }
 
-/** A text with every brace pattern in it spelled out, word by word; null past the limits. */
+/**
+ * A text with every brace pattern in it spelled out, word by word, read with the shell's quoting
+ * rules; a word the braces open is written back quoted. Null past the limits.
+ */
 function bracesSpelledOut(text: string): string | null {
   if (!text.includes("{")) return text;
   let count = 0;
-  // A space escaped with a backslash stays inside its word, as the shell keeps it.
-  const words = text.split(/((?<!\\)\s+)/).map((piece) => {
-    const spelled = /^\s+$/.test(piece) ? [piece] : expandBraces(piece);
+  const out = shellPieces(text).map((piece) => {
+    if (!("word" in piece) || !piece.word.some((letter) => bare(letter, "{"))) return piece.raw;
+    const spelled = expandLetters(piece.word, braceLimit);
     count += spelled?.length ?? callBraceLimit + 1;
-    return spelled?.join(" ") ?? "";
+    return spelled?.map(quotedWord).join(" ") ?? "";
   });
-  return count > callBraceLimit ? null : words.join("");
+  return count > callBraceLimit ? null : out.join("");
 }
 
 /**

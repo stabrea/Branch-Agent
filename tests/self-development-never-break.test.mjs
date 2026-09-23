@@ -150,3 +150,15 @@ test("NAS's own spelling with $TMPDIR is refused on this computer's layout", () 
   const here = protectedAreas({ workspace: join(home, "work"), dataDir: join(home, ".never-branch-data"), installRoot: "/opt/branch", platform: process.platform });
   assert.notEqual(shIn(here, "rm -rf $TMPDIR/{branch-agent-update,x}"), null);
 });
+
+test("a brace group holding a quoted space is spelled out as the shell does it", () => {
+  const areas = layouts.linux;
+  for (const line of [
+    'rm -rf ~/.local/share/{branch-agent,"a b"}', "rm -rf ~/.local/share/{branch-agent,'a b'}", 'rm -rf ~/.local/share/{"a b",branch-agent}',
+    'mv ~/.config/systemd/user/branch-agent.service{,".off x"}', "rm -rf ~/.local/share/{branch-agent,a\\ b}",
+  ]) assert.notEqual(shIn(areas, line), null, line);
+  // Braces entirely inside quotes are not opened by bash: the command names a folder literally called
+  // "{branch-agent,x}", which is not Branch's, so never-break lets it through, as the shell would run it.
+  assert.equal(shIn(areas, `rm -rf "${join(home, ".local", "share")}/{branch-agent,x}"`), null);
+  assert.equal(shIn(areas, "echo '{a,b}' {c,\"d e\"}"), null, "an ordinary quoted brace pattern is fine");
+});
