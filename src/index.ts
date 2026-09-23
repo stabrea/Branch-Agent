@@ -1636,6 +1636,7 @@ async function closeBranch(
 }
 export * from "./contracts.js";
 export * from "./store.js";
+export * from "./collab-events.js";
 export * from "./registry.js";
 export * from "./catalog.js";
 // Wave 7 (tool loading): the tiers, the searchable index, and what past tasks taught.

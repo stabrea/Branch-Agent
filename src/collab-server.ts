@@ -8,6 +8,7 @@ import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 import { roleLabels } from "./profile-roles.js";
+import { ownerMember } from "./collab-events.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -55,6 +56,8 @@ export async function collabApi(app: Branch, request: IncomingMessage, path: str
   if (flow !== notCollab) return flow;
   const queued = await queueApi(app, request, path, body);
   if (queued !== notCollab) return queued;
+  const events = await eventsApi(app, request, path, body);
+  if (events !== notCollab) return events;
   // Days off and quiet hours are the owner's settings and affect everything the app sends.
   if (get && path === "/api/calendar") {
     app.store.profiles.requireOwner("Days off and quiet hours");
@@ -141,6 +144,25 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
   if (request.method === "POST" && path === "/api/queue/settings") return queue.configure(owner, await body());
   const cancel = new RegExp(`^/api/queue/(${idPattern})/cancel$`).exec(path);
   if (cancel && request.method === "POST") { await body(); return queue.cancel(owner, cancel[1]!); }
+  return notCollab;
+}
+
+/**
+ * Signed collaboration events. A new event is always published under whoever is using the app,
+ * never under a member named in the request; a received event is kept only if its signature holds.
+ */
+async function eventsApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
+  const owner = app.runtime.owner, events = app.store.collabEvents;
+  if (request.method === "GET" && path === "/api/collab/events") {
+    const query = new URL(request.url ?? "/", "http://local").searchParams;
+    return events.list(owner, { kind: query.get("kind") ?? undefined, text: query.get("q") ?? undefined });
+  }
+  if (request.method !== "POST") return notCollab;
+  if (path === "/api/collab/events") {
+    const input = z.object({ kind: z.string(), payload: z.record(z.string(), z.unknown()) }).strict().parse(await body());
+    return events.publish(owner, app.store.profiles.active()?.id ?? ownerMember, input.kind, input.payload);
+  }
+  if (path === "/api/collab/events/receive") return events.receive(owner, await body());
   return notCollab;
 }
 
