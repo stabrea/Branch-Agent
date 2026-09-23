@@ -93,10 +93,14 @@ function remember(key, clips) {
 /**
  * Called by public/app.js once the send has come back and before the conversation is redrawn: the
  * first user message in `sessionId` saved after everything already drawn is the one these clips went
- * out with. Messages queued behind it are saved later, so they cannot take them.
+ * out with. Messages queued behind it are saved later, so they cannot take them. `fresh` says the send
+ * started this conversation, so nothing came before it; a conversation that already existed but was
+ * never drawn here (its redraw failed) has no known starting point, and its clips are dropped rather
+ * than risk handing them to one of its older messages.
  */
-function expect(sessionId, clips) {
-  expected = sessionId && clips?.length ? { sessionId, after: drawnUpTo.get(sessionId) ?? 0, clips } : null;
+function expect(sessionId, clips, fresh) {
+  const after = drawnUpTo.get(sessionId) ?? (fresh ? 0 : null);
+  expected = sessionId && clips?.length && after !== null ? { sessionId, after, clips } : null;
 }
 /** Clips the redraw did not match (it failed, or the send did) are dropped, never handed to a later message. */
 function settle() { expected = null; }

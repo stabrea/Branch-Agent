@@ -149,3 +149,25 @@ test("a later message with the same words but no file gets no player, in the sam
   assert.equal(await page.locator(".message-clips").count(), 0, "another conversation never shows this one's clip");
   assert.deepEqual(errors, []);
 });
+
+test("a clip sent into a conversation whose messages were never drawn here is not handed to an older message", async (t) => {
+  const { page, errors } = await startPage(t);
+  // The first send's redraw fails, so this page never learns which messages that conversation already has
+  // (public/app.js keeps going: "New messages will continue this saved conversation").
+  let failed = false;
+  await page.route(/\/api\/sessions\/[0-9a-f-]{36}$/, (route) => {
+    if (failed || route.request().method() !== "GET") return route.continue();
+    failed = true;
+    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "not now" }) });
+  });
+  await page.fill("#prompt", "first, with no file");
+  await page.click("#send");
+  await page.waitForFunction(() => document.getElementById("session-context")?.textContent.includes("could not be loaded")
+    && !document.getElementById("send")?.disabled, undefined, { timeout: 120000 });
+
+  await attachSound(page);
+  await sendAndAwaitRedraw(page, "second, with a note", 2);
+  const first = page.locator(".message.user").filter({ hasText: "first, with no file" });
+  assert.equal(await first.locator(".message-clips").count(), 0, "the older message never takes a clip it did not carry");
+  assert.deepEqual(errors, []);
+});
