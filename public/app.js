@@ -1554,6 +1554,15 @@ async function openConversation(id) {
   const value = await api("sessions/" + id);
   renderConversation(value);
 }
+/* FQ-surfaces.mobile-push: public/push.js re-dispatches the service worker's tap-through
+   (self.clients postMessage on notificationclick) as this DOM event; jump straight to the
+   finished conversation, the same way a waiting-attention row does. */
+document.addEventListener("branch-push-open", (event) => {
+  const id = event.detail?.sessionId;
+  if (!id) return;
+  displayView("chat");
+  openConversation(id);
+});
 async function branchConversation(original, messageId) {
   const branch = await api("action", { tool: "sessions.branch", args: { sessionId: original, messageId } });
   selectConversation(branch.sessionId, branch);
