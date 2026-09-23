@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { ToolRegistry } from "./registry.js";
+import { worktreeScope } from "./coding/worktrees.js";
 
 /**
  * Workspace history: the exact bytes of a file before the assistant changes it, a readable
@@ -63,7 +64,7 @@ export class WorkspaceHistory {
   }
   /** The folder the caller's paths resolve inside right now: "" for the owner's own turn, a Trunk's own
    *  folder for a Trunk's, a fork's worktree for a coding fork's — whatever files.checked() itself uses. */
-  private currentScope(): string { return this.files.scope(); }
+  private currentScope(): string { return worktreeScope() ?? ""; }
   private async current(path: string): Promise<Buffer | null> {
     try { return await readFile(await this.files.checked(path)); } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;

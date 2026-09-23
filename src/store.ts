@@ -171,8 +171,8 @@ export class Store {
       this.closed = true;
     }
   }
-  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1]) {
-    return this.branches.branch(owner, input);
+  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1], agent?: string) {
+    return this.branches.branch(owner, input, agent);
   }
   sessionView(owner: string, sessionId: string) {
     return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };

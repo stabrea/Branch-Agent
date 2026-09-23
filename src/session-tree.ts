@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
+import { canAccessSession } from "./history.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Message } from "./contracts.js";
@@ -50,10 +51,12 @@ export class SessionTree {
   constructor(private readonly db: DatabaseSync) {}
 
   /** The whole shape a conversation belongs to, from its root down through everything below it. */
-  tree(owner: string, input: string): TreeNode {
+  tree(owner: string, input: string, agent?: string): TreeNode {
     const id = sessionId.parse(input);
     this.requireOwner(owner, id);
-    return this.node(owner, this.rootOf(id));
+    if (agent && !canAccessSession(this.db, id, agent))
+      throw new Error("Conversation not found");
+    return this.node(owner, this.rootOf(id), agent);
   }
 
   /**
@@ -147,7 +150,7 @@ export class SessionTree {
     }
   }
 
-  private node(owner: string, id: string): TreeNode {
+  private node(owner: string, id: string, agent?: string): TreeNode {
     const point = this.db.prepare("SELECT branch_point_message_id FROM session_branches WHERE session_id=?").get(id);
     const created = this.db.prepare("SELECT created_at FROM sessions WHERE id=?").get(id);
     const children = this.db.prepare("SELECT session_id FROM session_branches WHERE parent_session_id=? ORDER BY created_at").all(id);
@@ -157,7 +160,9 @@ export class SessionTree {
       createdAt: String(created?.created_at ?? ""),
       messages: Number(this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE session_id=?").get(id)?.count ?? 0),
       branchPointMessageId: point ? Number(point.branch_point_message_id) : null,
-      children: children.map((child) => this.node(owner, String(child.session_id))),
+      children: children
+        .filter((child) => !agent || canAccessSession(this.db, String(child.session_id), agent))
+        .map((child) => this.node(owner, String(child.session_id), agent)),
     };
   }
 
@@ -184,6 +189,6 @@ export function registerSessionTree(registry: ToolRegistry, _store: Store, tree:
     name: "sessions.tree", permission: "history.read", group: "memory",
     description: "Conversations branched off this one, as a tree.",
     parameters: z.object({ sessionId }).strict(),
-    execute: async (input, context) => tree.tree(context.owner, input.sessionId),
+    execute: async (input, context) => tree.tree(context.owner, input.sessionId, context.agent),
   });
 }

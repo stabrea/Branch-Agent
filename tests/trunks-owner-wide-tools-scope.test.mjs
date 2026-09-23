@@ -166,3 +166,37 @@ test("learning.suggest names only the memories the asking agent may read", async
   assert.match(named, /shared-good/, "and a shared one he may read");
   assert.ok(Array.isArray(bos.tools), "tools and skills are left as they are");
 });
+
+test("M1b: a specialist's shared memory.put must not end Ada's agent-scoped fact", async (t) => {
+  const rules = [({ last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "").trim();
+    if (text.startsWith("remember ")) return call("memory.put", { text: text.slice("remember ".length), source: "specialist", scope: "shared" });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? "Done." : null)];
+  const { app } = await fixture(t, rules);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  const researcher = "researcher";
+  app.trunks.edit(ada.id, { permissions: ["memory.write", "memory.read"] });
+  await app.trunks.introduced();
+
+  // Ada creates an agent-scoped fact
+  const earlier = "2026-01-01T00:00:00.000Z";
+  app.store.save("memory", "local", "ada-fact", { text: "Ada's fact about the launch", source: "Ada",
+    entity: "launch", attribute: "status", validFrom: earlier, scope: `agent:trunk:${ada.id}` });
+
+  // A specialist puts a shared fact with the same entity/attribute
+  const specialistRun = await app.runtime.executeTool("memory.put",
+    { text: "Specialist: shared fact about the launch", source: "specialist", scope: "shared", entity: "launch", attribute: "status" },
+    { ...app.runtime.context(), agent: researcher });
+
+  // Ada's fact should not have been ended
+  const adaFact = app.store.get("memory", "local", "ada-fact");
+  assert.equal(adaFact.data.validTo, undefined, "Ada's agent-scoped fact is not ended by specialist's shared put");
+
+  // Verify specialist's put succeeded and created a shared fact
+  assert.ok(specialistRun.id, "specialist's memory.put succeeded");
+  const sharedFact = app.store.get("memory", "local", specialistRun.id);
+  assert.equal(sharedFact.data.scope, "shared", "specialist's fact has shared scope");
+});

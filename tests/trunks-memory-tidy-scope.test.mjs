@@ -131,10 +131,14 @@ test("hindsight.recall and hindsight.reflect refuse a Trunk or delegated special
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   };
   const saved = new Map([["asks-hindsight", { mode: "on" }]]);
-  const store = { get: (_t, _o, key) => (saved.has(key) ? { data: saved.get(key) } : undefined), save: (_t, _o, key, value) => saved.set(key, value) };
+  const store = {
+    get: (_t, _o, key) => (saved.has(key) ? { data: saved.get(key) } : undefined),
+    save: (_t, _o, key, value) => saved.set(key, value),
+    profiles: { scope: () => "local" }
+  };
   const hindsight = new Hindsight(store, "local", fetcher, async () => "");
   hindsight.save({ address: "https://hindsight.example/" });
-  registerHindsight(registry, hindsight);
+  registerHindsight(registry, hindsight, store);
   for (const agent of ["trunk:ada", "researcher"]) {
     const context = { owner: "local", agent };
     await assert.rejects(tools.get("hindsight.recall").execute({ query: "secrets", maxTokens: 2048 }, context), /one shared bank/);
@@ -144,4 +148,39 @@ test("hindsight.recall and hindsight.reflect refuse a Trunk or delegated special
   // The owner's own turn is unaffected.
   const recall = await tools.get("hindsight.recall").execute({ query: "secrets", maxTokens: 2048 }, { owner: "local" });
   assert.equal(recall.memories[0].text, "the owner's secret");
+});
+
+test("a Trunk stages nothing against shared facts when tidying with stage: true", async (t) => {
+  const { app } = await fixture(t, tidyRules);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.write", "memory.read"] });
+  await app.trunks.introduced();
+
+  // Seed a shared duplicate pair
+  app.store.save("memory", "local", "shared-dup-1", { text: "The launch is Friday at noon", source: "seed", scope: "shared" });
+  app.store.save("memory", "local", "shared-dup-2", { text: "The launch is Friday at noon", source: "seed", scope: "shared" });
+
+  // Seed a shared task note
+  app.store.save("memory", "local", "shared-task", { text: "Remember to call the team", source: "seed", scope: "shared", layer: "task" });
+
+  // Seed Ada's own note that should be staged
+  app.store.save("memory", "local", "ada-task", { text: "Ada's reminder to check inventory", source: "seed", scope: `agent:trunk:${ada.id}`, layer: "task" });
+
+  // Run memory.tidy with stage: true
+  const run = await app.trunks.say(ada.id, "tidy and stage");
+  const outcome = toolOutcome(app, run.runId, "memory.tidy");
+  assert.equal(outcome.ok, true, outcome.error);
+
+  // Check that Ada's own note is staged but shared facts are not
+  const pending = app.store.review.proposals("local", "pending");
+  const touched = (proposal) => [proposal.memoryId, ...proposal.memoryIds].filter(Boolean);
+  const stagedIds = new Set();
+  for (const proposal of pending) {
+    for (const id of touched(proposal)) stagedIds.add(id);
+  }
+
+  assert.ok(stagedIds.has("ada-task"), "Ada's own task note is staged");
+  assert.ok(!stagedIds.has("shared-dup-1") && !stagedIds.has("shared-dup-2"), "shared duplicates are not staged");
+  assert.ok(!stagedIds.has("shared-task"), "shared task note is not staged");
 });

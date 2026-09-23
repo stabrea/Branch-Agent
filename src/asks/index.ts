@@ -78,7 +78,7 @@ export class Asks {
     this.registrars = {
       nodes: () => registerNodes(registry, this.nodes),
       "source-sync": () => registerSourceSync(registry, this.sources),
-      hindsight: () => registerHindsight(registry, this.hindsight),
+      hindsight: () => registerHindsight(registry, this.hindsight, store),
       "app-blocks": () => registerAppBlocks(registry, this.blocks),
       "project-board": () => registerProjectBoard(registry, this.boards),
       "intent-pipeline": () => registerIntentRoute(registry, this.intents),

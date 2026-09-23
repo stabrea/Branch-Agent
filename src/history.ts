@@ -25,7 +25,7 @@ type Read = z.input<typeof HistoryReadSchema>;
  * visibleTo keeps for the owner's private facts and history.meaning keeps for every agent — and
  * leaving it open would let a Trunk reach another Trunk's chat one delegation away.
  */
-function participation(agent: string | undefined): { clause: string; args: string[] } {
+export function participation(agent: string | undefined): { clause: string; args: string[] } {
   if (!agent) return { clause: "", args: [] };
   if (!agent.startsWith("trunk:")) return { clause: " AND 0", args: [] };
   return {
@@ -33,6 +33,15 @@ function participation(agent: string | undefined): { clause: string; args: strin
       WHERE t.session_id=s.id AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?)`,
     args: [agent.slice("trunk:".length)],
   };
+}
+/** Check if an agent can access a session. Owner (undefined) can access any. Specialist ("-") cannot. Trunk needs a trunk.turn event. */
+export function canAccessSession(db: DatabaseSync, sessionId: string, agent: string | undefined): boolean {
+  if (!agent) return true;
+  if (!agent.startsWith("trunk:")) return false;
+  const trunkId = agent.slice("trunk:".length);
+  const row = db.prepare(`SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
+    WHERE t.session_id=? AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?`).get(sessionId, trunkId);
+  return !!row;
 }
 
 export class SessionHistory {
