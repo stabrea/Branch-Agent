@@ -119,6 +119,7 @@ test("review: the six settings routes found open are closed to a run key, and st
   assert.notEqual(saved.status, 401, "the key of this computer still changes settings");
   // A restore replaces everything, so it is not a task either.
   assert.equal((await call("POST", "/api/restore", keys.run, {})).status, 401);
+  assert.equal((await call("POST", "/api/restore?replace=1", keys.run, {})).status, 401);
 });
 
 test("review (bucket 16): the waiting Slack events are not readable with a short-lived key, only with this computer's key", async (t) => {

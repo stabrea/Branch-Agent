@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
-import { startServer, offLimitsToHousehold, offLimitsToShortLivedKeys } from "../dist/server.js";
+import { startServer, restoreBackup, offLimitsToHousehold, offLimitsToShortLivedKeys } from "../dist/server.js";
 import { householdOwnRoutes, householdRefusal, householdRefusalFor } from "../dist/household-routes.js";
 import { runOrigin } from "../dist/key-context.js";
 import { removalGuard, removePersonRefusal } from "../dist/remove-branch.js";
@@ -92,6 +92,17 @@ async function served(t) {
   const back = async () => assert.equal((await call("POST", "/api/profiles/switch", { profileId: null })).status, 200);
   return { app, call, sam, toSam, back };
 }
+
+test("the restore operation carries its owner guard when it moves out of the HTTP dispatcher", async (t) => {
+  const { app, toSam } = await served(t);
+  const backup = app.store.backup(app.version);
+  await toSam();
+
+  await assert.rejects(
+    restoreBackup(app, async () => backup, true),
+    /belongs to the owner/,
+  );
+});
 
 test("generated over HTTP: the window switched to a household profile meets the one sentence on every owner-only route", async (t) => {
   const { app, call, toSam, back } = await served(t);
