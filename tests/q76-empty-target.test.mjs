@@ -191,3 +191,32 @@ test('a tool that names the chat or delivery it reaches gets no standing yes whe
   assert.equal(state.app.registry.noStandingTarget('house.tell', ''), true, 'channel and chatId name where it reaches');
   assert.equal(state.app.registry.noStandingTarget('house.tell', 'telegram:111'), false);
 });
+
+test('default-deny: on no target, only a tool with no arguments or one listed as targetless keeps a standing yes', async (t) => {
+  const state = await harness(t, 'q76-default-deny');
+  const {z} = await import('zod');
+  const {targetlessTools} = await import('../dist/registry.js');
+  const add = (name, parameters) => state.app.registry.register({name, permission: 'channels.send', description: name, execute: async () => ({ok: true}), parameters});
+  add('plugin.mailer.send', z.object({to: z.string(), text: z.string()}).strict()); // a plugin names a recipient no rule knows
+  add('outside.lookup', z.record(z.string(), z.unknown())); // an outside server's arguments cannot be read
+  add('house.chime2', z.object({}).strict());
+  assert.equal(state.app.registry.noStandingTarget('plugin.mailer.send', ''), true);
+  assert.equal(state.app.registry.noStandingTarget('outside.lookup', ''), true);
+  assert.equal(state.app.registry.noStandingTarget('house.chime2', ''), false, 'no arguments at all: the tool itself');
+  const listed = Object.keys(targetlessTools).find((name) => state.app.registry.permissionOf(name));
+  assert.ok(listed, 'a listed targetless tool is registered here');
+  assert.equal(state.app.registry.noStandingTarget(listed, ''), false, `${listed} is targetless on purpose`);
+});
+
+test('a target that is itself a pattern never gets a standing yes, however it is written', async (t) => {
+  const state = await harness(t, 'q76-pattern');
+  for (const target of ['*', 'docs/*', 'a?b', '%2A', 'https%3A%2F%2F%2A']) assert.equal(state.app.registry.noStandingTarget('files.write', target), true, target);
+  assert.equal(state.app.registry.noStandingTarget('files.write', 'notes/today.md'), false);
+  state.calls.push({id: 'c1', name: 'files.write', arguments: JSON.stringify({path: '*', content: 'x'})});
+  const run = await state.app.runtime.run({prompt: 'run'});
+  const asked = waitingIn(state, run);
+  assert(asked, 'should ask');
+  assert.equal(asked.noAlways, true);
+  assert.throws(() => state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint), /does not say/);
+  assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'files.write' && r.match === '*').length, 0);
+});

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
 import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js";
+import { targetlessTools } from "../dist/registry.js";
 
 /**
  * mac7/target-guard: every tool that can name a thing the owner's rules are meant to judge must say
@@ -30,26 +31,8 @@ import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js"
 const NAMES_A_THING =
   /^(paths|file|files|file_path|file_paths|filepath|folder|folders|dir|directory|directories|urls|host|hosts|site|sites|domain|domains|account|accounts|device|devices|person|people|recipient|recipients|repo|repository|workspace|project|projects|target|targets|source|sources|destination|to|against|from_path|to_path)$/i;
 
-/**
- * Tools that genuinely touch nothing the rules judge. Each one costs a sentence saying why. Adding
- * a name here is a decision somebody makes on purpose — that is the whole point of the list.
- */
-const TARGETLESS = {
-  "history.meaning": "`from` and `to` are dates bounding a search of conversations already kept, not places.",
-  "learning.journey": "`from` and `to` are dates bounding a timeline, not places.",
-  "memory.find": "`from` and `to` are dates bounding a search of facts already kept, not places.",
-  "memory.put": "`source` is where a fact came from, written for a person to read; `project` is a name, not a folder.",
-  "memory.update": "`source` is where a fact came from, written for a person to read, not a place to read from.",
-  "projects.notes": "`project` is a project's name. The project's folder is judged when something opens it.",
-  "labels.add": "`target` is a kind — conversation, procedure or document — beside `targetId`. Neither is a path.",
-  "labels.list": "`target` is a kind, not a path.",
-  "labels.remove": "`target` is a kind, not a path.",
-  "knowledge.search": "`filter.files` narrows results inside a knowledge base already built; nothing is read from disk.",
-  "context.read": "`file` is one of eight fixed instruction files by name, not a path the caller chooses.",
-  "procedures.propose": "Proposing only saves the recipe. `preconditions[].path` is read later, by files.verify, when the recipe is verified or replayed.",
-  "specialists.propose": "Proposing only saves the specialist. `evaluation.checks[].path` is read later, by files.verify, when it is evaluated.",
-  "specialists.delegate": "`checks.files` is what the specialist's answer must account for. Every tool the specialist itself runs is judged on its own, with fewer permissions.",
-};
+/** Tools that genuinely touch nothing the rules judge: one list, kept beside the approval rule that reads it (src/registry.ts). */
+const TARGETLESS = targetlessTools;
 
 /**
  * `policyTarget` reads `url` and `path` only at the top of a call's arguments. Anywhere deeper — a

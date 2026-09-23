@@ -13,11 +13,32 @@ import { underTask } from "./task-scope.js"; // household-followups
 /** Tools `policyTarget` reads a target for by name rather than from a `url` or `path`. */
 const targetedByName: ReadonlySet<string> = new Set(["shell.execute", "shell.session.run", "shell.session.open"]);
 /**
- * Q76: arguments that name where a call reaches though the tool declares no target of its own: the two
- * `policyTarget` reads, and the chat a message or a digest goes to. Every other name that points at a
- * thing makes the tool declare a target (tests/tool-targets.test.mjs), which already counts.
+ * Tools that genuinely touch nothing the rules judge, though an argument's name suggests a place. Each
+ * costs a sentence saying why. tests/tool-targets.test.mjs holds every other such tool to declaring a
+ * target; Q76 lets only these, and tools that take no arguments at all, keep "Yes, always" on no target.
  */
-const targetArguments: ReadonlySet<string> = new Set(["url", "path", "channel", "chatId", "deliverTo", "notifyVia"]);
+export const targetlessTools: Readonly<Record<string, string>> = {
+  "history.meaning": "`from` and `to` are dates bounding a search of conversations already kept, not places.",
+  "learning.journey": "`from` and `to` are dates bounding a timeline, not places.",
+  "memory.find": "`from` and `to` are dates bounding a search of facts already kept, not places.",
+  "memory.put": "`source` is where a fact came from, written for a person to read; `project` is a name, not a folder.",
+  "memory.update": "`source` is where a fact came from, written for a person to read, not a place to read from.",
+  "projects.notes": "`project` is a project's name. The project's folder is judged when something opens it.",
+  "labels.add": "`target` is a kind — conversation, procedure or document — beside `targetId`. Neither is a path.",
+  "labels.list": "`target` is a kind, not a path.",
+  "labels.remove": "`target` is a kind, not a path.",
+  "knowledge.search": "`filter.files` narrows results inside a knowledge base already built; nothing is read from disk.",
+  "context.read": "`file` is one of eight fixed instruction files by name, not a path the caller chooses.",
+  "procedures.propose": "Proposing only saves the recipe. `preconditions[].path` is read later, by files.verify, when the recipe is verified or replayed.",
+  "specialists.propose": "Proposing only saves the specialist. `evaluation.checks[].path` is read later, by files.verify, when it is evaluated.",
+  "specialists.delegate": "`checks.files` is what the specialist's answer must account for. Every tool the specialist itself runs is judged on its own, with fewer permissions.",
+};
+/** Q76: a target that is itself a pattern ("*", a "?", even written %2A) would be kept as a rule for everything. */
+export const patternTarget = (target: string): boolean => {
+  let read = target;
+  try { read = decodeURIComponent(target); } catch { /* not encoded: judged as written */ }
+  return /[*?]/.test(read);
+};
 /** Q76: a target of only spaces or invisible characters (a zero-width space, a joiner) names nothing. */
 export const blankTarget = (target: string): boolean => !target.replace(/[\p{Cf}\s]/gu, "");
 
@@ -118,17 +139,19 @@ export class ToolRegistry {
     return { target: typeof tool?.target === "function", targets: typeof tool?.targets === "function" };
   }
   /**
-   * Q76: a call with no target gets no standing yes when its tool COULD have named one (it says what it
-   * touches, or it takes a `url` or `path` the policy reads): a rule on "*" would then cover every
-   * call. A tool that can name nothing is one thing, so "always" for it is "always" for the tool.
-   * An unknown tool, or arguments whose shape cannot be read, count as able to name one.
+   * Q76: whether a call gets no standing yes. A target that is itself a pattern never does: the rule
+   * would cover everything. A call with no target keeps one only when its tool takes no arguments at
+   * all, or is on `targetlessTools`; any other tool (a plugin's, an outside server's, one whose
+   * arguments cannot be read) could have named where it reaches, so a rule on "*" would cover it all.
    */
   noStandingTarget(name: string, target: string): boolean {
+    if (patternTarget(target)) return true;
     if (!blankTarget(target)) return false;
     const tool = this.tools.get(name);
     if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
     const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
-    return !shape || Object.keys(shape).some((key) => targetArguments.has(key));
+    if (shape && Object.keys(shape).length === 0) return false;
+    return !Object.hasOwn(targetlessTools, name);
   }
   /** Every registered tool with its permission, for the capability inventory. */
   inventory(): { name: string; permission: string; description: string }[] {
