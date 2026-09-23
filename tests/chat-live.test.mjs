@@ -716,8 +716,9 @@ async function chatLiveCard() {
 test("the chat-app card lives under Customize, Chat apps, and every word has English and real French", async () => {
   const card = await chatLiveCard();
   assert.match(card, /data-home="settings:channels"/);
-  assert.equal((card.match(/<h2 /g) ?? []).length, 1);
-  assert.equal((card.match(/<button /g) ?? []).length, 1, "one filled button");
+  assert.equal((card.match(/<h3 class="settings-card-title" /g) ?? []).length, 1, "DG-008: titled under its section's heading");
+  assert.equal((card.match(/<h2 /g) ?? []).length, 0);
+  assert.equal((card.match(/<button /g) ?? []).length, 0, "DG-025: each switch is kept as it changes, with no Save button");
   assert.doesNotMatch(card, /style=|#[0-9a-f]{3,8}\b|rgba?\(/i, "no colours written in the card");
   const keys = [...card.matchAll(/data-t="([^"]+)"/g)].map((m) => m[1]);
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
@@ -728,5 +729,5 @@ test("the chat-app card lives under Customize, Chat apps, and every word has Eng
   }
   for (const name of ["liveStatus", "commands", "steering", "splitting"]) assert.match(card, new RegExp(`name="${name}"`));
   const script = await readFile(new URL("../public/chat-live.js", import.meta.url), "utf8");
-  assert.match(script, /api\("channels\/live", change\)/);
+  assert.match(script, /api\("channels\/live", \{ \[name\]: \$\(id\)\.value \}\)/);
 });

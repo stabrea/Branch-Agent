@@ -38,15 +38,22 @@ export async function drawEmbeds() {
     $("embed-widget").checked = Boolean(saved.widget);
     $("embed-sites").value = (saved.widgetSites ?? []).join("\n");
     $("embed-extension").checked = Boolean(saved.extension);
+    say("embeds-status", ""); // a refusal from before the key was in is not left on show
   } catch (error) { say("embeds-status", error.message); }
 }
-$("embeds-save")?.addEventListener("click", async () => {
+/* DG-025: each switch, and the list of pages once it is left, is kept the moment it changes, as the sample saves.
+   One that will not save goes back to what is saved, and says why. */
+async function saveEmbeds() {
   try {
     const widgetSites = $("embed-sites").value.split("\n").map((line) => line.trim()).filter(Boolean);
     await api("embeds", { widget: $("embed-widget").checked, extension: $("embed-extension").checked, widgetSites });
     say("embeds-status", t("embeds.saved"));
-  } catch (error) { say("embeds-status", error.message); }
-});
+  } catch (error) {
+    await drawEmbeds();
+    say("embeds-status", error.message);
+  }
+}
+for (const id of ["embed-widget", "embed-extension", "embed-sites"]) $(id)?.addEventListener("change", saveEmbeds);
 
 document.querySelector('[data-view="settings"]')?.addEventListener("click", () => {
   void drawObsidian();

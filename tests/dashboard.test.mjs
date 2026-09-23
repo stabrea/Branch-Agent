@@ -393,11 +393,10 @@ test("the switch lives in Customize → Channels, and the dashboard's links open
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#lx-page-channels #dashboard-card");
   await card.waitFor();
-  assert.equal(await card.locator("h2").innerText(), "Dashboard in the browser");
+  assert.equal(await card.locator(":scope > h3.settings-card-title").innerText(), "Dashboard in the browser"); // DG-008
   assert.equal(await page.locator("#dashboard-mode").inputValue(), "off");
   assert.ok(await page.locator("#dashboard-open").isHidden());
-  await page.locator("#dashboard-mode").selectOption("on");
-  await card.getByRole("button", { name: "Save" }).click();
+  await page.locator("#dashboard-mode").selectOption("on"); // DG-025: kept the moment it changes
   await card.getByText("Saved.").waitFor();
   assert.equal(dashboardSettings(f.app.store, f.owner).mode, "on");
   await page.locator("#dashboard-open").click();

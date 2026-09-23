@@ -209,7 +209,7 @@ function deviceBlock(device, people, status) {
   const about = document.createElement("p");
   about.className = "subtle";
   about.append(make("span", "", platformKey(device.platform), PLATFORMS[device.platform]), plain("span", " · "), seen);
-  block.append(plain("h3", device.name), about, switches(device, status));
+  block.append(plain("h4", device.name, "settings-card-subtitle"), about, switches(device, status));
   if (computer(device.platform)) block.append(...folderRow(device, status));
   block.append(...shareRow(device, people, status));
   block.append(row(button("devices.device.remove", "Remove this device", async () => {
@@ -223,7 +223,7 @@ async function buildCard() {
   const node = make("section", "card");
   node.id = "devices-card";
   node.dataset.home = "settings:channels";
-  node.append(make("h2", "", "devices.title", "Your devices"),
+  node.append(make("h3", "settings-card-title", "devices.title", "Your devices"), // DG-008: under its section's heading
     make("p", "subtle", "devices.purpose", "Let your other computers and your phone lend Branch a camera, a screen, notifications and more. Everything starts off, and you switch each thing on per device."));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
@@ -236,8 +236,8 @@ async function buildCard() {
     }, false)), inviteSlot);
     // The invitation stays on screen while it is still the one on offer, through the regular redraws.
     if (invite && view.invitation?.id === invite.id) inviteSlot.append(inviteBox(invite));
-    if (view.requests.length) node.append(make("h3", "", "devices.waiting", "Waiting for your yes"), ...view.requests.map((request) => requestRow(request, status)));
-    node.append(view.devices.length ? make("h3", "", "devices.list", "Paired devices") : make("p", "field-note", "devices.none", "No device is paired yet."));
+    if (view.requests.length) node.append(make("h4", "settings-card-subtitle", "devices.waiting", "Waiting for your yes"), ...view.requests.map((request) => requestRow(request, status)));
+    node.append(view.devices.length ? make("h4", "settings-card-subtitle", "devices.list", "Paired devices") : make("p", "field-note", "devices.none", "No device is paired yet."));
     node.append(...view.devices.map((device) => deviceBlock(device, people, status)));
   }
   node.append(status);

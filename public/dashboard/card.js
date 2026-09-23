@@ -1,7 +1,7 @@
 /* The dashboard's two footholds in the app window (served as /dashboard-card.js, so it is there even
    while the dashboard itself is switched off):
 
-   1. The switch. A card in Customize → Channels, beside the other pages that reach Branch, with the
+   1. The switch. A card in Settings › Chat apps & devices, beside the other pages that reach Branch, with the
       owner's three-way switch — off, on, when needed — and a way to open the dashboard. It declares
       its home with data-home and public/layout.js moves it there; nothing here touches the layout.
    2. The way back in. Every link on the dashboard points at this window with #open=<place:tab> or
@@ -41,7 +41,7 @@ function buildCard(settings) {
   const card = make("section", "card");
   card.id = "dashboard-card";
   card.dataset.home = "settings:channels";
-  card.append(make("h2", "", "dashboard.card.title", "Dashboard in the browser"),
+  card.append(make("h3", "settings-card-title", "dashboard.card.title", "Dashboard in the browser"), // DG-008: under its section's heading
     make("p", "", "dashboard.card.purpose", "One page that shows what Branch is doing, whether it is healthy and what it has cost — for a phone, another computer or a screen on the wall."));
   const label = make("label", "", "dashboard.card.switch", "The dashboard");
   label.htmlFor = "dashboard-mode";
@@ -54,36 +54,37 @@ function buildCard(settings) {
   noteFor(note, settings.mode);
   select.addEventListener("change", () => noteFor(note, select.value));
   const where = make("p", "subtle", "dashboard.card.where", "It opens at /dashboard on this computer, and on your phone through the same paired address as the app, behind the same key.");
-  card.append(label, select, note, where, ...actions(card, select, settings));
+  card.append(label, select, note, where, ...actions(select, note, settings));
   return card;
 }
 
-function actions(card, select, settings) {
+function actions(select, note, settings) {
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
-  const save = make("button", "", "action.save", "Save");
-  save.type = "button";
   const open = make("button", "quiet-button", "dashboard.card.open", "Open the dashboard");
   open.type = "button";
   open.id = "dashboard-open";
   open.hidden = settings.mode === "off";
   /* The same tab, so the key this tab holds comes along. */
   open.addEventListener("click", () => location.assign("/dashboard"));
-  save.addEventListener("click", async () => {
-    save.disabled = true;
+  /* DG-025: the switch is kept the moment it changes, as the sample saves; one that will not save goes back. */
+  let saved = settings.mode;
+  select.addEventListener("change", async () => {
     try {
-      const saved = await api("dashboard/settings", { mode: select.value });
-      open.hidden = saved.mode === "off";
+      saved = (await api("dashboard/settings", { mode: select.value })).mode;
+      open.hidden = saved === "off";
       status.dataset.t = "dashboard.card.saved";
       status.textContent = say("dashboard.card.saved", "Saved.");
     } catch (error) {
+      select.value = saved;
+      noteFor(note, saved);
       delete status.dataset.t;
       status.textContent = error.message;
-    } finally { save.disabled = false; }
+    }
   });
   const row = document.createElement("div");
   row.className = "identity-actions";
-  row.append(save, open);
+  row.append(open);
   return [row, status];
 }
 

@@ -172,6 +172,8 @@ test("the Telegram card sits in Settings › Chat apps & devices, in plain words
   await page.locator("#telegram-setup-token").fill(`123456789:${"B".repeat(35)}`);
   await page.locator("#telegram-setup-mode").selectOption("when-needed");
   await card.getByRole("button", { name: "Save and connect" }).click();
+  /* DG-025: the switch said Saved. the moment it changed; the token is kept once the card is drawn again. */
+  await page.locator("#telegram-setup-token[placeholder^='A token is saved']").waitFor();
   await card.locator("[role=status]", { hasText: "Saved." }).first().waitFor();
   assert.equal(await page.locator("#telegram-setup-token").inputValue(), "", "the token does not stay on screen");
   assert.match(await page.locator("#telegram-setup-token").getAttribute("placeholder"), /A token is saved/);

@@ -52,7 +52,7 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#devices-card");
   await card.waitFor();
-  assert.equal(await card.locator("h2").innerText(), "Your devices");
+  assert.equal(await card.locator(":scope > h3.settings-card-title").innerText(), "Your devices"); // DG-008
   assert.equal(await page.evaluate(() => document.getElementById("devices-card")?.parentElement?.id ?? null), "lx-page-channels", "the card is in its home");
   assert.equal(await page.locator("#devices-mode").inputValue(), "off", "the feature ships off");
   assert.equal(await card.getByRole("button", { name: "Pair a device" }).count(), 0);
@@ -92,7 +92,7 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   for (let i = 0; i < 100 && !app.devices.book.device(paired.id).folder; i++) await page.waitForTimeout(50);
   assert.equal(app.devices.book.device(paired.id).folder, "/Users/me/Shared");
   assert.equal(await wide(), false, "the device and its switches fit at 400 px");
-  const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#devices-card :is(h2, p, label, option, button, legend, span)")]
+  const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#devices-card :is(h3, p, label, option, button, legend, span)")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && !node.dataset.tTemplate
       && node.getAttribute("role") !== "status" && !node.closest("code") && node.textContent.trim() !== "·")
     .map((node) => node.textContent.trim()));
@@ -109,9 +109,9 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   await page.locator("#appearance-language").selectOption("fr");
   await openPlace(page, "settings:channels");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
-  await page.waitForFunction(() => document.querySelector("#devices-card h2")?.textContent === "Vos appareils", null, { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector("#devices-card > h3.settings-card-title")?.textContent === "Vos appareils", null, { timeout: 15000 });
   await card.getByText("Faire une capture de l'écran").waitFor();
-  assert.equal(await card.locator(".devices-device h3").innerText(), "action.save");
+  assert.equal(await card.locator(".devices-device h4.settings-card-subtitle").innerText(), "action.save");
   assert.equal(await card.getByRole("button", { name: "Retirer cet appareil" }).count(), 1);
   assert.equal(await wide(), false, "French fits at 400 px too");
   await card.getByRole("button", { name: "Retirer cet appareil" }).click();

@@ -40,8 +40,7 @@ test("the chat-app card is under Customize, Chat apps, starts off, and saves a c
   await card.waitFor({ state: "visible" });
   const steering = page.getByLabel("Pass later messages to the task", { exact: true });
   assert.equal(await steering.inputValue(), "off", "a fresh install shows everything off");
-  await steering.selectOption("when-needed");
-  await card.getByRole("button", { name: "Save chat settings", exact: true }).click();
+  await steering.selectOption("when-needed"); // DG-025: kept the moment it changes
   await page.locator("#chat-live-state", { hasText: "Saved." }).waitFor();
   assert.equal(app.channels.switches().steering, "when-needed");
   assert.equal(app.channels.switches().commands, "off");

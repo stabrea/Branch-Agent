@@ -82,7 +82,9 @@ function card(id, home, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = home;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-008: on Settings › Chat apps & devices a card is titled under its section's heading. */
+  const settings = home === "settings:channels";
+  node.append(make(settings ? "h3" : "h2", settings ? "settings-card-title" : "", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };
@@ -297,7 +299,7 @@ async function chatsCard(state) {
     const owners = state.platforms.owners;
     const [add, addHint] = button("reach-owner-add", "reach.chats.ownerAdd", "Add my account", "reach.chats.ownerAddHint", "Only this exact account, in a direct chat, may pause or resume.",
       act(status, () => api("reach/platforms/owners", { owners: [...owners, { channel: channel.value.trim(), sender: sender.value.trim() }] })));
-    node.append(make("h3", "", "reach.chats.owners", "My own chat accounts"), list(owners.map((a) => ownerRow(a, owners, status))),
+    node.append(make("h4", "settings-card-subtitle", "reach.chats.owners", "My own chat accounts"), list(owners.map((a) => ownerRow(a, owners, status))),
       ...control("reach-owner-channel", "reach.chats.channel", "Chat app", "reach.chats.channelHint", "As it is named under Connections.", channel),
       ...control("reach-owner-sender", "reach.chats.sender", "My id there", "reach.chats.senderHint", "Your own sender id in that app; never everybody.", sender),
       row(add, addHint));

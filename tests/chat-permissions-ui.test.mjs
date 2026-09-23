@@ -101,7 +101,7 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   }, undefined, { timeout: 5000 }).then(() => true, () => false);
   assert.ok(fits, "the chat-permissions card fits inside 400 px");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-  const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#chat-permissions-form :is(p, label, button, span, h2)")]
+  const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#chat-permissions-form :is(p, label, button, span, h3)")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && node.id !== "chat-permissions-state")
     .map((node) => node.textContent.trim()));
   assert.deepEqual(unkeyed, [], "every word on the card has a key");
@@ -111,6 +111,6 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   await page.waitForFunction(() =>
     document.querySelector("label[for=chat-permissions-channel]")?.textContent === "Quelle application");
-  assert.match(await card.locator("h2").innerText(), /au-delà de parler/);
+  assert.match(await card.locator(":scope > h3.settings-card-title").innerText(), /au-delà de parler/);
   assert.deepEqual(errors, []);
 });

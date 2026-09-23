@@ -89,7 +89,9 @@ function card(id, home, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = home;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-008: on Settings › Chat apps & devices a card is titled under its section's heading. */
+  const settings = home === "settings:channels";
+  node.append(make(settings ? "h3" : "h2", settings ? "settings-card-title" : "", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };

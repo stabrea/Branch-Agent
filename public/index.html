@@ -1084,16 +1084,15 @@
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
           <!-- Wave mac3 (channels-parity): its home is Settings, Chat apps & devices (DG-194). -->
           <form id="channels-more-form" class="card" data-home="settings:channels">
-            <h2 data-t="channels-more.title">More chat apps</h2>
+            <h3 class="settings-card-title" data-t="channels-more.title">More chat apps</h3>
             <p data-t="channels-more.intro">IRC, Mastodon, Bluesky, iMessage and more, each with its own switch. All of them start off: nothing connects until you switch it on and add it to the connections file.</p>
             <p class="field-note" data-t="channels-more.switch-note">Off never connects. When needed connects only when there is something to send, and lets go after fifteen quiet minutes. On stays connected.</p>
             <div id="channels-more-list" class="card-list" aria-live="polite"></div>
             <p id="channels-more-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.save-channels-more">Save the chat app switches</button>
           </form>
           <!-- Wave mac2 (chat-live): its home is Settings, Chat apps & devices (DG-194). -->
           <form id="chat-live-form" class="card" data-home="settings:channels">
-            <h2 data-t="settings.card.chat-live">While a task works in a chat app</h2>
+            <h3 class="settings-card-title" data-t="settings.card.chat-live">While a task works in a chat app</h3>
             <p data-t="settings.chat-live.intro">Choose what the chat shows and accepts while Branch works on a message; everything here starts off.</p>
             <label for="chat-live-status" data-t="field.chat-live-status">Show the work in the chat</label>
             <select id="chat-live-status" name="liveStatus">
@@ -1124,7 +1123,6 @@
             </select>
             <p class="field-note" data-t="settings.chat-live.splitting-note">Long replies are split at paragraph breaks and code blocks stay code. When needed: only for replies with code.</p>
             <p id="chat-live-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.save-chat-live">Save chat settings</button>
           </form>
           <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
           <!-- mac7/wake-pins: a word that starts a turn, and the settings the owner has pinned. -->
@@ -1185,7 +1183,7 @@
             <button data-t="action.pin-setting">Pin this setting</button>
           </form>
           <form id="chat-permissions-form" class="card" data-home="settings:channels">
-            <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
+            <h3 class="settings-card-title" data-t="settings.card.chat-permissions">What a chat may do beyond talking</h3>
             <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, read a skill you installed, and look something up on the web. Everything else is refused until you allow it here.</p>
             <label class="check-row" for="chat-permissions-extras">
               <input type="checkbox" id="chat-permissions-extras" aria-describedby="chat-permissions-extras-note" />
@@ -1712,7 +1710,7 @@
             <p id="obsidian-status" class="subtle" role="status" aria-live="polite"></p>
           </section>
           <section id="embeds-card" class="card">
-            <h2 data-t="embeds.title">Reaching Branch from other pages</h2>
+            <h3 class="settings-card-title" data-t="embeds.title">Reaching Branch from other pages</h3>
             <p class="subtle" data-t="embeds.intro">
               Two ways to reach Branch from outside its own window, both for your own pages and your
               own browser. Both are off until you switch them on, and both work only through the
@@ -1728,7 +1726,6 @@
               Your browser asks Branch for permission before a page of yours may send anything to it,
               and only a page listed here is allowed. Leave it empty and no page may ask.
             </p>
-            <button id="embeds-save" type="button" data-t="action.save-these-switches">Save these switches</button>
             <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
           </section>
           <section id="developer-card" class="card">

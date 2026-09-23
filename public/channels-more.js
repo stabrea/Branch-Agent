@@ -2,7 +2,7 @@
  * The "More chat apps" card: one row per chat service added in wave mac3, each with its own
  * off / when needed / on switch and the line to add to the connections file. It only reads and
  * writes the saved switches; see src/channels/parity-switch.ts for what each position does.
- * Its home is Customize, Chat apps.
+ * Its home is Settings › Chat apps & devices (DG-194); each switch is kept as it changes (DG-025).
  */
 import { api, ownerAtWindow } from "/app.js";
 import { t } from "/i18n.js";
@@ -24,9 +24,11 @@ function example(service) {
   return `{"type": "${service.kind}", "id": "${service.kind}"${fields ? ", " + fields : ""}}`;
 }
 
+const heading = (service) => `${service.name} · ${t(`field.switch-${service.switch}`)}`;
+
 function row(service) {
   const node = make("details", undefined, "card-list");
-  node.append(make("summary", `${service.name} · ${t(`field.switch-${service.switch}`)}`));
+  node.append(make("summary", heading(service)));
   node.append(make("p", t(`channels-more.service.${service.kind}`), "subtle"));
   const id = `channels-more-${service.kind}`;
   const label = make("label", t("channels-more.switch"));
@@ -41,6 +43,7 @@ function row(service) {
   }
   select.value = service.switch;
   select.disabled = !service.available;
+  select.addEventListener("change", () => save(service.kind, select, node));
   node.append(label, select);
   if (!service.available) node.append(make("p", t("channels-more.unavailable"), "field-note"));
   node.append(make("p", t("channels-more.add-line"), "field-note"), make("code", example(service)));
@@ -62,24 +65,21 @@ async function load() {
   show();
 }
 
-async function save(event) {
-  event.preventDefault();
-  const change = {};
-  for (const service of services) {
-    const select = $(`channels-more-${service.kind}`);
-    if (select && !select.disabled && select.value !== service.switch) change[service.kind] = select.value;
-  }
+/** DG-025: one chat app's switch is kept the moment it changes, as the sample saves; the row stays open. */
+async function save(kind, select, node) {
   const state = $("channels-more-state");
   try {
-    services = (await api("channels/parity", change)).services;
-    show();
+    services = (await api("channels/parity", { [kind]: select.value })).services;
+    const saved = services.find((service) => service.kind === kind);
+    if (saved) { select.value = saved.switch; node.querySelector("summary").textContent = heading(saved); }
     if (state) state.textContent = t("channels-more.saved");
   } catch (error) {
+    select.value = services.find((service) => service.kind === kind)?.switch ?? "off";
     if (state) state.textContent = t("channels-more.failed", { reason: error instanceof Error ? error.message : String(error) });
   }
 }
 
-$("channels-more-form")?.addEventListener("submit", save);
+$("channels-more-form")?.addEventListener("submit", (event) => event.preventDefault());
 document.addEventListener("branch-language", show);
 /* A card that will not load keeps its empty list; every service is off on a fresh install anyway.
    On a fresh window the key is not there yet, so the list is loaded again once the owner is in. */

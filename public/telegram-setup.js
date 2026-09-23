@@ -74,10 +74,16 @@ function tokenAndSwitch(view) {
   });
   const status = statusLine(said);
   said = "";
+  /* DG-025: the switch is kept the moment it changes, as the sample saves, without redrawing the card
+     (a token being typed stays where it is). The token is typed, so it keeps its button. */
+  mode.addEventListener("change", async () => {
+    try { last = await call("/api/never-break/telegram", { mode: mode.value }); status.textContent = t("telegram-setup.saved"); }
+    catch (error) { mode.value = last?.mode ?? view.mode; status.textContent = error.message; }
+  });
   const save = worded("button", "action.save-and-connect");
   save.type = "button";
   save.addEventListener("click", async () => {
-    const body = { mode: mode.value, ...(token.value.trim() ? { token: token.value.trim() } : {}) };
+    const body = token.value.trim() ? { token: token.value.trim() } : {};
     try { await call("/api/never-break/telegram", body); token.value = ""; said = t("telegram-setup.saved"); await refresh(); }
     catch (error) { status.textContent = error.message; }
   });
@@ -108,7 +114,8 @@ function nowLine(view) {
 function draw(view) {
   const node = card();
   if (!node) return;
-  node.replaceChildren(worded("h2", "settings.card.telegram-setup"), worded("p", "telegram-setup.lead"),
+  node.replaceChildren(/* DG-008: a card on a Settings page is titled under its section's heading. */
+    worded("h3", "settings.card.telegram-setup", "settings-card-title"), worded("p", "telegram-setup.lead"),
     steps(), ...tokenAndSwitch(view), nowLine(view), ...pairing(), worded("p", "telegram-setup.safety", "subtle"));
 }
 
