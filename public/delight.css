@@ -120,7 +120,8 @@
   width: 100%;
   height: 100%;
 }
-.pet.left .pet-art {
+.pet.left .pet-art,
+.pet.left .pet-3d {
   transform: scaleX(-1);
 }
 .pet-say {
