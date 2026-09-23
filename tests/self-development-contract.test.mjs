@@ -87,6 +87,21 @@ test("a write outside the allowed paths is refused and audited", async (t) => {
   assert.equal(entry?.outcome, "refused");
   assert.match(entry.subject, /files\.write in branch-agent-source\/\.branch-worktrees\/self-remove-button/);
   assert.equal(entry.runId, run.id);
+  assert.equal(entry.source, "system", "the refusal is Branch's, not the owner's");
+  assert.equal(entry.actor, `task:${run.id}`, "the task that tried it is named");
+  assert.equal(entry.origin, "owner", "what started the task is kept apart");
+});
+
+test("a refusal in a task something else started names that task and where it came from", async () => {
+  const db = new DatabaseSync(":memory:");
+  const book = new ContractBook(db), log = new AuditLog(db), registry = new ToolRegistry();
+  registry.pathScope = () => worktree;
+  registry.register({ name: "files.write", permission: "files.write", description: "double",
+    parameters: z.object({ path: z.string(), content: z.string() }), execute: async () => ({}) });
+  const guard = contractGuard({ store: { audit: log }, owner: "local", workspace: "/w", registry, book, git: async () => answer("") });
+  await assert.rejects(guard("files.write", { path: "src/a.ts", content: "x" }, { runId: "run-scheduled", source: "schedule" }), /no contract/);
+  const [entry] = log.list("local", { action: "self_development.contract" });
+  assert.deepEqual([entry.source, entry.origin, entry.actor, entry.runId], ["system", "schedule", "task:run-scheduled", "run-scheduled"]);
 });
 
 test("a remote Git step the contract does not list is refused and audited before Git is reached", async (t) => {

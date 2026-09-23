@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { audit } from "./audit.js";
+import { audit, auditOrigins, type AuditOrigin } from "./audit.js";
 import type { ToolContext } from "./contracts.js";
 import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
 import { cwdOf } from "./never-break/protected.js";
@@ -220,10 +220,18 @@ async function remoteBroken(deps: ContractGuardDeps, contract: SelfDevelopmentCo
   return outside.length ? `These changed files are outside the contract's allowed paths: ${outside.slice(0, 10).join(", ")}.` : null;
 }
 
-/** Writes the refusal down, then refuses the call. */
+/**
+ * Writes the refusal down, then refuses the call. The refusal is Branch's own ("system"), made
+ * against the task named as the actor; what started that task goes in the origin column. The owner
+ * did not do this, so the row does not say they did.
+ */
 function refuse(deps: ContractGuardDeps, context: ToolContext, name: string, worktree: string, why: string): never {
-  audit(deps.store, deps.owner, { action: "self_development.contract", actor: "Branch", subject: `${name} in ${worktree || sourceFolder}`.slice(0, 300),
-    reason: why.slice(0, 500), runId: context.runId ? context.runId.slice(0, 64) : null, outcome: "refused" });
+  // A task says nothing of where it came from when the owner started it, as elsewhere (`context.source ?? "owner"`).
+  const from = context.source ?? "owner";
+  const started = (auditOrigins as readonly string[]).includes(from) ? { origin: from as AuditOrigin } : {};
+  audit(deps.store, deps.owner, { action: "self_development.contract", actor: context.runId ? `task:${context.runId}`.slice(0, 120) : "Branch",
+    subject: `${name} in ${worktree || sourceFolder}`.slice(0, 300), reason: why.slice(0, 500), source: "system", ...started,
+    runId: context.runId ? context.runId.slice(0, 64) : null, outcome: "refused" });
   throw new Error(`Refused by the self-development contract: ${why}`);
 }
 
