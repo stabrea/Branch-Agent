@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { z } from "zod";
 
 /**
@@ -20,19 +20,61 @@ export const NetworkPolicySchema = z.object({
 });
 export type NetworkPolicyConfig = z.infer<typeof NetworkPolicySchema>;
 
-function privateV4(ip: string): boolean {
-  const [a, b] = ip.split(".").map(Number) as [number, number];
-  return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || a >= 224;
+/** IPv4 ranges that are this computer, a private or shared network, link-local, multicast or reserved. */
+const privateV4Ranges = new BlockList();
+for (const [base, bits] of [
+  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16],
+  ["172.16.0.0", 12], ["192.168.0.0", 16], ["224.0.0.0", 3],
+] as const) privateV4Ranges.addSubnet(base, bits, "ipv4");
+
+/** IPv6 ranges that are private in their own right: unspecified, unique local, link-local, site-local, multicast, local NAT64. */
+const privateV6Ranges = new BlockList();
+for (const [base, bits] of [
+  ["::", 128], ["fc00::", 7], ["fe80::", 10], ["fec0::", 10], ["ff00::", 8], ["64:ff9b:1::", 48],
+] as const) privateV6Ranges.addSubnet(base, bits, "ipv6");
+
+/** The sixteen bytes of an IPv6 address that `isIP` already accepted; a trailing dotted IPv4 is allowed. */
+function v6Bytes(ip: string): number[] {
+  let text = ip.replace(/%.*$/, "").toLowerCase();
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number) as [number, number, number, number];
+    text = text.slice(0, dotted.index) + ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
+  }
+  const [head, tail] = text.split("::") as [string, string | undefined];
+  const words = (part: string | undefined) => (part ? part.split(":").map((w) => parseInt(w, 16)) : []);
+  const front = words(head), back = words(tail);
+  const all = tail === undefined ? front : [...front, ...Array<number>(8 - front.length - back.length).fill(0), ...back];
+  return all.flatMap((w) => [w >> 8, w & 0xff]);
 }
+
+const zero = (bytes: number[]) => bytes.every((b) => b === 0);
+const v4At = (bytes: number[], at: number, mask = 0) => bytes.slice(at, at + 4).map((b) => b ^ mask).join(".");
+
+/**
+ * The IPv4 addresses an IPv6 address carries, each of which decides where it really goes:
+ * mapped ::ffff:0:0/96, translated ::ffff:0:0:0/96, compatible ::/96, NAT64 64:ff9b::/96,
+ * 6to4 2002::/16, and Teredo 2001::/32 (its server, and its client stored inverted).
+ */
+function embeddedV4(bytes: number[]): string[] {
+  const head = bytes.slice(0, 12), word = (i: number) => (bytes[i]! << 8) | bytes[i + 1]!;
+  if (zero(head.slice(0, 10)) && word(10) === 0xffff) return [v4At(bytes, 12)];
+  if (zero(head.slice(0, 8)) && word(8) === 0xffff && word(10) === 0) return [v4At(bytes, 12)];
+  if (zero(head)) return [v4At(bytes, 12)];
+  if (word(0) === 0x64 && word(2) === 0xff9b && zero(head.slice(4))) return [v4At(bytes, 12)];
+  if (word(0) === 0x2002) return [v4At(bytes, 2)];
+  if (word(0) === 0x2001 && word(2) === 0) return [v4At(bytes, 4), v4At(bytes, 12, 0xff)];
+  return [];
+}
+
 function privateV6(ip: string): boolean {
-  const lower = ip.toLowerCase();
-  if (lower === "::1" || lower === "::") return true;
-  if (lower.startsWith("::ffff:")) return privateV4(lower.slice(7));
-  return /^(fc|fd|fe[89ab])/.test(lower);
+  if (privateV6Ranges.check(ip.replace(/%.*$/, ""), "ipv6")) return true;
+  return embeddedV4(v6Bytes(ip)).some((v4) => privateV4Ranges.check(v4, "ipv4"));
 }
+/** Anything that is not a plain IPv4 or IPv6 address (octal, hex, a single number) is refused too. */
 export function isPrivateAddress(ip: string): boolean {
   const kind = isIP(ip);
-  return kind === 4 ? privateV4(ip) : kind === 6 ? privateV6(ip) : true;
+  return kind === 4 ? privateV4Ranges.check(ip, "ipv4") : kind === 6 ? privateV6(ip) : true;
 }
 const hostMatches = (host: string, pattern: string) => host === pattern.toLowerCase() || host.endsWith("." + pattern.toLowerCase());
 /** "host/prefix" matches when the host rule matches and the path starts with the prefix. */
