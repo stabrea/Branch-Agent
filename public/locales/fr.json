@@ -5640,5 +5640,13 @@
   "settingsTrunks.role.adult": "Adulte",
   "settingsTrunks.role.child": "Enfant",
   "settingsTrunks.limit": "Jusqu'à ce montant par jour (0 : sans limite)",
-  "settingsTrunks.projects": "Seulement dans ces projets (vide : tous les projets)"
+  "settingsTrunks.projects": "Seulement dans ces projets (vide : tous les projets)",
+  "memory.kind.preference": "Préférence",
+  "memory.kind.fact-about-person": "À propos d'une personne",
+  "memory.kind.fact-about-world": "À propos du monde",
+  "memory.kind.procedure-hint": "Astuce pratique",
+  "memory.kind.project-note": "Note de projet",
+  "memory.kind.task-scratch": "Note de tâche",
+  "memory.from-conversation": "De cette conversation",
+  "memory.revision": "révision {n}"
 }

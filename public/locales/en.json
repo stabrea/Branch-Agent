@@ -5639,5 +5639,13 @@
   "settingsTrunks.role.adult": "Adult",
   "settingsTrunks.role.child": "Child",
   "settingsTrunks.limit": "Up to this much a day (0: no limit)",
-  "settingsTrunks.projects": "Only in these projects (empty: every project)"
+  "settingsTrunks.projects": "Only in these projects (empty: every project)",
+  "memory.kind.preference": "Preference",
+  "memory.kind.fact-about-person": "About a person",
+  "memory.kind.fact-about-world": "About the world",
+  "memory.kind.procedure-hint": "How-to hint",
+  "memory.kind.project-note": "Project note",
+  "memory.kind.task-scratch": "Task note",
+  "memory.from-conversation": "From this conversation",
+  "memory.revision": "revision {n}"
 }
