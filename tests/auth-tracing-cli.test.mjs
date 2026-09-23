@@ -520,7 +520,10 @@ test("C2 the packed tarball installs a working `branch` command", async (t) => {
   const fs = await import("node:fs/promises");
   const manifest = JSON.parse(await fs.readFile(join(out, "package", "package.json"), "utf8"));
   assert.match(manifest.bin.branch, /(^|\/)dist\/cli\.js$/);
-  assert.ok(manifest.files.includes("dist") && manifest.files.includes("data"));
+  assert.ok(manifest.files.includes("dist"));
+  // The data files the command reads are named one by one (Q47), and they are in the tarball.
+  await fs.access(join(out, "package", "data", "providers.json"));
+  await fs.access(join(out, "package", "data", "add-ons"));
   // `npm install -g` would put the dependencies beside it; nothing here touches the real computer,
   // so they are linked in instead and the packed command is run exactly as it would be installed.
   await fs.symlink(join(process.cwd(), "node_modules"), join(out, "package", "node_modules"), "junction");
