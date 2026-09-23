@@ -49,14 +49,19 @@ export type WakeWordSettings = z.infer<typeof WakeWordSettingsSchema>;
 
 /** The saved settings, with Lockdown winning over a saved mode exactly as every other switch does. */
 export function wakeWordSettings(store: Pick<Store, "get">, owner: string): WakeWordSettings {
-  const saved = WakeWordSettingsSchema.safeParse(store.get("settings", owner, wakeWordKey)?.data ?? {});
-  const settings = saved.success ? saved.data : WakeWordSettingsSchema.parse({});
+  const settings = ownWakeWordSettings(store, owner);
   return lockdownOverrides(store, owner, wakeWordKey) ? { ...settings, mode: "off" } : settings;
+}
+/** The owner's own choice as the app would run it, before Lockdown's override: what a change is saved onto. */
+function ownWakeWordSettings(store: Pick<Store, "get">, owner: string): WakeWordSettings {
+  const saved = WakeWordSettingsSchema.safeParse(store.get("settings", owner, wakeWordKey)?.data ?? {});
+  return saved.success ? saved.data : WakeWordSettingsSchema.parse({});
 }
 
 export function saveWakeWordSettings(store: Store, owner: string, input: unknown): WakeWordSettings {
   const given = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const next = WakeWordSettingsSchema.parse({ ...wakeWordSettings(store, owner), ...given });
+  // Saved onto the owner's own choice, never onto Lockdown's view, so a change made while locked keeps their switch.
+  const next = WakeWordSettingsSchema.parse({ ...ownWakeWordSettings(store, owner), ...given });
   store.save("settings", owner, wakeWordKey, next);
   return next;
 }

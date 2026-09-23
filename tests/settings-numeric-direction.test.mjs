@@ -217,3 +217,17 @@ test("a dictation record the app would not accept is shown as the starting value
   app.store.save("settings", owner, "live-dictation", { mode: "bogus", silenceSeconds: 12 });
   assert.equal(await value("live-dictation.silenceSeconds"), 4, "an unreadable record is not shown as if it were in force");
 });
+
+test("a voice change made during Lockdown keeps the owner's own switch for when Lockdown ends", async (t) => {
+  const { app, owner, tool } = await fixture(t);
+  const { setLockdown } = await import("../dist/lockdown.js");
+  app.store.save("settings", owner, "wake-word", { mode: "on", word: "hey branch", sureness: 80, windowSeconds: 2 });
+  app.store.save("settings", owner, "live-dictation", { mode: "on", silenceSeconds: 4 });
+  setLockdown(app.store, owner, { on: true });
+  /* The live app saves these through the voice savers (src/settings-kit/writers.ts), not the kit's own write. */
+  await tool("settings.change", { changes: [{ setting: "wake-word.sureness", value: 90 }, { setting: "live-dictation.silenceSeconds", value: 3 }] });
+  assert.equal(app.store.get("settings", owner, "wake-word").data.mode, "on", "the wake word's own switch is kept");
+  assert.equal(app.store.get("settings", owner, "wake-word").data.sureness, 90);
+  assert.equal(app.store.get("settings", owner, "live-dictation").data.mode, "on", "dictation's own switch is kept");
+  setLockdown(app.store, owner, { on: false });
+});
