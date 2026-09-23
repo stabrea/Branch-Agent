@@ -187,6 +187,61 @@ test("asked to delete their data, an owner under a folder named 100%Done has it 
   assert.equal(existsSync(neighbour), true, "a folder named by the part before the % is untouched");
 });
 
+test("the script sets its own parser settings instead of keeping its caller's", () => {
+  const lines = script("C:\\Branch Agent").split("\r\n");
+  assert.deepEqual(lines.slice(0, 2), ["@echo off", "setlocal EnableExtensions DisableDelayedExpansion"]);
+});
+
+/**
+ * Runs the generated script as its caller would, minus the lines that reach outside this test: closing
+ * Branch by name, and the scheduled task and registry entries. Every path it names is checked to lie in
+ * this test's own folder before anything runs.
+ */
+async function runScriptUnder(folders, flags, text, args) {
+  const outside = ["taskkill.exe", "schtasks.exe", "reg.exe"];
+  const lines = text.split("\r\n").filter((line) => !outside.some((name) => line.includes(name)));
+  const root = windowsPath(folders.root);
+  for (const line of lines) for (const [, path] of line.matchAll(/"(?:BRANCH_REMOVE=)?([A-Za-z]:\\[^"]*)"/g))
+    assert.ok(path.replaceAll("%%", "%").startsWith(`${root}${back}`), `a path outside the test's folder: ${line}`);
+  const file = join(folders.root, "uninstall.cmd");
+  writeFileSync(file, lines.join("\r\n"), "utf8");
+  const env = { ...process.env, TEMP: windowsPath(folders.temp), TMP: windowsPath(folders.temp) };
+  delete env.B;
+  spawnSync(join(system32, "cmd.exe"), [...flags, "/c", file, ...args], { cwd: folders.root, stdio: "ignore", windowsHide: true, env });
+  await sleep(6000); // the last step waits about three seconds before it removes the folder
+}
+
+/**
+ * A caller with delayed expansion on (`cmd /v:on`, or the Command Processor `DelayedExpansion` registry
+ * value) used to strip `!` from every path the script names, so `Tom!Jerry` became `TomJerry` and a folder
+ * of that name would have been removed instead (review of 3ff7c9de). A caller with extensions off broke
+ * `if defined`, so data the owner asked to delete was kept. Each account folder here has a decoy beside it
+ * named the way it used to be misread, holding the same four things, and every decoy must survive.
+ */
+test("a caller's delayed expansion or disabled extensions change nothing the uninstaller removes",
+  { skip: !onWindows }, async (t) => {
+    for (const [flags, account, misread] of [[["/d", "/v:on"], "Tom!Jerry", "TomJerry"], [["/d", "/v:on"], "A!B!C", "AC"],
+      [["/d", "/e:off"], "Tom!Jerry", "TomJerry"]]) {
+      const folders = box(t);
+      const make = (name) => {
+        const base = join(folders.root, name);
+        const paths = { installed: join(base, "Programs", "Branch Agent"), previous: join(base, "Programs", "Branch Agent.previous"),
+          data: join(base, "Branch"), shortcut: join(base, "Desktop", "Branch Agent.lnk") };
+        for (const path of [paths.installed, paths.previous, paths.data, join(base, "Desktop")]) {
+          mkdirSync(path, { recursive: true }); writeFileSync(join(path, "keep.txt"), "x");
+        }
+        writeFileSync(paths.shortcut, "x");
+        return paths;
+      };
+      const real = make(account), decoy = make(misread);
+      const text = script(windowsPath(real.installed), { userDataDir: windowsPath(real.data), shortcuts: [windowsPath(real.shortcut)] });
+      await runScriptUnder(folders, flags, text, ["--delete-data"]);
+      const under = `${flags.join(" ")}, ${account}`;
+      for (const [what, path] of Object.entries(real)) assert.equal(existsSync(path), false, `${under}: the ${what} is removed`);
+      for (const [what, path] of Object.entries(decoy)) assert.equal(existsSync(path), true, `${under}: the ${misread} ${what} is untouched`);
+    }
+  });
+
 test("the line saying where the files stay prints the path and runs nothing from it", { skip: !onWindows }, async (t) => {
   const folders = box(t);
   const data = join(folders.root, "x&md made-by-the-echo", "Branch");

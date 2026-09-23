@@ -145,7 +145,10 @@ export function uninstallScript(options: {
   const sys = "%SystemRoot%\\System32\\";
   const remove = options.shortcuts.map((path) => `del /q ${batchPath(path)} 2>NUL`);
   return [
-    "@echo off", "setlocal",
+    // Whoever starts this script may have delayed expansion on (`cmd /v:on`, or the Command Processor
+    // `DelayedExpansion` registry value), which strips `!` from every path below, or command extensions
+    // off, which breaks `if defined` and `%%~A`. Plain `setlocal` keeps the caller's settings; this sets both.
+    "@echo off", "setlocal EnableExtensions DisableDelayedExpansion",
     // bucket 22: `--delete-data` removes conversations and files too; without it they are always kept.
     'set "DELETE_DATA="', 'for %%A in (%*) do if /i "%%~A"=="--delete-data" set "DELETE_DATA=1"',
     `if not defined DELETE_DATA echo Removing Branch Agent. Your conversations and files stay in ${batchPath(options.userDataDir)}.`,
