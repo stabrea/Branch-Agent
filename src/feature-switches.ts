@@ -94,6 +94,7 @@ export const interopToolFeatures: readonly (readonly [string, string, readonly s
   ["interop-handoff", "handing a conversation on is switched on", ["conversation.handoff"]],
   ["interop-flow-search", "finding a better flow is switched on", ["flow.search"]],
   ["interop-agent-market", "sharing assistants is switched on", ["assistant.market"]],
+  ["interop-node-discovery", "one listing of tools, skills and models is switched on", ["nodes.catalog"]],
 ];
 const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "systemVoice" = "mode"): FeatureMode => {
   if (lockdownOverrides(store, owner, key)) return "off"; // mac7/lockdown-fix: Lockdown wins over a saved mode
