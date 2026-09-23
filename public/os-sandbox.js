@@ -94,7 +94,7 @@ function draw(data) {
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
-  section.replaceChildren(worded("h2", "settings.card.os-sandbox"), worded("p", "os-sandbox.lead", "subtle"), where,
+  section.replaceChildren(worded("h3", "settings.card.os-sandbox", "settings-card-title"), worded("p", "os-sandbox.lead", "subtle"), where,
     ...choice("os-sandbox-mode", "field.os-sandbox-mode", modes, "os-sandbox.mode", settings.mode),
     worded("p", "os-sandbox.modes", "subtle"),
     ...choice("os-sandbox-network", "field.os-sandbox-network", networks, "os-sandbox.network", settings.network),

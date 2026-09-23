@@ -70,6 +70,9 @@ test("Computer & browser: the sample's sections, counts and paired devices, at e
   await open("computer");
   const card = page.locator("#paired-devices-card");
   await card.locator(".devices-paired-row").waitFor({ timeout: 15000 });
+  /* The card is drawn again as devices change; each fresh one is put in its section a moment later. */
+  await page.waitForFunction(() => document.getElementById("paired-devices-card")?.dataset.sgBucket === "computer:paired", null, { timeout: 15000 })
+    .catch(() => undefined);
   assert.equal(await card.getAttribute("data-sg-bucket"), "computer:paired", "the paired devices are the first section");
   assert.match(await card.locator(".devices-paired-row").innerText(), /Studio Mac[\s\S]*Mac computer · Not connected yet[\s\S]*Remove/);
   assert.equal(await card.locator("h1, h2, h3, h4").count(), 0, "the section's heading names the card; a device's name is not a heading");
@@ -91,7 +94,7 @@ test("Computer & browser: the sample's sections, counts and paired devices, at e
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
   const sandbox = page.locator("#sandbox-card");
   await sandbox.locator("#sandbox-backends .card-row").first().waitFor({ timeout: 15000 });
-  assert.equal(await sandbox.locator("h3, h4").count(), 0, "no option is drawn as a heading");
+  assert.equal(await sandbox.locator("h3:not(.settings-card-title), h4").count(), 0, "no option is drawn as a heading");
   assert.equal(await page.locator("#lx-page-computer button", { hasText: /^Save (where scripts run|this limit)$/ }).count(), 0, "no Save button");
   const sandboxes = () => fetch(new URL("/api/sandboxes", server.url), { headers: { authorization: `Bearer ${server.token}` } })
     .then((response) => response.json()).then((answer) => answer.settings);

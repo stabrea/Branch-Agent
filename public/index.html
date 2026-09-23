@@ -1524,7 +1524,7 @@
             <p id="policy-status" class="subtle" role="status"></p>
           </section>
           <section id="desktop-card" class="card">
-            <h2 data-t="settings.card.using-your-screen-and-keyboard">Using your screen and keyboard</h2>
+            <h3 class="settings-card-title" data-t="settings.card.using-your-screen-and-keyboard">Using your screen and keyboard</h3>
             <p>Branch can look at what is on this computer's screen and work the windows on it — read what a program is showing, press its buttons, type into its boxes. This is switched off, and nothing on this list happens until you switch it on.</p>
             <label class="check-row"><input type="checkbox" id="desktop-enabled" /> <span data-t="field.allow-the-assistant-to-use">Allow the assistant to use my screen and keyboard</span></label>
             <p id="desktop-off-note" class="subtle">While this is off, Branch says so plainly instead of trying. Turning it off again stops anything that is going on right now.</p>
@@ -1536,7 +1536,7 @@
             <p id="desktop-status" class="subtle" role="status"></p>
           </section>
           <section id="sandbox-card" class="card">
-            <h2 data-t="settings.card.where-scripts-run">Where scripts run</h2>
+            <h3 class="settings-card-title" data-t="settings.card.where-scripts-run">Where scripts run</h3>
             <p>A script Branch runs can be held on this computer, inside a container, on the Linux side, or in Windows' own throwaway desktop. Nothing here is ever installed: each one is offered only if it is already on this computer, and one that is missing says what you would have to install.</p>
             <div id="sandbox-backends" class="card-list"></div>
             <label for="sandbox-image" data-t="field.container-image">Container image</label>
@@ -1548,7 +1548,7 @@
             <p id="sandbox-status" class="subtle" role="status"></p>
           </section>
           <section id="firewall-card" class="card">
-            <h2 data-t="settings.card.what-can-reach-out">What can reach out</h2>
+            <h3 class="settings-card-title" data-t="settings.card.what-can-reach-out">What can reach out</h3>
             <p>The rules that decide what Branch may reach, read back in plain sentences. Nothing on this card decides anything: it is only a reading of the rules, so it cannot say one thing while Branch does another.</p>
             <div id="firewall-sentences" class="card-list"></div>
             <label for="firewall-address" data-t="field.try-an-address">Try an address</label>
@@ -1572,7 +1572,7 @@
             <p id="limit-status" class="subtle" role="status"></p>
           </section>
           <section id="remote-card" class="card">
-            <h2 data-t="settings.card.remote-computers">Your other computers</h2>
+            <h3 class="settings-card-title" data-t="settings.card.remote-computers">Your other computers</h3>
             <p>Branch can work in a folder on another computer, using the SSH client Windows already has. <strong>It never asks for a password.</strong> A computer can only be added by the short name you already wrote in your own SSH config, and only if you have already accepted its key yourself. A new computer may hold files and run nothing at all until you say which programs it may run.</p>
             <div id="remote-list" class="card-list"></div>
             <label for="remote-alias" data-t="field.short-name-from-your-ssh-config">Short name from your SSH config</label>
@@ -1607,7 +1607,7 @@
             <div id="policy-waiting" class="card-list"></div>
           </section>
           <section id="browser-card" class="card">
-            <h2 data-t="settings.card.websites-you-stay-signed-in">Websites you stay signed in to</h2>
+            <h3 class="settings-card-title" data-t="settings.card.websites-you-stay-signed-in">Websites you stay signed in to</h3>
             <p>Some websites only show your own information once you are signed in. Sign in here once, in a real browser window, and Branch can use that website later without asking you again. <strong>You type your password into that window yourself — Branch never sees it, and only the small file the website uses to remember you is kept, scrambled, on this computer.</strong></p>
             <label for="browser-name" data-t="field.short-name-for-this-website">Short name for this website</label>
             <input id="browser-name" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. my-bank" />
@@ -1617,7 +1617,7 @@
             <p id="browser-status" class="subtle" role="status"></p>
             <div id="browser-profiles" class="card-list"></div>
             <hr />
-            <h3>Letting Branch use the browser you already have open</h3>
+            <h4 class="settings-card-subtitle">Letting Branch use the browser you already have open</h4>
             <p>Instead of its own fresh browser, Branch can work in the browser <em>you</em> are already using, so every website you are signed in to already knows you. <strong>Be careful with this one.</strong> While it is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. It is only on for one task, it turns itself off after fifteen minutes, and banks and password websites are always refused. Branch works in a new tab of its own and closes only that tab; your own tabs are never touched, and it still never types a password.</p>
             <p class="subtle">To use this, start Chrome or Edge yourself with its debugging door open — close it first, then start it with <code>--remote-debugging-port=9222</code> — and put that same number below.</p>
             <label for="browser-attach-port" data-t="field.debugging-door-number">Debugging door number</label>
