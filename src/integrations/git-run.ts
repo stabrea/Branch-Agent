@@ -44,7 +44,9 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
 export const pinnedGitConfig: readonly string[] = [
   "core.fsmonitor=false", "core.sshCommand=ssh", "core.pager=cat", "core.editor=:", "sequence.editor=:",
   "core.gitProxy=", "core.askPass=", "credential.helper=", "diff.external=false", "protocol.ext.allow=never",
-  "commit.gpgSign=false", "tag.gpgSign=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
+  "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
+  // A bare repository is only ever used where Git is told to use it, never found by walking up folders.
+  "safe.bareRepository=explicit",
 ];
 
 /** Settings forced on every call; they come before the subcommand so no repository can override them. */

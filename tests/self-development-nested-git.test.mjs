@@ -13,7 +13,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
-import { GitRunner } from "../dist/integrations/git-run.js";
+import { GitRunner, hardening, pinnedGitConfig } from "../dist/integrations/git-run.js";
 import { ContractBook } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
 
@@ -21,7 +21,7 @@ const sha = "a".repeat(40);
 const worktree = "branch-agent-source/.branch-worktrees/self-remove-button";
 
 /** A nested repository at <worktree>/src/ui/x whose own config names a program that leaves a marker. */
-async function plantedRepository(workspace) {
+async function plantedRepository(workspace, only) {
   const nested = join(workspace, worktree, "src", "ui", "x"), marker = join(workspace, "..", "PWNED");
   await mkdir(nested, { recursive: true });
   const script = join(workspace, "..", "evil.sh");
@@ -33,8 +33,7 @@ async function plantedRepository(workspace) {
   git("-c", "user.name=t", "-c", "user.email=t@t", "add", "a.txt");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
   await writeFile(join(nested, "a.txt"), "two\n");
-  git("config", "core.fsmonitor", script);
-  git("config", "diff.external", script);
+  for (const key of only ? [only] : ["core.fsmonitor", "diff.external"]) git("config", key, script);
   return { nested, marker };
 }
 
@@ -70,4 +69,34 @@ test("every Git Branch runs pins the settings that start programs, so a planted 
   const plain = await runner.run({ cwd: nested, args: ["diff"] }, AbortSignal.timeout(20_000));
   assert.match(plain.stderr, /external diff died/);
   assert.equal(existsSync(marker), false, "neither core.fsmonitor nor diff.external ran");
+});
+
+test("each setting a repository's own config could use to start a program runs nothing", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-pins-each-"));
+  t.after(() => discardTemp(root));
+  const runner = new GitRunner();
+  const cases = [
+    ["core.fsmonitor", ["status", "--porcelain"]],
+    ["diff.external", ["diff"]],
+    ["core.editor", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty"]],
+    ["gpg.program", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=true", "commit", "-q", "--allow-empty", "-m", "signed?"]],
+    ["core.pager", ["-p", "log", "-1"]],
+  ];
+  for (const [key, args] of cases) {
+    const repo = join(root, key.replace(".", "-"));
+    const { marker } = await plantedRepository(repo, key);
+    await runner.run({ cwd: join(repo, worktree, "src", "ui", "x"), args }, AbortSignal.timeout(20_000));
+    assert.equal(existsSync(marker), false, `${key} started nothing`);
+  }
+  // A commit hook in the planted repository never runs either (core.hooksPath is pinned to an empty folder).
+  const hooked = join(root, "hooks");
+  const { nested, marker } = await plantedRepository(hooked, "core.fsmonitor");
+  await writeFile(join(nested, ".git", "hooks", "pre-commit"), `#!/bin/sh\necho ran >> '${marker}'\n`, { mode: 0o755 });
+  await runner.run({ cwd: nested, args: ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "hooked?"] }, AbortSignal.timeout(20_000));
+  assert.equal(existsSync(marker), false, "the pre-commit hook started nothing");
+  // The ones that only act when Git reaches a network are pinned the same way (checked, not run here).
+  const pinned = hardening("/w").join(" ");
+  for (const key of ["core.sshCommand=ssh", "core.gitProxy=", "core.askPass=", "credential.helper=", "protocol.ext.allow=never", "safe.bareRepository=explicit"])
+    assert.ok(pinned.includes(`-c ${key}`), key);
+  assert.ok(pinnedGitConfig.length >= 16);
 });
