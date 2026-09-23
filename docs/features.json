@@ -3020,7 +3020,7 @@
       "family": "operations",
       "name": "Background gateway and foreground modes",
       "acceptance_criterion": "Start the background service, close the launcher and verify continued task handling before a controlled stop.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/cli.ts",
@@ -3029,16 +3029,17 @@
           "tests/deployment.test.mjs",
           "tests/mac-followups.test.mjs",
           "tests/daemon-update.test.mjs",
-          "tests/service-update.test.mjs"
+          "tests/service-update.test.mjs",
+          "tests/daemon-outlives-launcher.test.mjs"
         ],
         "tests": [
+          "the background engine keeps handling tasks after the launcher that started it has gone",
           "the background engine is a sign-in task that opens no window, and is never registered here",
           "only this computer, with the master key, can close the engine, and only the background one",
           "the background engine is asked to close, forced if it will not, and the note is cleared"
         ],
-        "detail": "The background engine installs as a sign-in task or service and stops through a controlled close route; no test starts it, closes the launcher and checks that tasks keep being handled."
-      },
-      "remaining": "A test that starts the background engine, closes the launcher and proves tasks keep being handled."
+        "detail": "The background engine installs as a sign-in task or service and stops through a controlled close route. A test now starts it through a launcher of its own, waits for that launcher to exit, and asks the engine itself for two tasks over its own port before stopping it and checking the process is gone."
+      }
     },
     {
       "id": "operations.portable",
