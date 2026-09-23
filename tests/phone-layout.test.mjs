@@ -77,7 +77,7 @@ test("a phone has the places at its foot, in the sample's order, and the message
   const bar = f.page.locator("#ew-places");
   assert.equal(await bar.isVisible(), true);
   assert.equal(await bar.getAttribute("aria-label"), "Places");
-  assert.deepEqual(await bar.locator(".ew-place").allInnerTexts(), ["Conversation", "Inbox", "Automations", "Library", "Settings"]);
+  assert.deepEqual(await bar.locator(".ew-place").allInnerTexts(), ["Conversation", "Inbox", "Automations", "Library", "Customize"]);
   const edge = await box(f.page, "#ew-places"), prompt = await box(f.page, "#prompt"), dock = await box(f.page, ".composer-dock");
   assert.ok(Math.abs(edge.y + edge.height - 844) <= 1, "the bar is at the very foot");
   assert.ok(dock.y + dock.height <= edge.y + 1, "the message box ends where the bar begins");
@@ -125,12 +125,9 @@ test("each place in the bar opens where the side list opens it, and says which o
   await f.page.locator('.ew-place[data-place="library"]').click();
   await f.page.locator("#library").waitFor({ state: "visible" });
   assert.equal(await lit(f.page), "library");
-  await f.page.locator('.ew-place[data-place="settings"]').click();
-  await f.page.locator("#settings-window").waitFor({ state: "visible" });
-  assert.equal(await lit(f.page), "settings");
-  await f.page.keyboard.press("Escape");
-  await f.page.locator("#settings-window").waitFor({ state: "hidden" });
-  assert.equal(await lit(f.page), "library", "closing Settings lights the place underneath again");
+  await f.page.locator('.ew-place[data-place="customize"]').click();
+  await f.page.locator("#customize").waitFor({ state: "visible" });
+  assert.equal(await lit(f.page), "customize");
   await f.page.locator('.ew-place[data-place="chat"]').click();
   await f.page.locator("#chat").waitFor({ state: "visible" });
   assert.equal(await lit(f.page), "chat");
@@ -206,7 +203,7 @@ test("the scroll that brings a question into view favours its answers, and the b
 });
 
 test("a tablet held upright keeps the side list as a column; it still folds away, and a phone gets it as a slide-over", async (t) => {
-  const f = await fixture(t, { width: 820, height: 1180 });
+  const f = await fixture(t, { width: 740, height: 1180 });
   const rail = f.page.locator("body > .rail");
   assert.equal(await rail.isVisible(), true, "the side list shows without being asked");
   assert.equal(await f.page.evaluate(() => getComputedStyle(document.querySelector("body > .rail")).position), "relative", "as a column, not over the page");
@@ -217,7 +214,7 @@ test("a tablet held upright keeps the side list as a column; it still folds away
   await f.page.locator("#rail-toggle").click();
   await f.page.waitForFunction(() => document.body.classList.contains("no-rail"));
   assert.equal(await rail.isVisible(), false, "the toggle folds it away");
-  assert.ok((await box(f.page, "body > main")).width > 780, "and the conversation takes the width");
+  assert.ok((await box(f.page, "body > main")).width > 700, "and the conversation takes the width");
   await f.page.locator("#rail-toggle").click();
   await f.page.waitForFunction(() => !document.body.classList.contains("no-rail"));
   assert.equal(await noSideways(f.page), true);
@@ -242,7 +239,7 @@ test("a computer's window is unchanged: no bar, the side list where it always wa
 test("the bar's words come from the language files, in English and French", async () => {
   const read = async (name) => JSON.parse(await readFile(new URL(`../public/locales/${name}.json`, import.meta.url), "utf8"));
   const [en, fr] = [await read("en"), await read("fr")];
-  for (const key of ["ew.places", "nav.chat", "place.inbox", "place.automations", "place.library", "settings.title"]) {
+  for (const key of ["ew.places", "nav.chat", "place.inbox", "place.automations", "place.library", "place.customize"]) {
     assert.ok(en[key], `English has ${key}`);
     assert.ok(fr[key], `French has ${key}`);
   }
@@ -346,7 +343,7 @@ test("on a phone with a notch and a home bar nothing sits under either; a comput
   await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, bottom: 0, left: 0, right: 0 } });
   /* the edges the Trunks strip does not take (it takes the left on a computer, the foot on a tablet, the top on a phone) */
   for (const [width, height, sides] of [[1440, 950, { top: "10px", right: "10px", bottom: "10px" }], [1024, 700, { top: "10px", right: "10px", bottom: "10px" }],
-    [820, 1180, { top: "6px", right: "6px", left: "6px" }], [390, 844, { right: "0px", left: "0px", bottom: "0px" }]]) {
+    [740, 1180, { top: "6px", right: "6px", left: "6px" }], [390, 844, { right: "0px", left: "0px", bottom: "0px" }]]) {
     await f.page.setViewportSize({ width, height });
     const pads = await f.page.evaluate((names) => Object.fromEntries(names.map((name) => [name, getComputedStyle(document.body)[`padding${name[0].toUpperCase()}${name.slice(1)}`]])), Object.keys(sides));
     assert.deepEqual(pads, sides, `${width}: the page's margins are the ones it always had`);
@@ -356,7 +353,7 @@ test("on a phone with a notch and a home bar nothing sits under either; a comput
 
 test("at every width from a phone to a wide screen nothing runs off sideways and nothing covers the message box", async (t) => {
   const f = await fixture(t);
-  const sizes = [[390, 844], [560, 900], [561, 900], [699, 900], [700, 900], [820, 1180], [860, 1000], [861, 1000], [900, 1000], [1024, 700], [1440, 950]];
+  const sizes = [[390, 844], [560, 900], [561, 900], [699, 900], [700, 900], [760, 1000], [761, 1000], [800, 1200], [900, 1000], [1024, 700], [1440, 950]];
   for (const [width, height] of sizes) {
     await f.page.setViewportSize({ width, height });
     await f.page.waitForTimeout(50);
@@ -374,7 +371,7 @@ test("at every width from a phone to a wide screen nothing runs off sideways and
     assert.equal(seen.sideways, false, `${width}: nothing sideways`);
     assert.equal(seen.covered, false, `${width}: the text field is on top`);
     assert.equal(seen.bar, width <= 560, `${width}: the places bar only on a phone`);
-    assert.equal(seen.docked, width >= 700, `${width}: the side list is a column from 700 px`);
+    assert.equal(seen.docked, width >= 700, `${width}: the side list is a column from 700 px (the computer's layout from 761 px, as the sample's)`);
   }
   assert.deepEqual(f.errors, []);
 });
@@ -393,8 +390,8 @@ test("a household person's bar offers exactly what their side list offers, and c
     sideCount: document.getElementById("lx-inbox-badge").hidden ? "" : document.getElementById("lx-inbox-badge").textContent,
     barCount: document.getElementById("ew-inbox-badge").hidden ? "" : document.getElementById("ew-inbox-badge").textContent,
   }));
-  assert.deepEqual(seen.bar.filter((place) => !["chat", "settings"].includes(place)), seen.side.filter((place) => !["customize", "overview"].includes(place)),
-    "the bar lists the side list's places (the conversation and Settings in Customize's spot, as in the sample; Overview is the sidebar's own)");
+  assert.deepEqual(seen.bar.filter((place) => place !== "chat"), seen.side.filter((place) => place !== "overview"),
+    "the bar lists the side list's places, after the conversation, as in the sample (Overview is the sidebar's own)");
   assert.equal(seen.barCount, seen.sideCount, "and the Inbox count is the side list's own");
   assert.deepEqual(f.errors, []);
 });
@@ -407,7 +404,7 @@ test("on a phone the Trunks strip runs across the top and the places hold the fo
   assert.ok(strip.y + strip.height <= head.y, "the strip sits above the title bar, as in the phone frame");
   assert.ok(Math.abs(bar.y + bar.height - 844) <= 1, "the places bar alone holds the foot");
   assert.ok(prompt.y + prompt.height <= bar.y, "and the message box rides above it");
-  await f.page.setViewportSize({ width: 820, height: 1180 });
+  await f.page.setViewportSize({ width: 740, height: 1180 });
   await f.page.waitForTimeout(100);
   const tablet = await box(f.page, "#trunk-strip");
   assert.ok(Math.abs(tablet.y + tablet.height + 6 - 1180) <= 1, "a tablet keeps the strip at its foot, where the shell puts it");
