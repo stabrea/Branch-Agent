@@ -235,15 +235,17 @@ test("Q79: git.push and git.pull in source allow GLOBAL scoped credential.helper
   const home = join(root, "home"), workspace = join(root, "workspace");
   await mkdir(home, { recursive: true });
   await writeFile(join(home, ".gitconfig"), "[credential]\n\thelper = fake\n");
-  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  // Give the app's GitRunner the same HOME env so it sees the global config
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") };
+  const app = await createBranch({ workspace, dataDir: join(root, "data"), gitRunner: new GitRunner({ env }) });
   t.after(async () => { await app.close(); });
   const folder = "branch-agent-source/.branch-worktrees/self-global";
   const cwd = join(workspace, folder);
   await mkdir(cwd, { recursive: true });
-  const git = (...args) => execFileSync("git", args, { cwd, env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") }, stdio: "pipe" });
+  const git = (...args) => execFileSync("git", args, { cwd, env, stdio: "pipe" });
   git("init", "-q", "-b", "feature");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
-  execFileSync("git", ["init", "--bare", "-q", join(cwd, "origin")], { env: { HOME: home, XDG_CONFIG_HOME: join(home, ".config") } });
+  execFileSync("git", ["init", "--bare", "-q", join(cwd, "origin")], { env });
   const signal = AbortSignal.timeout(10_000);
   await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/, "push rejected for unconfigured remote, not for the GLOBAL credential helper");
 });
@@ -261,7 +263,7 @@ test("Q79: outside Branch's source, a LOCAL scoped credential.helper is not refu
   execFileSync("git", ["config", "--local", "credential.helper", "fake"], { cwd });
   execFileSync("git", ["remote", "add", "origin", "https://example.invalid/repo.git"], { cwd });
   const signal = AbortSignal.timeout(10_000);
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "custom" }, signal), /reach the server|credential\.helper is set at/, "rejected for the invalid host or network, not refused by Q79 scope check");
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "custom" }, signal), /reach the server/, "rejected for the invalid host or network, not refused by Q79 scope check");
 });
 
 test("Q82: git.push and git.pull in source refuse an scp-like remote with host starting with dash", { skip: posixOnly }, async (t) => {
@@ -310,10 +312,16 @@ test("Q82: outside Branch's source, an scp-like remote with dash host is not ref
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial"], { cwd });
   execFileSync("git", ["remote", "add", "attack", "git@-h:repo.git"], { cwd });
   const signal = AbortSignal.timeout(10_000);
-  try {
-    await app.git.push({ folder, remote: "attack", branch: "custom" }, signal);
-    assert.fail("push should have been rejected");
-  } catch (error) {
-    assert.ok(!String(error).match(/user or host with "-"/), "Q82 dash check should not run outside Branch's source");
-  }
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "custom" }, signal));
+  // Verify the rejection is not from the Q82 dash check (which should only run in Branch's source)
+  const error = await assert.rejects(app.git.push({ folder, remote: "attack", branch: "custom" }, signal));
+  assert.ok(!String(error).match(/user or host with "-"/), "Q82 dash check should not run outside Branch's source");
+});
+
+test("A1: git.push and git.pull in source refuse LOCAL scoped include.path", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "include.path", "/tmp/evil"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /included config file.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /included config file.*local scope/);
 });
