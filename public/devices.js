@@ -1,6 +1,6 @@
 /* mac7/nodes: "Your devices" — the owner's other computers and phone lending Branch a few abilities.
 
-   customize:channels   the Devices card: the switch, pairing, waiting requests, each device with its
+   settings:channels    the Devices card: the switch, pairing, waiting requests, each device with its
                         per-capability switches (all off), its folder, who it is shared with, last seen
                         and Remove.
    the message box      a small "Use device" picker, shown only while a device is paired; it decides
@@ -222,7 +222,7 @@ async function buildCard() {
   const view = await api("devices");
   const node = make("section", "card");
   node.id = "devices-card";
-  node.dataset.home = "customize:channels";
+  node.dataset.home = "settings:channels";
   node.append(make("h2", "", "devices.title", "Your devices"),
     make("p", "subtle", "devices.purpose", "Let your other computers and your phone lend Branch a camera, a screen, notifications and more. Everything starts off, and you switch each thing on per device."));
   const status = make("p", "subtle");

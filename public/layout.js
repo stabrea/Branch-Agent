@@ -332,7 +332,6 @@ const SETTINGS_DIRECTORY = {
     ["overview", "place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "overview"],
     ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
   ],
-  channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
   connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
   skills: [
     ["skills", "place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "customize:skills"],
@@ -359,7 +358,7 @@ const MOVES = [
   ["obsidian-card", "documents"],
   ["plugins-card", "lx-slot-customize-plugins"],
   ["mcp-card", "lx-slot-customize-connections"],
-  ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-slot-customize-channels"],
+  ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-page-channels"],
   ["deployment-card", "lx-page-general"], ["projects-form", "lx-page-general"],
   ["identity-form", "lx-page-assistant"],
   ["settings-form", "lx-page-appearance"],
