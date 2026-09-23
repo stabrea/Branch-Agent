@@ -1,5 +1,6 @@
-import { stat } from 'node:fs/promises';
-import { relative } from 'node:path';
+import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative } from 'node:path';
 import { WorkspaceFiles } from '../files.js';
 import type { ToolContext } from '../contracts.js';
 import type { ToolRegistry } from '../registry.js';
@@ -69,6 +70,7 @@ export class BranchShell {
     // Q12: the same folder the self-development contract judged (commandFolder), checked as a workspace path.
     const cwd = await new WorkspaceFiles(context.workspace).checked(relative(context.workspace, commandFolder(context.workspace, input.cwd)) || '.', true);
     if (!(await stat(cwd)).isDirectory()) throw new Error('Command cwd must be a workspace directory');
+    const confined = context.writesConfinedTo ? await confinedFolder(context.writesConfinedTo, cwd) : null;
     const tuned = this.tuning(); // R17-S10
     const limitMs = tuned.timeoutMs ?? this.config.timeoutMs;
     if (input.timeoutMs && input.timeoutMs > limitMs) throw new Error('Command timeout exceeds configured maximum');
@@ -83,7 +85,10 @@ export class BranchShell {
     const result = await this.spawn({ executable, args: input.args, cwd, injected, netless, job,
       timeoutMs: input.timeoutMs ?? limitMs, signal, passed: tuned.env,
       // wave mac3 (os-sandbox): a command pointed at the dead address gets no network behind the wall either.
-      wall: context.osSandbox && netless ? { ...context.osSandbox, network: 'none' as const } : context.osSandbox, workspace: context.workspace });
+      wall: confined ? confinedWall(context.osSandbox, netless)
+        : context.osSandbox && netless ? { ...context.osSandbox, network: 'none' as const } : context.osSandbox,
+      // Q12: a command held to one folder gets that folder as the only place in the workspace it may write.
+      workspace: confined ?? context.workspace, confined: !!confined });
     const scrubbed = { ...result, stdout: scrubSecrets(result.stdout, injected), stderr: scrubSecrets(result.stderr, injected) };
     return { ...scrubbed, target: { alias: input.executable, executable: executable.path, cwd,
       secrets: Object.keys(injected), netless, isolation: result.isolation, sandbox: shapeChoice(shape) } };
@@ -102,14 +107,21 @@ export class BranchShell {
   }
   private async spawn(run: { executable: { path: string; args: string[] }; args: string[]; cwd: string;
     injected: Record<string, string>; netless: boolean; job: Job | null; timeoutMs: number; signal: AbortSignal;
-    wall?: WallContext | undefined; workspace: string; passed?: Record<string, string> }): Promise<ProcessResult> {
+    wall?: WallContext | undefined; workspace: string; passed?: Record<string, string>; confined?: boolean }): Promise<ProcessResult> {
+    // Q12: a command held to one folder gets a private, empty temporary folder: the shared ones are
+    // writable by design, and Branch's source could sit inside one of them.
+    const scratch = run.confined ? await mkdtemp(join(tmpdir(), 'branch-held-')) : null;
+    try { return await this.spawnIn(run, scratch); } finally { if (scratch) await rm(scratch, { recursive: true, force: true }).catch(() => undefined); }
+  }
+  private async spawnIn(run: Parameters<BranchShell['spawn']>[0], scratch: string | null): Promise<ProcessResult> {
     // The environment is built from an allowlist only, then the owner's extra names (R17-S10, never a
     // secret, never replacing a name already set), then the dead-address proxy, then secrets.
-    const env = { ...withPassedEnvironment(this.env, run.passed ?? {}), ...(run.netless ? netlessEnvironment() : {}), ...run.injected };
+    const env = { ...withPassedEnvironment(this.env, run.passed ?? {}), ...(run.netless ? netlessEnvironment() : {}), ...run.injected,
+      ...(scratch ? { TMPDIR: scratch, TMP: scratch, TEMP: scratch } : {}) };
     // wave mac3 (os-sandbox): behind the wall when the owner's switch says so. A saved key the owner
     // tied to a site reaches the program only as a stand-in; the wall's door swaps the real one in.
     const plain = { executable: run.executable.path, args: [...run.executable.args, ...run.args], cwd: run.cwd, env };
-    const wall = run.wall ? await openWall(run.wall, plain, { workspace: run.workspace, secrets: run.injected }) : null;
+    const wall = run.wall ? await openWall(run.wall, plain, { workspace: run.workspace, secrets: run.injected, ...(scratch ? { temp: scratch } : {}) }) : null;
     const start = wall?.start ?? plain;
     try {
       const result = await new ShellProcess({ executable: start.executable, args: start.args,
@@ -143,6 +155,29 @@ export class BranchShell {
     for (const operation of operations) operation.controller.abort(new Error('Host command execution closed'));
     await Promise.allSettled(operations.map(operation => operation.done));
   }
+}
+
+/**
+ * Q12: the folder a command held by the self-development contract may write to, once its own folder
+ * is confirmed to be inside it. Refused where the OS sandbox cannot hold writes (Windows).
+ */
+async function confinedFolder(folder: string, cwd: string): Promise<string> {
+  if (process.platform === 'win32') throw new Error('Branch cannot hold a command to one folder on Windows, so it did not run.');
+  const [inside, from] = await Promise.all([realpath(folder), realpath(cwd)]);
+  const rest = relative(inside, from);
+  if (rest.startsWith('..') || isAbsolute(rest)) throw new Error('The command would run outside the only folder it may change, so it did not run.');
+  return inside;
+}
+
+/**
+ * Q12: the OS sandbox for a command held to one folder. It never gets a standing or one-time yes
+ * to write anywhere else, so a blocked write is reported, never offered as a question.
+ */
+function confinedWall(wall: WallContext | undefined, netless: boolean): WallContext {
+  const base: WallContext = wall ?? { network: 'none', keySites: {}, unreadable: [], readOnly: [],
+    answer: () => undefined, granted: () => [], spend: () => undefined };
+  return { ...base, ...(netless ? { network: 'none' as const } : {}), granted: (kind) => (kind === 'sandbox.write' ? [] : base.granted(kind)),
+    answer: (kind, target) => (kind === 'sandbox.write' ? 'deny' : base.answer(kind, target)) };
 }
 
 export function registerShell(registry: ToolRegistry, shell: BranchShell): void {

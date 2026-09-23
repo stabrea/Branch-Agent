@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -9,6 +9,8 @@ import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
 import { commandFolder } from "./integrations/shell-config.js";
 import { cwdOf } from "./never-break/protected.js";
 import { isReadOnlyPermission } from "./policy.js";
+import { isCommandTool } from "./policy-resources.js";
+import { wallReport } from "./sandbox-backends.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 
@@ -202,6 +204,8 @@ export interface ContractGuardDeps {
   registry: ToolRegistry;
   book: ContractBook;
   git: (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome>;
+  /** Whether this computer has a sandbox that can hold a command's writes to one folder. Replaced in tests. */
+  confinement?: () => Promise<boolean>;
 }
 
 /** The workspace paths (forward slashes, from the workspace) a call names. */
@@ -296,14 +300,55 @@ function heldTerms(deps: ContractGuardDeps, name: string, args: unknown, context
   return { contract, permission };
 }
 
+/** Permissions whose tools start a program on this computer. */
+const commandPermissions = new Set(["shell.execute", "code.execute", "process.manage"]);
+/** The one command tool the shell can hold behind the OS sandbox with its writes kept to one folder. */
+const confinableCommand = "shell.execute";
+const whileCheckedOut = "While Branch's own source is checked out in this workspace, ";
+
+/** Whether a tool starts a program here: by its permission, its name, or a command line it reports. */
+function startsProgram(deps: ContractGuardDeps, name: string, args: unknown): boolean {
+  return commandPermissions.has(deps.registry.permissionOf(name)) || isCommandTool(name)
+    || deps.registry.resourceOf(name, "", args)?.kind === "command";
+}
+
+/** Whether Branch's own source is checked out in this workspace, under any spelling of its folder. */
+export function sourceCheckedOut(workspace: string): boolean {
+  try { return readdirSync(workspace).some((entry) => sourceSpelling(entry) === sourceFolder); } catch { return false; }
+}
+
+const canConfineWrites = async (): Promise<boolean> => (await wallReport()).available;
+
+/**
+ * A command's text is never read: globs and variables can always name Branch's source some other
+ * way. So while that source is checked out here, a command runs only as `shell.execute`, from the
+ * active self-development worktree, listed in its contract, and behind the OS sandbox with its
+ * writes held to that worktree. Anything else is refused and audited; a computer with no such
+ * sandbox refuses every command until the checkout is gone.
+ */
+async function confineCommand(deps: ContractGuardDeps, name: string, args: unknown, context: ToolContext): Promise<Pick<ToolContext, "writesConfinedTo">> {
+  const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
+  const worktree = worktreeOf(scope);
+  if (name !== confinableCommand)
+    refuse(deps, context, name, worktree, `${whileCheckedOut}${name} is refused: Branch cannot hold the program it starts to one folder. Only shell.execute runs then, from the active self-development worktree, behind the OS sandbox.`);
+  const folder = workspacePath(deps.workspace, "", commandFolder(context.workspace || deps.workspace, cwdOf(args).cwd));
+  if (!worktree || folder === null || worktreeOf(folder) !== worktree)
+    refuse(deps, context, name, worktree, `${whileCheckedOut}a command runs only inside the active self-development worktree: make its project active and set cwd to ${worktree || "branch-agent-source/.branch-worktrees/self-<name>"}.`);
+  heldTerms(deps, name, args, context);
+  if (!(await (deps.confinement ?? canConfineWrites)()))
+    refuse(deps, context, name, worktree, `${whileCheckedOut}commands are refused on this computer: it has no sandbox that can hold a command's writes to one folder.`);
+  return { writesConfinedTo: resolve(deps.workspace, worktree) };
+}
+
 /**
  * The check `ToolRegistry.execute` runs before a tool does anything. Calls that only look, and calls
  * that touch nothing inside `branch-agent-source`, pass untouched. Everything else needs the
  * worktree's contract and must keep to it; a remote step also needs the contract's source commit
- * underneath it and no changed file outside the allowed paths.
+ * underneath it and no changed file outside the allowed paths. Commands follow `confineCommand`.
  */
-export function contractGuard(deps: ContractGuardDeps): (name: string, args: unknown, context: ToolContext) => Promise<void> {
+export function contractGuard(deps: ContractGuardDeps): (name: string, args: unknown, context: ToolContext) => Promise<Pick<ToolContext, "writesConfinedTo"> | void> {
   return async (name, args, context) => {
+    if (startsProgram(deps, name, args) && sourceCheckedOut(deps.workspace)) return confineCommand(deps, name, args, context);
     const held = heldTerms(deps, name, args, context);
     if (!held || !remotePermissions.has(held.permission)) return;
     const broken = await remoteBroken(deps, held.contract, context.signal);

@@ -247,6 +247,12 @@ export interface ToolContext {
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
   /**
+   * Q12: set only by the self-development contract check (src/self-development-contract.ts) for a
+   * command it let run while Branch's own source is checked out: the one folder the command may
+   * write to. The shell runs it behind the OS sandbox with writes held to this folder, or refuses.
+   */
+  writesConfinedTo?: string;
+  /**
    * mac7/eval-honesty: a question asked in isolation — a grader marking work Branch itself did.
    * Nothing the owner has remembered, written down, installed or asked for standing reaches it, and
    * nothing it does is learned from. See `RunOptions.isolated`.

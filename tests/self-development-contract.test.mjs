@@ -303,7 +303,7 @@ test("every spelling of the source folder is held to the contract or refused, an
   scope = "proj";
   // A command's folder is read from the workspace, not the active project, exactly as the shell tool reads it.
   await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: "Branch-Agent-Source" }, { runId: "r" }),
-    /protected Branch Agent source checkout/, "a folder named from the workspace while another project is active");
+    /Refused by the self-development contract/, "a folder named from the workspace while another project is active");
   assert.equal(log.list("local", { action: "self_development.contract" }).length, 10);
   // Before the folder exists on disk the spelling alone must be enough (the first write can make it).
   const bare = contractGuard({ store: { audit: log }, owner: "local", workspace: join(root, "empty"), registry, book, git: async () => answer("") });

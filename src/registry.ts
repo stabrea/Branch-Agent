@@ -215,11 +215,13 @@ export class ToolRegistry {
     const parsed = tool.parameters.parse(args);
     // Q12: a call that would change Branch's own source is held to its written contract first. It is
     // judged on the arguments as sent, as the approval policy judged them, and parsed the same way.
-    if (this.beforeTool) await this.beforeTool(name, args, context);
+    // It may also hold the tool to one folder for this call (a command while Branch's source is checked out).
+    const held = this.beforeTool ? await this.beforeTool(name, args, context) : undefined;
+    const running = held ? { ...context, ...held } : context;
     let result: unknown;
     try {
       // household-followups: an owner-only guard inside the tool judges by this task's person.
-      result = await underTask(context.runId, () => tool.execute(parsed, context), name); // mac7/walk-rules: name
+      result = await underTask(context.runId, () => tool.execute(parsed, running), name); // mac7/walk-rules: name
       context.signal.throwIfAborted();
       // ── mac7/r17-d: format and diagnostics after an edit, and a very long answer kept in a file. ──
       if (this.afterTool) result = await this.afterTool(name, parsed, result, context);
@@ -236,7 +238,7 @@ export class ToolRegistry {
     return result;
   }
   /** Q12 (src/self-development-contract.ts): may refuse a call, by throwing, before the tool runs. */
-  beforeTool?: (name: string, args: unknown, context: ToolContext) => Promise<void>;
+  beforeTool?: (name: string, args: unknown, context: ToolContext) => Promise<Pick<ToolContext, "writesConfinedTo"> | void>;
   /** mac7/coding-next (src/coding/read-first.ts): told after every call, so what it wrote counts as read. */
   afterWrites?: (context: ToolContext) => Promise<void>;
   /** mac7/r17-d (src/coding/): looks at a finished call and may add to its answer (format-on-edit). */
