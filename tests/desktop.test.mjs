@@ -19,7 +19,7 @@ const followSetting = (page) => page.evaluate(async () => {
 
 async function appearance(page, value) {
   await openSettingFor(page, "#appearance");
-  await page.locator(`.lx-seg-button[data-t="look.mode.${value === "daylight" ? "light" : "dark"}"]`).click();
+  await page.locator(`#lx-mode .lx-seg-button:has([data-t="look.${value === "daylight" ? "daylight" : "moonlight"}"])`).click();
   await page
     .getByRole("button", { name: "Save appearance", exact: true })
     .click();

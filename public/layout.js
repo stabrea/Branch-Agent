@@ -183,12 +183,22 @@ function chooseMode(mode) {
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 }
-function segmented(label, options, isOn, onPick) {
+/** A choice with a sign before its word. The word alone names it, and alone is re-worded when the language changes. */
+function signedChoice(sign, key, english) {
+  const choice = make("button", "lx-seg-button");
+  choice.type = "button";
+  const mark = make("span", "lx-seg-sign", sign);
+  mark.setAttribute("aria-hidden", "true");
+  choice.append(mark, " ", worded("span", "", key, english));
+  return choice;
+}
+/** The choices are named by the row's own label (by id), so a language change re-words their name with it. */
+function segmented(labelId, options, isOn, onPick) {
   const group = make("div", "lx-seg");
   group.setAttribute("role", "group");
-  group.setAttribute("aria-label", label);
-  for (const [value, key, english] of options) {
-    const choice = button("lx-seg-button", key, english);
+  group.setAttribute("aria-labelledby", labelId);
+  for (const [value, key, english, sign] of options) {
+    const choice = sign ? signedChoice(sign, key, english) : button("lx-seg-button", key, english);
     choice.setAttribute("aria-pressed", String(isOn(value)));
     choice.addEventListener("click", () => onPick(value));
     group.append(choice);
@@ -247,11 +257,12 @@ function drawLookControls() {
   }
   const follow = $("appearance-follow")?.checked;
   const modeHost = $("lx-mode");
-  if (modeHost) modeHost.replaceChildren(segmented("Light or dark",
-    [["", "look.mode.follow", "Follow this computer"], ["dark", "look.mode.dark", "Dark"], ["light", "look.mode.light", "Light"]],
+  /* DG-160: the sample's words, ☾ Moonlight and ☀ Daylight; the saved value is still dark or light. */
+  if (modeHost) modeHost.replaceChildren(segmented("lx-mode-label",
+    [["", "look.mode.follow", "Follow this computer"], ["dark", "look.moonlight", "Moonlight", "☾"], ["light", "look.daylight", "Daylight", "☀"]],
     (value) => (follow ? value === "" : !follow && value === modeNow()), chooseMode));
   const seasonHost = $("lx-season");
-  if (seasonHost) seasonHost.replaceChildren(segmented("Season", SEASONS, (value) => value === look.season, (value) => setLook({ season: value })));
+  if (seasonHost) seasonHost.replaceChildren(segmented("lx-season-label", SEASONS, (value) => value === look.season, (value) => setLook({ season: value })));
   const contrast = $("lx-contrast");
   if (contrast) contrast.checked = look.contrast === "more";
   drawQuickThemes();
@@ -648,7 +659,8 @@ function buildAppearanceBlock() {
   const tools = themeTools();
   const gallery = make("div", "lx-gallery");
   gallery.id = "lx-theme-gallery";
-  const modeRow = lookRow("look.mode", "Light and dark", "lx-mode");
+  const modeRow = lookRow("look.dayOrNight", "Day or night", "lx-mode");
+  modeRow.append(worded("p", "lx-look-note", "look.dayOrNight.note", "Every theme has both. Switching keeps the theme you chose."));
   const seasonRow = lookRow("look.season", "The oak's season", "lx-season");
   const contrastRow = make("label", "check-row lx-contrast-row");
   const contrast = make("input");
@@ -708,7 +720,9 @@ function lookRow(key, english, hostId) {
   const row = make("div", "lx-look-row");
   const host = make("div");
   host.id = hostId;
-  row.append(worded("span", "lx-look-label", key, english), host);
+  const label = worded("span", "lx-look-label", key, english);
+  label.id = `${hostId}-label`;
+  row.append(label, host);
   return row;
 }
 function openSettings(page) {

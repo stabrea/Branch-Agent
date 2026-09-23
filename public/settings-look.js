@@ -5,7 +5,7 @@
    as it is now, drawn in a separate blank frame so nothing in it can be pressed, found by id or seen
    by the app's own watchers; it is copied again at most once a second while Appearance is open.
    The tiles' words (Default, High contrast, Easy in daylight) are the sample's, drawn in layout.js. The eye
-   beside Light and dark clears the view to show the background. Nothing here changes a setting by itself. */
+   beside Day or night clears the view to show the background. Nothing here changes a setting by itself. */
 import { t } from "/i18n.js";
 import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { seasonToday } from "/grove.js";

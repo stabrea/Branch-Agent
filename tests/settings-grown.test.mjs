@@ -559,7 +559,7 @@ test("S13 Appearance: two live mirrors of your own window, Moonlight and Dayligh
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "slate", "pointing at a theme does not choose it");
   /* The sample's words on a few tiles instead of numbers (DG-037). */
   assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .lx-tile-badge').textContent(), /High contrast/);
-  /* The eye beside Light and dark clears the view. */
+  /* The eye beside Day or night clears the view. */
   await f.page.locator("#sg-clear-view").click();
   await f.page.waitForFunction(() => document.documentElement.dataset.quiet === "1");
   assert.equal(await f.page.locator("#settings-window").isVisible(), false);
