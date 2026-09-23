@@ -232,7 +232,7 @@ body.lx .rail {
   border-right: 1px solid var(--glass-edge);
 }
 body.lx .rail-head .app-switcher .chev {
-  display: none;
+  display: block;
 }
 .lx-places {
   margin-top: var(--s3);
@@ -975,30 +975,43 @@ body.lx-help .context-panel > .acorn-art {
   width: auto !important;
   margin: 0 !important;
 }
+/* DG-041: the approved sample's line tabs (design/Branch-Grown-Up.html, `.tabs`/`.tab`): one row on a hairline that
+   scrolls sideways rather than wrapping, each tab plain text, the chosen one in full colour and underlined in copper. */
 .lx-subtabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  gap: 2px;
   margin: 0 0 14px;
+  /* The hairline is drawn inside the row, under the tabs, so the chosen tab's 2px underline covers it without
+     hanging below the row: the sample's border plus a -1px tab margin clipped a pixel and let the row scroll 1px. */
+  box-shadow: inset 0 -1px 0 var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .lx-subtab {
-  padding: 5px 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: transparent;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
   box-shadow: none;
-  color: var(--text-2);
-  font-size: 12.5px;
-  font-weight: 500;
+  color: var(--text-3);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  white-space: nowrap;
 }
 .lx-subtab:hover {
   color: var(--text);
 }
 .lx-subtab[aria-selected="true"] {
-  border-color: var(--text);
-  background: var(--text);
-  color: var(--ground);
-  font-weight: 640;
+  border-bottom-color: var(--copper);
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+}
+/* The row scrolls, so an outline drawn outside a tab would be cut off: it is drawn just inside instead. */
+.lx-subtab:focus-visible {
+  outline-offset: -3px;
 }
 
 /* ---------- Appearance: the theme gallery ---------- */
@@ -1260,9 +1273,6 @@ body.lx-help .context-panel > .acorn-art {
 body.lx .rail-head {
   gap: 0;
 }
-body.lx .rail-head .brand {
-  font-size: 18px;
-}
 /* how it should work, and the model for this conversation: a quiet row of chips, not two big menus */
 body.lx .model-controls {
   gap: 6px 10px;
@@ -1299,7 +1309,7 @@ body.lx .model-controls .text-button {
   background: var(--glass-2);
 }
 .lx-subtab[aria-selected="true"]:hover {
-  background: var(--text);
+  background: none;
 }
 .lx-seg-button[aria-pressed="true"]:hover {
   background: var(--copper);
@@ -1460,7 +1470,7 @@ body.lx #connection[data-state="lost"] {
   #cmd-open, #appearance-shortcut, .lx-gear, #rail-find,
   #owner-menu-button,
   #thread-labels, #lx-pane-tabs, #lx-clear, #lx-shield, #aside-toggle,
-  #saved-conversations, #practice-card, #plan-controls, #model-controls,
+  #practice-card, #plan-controls, #model-controls,
   .welcome > p, #suggestions,
   #composer-media, #composer-attach, #voice-record, #voice-talk,
   .composer-temporary, .composer-specialist, #new-session, .lx-model-chip,

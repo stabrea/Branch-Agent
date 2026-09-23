@@ -73,7 +73,9 @@ function fixture(latency) {
     },
   });
   runInContext(renderer, context);
-  context.document = { getElementById: (id) => id === "workspace" ? { hidden: true } : null };
+  // apply() tells other modules the comfort values changed (#208's key hints listen for it).
+  context.Event = class { constructor(type) { this.type = type; } };
+  context.document = { getElementById: (id) => id === "workspace" ? { hidden: true } : null, dispatchEvent: () => true };
   const configure = async (settings) => {
     saveComfort(store, "local", "notify", settings);
     context.testValues = allComfort(store, "local");

@@ -186,7 +186,8 @@ test("achievements: what a real task earns arrives as a seven-second note, once;
   await f.app.runtime.run({ prompt: "one" });
   await f.page.evaluate(() => globalThis.branchAchievements.check());
   await f.page.locator("#ach-note").waitFor({ timeout: 10000 });
-  assert.match(await f.page.locator("#ach-note").innerText(), /achievement/);
+  /* Its words, not how they are drawn: DG-014 sets the tier eyebrow in capitals. */
+  assert.match(await f.page.locator("#ach-note").textContent(), /achievement/);
   let fresh = ["waiting"];
   for (let i = 0; i < 20 && fresh.length; i++) { fresh = (await f.call("/api/delight/achievements")).fresh; await f.page.waitForTimeout(100); }
   assert.deepEqual(fresh, [], "once shown, it is not shown again");
