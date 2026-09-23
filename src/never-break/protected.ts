@@ -312,9 +312,21 @@ function movesInto(words: string[], base: string, platform: NodeJS.Platform): st
 const serviceTool = /\b(launchctl|systemctl|sc(?:\.exe)?|schtasks(?:\.exe)?|Stop-Service|Remove-Service|Set-Service|Stop-ScheduledTask|Disable-ScheduledTask|Unregister-ScheduledTask|Set-ScheduledTask)\b/i;
 const serviceVerb = /(\b|\/)(bootout|unload|remove|kill|disable|stop|kickstart|restart|mask|delete|config|end|change|reload|Stop-Service|Remove-Service|Set-Service|Stop-ScheduledTask|Disable-ScheduledTask|Unregister-ScheduledTask|Set-ScheduledTask)\b/i;
 const namesBranch = /branch[\s_-]*agent|keepoak|\bcli\.js\b/i;
+/**
+ * Q12: Branch's service names, matched as whole names only. A name is whole when nothing that could
+ * continue it (a letter, a digit, `-`, `_`, `.` or a further folder) comes right before or after it.
+ * `\b` alone matched "branch-agent" inside `branch-agent-source/...` (the owner's own copy of the
+ * source) and inside `stabrea/Branch-Agent` (the repository's name), so preparing or sending a change
+ * to Branch itself was refused as if it would stop Branch.
+ */
+const ends = `(?![^\\s'";|&)])`;
+const serviceName = (name: string): string => name.replace(/\./g, "\\.").replace(/-/g, "[-_]");
 const selfService = [
-  new RegExp(`\\b${launchdLabel.replace(/\./g, "\\.")}\\b`, "i"),
-  new RegExp(`\\b${systemdUnitName.replace(/\.service$/, "").replace(/-/g, "[-_]")}(\\.service)?\\b`, "i"),
+  // The launchd label, bare or in a domain target (gui/501/<label>) or as its .plist file.
+  new RegExp(`(?<![^\\s'"=:;|&(/])${serviceName(launchdLabel)}(?:\\.plist)?${ends}`, "i"),
+  // The systemd unit, bare (branch-agent, branch-agent.service, string:branch-agent.service) or as the unit file's own path.
+  new RegExp(`(?<![^\\s'"=:;|&(])${serviceName(systemdUnitName.replace(/\.service$/, ""))}(?:\\.service)?${ends}`, "i"),
+  new RegExp(`/${serviceName(systemdUnitName)}${ends}`, "i"),
   /\b(cli\.js|branch)\s+(daemon|update|gateway)\b/i,
   /\b(pkill|killall|taskkill(\.exe)?|Stop-Process|spps)\b.*\b(branch|cli\.js|electron|node(\.exe)?)\b/i,
   /\bkill\b.*\b(pgrep|pidof)\b.*\b(branch|cli\.js|electron|node)\b/i,
