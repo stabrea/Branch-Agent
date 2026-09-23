@@ -24,6 +24,10 @@ import {
  * What this is not, said plainly because the words are easy to oversell: there is no live document
  * that two people type in at once. Branch writes a file, or changes one, and hands it back. It does
  * not know what anybody else is doing in that file while it is open in front of them.
+ *
+ * FQ-workspace.office: the owner can still edit a Word or spreadsheet file alongside one other
+ * person, turn by turn rather than keystroke by keystroke — a co-edit session, started from the
+ * Documents panel, at src/document-coedit.ts.
  */
 export const writtenBytesLimit = 20 * 1024 * 1024;
 export const liveCoworkLimit =

@@ -3,11 +3,15 @@
  * passages it would use. Kept in its own file; the page only provides the empty section.
  */
 import { inlineNodes } from "/markdown.js";
+import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const sizeLimit = 20 * 1024 * 1024;
 let view = null;
 let context = {};
+// FQ-workspace.office: a shared edit's code is handed back only once, when it is started (the
+// server never stores it in the clear), so it is kept here only for the life of this page.
+const coeditCodes = new Map();
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -44,6 +48,7 @@ export async function loadDocuments() {
   // The switch for naming this project's own files lives with the other retrieval settings.
   context = await request("/api/retrieval").catch(() => context);
   render();
+  await loadCoedit().catch((error) => coeditSay(error.message));
 }
 function render() {
   if (!view) return;
@@ -82,6 +87,102 @@ function act(label, run) {
     finally { node.disabled = false; }
   });
   return node;
+}
+
+/**
+ * FQ-workspace.office: a Word or spreadsheet file the owner and one other person both change. Built
+ * entirely here, right after the documents list, so no other panel's markup has to make room for it.
+ */
+function coeditSay(message) {
+  const status = $("coedit-status");
+  if (status) status.textContent = message;
+}
+function coeditRoot() {
+  let root = $("coedit-section");
+  if (root) return root;
+  root = el("div", undefined, "card");
+  root.id = "coedit-section";
+  root.append(el("h3", t("documents.coedit.heading.edit-a-file-together")));
+  root.append(el("p", t("documents.coedit.note.start-with-a-file-already"), "subtle"));
+  const form = document.createElement("form");
+  const label = el("label", t("field.the-workspace-file-to-edit"));
+  label.htmlFor = "coedit-path";
+  const path = document.createElement("input");
+  path.type = "text"; path.id = "coedit-path"; path.maxLength = 500; path.placeholder = "notes/report.docx"; path.required = true;
+  const submit = el("button", t("documents.coedit.action.start-a-shared-edit"));
+  submit.type = "submit";
+  form.append(label, path, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    try {
+      const started = await request("/api/office-coedit", { body: { path: path.value.trim() } });
+      coeditCodes.set(started.id, started.code);
+      path.value = "";
+      coeditSay(t("documents.coedit.status.started-hand-this-link",
+        { link: `${location.origin}${started.link}`, code: started.code }));
+      await loadCoedit();
+    } catch (error) { coeditSay(error.message); }
+    finally { submit.disabled = false; }
+  });
+  const status = el("p", "", "subtle");
+  status.id = "coedit-status";
+  const list = el("div", undefined, "card-list");
+  list.id = "coedit-list";
+  root.append(form, status, list);
+  const documentsList = $("documents-list");
+  (documentsList?.parentElement ?? document.body).insertBefore(root, documentsList?.nextSibling ?? null);
+  return root;
+}
+async function loadCoedit() {
+  coeditRoot();
+  const { sessions } = await request("/api/office-coedit");
+  const list = $("coedit-list");
+  list.replaceChildren();
+  if (!sessions.length) { list.append(el("p", t("documents.coedit.empty.nothing-shared-yet"), "empty")); return; }
+  for (const entry of sessions) list.append(coeditCard(entry));
+}
+function coeditCard(entry) {
+  const node = el("div", undefined, "item");
+  node.append(el("h3", entry.name));
+  node.append(el("p", `${entry.kind.toUpperCase()} · ${t("field.version-number", { version: entry.version })} · `
+    + (entry.guestJoined ? t("documents.coedit.status.guest-has-joined") : t("documents.coedit.status.waiting-for-guest")), "meta"));
+  const code = coeditCodes.get(entry.id);
+  node.append(el("p", code ? `${location.origin}/coedit/${entry.id} · ${code}` : t("documents.coedit.note.code-shown-once"), "meta"));
+  const form = document.createElement("form");
+  const find = document.createElement("input");
+  find.type = "text"; find.maxLength = 2000; find.required = true; find.placeholder = t("field.find");
+  const replace = document.createElement("input");
+  replace.type = "text"; replace.maxLength = 4000; replace.placeholder = t("field.replace-with");
+  const send = el("button", t("documents.coedit.action.send-this-change"));
+  send.type = "submit";
+  form.append(find, replace, send);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const done = await request(`/api/office-coedit/${entry.id}/edit`,
+        { body: { operations: [{ op: "replace-text", find: find.value, replaceWith: replace.value, all: true }] } });
+      find.value = ""; replace.value = "";
+      coeditSay(done.changes ? "" : (done.notes[0] ?? ""));
+      await loadCoedit();
+    } catch (error) { coeditSay(error.message); }
+  });
+  node.append(form);
+  node.append(act(t("documents.coedit.action.download-the-current-file"), () => downloadCoedit(entry.id, entry.name)));
+  node.append(act(t("documents.coedit.action.end-this-shared-edit"), async () => {
+    await request(`/api/office-coedit/${entry.id}`, { method: "DELETE" });
+    coeditCodes.delete(entry.id);
+  }));
+  return node;
+}
+async function downloadCoedit(id, name) {
+  const response = await fetch(`/api/office-coedit/${id}/file`,
+    { headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || "") } });
+  if (!response.ok) { coeditSay((await response.json().catch(() => null))?.error || "That did not work"); return; }
+  const address = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = address; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(address), 10000);
 }
 
 /**

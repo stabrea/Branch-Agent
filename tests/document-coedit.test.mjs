@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -8,6 +8,18 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { buildDocx } from "../dist/document-docx.js";
 import { readDocument } from "../dist/document-readers.js";
+
+const PUBLIC = new URL("../public/", import.meta.url);
+
+test("every new word the Edit-together card uses has English and real French", async () => {
+  const source = await readFile(new URL("documents.js", PUBLIC), "utf8");
+  const keys = [...new Set([...source.matchAll(/\bt\("(documents\.coedit\.[a-zA-Z.-]+|field\.(?:find|replace-with|the-workspace-file-to-edit|version-number))"/g)]
+    .map((m) => m[1]))];
+  assert.ok(keys.length >= 14, `expected the co-edit card's own keys, got ${keys.length}`);
+  const en = JSON.parse(await readFile(new URL("locales/en.json", PUBLIC), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("locales/fr.json", PUBLIC), "utf8"));
+  assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || en[key] === fr[key]), []);
+});
 
 /**
  * FQ-workspace.office: the owner and one other person, handed only a link and a code, editing the
