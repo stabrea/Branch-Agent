@@ -78,16 +78,16 @@ export function plainCodeBlock(code, language) {
   const box = el("div", undefined, "code-block");
   const head = el("div", undefined, "code-head");
   head.append(el("span", language || "text", "code-language"));
-  const copy = el("button", "Copy", "code-copy");
+  const copy = el("button", t("markdown.copy"), "code-copy");
   copy.type = "button";
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(code);
-      copy.textContent = "Copied";
+      copy.textContent = t("markdown.copied");
     } catch {
       copy.textContent = t("markdown.status.copyFailed");
     }
-    setTimeout(() => { copy.textContent = "Copy"; }, 2000);
+    setTimeout(() => { copy.textContent = t("markdown.copy"); }, 2000);
   });
   head.append(copy);
   const pre = el("pre", undefined, "code-body");

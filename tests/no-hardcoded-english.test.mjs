@@ -39,7 +39,13 @@ const FALLBACK = new RegExp(String.raw`\b(?:t|say|words)\(\s*[^,()]+,\s*${LIT}`,
 /** The statement's literals, up to the first `;` outside quotes -- a ternary may run over several lines. */
 const TOKEN = new RegExp(String.raw`${LIT}|;`, "g");
 /** A capital word then a lower-case one ("Saved as"), or one capital word ending a sentence ("Saved."). */
-const ENGLISH = /(^|[^\w$.{-])[A-Z][a-z]+[^\s"'`]*(?: 0)* [a-z]|^[A-Z][a-z]+[.!…]$/;
+/*
+ * Two words, or one word ending in punctuation -- and, since review, **one word on its own**. A button
+ * that says `Copied` is as English as one that says `Copied.`, and the shape without the full stop was
+ * the shape that got through: `markdown.js`, `mcp.js` and four others were showing single English words
+ * in places this guard was already looking at, and it passed.
+ */
+const ENGLISH = /(^|[^\w$.{-])[A-Z][a-z]+[^\s"'`]*(?: 0)* [a-z]|^[A-Z][a-z]+[.!…]?$/;
 
 /** The English sentences `source` shows without the locale files, one line of source each. */
 function sentencesIn(source) {

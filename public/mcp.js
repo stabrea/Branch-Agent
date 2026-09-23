@@ -93,7 +93,7 @@ async function copyText(text, button) {
   const original = button.textContent;
   try {
     await navigator.clipboard.writeText(text);
-    button.textContent = "Copied";
+    button.textContent = t("mcp.copied");
   } catch {
     button.textContent = t("mcp.copyHint");
   }
@@ -105,7 +105,7 @@ function snippet(name, entry, secret) {
   const item = el("div", undefined, "item");
   const shown = secret ? entry.configExample.split(secret).join("YOUR_SESSION_KEY") : entry.configExample;
   item.append(el("h3", name), el("p", entry.note, "subtle"), el("pre", shown));
-  const copy = el("button", "Copy");
+  const copy = el("button", t("mcp.copy"));
   copy.type = "button";
   copy.addEventListener("click", () => void copyText(entry.configExample, copy));
   item.append(copy);
