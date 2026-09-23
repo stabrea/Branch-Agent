@@ -67,3 +67,13 @@
   font: 500 10.5px/15px var(--mono, ui-monospace, monospace);
   text-align: center;
 }
+/* The usage list's foot: this month's sum on the left, Open Usage on the right. */
+.glance-foot {
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.glance-foot .glance-month {
+  flex: 1;
+  min-width: 0;
+}

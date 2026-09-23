@@ -6,7 +6,7 @@
    At 95% used it may ask, for about five seconds, whether running tasks should write down where
    they are. It only asks: nothing happens unless "Save progress" is pressed. */
 import { api, displayView, toast } from "/app.js";
-import { t, formatDate } from "/i18n.js";
+import { t, formatDate, formatNumber } from "/i18n.js";
 import { popover } from "/popover.js";
 import { markTile } from "/brand-marks.js"; // phase2/accounts
 
@@ -109,20 +109,21 @@ function rowNode(row) {
   node.append(tile(row), body);
   return node;
 }
+/** This month's estimated spend from the usage ledger; tasks with no price are said, never counted as $0. */
+function monthLine(month) {
+  const line = el("span", undefined, "glance-month");
+  const cost = formatNumber(month.cost, { style: "currency", currency: "USD" });
+  line.append(`${t("glance.thisMonth")} `, el("b", month.pricedRuns ? t("glance.monthAbout", { cost }) : t("glance.monthNone")));
+  if (month.unpricedRuns) line.title = t("glance.monthUnpriced", { count: month.unpricedRuns });
+  return line;
+}
 function paintPopover() {
   const box = $("usage-pop");
   box.replaceChildren(el("p", t("glance.title"), "glance-heading"));
   for (const row of glance.rows ?? []) box.append(rowNode(row));
   box.append(el("p", glance.empty ? glance.summary : `${glance.summary} ${t("glance.neverAdded")}`, "glance-summary"));
   const foot = el("div", undefined, "glance-foot");
-
-  // DG-148: Add "This month: $…" total in footer
-  const monthTotal = el("span", undefined, "glance-month-total");
-  if (glance.monthlyTotal) {
-    monthTotal.append(el("span", t("glance.thisMonth")), el("b", glance.monthlyTotal));
-  }
-  foot.append(monthTotal);
-
+  if (glance.month) foot.append(monthLine(glance.month));
   const open = el("button", t("glance.openUsage"));
   open.type = "button";
   open.addEventListener("click", () => { $("usage-pop").hidden = true; $("usage-ring").setAttribute("aria-expanded", "false"); displayView("usage"); });

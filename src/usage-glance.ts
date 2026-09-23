@@ -98,15 +98,18 @@ export function crossingsOf(rows: LimitRow[], now: number): GlanceCrossing[] {
   return out;
 }
 
+/** This month's estimated spend: tasks with a price are summed, tasks without one are only counted. */
+export interface GlanceMonth { cost: number; pricedRuns: number; unpricedRuns: number }
+
 export type UsageGlance =
   | { available: false }
   | { available: true; settings: UsageGlanceSettings; tightest: GlanceTightest | null; crossings: GlanceCrossing[];
-    running: number; rows: LimitRow[]; summary: string; empty: boolean };
+    running: number; rows: LimitRow[]; summary: string; empty: boolean; month?: GlanceMonth };
 
 /** What the ring and its popover show, built from rows already read. */
-export function glanceFrom(view: LimitsView, settings: UsageGlanceSettings, running: number, now: number): UsageGlance {
+export function glanceFrom(view: LimitsView, settings: UsageGlanceSettings, running: number, now: number, month?: GlanceMonth): UsageGlance {
   return { available: true, settings, tightest: tightestOf(view.rows), crossings: crossingsOf(view.rows, now),
-    running, rows: view.rows, summary: view.summary, empty: view.empty };
+    running, rows: view.rows, summary: view.summary, empty: view.empty, ...(month ? { month } : {}) };
 }
 
 /** The note each running task is sent when the owner presses "Save progress". */
