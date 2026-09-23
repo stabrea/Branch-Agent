@@ -860,11 +860,11 @@ async function renderSecrets() {
   try { listing = await api(`secrets/${project}`); } catch { return; }
   list("secrets-list", listing.secrets, (secret) => {
     const node = el("div", undefined, "record");
-    node.append(el("strong", secret.name), el("span", ` · saved ${date(secret.createdAt)}`, "meta"),
-      button("Remove", async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast("Secret removed."); }));
+    node.append(el("strong", secret.name), el("span", ` · ${t("secrets.saved-at", { date: date(secret.createdAt) })}`, "meta"),
+      button(t("secrets.remove"), async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast(t("secrets.removed")); }));
     globalThis.branchSecretMarks?.(node, secret); // phase2/accounts: its service's mark and a plain name (public/service-marks.js)
     return node;
-  }, ["No secrets saved here yet.", "A secret is a password or key your assistant needs. Add one below and it is locked away on this computer."]);
+  }, [t("secrets.empty"), t("secrets.empty-next")]);
 }
 $("secret-project").addEventListener("change", () => { void renderSecrets(); });
 form("secrets-form", async () => {
@@ -1948,7 +1948,8 @@ $("demo-prompt").addEventListener("click", () => {
 function form(id, handler) {
   $(id).addEventListener("submit", async (event) => {
     event.preventDefault();
-    const submit = event.currentTarget.querySelector("button");
+    /* The form's own submit button, not the first button in it: a list drawn inside the form (Secrets) has Remove buttons. */
+    const submit = event.submitter ?? event.currentTarget.querySelector("button:not([type=button])");
     submit.disabled = true;
     try {
       await handler();

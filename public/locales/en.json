@@ -5540,5 +5540,10 @@
   "secrets.kind.key": "{service} key",
   "secrets.kind.token": "{service} token",
   "secrets.kind.password": "{service} password",
-  "secrets.used-as": "Commands use it as {name}"
+  "secrets.used-as": "Commands use it as {name}",
+  "secrets.saved-at": "saved {date}",
+  "secrets.remove": "Remove",
+  "secrets.removed": "Secret removed.",
+  "secrets.empty": "No secrets saved here yet.",
+  "secrets.empty-next": "A secret is a password or key your assistant needs. Add one below and it is locked away on this computer."
 }

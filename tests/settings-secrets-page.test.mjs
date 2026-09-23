@@ -76,6 +76,8 @@ for (const available of [true, false]) {
       for (const [one, more] of [["regular", [hiddenAtRegular]], ["advanced", null]]) {
         await level(page, one);
         await secrets(page);
+        /* The Keychain's answer arrives on its own: the count is read once it has. */
+        if (available) await page.waitForFunction(() => document.getElementById("keychain-card")?.hidden === false);
         if (available && one === "advanced") assert.equal(await page.locator("#keychain-card").isVisible(), true, `${width} px: the Keychain card is on show`);
         const { headings, more: line } = await seen(page);
         assert.deepEqual(headings, ["H2 Secrets", "H3 Keys your commands use", "H3 Passwords and keys"], `${width} px, ${one}`);
@@ -166,5 +168,52 @@ test("DG-189 the Keychain card saves as you go, with no Save button (DG-025)", a
   await page.locator("#keychain-list .card-row button").click();
   await page.waitForTimeout(300);
   assert.deepEqual(posts.at(-1), { mode: "when-needed", entries: [] });
+  assert.deepEqual(errors, []);
+});
+
+test("DG-189 the keys come first under their section, above the form that adds one, and Enter saves with Save held down", async (t) => {
+  /* The sample's "Keys your commands use" reads section, purpose line, then the keys. The app keeps its form for
+     adding one; it sits under the list, as the list's empty words ("Add one below") say. */
+  const { page, errors } = await settings(t);
+  await level(page, "regular");
+  await secrets(page);
+  await page.locator("#secret-name").fill("OPENAI_API_KEY");
+  await page.locator("#secret-value").fill("sk-test-first");
+  await page.locator("#secret-save").click();
+  await page.locator("#secrets-list .secret-row").first().waitFor();
+  for (const width of [1440, 400]) {
+    await page.setViewportSize({ width, height: 950 });
+    await secrets(page);
+    const order = await page.evaluate(() => {
+      const list = document.getElementById("secrets-list"), project = document.getElementById("secret-project");
+      return { before: Boolean(list.compareDocumentPosition(project) & Node.DOCUMENT_POSITION_FOLLOWING),
+        above: list.getBoundingClientRect().bottom <= project.getBoundingClientRect().top, shown: list.getClientRects().length > 0 };
+    });
+    assert.deepEqual(order, { before: true, above: true, shown: true }, `${width} px: the keys, then the form`);
+  }
+  /* A Remove button now comes before Save in the form: pressing Enter must hold Save down while it saves, and
+     never a Remove. */
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/secrets", async (route) => {
+    if (route.request().method() === "POST") await held;
+    await route.continue();
+  });
+  await page.locator("#secret-name").fill("GITHUB_TOKEN");
+  await page.locator("#secret-value").fill("ghp-test-second");
+  await page.locator("#secret-value").press("Enter");
+  await page.waitForFunction(() => document.getElementById("secret-save").disabled);
+  assert.equal(await page.locator("#secrets-list .secret-row button").first().isDisabled(), false, "Remove is left alone");
+  release();
+  await page.waitForFunction(() => document.querySelectorAll("#secrets-list .secret-row").length === 2);
+  assert.equal(await page.locator("#secret-save").isDisabled(), false);
+  assert.deepEqual((await page.locator("#secrets-list .secret-raw").allTextContents()).sort(),
+    ["Commands use it as GITHUB_TOKEN", "Commands use it as OPENAI_API_KEY"]);
+  /* Now on top of the page, the keys' own words are French too. */
+  await openPlace(page, "settings:appearance");
+  await page.locator("#appearance-language").selectOption("fr");
+  await secrets(page);
+  await page.waitForFunction(() => document.querySelector("#secrets-list .secret-row button")?.textContent === "Retirer");
+  assert.match(await page.locator("#secrets-list .secret-row .meta").first().textContent(), /^enregistré le /);
   assert.deepEqual(errors, []);
 });

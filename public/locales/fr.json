@@ -5541,5 +5541,10 @@
   "secrets.kind.key": "Clé {service}",
   "secrets.kind.token": "Jeton {service}",
   "secrets.kind.password": "Mot de passe {service}",
-  "secrets.used-as": "Les commandes l'utilisent sous le nom {name}"
+  "secrets.used-as": "Les commandes l'utilisent sous le nom {name}",
+  "secrets.saved-at": "enregistré le {date}",
+  "secrets.remove": "Retirer",
+  "secrets.removed": "Secret retiré.",
+  "secrets.empty": "Aucun secret enregistré ici pour l'instant.",
+  "secrets.empty-next": "Un secret est un mot de passe ou une clé dont votre assistant a besoin. Ajoutez-en un ci-dessous : il est mis sous clé sur cet ordinateur."
 }

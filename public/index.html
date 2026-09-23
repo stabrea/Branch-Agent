@@ -1409,6 +1409,7 @@
           </form>
           <form id="secrets-form" class="card" aria-labelledby="sg-bucket-secrets-commands">
             <p data-t="settings.secrets.intro">Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
+            <div id="secrets-list" class="card-list" aria-live="polite"></div>
             <label for="secret-project" data-t="field.project">Project</label>
             <select id="secret-project"></select>
             <label for="secret-name" data-t="field.name-as-an-environment-variable">The name your commands use for it (capital letters, like DEPLOY_TOKEN)</label>
@@ -1416,7 +1417,6 @@
             <label for="secret-value" data-t="field.value">Value</label>
             <input id="secret-value" type="password" maxlength="8192" autocomplete="new-password" spellcheck="false" />
             <button id="secret-save" data-t="action.save-secret">Save secret</button>
-            <div id="secrets-list" class="card-list" aria-live="polite"></div>
           </form>
           <section id="channels-card" class="card">
             <h2 data-t="settings.card.channels">Channels</h2>
