@@ -8,6 +8,9 @@
    - On a phone or tablet (900 px and under), a question the assistant stops on is scrolled into view above the message
      box when it arrives, so it can be answered without hunting for it.
    - The tablet layout (the side list kept as a column from 700 px) is CSS only (public/phone-layout.css).
+   - DG-145: at the sample's phone width (760 px and under) the usage ring moves into the title bar, just
+     before search, as a ring alone; wider, it stays on the line under the message box. The same element
+     moves (its list with it), so there is still one ring and one truth.
 
    Layout only: nothing here decides anything, and every place opens through displayView, the same way
    the side list opens it. Colours come from public/tokens.css through the stylesheet. */
@@ -33,6 +36,7 @@ const BAR = [
   ["customize", "place.customize", "Customize"],
 ];
 const nearby = matchMedia("(max-width: 900px)");
+const narrow = matchMedia("(max-width: 760px)");
 
 function icon(name) {
   const svg = document.createElementNS(SVG, "svg");
@@ -139,8 +143,25 @@ function watchQuestions() {
   if (dock) sizes.observe(dock);
 }
 
+/** DG-145: the ring's place follows the width; a marker keeps its spot under the message box. */
+function placeRing() {
+  const ring = $("status-bar"), search = $("head-search");
+  if (!ring || !search) return;
+  let spot = document.getElementById("status-bar-home");
+  if (!spot) {
+    spot = document.createElement("span");
+    spot.id = "status-bar-home";
+    spot.hidden = true;
+    ring.before(spot);
+  }
+  if (narrow.matches) { if (ring.nextElementSibling !== search) search.before(ring); }
+  else if (spot.nextElementSibling !== ring) spot.after(ring);
+  ring.classList.toggle("ew-ring-top", narrow.matches);
+}
 function start() {
   buildBar();
+  placeRing();
+  narrow.addEventListener("change", placeRing);
   watchQuestions();
 }
 if (document.body.classList.contains("lx-ready")) start();
