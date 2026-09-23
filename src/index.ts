@@ -131,6 +131,7 @@ import { PluginCatalog } from "./plugin-catalog.js";
 import { AddOns } from "./add-ons/index.js"; // bucket-15: add-ons other people wrote
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
+import { registerLeads } from "./leads.js"; // packages.leads: prospect enrichment, scoring and de-duplication
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
@@ -800,6 +801,7 @@ export async function createBranch(options: {
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  registerLeads(registry); // packages.leads: enrich, score and de-duplicate a prospect list, no data leaves this computer
   // Writing Word, spreadsheet, slide, Markdown and web-page files, and changing Word and
   // spreadsheet files in place with every untouched part kept byte for byte.
   registerDocumentAuthoring(registry, new DocumentAuthoring(files, dataTables, artifacts, writeObserver));
