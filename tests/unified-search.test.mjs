@@ -159,6 +159,11 @@ test("an older matching record entry is still found behind 250 newer ones that d
     action: "data.exported", actor: owner, subject: `export touching ${word}`,
     reason: "The one old entry that matches", outcome: "saved",
   });
+  // Another owner's entry that matches must never come back (NAS: owner=? was untested).
+  app.store.audit.record("someone-else", {
+    action: "data.exported", actor: "someone-else", subject: `their export touching ${word}`,
+    reason: "Another owner's entry", outcome: "saved",
+  });
   for (let i = 0; i < 250; i += 1) {
     app.store.audit.record(owner, {
       action: "data.exported", actor: owner, subject: `unrelated export ${i}`,
@@ -170,6 +175,18 @@ test("an older matching record entry is still found behind 250 newer ones that d
   const repository = found.body.results.filter((r) => r.kind === "repository");
   assert.equal(repository.length, 1, JSON.stringify(found.body.results));
   assert.equal(repository[0].snippet, `export touching ${word}`);
+});
+
+test("a long query checks each distinct word once, at most eight, and still finds the match", async (t) => {
+  /* NAS review: every word scanned the whole record, so 100 one-letter words took 13 s on 50,000 entries. */
+  const { app } = await served(t);
+  const owner = app.runtime.owner;
+  app.store.audit.record(owner, { action: "data.exported", actor: owner, subject: "export of the quarterly ledger", reason: "kept", outcome: "saved" });
+  const words = ["ledger", "led", "ledger", "quarterly", "q", "u", "a", "r", ...Array.from({ length: 90 }, () => "e")];
+  const started = Date.now();
+  const found = app.store.audit.search(owner, words, 5);
+  assert.equal(found.length, 1, "repeats and words inside longer ones change nothing");
+  assert.ok(Date.now() - started < 1000);
 });
 
 test("unified search refuses a household profile by itself, not only behind the route's outer walls", async (t) => {

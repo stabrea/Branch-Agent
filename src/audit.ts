@@ -177,6 +177,7 @@ export class AuditLog {
    * recent window, so an older match is still found.
    */
   search(owner: string, words: readonly string[], limit: number): AuditEntry[] {
+    words = searchWords(words);
     if (!words.length) return [];
     const where = ["owner=?"];
     const values: string[] = [owner];
@@ -195,6 +196,14 @@ export class AuditLog {
     const found = new Map(rows.map((row) => [String(row.action), Number(row.n)]));
     return auditActions.map((action) => ({ action, label: auditLabel(action), count: found.get(action) ?? 0 }));
   }
+}
+/**
+ * The words worth matching: each word is checked on every entry, so repeats and words already inside a
+ * longer one add cost and change nothing, and at most eight are kept (longest first, as they narrow most).
+ */
+function searchWords(words: readonly string[]): string[] {
+  const unique = [...new Set(words.filter(Boolean))].sort((a, b) => b.length - a.length);
+  return unique.filter((word, index) => !unique.slice(0, index).some((longer) => longer.includes(word))).slice(0, 8);
 }
 function toEntry(row: Record<string, unknown>): AuditEntry {
   const source = String(row.source) as AuditSource;
