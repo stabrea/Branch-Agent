@@ -3,7 +3,7 @@
    French. Lockdown is on the page and is the rail's own switch. The limits are saved as you go. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -121,5 +121,26 @@ test("DG-008 on Permissions only the page title is level two, and a one-card sec
     assert.equal(await host.getByRole("heading", { name: title, exact: true }).count(), 1, `${title} is said once`);
   for (const title of ["A second look before approvals", "Emergency stop", "Trusted folders", "Security check", "How much one person may ask for"])
     assert.equal(await host.getByRole("heading", { name: title, exact: true, level: 3 }).count(), 1, `${title} sits under its section`);
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S01/S04 on Permissions: each one-card section's card has its heading, then the sample's one sentence", async (t) => {
+  /* Review of DG-187: the policy, Lockdown and pinned cards lost their headings to their sections' heads, so the
+     Settings walk (tests/settings-descriptions.test.mjs) found no heading followed by what the card is for. */
+  const en = JSON.parse(await readFile(join(import.meta.dirname, "..", "public", "locales", "en.json"), "utf8"));
+  const { page, errors } = await fixture(t);
+  for (const [id, key] of [["policy-card", "settings.policy.intro"], ["lockdown-card", "settings.lockdown.intro"], ["pins-form", "settings.pins.intro"]]) {
+    const found = await page.evaluate((cardId) => {
+      const card = document.getElementById(cardId);
+      const heading = card.querySelector(":scope > h3.settings-card-title");
+      const next = heading?.nextElementSibling;
+      return { heading: heading?.textContent.trim() ?? null, tag: next?.tagName ?? null, purpose: next?.textContent.trim() ?? null,
+        section: card.previousElementSibling?.querySelector(".sg-head-title")?.textContent.trim() ?? null };
+    }, id);
+    assert.ok(found.heading, `${id} has its own heading`);
+    assert.equal(found.section, found.heading, `${id}: its section's head says the card's title`);
+    assert.equal(found.tag, "P", `${id}: its heading is followed by what it is for`);
+    assert.equal(found.purpose, en[key], `${id}: the sentence is the sample's`);
+  }
   assert.deepEqual(errors, []);
 });
