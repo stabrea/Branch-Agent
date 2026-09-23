@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Store } from '../store.js';
-import { FeatureModeSchema, sentFields, settleSwitch } from '../feature-switches.js';
+import { FeatureModeSchema, optionalFields, settleSwitch } from '../feature-switches.js';
 import { lockdownOverrides } from '../lockdown.js'; // mac7/lockdown-fix
 
 /**
@@ -19,7 +19,7 @@ export const DesktopSettingsSchema = z.object({
   maxActionsPerRun: z.number().int().min(1).max(200).default(40),
 }).strict();
 export type DesktopSettings = z.infer<typeof DesktopSettingsSchema>;
-export const DesktopSettingsInputSchema = DesktopSettingsSchema.partial();
+export const DesktopSettingsInputSchema = optionalFields(DesktopSettingsSchema); // Q65: a field left out stays out
 const settingsKey = 'desktop-control';
 
 export function readDesktopSettings(store: Store, owner: string): DesktopSettings {
@@ -30,7 +30,7 @@ export function readDesktopSettings(store: Store, owner: string): DesktopSetting
   return { ...settings, ...settleSwitch(settings, {}) };
 }
 export function saveDesktopSettings(store: Store, owner: string, input: unknown): DesktopSettings {
-  const value = sentFields(DesktopSettingsInputSchema.parse(input ?? {}), input);
+  const value = DesktopSettingsInputSchema.parse(input ?? {});
   const current = readDesktopSettings(store, owner);
   const next = DesktopSettingsSchema.parse({ ...current, ...value, ...settleSwitch(current, value) });
   store.save('settings', owner, settingsKey, next);

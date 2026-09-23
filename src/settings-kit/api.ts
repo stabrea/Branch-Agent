@@ -78,6 +78,8 @@ function overview(deps: SettingsKitDeps) {
   return {
     settings: settingsCatalogue.map((spec) => ({
       key: spec.key, name: spec.name, t: spec.t, home: spec.home,
+      // Q65 review: why this setting cannot be changed from here right now, and whether it can be put back as shipped.
+      refused: spec.refuses?.(deps.store, deps.owner) ?? null, canPutBack: !!spec.putBack,
       fields: spec.fields.map((field) => ({ field: field.field, label: field.label, t: field.t, guard: field.guard,
         initial: field.initial, value: currentValue(deps.store, deps.owner, spec, field),
         pinned: pinned.has(pinId(spec.key, field.field)) })),
@@ -117,7 +119,7 @@ function apply(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = Apply.parse(input);
   const { proposals, why, origin } = proposalsFor(body.plan);
-  const { changes } = changesFor(deps.store, deps.owner, proposals);
+  const { changes, refused } = changesFor(deps.store, deps.owner, proposals);
   let applied, skipped, record;
   try {
     // mac7/wake-pins: one switch moved on purpose may be a pinned one; a preset, a settings file or
@@ -129,7 +131,7 @@ function apply(deps: SettingsKitDeps, input: unknown) {
   if (body.plan.source === "import" && applied.length)
     audit(deps.store, deps.owner, { action: "data.imported", actor: deps.owner, subject: "settings, from one file",
       reason: `${applied.length} of ${changes.length} proposed changes were made`, outcome: "saved" });
-  return { applied, skipped, record: record ?? null, overview: overview(deps) };
+  return { applied, skipped, refused, record: record ?? null, overview: overview(deps) };
 }
 
 /** Q48: undo one recorded change. Lockdown refuses it exactly as it refuses any other change here. */
@@ -151,6 +153,25 @@ function why(deps: SettingsKitDeps, setting: string) {
   const answer = whySetting(deps.store, deps.owner, setting);
   if (!answer) throw new SettingsKitError(404, "There is no such setting.");
   return answer;
+}
+
+/**
+ * Q65 review: the way out for a setting whose saved record cannot be read (voice): the whole record is put
+ * back to how Branch ships, because neither the kit nor the setting's own card can change a record they
+ * cannot read. The owner's alone, like every route here, and not while Lockdown holds the settings.
+ */
+const PutBackBody = z.object({ key: z.string().max(80) }).strict();
+function putBack(deps: SettingsKitDeps, input: unknown) {
+  if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
+  const spec = settingsCatalogue.find((entry) => entry.key === PutBackBody.parse(input).key);
+  if (!spec?.putBack) throw new SettingsKitError(404, "That setting has no way to be put back as shipped.");
+  // Only a record that cannot be read: a readable one is changed through the kit or its card, where a
+  // loosening asks and a pin holds (a stale button in another window must not wipe what the owner just set).
+  if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
+  spec.putBack(deps.store, deps.owner);
+  audit(deps.store, deps.owner, { action: "policy.changed", actor: deps.owner, subject: `${spec.name}: put back as shipped`,
+    reason: "The saved record could not be read, so the whole of it was started again from how Branch ships", outcome: "saved" });
+  return { overview: overview(deps) };
 }
 
 export async function settingsKitApi(deps: SettingsKitDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
@@ -177,6 +198,7 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   if (path === "/api/settings-kit/apply") return apply(deps, await body());
   if (path === "/api/settings-kit/pins") return pin(deps, await body()); // mac7/wake-pins
   if (path === "/api/settings-kit/undo") return undo(deps, await body()); // Q48
+  if (path === "/api/settings-kit/put-back") return putBack(deps, await body()); // Q65 review
   if (path === "/api/settings-kit/files") {
     const input = await body();
     try { return saveFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }

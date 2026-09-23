@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { chromium, type Browser, type ConnectOptions } from 'playwright';
 import { z } from 'zod';
-import { FeatureModeSchema } from '../feature-switches.js';
+import { FeatureModeSchema, optionalFields } from '../feature-switches.js';
 import { isTailnetAddress } from '../remote/tailscale.js';
 import type { Store } from '../store.js';
 
@@ -55,8 +55,11 @@ export const BrowserContainerSchema = z.object({
 }).strict();
 export type BrowserContainer = z.infer<typeof BrowserContainerSchema>;
 
-/** What Settings may send: the settings above, plus the token (a string saves it, null removes it). */
-export const BrowserContainerInputSchema = BrowserContainerSchema.partial().extend({
+/**
+ * What Settings may send: the settings above, plus the token (a string saves it, null removes it). Q65: a field
+ * left out stays out, so saving the address alone no longer turns the switch off and the place back to Docker.
+ */
+export const BrowserContainerInputSchema = optionalFields(BrowserContainerSchema).extend({
   token: z.string().min(1).max(4000).nullable().optional(),
 }).strict();
 

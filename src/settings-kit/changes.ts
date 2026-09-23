@@ -67,18 +67,22 @@ export function currentValue(store: Store, owner: string, spec: SettingSpec, fie
   if (saved === undefined && field.field === "mode" && spec.keepsEnabled && data.enabled === true) saved = "when-needed";
   const accepted = acceptValue(field, saved);
   if (accepted !== undefined) return accepted;
+  // A number saved between whole steps, on a setting the app itself keeps that way (the dictation wait takes
+  // 1.5 seconds), is read as it is, so a change from it is weighed against what is really in force.
+  const kind = field.kind;
+  if (kind.type === "number" && kind.fractions && typeof saved === "number" && Number.isFinite(saved) && saved >= kind.min && saved <= kind.max) return saved;
   // A choice saved outside the list ("custom" approval rules) is shown as it is, and counts as the
   // least known position, so moving away from it always asks for the separate yes.
   return field.kind.type === "choice" && typeof saved === "string" ? saved.slice(0, 40) : field.initial;
 }
 
-/** How careful a value is, as a number: higher is less careful. */
+/** Ordered magnitude; loosens() applies the field's protective or reach direction. */
 function reachOf(field: FieldSpec, value: Value): number {
   const kind = field.kind;
   if (kind.type === "switch") return switchPositions.indexOf(value as (typeof switchPositions)[number]);
   if (kind.type === "yes-no") return value ? 1 : 0;
   if (kind.type === "choice") return kind.options.indexOf(String(value));
-  return 0;
+  return value as number;
 }
 
 export function loosens(field: FieldSpec, from: Value, to: Value, spec?: Pick<SettingSpec, "key">): boolean {
@@ -110,6 +114,9 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
     if (!spec || !field || secretShaped.test(proposal.field)) { refused.push(`${id}: not a setting that can be changed from here`); continue; }
     const to = acceptValue(field, proposal.value);
     if (to === undefined) { refused.push(`${id}: not a value this setting can hold`); continue; }
+    // Q65 review: a setting that cannot be changed right now is refused here, before anything is written.
+    const refusal = spec.refuses?.(store, owner);
+    if (refusal) { refused.push(`${id}: ${refusal}`); continue; }
     const from = currentValue(store, owner, spec, field);
     if (from === to || seen.has(id)) continue;
     seen.add(id);

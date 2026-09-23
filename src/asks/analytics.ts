@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalFields } from "../feature-switches.js"; // Q65
 import type { Store } from "../store.js";
 import { askMode, partSettings } from "./settings.js";
 
@@ -40,7 +41,9 @@ export class Analytics {
   }
   /** Consent and the address. A no (or a withdrawn yes) wipes what was counted. */
   save(input: unknown): AnalyticsSettings & { question: string } {
-    const change = AnalyticsSettingsSchema.pick({ consent: true, sendTo: true }).partial().strict().parse(input);
+    // Q65: only what was sent. `.partial()` filled the other with its default, so saving the address
+    // answered "not asked" (and wiped the counts), and answering the question cleared the address.
+    const change = optionalFields(AnalyticsSettingsSchema.pick({ consent: true, sendTo: true })).parse(input);
     const current = this.settings();
     const next: AnalyticsSettings = {
       consent: change.consent ?? current.consent,

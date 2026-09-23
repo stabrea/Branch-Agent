@@ -1029,6 +1029,8 @@ export const ROUTES = {
   "/api/settings-kit/history": "look",
   "/api/settings-kit/undo": "owner POST",
   "/api/settings-kit/why/[A-Za-z0-9_.:-]{3,160}": "look",
+  // Q65 review: putting an unreadable setting (voice) back as shipped is the owner's alone.
+  "/api/settings-kit/put-back": "owner POST",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",

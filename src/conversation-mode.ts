@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import type { Store } from "./store.js";
 import { presetRules, type Policy, type PolicyPresetName, type PolicyRule } from "./policy.js";
 
@@ -113,7 +114,7 @@ export function conversationModeSettings(store: Pick<Store, "get">, owner: strin
   return saved.success ? saved.data : ConversationModeSettingsSchema.parse({});
 }
 export function saveConversationModeSettings(store: Pick<Store, "get" | "save">, owner: string, input: unknown): ConversationModeSettings {
-  const next = ConversationModeSettingsSchema.parse({ ...conversationModeSettings(store, owner), ...ConversationModeSettingsSchema.partial().parse(input ?? {}) });
+  const next = ConversationModeSettingsSchema.parse({ ...conversationModeSettings(store, owner), ...optionalFields(ConversationModeSettingsSchema).parse(input ?? {}) }); // Q65: a field left out keeps its value
   store.save("settings", owner, settingsKey, next);
   return next;
 }
