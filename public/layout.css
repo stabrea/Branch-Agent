@@ -1697,7 +1697,7 @@ body.lx #connection[data-state="lost"] {
   color: var(--muted);
 }
 /* the composer: the box, then Send */
-:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
+:root body.lx #chat-form > div:last-child {
   justify-content: flex-end;
 }
 /* The empty conversation: the question and the box together, in the middle of the pane. Once there is
@@ -1786,7 +1786,7 @@ body.lx #connection[data-state="lost"] {
 .lx-starters {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #chat-form {
+:root body.lx #chat-form {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
@@ -1798,22 +1798,22 @@ body.lx #connection[data-state="lost"] {
   box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow, var(--shadow));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-:root:not([data-everything="on"]) body.lx #chat-form:focus-within {
+:root body.lx #chat-form:focus-within {
   border-color: var(--copper);
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 3px var(--copper-tint), var(--card-shadow, var(--shadow));
 }
-:root:not([data-everything="on"]) body.lx #chat-form > #composer-attachments {
+:root body.lx #chat-form > #composer-attachments {
   grid-column: 1 / -1;
   grid-row: 1;
   margin: 2px 6px 6px;
 }
-:root:not([data-everything="on"]) body.lx #chat-form > .lx-plus-wrap {
+:root body.lx #chat-form > .lx-plus-wrap {
   display: block;
   position: relative;
   grid-column: 1;
   grid-row: 2;
 }
-:root:not([data-everything="on"]) body.lx #prompt {
+:root body.lx #prompt {
   grid-column: 2;
   grid-row: 2;
   field-sizing: content;
@@ -1825,10 +1825,10 @@ body.lx #connection[data-state="lost"] {
   line-height: 24px;
   outline: none;
 }
-:root:not([data-everything="on"]) body.lx #prompt::placeholder {
+:root body.lx #prompt::placeholder {
   color: var(--text-3);
 }
-:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
+:root body.lx #chat-form > div:last-child {
   grid-column: 3;
   grid-row: 2;
   display: flex;
@@ -1838,11 +1838,11 @@ body.lx #connection[data-state="lost"] {
   margin: 0;
   padding: 2px 0;
 }
-:root:not([data-everything="on"]) body.lx #followup-send {
+:root body.lx #followup-send {
   display: none;
 }
 /* the round buttons: Send (an arrow), Stop (a square), "+" */
-:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) {
+:root body.lx :is(#send, #lx-stop, #lx-plus) {
   display: grid;
   place-items: center;
   width: 36px;
@@ -1854,52 +1854,52 @@ body.lx #connection[data-state="lost"] {
   box-shadow: none;
   transition: background 0.15s ease, color 0.15s ease;
 }
-:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) .lx-icon {
+:root body.lx :is(#send, #lx-stop, #lx-plus) .lx-icon {
   width: 18px;
   height: 18px;
   stroke-width: 2.2;
 }
-:root:not([data-everything="on"]) body.lx #send .lx-send-words {
+:root body.lx #send .lx-send-words {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #send .lx-icon {
+:root body.lx #send .lx-icon {
   display: block;
 }
-:root:not([data-everything="on"]) body.lx #send {
+:root body.lx #send {
   background: var(--copper);
   color: var(--on-copper);
 }
-:root:not([data-everything="on"]) body.lx #send:hover {
+:root body.lx #send:hover {
   background: var(--copper-hi);
 }
-:root:not([data-everything="on"]) body.lx #send.lx-empty {
+:root body.lx #send.lx-empty {
   background: var(--press);
   color: var(--text-3);
   cursor: default;
 }
-:root:not([data-everything="on"]) body.lx.lx-sending #send {
+:root body.lx.lx-sending #send {
   display: none;
 }
-:root:not([data-everything="on"]) body.lx #lx-stop:not([hidden]) {
+:root body.lx #lx-stop:not([hidden]) {
   display: grid;
   background: var(--text);
   color: var(--ground);
 }
-:root:not([data-everything="on"]) body.lx #lx-stop .lx-icon {
+:root body.lx #lx-stop .lx-icon {
   fill: currentColor;
   width: 14px;
   height: 14px;
 }
-:root:not([data-everything="on"]) body.lx #lx-plus {
+:root body.lx #lx-plus {
   background: transparent;
   color: var(--text-2);
 }
-:root:not([data-everything="on"]) body.lx #lx-plus:hover,
-:root:not([data-everything="on"]) body.lx #lx-plus[aria-expanded="true"] {
+:root body.lx #lx-plus:hover,
+:root body.lx #lx-plus[aria-expanded="true"] {
   background: var(--hover);
   color: var(--text);
 }
-:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus):focus-visible {
+:root body.lx :is(#send, #lx-stop, #lx-plus):focus-visible {
   outline: 2px solid var(--copper);
   outline-offset: 2px;
 }
@@ -1938,7 +1938,7 @@ body.lx #connection[data-state="lost"] {
 /* Legibility first where people read and type (the benchmark's "no glow behind forms"): the oak
    stays behind empty areas, but a soft veil of the pane's own colour sits behind the message box and
    the question over it, and the Settings window is solid. */
-:root:not([data-everything="on"]) body.lx .composer-dock::before {
+:root body.lx .composer-dock::before {
   content: "";
   position: absolute;
   inset: -170px -240px -90px;
