@@ -152,6 +152,15 @@ test("DG-195: On this page lists only the sections drawn at the level, and only 
   assert.ok(regular.sections.length >= 4, `Computer is a longer page: ${regular.sections.join(" · ")}`);
   assert.deepEqual(regular.contents, regular.sections, "the list names exactly the sections on show");
   assert.equal(regular.contents.includes("Under the hood"), false);
+  /* In French the list names the sections in French. */
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction((english) => document.querySelector("#lx-page-computer .sg-head-title")?.textContent.trim() !== english, regular.sections[0]);
+  await page.waitForTimeout(300);
+  const french = await lists();
+  assert.notDeepEqual(french.sections, regular.sections);
+  assert.deepEqual(french.contents, french.sections, "the list follows the language");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  await page.waitForFunction((english) => document.querySelector("#lx-page-computer .sg-head-title")?.textContent.trim() === english, regular.sections[0]);
   await level(page, "technical");
   const technical = await lists();
   assert.deepEqual(technical.contents, technical.sections, "the list follows the level");
