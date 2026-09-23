@@ -214,9 +214,14 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     // writing down what an update would do is a disk write like any other. Leaving here is the exact
     // down-service condition the rest of this file exists to prevent, arrived at through the one
     // door that had no recovery behind it.
+    // Not `serviceBack`: that falls back to putting the version before back, and there is nothing to
+    // put back. Nothing was written down, so `branch rollback` has no record to work from and would
+    // answer "there is no record of an update to go back from". Reaching for it here would offer the
+    // owner a way out that does not exist. What can be done is to start the version that is still
+    // installed -- the files were never touched -- and to say plainly when even that will not come
+    // up, because a stopped service nobody is told about is the whole failure.
     if (stopped.report?.wasRunning && note?.mode === "daemon")
-      await serviceBack(input, note, input.version,
-        join(deps.scratchDir ?? join(tmpdir(), "branch-agent-update"), "apply-update.log"));
+      await startInstalledAgain(input, note);
     // The service being back is the least this owes them, never a successful update.
     return 1;
   }
@@ -249,6 +254,25 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
  * does not come up the version before is put back and started instead: the owner is never left with
  * no Branch running.
  */
+/**
+ * Starts the version that is still installed, for a failure that happened after the stop and before
+ * anything moved. There is no way back to offer and none is implied: either the service answers for
+ * itself on the version it was already running, or the owner is told it is not running and how to
+ * start it.
+ */
+async function startInstalledAgain(input: HeadlessUpdateInput, before: RunningInstance): Promise<void> {
+  const deps = input.deps ?? {}, platform = input.platform ?? process.platform;
+  const restart = deps.restartService ?? (() => restartService(platform));
+  const started = await restart().then(() => true, () => false);
+  if (started && await waitForReturn(input.dataDir, { pid: before.pid, startedAt: before.startedAt },
+    { version: input.version }, deps.returnWait)) {
+    input.print(`Branch is working in the background again, on version ${input.version}.`);
+    return;
+  }
+  input.print(`Branch is not running in the background. Nothing on this computer was changed, so version `
+    + `${input.version} is still the one installed: start it with \`branch start\`.`);
+}
+
 async function serviceBack(
   input: HeadlessUpdateInput, before: RunningInstance, expected: string, log: string,
 ): Promise<number> {
