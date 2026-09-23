@@ -4173,6 +4173,7 @@
   "security.check.web.browser-many-sites": "The browser is limited to a handful of sites",
   "security.check.web.browser-plain-site": "The browser only opens sites over encrypted connections",
   "security.check.web.browser-saves-programs": "The browser does not keep programs a website sends",
+  "security.check.web.fake-ip-proxy": "Branch looks up the sites it reaches itself",
   "security.check.web.instructions-only-noted": "Instructions hidden in web pages are taken out, not just noted",
   "security.check.web.private-addresses": "The assistant cannot reach your home network",
   "security.check.web.trace-plain-address": "Traces are only sent over an encrypted connection",

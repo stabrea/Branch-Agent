@@ -85,3 +85,51 @@ test("reading a page at [::ffff:127.0.0.1] never reaches the local server", asyn
   assert.equal(page.body, "local");
   assert.equal(hits, 1);
 });
+
+/* ------------------------------------------------------------------ fake-IP proxies (198.18.0.0/15) */
+
+/** A name server that answers the way a fake-IP proxy (Clash, Mihomo, Surge, Stash, sing-box) does. */
+const fakeAnswers = { "fake.test": ["198.18.0.5"], "edge.test": ["198.19.255.254"], "home.test": ["127.0.0.1"],
+  "both.test": ["198.18.0.5", "127.0.0.1"], "mapped.test": ["::ffff:198.18.0.5"], "lan.test": ["192.168.1.1"] };
+const fakeResolve = async (host) => fakeAnswers[host] ?? ["93.184.216.34"];
+
+test("by default a name that resolves into 198.18.0.0/15 is refused, and the refusal names the range and the setting", async () => {
+  const policy = new NetworkPolicy({}, fakeResolve);
+  const refusal = await policy.assertAllowed(new URL("https://fake.test/")).then(() => null, (error) => error.message);
+  assert.match(refusal ?? "", /private or local address/);
+  assert.match(refusal ?? "", /198\.18\.0\.0\/15/, "the range is named");
+  assert.match(refusal ?? "", /fake-IP proxy/, "the kind of setup that causes it is named in plain words");
+  assert.match(refusal ?? "", /fakeIpProxy/, "the setting that allows it is named");
+  assert.equal(new NetworkPolicy({}).settings().fakeIpProxy, undefined, "the setting is left out unless the owner wrote it");
+});
+
+test("with fakeIpProxy on, a name that resolves into 198.18.0.0/15 is let through and nothing else changes", async () => {
+  const policy = new NetworkPolicy({ fakeIpProxy: true }, fakeResolve);
+  await policy.assertAllowed(new URL("https://fake.test/"));
+  await policy.assertAllowed(new URL("https://edge.test/"));
+  // A literal address in the range is still refused, however it is spelled, and never points at the setting.
+  for (const literal of ["198.18.0.5", "198.19.255.254", "[::ffff:198.18.0.5]", "3323068421", "0xc6120005", "198.18.0.5."]) {
+    const refusal = await policy.assertAllowed(new URL(`http://${literal}/`)).then(() => null, (error) => error.message);
+    assert.match(refusal ?? "allowed", /private or local address/, literal);
+    assert.doesNotMatch(refusal ?? "", /switch on/, literal);
+  }
+  // This computer, the home network, and a range answer mixed with one of them stay refused.
+  for (const name of ["home.test", "both.test", "lan.test", "mapped.test"])
+    await assert.rejects(policy.assertAllowed(new URL(`https://${name}/`)), /private or local address/, name);
+  await assert.rejects(policy.assertAllowed(new URL("http://localhost/")), /this computer or a private network/);
+  // Host and path rules still apply to a name the proxy answers.
+  const listed = new NetworkPolicy({ fakeIpProxy: true, allowedHosts: ["example.com"] }, fakeResolve);
+  await assert.rejects(listed.assertAllowed(new URL("https://fake.test/")), /not on the allowed list/);
+});
+
+test("with fakeIpProxy on, a redirect to a literal 198.18 address is refused before anything is sent to it", async () => {
+  const policy = new NetworkPolicy({ fakeIpProxy: true }, fakeResolve);
+  const sent = [];
+  const fakeFetch = async (url) => {
+    sent.push(String(url));
+    return new Response("", { status: 302, headers: { location: "http://198.18.0.9/inside" } });
+  };
+  const deps = { policy, fetch: fakeFetch, timeoutMs: 5000, maxBytes: 100000, userAgent: "BranchAgent" };
+  await assert.rejects(fetchChecked(deps, "https://fake.test/start", new AbortController().signal), /private or local address/);
+  assert.deepEqual(sent, ["https://fake.test/start"], "the named site was asked, the literal hop never was");
+});

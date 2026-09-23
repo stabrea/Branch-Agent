@@ -569,7 +569,8 @@ export async function createBranch(options: {
   // ── end R17-S-C ──
   // ---- wave mac3 (os-sandbox): the wall's door asks the same network rules as the web, and never
   // lets a program behind the wall read Branch's own data folder.
-  setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target), dataDir });
+  setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target),
+    fakeIpProxy: () => web.policy.settings().fakeIpProxy === true, dataDir });
   // ---- end wave mac3 (os-sandbox)
   // A paid search service's key comes out of the locker for the one request and is written down
   // nowhere else: the settings file only ever holds the name of the secret, never its value.

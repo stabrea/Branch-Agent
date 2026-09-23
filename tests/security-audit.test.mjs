@@ -125,6 +125,7 @@ const triggers = {
   "commands.hook-lets-through": (s) => { s.integrations.hooks = [{ id: "review", event: "tool.before", executable: "git", args: [], onTimeout: "allow" }]; },
   "commands.container-image-unpinned": (s) => { s.policy.rules.unshift(rule({ tool: "code.run", backend: "docker" })); },
   "web.private-addresses": (s) => { s.network.allowPrivateAddresses = true; },
+  "web.fake-ip-proxy": (s) => { s.network.fakeIpProxy = true; },
   "web.anywhere-with-chat": (s) => { chat(s); },
   "web.instructions-only-noted": (s) => { chat(s); s.integrations.web = { allowPrivateAddresses: false, allowedHosts: null, injection: "warn" }; },
   "web.browser-plain-site": (s) => { s.integrations.browser = { allowedOrigins: ["http://intranet.example.com"], downloadTypes: [] }; },
