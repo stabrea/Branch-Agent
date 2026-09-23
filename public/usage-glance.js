@@ -115,6 +115,14 @@ function paintPopover() {
   for (const row of glance.rows ?? []) box.append(rowNode(row));
   box.append(el("p", glance.empty ? glance.summary : `${glance.summary} ${t("glance.neverAdded")}`, "glance-summary"));
   const foot = el("div", undefined, "glance-foot");
+
+  // DG-148: Add "This month: $…" total in footer
+  const monthTotal = el("span", undefined, "glance-month-total");
+  if (glance.monthlyTotal) {
+    monthTotal.append(el("span", t("glance.thisMonth")), el("b", glance.monthlyTotal));
+  }
+  foot.append(monthTotal);
+
   const open = el("button", t("glance.openUsage"));
   open.type = "button";
   open.addEventListener("click", () => { $("usage-pop").hidden = true; $("usage-ring").setAttribute("aria-expanded", "false"); displayView("usage"); });

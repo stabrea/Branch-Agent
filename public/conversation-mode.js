@@ -15,6 +15,7 @@ const PATHS = {
   auto: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6",
   full: "M6 11h12v9H6zM8 11V8a4 4 0 017.5-2",
   follow: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5a2 2 0 110 4 2 2 0 010-4zM10 15a2 2 0 110 4 2 2 0 010-4z",
+  lockdown: "M12 3c3.3 0 6 2.7 6 6v2h1v10H5V11h1V9c0-3.3 2.7-6 6-6m0 2c-2.2 0-4 1.8-4 4v2h8V9c0-2.2-1.8-4-4-4m-1 9h2v2h-2z",
   chevron: "M6 9l6 6 6-6",
   check: "M5 12l5 5 9-10",
 };
@@ -123,19 +124,48 @@ function confirmFull(menu) {
   menu.replaceChildren(el("p", t("mode.full"), "mode-heading"), box);
   yes.focus();
 }
+function lockdownItem() {
+  const item = el("button", undefined, "mode-item");
+  item.type = "button";
+  item.setAttribute("role", "menuitemcheckbox");
+  item.setAttribute("aria-checked", String(state.locked));
+  item.dataset.locked = String(state.locked);
+  const words = el("span", undefined, "mode-words");
+  words.append(el("b", t("mode.lockdown")), el("small", state.owner ? t("mode.lockdown.note") : t("mode.lockdown.ownerOnly")));
+  item.append(icon("lockdown"), words, state.locked ? icon("check") : el("span"));
+  if (!state.owner) {
+    item.setAttribute("aria-disabled", "true");
+  } else {
+    item.addEventListener("click", async () => {
+      try {
+        state = await api("lockdown", { on: !state.locked });
+        paintChip();
+        void refreshMode();
+        toast(state.locked ? t("mode.lockdownOn") : t("mode.lockdownOff"));
+      } catch (error) { toast(error.message); }
+    });
+  }
+  return item;
+}
 function paintMenu(menu = $("mode-menu")) {
   if (!state) return;
   if (confirming) return confirmFull(menu);
   const mode = chosen();
   menu.replaceChildren(el("p", t("mode.question"), "mode-heading"));
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
-  menu.append(el("hr"), followItem(mode));
+  menu.append(el("hr"));
 
-  // DG-153: Add footer explaining mode choices and keyboard shortcuts
+  // DG-151: Add Lockdown as a fifth row in mode menu
+  menu.append(lockdownItem());
+
+  if (!state.locked && !state.outside) menu.append(el("hr"));
+  menu.append(followItem(mode));
+
+  // DG-153: Add footer with approved text about Shift+Tab and Settings
   if (!state.locked && !state.outside && mode !== null) {
     const footer = el("div", undefined, "mode-footer");
-    const line1 = el("p", `New conversations start on ${t("mode.ask")}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
-    const line2 = el("p", `Number keys 1, 3, 4 in the message box switch modes. More choices (Just do it inside my workspace, Read only) are in Settings › Permissions.`, "mode-note");
+    const line1 = el("p", t("mode.note.line1"), "mode-note");
+    const line2 = el("p", t("mode.note.line2"), "mode-note");
     footer.append(line1, line2);
     menu.append(footer);
   }
