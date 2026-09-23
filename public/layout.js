@@ -382,6 +382,25 @@ function tabButton(placeId, tab, key, english, oldView) {
   trigger.dataset.place = placeId;
   trigger.dataset.tab = tab;
   trigger.removeAttribute("title");
+
+  // DG-140: Add count badge to Inbox "needs" tab
+  if (placeId === "inbox" && tab === "needs") {
+    const count = make("span", "lx-tab-count");
+    count.id = "lx-needs-tab-count";
+    count.hidden = true;
+    trigger.append(count);
+    // Sync count with the Inbox badge
+    const syncCount = () => {
+      const badge = $("lx-inbox-badge");
+      if (badge) {
+        count.textContent = badge.textContent;
+        count.hidden = badge.hidden;
+      }
+    };
+    syncCount();
+    new MutationObserver(syncCount).observe($("lx-inbox-badge"), { attributes: true, childList: true, characterData: true });
+  }
+
   return trigger;
 }
 /** A one-line ask box on every place, so a question never means going back to the conversation first. */
