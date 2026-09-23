@@ -429,12 +429,13 @@ test("a version tag cannot build or publish until fail-closed CI passed for that
 
   assert.match(workflow, /permissions:\n\s+actions: read\n\s+contents: read/);
   const gate = job("release-gate");
+  assert.match(gate, /node scripts\/release-lineage\.mjs --version "\$TAG"/);
+  assert.match(gate, /git merge-base --is-ancestor "\$GITHUB_SHA" refs\/remotes\/origin\/mac\/cross-platform/);
   assert.match(gate, /repos\/\$GH_REPO\/actions\/runs/);
-  assert.match(gate, /for workflow in pr-fast\.yml checks\.yml/);
-  assert.match(gate, /--arg path "\.github\/workflows\/\$workflow"/);
-  assert.match(gate, /select\(\.path == \$path/);
+  assert.match(gate, /node scripts\/release-lineage\.mjs "\$GITHUB_SHA" "\$GH_REPO"/);
+  assert.match(gate, /\.path == "\.github\/workflows\/checks\.yml"/);
+  assert.match(gate, /\.head_branch == "mac\/cross-platform"/);
   assert.match(gate, /head_sha="\$GITHUB_SHA"/);
-  assert.match(gate, /if \[ "\$status" = completed \] && \[ "\$conclusion" = success \]/);
   assert.match(gate, /exit 1/);
   assert.match(job("android"), /needs: release-gate/);
   assert.match(job("build"), /needs: \[release-gate, android\]/);

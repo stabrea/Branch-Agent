@@ -126,6 +126,7 @@ export const ROUTES = {
   "/api/comfort": "owner POST", // R17-S-C
   "/api/comfort/status": "look", // R17-S-C
   "/api/comfort/update-plan": "owner POST", // R17-S-C
+  "/api/comfort/update-readiness": "secret-read", // Owner-only channel and all-person busy-task count.
   "/api/commands": "look",
   // Redesign phase 1: the mode chip. A household person picks for their own conversations, never looser than the owner's setting.
   "/api/conversation-mode": "other POST",

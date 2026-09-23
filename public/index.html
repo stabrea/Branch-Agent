@@ -1357,6 +1357,12 @@
           <section id="updates-card" class="card" hidden>
             <h2 data-t="settings.card.updates">Updates</h2>
             <p id="updates-version" class="subtle"></p>
+            <fieldset id="updates-channel" class="update-channel-choices" aria-describedby="updates-channel-note">
+              <legend data-t="updates.channel.label">Update channel</legend>
+              <label><input type="radio" name="release-channel" value="stable" checked> <span data-t="updates.channel.stable">Stable</span></label>
+              <label><input type="radio" name="release-channel" value="beta"> <span data-t="updates.channel.beta">Beta</span></label>
+            </fieldset>
+            <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Stable remains the default. Switching back never installs an older version.</p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
             <p id="updates-status" role="status"></p>

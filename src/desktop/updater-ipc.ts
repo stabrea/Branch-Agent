@@ -2,10 +2,11 @@ import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from
 import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
 import { join } from "node:path";
-import { Updater } from "./updater.js";
+import { Updater, UpdateDeferredError, type UpdateChannel } from "./updater.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
 import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
+import { UpdateInstallClaim } from "./update-install-claim.js";
 
 export const updateSource = {
   repo: "stabrea/Branch-Agent",
@@ -31,6 +32,8 @@ const settingsPages = new Set<string>(process.platform === "darwin" ? Object.val
  * joined one that was already working, so an update behaves the same either way.
  */
 export interface UpdateHooks {
+  /** Authenticated current channel and full task count from the local or joined engine. */
+  readiness?: () => Promise<{ channel: UpdateChannel; busyTasks: number }>;
   backup: () => Promise<void>;
   stopDaemon?: () => Promise<number | null>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
@@ -47,6 +50,13 @@ export function registerUpdaterIpc(
   window: BrowserWindow, origin: string, version: string, requestQuit: () => void,
   hooks?: UpdateHooks,
 ): Updater {
+  const ensureIdle = async () => {
+    if (!hooks?.readiness) throw new UpdateDeferredError("Branch cannot verify that work is idle, so the update is waiting.");
+    const state = await hooks.readiness().catch(() => {
+      throw new UpdateDeferredError("Branch cannot confirm that work is idle, so the update is waiting.");
+    });
+    if (state.busyTasks > 0) throw new UpdateDeferredError("An update is ready, but Branch will wait until every task finishes or is answered.");
+  };
   const updater = new Updater({
     ...(process.platform === "win32" ? updateSource : platformSource),
     currentVersion: version,
@@ -56,6 +66,7 @@ export function registerUpdaterIpc(
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
+    beforeStop: ensureIdle,
   });
   const authorized = (event: IpcMainInvokeEvent) => {
     if (event.sender !== window.webContents ||
@@ -63,10 +74,14 @@ export function registerUpdaterIpc(
       new URL(event.senderFrame.url).origin !== origin)
       throw new Error("Desktop update access denied");
   };
+  const installClaim = new UpdateInstallClaim();
   ipcMain.handle("branch:update-status", (event) => { authorized(event); return updater.status; });
-  ipcMain.handle("branch:update-check", (event) => {
+  ipcMain.handle("branch:update-check", async (event) => {
     authorized(event);
+    if (installClaim.active) return updater.status;
     // mac7/diagnostics: each check, and any failure, is a line in the activity log.
+    if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
+    updater.setChannel((await hooks.readiness()).channel);
     return updater.check().then((status) => {
       diagnose("updater", "info", "Checked for updates", { fields: { current: version, latest: updater.status.release?.latestVersion ?? "" } });
       return status;
@@ -77,27 +92,32 @@ export function registerUpdaterIpc(
   });
   ipcMain.handle("branch:update-install", async (event) => {
     authorized(event);
-    if (updater.inProgress) return updater.status;
-    diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });
-    const { script, stagedDir } = await updater.install().catch((error: unknown) => {
-      diagnose("updater", "error", `The update could not be installed: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
+    return installClaim.run(() => updater.status, () => updater.inProgress, async () => {
+      if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
+      const readiness = await hooks.readiness();
+      updater.setChannel(readiness.channel);
+      await ensureIdle();
+      diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });
+      const { script, stagedDir } = await updater.install().catch((error: unknown) => {
+        diagnose("updater", "error", `The update could not be installed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      });
+      // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
+      // because this process quits into the hand-over and never sees how it went.
+      if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
+      // The background engine is already closed by this point, so say so if the hand-over cannot start.
+      await launchHandOver(script, process.pid).catch((error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        throw new Error(hooks?.stopDaemon
+          ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
+          : `The update could not be started: ${why}.`);
+      });
+      const status = updater.applying();
+      setTimeout(requestQuit, 750);
+      // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.
+      setTimeout(() => app.exit(0), 20000).unref();
+      return status;
     });
-    // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
-    // because this process quits into the hand-over and never sees how it went.
-    if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
-    // The background engine is already closed by this point, so say so if the hand-over cannot start.
-    await launchHandOver(script, process.pid).catch((error: unknown) => {
-      const why = error instanceof Error ? error.message : String(error);
-      throw new Error(hooks?.stopDaemon
-        ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
-        : `The update could not be started: ${why}.`);
-    });
-    const status = updater.applying();
-    setTimeout(requestQuit, 750);
-    // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.
-    setTimeout(() => app.exit(0), 20000).unref();
-    return status;
   });
   ipcMain.handle("branch:open-external", async (event, url: unknown) => {
     authorized(event);

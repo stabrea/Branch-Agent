@@ -209,6 +209,46 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   await page.evaluate(() => { globalThis.__desktop = []; globalThis.__phase = undefined; window.branchDesktop = undefined; });
 });
 
+test("the owner can choose beta in Updates and return to stable", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  await page.evaluate(() => {
+    globalThis.__channelChecks = 0;
+    window.branchDesktop = {
+      updateStatus: async () => ({ phase: "idle", message: "Not checked", progress: null }),
+      checkForUpdates: async () => { globalThis.__channelChecks++; return { phase: "current", message: "Current", progress: null }; },
+    };
+  });
+  await openSettingFor(page, "#updates-card");
+  await page.locator('#updates-channel input[value="beta"]').check();
+  await page.waitForFunction(() => globalThis.__channelChecks === 1);
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "beta");
+  await page.locator('#updates-channel input[value="stable"]').check();
+  await page.waitForFunction(() => globalThis.__channelChecks === 2);
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "stable");
+  assert.deepEqual(errors, []);
+});
+
+test("automatic checks schedule after settling and install retries stay brief", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  await page.evaluate(() => {
+    const schedule = window.setTimeout.bind(window);
+    globalThis.__updateIntervals = [];
+    window.setTimeout = (fn, ms, ...args) => {
+      if ([300_000, 3_600_000, 30_000].includes(ms)) globalThis.__updateIntervals.push(ms);
+      return schedule(fn, ms, ...args);
+    };
+    window.branchDesktop = { updateStatus: async () => ({ phase: "current" }), checkForUpdates: async () => ({ phase: "current" }) };
+  });
+  for (const [releaseChannel, autoUpdate, interval] of [["beta", "check", 300_000], ["stable", "check", 3_600_000], ["beta", "install", 30_000]]) {
+    saveComfort(app.store, "local", "notify", { releaseChannel, autoUpdate });
+    await page.evaluate(() => { globalThis.__updateIntervals = []; });
+    await refresh(page);
+    await page.waitForFunction(() => globalThis.__updateIntervals.length > 0);
+    assert.equal(await page.evaluate(() => globalThis.__updateIntervals.at(-1)), interval);
+  }
+  assert.deepEqual(errors, []);
+});
+
 test("at 400 px the comfort cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["comfort-keys-card", "comfort-display-card", "comfort-network-card"]) {
