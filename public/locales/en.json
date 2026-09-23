@@ -1003,6 +1003,7 @@
   "channels-more.service.qq-bot": "Answers people through an official QQ bot, in private chats, groups and guild channels; you need the bot's App ID and client secret from the QQ open platform.",
   "channels-more.service.reddit": "Answers Reddit private messages and username mentions through a script app on the assistant's account; needs the app's id and secret and the account password.",
   "channels-more.service.revolt": "Answers direct messages and mentions sent to your Revolt bot; you need the bot's token.",
+  "channels-more.service.serial": "Talks to a device wired straight to this computer over a serial line, one line of text each way; you need the port's name, its baud rate and a name for the device. GPIO, I2C and SPI are not reached this way.",
   "channels-more.service.simplex": "Chat with the assistant privately on SimpleX Chat; you need the simplex-chat program running on this computer with its API switched on.",
   "channels-more.service.sms": "Text the assistant by SMS through Twilio; you need a Twilio number, the account SID and the auth token.",
   "channels-more.service.synology-chat": "Answers people who write to a Chatbot on your Synology NAS; you need the Chatbot's token and its incoming address.",

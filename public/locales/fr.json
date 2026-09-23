@@ -1004,6 +1004,7 @@
   "channels-more.service.qq-bot": "Répond aux gens via un bot QQ officiel, en conversation privée, en groupe et dans les salons de guilde ; il vous faut l'App ID et le secret client du bot sur la plateforme ouverte QQ.",
   "channels-more.service.reddit": "Répond aux messages privés et aux mentions Reddit grâce à une application « script » du compte de l'assistant ; il faut l'identifiant et le secret de l'application et le mot de passe du compte.",
   "channels-more.service.revolt": "Répond aux messages privés et aux mentions adressés à votre bot Revolt ; il vous faut le jeton du bot.",
+  "channels-more.service.serial": "Parle à un appareil branché directement sur cet ordinateur par une ligne série, une ligne de texte dans chaque sens ; il vous faut le nom du port, son débit en bauds et un nom pour l'appareil. GPIO, I2C et SPI ne sont pas atteints de cette façon.",
   "channels-more.service.simplex": "Discutez en privé avec l'assistant sur SimpleX Chat ; il faut que le programme simplex-chat tourne sur cet ordinateur avec son interface de programmation activée.",
   "channels-more.service.sms": "Écrivez à l'assistant par SMS via Twilio ; il vous faut un numéro Twilio, l'identifiant du compte (SID) et le jeton d'authentification.",
   "channels-more.service.synology-chat": "Répond aux personnes qui écrivent à un Chatbot sur votre NAS Synology ; il vous faut le jeton du Chatbot et son adresse entrante.",

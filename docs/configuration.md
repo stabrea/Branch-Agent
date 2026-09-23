@@ -1334,6 +1334,16 @@ Save the account password as `XMPP_PASSWORD` (or name another secret with `passw
 
 Save the broker password as `MQTT_PASSWORD` if `username` is set (or name another secret with `passwordSecret`). Optional: `port` (8883 with TLS, 1883 without), `tls` (default true), `qos` (0 or 1, default 1), `keepAliveSeconds`, `plainTextSender`. Messages on `inboundTopic` are JSON `{"from": "…", "chat": "…", "text": "…"}`; without `chat` (or with `chat` equal to `from`) it is a one-to-one message, otherwise a shared chat where the assistant answers only when the text contains `@<clientId>`. With `plainTextSender`, a payload that is not that JSON is read as plain words from that one sender. Replies go to `replyTopic` with `{chat}` replaced (a chat name containing `+`, `#` or NUL is refused) as `{"from": <clientId>, "chat", "text"}`; messages from `<clientId>` and retained messages are never answered. MQTT itself does not prove who sent a message: anybody allowed to publish on the inbound topic can claim any `from`, so restrict publishing on the broker.
 
+### Serial device (`serial`)
+
+**Serial device** — `receives: socket`.
+
+```json
+{ "type": "serial", "id": "arduino", "path": "/dev/ttyUSB0", "baudRate": 9600, "deviceName": "arduino" }
+```
+
+No secret. `path` is a port name: `COM1`–`COM999` on Windows, `/dev/ttyNNN` or `/dev/cuNNN` elsewhere; anything else is refused before it reaches the filesystem. `baudRate` must be one of the standard rates (110 through 2000000). Optional: `deviceName` (default `device`, used as the sender and the chat id), `lineEnding` (`\n`, the default, or `\r\n`), `protocol` (`serial`, `gpio`, `i2c` or `spi`; only `serial` is built — the other three are declared settings that are refused by name, since GPIO, I2C and SPI address pins on a header an ordinary computer does not have). The device is one line of text each way, the way a microcontroller sketch's `Serial.println` already works: there is no `from` or `chat` to parse because exactly one device is on the wire. Setting the baud rate calls `stty` (POSIX) or `mode` (Windows); a computer without either still opens the port; it just keeps whatever rate the device already runs at.
+
 ### Keybase (`keybase`)
 
 **Keybase** — `receives: program`.
@@ -1507,6 +1517,7 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Home Assistant notifications | Hermes | built now (`homeassistant`), send only |
 | XMPP | OpenFang | built now (`xmpp`) |
 | MQTT | PicoClaw, OpenFang | built now (`mqtt`) |
+| Serial (GPIO, I2C and SPI declared but refused) | — | built now (`serial`); GPIO, I2C and SPI are declared settings that name themselves unsupported rather than being built |
 | Keybase | OpenFang | built now (`keybase`), through your installed `keybase` |
 | SimpleX Chat | Hermes | built now (`simplex`), through your own `simplex-chat` |
 | Delta Chat | PicoClaw | built now (`deltachat`), through your installed `deltachat-rpc-server` |
@@ -1696,6 +1707,7 @@ says so.
 | Home Assistant (`homeassistant`) | yes; switched on from it | Windows: download page; Mac: cask `home-assistant`; Linux: download page | `<server>/profile/security` | `HOMEASSISTANT_TOKEN`; plus server | GET `<server>/api/` |
 | XMPP (Jabber) (`xmpp`) | yes; switched on from it | nothing to install | none (plain steps) | `XMPP_PASSWORD`; plus jid | none |
 | MQTT (`mqtt`) | yes; switched on from it | nothing to install | none (plain steps) | `MQTT_PASSWORD` (optional); plus host, inboundTopic, replyTopic | none |
+| Serial device (`serial`) | yes; switched on from it | nothing to install | none (plain steps) | nothing; plus path, baudRate | none |
 | Keybase (`keybase`) | yes; switched on from it | Windows: winget `Keybase.Keybase`; Mac: cask `keybase`; Linux: download page | none (plain steps) | nothing; plus path | none |
 | SimpleX Chat (`simplex`) | yes; switched on from it | Windows: download page; Mac: cask `simplex`; Linux: Flathub `chat.simplex.simplex` | none (plain steps) | nothing | none |
 | Delta Chat (`deltachat`) | yes; switched on from it | Windows: winget `DeltaChat.DeltaChat`; Mac: cask `deltachat`; Linux: Flathub `chat.delta.desktop` | none (plain steps) | nothing; plus path | none |

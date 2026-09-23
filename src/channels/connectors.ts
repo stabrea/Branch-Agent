@@ -27,6 +27,7 @@ import { threemaService } from "./threema.js";
 import { homeassistantService } from "./homeassistant.js";
 import { xmppService } from "./xmpp.js";
 import { mqttService } from "./mqtt.js";
+import { serialService } from "./serial.js";
 import { keybaseService } from "./keybase.js";
 import { simplexService } from "./simplex.js";
 import { deltachatService } from "./deltachat.js";
@@ -224,7 +225,7 @@ export const parityServices: ParityService[] = [
   teamsBotService, webexService, synologyChatService, zaloService, flockService, pumbleService,
   mastodonService, blueskyService, redditService, discourseService, xService, twistService,
   nextcloudTalkService, smsService, ntfyService, pushoverService, threemaService, homeassistantService,
-  xmppService, mqttService, keybaseService, simplexService, deltachatService, nostrService,
+  xmppService, mqttService, serialService, keybaseService, simplexService, deltachatService, nostrService,
   vkService, qqBotService, guildedService, revoltService, mumbleService,
   // mac6/bucket-16: the rest of the chat apps.
   kookService, wechatOfficialService, wecomAppService,
