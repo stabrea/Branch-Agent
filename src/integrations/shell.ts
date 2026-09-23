@@ -68,7 +68,8 @@ export class BranchShell {
     const signal = AbortSignal.any([context.signal, stopping]);
     signal.throwIfAborted();
     // Q12: the same folder the self-development contract judged (commandFolder), checked as a workspace path.
-    const cwd = await new WorkspaceFiles(context.workspace).checked(relative(context.workspace, commandFolder(context.workspace, input.cwd)) || '.', true);
+    const cwd = await new WorkspaceFiles(context.workspace).checked(input.cwd, true);
+    if (cwd !== commandFolder(context.workspace, input.cwd)) throw new Error('Command cwd must be a workspace directory');
     if (!(await stat(cwd)).isDirectory()) throw new Error('Command cwd must be a workspace directory');
     const confined = context.writesConfinedTo ? await confinedFolder(context.writesConfinedTo, cwd) : null;
     const tuned = this.tuning(); // R17-S10

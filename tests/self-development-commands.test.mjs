@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch, savePolicy } from "../dist/index.js";
@@ -131,4 +131,16 @@ test("the stand-in sandbox: available holds the command to the worktree, missing
   await assert.rejects(no.guard("shell.execute", { cwd: worktree }, { runId: "r" }),
     /commands are refused on this computer: it has no sandbox that can hold a command's writes to one folder/);
   assert.equal(no.log.list("local", { action: "self_development.contract" }).length, 1);
+});
+
+test("the shell still refuses a cwd with .. or a full path, as before the shared resolver", { skip: process.platform === "win32" }, async (t) => {
+  const branch = await withSource(t, { project: "none" });
+  // No self-development checkout here would change the answer: take the checkout away for this one.
+  await rm(join(branch.workspace, "branch-agent-source"), { recursive: true, force: true });
+  for (const cwd of ["notes/../notes", join(branch.workspace, "notes")]) {
+    const { failed, result } = await branch.command({ executable: "sh", args: ["-c", "echo x > made.txt"], cwd });
+    assert.equal(result, null, cwd);
+    assert.match(failed ?? "", /Path denied: traversal/, cwd);
+  }
+  assert.equal(existsSync(join(branch.workspace, "notes", "made.txt")), false);
 });
