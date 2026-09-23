@@ -210,14 +210,13 @@ export class GitTools {
   }
 
   /**
-   * Q82: refuse scp-like or ssh:// URLs with a host starting with `-`, which
-   * could be interpreted as command-line flags by SSH.
+   * Q82: refuse an ssh:// or scp-like remote whose user or host starts with `-`: ssh is handed
+   * `user@host` as one argument, so a leading dash in either could be read as an option.
    */
   private checkHostDash(url: string): string | void {
-    const sshMatch = /^ssh:\/\/([^@/]+)/.exec(url);
-    if (sshMatch?.[1]?.startsWith("-")) return `ssh:// URL has a host starting with "-", which could be a command-line flag: ${url}`;
-    const scpMatch = /^([^@]+)@([^:]+):/.exec(url);
-    if (scpMatch?.[2]?.startsWith("-")) return `scp-like URL has a host starting with "-", which could be a command-line flag: ${url}`;
+    const at = /^ssh:\/\/([^/]+)/.exec(url)?.[1] ?? /^([^/:]+):/.exec(url)?.[1];
+    if (at && (at.startsWith("-") || at.split("@").at(-1)?.startsWith("-")))
+      return `Remote "${url}" starts its user or host with "-", which ssh could read as an option, so nothing was sent.`;
   }
 
   /**
