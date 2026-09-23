@@ -237,7 +237,8 @@ export function settleUnfinished(store: Store, tasks: TeamTasks, claim: TeamTask
   const effects = parentRunId ? turnEffects(store, parentRunId) : [];
   // Q66: the reason names which members ran and which never started, whichever batch it stopped in.
   const needs = (reason: string): TeamTaskState => {
-    tasks.markNeedsReconciliation(claim, `${reason}: ${why}. ${describeMemberRuns(memberRuns(store, parentRunId))}`.trim());
+    // The member list goes before the cause, which can be long, so the stored reason's length cap never cuts it.
+    tasks.markNeedsReconciliation(claim, [`${reason}.`, describeMemberRuns(memberRuns(store, parentRunId)), `What stopped it: ${why}`].filter(Boolean).join(" "));
     return "needs_reconciliation";
   };
   if (effects.length) return needs(`Stopped after ${effects.length} tool call(s) whose effects must be checked before this is tried again`);

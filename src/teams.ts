@@ -105,7 +105,8 @@ export class Teams {
   private settleThrown(claim: TeamTaskClaim, turn: TurnProgress, message: string): void {
     try {
       if (turn.recorded) return;
-      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim, `Stopped while the members were working: ${message}. ${describeMemberRuns(memberRuns(this.store, turn.parentRunId))}`);
+      if (turn.membersStarted) this.tasks.markNeedsReconciliation(claim,
+        ["Stopped while the members were working.", describeMemberRuns(memberRuns(this.store, turn.parentRunId)), `What stopped it: ${message}`].filter(Boolean).join(" "));
       else settleUnfinished(this.store, this.tasks, claim, turn.parentRunId, message);
     } catch { /* the claim is already gone, so this caller writes nothing */ }
   }

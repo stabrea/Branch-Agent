@@ -99,6 +99,19 @@ test("with the owner's limit at 2, a team of 5 goes in batches of 2, 2 and 1, ne
   assert.deepEqual(answersInRoom(state.app, team), [0, 1, 2, 3, 4].map((i) => `[r${i}] answer from r${i}`));
 });
 
+test("a long error never pushes the member list out of the stored reason", async (t) => {
+  /* NAS review of Q66: the reason is cut at 2000 characters, and the member list used to come after the error. */
+  const provider = scripted();
+  const { state, owner, team } = await fixture(t, provider, 5);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
+  const requestId = randomUUID();
+  const broken = counted(state.app.runtime, (n) => (n === 2 ? Promise.reject(new Error(`injected ${"x".repeat(3000)}`)) : undefined));
+  await assert.rejects(state.app.teams.run(broken, knowledge, team.id, "ship it", { requestId }), /injected/);
+  const task = row(state.app, requestId);
+  assert.equal(task.state, "needs_reconciliation");
+  assert.match(task.error, /Not run: r2 \(not started\), r3 \(not started\), r4 \(not started\)/);
+});
+
 test("a throw between batch 1 and batch 2 needs reconciliation, lists batch 1's member runs, and never runs the rest", async (t) => {
   const provider = scripted();
   const { state, owner, team, reopen } = await fixture(t, provider, 5);
