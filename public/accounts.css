@@ -11,7 +11,7 @@
 }
 .agent-file {
   display: grid;
-  grid-template-columns: minmax(96px, 128px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(96px, 128px) minmax(0, 1fr) auto auto;
   gap: 4px 12px;
   align-items: center;
   padding: 10px 0;
@@ -19,8 +19,25 @@
 }
 .agent-file-name {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--well);
+  text-align: center;
   overflow-wrap: anywhere;
+}
+.agent-file-first,
+.agent-file-where {
+  font-size: 12.5px;
+}
+.agent-file-mode {
+  flex-wrap: nowrap;
+}
+.agent-files-foot {
+  margin: 10px 0 0;
+  font-size: 12.5px;
 }
 .agent-file-body p {
   margin: 1px 0;
@@ -36,7 +53,7 @@
   align-items: center;
   justify-content: space-between;
 }
-.agent-files-head h3 {
+.agent-files-head h4 {
   margin: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
@@ -87,9 +104,17 @@
   .agent-file {
     grid-template-columns: minmax(0, 1fr) auto;
   }
+  .agent-file-name {
+    justify-self: start;
+  }
   .agent-file-body {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+  .agent-file-mode {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: start;
   }
 }
 

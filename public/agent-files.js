@@ -26,12 +26,14 @@ const bytesOf = (text) => new TextEncoder().encode(text).length;
 let drawGeneration = 0;
 
 const ABOUT = {
-  soul: "Its character: how it sounds, what it cares about, where it draws lines. Replaces the built-in character.",
-  identity: "Its name and manner.", user: "Who you are, what to call you, and what you prefer.",
-  agents: "How you want work done in this project.", tools: "Notes about the programs on this computer and their quirks.",
-  sop: "Steps to follow the same way every time.", memory: "Things you wrote down for it to remember.",
-  heartbeat: "What to check each time it wakes on a schedule.",
+  soul: "Who your assistant is: personality, tone and boundaries.",
+  identity: "Its name and vibe, as you gave them.", user: "Who you are, how to address you, what you prefer.",
+  agents: "How you want work done here.", tools: "Your notes about this computer's own tools and quirks.",
+  sop: "Procedures to follow the same way every time.", memory: "Things you wrote down to be remembered.",
+  heartbeat: "What it checks on by itself when it wakes on a schedule.",
 };
+/* DG-182: each file's Off, When needed or On, saved as it is pressed (DG-025). The same switch the file's own page shows. */
+const MODES = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"], ["on", "field.switch-on", "On"]];
 const SEEN = {
   carried: ["settings-kit.seen.carried", "Read at the start of every task"],
   announced: ["settings-kit.seen.announced", "Named to it; read when the work calls for it"],
@@ -44,7 +46,21 @@ const WHY = {
   "too long": ["settings-kit.why.too-long", "This file is longer than your assistant reads, so open it in your own editor to shorten it."],
 };
 
-function fileRow(entry, open) {
+function modeGroup(entry, choose) {
+  const name = entry.name ?? entry.names[0];
+  const group = el("div", undefined, undefined, "seg tri agent-file-mode");
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", say("agent-files.use-named", `Use ${name}`, { name }));
+  for (const [value, key, english] of MODES) {
+    const option = button(key, english, () => choose(entry.slot, value, group), "segmented-option");
+    option.dataset.v = value === "when-needed" ? "needed" : value;
+    option.setAttribute("aria-pressed", String(entry.setting === value));
+    group.append(option);
+  }
+  return group;
+}
+
+function fileRow(entry, open, choose) {
   const row = el("li", undefined, undefined, "agent-file");
   row.dataset.slot = entry.slot;
   const name = el("span", undefined, entry.name ?? entry.names[0], "agent-file-name");
@@ -54,11 +70,14 @@ function fileRow(entry, open) {
     ? say("settings-kit.written", `Written: ${entry.name}, ${Math.round(entry.bytes / 100) / 10} kB`, { name: entry.name, size: Math.round(entry.bytes / 100) / 10 })
     : say("settings-kit.seen.missing", "Not written yet");
   const seen = entry.name || entry.outcome !== "missing" ? SEEN[entry.outcome] ?? SEEN.missing : null;
-  body.append(el("p", `settings-kit.slot.${entry.slot}`, ABOUT[entry.slot] ?? "", "agent-file-about"),
-    el("p", undefined, [say(where[0], where[1]), written, seen ? say(seen[0], seen[1]) : ""].filter(Boolean).join(" · "), "meta"));
-  const edit = button("settings-kit.edit", "Change it here", () => open(entry.slot));
-  edit.setAttribute("aria-label", say("agent-files.edit-named", `Change ${entry.name ?? entry.names[0]} here`, { name: entry.name ?? entry.names[0] }));
-  row.append(name, body, edit);
+  /* The sample's line under each file: its first words, or Empty; where it is kept and whether it was read at Technical. */
+  const first = entry.first ? el("p", undefined, entry.first, "meta agent-file-first") : el("p", "agent-files.empty", "Empty", "meta agent-file-first");
+  const kept = el("p", undefined, [say(where[0], where[1]), written, seen ? say(seen[0], seen[1]) : ""].filter(Boolean).join(" · "), "meta agent-file-where");
+  kept.dataset.level = "technical";
+  body.append(el("p", `settings-kit.slot.${entry.slot}`, ABOUT[entry.slot] ?? "", "agent-file-about"), first, kept);
+  const edit = button("agent-files.edit", "Edit", () => open(entry.slot));
+  edit.setAttribute("aria-label", say("agent-files.edit-named", `Edit ${entry.name ?? entry.names[0]}`, { name: entry.name ?? entry.names[0] }));
+  row.append(name, body, modeGroup(entry, choose), edit);
   return row;
 }
 
@@ -96,7 +115,7 @@ async function openEditor(area, list, slot, refresh) {
   area.hidden = false;
   const close = button("agent-files.back", "Back to all files", () => { area.hidden = true; list.hidden = false; void refresh(); });
   const head = el("div", undefined, undefined, "agent-files-head");
-  head.append(el("h3", undefined, file.name), close);
+  head.append(el("h4", undefined, file.name), close);
   area.replaceChildren(head, el("p", `settings-kit.slot.${slot}`, ABOUT[slot] ?? "", "subtle"));
   if (!file.editable) { area.append(el("p", ...(WHY[file.why] ?? ["settings-kit.why.other", "This file cannot be changed here. Open it in your own editor."]), "field-note")); return; }
   area.append(...editorParts(file, slot, () => openEditor(area, list, slot, refresh)));
@@ -156,16 +175,39 @@ export async function drawAgentFiles() {
   section.id = "agent-files";
   section.dataset.home = "settings:instructions";
   section.dataset.level = "regular";
-  section.append(el("h2", "agent-files.title", "Your assistant's files"),
-    el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do."));
+  /* DG-182: the section head above already says "Its files", and the sample shows it once (the DG-032 way): the
+     card's own heading and purpose stay for a screen reader, at the section's level so the order is not turned over (DG-008). */
+  section.append(el("h3", "agent-files.title", "Its files", "settings-card-title sr-only"),
+    el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do.", "sr-only"));
   const list = el("ul", undefined, undefined, "agent-files-list");
   const area = el("div", undefined, undefined, "agent-files-editor");
   area.hidden = true;
-  const fill = (files) => list.replaceChildren(...files.map((entry) => fileRow(entry, (slot) => openEditor(area, list, slot, refresh))));
+  const status = el("p", undefined, undefined, "meta agent-files-status");
+  status.setAttribute("role", "status");
+  const fill = (files) => list.replaceChildren(...files.map((entry) => fileRow(entry, (slot) => openEditor(area, list, slot, refresh), choose)));
   const refresh = async () => { try { fill((await api("settings-kit/files")).files); } catch { /* the list stays as it was */ } };
+  const choose = chooser(refresh, status);
   fill(map.files);
-  section.append(list, area);
+  section.append(list, area, el("p", "agent-files.footnote", FOOTNOTE, "subtle agent-files-foot"), status);
   document.body.append(section);
+}
+
+const FOOTNOTE = "Every file starts off. When needed means it costs one line saying it exists, and is read only if the work calls for it. A file cannot widen what the assistant may do: permission lives in Permissions.";
+
+/** Saves one file's Off, When needed or On as it is pressed, then redraws the list and the file's own card elsewhere. */
+function chooser(refresh, status) {
+  return async (slot, value, group) => {
+    for (const option of group.querySelectorAll("button")) option.disabled = true;
+    try {
+      await api("context-files", { files: { [slot]: value } });
+      status.textContent = say("agent-files.mode-saved", "Saved. It applies to your next task.");
+      await refresh();
+      globalThis.branchContextFilesReady?.();
+    } catch (error) {
+      status.textContent = error.message;
+      for (const option of group.querySelectorAll("button")) option.disabled = false;
+    }
+  };
 }
 
 if (typeof document !== "undefined") {
