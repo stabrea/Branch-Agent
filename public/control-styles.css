@@ -10,6 +10,7 @@ input[type="checkbox"][role="switch"] {
   border: 1px solid var(--line-2);
   border-radius: 12px;
   margin: 0;
+  padding: 0; /* a switch never takes a text field's padding, wherever it sits */
   background: var(--press);
   cursor: pointer;
   transition: background 0.15s;

@@ -24,14 +24,15 @@ async function api(body) {
 }
 const html = document.documentElement;
 const chosenHere = () => { try { return Boolean(localStorage.getItem("branch-palette")); } catch { return false; } };
-const contrastBox = () => document.getElementById("lx-contrast");
+/** The Contrast choice the window shows (DG-166: two segments, Standard and High contrast). */
+const contrastChoice = (value) => document.querySelector(`#lx-contrast .segmented-option[data-value="${value}"]`);
 
 /** Chooses what the terminal chose, through the same controls a person would use. */
 function adopt(look) {
   if (html.dataset.palette !== look.theme)
     document.querySelector(`#lx-theme-gallery .lx-tile[data-family="${CSS.escape(look.theme)}"]`)?.click();
-  const box = contrastBox();
-  if (box && box.checked !== (look.contrast === "more")) box.click();
+  const choice = contrastChoice(look.contrast === "more" ? "more" : "standard");
+  if (choice && choice.getAttribute("aria-pressed") !== "true") choice.click();
   if (look.language !== "auto" && look.language !== language()) void setLanguage(look.language);
 }
 async function pull() {
@@ -54,7 +55,11 @@ function watch() {
     theme = html.dataset.palette;
     void push({ theme }).catch(() => undefined);
   }).observe(html, { attributes: true, attributeFilter: ["data-palette"] });
-  contrastBox()?.addEventListener("change", (event) => void push({ contrast: event.target.checked ? "more" : "standard" }).catch(() => undefined));
+  /* The Contrast choices are drawn again on every change, so the row itself listens for a pressed choice. */
+  document.getElementById("lx-contrast")?.addEventListener("click", (event) => {
+    const choice = event.target.closest?.(".segmented-option");
+    if (choice) void push({ contrast: choice.dataset.value }).catch(() => undefined);
+  });
   document.addEventListener("branch-language", (event) => void push({ language: event.detail.language }).catch(() => undefined));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void pull().catch(() => undefined); });
 }

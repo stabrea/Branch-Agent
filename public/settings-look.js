@@ -194,7 +194,7 @@ function dress(doc, mode, family) {
   const html = doc.documentElement;
   for (const { name, value } of root.attributes) if (name.startsWith("data-")) html.setAttribute(name, value);
   html.dataset.theme = mode === "light" ? "daylight" : "forest";
-  const contrast = $("lx-contrast")?.checked ? "more" : "standard";
+  const contrast = document.querySelector('#lx-contrast [aria-pressed="true"]')?.dataset.value === "more" ? "more" : "standard";
   const theme = themeById(family), tokens = tokensFor(theme, mode, contrast);
   wearTokens(html, theme, tokens);
   html.style.setProperty("--surface", solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55));
