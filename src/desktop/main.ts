@@ -165,8 +165,14 @@ async function createWindow(
     if (window && !window.isDestroyed() && !window.isMinimized())
       writeWindowState(statePath, { maximized: window.isMaximized(), bounds: window.getNormalBounds() });
   };
-  // "close" too: a size set without dragging (and the last one before quitting) fires none of the others everywhere.
   for (const change of ["maximize", "unmaximize", "resized", "moved", "close"] as const) window.on(change as "resized", remember);
+  // "resized" and "moved" come only after a drag, on macOS and Windows, and "close" is skipped when the app is ended
+  // rather than its window closed: "resize" and "move" come for every change, so they are written too, once it settles.
+  let settle: NodeJS.Timeout | undefined;
+  const soon = () => { clearTimeout(settle); settle = setTimeout(remember, 250); };
+  window.on("resize", soon);
+  window.on("move", soon);
+  window.on("closed", () => clearTimeout(settle));
   protectWindow(window, url, token);
   registerWindowLookIpc(ipcMain, window, url);
   registerEditMenu(window, (template) => Menu.buildFromTemplate(template));
