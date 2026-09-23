@@ -258,7 +258,7 @@ test("R17-S20: the settings route checks the proxy and certificates before keepi
     assert.match(answer.body.error, /short-lived key cannot change shortcuts/);
   }
   assert.equal((await call("GET", "/api/comfort", undefined, key)).status, 200, "a short-lived key may look");
-  assert.equal((await call("GET", "/api/comfort/update-readiness", undefined, key)).status, 403,
+  assert.equal((await call("GET", "/api/comfort/update-readiness", undefined, key)).status, 401,
     "a short-lived key cannot inspect update readiness");
   const person = branch.store.profiles.create({ name: "Sam", pin: "4321" });
   branch.store.profiles.switch({ profileId: person.id, pin: "4321" });
