@@ -4388,7 +4388,12 @@ a note left behind by a crash is removed rather than trusted.
 
 **Reaching Branch from a phone.** Off by default. `POST /api/deployment/remote` with
 `{ "enabled": true }` asks `tailscale status --json` where this computer sits on its private network
-and opens a *second* listener bound to that address alone. The address must be inside
+and opens a *second* listener bound to that address alone. Tailscale's program is looked for where
+Tailscale installs it first (on a Mac the app's own
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale`, then `/usr/local/bin` and `/opt/homebrew/bin`;
+on Linux `/usr/bin`, `/usr/local/bin` and `/usr/sbin`; on Windows the Tailscale folders under Program
+Files), and on `PATH` last. The whole check gets three seconds: a program still running then is
+ended, and nothing counts as confirmed. The address must be inside
 `100.64.0.0/10`, which is the range Tailscale hands out; anything else, including `0.0.0.0`, is
 refused. The loopback listener is untouched. While remote access is on, the Host and Origin checks
 (one shared `hostAllowed` used by the request handler, the API authorisation and the WebSocket
@@ -4533,8 +4538,9 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
   address Tailscale itself reports as this computer's. Tailscale's addresses come from
   `100.64.0.0/10`, which other networks hand out too, so an address in that range counts as private
   only when Tailscale, running on this computer, says it is this computer's own. With Tailscale not
-  installed, not connected or not answering, such an address keeps Branch on `127.0.0.1`; connect
-  Tailscale and start Branch again.
+  installed, not connected or not answering within three seconds (the same check as for reaching
+  Branch from a phone, above), such an address keeps Branch on `127.0.0.1`; connect Tailscale and
+  start Branch again.
   An IPv6 address that is not private is the one exception. The wider door is `0.0.0.0`, the IPv4
   wildcard, which a connection over IPv6 never reaches. So when every IPv4 address this computer
   answers on is private, Branch listens on those private IPv4 networks only and says so, on the

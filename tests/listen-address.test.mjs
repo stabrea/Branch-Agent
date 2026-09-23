@@ -100,7 +100,7 @@ test("B2 Lockdown, a public address and a missing key each keep the door on this
   assert.equal(decideListen({ ...wide, addresses: [{ address: "not-an-address", internal: false }] }).beyond, false);
 });
 
-test("B2 the address Tailscale reports as this computer's is private here, as it is for the phone door", () => {
+test("B2 the address Tailscale reports as this computer's counts as private for this door", () => {
   const onTailnet = decideListen({
     where: "private-network", lockdown: false, token: key,
     addresses: [{ address: "127.0.0.1", internal: true }, { address: "100.101.102.103", internal: false }],
