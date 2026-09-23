@@ -5,9 +5,11 @@ import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import { ChatFiles, registerChatFiles } from "./chat-files.js";
 import { GoogleConnector, registerGoogle } from "./google.js";
+import { GoogleTasksConnector, registerGoogleTasks } from "./google-tasks.js";
 import { HomeControl, registerHomeControl } from "./home-control.js";
 import { MailSearch, registerMailSearch, type MailClient } from "./mail-search.js";
 import { MicrosoftConnector, registerMicrosoft } from "./microsoft.js";
+import { MicrosoftTodoConnector, registerMicrosoftTodo } from "./microsoft-todo.js";
 import { personalMode, personalParts, personalTools, savePersonalMode, type PersonalMode, type PersonalPart } from "./settings.js";
 import { SignIn } from "./signin.js";
 import { registerSpokenBrief, SpokenBrief } from "./spoken-brief.js";
@@ -60,7 +62,9 @@ function riskyQuestion(tool: string, permission: string, target: string): boolea
 export class Personal {
   readonly signIns: { google: SignIn; microsoft: SignIn; spotify: SignIn };
   readonly google: GoogleConnector;
+  readonly gtasks: GoogleTasksConnector;
   readonly microsoft: MicrosoftConnector;
+  readonly mstodo: MicrosoftTodoConnector;
   readonly spotify: SpotifyConnector;
   readonly x: XSearch;
   readonly home: HomeControl;
@@ -78,7 +82,9 @@ export class Personal {
     this.signIns = { google: new SignIn(signIn, "google", "google"), microsoft: new SignIn(signIn, "microsoft", "microsoft"),
       spotify: new SignIn(signIn, "spotify", "spotify") };
     this.google = new GoogleConnector(store, owner, deps.fetch, this.signIns.google);
+    this.gtasks = new GoogleTasksConnector(store, owner, deps.fetch, this.signIns.google);
     this.microsoft = new MicrosoftConnector(store, owner, deps.fetch, this.signIns.microsoft);
+    this.mstodo = new MicrosoftTodoConnector(store, owner, deps.fetch, this.signIns.microsoft);
     this.spotify = new SpotifyConnector(store, owner, deps.fetch, this.signIns.spotify);
     this.x = new XSearch(store, owner, deps.fetch, (name) => deps.secret(name, "searching X"));
     this.home = new HomeControl(store, owner, deps.fetch, (name) => deps.secret(name, "Home Assistant"));
@@ -101,8 +107,8 @@ export class Personal {
       "spoken-brief": () => registerSpokenBrief(tools, this.brief),
       "x-search": () => registerXSearch(tools, this.x),
       spotify: () => registerSpotify(tools, this.spotify),
-      google: () => registerGoogle(tools, this.google),
-      microsoft: () => registerMicrosoft(tools, this.microsoft),
+      google: () => { registerGoogle(tools, this.google); registerGoogleTasks(tools, this.gtasks); },
+      microsoft: () => { registerMicrosoft(tools, this.microsoft); registerMicrosoftTodo(tools, this.mstodo); },
       "mail-search": () => registerMailSearch(tools, this.mail),
     };
     for (const part of personalParts) this.sync(part);
