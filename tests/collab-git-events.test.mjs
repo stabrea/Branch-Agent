@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, ownerMember, publishGitPatch, gitPatchKind } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { canonical } from "../dist/receipts.js";
+import { createHmac } from "node:crypto";
 
 const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
 /** One app with two repositories (Branch projects) and one more person, Ada. */
@@ -73,4 +75,56 @@ test("the web route publishes a patch under whoever is using the app and lists i
   assert.equal(event.member, ownerMember);
   const listed = await (await fetch(`${server.url}/api/collab/events?kind=git.patch&repository=tax-tools&q=rounding`, { headers })).json();
   assert.deepEqual(listed.events.map((e) => e.id), [event.id]);
+});
+
+test("the repository filter only returns patches, never another kind that names a repository", async (t) => {
+  const { owner, events, publish } = await fixture(t);
+  const garden = await publish(ownerMember, patch("garden-app", "Garden fix", "one"));
+  // A note is free-form: a repository field in it is just text, not a link to the repository.
+  const note = await events.publish(owner, ownerMember, "note", { repository: "garden-app", text: "Looked at the garden" });
+  const found = await events.list(owner, { repository: "garden-app" });
+  assert.deepEqual(found.events.map((e) => e.id), [garden.id]);
+  assert.ok((await events.list(owner)).events.some((e) => e.id === note.id), "the note is still listed without the filter");
+});
+
+/** The app's web routes, called as the window calls them. */
+async function web(t, app) {
+  const server = await startServer(app, { dataDir: app.store.folder, port: 0 });
+  t.after(() => server.close().catch(() => undefined));
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json", origin: server.url };
+  return (path, body) => fetch(`${server.url}${path}`, { method: "POST", headers, body: JSON.stringify(body) })
+    .then(async (r) => ({ status: r.status, body: await r.json() }));
+}
+
+test("the general events route refuses a patch and points to the patch route", async (t) => {
+  const { app, owner, events } = await fixture(t);
+  const post = await web(t, app);
+  // Neither a well-formed patch nor a made-up one may skip the patch route's checks.
+  for (const payload of [patch("garden-app", "Garden fix", "one"), { repository: "not-here", anything: true }]) {
+    const refused = await post("/api/collab/events", { kind: gitPatchKind, payload });
+    assert.equal(refused.status, 400);
+    assert.match(refused.body.error, /\/api\/collab\/git-patches/);
+  }
+  assert.deepEqual((await events.list(owner)).events, []);
+  // Other kinds still go through.
+  assert.equal((await post("/api/collab/events", { kind: "note", payload: { text: "hi" } })).status, 200);
+});
+
+test("a received patch must have the shape of a patch, even with a correct signature", async (t) => {
+  const { app, owner, events } = await fixture(t);
+  const post = await web(t, app);
+  const key = await events.memberKey(ownerMember);
+  const signed = (payload) => {
+    const claim = { id: crypto.randomUUID(), member: ownerMember, kind: gitPatchKind, at: new Date().toISOString(), payload };
+    return { ...claim, signature: createHmac("sha256", key).update(canonical(claim)).digest("hex") };
+  };
+  const bad = signed({ repository: "garden-app", title: "No patch or status here" });
+  assert.deepEqual(await events.verify(bad), { valid: true });
+  const refused = await post("/api/collab/events/receive", bad);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /not a valid git\.patch event/);
+  const good = signed(patch("garden-app", "Garden fix", "one"));
+  const kept = await post("/api/collab/events/receive", good);
+  assert.equal(kept.status, 200);
+  assert.deepEqual((await events.list(owner)).events.map((e) => e.id), [good.id]);
 });

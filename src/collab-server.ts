@@ -8,7 +8,7 @@ import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 import { roleLabels } from "./profile-roles.js";
-import { ownerMember, publishGitPatch } from "./collab-events.js";
+import { ownerMember, publishGitPatch, reservedKinds } from "./collab-events.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -161,6 +161,9 @@ async function eventsApi(app: Branch, request: IncomingMessage, path: string, bo
   if (request.method !== "POST") return notCollab;
   if (path === "/api/collab/events") {
     const input = z.object({ kind: z.string(), payload: z.record(z.string(), z.unknown()) }).strict().parse(await body());
+    // One path per kind: a patch here would skip its own checks, so it is sent to its route instead.
+    const reserved = reservedKinds.get(input.kind);
+    if (reserved) throw new Error(`A ${input.kind} event is published through ${reserved.route}`);
     return events.publish(owner, app.store.profiles.active()?.id ?? ownerMember, input.kind, input.payload);
   }
   if (path === "/api/collab/events/receive") return events.receive(owner, await body());

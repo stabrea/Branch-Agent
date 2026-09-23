@@ -27,10 +27,30 @@ export type CollabEvent = z.infer<typeof CollabEventSchema>;
 export type CollabVerdict = { valid: true } | { valid: false; reason: string };
 export interface CollabSearch {
   kind?: string | undefined; text?: string | undefined; limit?: number | undefined;
-  /** Only events linked to this repository (a Branch project id), matched exactly, never by text. */
+  /** Only patches linked to this repository (a Branch project id), matched exactly, never by text or on other kinds. */
   repository?: string | undefined;
 }
 export interface CollabListing { events: CollabEvent[]; rejected: string[] }
+
+/** What a repository looked like when a patch was published: its branch, head commit and changed files. */
+export const GitStatusSchema = z.object({
+  branch: z.string().min(1).max(200), head: z.string().regex(/^[a-f0-9]{40}$/, "A head is a full 40-character commit id"),
+  clean: z.boolean(), changed: z.array(z.string().min(1).max(500)).max(500),
+}).strict();
+export const GitPatchSchema = z.object({
+  repository: projectIdSchema, title: z.string().trim().min(1).max(200),
+  patch: z.string().min(1).max(60000), status: GitStatusSchema,
+}).strict();
+export const gitPatchKind = "git.patch";
+
+/**
+ * Kinds whose payload has a fixed shape, each with the one route that publishes it after checking
+ * that shape (and anything else, like the repository being real). The general route refuses them,
+ * and one received from elsewhere is kept only if its payload has that shape.
+ */
+export const reservedKinds: ReadonlyMap<string, { payload: z.ZodType; route: string }> = new Map([
+  [gitPatchKind, { payload: GitPatchSchema, route: "/api/collab/git-patches" }],
+]);
 
 export class CollabEvents {
   private root: Promise<Buffer> | undefined;
@@ -74,6 +94,9 @@ export class CollabEvents {
     const verdict = await this.verify(input);
     if (!verdict.valid) throw new Error(`Event rejected: ${verdict.reason}`);
     const event = CollabEventSchema.parse(input);
+    // A correct signature is not enough for a reserved kind: a patch must look like a patch.
+    const reserved = reservedKinds.get(event.kind);
+    if (reserved && !reserved.payload.safeParse(event.payload).success) throw new Error(`Event rejected: it is not a valid ${event.kind} event`);
     if (this.db.prepare("SELECT 1 FROM collab_events WHERE id=?").get(event.id)) throw new Error("Event rejected: it was already received");
     this.insert(owner, event);
     return event;
@@ -85,8 +108,8 @@ export class CollabEvents {
     const repository = search.repository ?? null;
     const rows = this.db.prepare(`SELECT * FROM collab_events WHERE owner=? AND (? IS NULL OR kind=?)
       AND (? IS NULL OR payload LIKE ? ESCAPE '\\')
-      AND (? IS NULL OR json_extract(payload, '$.repository')=?) ORDER BY at DESC, id LIMIT ?`)
-      .all(owner, search.kind ?? null, search.kind ?? null, text, text, repository, repository, limit);
+      AND (? IS NULL OR (kind=? AND json_extract(payload, '$.repository')=?)) ORDER BY at DESC, id LIMIT ?`)
+      .all(owner, search.kind ?? null, search.kind ?? null, text, text, repository, gitPatchKind, repository, limit);
     const listing: CollabListing = { events: [], rejected: [] };
     for (const row of rows) {
       const event = rowEvent(row);
@@ -108,17 +131,6 @@ function rowEvent(row: Record<string, unknown>): CollabEvent | null {
       payload: JSON.parse(String(row.payload)) as Record<string, unknown>, signature: String(row.signature) };
   } catch { return null; }
 }
-
-/** What a repository looked like when a patch was published: its branch, head commit and changed files. */
-export const GitStatusSchema = z.object({
-  branch: z.string().min(1).max(200), head: z.string().regex(/^[a-f0-9]{40}$/, "A head is a full 40-character commit id"),
-  clean: z.boolean(), changed: z.array(z.string().min(1).max(500)).max(500),
-}).strict();
-export const GitPatchSchema = z.object({
-  repository: projectIdSchema, title: z.string().trim().min(1).max(200),
-  patch: z.string().min(1).max(60000), status: GitStatusSchema,
-}).strict();
-export const gitPatchKind = "git.patch";
 
 /**
  * Publishes a patch with its repository's status as one signed event. The repository is a Branch
