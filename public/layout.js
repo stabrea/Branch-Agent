@@ -317,7 +317,7 @@ const SETTINGS_PAGES = [
   ["data", "settings.page.data", "Data & usage", "What it costs, what is kept, and your safety copies."],
   ["advanced", "settings.page.advanced", "Advanced", "Tools for checking and fixing Branch."],
   ["about", "settings.page.about", "Updates & about", "Your version, and updates."],
-  ["trunks", "settings.page.trunks", "Trunks & people", "Your own assistants, the computers they use, and the people who use Branch here."],
+  ["trunks", "settings.page.trunks", "Trunks & people", "Your own assistants and the people who use Branch here."],
   ["channels", "settings.page.channels", "Chat apps & devices", "The chat apps, pages and devices that reach Branch."],
   ["connections", "settings.page.connections", "Connections", "Tool servers Branch uses, other AI tools using Branch, and your own accounts."],
   ["skills", "settings.page.skills", "Skills & plugins", "What your assistant can do: skills, specialists and plugins."],

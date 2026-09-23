@@ -1,7 +1,10 @@
 /**
  * DG-193: Settings › Trunks & people has the approved sample's sections, in its order, with the same "N more with …"
- * lines, at 1440 and 400 and in both Show everything states; its switches save as you go and keep Customize ›
+ * lines, at 1440, 860 and 400 and in both Show everything states; its switches save as you go and keep Customize ›
  * Specialists in step; its headings are French in French.
+ * Parity pass: each row is the sample's `.ctl` (words left, control at the far edge, a line above, the note on a line
+ * of its own; one column at 760px and under), Edit Trunk's rows come in the sample's order, the page says what the
+ * sample says, and every word on the three cards is French in French.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -51,7 +54,19 @@ async function level(page, pick) {
   await page.waitForFunction((pick) => document.documentElement.dataset.settingsLevel === pick, pick);
 }
 
-for (const width of [1440, 400]) {
+/** Where each row's words, control and note sit: the three kinds of control, a three-way switch, a switch and a list. */
+const geometry = (page) => page.evaluate(() => ["settings-trunks-switch-trunks", "settings-trunk-edit-commands", "settings-person-role"].map((id) => {
+  const control = document.getElementById(id), row = control.closest(".settings-trunks-row");
+  const shown = control.closest(".segmented-control") ?? control;
+  const box = (node) => { const { left, right, top, bottom } = node.getBoundingClientRect(); return { left, right, top, bottom }; };
+  const note = row.querySelector(":scope > .field-note");
+  return { id, label: box(row.querySelector(":scope > label")), control: box(shown), note: note ? box(note) : null, line: getComputedStyle(row).borderTopWidth };
+}));
+/* The sample's Edit Trunk, top to bottom: switches, choices, words, lists. */
+const EDIT_ORDER = ["commands", "hidden", "pinned", "keys", "model", "reasoning", "style", "picture", "name", "title", "description", "instructions",
+  "section", "permissions", "skills", "mcp", "channels"].map((name) => `settings-trunk-edit-${name}`);
+
+for (const width of [1440, 860, 400]) {
   test(`Trunks & people has the sample's sections in order, Show everything off and on, at ${width}px`, async (t) => {
     const { page, errors } = await fixture(t, width);
     await settle(page, REGULAR);
@@ -60,11 +75,21 @@ for (const width of [1440, 400]) {
     for (const id of ["settings-trunks-switch-trunks", "settings-trunks-switch-rooms", "settings-trunk-edit-commands", "settings-trunk-edit-hidden", "settings-person-role"])
       assert.equal(await page.locator(`#${id}`).isVisible(), true, `${id} shows at Regular`);
     assert.equal(await page.locator("#settings-trunks-switch-teach").isVisible(), false);
+    for (const { id, label, control, note, line } of await geometry(page)) {
+      assert.equal(line, "1px", `${id}: a line above its row`);
+      if (width > 760) {
+        assert.ok(control.left >= label.right, `${id}: the control sits right of its words at ${width}px`);
+        assert.ok(control.top < label.bottom && control.bottom > label.top, `${id}: on the same line as its words at ${width}px`);
+        assert.ok(control.right > width / 2, `${id}: at the far edge at ${width}px`);
+      } else assert.ok(control.top >= label.bottom - 1, `${id}: under its words at ${width}px`);
+      if (note) assert.ok(note.top >= Math.max(label.bottom, control.bottom) - 1, `${id}: its note on a line of its own at ${width}px`);
+    }
     await level(page, "advanced");
     await settle(page, ADVANCED);
     assert.equal(await page.evaluate(() => document.documentElement.dataset.everything), "on");
     assert.deepEqual(await outline(page), ADVANCED);
     assert.equal(await page.locator("#settings-trunk-edit-keys").isVisible(), true);
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll("#settings-trunk-edit [data-sg-mirror]")].map((node) => node.id || node.querySelector("select").id)), EDIT_ORDER);
     /* No heading but the section's own, and no directory left behind. */
     assert.equal(await page.locator("#lx-page-trunks .settings-trunks-card h2, #lx-page-trunks .settings-trunks-card h3, #lx-page-trunks .settings-directory-card").count(), 0);
     assert.deepEqual(errors, []);
@@ -83,9 +108,31 @@ test("a Trunks switch in Settings saves as you go and Customize follows it", asy
 
 test("Trunks & people's section headings are French in French", async (t) => {
   const { page, errors } = await fixture(t, 1440);
+  assert.equal(await page.locator("#lx-page-trunks > .lx-page-intro").textContent(), "Your own assistants and the people who use Branch here.");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => document.getElementById("sg-bucket-trunks-person")?.textContent === "La fiche d'une personne");
   assert.equal(await page.locator("#sg-bucket-trunks-edit").textContent(), "Modifier un Trunk");
   assert.equal(await page.locator("#settings-trunks-switches .settings-trunks-open").textContent(), "Ouvrir Trunks");
+  assert.equal(await page.locator("#lx-page-trunks > .lx-page-intro").textContent(), "Vos propres assistants et les personnes qui utilisent Branch ici.");
+  /* Every word on the three cards, options and notes too, is its French one; nothing is left without a key. */
+  const words = await page.evaluate(async () => {
+    const fr = await (await fetch("/locales/fr.json")).json();
+    const cards = ["settings-trunks-switches", "settings-trunk-edit", "settings-person-card"].map((id) => document.getElementById(id));
+    const wrong = [], bare = [];
+    for (const node of cards.flatMap((card) => [...card.querySelectorAll("[data-t]")]))
+      if (node.textContent.trim() !== fr[node.dataset.t]) wrong.push(`${node.dataset.t}: ${node.textContent.trim()}`);
+    for (const card of cards) {
+      const walk = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+      for (let text = walk.nextNode(); text; text = walk.nextNode()) {
+        const holder = text.parentElement;
+        if (!text.textContent.trim() || holder.closest("[data-t], .sr-only, .sg-more-line, #settings-trunk-pick, #settings-person-pick, .settings-trunks-status")) continue;
+        bare.push(text.textContent.trim());
+      }
+    }
+    return { wrong, bare, trunks: fr["trunks.part.trunks"] };
+  });
+  assert.deepEqual(words.wrong, []);
+  assert.deepEqual(words.bare, []);
+  assert.equal(words.trunks, "Trunks", "the product's name, as the section heading says it");
   assert.deepEqual(errors, []);
 });

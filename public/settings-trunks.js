@@ -108,12 +108,15 @@ function editRows(trunk, save) {
     name === "commands" ? trunk?.reach.commands : name === "keys" ? trunk?.keys.copyFromOwner : trunk?.[name]), "change",
     (c) => (name === "commands" ? { reach: { ...trunk.reach, commands: c.checked } } : name === "keys" ? { keys: { ...trunk.keys, copyFromOwner: c.checked } } : { [name]: c.checked }))));
   const pick = (options, value, name) => on(dropdown({ options, value: value ?? "" }), "change", (c) => ({ [name]: c.value || (name === "reasoning" ? null : c.value) }));
-  return [...ticks.slice(0, 2), ...texts,
+  const [name, title, description, model] = texts;
+  /* The sample's order: the switches, then the choices, then the words, then the lists. */
+  return [...ticks, model,
     row("settings-trunk-edit-reasoning", "trunks.field.reasoning", "How hard it thinks", pick(REASONING, trunk?.reasoning, "reasoning")),
-    row("settings-trunk-edit-instructions", "trunks.field.instructions", "Its own instructions", on(textControl(trunk?.instructions, true), "change", (c) => ({ instructions: c.value }))),
     row("settings-trunk-edit-style", "trunks.field.style", "How it works", pick(STYLES, trunk?.style ?? "default", "style")),
-    ...lists, row("settings-trunk-edit-section", "trunks.field.section", "Sidebar section", on(textControl(trunk?.section), "change", (c) => ({ section: c.value.trim() }))),
-    ...ticks.slice(2), pictureRow()];
+    pictureRow(), name, title, description,
+    row("settings-trunk-edit-instructions", "trunks.field.instructions", "Its own instructions", on(textControl(trunk?.instructions, true), "change", (c) => ({ instructions: c.value }))),
+    row("settings-trunk-edit-section", "trunks.field.section", "Sidebar section", on(textControl(trunk?.section), "change", (c) => ({ section: c.value.trim() }))),
+    ...lists];
 }
 /** The picture is made, uploaded or kept in the Trunk's own editor. */
 function pictureRow() {

@@ -95,6 +95,61 @@
 .settings-directory-open {
   flex: none;
 }
+/* DG-193: a row of Settings › Trunks & people (public/settings-trunks.js), as the sample's `.ctl`: its words at the
+   left, its control at the far edge, a line above it and its note across the whole row. A long text box sits under
+   its words, and on a narrow screen (the sample's 760px) every row is one column. */
+.settings-trunks-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.settings-trunks-row > label {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 520;
+}
+.lx-page .settings-trunks-row > :not(label, .field-note) {
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+}
+.lx-page .settings-trunks-row > select {
+  width: 180px;
+}
+.lx-page .settings-trunks-row > input:not([type="checkbox"], [type="number"]) {
+  width: 220px;
+}
+.lx-page .settings-trunks-row > input[type="number"] {
+  width: 160px;
+}
+/* The note takes a line of its own (a flex line breaks on its full width), with its words held to the sample's 72ch. */
+.lx-page .settings-trunks-row > .field-note {
+  flex: 1 0 100%;
+  max-width: none;
+  margin: 0;
+  padding-inline-end: max(0px, 100% - 72ch);
+}
+.settings-trunks-row:has(> textarea) > label,
+.lx-page .settings-trunks-row > textarea {
+  flex: 1 0 100%;
+  width: 100%;
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .settings-trunks-row > label {
+    flex: 1 0 100%;
+  }
+  .lx-page .settings-trunks-row > :not(label, .field-note) {
+    margin: 0;
+  }
+  .lx-page .settings-trunks-row > :is(select, .segmented-control, input:not([type="checkbox"], [type="number"])) {
+    flex: 1 0 100%;
+    width: 100%;
+  }
+}
 /* Destructive uninstall controls keep the warning enclosure from the full window. */
 .lx-page > .card.danger-zone {
   margin: 0 0 12px;
