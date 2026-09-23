@@ -123,6 +123,8 @@ export const ROUTES = {
   "/api/code-check": "owner POST",
   "/api/code-run": "owner POST",
   "/api/collab": "look",
+  "/api/collab/events": "other GET,POST", // members' signed events; read and publish are the owner's
+  "/api/collab/events/receive": "other POST", // takes in a signed event from elsewhere
   "/api/comfort": "owner POST", // R17-S-C
   "/api/comfort/status": "look", // R17-S-C
   "/api/comfort/update-plan": "owner POST", // R17-S-C

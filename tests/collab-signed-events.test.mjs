@@ -129,3 +129,26 @@ test("a stored event from a removed member, or from somebody who was never one, 
   assert.deepEqual(listing.events.map((e) => e.id), [byOwner.id]);
   assert.deepEqual([...listing.rejected].sort(), [byAda.id, stranger.id].sort());
 });
+
+test("events that no longer verify do not use up the page: the owner's own events still show", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  const mine = [];
+  for (let i = 0; i < 4; i++) mine.push((await events.publish(owner, ownerMember, "note", { text: `mine ${i}` })).id);
+  for (let i = 0; i < 100; i++) await events.publish(owner, ada.id, "note", { text: `ada ${i}` });
+  app.store.profiles.remove(ada.id);
+  const listing = await events.list(owner);
+  assert.deepEqual(listing.events.map((event) => event.id).sort(), [...mine].sort(), "the four still-genuine events are listed");
+  assert.equal(listing.rejected.length, 100);
+});
+
+test("a key read that fails once is asked again, not kept failing until a restart", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { CollabEvents } = await import("../dist/collab-events.js");
+  let calls = 0;
+  const keys = { async key() { calls += 1; if (calls === 1) throw new Error("keychain busy"); return Buffer.alloc(32, 7); } };
+  const events = new CollabEvents(new DatabaseSync(":memory:"), keys, () => true);
+  await assert.rejects(events.publish("owner", ownerMember, "note", { text: "first" }), /keychain busy/);
+  const made = await events.publish("owner", ownerMember, "note", { text: "second" });
+  assert.equal((await events.verify(made)).valid, true);
+  assert.equal(calls, 2);
+});

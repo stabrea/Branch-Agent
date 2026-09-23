@@ -28,6 +28,9 @@ export type CollabVerdict = { valid: true } | { valid: false; reason: string };
 export interface CollabSearch { kind?: string | undefined; text?: string | undefined; limit?: number | undefined }
 export interface CollabListing { events: CollabEvent[]; rejected: string[] }
 
+/** The most stored rows one listing looks at before it stops, however many of them fail to verify. */
+const scanLimit = 5000;
+
 export class CollabEvents {
   private root: Promise<Buffer> | undefined;
   constructor(private readonly db: DatabaseSync, private readonly keys: LockerKeySource,
@@ -38,7 +41,9 @@ export class CollabEvents {
   }
   /** The key for one member: nobody holding only another member's key can sign as them. */
   private async memberKey(member: string): Promise<Buffer> {
-    const root = await (this.root ??= this.keys.key().then((key) => createHmac("sha256", key).update("branch-collab-events-v1").digest()));
+    // A key read that fails is not kept: the next call asks again rather than failing until a restart.
+    const pending = this.root ??= this.keys.key().then((key) => createHmac("sha256", key).update("branch-collab-events-v1").digest());
+    const root = await pending.catch((error: unknown) => { if (this.root === pending) this.root = undefined; throw error; });
     return createHmac("sha256", root).update(member).digest();
   }
   private async signature(event: Omit<CollabEvent, "signature">): Promise<string> {
@@ -78,14 +83,19 @@ export class CollabEvents {
   async list(owner: string, search: CollabSearch = {}): Promise<CollabListing> {
     const limit = Math.min(Math.max(Math.trunc(search.limit ?? 100), 1), 500);
     const text = search.text ? `%${search.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
-    const rows = this.db.prepare(`SELECT * FROM collab_events WHERE owner=? AND (? IS NULL OR kind=?)
-      AND (? IS NULL OR payload LIKE ? ESCAPE '\\') ORDER BY at DESC, id LIMIT ?`)
-      .all(owner, search.kind ?? null, search.kind ?? null, text, text, limit);
+    const page = this.db.prepare(`SELECT * FROM collab_events WHERE owner=? AND (? IS NULL OR kind=?)
+      AND (? IS NULL OR payload LIKE ? ESCAPE '\\') ORDER BY at DESC, id LIMIT ? OFFSET ?`);
     const listing: CollabListing = { events: [], rejected: [] };
-    for (const row of rows) {
-      const event = rowEvent(row);
-      if (event && (await this.verify(event)).valid) listing.events.push(event);
-      else listing.rejected.push(String(row.id));
+    // Pages are read until `limit` events verify, so rows that no longer verify never use up the page.
+    // Bounded: at most `scanLimit` rows are looked at for one listing.
+    for (let offset = 0; listing.events.length < limit && offset < scanLimit; offset += limit) {
+      const rows = page.all(owner, search.kind ?? null, search.kind ?? null, text, text, limit, offset);
+      for (const row of rows) {
+        const event = rowEvent(row);
+        if (event && (await this.verify(event)).valid) { if (listing.events.length < limit) listing.events.push(event); }
+        else if (listing.rejected.length < scanLimit) listing.rejected.push(String(row.id));
+      }
+      if (rows.length < limit) break;
     }
     return listing;
   }
