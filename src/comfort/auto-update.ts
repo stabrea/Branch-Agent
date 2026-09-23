@@ -52,6 +52,10 @@ export function updatePlan(store: Pick<Store, "get">, owner: string, facts: Plan
     if (facts.busyTasks > 0) return plan("nothing", "A newer version is ready; it installs once no task is working.");
     return plan("install", "A newer version is ready and nothing is working, so it is installed now, safely.");
   }
+  // An available update is remembered by GitHub, not by this process. After a restart the updater
+  // starts idle, so look again even if yesterday's check timestamp is still fresh.
+  if (mode === "install" && facts.updaterPhase === "idle")
+    return plan("check", "Checking for an update that may have waited through the last restart.");
   if (!due) return plan("nothing", "Updates were looked for less than a day ago.");
   return plan("check", mode === "install" ? "Looking for a newer version to install." : "Looking for a newer version to tell you about.");
 }

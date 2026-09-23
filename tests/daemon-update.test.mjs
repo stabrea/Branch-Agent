@@ -154,6 +154,20 @@ test("an engine that ignores the polite ask is ended, and one that never goes do
   assert.notEqual(await readRunning(root), null, "a note for an engine still running is left alone");
 });
 
+test("automatic update leaves an unresponsive background engine running", async (t) => {
+  const root = await scratch(t);
+  await noteFor(root, 61616);
+  const calls = [];
+  const report = await stopBackgroundEngine(root, {
+    run: async (file, args) => tasklist(file, args) ?? (calls.push(args), ""),
+    alive: () => true, sleep: async () => {}, waitMs: 0,
+    platform: "win32", fetch: nothingListening, gracefulOnly: true,
+  });
+  assert.deepEqual(calls, [["/PID", "61616", "/T"]], "no forced termination follows a slow polite ask");
+  assert.deepEqual([report.pid, report.stopped, report.forced], [61616, false, false]);
+  assert.notEqual(await readRunning(root), null, "the running engine remains registered");
+});
+
 test("Windows: a note left by a crash that names another program's process id never ends that program", async (t) => {
   const root = await scratch(t);
   await noteFor(root, 80808);
@@ -241,12 +255,12 @@ test("cmd runs the two-wait script through to the copy", { skip: process.platfor
     "both waits were passed, in order, before the copy");
 });
 
-test("an engine that refuses to close still lets the update go ahead", async (t) => {
+test("an engine that refuses to close stops the update before hand-over", async (t) => {
   const root = await scratch(t);
   const updater = await updaterFor(root, "scratch-refused", {
     stopDaemon: async () => { throw new Error("taskkill is missing"); },
   });
-  const { script } = await updater.install();
-  assert.equal(updater.status.phase, "ready");
-  assert.ok(!(await readFile(script, "utf8")).includes(":engine"), "no pid to wait for, so no wait loop");
+  await assert.rejects(updater.install(), /taskkill is missing/);
+  assert.equal(updater.status.phase, "error");
+  await assert.rejects(readFile(join(root, "scratch-refused", "apply-update.cmd")), /ENOENT/);
 });

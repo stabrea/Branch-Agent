@@ -53,7 +53,7 @@ test("every comfort setting ships as Branch has always behaved", () => {
   assert.deepEqual(values, {
     keys: { palette: "Ctrl+K", newConversation: "Ctrl+N", appearance: "Ctrl+,", sidePane: "Ctrl+Shift+K", vim: false },
     display: { statusLine: null, timestamps: false },
-    notify: { method: "system", sound: "off", autoUpdate: "off" },
+    notify: { method: "system", sound: "off", autoUpdate: "off", releaseChannel: "stable" },
     voice: { pushToTalkKey: "", maxRecordingSeconds: null },
     browser: { confirmSensitive: false, blockUploads: false, dialogs: "dismiss" },
     network: { proxy: null, noProxy: [], caCertificates: [] },
@@ -228,6 +228,17 @@ test("R17-S20: the settings route checks the proxy and certificates before keepi
   const shown = await call("GET", "/api/comfort");
   assert.equal(shown.status, 200);
   assert.equal(shown.body.values.mcp.startupTimeoutSeconds, 10);
+  assert.deepEqual((await call("GET", "/api/comfort/update-readiness")).body,
+    { channel: "stable", busyTasks: 0 });
+  const outsideTask = branch.store.createRun("person:sam", "a long task");
+  assert.equal((await call("GET", "/api/comfort/update-readiness")).body.busyTasks, 1,
+    "work from another profile blocks the update");
+  branch.store.finish(outsideTask.id, "needs_input", "Waiting for an answer");
+  assert.equal((await call("GET", "/api/comfort/update-readiness")).body.busyTasks, 1,
+    "a task paused on a question still blocks the update");
+  branch.store.finish(outsideTask.id, "completed", "Done");
+  assert.equal((await call("POST", "/api/comfort", { card: "notify", values: { releaseChannel: "beta" } })).status, 200);
+  assert.equal((await call("GET", "/api/comfort/update-readiness")).body.channel, "beta");
   const refused = await call("POST", "/api/comfort", { card: "network", values: { proxy: "http://a:b@proxy.example.com:1" } });
   assert.equal(refused.status, 400);
   assert.match(refused.body.error, /user name or password/);
@@ -247,10 +258,14 @@ test("R17-S20: the settings route checks the proxy and certificates before keepi
     assert.match(answer.body.error, /short-lived key cannot change shortcuts/);
   }
   assert.equal((await call("GET", "/api/comfort", undefined, key)).status, 200, "a short-lived key may look");
+  assert.equal((await call("GET", "/api/comfort/update-readiness", undefined, key)).status, 403,
+    "a short-lived key cannot inspect update readiness");
   const person = branch.store.profiles.create({ name: "Sam", pin: "4321" });
   branch.store.profiles.switch({ profileId: person.id, pin: "4321" });
   const household = await call("POST", "/api/comfort", { card: "browser", values: { blockUploads: true } });
   assert.equal(household.status, 400); // profile-audit: refused at one place in src/server.ts, as requireOwner answers
+  assert.equal((await call("POST", "/api/comfort", { card: "notify", values: { releaseChannel: "stable" } })).status, 400);
+  assert.equal((await call("GET", "/api/comfort/update-readiness")).status, 400);
   branch.store.profiles.switch({ profileId: null });
   assert.equal((await call("POST", "/api/comfort", { card: "browser", values: { blockUploads: true } })).status, 200);
 });
@@ -378,6 +393,8 @@ test("R17-S17: automatic updates are off as shipped, look once a day, and only i
   assert.equal(updatePlan(store, "local", { busyTasks: 0, updaterPhase: "available", now }).step, "nothing", "check only tells");
   assert.equal(updatePlan(store, "local", { busyTasks: 0, now: new Date("2026-09-18T12:00:01Z") }).step, "check");
   records["comfort-notify"] = { autoUpdate: "install" };
+  assert.equal(updatePlan(store, "local", { busyTasks: 0, updaterPhase: "idle", now }).step, "check",
+    "restart rechecks an update that may have been waiting");
   assert.equal(updatePlan(store, "local", { busyTasks: 1, updaterPhase: "available", now }).step, "nothing", "never while a task works");
   assert.equal(updatePlan(store, "local", { busyTasks: 0, updaterPhase: "available", now }).step, "install");
 });
