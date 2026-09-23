@@ -2163,6 +2163,18 @@
               </div>
               <button id="wsedit-save" type="button" data-t="action.save">Save</button>
             </div>
+            <!-- FQ-collaboration: a video opened from the Files tab, with the comments pinned to it. -->
+            <div id="wsedit-media" class="wsedit-media" hidden>
+              <p class="meta" id="wsedit-media-path"></p>
+              <video id="wsedit-media-video" class="wsedit-media-video" controls preload="metadata" data-t-label="wsedit.media.video-label" aria-label="The video"></video>
+              <div id="wsedit-media-comments" class="wsedit-media-comments"></div>
+              <form id="wsedit-media-comment-form" class="wsedit-media-comment-form">
+                <label class="sr-only" for="wsedit-media-comment-text" data-t="wsedit.media.comment.label">A comment at this moment</label>
+                <input id="wsedit-media-comment-text" type="text" maxlength="2000" required
+                  data-t-placeholder="wsedit.media.comment.placeholder" placeholder="Comment at the current moment">
+                <button type="submit" data-t="wsedit.media.comment.add">Add comment here</button>
+              </form>
+            </div>
           </div>
           <p id="wsedit-status" class="context-empty" role="status" aria-live="polite"></p>
         </details>

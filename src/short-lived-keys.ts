@@ -138,6 +138,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   // which speech program is installed and whether the microphone is open this moment; starting it
   // is refused by the fail-closed rule above, which is what keeps a short-lived key out of it.
   /^\/api\/voice\/dictation(\/|$)/,
+  // FQ-collaboration: the comments on the owner's videos, read by the owner-only code editor's player.
+  /^\/api\/media-comments(\/.*)?$/,
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
   /^\/api\/vault-autofill(\/|$)/,

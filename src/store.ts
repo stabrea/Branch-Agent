@@ -25,6 +25,7 @@ import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
 // Wave 6 (collaboration and workflows): labels and project notes, share links, household profiles.
 import { Labels } from "./labels.js";
+import { MediaComments } from "./media-comments.js";
 import { ShareLinks } from "./conversation-share.js";
 import { Profiles } from "./profiles.js";
 // Wave 7 (tool loading): what this computer has learned about which tools a request needs.
@@ -57,6 +58,8 @@ export class Store {
   readonly projects: Projects;
   /** Wave 6: labels and project notes, read-only share links, and the household's profiles. */
   readonly labels: Labels;
+  /** FQ-collaboration: comments pinned to a moment in a media file. */
+  readonly mediaComments: MediaComments;
   readonly shares: ShareLinks;
   readonly profiles: Profiles;
   /** Wave 7: which tools past tasks needed, and what has been learned about them. */
@@ -126,6 +129,7 @@ export class Store {
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "project"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'default'");
     this.labels = new Labels(this.db);
+    this.mediaComments = new MediaComments(this.db);
     this.toolUsage = new ToolUsage(this.db);
     this.shares = new ShareLinks(this.db);
     this.profiles = new Profiles(this.db, "local");

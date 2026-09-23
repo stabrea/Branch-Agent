@@ -173,7 +173,8 @@ import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
-import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { handlesWorkspaceEditorPath, workspaceEditorApi, workspaceEditorSettings, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { isVideoPath, readWorkspaceVideo, VideoFileError } from "./media-file.js"; // FQ-collaboration: media-comments
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 // mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
 import {
@@ -448,6 +449,8 @@ async function staticFile(
     // Help in the app: the owner's handbook, opened in the pane on the right.
     "/help.js": ["help.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    // FQ-collaboration: the seek-to-comment hook, for a media player screen to wire in.
+    "/media-comments.js": ["media-comments.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     // Bucket 17: the video programs card and the speech plug-ins card.
@@ -1238,6 +1241,9 @@ async function api(
   }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // FQ-collaboration: a comment pinned to a moment in a media file (video today), so it can be
+  // reopened at the same position later.
+  if (path.startsWith("/api/media-comments")) return mediaCommentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
   if (path.startsWith("/api/knowledge")) {
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
@@ -2740,6 +2746,24 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   throw new HttpError(404, "Endpoint not found");
 }
 /**
+ * FQ-collaboration: comments pinned to a moment in a media file. `GET ?fileId=` lists them for one
+ * file, earliest first; `POST` adds one. Opened from the Files browser (public/code-editor.js), which
+ * plays the video itself through `/api/media-comments/media` (in `rawApi`, below).
+ */
+async function mediaCommentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, comments = app.store.mediaComments;
+  if (request.method === "GET" && path === "/api/media-comments") {
+    const fileId = new URL(request.url ?? "/", "http://local").searchParams.get("fileId") ?? "";
+    if (!fileId) throw new HttpError(400, "fileId is required");
+    return { comments: comments.list(owner, fileId) };
+  }
+  if (request.method === "POST" && path === "/api/media-comments")
+    return comments.add(owner, owner, await readBody(request));
+  const one = /^\/api\/media-comments\/([a-f0-9-]{36})$/.exec(path);
+  if (one && request.method === "DELETE") return comments.remove(owner, one[1]!);
+  throw new HttpError(404, "Endpoint not found");
+}
+/**
  * The reports the assistant has written, the watches that are running, and the morning brief.
  * These are the routes only; no screen in the app calls them yet.
  */
@@ -3739,6 +3763,26 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(bytes);
     return true;
   }
+  // FQ-collaboration: the raw bytes of one video in the workspace, so the Files browser can play it
+  // and a comment's timestamp can reopen it at the same position (public/media-comments.js). Held to
+  // the same switch as the rest of the code editor, since that is the screen this is opened from.
+  if (request.method === "GET" && path === "/api/media-comments/media") {
+    if (workspaceEditorSettings(app.store, app.runtime.owner).mode === "off")
+      throw new HttpError(403, "The Files browser is switched off. Turn it on in Settings → Advanced to open a video there.");
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams.get("fileId") ?? "";
+    const played = await readWorkspaceVideo(app.files, wanted, (target) =>
+      protectedTarget({ tool: "files.read", readOnly: true, args: { path: target }, target, workspace: app.files.base }, app.runtime.protectedAreas),
+    ).catch((error: unknown) => {
+      throw error instanceof VideoFileError ? new HttpError(error.status, error.message) : error;
+    });
+    response.writeHead(200, {
+      "content-type": played.contentType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(played.name)}`,
+      "content-security-policy": "default-src 'none'; sandbox",
+    });
+    response.end(played.bytes);
+    return true;
+  }
   if (request.method === "POST" && path === "/api/voice/transcribe") {
     const contentType = request.headers["content-type"] ?? "";
     if (!contentType.includes("audio/") && !contentType.includes("application/octet-stream")) {
@@ -4031,7 +4075,8 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
-  if (handlesWorkspaceEditorPath(path))
+  // FQ-collaboration: the video bytes the code editor's own player opens are the same door.
+  if (handlesWorkspaceEditorPath(path) || path === "/api/media-comments/media")
     return "A short-lived key cannot use the code editor. Do that in the app window.";
   // mac7/bind: opening Branch's door to the private network is the owner's alone, and so is being
   // told where the door already is. A Trunk's message from another computer arrives with such a
