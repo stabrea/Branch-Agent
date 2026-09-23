@@ -36,7 +36,8 @@ export interface PanelsWork {
 export const isBrowserTool = (tool: string): boolean => /^(browser|web)\./.test(tool);
 /** The same tools src/policy-resources.ts treats as command lines, and the programs kept running. */
 export const isTerminalTool = (tool: string): boolean =>
-  tool === "shell.execute" || /^(shell|terminal)\./.test(tool) || tool === "process.start" || tool === "remote.run";
+  tool === "shell.execute" || /^(shell|terminal)\./.test(tool) || tool === "process.start" ||
+  tool === "remote.run" || tool === "serverless.run";
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 function parsed(raw: unknown): Record<string, unknown> {
@@ -52,6 +53,7 @@ export function describe(tool: string, args: Record<string, unknown>): string {
   if (tool === "shell.execute") return joined(args.executable, args.args);
   if (tool === "shell.session.run") return text(args.input);
   if (tool === "shell.session.open" || tool === "remote.run" || tool === "process.start") return joined(args.program ?? args.command, args.args);
+  if (tool === "serverless.run") return joined(args.function, args.args);
   if (tool === "web.search") return text(args.query);
   return text(args.url) || text(args.address) || text(args.query);
 }

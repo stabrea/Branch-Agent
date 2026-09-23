@@ -95,7 +95,7 @@ export const BUCKETS = {
     ["browser", "globe", "The browser", "Sites it stays signed in to, and how carefully it clicks.",
       [["browser-card", R], ["comfort-browser-card", A]]],
     ["others", "window", "Your other computers", "Other computers running Branch.",
-      [["remote-card", A], ["asks-nodes-card", A], ["reach-machines-card", A]]],
+      [["remote-card", A], ["serverless-card", A], ["asks-nodes-card", A], ["reach-machines-card", A]]],
     ["under", "wrench", "Under the hood", "The network in between. Rarely needed.",
       [["comfort-network-card", T]]],
   ],

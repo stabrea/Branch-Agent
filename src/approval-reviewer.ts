@@ -148,7 +148,7 @@ function reasonsFor(host: ReviewerHost, mode: ReviewerSettings["mode"], check: P
   // conversation, is the owner's own decision: it is never second-guessed.
   const ownYes = host.approvals.answer(sessionOf(host, context), call.name, check.target, about.fingerprint) === "allow";
   if (check.decision === "allow" && (raw.outcome.decision !== "allow" || ownYes)) return null;
-  const command = isCommandTool(call.name) || call.name === "remote.run";
+  const command = isCommandTool(call.name) || call.name === "remote.run" || call.name === "serverless.run";
   const unmatchedCommand = command && raw.outcome.decision === "ask" && !raw.matched;
   const judge = mode === "on" ? check.decision === "ask" || command || unknown : unmatchedCommand || unknown;
   return classify || judge ? { classify, judge } : null;

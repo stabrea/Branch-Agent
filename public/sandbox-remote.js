@@ -122,6 +122,48 @@ async function removeRemote(computer) {
   } catch (error) { say("remote-status", error.message); }
 }
 
+/* ------------------------------------------------------------------ serverless functions */
+
+async function showServerless() {
+  const { endpoints } = await api("serverless");
+  const where = list("serverless-list");
+  if (!endpoints.length) where.append(line("No serverless functions yet.", "subtle"));
+  for (const endpoint of endpoints) {
+    const row = document.createElement("div");
+    row.className = "card-row";
+    const title = document.createElement("h4");
+    title.textContent = endpoint.label || endpoint.id;
+    const functions = endpoint.functions.length
+      ? `It may run: ${endpoint.functions.join(", ")}.`
+      : "It may answer Branch's own check and run nothing at all.";
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.textContent = "Take this function off";
+    drop.addEventListener("click", () => void removeServerless(endpoint.id));
+    row.append(title, line(`${endpoint.id}, at ${endpoint.url}. ${functions}`, "subtle"), drop);
+    where.append(row);
+  }
+}
+
+async function addServerless() {
+  try {
+    const functions = $("serverless-functions").value.split(",").map((name) => name.trim()).filter(Boolean);
+    await api("serverless", {
+      id: $("serverless-id").value.trim(), url: $("serverless-url").value.trim(),
+      label: $("serverless-label").value.trim(), functions,
+    });
+    await showServerless();
+    say("serverless-status", "Added.");
+  } catch (error) { say("serverless-status", error.message); }
+}
+async function removeServerless(endpoint) {
+  try {
+    await api("serverless/remove", { endpoint });
+    await showServerless();
+    say("serverless-status", "Taken off.");
+  } catch (error) { say("serverless-status", error.message); }
+}
+
 /* ------------------------------------------------------------------ how long conversations are kept */
 
 function showProposal(answer) {
@@ -169,7 +211,8 @@ async function prune() {
 
 async function render() {
   for (const [what, show] of [["sandbox-backends", showSandboxes], ["firewall-sentences", showFirewall],
-    ["limit-requests", showLimits], ["remote-list", showRemotes], ["retention-proposal", showRetention]])
+    ["limit-requests", showLimits], ["remote-list", showRemotes], ["serverless-list", showServerless],
+    ["retention-proposal", showRetention]])
     if ($(what)) await show().catch((error) => say("firewall-status", error.message));
 }
 
@@ -186,6 +229,7 @@ $("sandbox-save")?.addEventListener("click", () => void saveSandboxes());
 $("firewall-test")?.addEventListener("click", () => void testAddress());
 $("limit-save")?.addEventListener("click", () => void saveLimits());
 $("remote-add")?.addEventListener("click", () => void addRemote());
+$("serverless-add")?.addEventListener("click", () => void addServerless());
 $("retention-save")?.addEventListener("click", () => void saveRetention());
 $("retention-prune")?.addEventListener("click", () => void prune());
 

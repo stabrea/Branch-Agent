@@ -96,6 +96,7 @@ function fullCommand(tool: string, a: Record<string, unknown>): string | null {
   if (tool === "shell.execute" && typeof a.executable === "string") return joined(a.executable, a.args);
   if (tool === "shell.session.run" && typeof a.input === "string") return a.input;
   if ((tool === "shell.session.open" || tool === "remote.run") && typeof a.program === "string") return joined(a.program, a.args);
+  if (tool === "serverless.run" && typeof a.function === "string") return joined(a.function, a.args);
   return null;
 }
 /** A command resource: the whole command when the arguments hold it, marked when the target was shorter. */
@@ -126,7 +127,8 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   // ("git") or one of its actions ("git status"); see src/command-prefix.ts.
   // Integration review: the value is the whole command read from the arguments, never the target,
   // which is cut at 300 characters and could hide `; rm -rf ~` after a harmless start.
-  if (tool === "remote.run") return commandResource(target.split(": ").slice(1).join(": ") || target, fullCommand(tool, a));
+  if (tool === "remote.run" || tool === "serverless.run")
+    return commandResource(target.split(": ").slice(1).join(": ") || target, fullCommand(tool, a));
   if (isCommandTool(tool)) return commandResource(target, fullCommand(tool, a));
   if (/^(channels|email)\./.test(tool) || /^(channels|email)\./.test(permission))
     return { kind: "channel", value: String(a.channel ?? a.to ?? a.chat ?? target) };
