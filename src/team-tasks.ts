@@ -24,7 +24,7 @@ export type TeamTaskState = "pending" | "claimed" | "completed" | "failed" | "ne
 export interface TeamTaskScope { owner: string; source: string }
 export interface TeamTask {
   taskId: string; owner: string; source: string; teamId: string; requestId: string; fingerprint: string;
-  state: TeamTaskState; claimant: string | null; generation: number; parentRunId: string | null; bootId: string | null;
+  state: TeamTaskState; claimant: string | null; generation: number; parentRunId: string | null; parentSessionId: string | null; bootId: string | null;
   result: unknown; error: string | null; question: string | null; createdAt: string; updatedAt: string;
 }
 /** A claim the caller holds; later writes must present all of it. */
@@ -54,7 +54,7 @@ export class TeamTasks {
     this.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS team_tasks(
       task_id TEXT PRIMARY KEY, owner TEXT NOT NULL, source TEXT NOT NULL, team_id TEXT NOT NULL, request_id TEXT NOT NULL,
       fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','failed','needs_reconciliation','waiting_owner')),
-      claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, boot_id TEXT, parent_run_id TEXT, result TEXT, error TEXT, question TEXT,
+      claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, boot_id TEXT, parent_session_id TEXT, parent_run_id TEXT, result TEXT, error TEXT, question TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner, source, team_id, request_id))`);
   }
   /** Records the request once, or finds the one already recorded; a changed request under a reused id is refused. */
@@ -102,6 +102,13 @@ export class TeamTasks {
   standingClaim(scope: TeamTaskScope, taskId: string): TeamTaskClaim | null {
     const task = this.get(scope, taskId);
     return task?.state === "claimed" && task.claimant ? { scope, taskId, claimant: task.claimant, generation: task.generation } : null;
+  }
+  /**
+   * Notes the conversation the parent run will be created in, before the run exists, so a crash
+   * between the run's creation and linkParentRun still leaves the task pointing at it.
+   */
+  linkParentSession(claim: TeamTaskClaim, sessionId: string): void {
+    this.fenced(claim, "parent_session_id=?", [sessionId]);
   }
   /** Notes the parent run the moment it exists and before it does anything, so the task can always be traced to it. */
   linkParentRun(claim: TeamTaskClaim, parentRunId: string): void {
@@ -158,7 +165,8 @@ function toTask(row: Record<string, unknown>): TeamTask {
     taskId: String(row.task_id), owner: String(row.owner), source: String(row.source), teamId: String(row.team_id),
     requestId: String(row.request_id), fingerprint: String(row.fingerprint), state: row.state as TeamTaskState,
     claimant: row.claimant == null ? null : String(row.claimant), generation: Number(row.generation),
-    parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id), bootId: row.boot_id == null ? null : String(row.boot_id),
+    parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id),
+    parentSessionId: row.parent_session_id == null ? null : String(row.parent_session_id), bootId: row.boot_id == null ? null : String(row.boot_id),
     result: row.result == null ? null : JSON.parse(String(row.result)), error: row.error == null ? null : String(row.error),
     question: row.question == null ? null : String(row.question),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),

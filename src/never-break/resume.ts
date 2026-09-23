@@ -7,6 +7,7 @@ import { asPerson, currentPerson } from "../people/context.js"; // bucket 19 (in
 import { scopeOf } from "../tool-gate.js";
 import type { Store } from "../store.js";
 import { checkEvidence, evidenceFor, type OpenStep, type TaskJournal } from "./journal.js";
+import { unlinkedTeamParent } from "../team-reconcile.js"; // Q63
 
 /**
  * After a restart: what to do with each task that was cut off. Finished steps are never repeated
@@ -28,7 +29,7 @@ import { checkEvidence, evidenceFor, type OpenStep, type TaskJournal } from "./j
  * chat app started is left for that app, which sends the message again. See docs/never-break.md.
  */
 export type StepDecision = "redo" | "done" | "not-done" | "ask" | "not-started";
-export type RecoveryOutcome = "resumed" | "offered" | "asked" | "left-for-chat" | "gone";
+export type RecoveryOutcome = "resumed" | "offered" | "asked" | "left-for-chat" | "left-for-team" | "gone";
 export interface RecoveredRun { runId: string; outcome: RecoveryOutcome; steps: { tool: string; decision: StepDecision }[]; resumed?: Promise<unknown> }
 
 export interface RecoveryInput {
@@ -183,6 +184,12 @@ async function recoverRun(input: RecoveryInput, runId: string, steps: OpenStep[]
   if (!run || run.status !== "interrupted" || tooOld) {
     for (const step of steps) input.journal.finish(step.id, "abandoned");
     return { runId, outcome: "gone", steps: [] };
+  }
+  // Q63: a team task's own turn that the task never named is ended, not carried on: nothing could trace it.
+  if (unlinkedTeamParent(input.store, run.sessionId)) {
+    for (const step of steps) input.journal.finish(step.id, "abandoned");
+    input.store.finish(runId, "cancelled", "Branch stopped before this team turn was linked to its task, so it was not carried on. Send the request again with a new request id.");
+    return { runId, outcome: "left-for-team", steps: [] };
   }
   const inbound = input.store.events(runId).find((event) => event.kind === "channel.inbound");
   const reached = inbound ? mayHaveReachedOutside(input.journal, runId) : false;

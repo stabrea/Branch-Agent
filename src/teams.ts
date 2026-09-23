@@ -146,12 +146,18 @@ export class Teams {
     return { ...result, taskId: claim.taskId, requestId: this.tasks.get(claim.scope, claim.taskId)!.requestId, state: "completed" as const };
   }
   /**
-   * Starts the parent run. The runtime calls onStarted after it has created the run and just before
-   * its first model call, so the task names its run before the run can do anything. If that write
-   * is refused (the claim went stale), the runtime ends the run there and nothing is written here.
+   * Starts the parent run. First the task names a new conversation for it (a fenced write, so a
+   * claim that moved stops here), and only then is the run created in that conversation. The
+   * runtime saves the transcript, runs its start hooks and records "run.started" before it calls
+   * onStarted, so a crash in between leaves an interrupted run the task has not named yet; the
+   * conversation marks it as a team turn, and recovery after a restart does not carry such a run on
+   * (unlinkedTeamParent, src/never-break/resume.ts). onStarted names the run before its first model
+   * call; if that write is refused (the claim went stale), the runtime ends the run there.
    */
   private async startParent(runtime: Runtime, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress): Promise<Run> {
-    const parent = await runtime.run({ prompt: `Team ${team.name}: ${prompt}`, onStarted: (run) => {
+    const sessionId = this.store.createSession(this.owner);
+    this.tasks.linkParentSession(claim, sessionId);
+    const parent = await runtime.run({ prompt: `Team ${team.name}: ${prompt}`, sessionId, onStarted: (run) => {
       this.tasks.linkParentRun(claim, run.id);
       turn.parentRunId = run.id;
     } });
