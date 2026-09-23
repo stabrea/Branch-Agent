@@ -129,10 +129,10 @@ test("Trunks & people's section headings are French in French", async (t) => {
         bare.push(text.textContent.trim());
       }
     }
-    return { wrong, bare, trunks: fr["trunks.part.trunks"] };
+    return { wrong, bare, parts: Object.entries(fr).filter(([key]) => key.startsWith("trunks.part.")).map(([, words]) => words) };
   });
   assert.deepEqual(words.wrong, []);
   assert.deepEqual(words.bare, []);
-  assert.equal(words.trunks, "Trunks", "the product's name, as the section heading says it");
+  assert.deepEqual(words.parts.filter((part) => /Tronc/.test(part)), [], "the product's name, Trunk, as the section heading says it");
   assert.deepEqual(errors, []);
 });
