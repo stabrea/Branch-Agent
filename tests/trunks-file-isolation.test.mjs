@@ -32,6 +32,8 @@ test("a Trunk's own file root: another Trunk can neither read nor list nor escap
     if (text === "read own") return call("files.read", { path: "note.md" });
     if (text.startsWith("read ")) return call("files.read", { path: text.slice("read ".length) });
     if (text === "list") return call("files.list", { path: "." });
+    if (text === "grep") return call("files.grep", { query: "plan" });
+    if (text === "glob") return call("files.glob", { patterns: ["**/*.md"] });
     return null;
   }, ({ last }) => (last?.role === "tool" ? "Done." : null)];
   const { app, root } = await fixture(t, rules);
@@ -69,6 +71,12 @@ test("a Trunk's own file root: another Trunk can neither read nor list nor escap
   const escapeOutcome = toolOutcome(app, escape.runId, "files.read");
   assert.equal(escapeOutcome.ok, false);
   assert.match(escapeOutcome.error, /denied|outside/i);
+
+  // Grep and glob walk from his own folder too, not the workspace root: neither finds Ada's file.
+  const boGrep = await app.trunks.say(bo.id, "grep");
+  assert.deepEqual(toolOutcome(app, boGrep.runId, "files.grep").result.matches, []);
+  const boGlob = await app.trunks.say(bo.id, "glob");
+  assert.deepEqual(toolOutcome(app, boGlob.runId, "files.glob").result.files, []);
 });
 
 test("a Trunk's own memory stays out of another Trunk's search and lookup", async (t) => {
@@ -78,9 +86,10 @@ test("a Trunk's own memory stays out of another Trunk's search and lookup", asyn
     if (text === "remember") return call("memory.put", { text: "Ada's secret plan is launch Tuesday", source: "Ada", entity: "launch" });
     if (text === "search") return call("memory.search", { query: "secret plan" });
     if (text === "lookup") return call("memory.at", { entity: "launch" });
+    if (text === "timeline") return call("memory.timeline", { entity: "launch" });
     return null;
   }, ({ last }) => (last?.role === "tool" ? "Done." : null)];
-  const { app } = await fixture(t, rules);
+  const { app, provider } = await fixture(t, rules);
   on(app);
   const ada = app.trunks.create({ name: "Ada" });
   const bo = app.trunks.create({ name: "Bo" });
@@ -98,9 +107,16 @@ test("a Trunk's own memory stays out of another Trunk's search and lookup", asyn
   const adaHits = toolOutcome(app, adaSearch.runId, "memory.search").result;
   assert.ok(adaHits.some((r) => r.id === saved.result.id));
 
-  // Bo's search and direct lookup both come back empty: it is not shared and not his.
+  // Bo's search, direct lookup and timeline all come back empty: it is not shared and not his.
   const boSearch = await app.trunks.say(bo.id, "search");
   assert.deepEqual(toolOutcome(app, boSearch.runId, "memory.search").result, []);
   const boLookup = await app.trunks.say(bo.id, "lookup");
   assert.deepEqual(toolOutcome(app, boLookup.runId, "memory.at").result, []);
+  const boTimeline = await app.trunks.say(bo.id, "timeline");
+  assert.deepEqual(toolOutcome(app, boTimeline.runId, "memory.timeline").result, []);
+
+  // It never reaches Bo's model at all: nothing sent to the provider for his turns names the fact.
+  const priorRequests = provider.requests.length;
+  await app.trunks.say(bo.id, "search");
+  assert.doesNotMatch(JSON.stringify(provider.requests.slice(priorRequests)), /launch Tuesday/);
 });
