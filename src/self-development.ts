@@ -172,6 +172,22 @@ function registerSelfDevelopment(deps: SelfDevelopmentDeps): void {
  * call of this tool to the owner and never keeps the yes (`contractHold`), so each widening is one
  * explicit answer. The old revisions stay readable, and the widening is written in the audit record.
  */
+const widenTarget = (name: string): string => `the self-development contract of self-${name}`;
+
+/**
+ * Q12: who said yes to this widening. It is the newest "allowed" answer to this very question, in
+ * this conversation, given after the contract's newest revision was written, so one yes widens once.
+ * With none (a call that never met the question) the widening is refused.
+ */
+function widenedBy(deps: SelfDevelopmentDeps, context: ToolContext, name: string, after: string): string {
+  const session = context.runId ? deps.store.run(context.runId)?.sessionId : undefined;
+  const subject = `${widenToolName} on ${widenTarget(name)}`;
+  const answer = session ? deps.store.audit.list(deps.owner, { action: "approval.decided", from: after, limit: 200 })
+    .find((entry) => entry.subject === subject && entry.outcome === "allowed" && !!entry.runId && deps.store.run(entry.runId)?.sessionId === session) : undefined;
+  if (!answer) throw new Error("Nobody has said yes to widening this contract in this conversation since it was last written, so it was not widened.");
+  return `${answer.actor}${answer.source !== answer.origin ? ` (answered on ${answer.source})` : ""}`;
+}
+
 function registerWidening(deps: SelfDevelopmentDeps): void {
   deps.registry.register({
     name: widenToolName,
@@ -180,12 +196,15 @@ function registerWidening(deps: SelfDevelopmentDeps): void {
     parameters: z.object({ name: nameSchema, reason: z.string().trim().min(1).max(500), changes: ContractTermsSchema.partial().strict() }).strict(),
     // Named without the source folder's path: Branch's never-break check reads "branch-agent" in a
     // changing call's target as Branch's own service and would refuse the question before it is put.
-    target: (args) => `the self-development contract of self-${String(args.name)}`,
+    target: (args) => widenTarget(String(args.name)),
     execute: async (input, context: ToolContext) => {
       ownerOnly(context);
       const folder = `${sourceFolder}/.branch-worktrees/self-${input.name}`;
-      const contract = deps.contracts.widen(deps.owner, folder, { taskRunId: context.runId ?? "", terms: input.changes, approvedBy: deps.owner, reason: input.reason });
-      audit(deps.store, deps.owner, { action: "self_development.contract", actor: deps.owner, subject: `${folder} revision ${contract.revision}`,
+      const current = deps.contracts.current(deps.owner, folder);
+      if (!current) throw new Error(`${folder} has no contract to widen.`);
+      const approvedBy = widenedBy(deps, context, input.name, current.createdAt);
+      const contract = deps.contracts.widen(deps.owner, folder, { taskRunId: context.runId ?? "", terms: input.changes, approvedBy, reason: input.reason });
+      audit(deps.store, deps.owner, { action: "self_development.contract", actor: approvedBy.slice(0, 120), subject: `${folder} revision ${contract.revision}`,
         reason: input.reason.slice(0, 500), runId: context.runId ? context.runId.slice(0, 64) : null, outcome: "widened" });
       return { contract, previousRevision: contract.revision - 1 };
     },

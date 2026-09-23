@@ -169,6 +169,11 @@ test("widening needs the owner's yes every time, and then writes a new revision 
   const paused = await branch.ask();
   assert.equal(paused.status, "needs_input", paused.output);
   assert.equal(branch.book.history(branch.owner, worktree).length, 1, "nothing is widened before the owner answers");
+  // Called straight, past the question (as code inside the app could), the tool finds no yes and refuses.
+  const direct = branch.app.runtime.context({ runId: paused.id, source: "owner" });
+  await assert.rejects(branch.app.registry.execute("branch.widen_source_contract",
+    { name: "remove-button", reason: "no question asked", changes: { allowedPaths: ["**"] } }, direct), /Nobody has said yes to widening this contract/);
+  assert.equal(branch.book.history(branch.owner, worktree).length, 1);
   const waiting = branch.app.runtime.approvals.questionFor(paused.sessionId);
   assert.equal(waiting.tool, "branch.widen_source_contract");
   assert.equal(waiting.remember, "never", "a yes to widening is never kept");
@@ -181,7 +186,7 @@ test("widening needs the owner's yes every time, and then writes a new revision 
   assert.deepEqual(history[0].allowedPaths, ["src/ui/**"], "the old revision stays readable, unchanged");
   assert.deepEqual(history[1].allowedPaths, ["src/ui/**", "tests/ui.test.mjs"]);
   assert.equal(history[1].sourceSha, sha, "widening never moves the source commit");
-  assert.equal(history[1].approvedBy, branch.owner);
+  assert.equal(history[1].approvedBy, branch.owner, "the one who answered the question is recorded");
   const widened = branch.refusals().find((entry) => entry.outcome === "widened");
   assert.match(widened?.subject ?? "", /self-remove-button revision 2/);
   // Asking again is a new question: the yes was used up.
