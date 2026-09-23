@@ -396,7 +396,7 @@ test("S9 every page is grouped, and a card no group names still shows under More
   assert.deepEqual(f.errors, []);
 });
 
-/* DG-193 and DG-194: Trunks & people and Chat apps & devices draw their own settings, so they have no directory. */
+/* DG-193 and DG-194: Trunks & people and Chat apps & devices draw their real settings on the page, so neither is a directory. */
 const SETTINGS_DIRECTORIES = {
   connections: [["connections", "customize", "connections"]],
   skills: [["skills", "customize", "skills"], ["specialists", "customize", "specialists"], ["plugins", "customize", "plugins"]],

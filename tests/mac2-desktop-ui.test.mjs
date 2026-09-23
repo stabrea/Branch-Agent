@@ -474,6 +474,19 @@ async function openAndSettle(page, open) {
 }
 
 const cardIds = ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"];
+/* DG-186: Voice draws its cards as rows under their section's heading, as the sample does, with no title of their own on
+   screen; that section heading is the card's level three in the outline. */
+async function assertVoiceSectionHeading(page, id) {
+  const section = page.locator(`#lx-page-voice > .sg-head[data-cards~="${id}"] h3.sg-head-title`);
+  assert.equal(await section.count(), 1, `${id} has its section heading`);
+  assert.equal(await section.isVisible(), true, `${id}'s section heading is drawn`);
+  const name = (await section.textContent()).trim();
+  assert.ok(name && !name.startsWith("settingsGrown."), `${id}'s section heading is translated`);
+  assert.equal(await page.locator("#lx-page-voice").getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+  assert.ok(await section.evaluate((node, cardId) =>
+    Boolean(node.compareDocumentPosition(document.getElementById(cardId)) & Node.DOCUMENT_POSITION_FOLLOWING), id),
+  `${id} comes after its section heading`);
+}
 
 for (const width of [1440, 860, 400]) {
   test(`DG-008 computer Settings cards have native section headings at ${width}px`, async (t) => {
@@ -498,9 +511,13 @@ for (const width of [1440, 860, 400]) {
         assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
         const name = (await heading.textContent()).trim();
         assert.ok(name && !name.startsWith("settings."), `${id} has translated copy`);
-        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
         assert.equal(await card.evaluate((node) => node.closest(".lx-page").querySelectorAll(":scope > h2.lx-page-title").length), 1);
         assert.equal(await card.locator(":scope > h3.settings-card-title + p + .kit-scope.sr-only").count(), 1);
+        if (await card.evaluate((node) => node.matches("#lx-page-voice > .card"))) {
+          await assertVoiceSectionHeading(page, id);
+          continue;
+        }
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
         assert.deepEqual(await heading.evaluate((node) => {
           const css = getComputedStyle(node);
           return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
