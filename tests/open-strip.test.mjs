@@ -27,7 +27,7 @@ async function signedIn(t, width) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0;
-  return { page, errors };
+  return { page, errors, app };
 }
 
 /** Sends one message in a new conversation and waits until it has a session of its own. */
@@ -79,5 +79,23 @@ test("DG-096 a phone has no strip, and the words are French in French", async (t
   await page.evaluate(async () => { await (await import("/i18n.js")).setLanguage("fr"); });
   await page.waitForFunction(() => document.getElementById("lx-open-strip").getAttribute("aria-label") === "Conversations ouvertes");
   assert.equal(await page.locator('#lx-open-list [data-session="a"] .lx-open-close').getAttribute("aria-label"), "Fermer One ici");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-096 each item wears the face of whoever answers there: a Trunk's own, or the assistant's", async (t) => {
+  const { page, errors, app } = await signedIn(t, 1440);
+  app.trunks.setMode("trunks", { mode: "on" });
+  const ed = app.trunks.create({ name: "Ed" });
+  await page.evaluate((id) => localStorage.setItem("branch-open-conversations", JSON.stringify([{ id, title: "With Ed" }, { id: "plain", title: "Mine" }])), ed.chatSessionId);
+  await page.reload();
+  await page.locator("#lx-open-strip").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction((id) => document.querySelector(`#lx-open-list [data-session="${id}"]`)?.dataset.face?.startsWith("trunk:"), ed.chatSessionId, { timeout: 30000 });
+  const faces = await page.evaluate(() => [...document.querySelectorAll("#lx-open-list .lx-open-item")].map((item) => {
+    const mark = item.querySelector(".lx-open-go > .lx-open-face");
+    const box = mark?.getBoundingClientRect();
+    return { key: item.dataset.face.split(":")[0], size: box && [Math.round(box.width), Math.round(box.height)], first: item.querySelector(".lx-open-go").firstElementChild === mark };
+  }));
+  assert.deepEqual(faces, [{ key: "trunk", size: [24, 24], first: true }, { key: "assistant", size: [24, 24], first: true }]);
+  assert.equal(await page.locator(`#lx-open-list [data-session="${ed.chatSessionId}"]`).getAttribute("data-face"), `trunk:${ed.id}:Ed`);
   assert.deepEqual(errors, []);
 });

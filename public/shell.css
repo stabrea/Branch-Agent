@@ -1695,14 +1695,17 @@ details.tool-step > summary:hover {
 .lx-open-go {
   min-width: 0;
   height: 100%;
-  padding: 0 4px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 4px;
   border: 0;
   background: transparent;
   box-shadow: none;
   color: inherit;
   font-size: 12.5px;
 }
-.lx-open-go span {
+.lx-open-go > .lx-open-title {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

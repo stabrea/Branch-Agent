@@ -4,7 +4,8 @@
    but the conversation on screen is open, so it never repeats what the sidebar already shows.
    Words have data-t keys; no colour is written here. */
 import { displayView, openConversation } from "/app.js";
-import { say } from "/strip.js";
+import { assistantSpec, face, trunkSpec } from "/faces.js";
+import { say, shell } from "/strip.js";
 
 const $ = (id) => document.getElementById(id);
 const KEY = "branch-open-conversations";
@@ -37,13 +38,31 @@ function build() {
   document.querySelector("body > main")?.append(strip);
 }
 
+/** Who answers in a conversation, as the sample draws it: its Trunk, or the assistant on this computer. */
+function answerer(id) {
+  const trunk = shell.roster?.trunks?.find((one) => one.chatSessionId === id);
+  if (trunk) return { key: `trunk:${trunk.id}:${trunk.name}`, spec: trunkSpec(trunk) };
+  const name = $("identity-name")?.value.trim() || "Branch Agent";
+  return { key: `assistant:${name}`, spec: assistantSpec(name) };
+}
+/** Gives an item the face of whoever answers there, redrawn only when that changes. */
+function faceOn(wrap) {
+  const who = answerer(wrap.dataset.session);
+  if (wrap.dataset.face === who.key) return;
+  wrap.dataset.face = who.key;
+  const mark = face(who.spec, 24, { flat: true });
+  mark.classList.add("lx-open-face");
+  wrap.querySelector(".lx-open-face")?.remove();
+  wrap.querySelector(".lx-open-go").prepend(mark);
+}
+
 function entry(item) {
   const here = item.id === current();
   const wrap = Object.assign(document.createElement("span"), { className: `lx-open-item${here ? " on" : ""}` });
   wrap.dataset.session = item.id;
   const go = Object.assign(document.createElement("button"), { type: "button", className: "lx-open-go" });
   const words = item.title || say("openStrip.untitled", "Conversation");
-  go.append(Object.assign(document.createElement("span"), { textContent: words }));
+  go.append(Object.assign(document.createElement("span"), { className: "lx-open-title", textContent: words }));
   go.title = words;
   if (here) go.setAttribute("aria-current", "page");
   go.addEventListener("click", () => { displayView("chat"); void openConversation(item.id); });
@@ -52,6 +71,7 @@ function entry(item) {
   close.title = close.getAttribute("aria-label");
   close.addEventListener("click", () => { open = open.filter((other) => other.id !== item.id); save(open); paint(); });
   wrap.append(go, close);
+  faceOn(wrap);
   return wrap;
 }
 
@@ -82,6 +102,8 @@ follow();
 const conversation = $("conversation"), thread = $("thread-name");
 if (conversation) new MutationObserver(follow).observe(conversation, { attributes: true, attributeFilter: ["data-session-id"] });
 if (thread) new MutationObserver(follow).observe(thread, { childList: true, characterData: true, subtree: true });
+/* the roster (and with it each Trunk's face) arrives after the strip is first drawn */
+document.addEventListener("branch-strip", () => document.querySelectorAll("#lx-open-list .lx-open-item").forEach(faceOn));
 document.addEventListener("branch-language", () => {
   const strip = $("lx-open-strip");
   if (strip) strip.setAttribute("aria-label", say("openStrip.label", "Open conversations"));
