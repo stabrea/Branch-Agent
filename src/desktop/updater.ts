@@ -81,8 +81,12 @@ export type UpdatePhase =
   | "unpacking" | "ready" | "applying" | "error" | "unsupported";
 /** Q55: the build that is installed now: its version, and the commit it was built from (null when not recorded). */
 export interface InstalledBuild { version: string; commit: string | null }
-/** Q55: after a failed update, what the owner still has. "kept": nothing was swapped, the installed version still runs. */
-export type UpdateOutcome = { kept: string } | null;
+/**
+ * Q55: after a failed update, what the owner still has. "kept": nothing was swapped, the installed
+ * version still runs. "backgroundStopped": the engine working with the window closed was closed for
+ * the update and stays closed until it is started again.
+ */
+export type UpdateOutcome = { kept: string; backgroundStopped: boolean } | null;
 export interface UpdateStatus {
   phase: UpdatePhase;
   message: string;
@@ -181,6 +185,8 @@ export class Updater {
   private readonly extract: (archive: string, into: string) => Promise<void>;
   private readonly platform: NodeJS.Platform;
   private readonly installed: InstalledBuild;
+  /** Q55: this install closed the background engine (a stop that found nothing running does not count). */
+  private stoppedBackground = false;
   constructor(private readonly options: UpdaterOptions) {
     this.installed = { version: options.currentVersion, commit: options.currentCommit ?? null };
     this.status = this.fresh("idle", "Updates have not been checked yet.");
@@ -242,6 +248,7 @@ export class Updater {
     // empties the scratch folder the first is downloading into, and the first fails on its own
     // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    this.stoppedBackground = false;
     let release: ReleaseInfo | null | undefined;
     try {
       // Beta or Stable (#215): a release chosen for the other channel is looked up again.
@@ -290,6 +297,8 @@ export class Updater {
   }
   /** Gives back a claim `install({ hold: true })` kept, when the hand-over it was kept for did not start. */
   release(): void { this.busy = false; }
+  /** Q55: whether the install under way closed the background engine, so a failure can say so. */
+  get backgroundStopped(): boolean { return this.stoppedBackground; }
   /**
    * Q55: an update that stopped before the hand-over swapped any file. The installed version is
    * what still runs, and the status says so; the claim is given back.
@@ -299,7 +308,8 @@ export class Updater {
     return this.keptAfter(message, this.status.release);
   }
   private keptAfter(message: string, release: ReleaseInfo | null | undefined): UpdateStatus {
-    this.status = { ...this.set("error", message, null, release ?? null), outcome: { kept: this.installed.version } };
+    this.status = { ...this.set("error", message, null, release ?? null),
+      outcome: { kept: this.installed.version, backgroundStopped: this.stoppedBackground } };
     return this.status;
   }
   /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
@@ -330,7 +340,10 @@ export class Updater {
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    return this.options.stopDaemon();
+    const pid = await this.options.stopDaemon();
+    // A null answer means nothing was working in the background, so nothing was closed.
+    this.stoppedBackground = pid !== null;
+    return pid;
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     if (this.channel === "dev") return this.newestDevBuild();

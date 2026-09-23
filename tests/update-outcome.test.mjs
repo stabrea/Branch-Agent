@@ -5,7 +5,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,7 +49,7 @@ test("a failed install says the installed version was kept, and the next check c
   assert.equal((await updater.check()).outcome, null);
   await assert.rejects(updater.install());
   assert.equal(updater.status.phase, "error");
-  assert.deepEqual(updater.status.outcome, { kept: "0.19.3" });
+  assert.deepEqual(updater.status.outcome, { kept: "0.19.3", backgroundStopped: false });
   assert.equal(updater.inProgress, false);
   assert.equal((await updater.check()).outcome, null, "a later check does not carry an old failure");
 });
@@ -59,9 +60,56 @@ test("a hand-over that could not start gives the claim back and says what was ke
   const status = updater.failed("The update could not be started: no shell.");
   assert.equal(status.phase, "error");
   assert.equal(status.message, "The update could not be started: no shell.");
-  assert.deepEqual(status.outcome, { kept: "0.19.3" });
+  assert.deepEqual(status.outcome, { kept: "0.19.3", backgroundStopped: false });
   assert.equal(updater.inProgress, false);
   assert.equal(status.release.latestVersion, "9.9.9", "the offered release is still named");
+});
+
+/** A release that downloads, verifies and unpacks without the network, so an install reaches the background engine. */
+async function reachesTheEngine(t, stopDaemon) {
+  const root = await mkdtemp(join(tmpdir(), "branch-update-outcome-"));
+  t.after(() => discardTemp(root));
+  const bytes = Buffer.from("pretend zip"), digest = createHash("sha256").update(bytes).digest("hex");
+  const scratchDir = join(root, "scratch");
+  const updater = new Updater({ repo: "x/y", currentVersion: "1.0.0", installDir: join(root, "installed"), executableName: "Branch Agent.exe",
+    assetName: "app.zip", scratchDir, platform: "win32", backup: async () => {}, stopDaemon: () => stopDaemon(scratchDir),
+    fetch: async (url) => String(url).includes("releases/latest")
+      ? new Response(JSON.stringify({ tag_name: "v2.0.0", name: "Branch Agent 2.0.0", body: "", published_at: null, html_url: "https://github.com/x/y/releases/tag/v2.0.0",
+        assets: [{ name: "app.zip", browser_download_url: "https://example.invalid/app.zip", size: bytes.length },
+          { name: "app.zip.sha256", browser_download_url: "https://example.invalid/app.sha256", size: 64 }] }), { status: 200 })
+      : String(url).endsWith("app.zip") ? new Response(bytes, { status: 200 }) : new Response(`${digest}  app.zip
+`, { status: 200 }),
+    extract: async (_archive, into) => {
+      await mkdir(join(into, "app", "resources", "app"), { recursive: true });
+      await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+      await writeFile(join(into, "app", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
+    } });
+  await mkdir(join(root, "installed"), { recursive: true });
+  return updater;
+}
+
+test("a failure after the background engine was closed says the engine was stopped, not that nothing changed", async (t) => {
+  // The engine closes, then the hand-over script cannot be written (a folder is where its file goes).
+  const updater = await reachesTheEngine(t, async (scratchDir) => { await mkdir(join(scratchDir, "recover-update.cmd")); return 4321; });
+  await assert.rejects(updater.install());
+  assert.equal(updater.status.phase, "error");
+  assert.deepEqual(updater.status.outcome, { kept: "1.0.0", backgroundStopped: true });
+  assert.equal(updater.backgroundStopped, true);
+});
+
+test("a hand-over that could not start after the engine was closed says the engine was stopped", async (t) => {
+  const updater = await reachesTheEngine(t, async () => 4321);
+  await updater.install({ hold: true });
+  assert.equal(updater.backgroundStopped, true, "the window's message is chosen from this");
+  assert.deepEqual(updater.failed("The update could not be started: no shell.").outcome, { kept: "1.0.0", backgroundStopped: true });
+  assert.equal(updater.inProgress, false);
+});
+
+test("an engine stop that found nothing running is not called a stop", async (t) => {
+  const updater = await reachesTheEngine(t, async () => null);
+  await updater.install({ hold: true });
+  assert.equal(updater.backgroundStopped, false);
+  assert.deepEqual(updater.failed("The update could not be started: no shell.").outcome, { kept: "1.0.0", backgroundStopped: false });
 });
 
 test("the newest activation is read without writing, and an unconfirmed update settles as failed", async (t) => {

@@ -1035,7 +1035,9 @@ function showBuild(status) {
   commit.title = installed?.commit || "";
   const outcome = $("updates-outcome");
   outcome.hidden = !(status?.phase === "error" && status.outcome?.kept);
-  outcome.textContent = outcome.hidden ? "" : t("updates.outcome.kept", { version: status.outcome.kept });
+  // A failure after the background engine was closed says so: that engine stays closed until the next sign-in.
+  const kept = status?.outcome?.backgroundStopped ? "updates.outcome.kept-stopped" : "updates.outcome.kept";
+  outcome.textContent = outcome.hidden ? "" : t(kept, { version: status.outcome.kept });
   const release = status?.release;
   $("updates-notes").hidden = !release?.available;
   if (!release?.available) return;

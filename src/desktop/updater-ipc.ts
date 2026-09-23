@@ -123,7 +123,7 @@ export function registerUpdaterIpc(
         // The background engine is already closed by this point, so say so if the hand-over cannot start.
         await launchHandOver(script, process.pid).catch((error: unknown) => {
           const why = error instanceof Error ? error.message : String(error);
-          throw new Error(hooks?.stopDaemon
+          throw new Error(updater.backgroundStopped
             ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
             : `The update could not be started: ${why}.`);
         });

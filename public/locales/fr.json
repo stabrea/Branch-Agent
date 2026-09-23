@@ -4403,6 +4403,7 @@
   "updates.build.commit": "Construite depuis le commit",
   "updates.build.not-recorded": "non enregistré",
   "updates.outcome.kept": "Branch Agent {version} a été conservé : il est toujours installé, et votre travail est resté tel quel.",
+  "updates.outcome.kept-stopped": "Branch Agent {version} a été conservé : il est toujours installé et aucun de ses fichiers n’a été modifié. Pour la mise à jour, Branch a cessé de travailler en arrière-plan ; ce travail reprendra la prochaine fois que vous vous connecterez à cet ordinateur.",
   "updates.outcome.restored": "La dernière mise à jour, vers {to}, n’a pas abouti. Branch fonctionne avec {from}, la version d’avant cette mise à jour.",
   "updates.notes.title": "Nouveautés de la version {version}",
   "updates.notes.none": "Aucune note n’a été publiée pour cette version.",
