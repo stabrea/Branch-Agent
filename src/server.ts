@@ -16,7 +16,7 @@ import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
-import { liveActivity } from "./activity.js";
+import { liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import {
   PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
@@ -666,6 +666,7 @@ async function staticFile(
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
     "/settings-rows.js": ["settings-rows.js", "text/javascript; charset=utf-8"], // DG-199
     "/settings-row-levels.js": ["settings-row-levels.js", "text/javascript; charset=utf-8"], // DG-199
+    "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
@@ -1411,8 +1412,22 @@ async function api(
         advice: app.runtime.advice(run.id),
       };
   }
-  if (request.method === "GET" && path === "/api/activity")
-    return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/activity") {
+    // Q51: `?waiting=1` adds the tasks waiting for the owner; stale is judged by the owner's own model and tool limits.
+    // Q58: queued tasks show they are waiting their turn, with position and what they wait behind.
+    const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
+    const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
+    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    if (!waiting) return activities;
+    // Q58: add queued tasks for each conversation using pure function
+    const result: RunActivity[] = [];
+    for (const activity of activities) {
+      result.push(activity);
+      const queued = app.runtime.queued(activity.sessionId);
+      if (queued.length) result.push(...queuedActivity(activity, queued));
+    }
+    return result;
+  }
   if (request.method === "GET" && path === "/api/second-opinion")
     return secondOpinionSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/second-opinion")
