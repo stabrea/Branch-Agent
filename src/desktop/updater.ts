@@ -183,6 +183,10 @@ export class Updater {
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
+    return this.lookUp();
+  }
+  /** The look-up itself. An install that has already claimed the updater uses this, not `check`. */
+  private async lookUp(): Promise<UpdateStatus> {
     const generation = ++this.generation;
     this.set("checking", "Checking GitHub for a newer version…");
     try {
@@ -195,15 +199,36 @@ export class Updater {
       return this.set("error", error instanceof Error ? error.message : String(error));
     }
   }
-  /** Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch. */
-  async install(): Promise<{ script: string; stagedDir: string }> {
+  /**
+   * Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch.
+   * CBQ-001: with `hold`, the claim is kept once this returns, because the caller still has the hand-over
+   * to start - three scheduler calls of up to 15 s each - and a second request in that time would empty
+   * the scratch folder the first hand-over is about to use and start a second one. `applying()` keeps
+   * the claim from there; `release()` gives it back if the hand-over could not be started.
+   */
+  async install(options: { hold?: boolean } = {}): Promise<{ script: string; stagedDir: string }> {
     const reason = unsupportedReason(this.options, this.platform);
     if (reason) throw new Error(reason);
     if (this.busy) throw new Error("An update is already in progress.");
-    const selected = this.status.release;
-    const release = selected?.available && selected.channel === this.channel ? selected : (await this.check()).release;
-    if (!release?.available) throw new Error("There is no newer version to install.");
+    // CBQ-001: claimed here, before anything is awaited. Looking the release up is a network round
+    // trip, and `busy` used to be set only after it, so two requests arriving during that trip both
+    // read `busy` as false and both went on. That is not two downloads of one file; the second one
+    // empties the scratch folder the first is downloading into, and the first fails on its own
+    // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    let release: ReleaseInfo | null | undefined;
+    try {
+      // Beta or Stable (#215): a release chosen for the other channel is looked up again.
+      const selected = this.status.release;
+      release = selected?.available && selected.channel === this.channel ? selected : (await this.lookUp()).release;
+      if (!release?.available) throw new Error("There is no newer version to install.");
+    } catch (error) {
+      // Nothing has been touched yet, so the claim is simply given back: no status change and no
+      // files removed, exactly as when these two refusals happened before the claim existed.
+      this.busy = false;
+      throw error;
+    }
+    let held = false;
     try {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
@@ -218,6 +243,7 @@ export class Updater {
       await this.options.beforeStop?.();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
+      held = options.hold === true;
       return { script, stagedDir };
     } catch (error) {
       this.set(error instanceof UpdateDeferredError ? "available" : "error",
@@ -226,8 +252,10 @@ export class Updater {
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
       await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
       throw error;
-    } finally { this.busy = false; }
+    } finally { if (!held) this.busy = false; }
   }
+  /** Gives back a claim `install({ hold: true })` kept, when the hand-over it was kept for did not start. */
+  release(): void { this.busy = false; }
   /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
   private async tryCanary(stagedDir: string, version: string): Promise<void> {
     if (!this.options.canary) return;

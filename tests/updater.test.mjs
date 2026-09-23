@@ -28,7 +28,9 @@ async function releaseFixture(t, { tag = "v0.3.0", tamper = false, embeddedVersi
   else await writeFile(archive, "not a real archive");
   const bytes = await readFile(archive);
   const digest = createHash("sha256").update(bytes).digest("hex");
+  let downloads = 0;
   const server = createServer((req, res) => {
+    if (req.url === "/download/app.zip") downloads += 1;
     if (req.url === "/repos/stabrea/Branch-Agent/releases/latest") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({
@@ -54,7 +56,7 @@ async function releaseFixture(t, { tag = "v0.3.0", tamper = false, embeddedVersi
   const installDir = join(root, "installed");
   await mkdir(installDir, { recursive: true });
   await writeFile(join(installDir, "Branch Agent Test.exe"), "old executable");
-  return { root, installDir, fetchViaFixture, digest };
+  return { root, installDir, fetchViaFixture, digest, downloadCount: () => downloads };
 }
 
 test("version comparison handles tags, prefixes and uneven lengths", () => {
@@ -235,4 +237,65 @@ test("a checksummed archive with the wrong package identity is refused before ha
     assert.equal(backedUp, false, "identity refusal happens before any owner-data backup or hand-over");
     await assert.rejects(stat(join(root, "scratch", "apply-update.cmd")), /ENOENT/);
   }
+});
+
+/**
+ * CBQ-001: one invocation is one updater transaction. The guard is `busy`, but on a fresh updater it
+ * is set only after the release has been looked up, and looking it up is a network round trip — so two
+ * requests arriving during that trip both read `busy` as false and both go on to download, unpack and
+ * write a hand-over script. Two hand-overs for one app is the multiplication this row forbids, and it
+ * is counted here at the server rather than argued about.
+ */
+test("two install requests at once are one update, not two", { skip: !windows && "Windows archive tooling" }, async (t) => {
+  const { root, installDir, fetchViaFixture, downloadCount } = await releaseFixture(t);
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir, executableName: "Branch Agent Test.exe",
+    assetName: "Branch-Agent-windows-x64.zip", scratchDir: join(root, "scratch"), fetch: fetchViaFixture,
+  });
+  const both = await Promise.allSettled([updater.install(), updater.install()]);
+  const done = both.filter((one) => one.status === "fulfilled");
+  assert.equal(done.length, 1, `one of the two requests did the work; got ${done.length}`);
+  assert.equal(downloadCount(), 1, `the release was fetched once; it was fetched ${downloadCount()} times`);
+  assert.match(String(both.find((one) => one.status === "rejected")?.reason?.message ?? ""), /already in progress/);
+});
+
+/**
+ * CBQ-001, the half the first fix missed (review of 07f67542): install() gave the claim back as it
+ * returned, but the Update button's handler still had the hand-over to start — three scheduler calls of
+ * up to 15 s each. A second press in that time ran install() again, emptying the scratch folder the
+ * first hand-over was about to use. With `hold`, the claim stays until `applying()` keeps it or
+ * `release()` gives it back because the hand-over did not start.
+ */
+test("an install held for its hand-over refuses a second one until it is released", { skip: !windows && "Windows archive tooling" }, async (t) => {
+  const { root, installDir, fetchViaFixture, downloadCount } = await releaseFixture(t);
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir, executableName: "Branch Agent Test.exe",
+    assetName: "Branch-Agent-windows-x64.zip", scratchDir: join(root, "scratch"), fetch: fetchViaFixture,
+  });
+  const { script } = await updater.install({ hold: true });
+  assert.equal(updater.inProgress, true, "the claim is still held while the hand-over is being started");
+  await assert.rejects(updater.install(), /already in progress/, "a second press starts nothing");
+  assert.equal(downloadCount(), 1, "and fetches nothing");
+  assert.ok((await stat(script)).isFile(), "the first hand-over's script is still there to be launched");
+
+  updater.release();
+  assert.equal(updater.inProgress, false, "a hand-over that did not start gives the claim back");
+  await updater.install();
+  assert.equal(downloadCount(), 2, "so the owner can try again");
+  assert.equal(updater.inProgress, false, "and a plain install gives the claim back as it always did");
+});
+
+/**
+ * The Update button's handler imports Electron, so it cannot be run here; like the other checks of
+ * that file (tests/install-boring.test.mjs), this reads it. It must hold the claim through the
+ * hand-over and give it back only when the hand-over did not start.
+ */
+test("the Update button holds the claim through the hand-over and gives it back only on failure", async () => {
+  const ipc = await readFile(new URL("../src/desktop/updater-ipc.ts", import.meta.url), "utf8");
+  const handler = ipc.slice(ipc.indexOf('ipcMain.handle("branch:update-install"'), ipc.indexOf('ipcMain.handle("branch:open-external"'));
+  assert.match(handler, /updater\.install\(\{ hold: true \}\)/, "the handler asks for the claim to be held");
+  const failure = handler.slice(handler.indexOf("} catch (error) {"));
+  assert.match(failure, /^\} catch \(error\) \{\s*updater\.release\(\);\s*throw error;/, "a hand-over that fails gives it back");
+  assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.release()"), "the release is on the hand-over's failure path");
+  assert.equal((handler.match(/updater\.release\(\)/g) ?? []).length, 1, "and nowhere else");
 });

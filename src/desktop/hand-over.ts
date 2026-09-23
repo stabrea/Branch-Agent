@@ -8,8 +8,9 @@ import { portableFolder, portableMarker } from "../install/layout.js";
  * with spawn dies with the app when the app runs inside a Windows job (launchers, test harnesses and
  * some shells put it in one), so the Task Scheduler runs it instead: a scheduled task is created, run at
  * once and deleted again; deleting the task does not stop the command it started. The task runs a tiny
- * Windows Script Host launcher so that no console window flashes while files are swapped. Spawn is the
- * fallback when the scheduler is unavailable.
+ * Windows Script Host launcher so that no console window flashes while files are swapped. When the
+ * scheduler is unavailable that same launcher is started directly, for the same reason: it is the only
+ * shape measured to leave the screen alone.
  */
 export type Exec = (file: string, args: string[], options: { windowsHide: boolean; timeout: number }, callback: (error: Error | null) => void) => unknown;
 export type Spawn = (command: string, args: string[], options: Record<string, unknown>) => { unref(): void };
@@ -33,14 +34,23 @@ export async function launchHandOver(script: string, pid: number, deps: { exec?:
   const name = `BranchAgentUpdate-${pid}`, launcher = `${script}.launch.vbs`;
   const run = (args: string[]) => new Promise<void>((resolve, reject) =>
     exec(schtasks, args, { windowsHide: true, timeout: 15000 }, (error) => (error ? reject(error) : resolve())));
+  // Written before the scheduler is asked, because the fallback below needs it too.
+  write(launcher, hiddenLauncher(script, pid));
   try {
-    write(launcher, hiddenLauncher(script, pid));
     await run(["/Create", "/F", "/TN", name, "/SC", "ONCE", "/ST", "00:00", "/TR", `"${wscript}" //B //Nologo "${launcher}"`]);
     await run(["/Run", "/TN", name]);
     await run(["/Delete", "/F", "/TN", name]).catch(() => undefined);
     return "task";
   } catch {
-    start("cmd.exe", ["/d", "/c", script, String(pid)], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    // CBQ-001: this used to start `cmd.exe` itself, with `windowsHide: true` and `detached: true`.
+    // Those two cannot both apply on Windows - a detached child is given no console to hide, so it
+    // opens its own - and a console window really appeared on the owner's screen every time the
+    // scheduler was unavailable. The flag was there and had no effect, which is why a test that read
+    // the flag passed while the window was on screen. The same hidden launcher the scheduler route
+    // uses is started instead: Windows Script Host is a windowless program, so there is nothing to
+    // open. Measured on Windows: the old line opens one console window, this one opens none, and the
+    // script runs either way.
+    start(wscript, ["//B", "//Nologo", launcher], { detached: true, stdio: "ignore", windowsHide: true }).unref();
     return "spawn";
   }
 }
