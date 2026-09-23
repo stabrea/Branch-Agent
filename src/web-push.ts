@@ -14,6 +14,7 @@ import { readComfort } from "./comfort/settings.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Store } from "./store.js";
 import { loadWords, type Language } from "./terminal-words.js";
+import { lockedDown } from "./lockdown.js";
 import {
   type FetchLike, type PushSubscription, type StoredEcKey,
   ecKeyToStored, generateEcKeyPair, sendWebPush, storedEcKeyToRaw, toBase64Url,
@@ -181,6 +182,7 @@ export class WebPushService {
   private async deliverOne(subscription: PushSubscription, vapidKey: StoredEcKey, body: Buffer): Promise<void> {
     try {
       await this.policy.assertAllowed(new URL(subscription.endpoint), "push address");
+      if (lockedDown(this.store, this.owner)) return;
       const signal = AbortSignal.timeout(this.sendTimeoutMs);
       const response = await sendWebPush(this.fetchImpl, subscription, vapidKey, body, { signal });
       // RFC 8030 §7: the push service says the subscription is gone; keeping it would just fail again.

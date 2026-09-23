@@ -260,7 +260,7 @@ export class MemoryReview {
     const stamp = new Date().toISOString();
     if (!runs.length) { this.saveCursor(owner, cursor.through, stamp); return { runs: 0, through: cursor.through, proposals: 0, skipped: true, reason: "nothing new" }; }
     const digest = runs.map((r, i) => `Task ${i + 1} (${r.createdAt}): ${r.prompt.slice(0, 400)}\nOutcome: ${r.output.slice(0, 600)}`).join("\n\n").slice(0, 12000);
-    const parent = await runtime.run({ prompt: `Consolidate what happened in ${runs.length} task(s) since ${cursor.through.slice(0, 10)}` });
+    const parent = await runtime.run({ prompt: `Consolidate what happened in ${runs.length} task(s) since ${cursor.through.slice(0, 10)}`, measured: true });
     const child = await runtime.delegate(digest, runtime.context({ runId: parent.id }), [], reviewPrompt, { timeoutMs: 120000 });
     const parsed = child.status === "completed" ? checkResult(child.output, { type: "object", properties: { memories: { type: "array" } } }) : { status: "unresolved" as const, reason: child.status };
     if (parsed.status !== "resolved") { this.db.exec("SELECT 1"); return { runs: runs.length, through: cursor.through, proposals: 0, skipped: true, reason: `the review could not be read (${parsed.reason})` }; }

@@ -211,6 +211,91 @@ test("an evaluation suite's tasks and the standard evaluation's send no push", a
   await until(() => push.requests.length === 1, 5000, "the owner's own push");
 });
 
+test("memory consolidation's own task sends no push (measured: true)", async (t) => {
+  const { app, call } = await fixture(t);
+  allowLoopback(app);
+  const push = await fakePushService(t);
+  await subscribeReceiver(call, push);
+
+  // First, run one task so consolidation has something to work with
+  const owner1 = await app.runtime.run({ prompt: "Owner's first task" });
+  await until(() => push.requests.length === 1, 5000, "the first push");
+  assert.equal(push.requests.length, 1, "owner's task sends a push");
+
+  // Now consolidate; it runs an internal parent task with measured: true
+  const report = await app.store.review.consolidate(app.runtime, app.runtime.owner);
+  assert.ok(report.runs >= 1, "consolidation found at least one task to review");
+  await settle();
+  assert.equal(push.requests.length, 1, "consolidation's parent task sends no push");
+});
+
+test("a task run under a short-lived key sends no push", async (t) => {
+  const { app, call } = await fixture(t);
+  allowLoopback(app);
+  const push = await fakePushService(t);
+  await subscribeReceiver(call, push);
+
+  // Run an owner task first to verify pushes work
+  const ownerTask = await app.runtime.run({ prompt: "Owner's task" });
+  await until(() => push.requests.length === 1, 5000, "the owner's push");
+  assert.equal(push.requests.length, 1, "owner's task sends a push");
+
+  // Create a run under a short-lived key by manually setting the event
+  const keyTask = app.store.createRun(app.runtime.owner, "task under short-lived key");
+  app.store.event(keyTask.id, "run.started", { source: "owner", shortLivedKey: true, permissions: [] });
+  app.store.event(keyTask.id, "run.finished", { status: "completed", output: "Done" });
+  app.runtime.notifyEvent("run.completed", {
+    runId: keyTask.id, sessionId: keyTask.sessionId, status: "completed", top: true, source: "owner", shortLivedKey: true,
+  });
+  await settle();
+  assert.equal(push.requests.length, 1, "short-lived key task sends no push");
+});
+
+test("lockdown stops pushes to all devices in flight", async (t) => {
+  const { app, call } = await fixture(t);
+  allowLoopback(app);
+
+  // Create a fake push service that holds requests without replying
+  const requests = [];
+  const held = new Map();
+  const server = createServer(async (request, response) => {
+    const path = request.url;
+    requests.push(path);
+    held.set(path, response);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => { server.closeAllConnections?.(); server.close(resolve); }));
+
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  // Subscribe 5 devices
+  const endpoints = [];
+  for (let i = 0; i < 5; i++) {
+    const receiver = generateReceiverKeys();
+    const endpoint = `${baseUrl}/push/${i}`;
+    endpoints.push(endpoint);
+    await call("POST", "/api/push/subscribe", {
+      endpoint, keys: { p256dh: toBase64Url(receiver.publicKeyRaw), auth: toBase64Url(receiver.authSecret) },
+    });
+  }
+
+  // Run an owner task; sends start to all 5 devices
+  const task = await app.runtime.run({ prompt: "Test task" });
+  await until(() => requests.length === 4, 5000, "4 devices to receive pushes");
+
+  // Turn lockdown on while 4 sends are in flight
+  const { setLockdown } = await import("../dist/lockdown.js");
+  setLockdown(app.store, app.runtime.owner, { on: true });
+
+  // Release the 4 held requests
+  for (const [path, response] of held) {
+    response.writeHead(201).end();
+  }
+  held.clear();
+
+  await settle();
+  assert.equal(requests.length, 4, "lockdown stops the 5th device from receiving a push");
+});
+
 test("a tapped notification with no window open opens a window at that conversation", async () => {
   const handlers = {};
   const openedAt = [];
