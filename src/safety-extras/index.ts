@@ -6,6 +6,7 @@ import { wallEdgeFor } from "../sandbox-wall.js";
 import { ActivityChain, followActivity } from "./activity-chain.js";
 import { registerToolScripts, ToolScripts } from "./tool-scripts.js";
 import { registerWasmAddOns, WasmAddOns } from "./wasm-add-ons.js";
+import { registerWasmBuild, WasmBuilder } from "./wasm-build.js";
 import { audit } from "../audit.js";
 import { followSafetySwitches, safetyLabels, safetyMode, safetyParts, safetyTools, saveSafetyMode, type SafetyMode, type SafetyPart } from "./settings.js";
 
@@ -20,6 +21,7 @@ export class SafetyExtras {
   readonly chain: ActivityChain;
   readonly scripts: ToolScripts;
   readonly wasm: WasmAddOns;
+  readonly wasmBuilder: WasmBuilder;
   private readonly stopFollowing: () => void;
   private readonly stopSwitching: () => void;
   private readonly registrars: Partial<Record<SafetyPart, () => void>>;
@@ -32,9 +34,10 @@ export class SafetyExtras {
     this.scripts = new ToolScripts({ host: runtime, registry,
       unreadable: () => [...new Set([...wallSettings(store, owner).unreadable, wallEdgeFor(store).dataDir ?? deps.dataDir, deps.dataDir])] });
     this.wasm = new WasmAddOns(store, owner, join(deps.dataDir, "wasm-add-ons"));
+    this.wasmBuilder = new WasmBuilder(this.wasm, store, owner);
     this.registrars = {
       "tool-scripts": () => registerToolScripts(registry, this.scripts),
-      "wasm-add-ons": () => registerWasmAddOns(registry, this.wasm),
+      "wasm-add-ons": () => { registerWasmAddOns(registry, this.wasm); registerWasmBuild(registry, this.wasmBuilder); },
     };
     for (const part of safetyParts) this.sync(part);
     this.stopSwitching = followSafetySwitches(store, (part, mode) => { this.setMode(part, { mode }); });

@@ -40,7 +40,7 @@ export const safetyLabels: Record<SafetyPart, string> = {
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
 export const safetyTools: Record<SafetyPart, readonly string[]> = {
   "tool-scripts": ["tools.script"],
-  "wasm-add-ons": ["wasm.run"],
+  "wasm-add-ons": ["wasm.run", "wasm.build"],
   "code-approvals": [],
   "command-scan": [],
   "progress-judge": [],

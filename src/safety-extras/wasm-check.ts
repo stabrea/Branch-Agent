@@ -9,6 +9,10 @@
 export const allowedImports: Readonly<Record<string, "function" | "memory">> = {
   memory: "memory", input_size: "function", read_input: "function", write_output: "function", log: "function",
 };
+/** The function capabilities a tool may declare (everything in `allowedImports` except `memory`,
+ *  which is not a capability — it is how a module reaches its bytes, always allowed on its own). */
+export const capabilityNames = ["input_size", "read_input", "write_output", "log"] as const;
+export type WasmCapability = (typeof capabilityNames)[number];
 const pageBytes = 65_536;
 
 export interface MemoryLimits { min: number; max: number | null; shared: boolean; wide: boolean }
@@ -71,13 +75,22 @@ export function readWasmShape(bytes: Uint8Array): WasmShape {
   return shape;
 }
 
-/** Why this module may not run with at most `maxPages` of memory, or null. */
-export function wasmRefusal(bytes: Uint8Array<ArrayBuffer>, maxPages: number): string | null {
+/**
+ * Why this module may not run with at most `maxPages` of memory, or null. `capabilities`, when
+ * given, is this tool's own declared list (wasm-add-ons.ts install/checked): a function import must
+ * be in it, not just in the fixed `allowedImports` catalog, so two tools built with different
+ * declared capabilities get genuinely different import surfaces even though both draw from the same
+ * catalog. Omitting it keeps the old, catalog-only check (kept for call sites that predate capability
+ * declarations, such as an add-on installed before this existed).
+ */
+export function wasmRefusal(bytes: Uint8Array<ArrayBuffer>, maxPages: number, capabilities?: readonly string[]): string | null {
   if (!WebAssembly.validate(bytes)) return "That is not a valid WebAssembly file.";
   const module = new WebAssembly.Module(bytes);
   for (const entry of WebAssembly.Module.imports(module)) {
     if (entry.module !== "branch" || allowedImports[entry.name] !== entry.kind)
       return `It asks for ${entry.module}.${entry.name}, which add-ons are not given. Only the branch input, output and log are.`;
+    if (entry.name !== "memory" && capabilities && !capabilities.includes(entry.name))
+      return `It asks for branch.${entry.name}, which this tool was not given. Its declared capabilities are: ${capabilities.length ? capabilities.join(", ") : "none"}.`;
   }
   const exports = WebAssembly.Module.exports(module);
   if (!exports.some((entry) => entry.name === "run" && entry.kind === "function"))
@@ -93,4 +106,12 @@ export function wasmRefusal(bytes: Uint8Array<ArrayBuffer>, maxPages: number): s
   if (!shape.imported && (memory.max === null || memory.max > maxPages))
     return `Its memory may grow past the ${maxPages * pageBytes / 1_048_576} MB allowed. Build it with a maximum memory size.`;
   return null;
+}
+
+/** The capabilities a module actually imports, for an add-on installed before capabilities were
+ *  declared: what it already imports is what it keeps, same as the old behaviour. Assumes valid bytes. */
+export function deriveCapabilities(bytes: Uint8Array<ArrayBuffer>): WasmCapability[] {
+  const wanted = new Set(WebAssembly.Module.imports(new WebAssembly.Module(bytes))
+    .filter((entry) => entry.module === "branch" && entry.name !== "memory").map((entry) => entry.name));
+  return capabilityNames.filter((name) => wanted.has(name));
 }
