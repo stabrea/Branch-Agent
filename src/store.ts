@@ -552,6 +552,26 @@ export class Store {
       incompleteCalls: Number(r?.incomplete_calls ?? 0),
     };
   }
+  /**
+   * Q48: runs `work` as one transaction, so a settings change and its change record are saved
+   * together or not at all. Inside a transaction that is already open it simply runs, and the outer
+   * one decides. Only what is written to the database is rolled back: a copy a module keeps in memory
+   * of what it was told is not.
+   */
+  atomically<T>(work: () => T): T {
+    if (this.db.isTransaction) return work();
+    this.db.exec("BEGIN");
+    try {
+      const result = work();
+      // A save that is still running when this returns would be committed half done.
+      if (typeof (result as { then?: unknown } | null)?.then === "function") throw new Error("A change saved as one piece has to finish at once.");
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
   save(
     table: RecordTable,
     owner: string,

@@ -189,21 +189,24 @@ export function applyWithPins(store: Store, owner: string, changes: readonly Cha
   const loose = picked.filter((change) => change.loosens);
   if (loose.length && !choice.confirmLoosening)
     throw new Error(`${loose.length} of these make Branch less careful (${loose.map((change) => change.label).join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
-  for (const spec of settingsCatalogue) {
-    const mine = picked.filter((change) => change.key === spec.key);
-    if (mine.length) writeOne(store, owner, spec, mine, choice.writers?.[spec.key]);
-  }
-  if (picked.length)
+  if (!picked.length) return { applied: picked, skipped };
+  // Q48: the settings, the audit entry and the change record are saved together or not at all, so a
+  // record that could not be written never leaves a change behind that nothing says was made.
+  const record = store.atomically(() => {
+    for (const spec of settingsCatalogue) {
+      const mine = picked.filter((change) => change.key === spec.key);
+      if (mine.length) writeOne(store, owner, spec, mine, choice.writers?.[spec.key]);
+    }
     audit(store, owner, {
       action: "policy.changed", actor: owner, subject: `${picked.length} settings changed (${choice.why})`,
       reason: picked.map((change) => `${change.id}: ${String(change.from)} → ${String(change.to)}`).join("; ").slice(0, 500),
       outcome: "saved",
     });
-  if (!picked.length) return { applied: picked, skipped };
-  // Q48: the structured record undo and "why is this on?" read. A caller from before it existed is
-  // written down as unknown rather than guessed at.
-  const origin: ChangeOrigin = (choice as Partial<ApplyChoice>).record ?? { writer: "unknown", source: "unknown", detail: choice.why };
-  const record = recordSettingsChange(store, owner, origin,
-    picked.map((change) => ({ setting: change.id, before: change.from, after: valueNow(store, owner, change) })));
+    // The structured record undo and "why is this on?" read. A caller from before it existed is
+    // written down as unknown rather than guessed at.
+    const origin: ChangeOrigin = (choice as Partial<ApplyChoice>).record ?? { writer: "unknown", source: "unknown", detail: choice.why };
+    return recordSettingsChange(store, owner, origin,
+      picked.map((change) => ({ setting: change.id, before: change.from, after: valueNow(store, owner, change) })));
+  });
   return { applied: picked, skipped, record };
 }

@@ -211,3 +211,21 @@ test("the cards that save around the kit, and /preset, are recorded, so why name
   await ask("POST", "/api/settings-kit/undo", { record: typed.record.id, confirmLoosening: true });
   assert.equal((await why("policy.preset")).value, "read-only");
 });
+
+test("a change whose record cannot be written is not made at all, from the kit or from a card", async (t) => {
+  const { app, ask, values } = await fixture(t);
+  const before = await values();
+  const auditBefore = app.store.audit.list(app.runtime.owner, { limit: 50 }).length;
+  const real = app.store.save.bind(app.store);
+  app.store.save = (table, owner, id, data) => {
+    if (table === "settings" && id === "settings-history") throw new Error("the disk is full");
+    return real(table, owner, id, data);
+  };
+  t.after(() => { delete app.store.save; });
+  await assert.rejects(() => ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "set", key: "fly-core", field: "mode", value: "on" }, accept: ["fly-core.mode"], confirmLoosening: true }), /the disk is full/);
+  assert.throws(() => choosePreset(app.runtime, "workspace"), /the disk is full/);
+  delete app.store.save;
+  assert.deepEqual(await values(), before, "a setting changed although its record was never written");
+  assert.equal(app.store.audit.list(app.runtime.owner, { limit: 50 }).length, auditBefore, "the audit entry of a change that was not made stayed");
+});

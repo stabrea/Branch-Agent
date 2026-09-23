@@ -18,17 +18,28 @@ function snapshot(store: Store, owner: string, keys: readonly string[]): Map<str
   return values;
 }
 
-/** Runs one save and records every catalogue field of `keys` it moved. A save that throws records nothing. */
+/**
+ * Runs one save and records every catalogue field of `keys` it moved, as one transaction: a save
+ * that throws, or a record that cannot be written, leaves the settings as they were. The save has
+ * to finish at once; one still running when it returns is refused rather than recorded half done.
+ */
 export function recordedWrite<T>(store: Store, owner: string, origin: ChangeOrigin, keys: readonly string[], write: () => T): T {
-  const before = snapshot(store, owner, keys);
-  const result = write();
-  const after = snapshot(store, owner, keys);
-  const changes: ChangeEntry[] = [];
-  for (const [setting, was] of before) {
-    const now = after.get(setting);
-    if (now !== undefined && now !== was) changes.push({ setting, before: was, after: now });
-  }
-  if (changes.length) recordSettingsChange(store, owner, origin, changes);
-  return result;
+  const unknown = keys.filter((key) => !specFor(key));
+  // A name that is not a setting would record nothing without a word, so it is a mistake to say so.
+  if (unknown.length) throw new Error(`Not a setting in the catalogue: ${unknown.join(", ")}`);
+  return store.atomically(() => {
+    const before = snapshot(store, owner, keys);
+    const result = write();
+    const after = snapshot(store, owner, keys);
+    const changes: ChangeEntry[] = [];
+    for (const [setting, was] of before) {
+      const now = after.get(setting);
+      if (now !== undefined && now !== was) changes.push({ setting, before: was, after: now });
+    }
+    if (changes.length) recordSettingsChange(store, owner, origin, changes);
+    return result;
+  });
 }
 
+/** A setting's own card in Settings, saving around the kit. */
+export const byCard = (detail: string): ChangeOrigin => ({ writer: "owner-in-window", source: "card", detail });
