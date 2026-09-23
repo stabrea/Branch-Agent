@@ -1,0 +1,190 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+import { TeamTasks, StaleTeamTaskClaimError } from "../dist/team-tasks.js";
+import { TeamHandoffs, TeamHandoffRefusedError } from "../dist/team-handoff.js";
+
+// Q62: an acknowledged handoff of a claimed team task. The claimant offers the task to a named
+// recipient; the claimant stays responsible until the recipient accepts, and once it does, every
+// write under the old claim is refused. Inert and disposable: no model is called.
+const inertProvider = { name: "inert", async complete() { return { content: "ok", toolCalls: [] }; } };
+
+async function open(root) {
+  return createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: inertProvider });
+}
+/** A team with two members, a household profile, and one task already claimed by the window. */
+async function fixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-team-handoff-"));
+  const state = { app: await open(root) };
+  t.after(async () => { await state.app.close().catch(() => undefined); await discardTemp(root); });
+  const owner = state.app.runtime.owner;
+  const members = ["planner", "reviewer"].map((role) => {
+    const specialistId = randomUUID();
+    state.app.store.save("specialists", owner, specialistId, { id: specialistId, name: role });
+    return { specialistId, role, brief: "" };
+  });
+  const team = state.app.teams.save({ name: "Crew", members });
+  const sam = state.app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const scope = { owner, source: "window" };
+  const tasks = new TeamTasks(state.app.store);
+  const task = tasks.observe(scope, team.id, randomUUID(), "f");
+  const claim = tasks.claim(scope, task.taskId);
+  const planner = { owner, id: `member:${members[0].specialistId}` };
+  const reviewer = { owner, id: `member:${members[1].specialistId}` };
+  const household = { owner, id: `profile:${sam.id}` };
+  const reopen = async () => { await state.app.close(); state.app = await open(root); return state.app; };
+  const row = (store = state.app.store) => new TeamTasks(store).get(scope, task.taskId);
+  return { state, owner, team, scope, tasks, claim, planner, reviewer, household, reopen, row };
+}
+
+test("the claimant stays responsible until acceptance, the recipient cannot write before it, and the waiting reason is readable", async (t) => {
+  const { state, owner, tasks, claim, planner, household, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, planner.id, "needs a reviewer's eye");
+  assert.equal(offer.state, "offered");
+  assert.equal(handoffs.waiting(claim.scope, claim.taskId), `waiting for ${planner.id} to accept: needs a reviewer's eye`);
+  assert.throws(() => handoffs.offer(claim, household.id, "second"), TeamHandoffRefusedError, "one open offer per task");
+  for (const generation of [claim.generation, claim.generation + 1])
+    assert.throws(() => tasks.linkParentRun({ ...claim, claimant: planner.id, generation }, "run"), StaleTeamTaskClaimError);
+  tasks.linkParentRun(claim, "parent-run");
+  assert.equal(row().parentRunId, "parent-run", "the offerer's fenced write still lands while the offer waits");
+  assert.equal(row().claimant, claim.claimant);
+  const other = tasks.observe(claim.scope, row().teamId, randomUUID(), "g");
+  const otherClaim = tasks.claim(claim.scope, other.taskId);
+  assert.throws(() => handoffs.offer({ ...otherClaim, claimant: randomUUID() }, planner.id, "not mine"), TeamHandoffRefusedError, "only the claimant can offer");
+  assert.throws(() => handoffs.offer({ ...otherClaim, generation: otherClaim.generation + 1 }, planner.id, "stale"), TeamHandoffRefusedError);
+  assert.throws(() => handoffs.offer(otherClaim, `member:${randomUUID()}`, "not on the team"), TeamHandoffRefusedError);
+  assert.throws(() => handoffs.offer(otherClaim, `profile:${randomUUID()}`, "no such profile"), TeamHandoffRefusedError);
+  assert.throws(() => handoffs.offer(otherClaim, "window", "not a recipient kind"), TeamHandoffRefusedError);
+  assert.equal(handoffs.waiting(claim.scope, other.taskId), null);
+  assert.equal(owner, claim.scope.owner);
+});
+
+test("double acceptance: of two racing accepts exactly one wins, and afterwards the old claimant is fenced out", async (t) => {
+  const { state, tasks, claim, planner, row } = await fixture(t);
+  const offer = new TeamHandoffs(state.app.store).offer(claim, planner.id, "planner takes over");
+  const first = new TeamHandoffs(state.app.store), second = new TeamHandoffs(state.app.store);
+  const outcomes = await Promise.allSettled([first, second].map(async (h) => h.accept(planner, offer.offerId)));
+  const won = outcomes.filter((o) => o.status === "fulfilled");
+  const lost = outcomes.filter((o) => o.status === "rejected");
+  assert.equal(won.length, 1);
+  assert.equal(lost.length, 1);
+  assert.ok(lost[0].reason instanceof TeamHandoffRefusedError);
+  assert.match(lost[0].reason.message, /already accepted/);
+  const next = won[0].value;
+  assert.equal(next.generation, claim.generation + 1, "acceptance advances the generation");
+  assert.deepEqual(next.scope, claim.scope, "the task keeps its identity; only the holder changes");
+  assert.equal(row().claimant, planner.id);
+  assert.equal(row().generation, claim.generation + 1);
+  const before = row();
+  assert.throws(() => tasks.complete(claim, { stale: true }, () => {}), StaleTeamTaskClaimError);
+  assert.throws(() => tasks.markUncertain(claim, "stale"), StaleTeamTaskClaimError);
+  assert.deepEqual(row(), before, "the old claimant's writes change nothing");
+  assert.equal(first.get(planner.owner, offer.offerId).state, "accepted");
+  assert.equal(first.waiting(claim.scope, claim.taskId), null);
+  tasks.complete(next, { done: "by the planner" }, () => {});
+  assert.equal(row().state, "completed");
+  assert.deepEqual(row().result, { done: "by the planner" });
+});
+
+test("rejection leaves the claimant and generation unchanged, records the reason, and a rejected offer cannot be accepted", async (t) => {
+  const { state, tasks, claim, planner, household, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, household.id, "Sam knows the budget");
+  const before = row();
+  const rejected = handoffs.reject(household, offer.offerId, "away this week");
+  assert.equal(rejected.state, "rejected");
+  assert.equal(rejected.decisionReason, "away this week");
+  assert.equal(handoffs.get(household.owner, offer.offerId).decisionReason, "away this week");
+  assert.deepEqual(row(), before);
+  assert.throws(() => handoffs.accept(household, offer.offerId), /rejected/);
+  assert.throws(() => handoffs.reject(household, offer.offerId, "again"), /rejected/);
+  assert.deepEqual(row(), before, "a late accept of a rejected offer moves nothing");
+  const again = handoffs.offer(claim, planner.id, "then the planner");
+  assert.equal(again.state, "offered", "after a rejection the claimant can offer again");
+  tasks.linkParentRun(claim, "still mine");
+  assert.equal(row().parentRunId, "still mine");
+});
+
+test("timeout: an expired offer cannot be accepted and the task stays with the offerer", async (t) => {
+  const { state, tasks, claim, planner, row } = await fixture(t);
+  const clock = { now: Date.parse("2026-09-23T12:00:00Z") };
+  const handoffs = new TeamHandoffs(state.app.store, () => clock.now);
+  const offer = handoffs.offer(claim, planner.id, "overnight cover", 60_000);
+  assert.equal(offer.expiresAt, "2026-09-23T12:01:00.000Z");
+  clock.now += 59_999;
+  assert.equal(handoffs.get(planner.owner, offer.offerId).state, "offered");
+  clock.now += 1;
+  const before = row();
+  assert.throws(() => handoffs.accept(planner, offer.offerId), /expired/, "checked on accept, with no read first");
+  assert.equal(handoffs.get(planner.owner, offer.offerId).state, "expired");
+  assert.equal(handoffs.waiting(claim.scope, claim.taskId), null);
+  assert.deepEqual(row(), before);
+  assert.equal(row().claimant, claim.claimant);
+  const late = handoffs.offer(claim, planner.id, "try again", 60_000);
+  clock.now += 60_000;
+  assert.equal(handoffs.get(planner.owner, late.offerId).state, "expired", "checked on read");
+  assert.throws(() => handoffs.accept(planner, late.offerId), /expired/);
+  tasks.complete(claim, { done: "by the offerer" }, () => {});
+  assert.equal(row().state, "completed");
+});
+
+test("restart: an open offer survives close and reopen and can still be accepted", async (t) => {
+  const { state, claim, planner, reopen, row } = await fixture(t);
+  const offer = new TeamHandoffs(state.app.store).offer(claim, planner.id, "hand over after the restart");
+  const app = await reopen();
+  const handoffs = new TeamHandoffs(app.store);
+  assert.equal(handoffs.get(planner.owner, offer.offerId).state, "offered");
+  assert.equal(handoffs.waiting(claim.scope, claim.taskId), `waiting for ${planner.id} to accept: hand over after the restart`);
+  assert.deepEqual(handoffs.addressedTo(planner).map((o) => o.offerId), [offer.offerId]);
+  const next = handoffs.accept(planner, offer.offerId);
+  assert.equal(next.generation, claim.generation + 1);
+  assert.equal(row(app.store).claimant, planner.id);
+  assert.throws(() => new TeamTasks(app.store).linkParentRun(claim, "stale"), StaleTeamTaskClaimError);
+});
+
+test("an unauthorized recipient cannot accept or reject, and the offer and task are untouched", async (t) => {
+  const { state, owner, claim, planner, reviewer, household, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, planner.id, "for the planner only");
+  const before = row();
+  for (const who of [reviewer, household, { owner, id: "window" }, { owner: "someone-else", id: planner.id }]) {
+    assert.throws(() => handoffs.accept(who, offer.offerId), TeamHandoffRefusedError, `${who.owner}/${who.id} cannot accept`);
+    assert.throws(() => handoffs.reject(who, offer.offerId, "not mine"), TeamHandoffRefusedError, `${who.owner}/${who.id} cannot reject`);
+  }
+  assert.equal(handoffs.get(owner, offer.offerId).state, "offered");
+  assert.equal(handoffs.get("someone-else", offer.offerId), undefined, "another owner cannot even see it");
+  assert.deepEqual(handoffs.addressedTo(reviewer), []);
+  assert.deepEqual(row(), before);
+});
+
+test("a holder that gets the task back later cannot write under its first, older holding", async (t) => {
+  const { state, tasks, claim, planner, household, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const firstHolding = handoffs.accept(planner, handoffs.offer(claim, planner.id, "to the planner").offerId);
+  const samHolding = handoffs.accept(household, handoffs.offer(firstHolding, household.id, "to Sam").offerId);
+  const secondHolding = handoffs.accept(planner, handoffs.offer(samHolding, planner.id, "back to the planner").offerId);
+  assert.equal(secondHolding.generation, claim.generation + 3);
+  const before = row();
+  assert.throws(() => tasks.linkParentRun(firstHolding, "stale"), StaleTeamTaskClaimError, "same holder, old generation");
+  assert.throws(() => tasks.linkParentRun(samHolding, "stale"), StaleTeamTaskClaimError);
+  assert.deepEqual(row(), before);
+  tasks.linkParentRun(secondHolding, "current");
+  assert.equal(row().parentRunId, "current");
+});
+
+test("an offer made before the offerer finished cannot be accepted afterwards", async (t) => {
+  const { state, tasks, claim, planner, row } = await fixture(t);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const offer = handoffs.offer(claim, planner.id, "might not be needed");
+  tasks.complete(claim, { done: "by the offerer" }, () => {});
+  assert.throws(() => handoffs.accept(planner, offer.offerId), /no longer holds/);
+  assert.equal(row().state, "completed");
+  assert.equal(row().claimant, claim.claimant);
+  assert.notEqual(handoffs.get(planner.owner, offer.offerId).state, "accepted");
+});
