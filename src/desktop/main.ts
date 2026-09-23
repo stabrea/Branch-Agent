@@ -25,6 +25,8 @@ import { startServer } from "../server.js";
 import { loadIntegrations } from "../integrations/bootstrap.js";
 import { loadDesktopSettings, registerSettingsIpc } from "./settings-ipc.js";
 import { registerUpdaterIpc, type UpdateHooks } from "./updater-ipc.js";
+import { UpdateDeferredError } from "./updater.js";
+import { updateReadiness } from "./update-readiness.js";
 import { ChatGPTAuth, FileTokenVault } from "../chatgpt-auth.js";
 import { safeStorage } from "electron";
 import { crashReporter } from "electron"; // mac7/diagnostics
@@ -127,7 +129,7 @@ function protectWindow(
 }
 
 async function createWindow(
-  url: string, token: string, settings: DesktopSettings, update?: UpdateHooks,
+  url: string, token: string, settings: DesktopSettings, update: UpdateHooks,
 ): Promise<void> {
   window = new BrowserWindow({
     width: 1440,
@@ -151,7 +153,8 @@ async function createWindow(
   protectWindow(window, url, token);
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
-  registerUpdaterIpc(window, url, app.getVersion(), () => { quitReason = "update"; app.quit(); }, update);
+  registerUpdaterIpc(window, url, app.getVersion(), () => { quitReason = "update"; app.quit(); },
+    { ...update, readiness: () => updateReadiness(url, token) });
   // Asked for from an open window, so the new copy opens its window too, even after a quiet start.
   registerRestartIpc(ipcMain, window, url, () => {
     app.relaunch({ args: process.argv.slice(1).filter((arg) => arg !== minimizedFlag) });
@@ -264,7 +267,11 @@ async function start(): Promise<void> {
   if (running)
     return createWindow(running.url, running.token, settings, {
       backup: () => requestUpdateBackup(running.url, running.token),
-      stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
+      stopDaemon: async () => {
+        const report = await stopBackgroundEngine(dataDir, { gracefulOnly: true });
+        if (report.pid !== null && !report.stopped) throw new UpdateDeferredError(report.message);
+        return report.pid;
+      },
       canary: desktopCanary(dataDir, () => engineSnapshot(running.url, running.token)), // mac3/never-break
       ...desktopRecord(dataDir), // mac7/safe-rollback
     });

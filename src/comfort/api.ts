@@ -19,6 +19,7 @@ import { sensitiveBrowserTools } from "./browser-safety.js";
  *   GET  /api/comfort              every card's values, what is in force, and the choices offered
  *   POST /api/comfort              { card, values } saves one card; { card, reset: true } puts it back
  *   POST /api/comfort/update-plan  { updaterPhase?, checked? } what the window should do about updates
+ *   GET  /api/comfort/update-readiness  owner-only channel and complete busy-task count for desktop handover
  *   GET  /api/comfort/status?session=<id>  the status line's facts, and when each turn started and ended
  *
  * Every change is the owner's: a short-lived key is refused before this is reached (src/server.ts,
@@ -33,7 +34,7 @@ export interface ComfortApp {
   /** The proxy and certificates in force; absent in a program that makes no calls of its own. */
   outbound?: OutboundNetwork;
 }
-export const comfortRoutes: readonly string[] = ["/api/comfort", "/api/comfort/update-plan", "/api/comfort/status"];
+export const comfortRoutes: readonly string[] = ["/api/comfort", "/api/comfort/update-plan", "/api/comfort/update-readiness", "/api/comfort/status"];
 export const handlesComfortPath = (path: string): boolean => comfortRoutes.includes(path);
 
 const SaveSchema = z.object({
@@ -58,9 +59,9 @@ const updateWords = "Whether Branch updates itself";
 /** Integration review: naming automatic updates at all, or putting a changed card back, is the owner's. */
 function changesUpdates(store: Store, owner: string, input: z.infer<typeof SaveSchema>): boolean {
   if (input.card !== "notify") return false;
-  const now = readComfort(store, owner, "notify").autoUpdate;
-  if (input.reset) return now !== "off";
-  return !!input.values && "autoUpdate" in input.values;
+  const now = readComfort(store, owner, "notify");
+  if (input.reset) return now.autoUpdate !== "off" || now.releaseChannel !== "stable";
+  return !!input.values && ("autoUpdate" in input.values || "releaseChannel" in input.values);
 }
 
 function view(app: ComfortApp) {
@@ -143,6 +144,12 @@ export async function comfortApi(app: ComfortApp, request: IncomingMessage, path
     if (path === "/api/comfort/update-plan") {
       if (method !== "POST") throw new ComfortApiError(405, "Use POST");
       return plan(app, await readBody(request));
+    }
+    if (path === "/api/comfort/update-readiness") {
+      requireOwnerHere(app.store, updateWords);
+      if (method !== "GET") throw new ComfortApiError(405, "Use GET");
+      return { channel: readComfort(app.store, app.runtime.owner, "notify").releaseChannel,
+        busyTasks: busyTaskCount(app.store) };
     }
     if (path === "/api/comfort/status") {
       if (method !== "GET") throw new ComfortApiError(405, "Use GET");

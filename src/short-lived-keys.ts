@@ -148,6 +148,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   // phase2/panels: the side panel's Browser and Terminal tabs carry the commands the owner's tasks ran
   // and what they printed, and the pages they opened.
   /^\/api\/panels\/work$/,
+  // The desktop handover sees every person's busy tasks and the owner's release channel.
+  /^\/api\/comfort\/update-readiness$/,
 ];
 
 /**
@@ -171,6 +173,7 @@ export const savingsRefusal =
  * the owner's alone. Reading them is a look (a proxy address and public certificates are not
  * secrets); every change is refused to a short-lived key, because the cards include the proxy, the
  * trusted certificates, how carefully the browser acts and whether Branch installs updates.
+ * Update readiness is a separate owner-only read because it counts everybody's active work.
  */
 export const comfortRefusal =
   "A short-lived key cannot change shortcuts, notifications, updates, the browser's care, the proxy or certificates. Do that in the app window.";

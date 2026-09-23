@@ -779,6 +779,9 @@ test("G1 the context pane lists a grant and the approval card says what a yes le
   assert.match(sentences[2], /standing rule/);
 
   await page.locator("#live-ask").getByRole("button", { name: "Yes, for this conversation", exact: true }).click();
+  /* DG-114: the side panel is a card, closed until asked for, in the full window too. */
+  await page.locator("#aside-toggle").click();
+  await page.locator("#context-panel").waitFor({ state: "visible" });
   const list = page.locator("#context-allowed");
   await list.locator(".allowed-row").first().waitFor({ timeout: 15000 });
   assert.match(await list.locator(".allowed-row strong").first().textContent(), /gated\.txt|files\.write/);

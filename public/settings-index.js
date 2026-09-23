@@ -433,6 +433,7 @@ export const SETTINGS_INDEX = [
   ["coding-switch-notebooks","settings:advanced","coding-card","Reading Jupyter notebooks cell by cell","coding-notebooks",null,"Coding polish",true],
   ["coding-switch-review-checks","settings:advanced","coding-card","Review checks kept in the project","coding-review-checks",null,"Coding polish",true],
   ["comfort-autoUpdate","settings:about","comfort-updates-card","Updates","comfort.autoUpdate",null,"Updating by itself",true],
+  ["updates-channel","settings:about","updates-card","Stable or beta updates","comfort.releaseChannel",null,"Updates",true],
   ["limits-ask","settings:data","usage","Ask OpenRouter what is left on its key, on a timer","usage-limits.mode",null,"What each connection has left",true],
   ["max-monthly","settings:data","usage","Most tokens in a month","usage_budget.tokens",null,"Monthly limit",true],
   ["max-dollars","settings:data","usage","Most money in a month, in US dollars","usage_budget.dollars",null,"Monthly limit",true],
