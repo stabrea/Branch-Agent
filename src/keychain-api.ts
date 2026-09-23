@@ -1,6 +1,7 @@
 import { linuxSession, type LinuxSession } from "./os-permissions.js";
 import type { Store } from "./store.js";
 import { keychainReference, readKeychainSettings, saveKeychainSettings, type KeychainSettings } from "./vault-sources.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Settings → "Passwords from your Mac's Keychain": which Keychain entries Branch may read. Only the
@@ -26,7 +27,10 @@ export async function keychainApi(
   store: Store, owner: string, method: string, body: () => Promise<unknown>, platform: string = process.platform,
 ): Promise<KeychainScreen> {
   if (method === "GET") return screen(readKeychainSettings(store, owner), platform);
-  if (method === "POST") return screen(saveKeychainSettings(store, owner, await body()), platform);
+  if (method === "POST") {
+    const input = await body();
+    return screen(recordedWrite(store, owner, byCard("keychain-entries"), ["keychain-entries"], () => saveKeychainSettings(store, owner, input)), platform);
+  }
   throw new Error("That is not something Branch can do with the Keychain list");
 }
 

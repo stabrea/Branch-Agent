@@ -19,7 +19,7 @@ export const BUCKETS = {
     ["keys", "keyboard", "Keys and typed commands", "Shortcuts, and the commands you can type with a slash.",
       [["comfort-keys-card", A], ["commands-card", A]]],
     ["whole", "sliders", "All your settings at once", "Start from a preset, put settings back, or keep them in one file.",
-      [["settings-kit-presets", A], ["settings-kit-reset", A]]],
+      [["settings-kit-presets", A], ["settings-kit-reset", A], ["settings-kit-history", A]]],
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",

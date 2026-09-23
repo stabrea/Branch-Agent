@@ -8,6 +8,7 @@ import { PARITY } from "./parity.js";
 import type { Access } from "./handlers.js";
 import { dashboardSettings } from "../dashboard-api.js";
 import { savedCommandRows } from "./saved.js";
+import { byCard, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * The commands' routes (wave mac3, commands). The window, the phone and the dashboard read their
@@ -83,7 +84,8 @@ export async function commandsApi(app: Branch, path: string, deps: CommandApiDep
     if (method === "GET") return { ...commandSettings(app.store, app.runtime.owner), access: deps.access };
     if (deps.access !== "full") throw new CommandApiError(403, "Only the key of this computer can change which commands are offered.");
     app.store.profiles.requireOwner("Which commands are offered");
-    return saveCommandSettings(app.store, app.runtime.owner, await deps.readBody());
+    const input = await deps.readBody();
+    return recordedWrite(app.store, app.runtime.owner, byCard("command-catalog"), ["command-catalog"], () => saveCommandSettings(app.store, app.runtime.owner, input));
   }
   throw new CommandApiError(404, "Not found");
 }

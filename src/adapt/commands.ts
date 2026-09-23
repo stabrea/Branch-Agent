@@ -14,7 +14,7 @@ import { adaptMode } from "./settings.js";
  */
 export async function adaptCommand(call: Call): Promise<Reply> {
   const { runtime } = call.host;
-  const adapt = adaptFor(runtime.store, runtime.owner);
+  const adapt = adaptFor(runtime.store, runtime.owner, { writer: "owner-by-command", source: "command", detail: "/adapt yes" });
   const argument = call.argument.trim();
   const agreement = /^yes\s+([a-f0-9]{32})$/i.exec(argument);
   if (!agreement) {

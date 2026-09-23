@@ -9,6 +9,8 @@ import type { Runner } from "./file-access.js";
 import { MalwareCheck, type MalwareCheckStatus } from "./malware-check.js";
 import { saveSecurityCheckSettings, securityCheckSettings, type SecurityCheckSettings } from "./settings.js";
 import type { AuditReport, FixResult } from "./types.js";
+import { recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
+import type { ChangeOrigin } from "../settings-kit/history.js";
 
 /**
  * The self-check as the running app holds it: the last report, the malware check, the read-only
@@ -54,9 +56,13 @@ export class SecurityService {
 
   settings(): SecurityCheckSettings { return securityCheckSettings(this.app.store, this.app.runtime.owner); }
 
-  /** Saves the switches and adds or removes the assistant's tool to match. */
-  configure(input: unknown): SecurityCheckSettings {
-    const saved = saveSecurityCheckSettings(this.app.store, this.app.runtime.owner, input);
+  /**
+   * Saves the switches and adds or removes the assistant's tool to match. `record` is who changed
+   * them when that is not the settings kit, which writes its own record (Q48).
+   */
+  configure(input: unknown, record?: ChangeOrigin): SecurityCheckSettings {
+    const save = () => saveSecurityCheckSettings(this.app.store, this.app.runtime.owner, input);
+    const saved = record ? recordedWrite(this.app.store, this.app.runtime.owner, record, ["security-check"], save) : save();
     this.syncTool();
     return saved;
   }

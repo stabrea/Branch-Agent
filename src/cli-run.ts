@@ -2,6 +2,7 @@ import type { Run, RunStatus } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import { addPolicyRule, readPolicy, savePolicy, policyPresets, type PolicyPresetName } from "./policy.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 import { readAttachment, type Attachment, attachedText } from "./terminal-commands.js";
 import { progressLine } from "./terminal.js";
 import { allowTestsRefusal } from "./coding/project-tests.js";
@@ -102,9 +103,15 @@ export function usePreset(store: Store, owner: string, name: string, keep: boole
   if (!known.includes(name as PolicyPresetName))
     throw new Error(`--preset takes one of: ${known.join(", ")}`);
   const before = readPolicy(store, owner);
-  savePolicy(store, owner, { preset: name });
-  if (keep)
+  if (keep) {
+    // Q48: a change that stays is written down like any other, so "why is this on?" names the command.
+    recordedWrite(store, owner, { writer: "owner-by-command", source: "command", detail: `--save-preset ${name}` }, ["policy"],
+      () => savePolicy(store, owner, { preset: name }));
     return { message: `[your saved setting for when to check with you is now "${name}", and it stays that way]`, restore: () => {} };
+  }
+  // For this one task only: the saved setting is put back afterwards and ends where it started, so
+  // neither step is recorded as a change of the owner's settings.
+  savePolicy(store, owner, { preset: name });
   return {
     message: `[when to check with you, for this task only: "${name}". Your saved setting stays "${before.preset}".]`,
     restore: () => { savePolicy(store, owner, before); },

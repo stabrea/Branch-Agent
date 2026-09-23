@@ -47,6 +47,7 @@ function fakeStore() {
     audits, eventRows: events,
     get: (table, owner, id) => rows.has(`${table}/${owner}/${id}`) ? { data: rows.get(`${table}/${owner}/${id}`) } : undefined,
     save: (table, owner, id, data) => { rows.set(`${table}/${owner}/${id}`, data); return { data }; },
+    atomically: (work) => work(), // Q48: a change and its record are saved together; a map has nothing to roll back
     audit: { record: (owner, input) => audits.push({ owner, ...input }) },
     run: (runId) => (events.has(runId) ? { id: runId } : undefined),
     events: (runId) => events.get(runId) ?? [],

@@ -11,6 +11,7 @@ import { classifyTask, routeForTask, routingSettings, saveRoutingSettings } from
 import type { LocalRuntimes } from "./local-runtimes.js";
 import type { ModelRouter } from "./models.js";
 import type { Store } from "./store.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * The `/api/local-models/*` family: what is on this computer, what this computer could run,
@@ -56,10 +57,16 @@ export async function localModelsApi(
     const shape = classifyTask(input.prompt, input.toolCount);
     return { shape, choice: routeForTask(store, models, owner, input) };
   }
-  if (method === "POST" && path === "/api/local-models/switch") return saveLocalModelsMode(store, owner, await body());
+  if (method === "POST" && path === "/api/local-models/switch") {
+    const input = await body();
+    return recordedWrite(store, owner, byCard("local-models"), ["local-models"], () => saveLocalModelsMode(store, owner, input));
+  }
   // mac7/one-click: installing the program is its own switch, because it is the one thing here that
   // changes the owner's computer. It ships off, and Lockdown holds it off whatever is saved.
-  if (method === "POST" && path === "/api/local-models/install/switch") return saveOneButtonMode(store, owner, await body());
+  if (method === "POST" && path === "/api/local-models/install/switch") {
+    const input = await body();
+    return recordedWrite(store, owner, byCard("local-runner-install"), ["local-runner-install"], () => saveOneButtonMode(store, owner, input));
+  }
   if (method === "POST" && path === "/api/local-models/details")
     return runtimes.details(modelBody.parse(await body()).model);
   if (method === "POST" && path.startsWith("/api/local-models/")) return changes(deps, path, await body());

@@ -10,6 +10,7 @@ import { findingSentence, scanCommand } from "./command-scan.js";
 import { engageStop, releaseStop, stopState } from "./emergency-stop.js";
 import type { SafetyExtras } from "./index.js";
 import { SafetyPartSchema, safetyLabels } from "./settings.js";
+import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * mac7/r17-g: the owner's routes under /api/safety-extras/. They sit behind the same key and host
@@ -112,7 +113,7 @@ async function changeRoute(deps: SafetyHttpDeps, path: string): Promise<unknown>
   if (path === "/api/safety-extras/switch") {
     const { part, mode, code } = SwitchSchema.parse(await deps.readBody());
     if (part === "code-approvals" && modeOrder.indexOf(mode) < modeOrder.indexOf(deps.extras.modes()[part])) await loosening(deps, code);
-    return { part, mode: deps.extras.setMode(part, { mode }) };
+    return { part, mode: recordedWrite(store, owner, byCard(`safety-${part}`), inCatalogue(`safety-${part}`), () => deps.extras.setMode(part, { mode })) };
   }
   if (path === "/api/safety-extras/stop") return { stop: engageStop(store, owner, await deps.readBody()) };
   if (path === "/api/safety-extras/stop/release") {
