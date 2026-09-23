@@ -8,6 +8,7 @@ import { acceptValue, applyWithPins, changesFor, loosens } from "../dist/setting
 import { settingsCatalogue, specFor } from "../dist/settings-kit/catalogue.js";
 import { settingsKitApi } from "../dist/settings-kit/api.js";
 import { presets } from "../dist/settings-kit/presets.js";
+import { saveDictationSettings } from "../dist/voice-dictation.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 const numeric = [
@@ -160,4 +161,15 @@ test("numeric loosening through a conversation asks each time and cannot remembe
   app.store.save("settings", owner, "wake-word", { sureness: 80 });
   assert.equal((await ask(paused.sessionId)).status, "needs_input");
   assert.equal(await value("wake-word.sureness"), 80);
+});
+
+test("a quiet wait saved between whole seconds is compared as it is, so turning it up still asks every time", async (t) => {
+  const { app, owner, tool, value } = await fixture(t);
+  /* The dictation route itself takes 1.5 (src/voice-dictation.ts); the settings kit only proposes whole seconds. */
+  saveDictationSettings(app.store, owner, { silenceSeconds: 1.5 });
+  assert.equal(await value("live-dictation.silenceSeconds"), 1.5, "the list shows what is really saved");
+  const [change] = changesFor(app.store, owner, [{ key: "live-dictation", field: "silenceSeconds", value: 3 }]).changes;
+  assert.deepEqual([change?.from, change?.to, change?.loosens], [1.5, 3, true]);
+  await assert.rejects(tool("settings.change", { changes: [{ setting: "live-dictation.silenceSeconds", value: 3 }] }), /less careful.*settings\.loosen/s);
+  assert.equal(await value("live-dictation.silenceSeconds"), 1.5, "refused tool changed nothing");
 });
