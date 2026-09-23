@@ -24,11 +24,18 @@ test("the hand-over script is started hidden through the Task Scheduler so it ou
   assert.equal(hiddenLauncher("C:\\tmp\\apply-update.cmd", 4242), expected);
   assert.deepEqual(calls[1].args, ["/Run", "/TN", "BranchAgentUpdate-4242"]);
   assert.deepEqual(calls[2].args, ["/Delete", "/F", "/TN", "BranchAgentUpdate-4242"]);
-  // When the scheduler is unavailable the script is still started, directly.
+  // When the scheduler is unavailable the script is still started — through the same hidden launcher,
+  // never through cmd.exe itself. A detached child is given no console to hide, so it opens its own:
+  // `windowsHide` is accepted and ignored there, and a console really appeared on screen. Windows
+  // Script Host has no window to open. `tests/windows-hidden-helpers.test.mjs` measures that claim
+  // against the real screen rather than against these arguments.
   const failing = (_file, _args, _options, callback) => callback(new Error("schtasks missing"));
   const fallback = await launchHandOver("C:\\tmp\\apply-update.cmd", 7, { exec: failing, spawn, write, systemRoot: "C:\\Windows", platform: "win32" });
   assert.equal(fallback, "spawn");
-  assert.deepEqual(spawned.args, ["/d", "/c", "C:\\tmp\\apply-update.cmd", "7"]);
+  assert.equal(spawned.command, "C:\\Windows\\System32\\wscript.exe", "the fallback starts no console program");
+  assert.deepEqual(spawned.args, ["//B", "//Nologo", "C:\\tmp\\apply-update.cmd.launch.vbs"]);
   assert.equal(spawned.options.detached, true);
   assert.equal(spawned.unrefd, true);
+  // The launcher it runs is written even when the scheduler is never reached.
+  assert.deepEqual(written.at(-1), { file: "C:\\tmp\\apply-update.cmd.launch.vbs", content: hiddenLauncher("C:\\tmp\\apply-update.cmd", 7) });
 });

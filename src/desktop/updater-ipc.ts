@@ -92,26 +92,34 @@ export function registerUpdaterIpc(
   });
   ipcMain.handle("branch:update-install", async (event) => {
     authorized(event);
+    // #215: one install at a time for this window, claimed before anything is awaited.
     return installClaim.run(() => updater.status, () => updater.inProgress, async () => {
       if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
       const readiness = await hooks.readiness();
       updater.setChannel(readiness.channel);
       await ensureIdle();
       diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });
-      const { script, stagedDir } = await updater.install().catch((error: unknown) => {
+      // CBQ-001: the updater's own claim is also held past install() until the hand-over is running, so
+      // anything asking the updater whether it is busy hears yes (src/desktop/updater.ts, install).
+      const { script, stagedDir } = await updater.install({ hold: true }).catch((error: unknown) => {
         diagnose("updater", "error", `The update could not be installed: ${error instanceof Error ? error.message : String(error)}`);
         throw error;
       });
-      // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
-      // because this process quits into the hand-over and never sees how it went.
-      if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
-      // The background engine is already closed by this point, so say so if the hand-over cannot start.
-      await launchHandOver(script, process.pid).catch((error: unknown) => {
-        const why = error instanceof Error ? error.message : String(error);
-        throw new Error(hooks?.stopDaemon
-          ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
-          : `The update could not be started: ${why}.`);
-      });
+      try {
+        // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
+        // because this process quits into the hand-over and never sees how it went.
+        if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
+        // The background engine is already closed by this point, so say so if the hand-over cannot start.
+        await launchHandOver(script, process.pid).catch((error: unknown) => {
+          const why = error instanceof Error ? error.message : String(error);
+          throw new Error(hooks?.stopDaemon
+            ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
+            : `The update could not be started: ${why}.`);
+        });
+      } catch (error) {
+        updater.release();
+        throw error;
+      }
       const status = updater.applying();
       setTimeout(requestQuit, 750);
       // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.
