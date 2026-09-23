@@ -7,6 +7,7 @@ const say = (key, fallback, values) => { const words = t(key, values); return wo
 const WORDS = {
   "waiting-owner": {
     "policy.ask": ["task.owner.ask", "Waiting for your answer"],
+    "attention.needed": ["task.owner.ask", "Waiting for your answer"],
     "plan.awaiting_approval": ["task.owner.plan", "Waiting for your OK on its plan"],
     "folder.trust_needed": ["task.owner.folder", "Waiting for you to trust a folder"],
     "web.challenge": ["task.owner.web", "Waiting for you on a website"],
@@ -41,7 +42,7 @@ export function taskWords(task) {
   const table = WORDS[task.state] ?? {};
   const [key, fallback] = table[task.why] ?? table[""] ?? ["", ""];
   const words = say(key, fallback);
-  return task.reason ? `${words}: ${task.reason}` : words;
+  return task.reason ? say("task.with", `${words}: ${task.reason}`, { words, reason: task.reason }) : words;
 }
 
 const ago = (ms) => {

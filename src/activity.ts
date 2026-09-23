@@ -218,9 +218,15 @@ function orchestrationState(events: Event[]): Partial<RunActivity> {
  * other screens count these as busy.
  */
 export function liveActivity(store: Store, owner: string, options: { waiting?: boolean; staleMs?: number; now?: number } = {}): RunActivity[] {
-  const running = store.runs(owner).filter((run) => run.status === "running");
-  /* The store already knows which waiting task is still the newest in its conversation (`activeRuns`). */
-  const waiting = options.waiting === true ? store.activeRuns(owner).filter((run) => run.status === "needs_input") : [];
+  const runs = store.runs(owner); // the newest 100, newest first
+  const running = runs.filter((run) => run.status === "running");
+  /* The same tasks "Needs you" lists (server.ts `attention`): each conversation's newest, when it stopped to ask. */
+  const newest = new Set<string>(), waiting: Run[] = [];
+  if (options.waiting === true) for (const run of runs) {
+    if (newest.has(run.sessionId)) continue;
+    newest.add(run.sessionId);
+    if (run.status === "needs_input") waiting.push(run);
+  }
   return [...running, ...waiting].map((run) => {
     const working = store.working.describe(run.sessionId);
     return { ...runActivity(run, store.events(run.id), options), ...(working ? { working } : {}) };

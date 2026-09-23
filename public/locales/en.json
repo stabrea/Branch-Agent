@@ -5421,5 +5421,6 @@
   "task.ago.minutes": "{n} min ago",
   "task.updated": "Updated {time}",
   "task.stale": "No update for {n} min",
-  "task.until": "until about {time}"
+  "task.until": "until about {time}",
+  "task.with": "{words}: {reason}"
 }

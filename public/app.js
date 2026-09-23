@@ -1915,7 +1915,8 @@ function watchActivity(prompt) {
   };
   const poll = async () => {
     try {
-      const running = await api("activity?waiting=1");
+      /* Its own task is running while this polls; one that stops to ask ends the reply, so running tasks suffice. */
+      const running = await api("activity");
       const mine = running.find((r) => (sessionId ? r.sessionId === sessionId : r.prompt === prompt));
       if (mine) render(mine); else if (!box.hidden) box.replaceChildren(el("strong", "Finishing up"));
     } catch { /* the reply itself will report problems */ }

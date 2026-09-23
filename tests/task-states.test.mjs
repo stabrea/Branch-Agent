@@ -146,6 +146,58 @@ test("Q51 the Activity pane reads the state in words, with no moving bar for a t
     const response = await fetch("/api/activity?waiting=1", { headers: { authorization: `Bearer ${sessionStorage.getItem("branch-token")}` } });
     return taskWords((await response.json()).find((item) => item.runId === id).task);
   }, asking.id);
-  assert.equal(french, "En attente de votre réponse: Move 41 photos?");
+  assert.equal(french, "En attente de votre réponse : Move 41 photos?", "French puts a space before the colon");
   assert.deepEqual(errors, []);
+});
+
+/** A model that answers from a script, so a real task runs through the real runtime. */
+function scripted(steps) {
+  return { name: "scripted", async complete() { return steps.shift() ?? { content: "Done.", toolCalls: [] }; } };
+}
+async function realBranch(t, steps) {
+  const root = await mkdtemp(join(tmpdir(), "branch-task-states-real-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted(steps) });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const call = (path, body) => fetch(new URL(path, server.url), {
+    method: body ? "POST" : "GET", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}),
+  }).then((response) => response.json());
+  return { app, call };
+}
+
+test("Q51 a real task that asks the owner a question is listed as waiting for you, with that question", async (t) => {
+  const { app, call } = await realBranch(t, [
+    { content: "", toolCalls: [{ id: "q1", name: "user.ask", arguments: JSON.stringify({ question: "Which folder should I clean, Downloads or Desktop?" }) }] },
+  ]);
+  const run = await app.runtime.run({ prompt: "clean up my files" });
+  assert.equal(run.status, "needs_input");
+  const listed = (await call("/api/activity?waiting=1")).find((one) => one.runId === run.id);
+  assert.deepEqual([listed.task.state, listed.task.why, listed.task.reason],
+    ["waiting-owner", "attention.needed", "Which folder should I clean, Downloads or Desktop?"]);
+  /* The same set "Needs you" lists. */
+  assert.deepEqual((await call("/api/state")).attention.map((one) => one.runId), [run.id]);
+  /* Answered, it is no longer waiting. */
+  await app.runtime.run({ prompt: "Downloads", sessionId: run.sessionId });
+  assert.equal((await call("/api/activity?waiting=1")).some((one) => one.sessionId === run.sessionId), false);
+});
+
+test("Q51 a real refusal reads as blocked only until the model takes it and goes on", async (t) => {
+  const { app, call } = await realBranch(t, [
+    { content: "", toolCalls: [{ id: "w1", name: "files.write", arguments: JSON.stringify({ path: "notes.txt", content: "hello" }) }] },
+    { content: "I may not write files here, so I stopped.", toolCalls: [] },
+  ]);
+  await call("/api/policy", { preset: "read-only" });
+  const run = await app.runtime.run({ prompt: "write a note" });
+  const events = app.store.events(run.id);
+  const denied = events.findIndex((event) => event.kind === "policy.denied");
+  assert.ok(denied >= 0, `the write was refused (${events.map((event) => event.kind).join(", ")})`);
+  /* At the moment of the refusal the task is blocked, with the refusal's own words... */
+  const then = taskState({ ...run, status: "running" }, events.slice(0, denied + 1));
+  assert.equal(then.state, "blocked");
+  assert.equal(then.why, "policy.denied");
+  /* ...and the next thing it records is the model taking it: from there it works again. */
+  const after = events.slice(denied + 1).find((event) => ["model.started", "tool.started"].includes(event.kind));
+  assert.ok(after, "the model went on after the refusal");
+  assert.equal(taskState({ ...run, status: "running" }, events.slice(0, events.indexOf(after) + 1)).state, "working");
+  t.diagnostic(`blocked for ${Date.parse(after.createdAt) - Date.parse(events[denied].createdAt)} ms before the model went on`);
 });
