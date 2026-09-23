@@ -112,3 +112,14 @@ test("DG-025 the limits are saved as you go, with no Save button", async (t) => 
   assert.equal((await call("/api/policy")).policy.limits.toolCallsPerMinute, 7);
   assert.deepEqual(errors, []);
 });
+
+test("DG-008 on Permissions only the page title is level two, and a one-card section does not repeat its title", async (t) => {
+  const { page, errors } = await fixture(t, { preferences: { settingsLevel: "technical" } });
+  const host = page.locator("#lx-page-permissions");
+  assert.equal(await host.getByRole("heading", { level: 2 }).count(), 1, "only the page title is level two");
+  for (const title of ["When to check with me", "Lockdown", "Settings you have pinned"])
+    assert.equal(await host.getByRole("heading", { name: title, exact: true }).count(), 1, `${title} is said once`);
+  for (const title of ["A second look before approvals", "Emergency stop", "Trusted folders", "Security check", "How much one person may ask for"])
+    assert.equal(await host.getByRole("heading", { name: title, exact: true, level: 3 }).count(), 1, `${title} sits under its section`);
+  assert.deepEqual(errors, []);
+});

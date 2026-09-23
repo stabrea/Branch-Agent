@@ -107,7 +107,7 @@ function buildCard(state) {
   const card = el("section", undefined, "card");
   card.id = "security-check";
   card.dataset.home = "settings:permissions";
-  card.append(keyed("h2", "settings.card.security-check", "Security check"),
+  card.append(keyed("h3", "settings.card.security-check", "Security check", "settings-card-title"),
     keyed("p", "settings.note.security-check", "Looks over how Branch is set up on this computer — who else can read its files, who can reach it, and what it may do without asking — and puts right what it can."));
   const said = el("p", undefined, "meta");
   const save = async (change) => {

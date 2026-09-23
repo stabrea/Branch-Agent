@@ -1173,6 +1173,7 @@
             <button data-t="action.save-dictation">Save dictation</button>
           </form>
           <form id="pins-form" class="card" data-home="settings:permissions">
+            <h3 class="settings-card-title" data-t="settings.card.pins" hidden>Settings you have pinned</h3>
             <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it.</p>
             <div id="pins-list" class="card-list" aria-live="polite"></div>
             <div id="pins-picker" hidden>
@@ -1462,8 +1463,10 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
-          <!-- DG-187: its section's head carries the title, as the sample's; the blocks under the choice keep the sample's levels. -->
+          <!-- DG-187: its section's head shows the title, as the sample's (the card's own is kept for search and
+               screen-reader order, not drawn); the blocks under the choice keep the sample's levels. -->
           <section id="policy-card" class="card">
+            <h3 class="settings-card-title" data-t="settings.card.when-to-check-with-me" hidden>When to check with me</h3>
             <p data-t="settings.policy.intro">Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages.</p>
             <label for="policy-preset" data-t="field.how-should-branch-behave">How should Branch behave?</label>
             <select id="policy-preset"></select>
@@ -1530,6 +1533,7 @@
             <p id="policy-status" class="subtle" role="status"></p>
           </section>
           <section id="lockdown-card" class="card" data-home="settings:permissions" hidden>
+            <h3 class="settings-card-title" data-t="lockdown.label" hidden>Lockdown</h3>
             <p data-t="settings.lockdown.intro">The one switch that refuses commands and makes everything else wait for your yes.</p>
             <label class="check-row" for="lockdown-switch">
               <input type="checkbox" id="lockdown-switch" role="switch" aria-describedby="lockdown-switch-note" />
@@ -1574,7 +1578,7 @@
             <p id="firewall-status" class="subtle" role="status"></p>
           </section>
           <section id="limits-card" class="card">
-            <h2 data-t="settings.card.ceilings">How much one person may ask for</h2>
+            <h3 class="settings-card-title" data-t="settings.card.ceilings">How much one person may ask for</h3>
             <p>Your own task waits for its minute to free up and then carries on. Somebody messaging you from a chat app is told in one sentence and their message is let go, because a stranger waiting silently looks exactly like Branch being broken. Leave a number at 0 for no limit.</p>
             <label for="limit-requests" data-t="field.questions-a-minute">Questions a minute, one conversation</label>
             <input id="limit-requests" type="number" min="0" max="1000" step="1" value="0" />
