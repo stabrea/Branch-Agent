@@ -43,7 +43,8 @@ async function render() {
 }
 
 $("desktop-enabled").addEventListener("change", (event) => void save({ enabled: event.target.checked }));
-$("desktop-cap-save").addEventListener("click", () =>
+// DG-025: the limit is saved as you go, when you leave its box, as in the sample.
+$("desktop-cap").addEventListener("change", () =>
   void save({ maxActionsPerRun: Math.max(1, Math.min(200, Number($("desktop-cap").value) || 40)) }));
 // `branchDesktop` is the desktop app's own bridge (see src/desktop/preload.cts) and the whole page
 // reads it as "am I running inside the desktop app". This screen must not answer to that name.
