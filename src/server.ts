@@ -669,6 +669,7 @@ async function staticFile(
     "/settings-rows.js": ["settings-rows.js", "text/javascript; charset=utf-8"], // DG-199
     "/settings-row-levels.js": ["settings-row-levels.js", "text/javascript; charset=utf-8"], // DG-199
     "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
+    "/team-tasks.js": ["team-tasks.js", "text/javascript; charset=utf-8"], // Q64
     "/run-result.js": ["run-result.js", "text/javascript; charset=utf-8"], // Q52
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
@@ -1518,9 +1519,12 @@ async function api(
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
   if (request.method === "GET" && path === "/api/teams") return { teams: app.teams.list() };
   if (request.method === "POST" && path === "/api/teams") return app.teams.save(await readBody(request));
-  const team = /^\/api\/teams\/([a-f0-9-]{36})(?:\/(room|run|remove))?$/.exec(path);
+  const team = /^\/api\/teams\/([a-f0-9-]{36})(?:\/(room|run|remove|tasks))?$/.exec(path);
   if (team && request.method === "GET" && !team[2]) return app.teams.get(team[1]!);
   if (team && request.method === "GET" && team[2] === "room") return { messages: app.teams.room(team[1]!) };
+  // Q64: the team's recent tasks, who holds them, their members, handoffs, blockers and results. The owner's
+  // alone: a short-lived key and a household profile are refused before this (ownerOnlyReads, src/short-lived-keys.ts).
+  if (team && request.method === "GET" && team[2] === "tasks") return { tasks: app.teams.taskViews(team[1]!) };
   if (team && request.method === "POST" && team[2] === "run") {
     // Q61: owner and source come from who signed in, never the body (strict refuses such fields).
     const { prompt, requestId } = z.object({ prompt: z.string().trim().min(1).max(8000), requestId: z.string().uuid().optional() }).strict().parse(await readBody(request));

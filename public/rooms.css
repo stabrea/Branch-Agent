@@ -598,3 +598,18 @@ body.lx .composer-dock:has(> .rooms-mentions) {
     padding-bottom: 72px;
   }
 }
+
+/* Q64: a team's recent tasks above its room (public/team-tasks.js), in the shared-with-this-room card's look. */
+.team-tasks {
+  margin: 10px 0;
+}
+.team-task .team-task-member {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.team-task .team-task-handoff,
+.team-task .team-task-blocker,
+.team-task .team-task-note {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}

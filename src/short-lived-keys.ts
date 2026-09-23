@@ -150,6 +150,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // Q64: a team's tasks from every source, with who asked, who holds each, questions put to the owner and answers.
+  new RegExp(`^/api/teams/${id}/tasks$`),
 ];
 
 /**

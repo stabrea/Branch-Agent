@@ -32,6 +32,7 @@ const WORDS = {
     "provider.refused": ["task.blocked.provider", "The model service refused"],
     "reconciliation.required": ["task.blocked.reconcile", "Blocked until a step's outcome is checked"],
     "rounds.exhausted": ["task.blocked.rounds", "Stopped at the most rounds allowed"],
+    "handoff.offered": ["task.blocked.handoff", "Waiting for someone to accept it"], // Q64: a team task offered to someone
     "": ["task.blocked", "Blocked"],
   },
   queued: {
@@ -53,6 +54,30 @@ export function taskWords(task) {
     return words;
   }
   return task.reason ? say("task.with", `${words}: ${task.reason}`, { words, reason: task.reason }) : words;
+}
+
+/* Q64: the words for a task that simply works or has finished, which taskWords leaves out (the Activity pane
+   draws a moving bar for those instead). Team tasks and their members use these with taskWords. */
+const PLAIN = {
+  working: {
+    "handoff.accepted": ["task.held", "Held by someone who took it over"],
+    "": ["task.working", "Working"],
+  },
+  finished: {
+    completed: ["task.done", "Done"],
+    failed: ["task.failed", "Failed"],
+    "nothing-done": ["task.nothing-done", "Stopped before doing anything"],
+    cancelled: ["task.cancelled", "Stopped"],
+    budget_exceeded: ["task.budget", "Stopped at its spending limit"],
+    "": ["task.finished", "Finished"],
+  },
+};
+/** The state in words for any task: taskWords, or else what it is when it simply works or has finished. */
+export function stateWords(task) {
+  const words = taskWords(task);
+  if (words || !task) return words;
+  const table = PLAIN[task.state] ?? PLAIN.working;
+  return say(...(table[task.why] ?? table[""]));
 }
 
 const ago = (ms) => {

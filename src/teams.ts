@@ -8,6 +8,7 @@ import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTa
 import { answersDeletedBeforeRecord, describeMemberRuns, dispatchHeld, finishLiveTurn, holdDispatch, memberRuns, membersSentKind, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 import type { FanoutTask } from "./delegation.js";
 import { subtaskLimits } from "./knobs/apply.js";
+import { teamTaskViews, type TeamTaskView } from "./team-task-view.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -110,6 +111,10 @@ export class Teams {
         if (!this.store.get("governance", this.owner, `team:${team.id}`)) this.tasks.forgetTeam(this.owner, team.id, (taskId) => dispatchHeld(this.store, taskId));
       } catch { /* a store closed under the turn never hides the turn's own outcome */ }
     }
+  }
+  /** Q64: the team's newest tasks as the owner sees them (src/team-task-view.ts); reading settles nothing. */
+  taskViews(id: string): TeamTaskView[] {
+    return teamTaskViews(this.store, this.owner, this.get(id));
   }
   /** Settles a claimed task by what the record says it did, for a claimant that is gone (after a restart, say). */
   reconcile(taskId: string, source = "window"): ReconcileReport {
