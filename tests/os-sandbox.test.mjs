@@ -583,6 +583,23 @@ test("R3b a name a fake-IP proxy answers in 198.18.0.0/15 passes the door only w
   assert.equal(site.seen.length, reached, "nothing but the named site was reached");
 });
 
+test("R3c with the fake-IP setting on, the door never dials an answer that mixes 198.18.0.0/15 with a public address", async (t) => {
+  const site = await recordingSite(t);
+  const names = { "pool.test": ["198.18.0.5", "198.19.0.7"], "mixed.test": ["198.18.0.5", "93.184.216.34"],
+    "public-first.test": ["93.184.216.34", "198.18.0.5"] };
+  const { raw, socks } = await door(t, { network: "open", decide: () => "allow", check: async () => undefined,
+    resolve: async (host) => names[host] ?? ["93.184.216.34"], upstream: () => ({ host: "127.0.0.1", port: site.port, secure: false }),
+    fakeIpProxy: () => true });
+  assert.match(await raw(get("pool.test")), /^HTTP\/1\.1 200/, "an answer wholly from the proxy's pool is let through");
+  const reached = site.seen.length;
+  for (const name of ["mixed.test", "public-first.test"]) {
+    assert.match(await raw(get(name)), /^HTTP\/1\.1 403/, `${name} on a plain request`);
+    assert.match(await raw(tunnelTo(`${name}:80`)), tunnelRefusal("private network"), `${name} through a tunnel`);
+    assert.equal((await socks(name))[2][1], 2, `SOCKS refuses ${name}`);
+  }
+  assert.equal(site.seen.length, reached, "nothing was dialled for a mixed answer");
+});
+
 test("R4 odd names, ports and keys are refused without bringing the door down", async (t) => {
   const site = await recordingSite(t);
   const keys = [{ name: "TOKEN", placeholder: `branch_${"d".repeat(32)}`, value: `bad value${CRLF}x`, site: "api.example.test" }];

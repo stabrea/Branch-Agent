@@ -90,7 +90,9 @@ test("reading a page at [::ffff:127.0.0.1] never reaches the local server", asyn
 
 /** A name server that answers the way a fake-IP proxy (Clash, Mihomo, Surge, Stash, sing-box) does. */
 const fakeAnswers = { "fake.test": ["198.18.0.5"], "edge.test": ["198.19.255.254"], "home.test": ["127.0.0.1"],
-  "both.test": ["198.18.0.5", "127.0.0.1"], "mapped.test": ["::ffff:198.18.0.5"], "lan.test": ["192.168.1.1"] };
+  "both.test": ["198.18.0.5", "127.0.0.1"], "mapped.test": ["::ffff:198.18.0.5"], "lan.test": ["192.168.1.1"],
+  "mixed.test": ["198.18.0.5", "93.184.216.34"], "public-first.test": ["93.184.216.34", "198.18.0.5"],
+  "pool.test": ["198.18.0.5", "198.19.0.7"] };
 const fakeResolve = async (host) => fakeAnswers[host] ?? ["93.184.216.34"];
 
 test("by default a name that resolves into 198.18.0.0/15 is refused, and the refusal names the range and the setting", async () => {
@@ -132,4 +134,27 @@ test("with fakeIpProxy on, a redirect to a literal 198.18 address is refused bef
   const deps = { policy, fetch: fakeFetch, timeoutMs: 5000, maxBytes: 100000, userAgent: "BranchAgent" };
   await assert.rejects(fetchChecked(deps, "https://fake.test/start", new AbortController().signal), /private or local address/);
   assert.deepEqual(sent, ["https://fake.test/start"], "the named site was asked, the literal hop never was");
+});
+
+test("with fakeIpProxy on, only an answer wholly inside 198.18.0.0/15 is let through; a mix with a public address is refused", async () => {
+  const policy = new NetworkPolicy({ fakeIpProxy: true }, fakeResolve);
+  await policy.assertAllowed(new URL("https://pool.test/"));
+  // A real fake-IP proxy answers only from its own pool, so a mixed answer is not one of its answers.
+  for (const name of ["mixed.test", "public-first.test"]) {
+    const refusal = await policy.assertAllowed(new URL(`https://${name}/`)).then(() => null, (error) => error.message);
+    assert.match(refusal ?? "allowed", /private or local address/, name);
+    assert.doesNotMatch(refusal ?? "", /switch on/, `${name}: the setting is already on and would not help`);
+  }
+});
+
+test("the refusal points at the fake-IP setting only when every address is in 198.18.0.0/15", async () => {
+  const policy = new NetworkPolicy({}, fakeResolve);
+  const reason = (name) => policy.assertAllowed(new URL(`https://${name}/`)).then(() => null, (error) => error.message);
+  assert.match(await reason("pool.test") ?? "", /fakeIpProxy/, "every address is in the range, so the setting would help");
+  for (const name of ["both.test", "mixed.test", "public-first.test"]) {
+    const refusal = await reason(name);
+    assert.match(refusal ?? "allowed", /private or local address/, name);
+    assert.doesNotMatch(refusal ?? "", /fakeIpProxy|switch on/, `${name}: the setting would not make it reachable`);
+  }
+  assert.match(await reason("both.test") ?? "", /127\.0\.0\.1/, "the address that is really refused is named");
 });

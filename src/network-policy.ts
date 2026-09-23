@@ -10,8 +10,9 @@ import { z } from "zod";
  *
  * A fake-IP proxy (Clash, Mihomo, Surge's enhanced mode, Stash, sing-box's fakeip) answers every name
  * with an address in 198.18.0.0/15, the range kept for network testing, and does the real lookup
- * itself. `fakeIpProxy` lets such an answer through and nothing more: an address written out in that
- * range, this computer, the home network and every other private range stay refused. It is left out
+ * itself. `fakeIpProxy` lets such an answer through and nothing more: only an answer wholly in that
+ * range counts, since the proxy answers from nothing else, and an address written out in it, this
+ * computer, the home network and every other private range stay refused. It is left out
  * of the settings unless the owner writes it, so a file Branch never touched stays readable by an
  * older Branch.
  */
@@ -19,7 +20,7 @@ const hostRule = z.string().min(1).max(253);
 const pathRule = z.string().min(3).max(500).regex(/^[^/\s]+\/.*$/, "Path rules look like host/prefix, for example api.github.com/repos/");
 export const NetworkPolicySchema = z.object({
   allowPrivateAddresses: z.boolean().default(false),
-  /** Lets a name whose looked-up address is in 198.18.0.0/15 through, for a fake-IP proxy. Off when left out. */
+  /** Lets a name whose looked-up answer is wholly in 198.18.0.0/15 through, for a fake-IP proxy. Off when left out. */
   fakeIpProxy: z.boolean().optional(),
   allowedHosts: z.array(hostRule).max(200).optional(),
   blockedHosts: z.array(hostRule).max(200).default([]),
@@ -93,13 +94,16 @@ export const fakeIpRangeText = "198.18.0.0/15";
 export const isFakeIpAddress = (ip: string): boolean => isIP(ip) === 4 && fakeIpRange.check(ip, "ipv4");
 
 /**
- * Whether an address a name server gave back may not be reached. With `fakeIpProxy` on, a plain IPv4
- * answer in 198.18.0.0/15 is the proxy's stand-in for the real site and is let through; everything
- * else is judged exactly as `isPrivateAddress` judges it. Never call this for an address that was
- * written out: that one is judged by `isPrivateAddress` alone.
+ * The addresses a name server gave back for one name that may not be reached. A fake-IP proxy answers
+ * only from its own pool, so with `fakeIpProxy` on the answer is let through only when every address
+ * in it is a plain IPv4 one in 198.18.0.0/15. An answer that mixes the range with anything else is not
+ * the proxy's, and each of its addresses is judged exactly as `isPrivateAddress` judges it, the range
+ * included. Never call this for an address that was written out: that one is judged by
+ * `isPrivateAddress` alone.
  */
-export function isRefusedAnswer(ip: string, fakeIpProxy: boolean): boolean {
-  return isPrivateAddress(ip) && !(fakeIpProxy && isFakeIpAddress(ip));
+export function refusedAnswers(addresses: readonly string[], fakeIpProxy: boolean): string[] {
+  if (fakeIpProxy && addresses.length > 0 && addresses.every(isFakeIpAddress)) return [];
+  return addresses.filter(isPrivateAddress);
 }
 const hostMatches = (host: string, pattern: string) => host === pattern.toLowerCase() || host.endsWith("." + pattern.toLowerCase());
 /** "host/prefix" matches when the host rule matches and the path starts with the prefix. */
@@ -183,9 +187,8 @@ export class NetworkPolicy {
     const literal = isIP(host) !== 0;
     const addresses = literal ? [host] : await this.resolve(host);
     if (!addresses.length) throw new Error(`${host} could not be resolved`);
-    const fakeIp = !literal && this.config.fakeIpProxy === true;
-    const refused = addresses.find((address) => isRefusedAnswer(address, fakeIp));
-    if (refused !== undefined) throw new Error(refusedReason(host, refused, literal));
+    const refused = literal ? addresses.filter(isPrivateAddress) : refusedAnswers(addresses, this.config.fakeIpProxy === true);
+    if (refused.length) throw new Error(refusedReason(host, addresses, refused, literal));
   }
   /** A fetch that checks the policy on every call, for clients (MCP, browser) that make their own requests. */
   guard(base: typeof fetch): typeof fetch {
@@ -245,12 +248,23 @@ export class NetworkPolicy {
     return closed;
   }
 }
-/** Why an address is refused, naming 198.18.0.0/15 and the setting for it when that is the reason. */
-function refusedReason(host: string, address: string, literal: boolean): string {
-  if (!isFakeIpAddress(address)) return `${host} resolves to a private or local address, which the assistant may not reach`;
+/**
+ * Why an address is refused. 198.18.0.0/15 is named when every refused address is in it, and the
+ * fake-IP proxy setting only when every address the name gave back is: that is the one case the
+ * setting would change. A refused address outside the range is named instead.
+ */
+function refusedReason(host: string, addresses: readonly string[], refused: readonly string[], literal: boolean): string {
+  const other = refused.find((address) => !isFakeIpAddress(address));
+  if (other !== undefined)
+    return literal ? `${host} is a private or local address, which the assistant may not reach`
+      : `${host} resolves to ${other}, a private or local address, which the assistant may not reach`;
+  const address = refused[0]!;
   if (literal)
     return `${host} is a private or local address in ${fakeIpRangeText}, the range kept for network testing. ` +
       "The assistant may not reach an address written out in that range; only a site's name can lead there, through a fake-IP proxy.";
+  if (!addresses.every(isFakeIpAddress))
+    return `${host} resolves to ${address}, a private or local address in ${fakeIpRangeText}, alongside addresses outside it. ` +
+      "A fake-IP proxy answers only from that range, so this answer is not one of its and the assistant may not reach it.";
   return `${host} resolves to ${address}, a private or local address in ${fakeIpRangeText}, the range kept for network testing. ` +
     "A fake-IP proxy (such as Clash, Mihomo, Surge, Stash or sing-box) answers every name with an address there. " +
     'If you use one, switch on the fake-IP proxy setting ("fakeIpProxy": true in the web section of the launch settings file); the proxy then does the resolving.';

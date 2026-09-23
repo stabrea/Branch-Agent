@@ -5,7 +5,7 @@ import { request as httpsRequest } from "node:https";
 import { connect, createServer as createNetServer, isIP, type Socket } from "node:net";
 import { redactLeaks } from "./leak-guard.js";
 import { scrubSecrets } from "./locker.js";
-import { isPrivateAddress, isRefusedAnswer } from "./network-policy.js";
+import { isPrivateAddress, refusedAnswers } from "./network-policy.js";
 import type { WallNetwork } from "./sandbox.js";
 
 /**
@@ -52,8 +52,9 @@ export interface ProxyOptions {
   /** How a site name becomes addresses. Replaced in tests. */
   resolve?: ((host: string) => Promise<string[]>) | undefined;
   /**
-   * The owner's fake-IP proxy setting, read for every site: when it says yes, a looked-up answer in
-   * 198.18.0.0/15 is the proxy's stand-in for the real site. An address written out is never let in.
+   * The owner's fake-IP proxy setting, read for every site: when it says yes, a looked-up answer wholly
+   * in 198.18.0.0/15 is the proxy's stand-in for the real site. An answer that mixes the range with
+   * anything else, and an address written out, are never let in.
    */
   fakeIpProxy?: (() => boolean) | undefined;
   /** Listen on a local socket file instead of a port (Linux, where the program has its own network). */
@@ -142,8 +143,8 @@ export class SandboxProxy {
     const literal = writtenOut(name);
     const addresses = isIP(name) ? [name] : await (this.options.resolve ?? defaultResolve)(name).catch(() => []);
     if (!addresses.length) return { reason: `${name} could not be found.` };
-    const fakeIp = !literal && this.options.fakeIpProxy?.() === true;
-    if (literal ? addresses.some(isPrivateAddress) : addresses.some((address) => isRefusedAnswer(address, fakeIp)))
+    // A looked-up answer that mixes 198.18.0.0/15 with anything else is refused whole, so no part of it is dialled.
+    if (literal ? addresses.some(isPrivateAddress) : refusedAnswers(addresses, this.options.fakeIpProxy?.() === true).length > 0)
       return { reason: `${name} points at this computer or a private network, which programs behind the wall may never reach.` };
     return { address: addresses[0]! };
   }

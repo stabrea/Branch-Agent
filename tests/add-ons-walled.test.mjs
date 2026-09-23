@@ -8,11 +8,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { WalledPlugins, pluginWall, readAnswer } from "../dist/add-ons/walled-plugin.js";
+import { NetworkPolicy } from "../dist/network-policy.js";
+import { createBranch } from "../dist/index.js";
 import { resultMarker } from "../dist/add-ons/walled-host.js";
 
 const mac = { skip: process.platform !== "darwin" && "macOS's own sandbox is only on macOS" };
@@ -151,4 +154,64 @@ test("macOS for real: only an address the package named gets past Branch's door,
   assert.match(await plugin.tools[0].run({ url: site.url }, {}), /^403 127\.0\.0\.1 points at this computer or a private network/,
     "naming this computer does not open it");
   assert.deepEqual(site.hits, []);
+});
+
+/* ------------------------------------------------------------------ fake-IP proxies (198.18.0.0/15) */
+
+const posix = { skip: process.platform === "win32" && "the wall around programs is macOS and Linux only" };
+
+/** One plain request through the door, the way a program behind the wall makes it; answers the status line. */
+function throughDoor(proxy, url) {
+  const door = new URL(proxy), target = new URL(url);
+  const auth = Buffer.from(`${decodeURIComponent(door.username)}:${decodeURIComponent(door.password)}`).toString("base64");
+  return new Promise((resolve, reject) => {
+    const socket = connect(Number(door.port), door.hostname, () => socket.write(
+      `GET ${url} HTTP/1.1\r\nHost: ${target.host}\r\nProxy-Authorization: Basic ${auth}\r\nConnection: close\r\n\r\n`));
+    let text = "";
+    socket.on("data", (chunk) => { text += chunk; });
+    socket.on("close", () => resolve(text.split("\r\n")[0]));
+    socket.on("error", reject);
+  });
+}
+
+test("a walled plugin's door honours the owner's fake-IP proxy setting, through the real wall and door", posix, async (t) => {
+  const site = await localSite(t);
+  const port = Number(new URL(site.url).port);
+  // A name server that answers the way a fake-IP proxy does, for both the owner's rules and the door.
+  const answers = { "api.weather.test": ["198.18.0.5"], "mixed.weather.test": ["198.18.0.5", "93.184.216.34"] };
+  const resolve = async (host) => answers[host] ?? [];
+  const status = async (flag, host) => {
+    // Wired as src/add-ons/index.ts wires it: the owner's network rules and the owner's setting.
+    const policy = new NetworkPolicy({ fakeIpProxy: flag }, resolve);
+    const walled = new WalledPlugins({
+      policy: () => ({ walled: true, hosts: [host] }), unreadable: () => [],
+      siteCheck: (target) => policy.assertAllowed(target, "a walled plugin"),
+      fakeIpProxy: () => policy.settings().fakeIpProxy === true,
+      wallDeps: { platform: "darwin", exists: async () => true, resolve,
+        upstream: () => ({ host: "127.0.0.1", port, secure: false }) },
+      spawn: async (start) => {
+        const line = await throughDoor(start.env.HTTP_PROXY, `http://${host}/today`);
+        return { status: "completed", exitCode: 0, stdout: `${resultMarker}${JSON.stringify({ ok: true, result: line })}\n`, stderr: "", truncated: false, durationMs: 1 };
+      },
+    });
+    return (await walled.ask("export default {}", [host], { kind: "call" })).result;
+  };
+  assert.match(await status(false, "api.weather.test"), /^HTTP\/1\.1 403/, "refused while the setting is off");
+  assert.deepEqual(site.hits, []);
+  assert.match(await status(true, "api.weather.test"), /^HTTP\/1\.1 200/, "a name the proxy answers reaches the site once the owner said so");
+  assert.deepEqual(site.hits, ["/today"]);
+  assert.match(await status(true, "mixed.weather.test"), /^HTTP\/1\.1 403/, "an answer that mixes the range with a public address is refused");
+  assert.deepEqual(site.hits, ["/today"], "nothing was dialled for the mixed answer");
+});
+
+test("the app hands a walled plugin's wall the owner's fake-IP proxy setting", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-walled-fakeip-"));
+  const on = await createBranch({ workspace: join(root, "on", "workspace"), dataDir: join(root, "on", "data"), web: { fakeIpProxy: true } });
+  const off = await createBranch({ workspace: join(root, "off", "workspace"), dataDir: join(root, "off", "data") });
+  t.after(async () => { await on.close(); await off.close(); await discardTemp(root); });
+  const wall = on.addOns.walled.wallFor(["api.weather.test"]);
+  assert.equal(typeof wall.siteCheck, "function", "the door asks the owner's network rules");
+  assert.equal(typeof wall.fakeIpProxy, "function", "the door reads the owner's fake-IP proxy setting");
+  assert.equal(wall.fakeIpProxy(), true);
+  assert.equal(off.addOns.walled.wallFor(["api.weather.test"]).fakeIpProxy?.() ?? false, false, "off unless the owner switched it on");
 });

@@ -520,3 +520,17 @@ test("a server wrapped in cmd /c or started with value-taking options is still n
   for (const [command, args, expected] of cases) assert.deepEqual(packageOfLaunch(command, args), expected, `${command} ${args.join(" ")}`);
   assert.equal(packageOfLaunch("cmd", ["/c", "echo", "hello"]), null, "cmd running anything else is not a package");
 });
+
+test("trusting a fake-IP proxy is a warning that says what it gives up", async () => {
+  const snapshot = clean();
+  triggers["web.fake-ip-proxy"](snapshot);
+  const found = runAudit(snapshot).findings.find((finding) => finding.id === "web.fake-ip-proxy");
+  assert.equal(found.severity, "warn", "as serious as letting the assistant reach private addresses");
+  assert.equal(found.severity, securityChecks.find((check) => check.id === "web.private-addresses").severity);
+  assert.match(found.detail, /proxy does the name lookups/);
+  assert.match(found.detail, /this computer or your home network/, "a name that really points there can get through");
+  // The title the card shows, in each language, says it too.
+  const title = async (language) => JSON.parse(await readFile(new URL(`../public/locales/${language}.json`, import.meta.url), "utf8"))["security.check.web.fake-ip-proxy"];
+  assert.match(await title("en"), /home network/);
+  assert.match(await title("fr"), /réseau local/);
+});
