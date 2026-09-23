@@ -43,6 +43,8 @@ export interface StopDeps {
   kill?: (pid: number, signal: NodeJS.Signals) => void;
   /** macOS and Linux: the call that asks the engine to close over its own local address. */
   fetch?: typeof fetch;
+  /** An automatic update waits rather than forcibly ending a background engine. */
+  gracefulOnly?: boolean;
 }
 export interface StopReport {
   /** The engine's process id, so the hand-over script can wait for it too. */
@@ -87,6 +89,7 @@ export async function stopBackgroundEngine(dataDir: string, deps: StopDeps = {})
   }
   const asked = await run(taskkill, ["/PID", String(pid), "/T"]).then(() => true, () => false);
   if (asked && (await waitForExit(pid, deps))) return finish(dataDir, pid, false);
+  if (deps.gracefulOnly) return waitingForEngine(pid);
   await run(taskkill, ["/PID", String(pid), "/T", "/F"]).catch(() => undefined);
   if (await waitForExit(pid, deps)) return finish(dataDir, pid, true);
   return notInTime(pid);
@@ -95,6 +98,10 @@ export async function stopBackgroundEngine(dataDir: string, deps: StopDeps = {})
 const notInTime = (pid: number): StopReport => ({
   pid, stopped: false, forced: true,
   message: "The background engine did not close in time; the update will close it before swapping the files.",
+});
+const waitingForEngine = (pid: number): StopReport => ({
+  pid, stopped: false, forced: false,
+  message: "The background engine is still working; the update will wait rather than stop it.",
 });
 
 /** macOS and Linux wait a few seconds at each step rather than Windows' twelve. */
@@ -120,6 +127,7 @@ async function stopPosixEngine(
     await clearRunning(dataDir).catch(() => undefined);
     return { pid: null, stopped: false, forced: false, message: "Nothing was working in the background." };
   }
+  if (deps.gracefulOnly) return waitingForEngine(pid);
   if (send("SIGTERM") && (await waitForExit(pid, bounded))) return finish(dataDir, pid, false);
   send("SIGKILL");
   if (await waitForExit(pid, bounded)) return finish(dataDir, pid, true);
