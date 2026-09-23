@@ -133,8 +133,14 @@ export class Updater {
       return this.set("error", error instanceof Error ? error.message : String(error));
     }
   }
-  /** Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch. */
-  async install(): Promise<{ script: string; stagedDir: string }> {
+  /**
+   * Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch.
+   * CBQ-001: with `hold`, the claim is kept once this returns, because the caller still has the hand-over
+   * to start - three scheduler calls of up to 15 s each - and a second request in that time would empty
+   * the scratch folder the first hand-over is about to use and start a second one. `applying()` keeps
+   * the claim from there; `release()` gives it back if the hand-over could not be started.
+   */
+  async install(options: { hold?: boolean } = {}): Promise<{ script: string; stagedDir: string }> {
     const reason = unsupportedReason(this.options, this.platform);
     if (reason) throw new Error(reason);
     if (this.busy) throw new Error("An update is already in progress.");
@@ -154,6 +160,7 @@ export class Updater {
       this.busy = false;
       throw error;
     }
+    let held = false;
     try {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
@@ -167,6 +174,7 @@ export class Updater {
       await this.safetyCopy();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
+      held = options.hold === true;
       return { script, stagedDir };
     } catch (error) {
       this.set("error", error instanceof Error ? error.message : String(error), null, release);
@@ -174,8 +182,10 @@ export class Updater {
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
       await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
       throw error;
-    } finally { this.busy = false; }
+    } finally { if (!held) this.busy = false; }
   }
+  /** Gives back a claim `install({ hold: true })` kept, when the hand-over it was kept for did not start. */
+  release(): void { this.busy = false; }
   /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
   private async tryCanary(stagedDir: string, version: string): Promise<void> {
     if (!this.options.canary) return;
