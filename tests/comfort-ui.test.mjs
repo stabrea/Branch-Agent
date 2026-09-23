@@ -79,7 +79,10 @@ for (const width of [1440, 860, 400]) {
         assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
         const name = (await heading.textContent()).trim();
         assert.ok(name, `${id} has a translated title`);
-        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        /* DG-184: on Notifications the card is a row of the sample's one section, so its title waits out of sight
+           (a search shows it); it is still the card's own native h3. */
+        const inSection = id === "comfort-notify-card";
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true, includeHidden: inSection }).count(), 1, id);
         assert.equal(await page.locator(`${home} > h2.lx-page-title`).count(), 1, "page title stays level two");
         assert.equal(await card.locator(":scope > h3 + p.subtle + .kit-scope.sr-only").count(), 1,
           "scope remains after the heading and purpose, not before the title");
