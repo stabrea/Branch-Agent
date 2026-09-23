@@ -366,3 +366,39 @@ test("a member whose run started and finished before a crash is listed once, wit
   assert.doesNotMatch(error, /unnamed member|run not recorded|not matched/);
   assert.match(error, /Not run: none\./);
 });
+
+test("a helper run started before the plan is excluded from member runs", async (t) => {
+  /* Q80: a run started under the team's turn before team.members.planned (a helper started by the
+     turn's own logic, not by the fanout) must never be placed in a batch or given to a member. */
+  const { state, owner } = await fixture(t, scripted(), 2);
+  // Create a parent run and helper run manually to set up the scenario.
+  const parentRun = state.app.store.createRun(owner, "team parent");
+  const helperRun = state.app.store.createRun(owner, "helper");
+  const batchRun = state.app.store.createRun(owner, "batch member");
+  // Record events in order: helper started, then plan, then batch started.
+  state.app.store.event(helperRun.id, "run.started", { parentRunId: parentRun.id });
+  state.app.store.finish(helperRun.id, "completed", "helper output");
+  // Record team.members.planned.
+  state.app.store.event(parentRun.id, "team.members.planned", { members: [{ member: "m0", role: "r0" }, { member: "m1", role: "r1" }] });
+  // Record batch started.
+  state.app.store.event(parentRun.id, "team.batch.started", { members: ["m0", "m1"] });
+  // Record batch run started (after the plan).
+  state.app.store.event(batchRun.id, "run.started", { parentRunId: parentRun.id });
+  state.app.store.finish(batchRun.id, "completed", "batch output");
+  // Now call memberRuns and verify the helper run is not included.
+  const { memberRuns: memberRunsFunc, describeMemberRuns } = await import("../dist/team-reconcile.js");
+  const members = memberRunsFunc(state.app.store, parentRun.id);
+  // Verify helper run is not in the list.
+  const helperInList = members.some((m) => m.runId === helperRun.id);
+  assert.equal(helperInList, false, "helper run not in members");
+  // Verify the members are only the planned members.
+  const membersWithRole = members.filter((m) => m.member);
+  assert.deepEqual(membersWithRole.map((m) => m.role), ["r0", "r1"], "only planned members");
+  // Verify batch run is listed as unnamed.
+  const batchInList = members.some((m) => !m.member && m.runId === batchRun.id);
+  assert.equal(batchInList, true, "batch run is listed as unnamed");
+  // Verify the description doesn't mention helper run.
+  const desc = describeMemberRuns(members);
+  assert.doesNotMatch(desc, new RegExp(helperRun.id), "helper run not in description");
+  assert.match(desc, new RegExp(batchRun.id), "batch run in description");
+});
