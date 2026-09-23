@@ -89,9 +89,13 @@ export const BUCKETS = {
     ["accounts", "key", "Your accounts", "The accounts Branch signs in with, and sharing the work between them.",
       [["accounts-card", R]]],
   ],
+  /* DG-186: the sample's Voice page, in its order: what is listening this moment, then its two sections, each card
+     where the sample puts its settings. The rows decide each card's level (DG-199). */
   voice: [
+    ["listening", "mic", "Listening right now", "Whether anything is listening this moment.",
+      [["voice-listening-card", R]]],
     ["talk", "mic", "Talking and listening", "Speaking to Branch and how it hears you.",
-      [["voice-settings-form", R], ["dictation-form", R], ["wake-word-form", A], ["comfort-voice-card", A]]],
+      [["voice-settings-form", R], ["dictation-form", R], ["comfort-voice-card", A], ["wake-word-form", A]]],
     ["voices", "speaker", "The voices it speaks with", "How it answers out loud.",
       [["system-voice-card", A], ["personal-voice-card", A], ["speech-engines-card", T]]],
   ],
