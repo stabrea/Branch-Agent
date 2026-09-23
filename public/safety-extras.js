@@ -199,12 +199,21 @@ function chainCard(state) {
 }
 
 /* ---------- WebAssembly add-ons ---------- */
+/** The operations a module may be granted, in the same order the host checks them in. Each one gets
+ * its own checkbox so an add-on can be given fewer than the shared list allows. */
+const WASM_CAPABILITIES = [
+  ["input_size", "safety.wasm.cap.input_size", "How much input there is"],
+  ["read_input", "safety.wasm.cap.read_input", "Read the input"],
+  ["write_output", "safety.wasm.cap.write_output", "Write the answer"],
+  ["log", "safety.wasm.cap.log", "Write to the log"],
+];
 function wasmCard(state) {
   const { node, status } = card("safety-wasm-card", "safety.wasm.title", "WebAssembly add-ons",
     "safety.wasm.purpose", "Small add-ons that run sealed: no files, no internet, a memory and time limit.");
   const list = document.createElement("ul");
   for (const addOn of state.wasm) {
-    const item = plain("li", `${addOn.name} — ${addOn.description || addOn.sha256.slice(0, 16)} `);
+    const granted = Array.isArray(addOn.capabilities) ? addOn.capabilities.join(", ") : "";
+    const item = plain("li", `${addOn.name} — ${addOn.description || addOn.sha256.slice(0, 16)} (${granted || "no operations"}) `);
     item.append(button(`safety-wasm-remove-${addOn.name}`, "safety.wasm.remove", "Remove", "safety.wasm.removeHint", "Removes this add-on", async () => {
       try { await api("safety-extras/wasm/remove", { name: addOn.name }); await drawCards(); } catch (error) { tell(status, error); }
     }));
@@ -213,16 +222,34 @@ function wasmCard(state) {
   if (!state.wasm.length) list.append(make("li", "", "safety.wasm.none", "No add-ons yet."));
   const name = input(), about = input(), file = input("file");
   file.accept = ".wasm,application/wasm";
+  const capsLegend = make("legend", "safety.wasm.capabilities", "What it may use");
+  const capsHint = make("p", "field-note", "safety.wasm.capabilitiesHint",
+    "Uncheck what this add-on should never be given, even though it is allowed elsewhere.");
+  const capsHintId = "safety-wasm-capabilities-hint";
+  capsHint.id = capsHintId;
+  const capBoxes = WASM_CAPABILITIES.map(([capName, key, english]) => {
+    const box = input("checkbox", true);
+    const label = make("label", "", key, english);
+    label.htmlFor = `safety-wasm-cap-${capName}`;
+    box.id = label.htmlFor;
+    box.setAttribute("aria-describedby", capsHintId); // one shared hint for the group, not one per box
+    return { capName, label, control: box };
+  });
+  const fieldset = document.createElement("fieldset");
+  fieldset.setAttribute("aria-describedby", capsHintId);
+  fieldset.append(capsLegend, ...capBoxes.flatMap(({ label, control }) => [label, control]), capsHint);
   node.append(list,
     ...described("safety-wasm-name", "safety.wasm.name", "Name", "safety.wasm.nameHint", "Lowercase letters, digits and dashes.", name),
     ...described("safety-wasm-about", "safety.wasm.about", "What it does", "safety.wasm.aboutHint", "One sentence, for you and the assistant.", about),
     ...described("safety-wasm-file", "safety.wasm.file", "The .wasm file", "safety.wasm.fileHint", "It may use only Branch's input, output and log.", file),
+    fieldset,
     button("safety-wasm-install", "safety.wasm.install", "Install", "safety.wasm.installHint", "Checks the file and keeps it with its fingerprint", async () => {
       try {
         const bytes = new Uint8Array(await file.files[0].arrayBuffer());
         let binary = "";
         for (let at = 0; at < bytes.length; at += 32768) binary += String.fromCharCode(...bytes.subarray(at, at + 32768));
-        await api("safety-extras/wasm", { name: name.value.trim(), description: about.value.trim(), wasm: btoa(binary) });
+        const capabilities = capBoxes.filter(({ control }) => control.checked).map(({ capName }) => capName);
+        await api("safety-extras/wasm", { name: name.value.trim(), description: about.value.trim(), wasm: btoa(binary), capabilities });
         await drawCards();
       } catch (error) { tell(status, error); }
     }, true),

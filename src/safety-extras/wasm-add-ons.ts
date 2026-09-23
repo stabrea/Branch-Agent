@@ -8,6 +8,7 @@ import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { requireSafety } from "./settings.js";
+import { capabilityRefusal } from "./wasm-capabilities.js";
 import { capabilityNames, deriveCapabilities, readWasmShape, wasmRefusal, type WasmCapability } from "./wasm-check.js";
 
 /**
@@ -88,9 +89,14 @@ try {
 `;
 
 /** One run in a fresh worker, ended at the time limit. `capabilities` defaults to the full catalog, so
- *  a call that predates capability declarations keeps getting whatever it imports, as before. */
+ *  a call that predates capability declarations keeps getting whatever it imports, as before. An
+ *  operation the module's bytes ask for but `capabilities` does not grant refuses the run before a
+ *  worker even starts. */
 export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: { maxMemoryMb: number; timeoutMs: number }, capabilities: readonly string[] = capabilityNames): Promise<WasmRun> {
-  const shape = readWasmShape(bytes), started = Date.now();
+  const started = Date.now();
+  const refusal = capabilityRefusal(bytes, capabilities);
+  if (refusal) return Promise.resolve({ ok: false, code: null, output: "", log: "", error: refusal, durationMs: Date.now() - started });
+  const shape = readWasmShape(bytes);
   // A memory the module imports may not be larger than it said, nor than the owner allows.
   const ceiling = Math.min(pages(limits.maxMemoryMb), shape.imported?.max ?? Number.MAX_SAFE_INTEGER);
   const worker = new Worker(workerSource, { eval: true, env: {}, execArgv: [], stdout: true, stderr: true,
