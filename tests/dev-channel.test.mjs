@@ -15,7 +15,7 @@ import { updatePlan, betaCheckEveryMs } from "../dist/comfort/auto-update.js";
 import { buildInfo } from "../scripts/package-desktop.mjs";
 
 const repo = "stabrea/Branch-Agent", assetName = "Branch-Agent-windows-x64.zip", exe = "Branch Agent.exe";
-const NEW = "a".repeat(40), OLD = "b".repeat(40), COMMITTED = 1758600000, BUILT = `0.19.3-dev.${COMMITTED}.g${NEW.slice(0, 12)}`;
+const NEW = "a".repeat(40), OLD = "b".repeat(40), COMMITTED = 1758600000, BUILT = `0.19.3-dev.${COMMITTED}-g${NEW.slice(0, 12)}`;
 const exists = (path) => access(path).then(() => true, () => false);
 
 async function folders(t) {
@@ -206,6 +206,7 @@ test("each Dev build's version names its change: two made in the same second dif
   const one = await stamp(NEW), two = await stamp(OLD);
   assert.equal(one, BUILT);
   assert.notEqual(one, two, "the update's record can tell two same-second builds apart");
+  assert.equal(one.split(".").length, 4, "the Windows packager takes at most four dotted parts");
   assert.equal(compareVersions(one, "0.19.3-beta.999"), 1, "switching back to Beta never offers the same line's older builds");
   assert.equal(compareVersions("0.19.3", one), 1, "the Stable release of that line is newer than any of its Dev builds");
 });

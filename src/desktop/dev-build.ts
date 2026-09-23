@@ -5,11 +5,11 @@ import { join } from "node:path";
 /**
  * The Dev update channel: like Hermes Desktop, Branch follows its own main line of work and builds the newest
  * merged change on this computer, instead of waiting for a published Stable or Beta release. It needs git and
- * Node here, and each build takes minutes (the first one longer: it downloads Electron).
+ * Node here, and each build takes minutes.
  *
- * The source is Branch's own clone in its data folder, never a folder the owner works in, so it is reset to
- * the exact commit that was looked up; nothing the owner wrote can be in it. Every program runs hidden, never
- * asks for a password or sign-in (the repository is public), and is given a time limit.
+ * Every build clones afresh into the updater's own folder, which the assistant may never change, at exactly the
+ * commit that was looked up, and only after the history shows it goes forward from the running change. Every
+ * program runs hidden, never asks for a password or sign-in (the repository is public), and is given a time limit.
  */
 export const devBranch = "mac/cross-platform";
 
@@ -118,7 +118,7 @@ async function neverBack(run: Run, sourceDir: string, running: string, commit: s
 
 /**
  * Like Beta's stamp (scripts/beta-release.mjs), only for the build: a Dev build of 0.19.2's line is
- * 0.19.3-dev.<commit time>.g<commit>. The commit makes every build's version its own, so the update's record can
+ * 0.19.3-dev.<commit time>-g<commit> (one identifier: the Windows packager takes at most four dotted parts). The commit makes every build's version its own, so the update's record can
  * tell whether the swap landed even for two changes made in the same second; Beta (0.19.3-beta.N sorts below it)
  * never offers the same line's older code, and that line's Stable release sorts above it. Which Dev change is newer
  * is decided by the history (neverBack), never by these numbers: commit times need not increase.
@@ -130,7 +130,7 @@ export async function stampDevVersion(sourceDir: string, committedAt: number, co
   if (manifest.name !== "branch-agent" || !match || lock.version !== manifest.version || lock.packages?.[""]?.version !== manifest.version
     || !Number.isSafeInteger(committedAt) || committedAt < 1 || !/^[0-9a-f]{40}$/.test(commit))
     throw new Error("The source's version could not be read, so nothing was built.");
-  const version = `${match[1]}.${match[2]}.${Number(match[3]) + 1}-dev.${committedAt}.g${commit.slice(0, 12)}`;
+  const version = `${match[1]}.${match[2]}.${Number(match[3]) + 1}-dev.${committedAt}-g${commit.slice(0, 12)}`;
   manifest.version = lock.version = lock.packages[""].version = version;
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
