@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultPreset, presetsFromEnv } from "./providers.js";
+import { applyDistribution, parseDistribution } from "./distribution.js";
 import { ChatGPTAuth, FileTokenVault } from "./chatgpt-auth.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { DemoProvider } from "./demo.js";
@@ -313,6 +314,13 @@ async function main(): Promise<void> {
       const source = process.argv[3];
       if (!source) throw new Error("Provide a file: node dist/cli.js restore <file>");
       console.log(JSON.stringify(app.store.restore(JSON.parse(await readFile(source, "utf8")))));
+      return;
+    }
+    if (command === "apply-distribution") {
+      const source = process.argv[3];
+      if (!source) throw new Error("Provide a file: node dist/cli.js apply-distribution <file>");
+      const dist = parseDistribution(JSON.parse(await readFile(source, "utf8")));
+      for (const line of applyDistribution(app.store, app.runtime.owner, dist)) console.log(line);
       return;
     }
     if (command === "headless") return await headlessJob(app);
