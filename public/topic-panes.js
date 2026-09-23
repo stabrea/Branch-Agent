@@ -225,7 +225,13 @@ function buildOverlay() {
   sheet.append(head, emptyNote, grid);
   box.append(sheet);
   box.addEventListener("click", (event) => { if (event.target === box) closeTopicPanes(); });
-  box.addEventListener("keydown", (event) => { if (event.key === "Escape") closeTopicPanes(); });
+  /* The sheet's Escape is its own: kept from the page's (public/layout.js), which would also close
+     the floating side pane behind it and move the keyboard to that pane's switch instead of returnFocus. */
+  box.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    closeTopicPanes();
+  });
   document.body.append(box);
   overlay = box;
 }

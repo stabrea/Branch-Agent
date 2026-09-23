@@ -129,3 +129,32 @@ test("two topics side by side keep their own messages even when the slower one's
   assert.match(await cherriesCol.innerText(), /cherries/);
   assert.deepEqual(f.errors, []);
 });
+
+/* ---------------------------------------------------------------- Escape closes only the sheet */
+
+test("with the floating side pane open, one Escape closes only the compare sheet and the keyboard goes back to where it was", async (t) => {
+  const f = await windowFixture(t, { width: 1000, height: 900 }); // narrow enough that the side pane floats
+  const cherries = seedTopic(f.app, "cherries");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("body.lx-pane-float").waitFor({ state: "attached" });
+
+  await f.page.locator("#prompt").focus();
+  await f.page.evaluate(async (ids) => {
+    const { openTopicPanesWith } = await import("/topic-panes.js");
+    openTopicPanesWith(ids);
+  }, [cherries]);
+  await f.page.locator("#topic-panes-overlay").waitFor({ state: "visible" });
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "topic-panes-add", "the keyboard is inside the sheet");
+
+  await f.page.keyboard.press("Escape");
+  assert.equal(await f.page.locator("#topic-panes-overlay").isVisible(), false, "the sheet closes");
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-pane-float")), true, "the side pane behind it stays open");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "prompt", "the keyboard goes back to what had it before the sheet opened");
+
+  // Only the sheet's Escape is held back: the next one steps out of the message box (public/shell.js),
+  // and the one after that closes the side pane, as before.
+  await f.page.keyboard.press("Escape");
+  await f.page.keyboard.press("Escape");
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-pane-float")), false, "the side pane still closes on its own Escape");
+  assert.deepEqual(f.errors, []);
+});
