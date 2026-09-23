@@ -114,3 +114,22 @@ test("DG-182: the list gives each file's first line to the owner only", async (t
   const stranger = await fetch(server.url + "/api/settings-kit/files", { headers: { authorization: "Bearer wrong" } });
   assert.notEqual(stranger.status, 200);
 });
+
+test("DG-182: a switch saved on another page's card shows in this list at once", async (t) => {
+  const { app, browser, server } = await fixture(t);
+  const { page, errors } = await connect(browser, server, 1440);
+  await openAtLevel(page);
+  const soulOn = page.locator('#agent-files .agent-file[data-slot="soul"] [data-v="on"]');
+  assert.equal(await soulOn.getAttribute("aria-pressed"), "false");
+  await openSettings(page, "assistant");
+  const card = page.locator("#context-assistant");
+  await card.locator("#context-switch-soul").selectOption("on");
+  /* The card saves as the switch moves, or with its own Save while it still has one. */
+  const save = card.locator('button[data-t="action.save"]');
+  if (await save.count()) await save.click();
+  await page.waitForFunction(() => document.querySelector('#context-assistant [role="status"]')?.textContent.includes("Saved"));
+  assert.equal(contextFileSettings(app.store, app.runtime.owner).files.soul, "on");
+  await page.waitForFunction(() => document.querySelector('#agent-files .agent-file[data-slot="soul"] [data-v="on"]')?.getAttribute("aria-pressed") === "true",
+    null, { timeout: 5000 });
+  assert.deepEqual(errors, []);
+});

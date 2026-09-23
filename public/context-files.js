@@ -197,6 +197,8 @@ export async function drawContextFiles() {
   const save = async (body) => {
     const saved = await api("context-files", body);
     state.settings = saved;
+    /* DG-182: Settings › Instructions & personality lists the same switches; its list is drawn again at once. */
+    void globalThis.branchAgentFiles?.refresh?.();
     return saved;
   };
   for (const spec of cards) {

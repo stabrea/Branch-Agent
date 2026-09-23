@@ -24,6 +24,8 @@ function button(key, english, onClick, className = "quiet-button") {
 }
 const bytesOf = (text) => new TextEncoder().encode(text).length;
 let drawGeneration = 0;
+/* The list's own refresh, so a switch saved on another page's card shows here at once (see context-files.js). */
+let redrawList = null;
 
 const ABOUT = {
   soul: "Who your assistant is: personality, tone and boundaries.",
@@ -187,6 +189,7 @@ export async function drawAgentFiles() {
   const fill = (files) => list.replaceChildren(...files.map((entry) => fileRow(entry, (slot) => openEditor(area, list, slot, refresh), choose)));
   const refresh = async () => { try { fill((await api("settings-kit/files")).files); } catch { /* the list stays as it was */ } };
   const choose = chooser(refresh, status);
+  redrawList = refresh;
   fill(map.files);
   section.append(list, area, el("p", "agent-files.footnote", FOOTNOTE, "subtle agent-files-foot"), status);
   document.body.append(section);
@@ -211,7 +214,7 @@ function chooser(refresh, status) {
 }
 
 if (typeof document !== "undefined") {
-  globalThis.branchAgentFiles = { draw: drawAgentFiles };
+  globalThis.branchAgentFiles = { draw: drawAgentFiles, refresh: () => redrawList?.() };
   document.addEventListener("branch-language", () => { if (!document.querySelector(".agent-files-editor:not([hidden])")) void drawAgentFiles(); });
   document.addEventListener("branch-profile", (event) => {
     drawGeneration += 1;
