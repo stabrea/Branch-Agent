@@ -3405,6 +3405,8 @@
   "studio.name.hint": "For example: Gardener",
   "studio.what": "What it does, in a few words",
   "studio.what.hint": "For example: plans the vegetable beds and the watering",
+  "studio.foot.later": "It starts on the computer you chose, so it cannot introduce itself until Branch can start it there. Everything else can be changed later.",
+  "studio.created.elsewhere": "Made {name}. It starts on {computer}, where Branch cannot start it yet.",
   "studio.startsIn": "Starts in",
   "studio.startsIn.here": "This computer",
   "studio.startsIn.gone": "It was set to start on a computer that is no longer paired. Choose where it starts now.",

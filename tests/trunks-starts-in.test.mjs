@@ -89,6 +89,20 @@ test("the start path hands a turn for another computer to the hop and never runs
   assert.equal(hops.length, 1);
 });
 
+test("a message queued for a Trunk that starts elsewhere is refused quietly and never crashes Branch", async (t) => {
+  const { app, provider, trunk } = await fixture(t);
+  app.trunks.edit(trunk.id, { startsIn: tower });
+  const loose = [];
+  const catcher = (reason) => loose.push(reason);
+  process.on("unhandledRejection", catcher);
+  t.after(() => process.off("unhandledRejection", catcher));
+  const asked = provider.requests.length;
+  app.runtime.followUp(trunk.chatSessionId, "from another Trunk");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.deepEqual(loose, []);
+  assert.equal(provider.requests.length, asked, "nothing ran here");
+});
+
 test("a computer removed after it was chosen is refused, not swapped for this one", async (t) => {
   const { app, provider, trunk } = await fixture(t);
   app.trunks.edit(trunk.id, { startsIn: tower });

@@ -186,6 +186,16 @@ function drawForm() {
     field("studio.what", "What it does, in a few words", d.title, (value) => { d.title = value; }, "studio-what", ["studio.what.hint", "For example: plans the vegetable beds and the watering"]),
     ...startsInField());
   form.replaceChildren(who, faceSection(), colourSection(), shapeSection(), motionSection(), depthSection(), ...(studio.editing ? [pinSection()] : []));
+  footWords();
+}
+/** Q44: a new Trunk set to start on another computer cannot introduce itself yet, and the footer says so. */
+function footWords() {
+  const note = $("studio-foot-note");
+  if (!note) return;
+  const [key, english] = studio.draft.startsIn ? ["studio.foot.later", "It starts on the computer you chose, so it cannot introduce itself until Branch can start it there. Everything else can be changed later."]
+    : ["studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."];
+  note.dataset.t = key;
+  note.textContent = say(key, english);
 }
 function redraw() { drawForm(); drawPreview(); }
 /** Q44: This computer and the owner's paired computers, the only places a Trunk may start in. */
@@ -366,7 +376,7 @@ function drawPreview() {
 }
 function footer() {
   const foot = make("div", "studio-foot");
-  if (!studio.editing) foot.append(make("span", "studio-note", "studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."));
+  if (!studio.editing) foot.append(Object.assign(make("span", "studio-note", "studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."), { id: "studio-foot-note" }));
   foot.append(make("span", "grow"), button("", "studio.cancel", "Cancel", () => closeDialog()),
     studio.editing ? button("studio-primary", "studio.save", "Save", saveEdit) : button("studio-primary", "studio.create", "Create the Trunk", createTrunk));
   return foot;
@@ -396,7 +406,9 @@ async function createTrunk() {
   const fresh = findTrunk(trunk.id);
   if (fresh) await openTrunk(fresh);
   document.querySelector(`#trunk-strip [data-strip-id="trunk:${trunk.id}"]`)?.classList.add("fresh");
-  toast(say("studio.created", "{name} introduces itself in its own conversation.", { name }));
+  const far = startChoices().find((choice) => d.startsIn && choice.id === d.startsIn);
+  toast(far ? say("studio.created.elsewhere", "Made {name}. It starts on {computer}, where Branch cannot start it yet.", { name, computer: far.name })
+    : say("studio.created", "{name} introduces itself in its own conversation.", { name }));
 }
 async function saveEdit() {
   const d = studio.draft, id = studio.editing, name = d.name.trim();

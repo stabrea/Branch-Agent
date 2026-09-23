@@ -42,7 +42,9 @@ async function fixture(t) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#trunk-strip .strip-brand").waitFor({ state: "visible", timeout: 120000 });
-  return { call, page, errors, trunk };
+  const raw = (path, body) => fetch(new URL(path, server.url), { method: "POST", body: JSON.stringify(body),
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  return { call, raw, page, errors, trunk };
 }
 const options = (page) => page.locator("#studio-starts-in option").evaluateAll((all) => all.map((o) => [o.value, o.textContent]));
 async function openChange(f) {
@@ -70,6 +72,27 @@ test("Starts in lists This computer and the paired computers only, and saves the
   await f.page.getByRole("button", { name: "Save", exact: true }).click();
   await f.page.locator("#studio").waitFor({ state: "detached" });
   assert.equal((await f.call(`/api/trunks/${f.trunk.id}`)).trunk.startsIn, tower, "a rename keeps where it starts");
+  const sent = await f.raw("/api/run", { prompt: "hello", sessionId: f.trunk.chatSessionId });
+  assert.ok(sent.status >= 400 && sent.status < 500, `the window is refused, not run here (${sent.status})`);
+  assert.match(JSON.stringify(sent.body), /starts on Tower/, "in the plain words the owner can act on");
+  assert.deepEqual(f.errors, []);
+});
+
+test("Add a Trunk: choosing another computer saves it and never claims it introduced itself", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator("#trunk-strip .strip-add").click();
+  const dialog = f.page.locator("#studio");
+  await dialog.locator("#studio-name").fill("Gardener");
+  assert.deepEqual(await options(f.page), [["", "This computer"], [tower, "Tower"]]);
+  await dialog.getByLabel("Starts in").selectOption(tower);
+  assert.match(await dialog.locator("#studio-foot-note").textContent(), /cannot introduce itself/);
+  await dialog.getByRole("button", { name: "Create the Trunk", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  const toast = await f.page.locator("#toast").textContent();
+  assert.match(toast, /starts on Tower/);
+  assert.doesNotMatch(toast, /introduces itself/);
+  const made = (await f.call("/api/trunks")).trunks.find((one) => one.name === "Gardener");
+  assert.equal(made.startsIn, tower, "made with where it starts, so even its first turn is not run here");
   assert.deepEqual(f.errors, []);
 });
 
