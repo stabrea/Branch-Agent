@@ -130,16 +130,28 @@ export function uninstallEntries(options: {
 }
 
 /** The removal script left in the install folder; saved work is deliberately kept. */
+/**
+ * A path as a batch script must write it. The script's own parser reads `%` even inside quotes, so a
+ * folder such as `100%Done` loses part of its name unless the `%` is doubled; and outside quotes `&`, `^`
+ * and friends split the line, so every path goes inside them. Every path the uninstaller names goes
+ * through here, not only the one that happened to be measured first.
+ */
+const batchText = (path: string): string => path.replaceAll("%", "%%");
+const batchPath = (path: string): string => `"${batchText(path)}"`;
+
 export function uninstallScript(options: {
   installRoot: string; executableName: string; uninstallHive: string; userDataDir: string; shortcuts: string[];
 }): string {
   const sys = "%SystemRoot%\\System32\\";
-  const remove = options.shortcuts.map((path) => `del /q "${path}" 2>NUL`);
+  const remove = options.shortcuts.map((path) => `del /q ${batchPath(path)} 2>NUL`);
   return [
-    "@echo off", "setlocal",
+    // Whoever starts this script may have delayed expansion on (`cmd /v:on`, or the Command Processor
+    // `DelayedExpansion` registry value), which strips `!` from every path below, or command extensions
+    // off, which breaks `if defined` and `%%~A`. Plain `setlocal` keeps the caller's settings; this sets both.
+    "@echo off", "setlocal EnableExtensions DisableDelayedExpansion",
     // bucket 22: `--delete-data` removes conversations and files too; without it they are always kept.
     'set "DELETE_DATA="', 'for %%A in (%*) do if /i "%%~A"=="--delete-data" set "DELETE_DATA=1"',
-    `if not defined DELETE_DATA echo Removing Branch Agent. Your conversations and files stay in ${options.userDataDir}.`,
+    `if not defined DELETE_DATA echo Removing Branch Agent. Your conversations and files stay in ${batchPath(options.userDataDir)}.`,
     "if defined DELETE_DATA echo Removing Branch Agent, with its conversations and files.",
     `${sys}taskkill.exe /IM "${options.executableName}" /F >NUL 2>&1`,
     `${sys}ping.exe -n 3 127.0.0.1 >NUL`,
@@ -147,10 +159,18 @@ export function uninstallScript(options: {
     `${sys}reg.exe delete "${runKey}" /v "${runValueName}" /f >NUL 2>&1`,
     `${sys}reg.exe delete "${uninstallKey(options.uninstallHive)}" /f >NUL 2>&1`,
     ...remove,
-    `rmdir /s /q "${options.installRoot}.previous" 2>NUL`,
-    `if defined DELETE_DATA rmdir /s /q "${options.userDataDir}" 2>NUL`,
+    `rmdir /s /q ${batchPath(`${options.installRoot}.previous`)} 2>NUL`,
+    `if defined DELETE_DATA rmdir /s /q ${batchPath(options.userDataDir)} 2>NUL`,
     // A script cannot delete the folder it is running from, so the last step runs from the temp folder.
-    `start "" /d "%TEMP%" ${sys}cmd.exe /d /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q ""${options.installRoot}"""`,
+    // The folder's path never appears on that step's command line. Nested inside `cmd /c "..."`, a path
+    // is outside quotes for one of the two parsers whichever way it is quoted, so a space, `&` or `^` in
+    // it (`Programs\Branch Agent`, or an account folder such as `Tom&Jerry`) split the line: the install
+    // was left behind and `rmdir` was handed a differently named path. It is set in a variable here and
+    // expanded only when the step runs (`/v:on`, `!…!`), when nothing is parsed again. `%` is doubled
+    // because the script's own parser reads it even inside quotes. `/b` keeps the step in the
+    // uninstaller's own console rather than opening a second window.
+    `set "BRANCH_REMOVE=${batchText(options.installRoot)}"`,
+    `start "" /b /d "%TEMP%" ${sys}cmd.exe /d /v:on /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q "!BRANCH_REMOVE!""`,
     "exit /b 0", "",
   ].join("\r\n");
 }
