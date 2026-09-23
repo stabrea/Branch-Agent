@@ -54,6 +54,13 @@ export const ROUTES = {
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/alive": "look",
+  // FQ-operations.sandbox-lifecycle: the listing carries each sandbox's folder on disk, and every
+  // change decides what a sandbox is declared to reach; the owner's alone, reading included.
+  "/api/agent-sandboxes": "owner GET,POST",
+  "/api/agent-sandboxes/": "prefix",
+  "/api/agent-sandboxes/restore": "owner POST",
+  "/api/agent-sandboxes/snapshot": "owner POST",
+  "/api/agent-sandboxes/stop": "owner POST",
   "/api/agents": "prefix",
   "/api/agents/": "prefix",
   "/api/agents/discover": "look",
