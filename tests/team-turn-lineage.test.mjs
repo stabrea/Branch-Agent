@@ -205,7 +205,7 @@ test("a turn that stops to ask the owner waits with its question, starts no memb
   assert.ok(seen.parentRunId);
   assert.equal(state.app.store.run(seen.parentRunId).status, "needs_input");
   assert.equal(provider.memberCalls, 0, "no member is started while the owner is being asked");
-  assert.deepEqual(seen.effects.map((e) => [e.name, e.toolCallId, e.outcome]), [["files.write", "w1", "awaiting_approval"]], "the step waits for approval; it never ran");
+  assert.deepEqual(seen.effects.map((e) => [e.name, e.toolCallId, e.outcome]), [["files.write", "w1", "asked_owner"]], "the step waits for approval; it never ran");
   const task = row(state.app, requestId);
   assert.equal(task.state, "waiting_owner");
   assert.equal(task.question, seen.question);
@@ -306,21 +306,25 @@ test("a turn cut off mid-step that recovery put to the owner needs reconciliatio
   const next = carryOn(app, parentRunId, sessionId);
   app.store.event(next.id, "tool.started", { name: "files.write", id: "w1" });
   app.store.event(next.id, "tool.completed", { name: "files.write", id: "w1", result: {} });
+  app.store.event(next.id, "tool.started", { name: "chaos.send", id: "s1" });
   app.store.finish(next.id, "needs_input", "Should I check first?");
   app.store.event(next.id, "attention.needed", { question: "Should I check first?", afterRestart: true });
   const report = app.teams.reconcile(taskId);
   assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.toolCallId, e.outcome]), [["w1", "completed"], ["s1", "unknown"]], "recovery's question says nothing about the cut-off step");
   assert.match(new TeamTasks(app.store).get({ owner: app.runtime.owner, source: "window" }, taskId).error, /Should I check first/);
 });
 
 test("a turn waiting on the owner with a step whose outcome is unknown needs reconciliation", async (t) => {
   const { app, taskId, parentRunId } = await crashedTurn(t);
+  // A write that never reported back, then a question: the question's own call is known, the write is not.
   app.store.event(parentRunId, "tool.started", { name: "files.write", id: "w1" });
+  app.store.event(parentRunId, "tool.started", { name: "user.ask", id: "q1" });
   app.store.finish(parentRunId, "needs_input", "Which folder?");
   app.store.event(parentRunId, "attention.needed", { question: "Which folder?" });
   const report = app.teams.reconcile(taskId);
   assert.equal(report.state, "needs_reconciliation");
-  assert.deepEqual(report.effects.map((e) => e.outcome), ["unknown"]);
+  assert.deepEqual(report.effects.map((e) => [e.toolCallId, e.outcome]), [["w1", "unknown"], ["q1", "asked_owner"]]);
 });
 
 test("reconcile leaves a task alone while its turn is held here, even before any run exists", async (t) => {
@@ -400,4 +404,25 @@ test("a live parent turn that ends interrupted is not settled as failed", async 
   const seen = await state.app.teams.run(cut, knowledge, team.id, "go", { requestId });
   assert.equal(seen.state, "needs_reconciliation");
   assert.equal(provider.memberCalls, 0);
+});
+
+test("a parent turn that asks the owner through a tool of its own waits for the owner, with the asking call known", async (t) => {
+  const ask = { content: "", toolCalls: [{ id: "q1", name: "user.ask", arguments: JSON.stringify({ question: "Which folder?" }) }] };
+  const provider = scripted([() => ask, () => say("parent done")]);
+  const { state, team } = await fixture(t, provider);
+  const seen = await state.app.teams.run(state.app.runtime, knowledge, team.id, "tidy", { requestId: randomUUID() });
+  assert.equal(state.app.store.run(seen.parentRunId).status, "needs_input");
+  assert.equal(seen.state, "waiting_owner");
+  assert.match(seen.question, /Which folder/);
+  assert.deepEqual(seen.effects.map((e) => [e.name, e.outcome]), [["user.ask", "asked_owner"]]);
+  assert.equal(provider.memberCalls, 0);
+});
+
+test("recovery carries on a team turn the task did name", async (t) => {
+  const { app, parentRunId } = await crashedTurn(t);
+  const resumed = [];
+  const runtime = new Proxy(app.runtime, { get: (target, key) => (key === "resume" ? (id) => { resumed.push(id); return Promise.resolve(); } : Reflect.get(target, key)) });
+  const report = await recoverAfterRestart({ store: app.store, runtime, journal: app.neverBreak.journal, mode: "on" });
+  assert.deepEqual(report.filter((r) => r.runId === parentRunId).map((r) => r.outcome), ["resumed"]);
+  assert.deepEqual(resumed, [parentRunId]);
 });

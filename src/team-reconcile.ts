@@ -20,7 +20,7 @@ export interface TeamRunResult {
   answers: { specialistId: string; role: string; status: string; output: string; runId: string }[];
 }
 /** One tool call the turn started, and what the record says came of it. */
-export interface TurnEffect { runId: string; toolCallId: string; name: string; outcome: "completed" | "failed" | "unknown" | "awaiting_approval" }
+export interface TurnEffect { runId: string; toolCallId: string; name: string; outcome: "completed" | "failed" | "unknown" | "asked_owner" }
 export interface ReconcileReport {
   taskId: string; state: TeamTaskState; parentRunId: string | null; effects: TurnEffect[]; note: string;
 }
@@ -98,17 +98,25 @@ export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
 
 /**
  * A run's tool calls; an ending is matched to the latest unmatched start with its id, so a reused id
- * is not lost. A call stopped to ask the owner first ("policy.ask") never ran: it awaits approval.
+ * is not lost. A call that stopped to ask the owner did not go ahead: either the approval rules asked
+ * first ("policy.ask", naming the call) or the tool itself asked (user.ask, say), which ends the run
+ * with "attention.needed" right after the call started. A question recovery put after a restart
+ * (afterRestart) says nothing about the call: its outcome stays unknown.
  */
 function runEffects(store: Store, runId: string): TurnEffect[] {
-  const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask') ORDER BY id").all(runId);
+  const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed') ORDER BY id").all(runId);
   const effects: TurnEffect[] = [];
   rows.forEach((row, index) => {
-    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown };
+    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown };
+    if (row.kind === "attention.needed") {
+      const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown");
+      if (asking) asking.outcome = "asked_owner";
+      return;
+    }
     const toolCallId = data.id == null ? `#${index}` : String(data.id);
     if (row.kind === "tool.started") { effects.push({ runId, toolCallId, name: String(data.name ?? ""), outcome: "unknown" }); return; }
     const started = effects.findLast((effect) => effect.toolCallId === toolCallId && effect.outcome === "unknown");
-    if (started) started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "awaiting_approval" : "failed";
+    if (started) started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "asked_owner" : "failed";
   });
   return effects;
 }
