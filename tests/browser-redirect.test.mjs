@@ -200,6 +200,47 @@ test("being sent to a website costs the task the same as going there by name", a
   assert.equal(secondHits, 0, "the second website was never asked for anything");
 });
 
+
+test("a pop-up cannot be redirected to an unlisted website either", async (t) => {
+  // The existing test above proves a pop-up's *first* request is checked. What it could not see is
+  // what happens when that first request is to a website the owner allowed and the answer is "now go
+  // here": the hops after it are Chromium's own, and the pause that watches those is attached only
+  // to tabs Branch opened. Measured before the fix, the unlisted website really served the page.
+  //
+  // Attaching the pause to the pop-up as well does not close it: the first request and its redirect
+  // are in flight before the pause can be enabled. A tab the website opened by itself is going to be
+  // closed anyway, so until it is, it is answered with nothing at all.
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => {
+    forbiddenHits += 1;
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><body><h1>must not load</h1>");
+  });
+  forbidden.listen(0, "127.0.0.1");
+  await once(forbidden, "listening");
+  t.after(async () => { forbidden.close(); await once(forbidden, "close"); });
+  const elsewhere = `http://127.0.0.1:${forbidden.address().port}`;
+
+  const allowed = createServer((request, response) => {
+    if ((request.url ?? "/") === "/hop") { response.writeHead(302, { location: `${elsewhere}/taken` }); response.end(); return; }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(`<!doctype html><body><a id="go" href="/hop" target="_blank">open</a>`
+      + `<script>document.getElementById("go").click()</script>`);
+  });
+  allowed.listen(0, "127.0.0.1");
+  await once(allowed, "listening");
+  t.after(async () => { allowed.close(); await once(allowed, "close"); });
+  const origin = `http://127.0.0.1:${allowed.address().port}`;
+
+  const browser = new BranchBrowser({ allowedOrigins: [origin] });
+  t.after(() => browser.close());
+  await browser.navigate(origin, context(["browser.read"]));
+  // The pop-up opens, asks, and is closed. Long enough that a request in flight would have landed.
+  await new Promise((resolve) => { setTimeout(resolve, 2500); });
+
+  assert.equal(forbiddenHits, 0, "the website that was not allowed was never asked for anything");
+});
+
 test("a site that keeps sending the browser onwards is given up on", async (t) => {
   const site = await siteThatRedirects();
   t.after(() => site.close());

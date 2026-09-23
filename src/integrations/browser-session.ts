@@ -75,7 +75,17 @@ export class BrowserSession {
       const page = await this.newPage();
       this.checkOpen();
       // Tabs the website opens by itself are closed again; only tabs the assistant asks for are kept.
-      this.context.on('page', popup => { if (!this.creatingTab && !this.pages.includes(popup)) void popup.close().catch(() => undefined); });
+      // The guard goes on first. Closing a tab is asynchronous, and a pop-up can ask for things while
+      // it is still open: its first request is caught by the context route above, but the redirects
+      // that request answers with are Chromium's own, and only the pause below sees those. Without
+      // this, a pop-up pointed at an allowed website that answers 'now go here' reached a website the
+      // owner never allowed, and the tab being closed a moment later did not unsend the request.
+      this.context.on('page', popup => {
+        const ours = this.creatingTab > 0 || this.pages.includes(popup);
+        void this.guardPage(popup)
+          .catch(() => undefined)
+          .then(() => (ours ? undefined : popup.close().catch(() => undefined)));
+      });
       return page;
     } catch (error) {
       await this.context?.close();
@@ -121,6 +131,15 @@ export class BrowserSession {
   private async answerRoute(route: Route): Promise<void> {
     try {
       const request = route.request();
+      // A tab the website opened by itself is going to be closed; until it is, it gets nothing.
+      // Guarding it and closing it afterwards is not enough, and that is measured rather than
+      // supposed: attaching the pause to a pop-up loses a race it cannot win, because the pop-up's
+      // first request and the redirect it answers with are already in flight. This is the moment
+      // Playwright hands over before anything is sent, so it is the moment the answer has to be no.
+      if (!this.borrowed && this.creatingTab === 0) {
+        const page = request.frame()?.page();
+        if (page && !this.pages.includes(page)) { await route.abort(); return; }
+      }
       const refused = this.options.guardUrl?.(request.url());
       if (refused) throw new Error(refused);
       await this.guardRequest({ url: request.url(), resourceType: request.resourceType() });
