@@ -198,3 +198,17 @@ test("a final stable release supersedes the candidate beta", async (t) => {
   assert.match(result.skipped, /stable version/i);
   assert.equal(calls.some((args) => args[0] === "release"), false);
 });
+
+test("an incomplete draft for the same tag is reported, never silently skipped", async (t) => {
+  const directory = await files(t);
+  const gh = async (args) => {
+    const path = args[3] ?? args[1];
+    if (path.includes("/git/ref/heads/")) return JSON.stringify({ object: { sha } });
+    if (path.includes("/checks.yml/runs")) return JSON.stringify({ workflow_runs: [checks(7)] });
+    if (path.endsWith("/releases")) return JSON.stringify([{ tag_name: "v0.19.2-beta.9", draft: true, prerelease: true }]);
+    throw new Error(`Unexpected API: ${args.join(" ")}`);
+  };
+  await assert.rejects(() => publishBeta({ tag: "v0.19.2-beta.9", sha,
+    proof: { kind: "exhaustive", run: checks(7) }, directory,
+    workflowUrl: "https://github.test/publisher", gh }), /already has a release/);
+});

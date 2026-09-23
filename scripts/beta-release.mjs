@@ -168,14 +168,14 @@ export async function publishBeta({ tag, sha, proof, repo = canonical, directory
   if (!(await currentProof(sha, proof, repo, gh)))
     return { skipped: "Integration tip or acceptance proof changed before publication." };
   const releases = await releaseHistory(repo, gh);
+  const existing = releases.find((entry) => entry.tag_name === tag);
+  if (existing) throw new Error(`Beta tag ${tag} already has a release; refusing to overwrite it.`);
   const betaNumbers = releases.filter((entry) => entry.prerelease && /^v\d+\.\d+\.\d+-beta\.[1-9]\d*$/.test(entry.tag_name))
     .map((entry) => Number(entry.tag_name.match(/-beta\.(\d+)$/)[1]));
   if (betaNumbers.some((number) => number >= Number(tag.match(/-beta\.(\d+)$/)[1])))
     return { skipped: "This beta run is not newer than a published beta." };
   if (stableAtOrBeyondBeta(releases, tag))
     return { skipped: "A final stable version already supersedes this beta." };
-  const existing = releases.find((entry) => entry.tag_name === tag);
-  if (existing) throw new Error(`Beta tag ${tag} already has a release; refusing to overwrite it.`);
   const notes = `Opt-in beta build from accepted integration commit ${sha}.\n\n` +
     `Acceptance: ${proof.kind}; gate run: ${proof.run.html_url}\nPublisher run: ${workflowUrl}\n\n` +
     `The reviewed-fast lane skips the exhaustive test suite; beta can carry greater regression risk. ` +
