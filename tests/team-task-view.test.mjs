@@ -102,7 +102,7 @@ test("needs_reconciliation: a throw between batches is blocked, names why, and l
   assert.match(task.blocker, /Not run: tester \(not started\), reviewer \(not started\)/);
   assert.deepEqual(members(task), [["planner", "completed", 1, "finished"], ["builder", "completed", 1, "finished"],
     ["tester", "not_started", 2, null], ["reviewer", "not_started", 2, null]]);
-  assert.deepEqual(task.members[3].after, ["planner", "builder"], "its batch began after batch 1 had finished, though it never ran");
+  assert.equal(task.members[3].after, undefined, "a reviewer that never ran is not said to answer after anybody");
   assert.equal(task.result, null);
 });
 

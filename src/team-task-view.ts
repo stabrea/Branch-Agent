@@ -99,10 +99,13 @@ function resultOf(task: TeamTask): ResultView | null {
     ({ role, status, runId, output: output.slice(0, answerChars), cut: output.length > answerChars })) };
 }
 
-/** Adds, for each reviewer with a known batch, the roles in earlier batches and those in its own. */
+/**
+ * Adds, for each reviewer that ran in a known batch, the roles in earlier batches and those in its own.
+ * One that never got a run is given no order: it did not answer after anybody.
+ */
 function withReviewOrder(members: MemberView[]): MemberView[] {
   return members.map((member) => {
-    if (!member.role || !reviewerRole.test(member.role) || member.batch === null) return member;
+    if (!member.role || !reviewerRole.test(member.role) || member.batch === null || !member.runId) return member;
     const others = members.filter((other) => other !== member && other.batch !== null && other.role);
     return { ...member,
       after: others.filter((other) => other.batch! < member.batch!).map((other) => other.role!),
