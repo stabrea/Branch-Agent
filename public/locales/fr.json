@@ -2938,7 +2938,6 @@
   "people.admin.provider.secret": "Nom du secret client dans le coffre (si le service en exige un)",
   "people.admin.providers": "Services d'identité",
   "people.admin.providers-note": "Déclarez {address} comme adresse de retour auprès du service.",
-  "people.admin.purpose": "Permet aux personnes que vous avez ajoutées sur cet ordinateur de retrouver leurs conversations depuis leur téléphone ou leur portable, et de partager une conversation avec elles.",
   "people.admin.remove": "Retirer",
   "people.admin.save": "Enregistrer",
   "people.admin.share.add": "Partager",

@@ -644,10 +644,6 @@ body.lx-help .context-panel > .acorn-art {
 .lx-general-links {
   padding: 0 0 12px;
 }
-/* DG-180: in its Settings section the card's own title would say the section's heading again; the sample says it once. */
-#people-signin-admin[data-sg-bucket] > h2 {
-  display: none;
-}
 .lx-link-row {
   display: flex;
   flex-wrap: wrap;

@@ -66,7 +66,7 @@ for (const width of [1440, 860, 400]) {
     assert.deepEqual(await outline(page), REGULAR);
     /* Signing in from other devices says its title once, and shows its switch alone, as the sample does. */
     const signin = page.locator("#people-signin-admin");
-    assert.equal(await signin.locator("h2").isVisible(), false, "the card's own title does not repeat the section's heading");
+    assert.equal(await signin.locator("h2").evaluate((node) => node.matches(".sr-only")), true, "the card's own title does not repeat the section's heading");
     assert.equal(await signin.locator("#people-admin-save").isVisible(), false, "no Save at Regular");
     assert.equal(await signin.getByText("Nobody else uses this computer yet.", { exact: false }).isVisible(), false, "no list of people at Regular");
     /* The On this page list names the sample's sections, and no empty "More on this page". */
@@ -188,4 +188,17 @@ test("every \"Set in … ›\" link says \"À régler dans … ›\" in French, 
   assert.ok(links.length >= 4, `the links are found (${links.length})`);
   assert.deepEqual(links.filter((key) => !fr[key]?.startsWith("À régler dans ")), []);
   assert.deepEqual(Object.keys(fr).filter((key) => /^Réglée?s? dans /.test(fr[key])), []);
+});
+
+test("Signing in from other devices says its line once, and keeps its title for a screen reader only", async (t) => {
+  const { page, errors } = await fixture(t, 1440);
+  const line = "Lets the people you added to this computer reach their own conversations from their own phone or laptop, and lets you share a conversation with them.";
+  for (const pick of ["regular", "advanced"]) {
+    await level(page, pick);
+    const shown = await page.evaluate((words) => [...document.querySelectorAll("#lx-page-general p")]
+      .filter((node) => node.checkVisibility() && node.textContent.trim() === words).length, line);
+    assert.equal(shown, 1, `the section's line alone says it, at ${pick}`);
+  }
+  assert.equal(await page.locator("#people-signin-admin > h2.sr-only").textContent(), "Signing in from other devices");
+  assert.deepEqual(errors, []);
 });

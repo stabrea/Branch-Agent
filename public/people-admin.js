@@ -266,8 +266,9 @@ function buildCard(state, sessions) {
     try { await api(path, body); await drawPeopleAdmin(); }
     catch (error) { said.textContent = error.message; }
   };
-  card.append(keyed("h2", "people.admin.title", "Signing in from other devices"),
-    keyed("p", "people.admin.purpose", "Lets the people you added to this computer reach their own conversations from their own phone or laptop, and lets you share a conversation with them."),
+  /* DG-180: the section's heading and line above say the card's title and purpose word for word, and the sample says
+     them once: the title is read aloud only (a screen-reader-only h2, as DG-183's cards), and the card has no sentence. */
+  card.append(keyed("h2", "people.admin.title", "Signing in from other devices", "sr-only"),
     ...switchSection(state, act), said,
     leveled("advanced", [keyed("p", "people.admin.people", "People", "meta"),
       ...(state.people.length ? state.people.map((p) => personRow(p, state, act))

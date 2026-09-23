@@ -2937,7 +2937,6 @@
   "people.admin.provider.secret": "Client secret's name in the locker (if the service needs one)",
   "people.admin.providers": "Identity services",
   "people.admin.providers-note": "Register {address} as the return address with the service.",
-  "people.admin.purpose": "Lets the people you added to this computer reach their own conversations from their own phone or laptop, and lets you share a conversation with them.",
   "people.admin.remove": "Remove",
   "people.admin.save": "Save",
   "people.admin.share.add": "Share",
