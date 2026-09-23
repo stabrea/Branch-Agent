@@ -1,6 +1,6 @@
 /**
  * DG-188, DG-051: Settings › Computer & browser has the approved sample's sections, in its order, with its
- * "N more with …" counts, with Show everything off and on, at 1440 and 400 px. The first section lists the paired
+ * "N more with …" counts, with Show everything off and on, at 1440, 860 and 400 px. The first section lists the paired
  * devices from the same state the Devices card draws, in English and French. Proxy and trusted certificates stays
  * on the page, in Under the hood, never dropped into "More on this page".
  */
@@ -76,7 +76,7 @@ test("Computer & browser: the sample's sections, counts and paired devices, at e
   assert.equal(await card.getByRole("button", { name: "Pair a device" }).isVisible(), true);
   assert.equal(await page.locator("#comfort-network-card").getAttribute("data-sg-bucket"), "computer:under", "the proxy card keeps its home");
 
-  for (const width of [1440, 400]) {
+  for (const width of [1440, 860, 400]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.evaluate(() => globalThis.branchSettingsLevel.set("regular"));
     assert.deepEqual(await settle(REGULAR), REGULAR, `Show everything off at ${width} px`);
