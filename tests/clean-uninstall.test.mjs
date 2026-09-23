@@ -317,7 +317,7 @@ test("C11 the danger zone is the last card in Settings, fits 400 px, and says it
   const { page, errors } = await browserFixture(t, 400);
   await openPlace(page, "settings:about");
   await page.locator("#danger-zone").waitFor({ state: "visible", timeout: 30000 });
-  assert.match(await page.locator("#danger-zone h2").textContent(), /Danger zone/);
+  assert.match(await page.locator("#danger-zone h4").textContent(), /Remove Branch from this computer/);
   assert.equal(await page.locator("#danger-remove").isDisabled(), true, "the button starts off");
   await page.waitForFunction(() => document.querySelector("#danger-status")?.textContent.length > 0, undefined, { timeout: 20000 });
   assert.match(await page.locator("#danger-status").textContent(), /nothing here to remove/,
@@ -336,7 +336,7 @@ test("C11 the danger zone is the last card in Settings, fits 400 px, and says it
   await openPlace(page, "settings:appearance");
   await page.locator("#appearance-language").selectOption("fr");
   await openPlace(page, "settings:about");
-  await page.waitForFunction(() => document.querySelector("#danger-zone h2")?.textContent === "Zone dangereuse");
+  await page.waitForFunction(() => document.querySelector("#danger-zone h4")?.textContent === "Retirer Branch de cet ordinateur");
   await page.waitForFunction(() => document.querySelector("label[for=danger-confirm]")?.textContent === "Tapez Branch Agent pour confirmer");
   await page.waitForFunction(() => document.querySelector("#danger-remove")?.textContent === "Supprimer Branch et tout ce qu'il a installé");
   await page.waitForFunction(() => document.querySelector("#danger-zone p[data-t='danger.intro']")?.textContent.startsWith("Supprimer Branch le ferme"));

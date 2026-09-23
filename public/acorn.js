@@ -179,3 +179,37 @@ new ResizeObserver(resize).observe(canvas);
 new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent", "data-palette", "style"] });
 resize();
 updateMotion();
+
+/* DG-192: Settings › Updates & about › The keeper is the same acorn, bigger and still: drag it, or use the arrow keys,
+   to turn it. It is drawn a little chunky (a pixel is 2.5 screen pixels), as the corner's big one is. */
+const keeper = document.getElementById("about-acorn");
+if (keeper) {
+  const turn = { yaw: .6, pitch: .14, drag: null };
+  const drawKeeper = () => render(keeper, turn.yaw, turn.pitch);
+  const fit = () => {
+    const box = keeper.getBoundingClientRect();
+    if (!box.width) return;
+    keeper.width = Math.max(40, Math.min(150, Math.round(box.width / 2.5)));
+    keeper.height = Math.max(40, Math.min(150, Math.round(box.height / 2.5)));
+    drawKeeper();
+  };
+  keeper.addEventListener("pointerdown", (event) => { turn.drag = { x: event.clientX, y: event.clientY }; keeper.setPointerCapture(event.pointerId); });
+  keeper.addEventListener("pointermove", (event) => {
+    if (!turn.drag) return;
+    turn.yaw += (event.clientX - turn.drag.x) * .014;
+    turn.pitch = Math.max(-.7, Math.min(.7, turn.pitch + (event.clientY - turn.drag.y) * .008));
+    turn.drag = { x: event.clientX, y: event.clientY };
+    drawKeeper();
+  });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => keeper.addEventListener(name, () => { turn.drag = null; }));
+  keeper.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: [-.15, 0], ArrowRight: [.15, 0], ArrowUp: [0, -.1], ArrowDown: [0, .1] }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    turn.yaw += step[0];
+    turn.pitch = Math.max(-.7, Math.min(.7, turn.pitch + step[1]));
+    drawKeeper();
+  });
+  new ResizeObserver(fit).observe(keeper);
+  new MutationObserver(drawKeeper).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent", "data-palette", "style"] });
+}

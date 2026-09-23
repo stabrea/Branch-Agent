@@ -155,12 +155,18 @@ export const BUCKETS = {
     ["under", "gauge", "Under the hood", "Counters, retries and limits. Rarely needed.",
       [["counters-card", T], ["knobs-retries-card", T], ["knobs-tools-card", T]]],
   ],
+  /* DG-192: the sample's three sections, each one card. Reporting a problem and removing Branch have no place in the
+     sample yet (NOTES): they stay here from Advanced, so Regular shows the sample's page and nothing is lost. */
   about: [
-    ["updates", "refresh", "Updates", "Your version, and how Branch keeps itself up to date.",
-      [["updates-card", R], ["comfort-updates-card", R]]],
+    ["updates", "refresh", "Updates", "Your version, and where updates come from.",
+      [["updates-card", R]]],
+    ["auto", "refresh", "Updating by itself", "Whether Branch looks for new versions on its own, and whether it installs them.",
+      [["comfort-updates-card", R]]],
+    ["keeper", "about", "The keeper", "The acorn. Drag to turn it.",
+      [["about-keeper", R]]],
     ["help", "help", "Help and problems", "Tell KeepOak what went wrong.",
-      [["problem-report-card", R]]],
-    ["over", "warn", "Starting over", "Putting Branch back as it came.",
+      [["problem-report-card", A]]],
+    ["over", "warn", "Removing Branch", "Taking Branch and what it installed off this computer.",
       [["danger-zone", A]]],
   ],
   trunks: [
