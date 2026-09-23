@@ -166,16 +166,18 @@ function field(name) {
   return [worded("label", `field.keychain-${name}`, { htmlFor: id }), input];
 }
 
+/* DG-189 (DG-025): the Keychain card saves as you go, as the sample's does: choosing how Branch offers it, adding an
+   entry and removing one each save at once, so it has no Save button. */
+const saveKeychainNow = () => saveKeychain({ mode: $("keychain-card-mode").value, entries: keychain.entries })
+  .finally(() => choiceSaved("keychain-card-mode"));
 function keychainCard() {
   const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add", className: "quiet-button" });
-  const save = worded("button", "action.save-keychain-list", { type: "button", id: "keychain-save" });
   add.addEventListener("click", addEntry);
-  save.addEventListener("click", () => void saveKeychain({ mode: $("keychain-card-mode").value, entries: keychain.entries })
-    .finally(() => choiceSaved("keychain-card-mode")));
-  const section = card("keychain-card", "settings:secrets", "keychain",
-    ...modeSelect("keychain-card-mode"),
+  const [label, mode] = modeSelect("keychain-card-mode");
+  mode.addEventListener("change", () => void saveKeychainNow());
+  const section = card("keychain-card", "settings:secrets", "keychain", label, mode,
     el("div", { id: "keychain-list", className: "card-list" }),
-    ...keychainFields.flatMap(field), add, save);
+    ...keychainFields.flatMap(field), add);
   section.hidden = true;
   return section;
 }
@@ -185,6 +187,7 @@ function entryRow(entry, index) {
   remove.addEventListener("click", () => {
     keychain.entries = keychain.entries.filter((_, at) => at !== index);
     showKeychain();
+    void saveKeychainNow();
   });
   const what = entry.account ? `${entry.service} (${entry.account})` : entry.service;
   return el("div", { className: "card-row" },
@@ -207,7 +210,7 @@ function addEntry() {
   keychain.entries = [...keychain.entries.filter((one) => one.name !== entry.name), entry];
   for (const name of keychainFields) $(`keychain-${name}`).value = "";
   showKeychain();
-  status("keychain-card", t("keychain.status.added"), true);
+  void saveKeychainNow();
 }
 
 async function saveKeychain(next) {
