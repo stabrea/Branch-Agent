@@ -660,6 +660,8 @@ async function staticFile(
     "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
     "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
+    "/settings-rows.js": ["settings-rows.js", "text/javascript; charset=utf-8"], // DG-199
+    "/settings-row-levels.js": ["settings-row-levels.js", "text/javascript; charset=utf-8"], // DG-199
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).

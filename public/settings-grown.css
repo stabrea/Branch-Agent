@@ -234,8 +234,10 @@
 }
 
 /* ---------- how much to show ---------- */
-:root[data-settings-level="regular"] body:not(.lx-settings-searching) .lx-settings :is([data-level="advanced"], [data-level="technical"]):not([data-sg-peek]),
-:root[data-settings-level="advanced"] body:not(.lx-settings-searching) .lx-settings [data-level="technical"]:not([data-sg-peek]) {
+:root[data-settings-level="regular"] body:not(.lx-settings-searching) .lx-settings :is([data-level="advanced"], [data-level="technical"]):not([data-sg-peek], [data-sg-peek] *),
+:root[data-settings-level="advanced"] body:not(.lx-settings-searching) .lx-settings [data-level="technical"]:not([data-sg-peek], [data-sg-peek] *),
+/* DG-199: a section with nothing on show and nothing to count, and Under the hood until something in it shows, have no head. */
+body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
   display: none !important;
 }
 .sg-keys {
