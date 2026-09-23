@@ -49,9 +49,9 @@ jobs:
           - { os: ubuntu-latest, shard: 2, total: 3 }
           - { os: ubuntu-latest, shard: 3, total: 3 }
     runs-on: ${{ matrix.os }}
-    # A share takes under 20 minutes. A test that leaves a process behind once kept a share waiting
+    # A share takes 20 to 45 minutes on Windows. A test that leaves a process behind once kept a share waiting
     # 78 minutes for a file that would never finish; the default limit is six hours.
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # '24' is the newest Node 24, which is above the floor in src/node-floor.ts (24.14.0). The
