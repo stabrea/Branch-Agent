@@ -18,7 +18,11 @@ const memberOf = (request) => {
   return found ? Number(found[1]) : null;
 };
 
-/** A model that answers the team's own turn at once and each member after a short wait, counting how many members are live. */
+/**
+ * A model that answers the team's own turn at once and each member after a wait, counting how many
+ * members are live. The wait is long enough that every member of a batch is live together even on a
+ * busy machine, so the exact concurrency counts below hold.
+ */
 function scripted({ fail = [] } = {}) {
   const provider = { name: "scripted", parentCalls: 0, memberCalls: 0, live: 0, maxLive: 0, started: [],
     async complete(request) {
@@ -29,7 +33,7 @@ function scripted({ fail = [] } = {}) {
       provider.live++;
       provider.maxLive = Math.max(provider.maxLive, provider.live);
       try {
-        await new Promise((resolve) => setTimeout(resolve, 40));
+        await new Promise((resolve) => setTimeout(resolve, 300));
         if (fail.includes(member)) throw new Error(`member r${member} could not answer`);
         return say(`answer from r${member}`);
       } finally { provider.live--; }
@@ -116,7 +120,8 @@ test("a throw between batch 1 and batch 2 needs reconciliation, lists batch 1's 
   assert.equal(report.state, "needs_reconciliation");
   assert.deepEqual(report.members.map((m) => [m.role, m.status]),
     [["r0", "completed"], ["r1", "completed"], ["r2", "not_started"], ["r3", "not_started"], ["r4", "not_started"]]);
-  assert.ok(report.members.slice(0, 2).every((m) => app.store.run(m.runId)?.status === "completed"));
+  // Batch 1's answers are kept in its member runs, which the listing names; the room gets them only when a person settles the task.
+  assert.deepEqual(report.members.slice(0, 2).map((m) => app.store.run(m.runId)?.output), ["answer from r0", "answer from r1"]);
   assert.equal(retry.dispatches + after.parentCalls + after.memberCalls, 0, "nothing is redispatched");
 });
 
@@ -140,6 +145,7 @@ test("a process that dies after batch 2 of 3 is reconciled from both finished ba
   assert.deepEqual(report.members.map((m) => [m.role, m.status]),
     [["r0", "completed"], ["r1", "completed"], ["r2", "completed"], ["r3", "completed"], ["r4", "not_started"]]);
   assert.equal(new Set(report.members.slice(0, 4).map((m) => m.runId)).size, 4, "every member run from both batches is found");
+  assert.deepEqual(report.members.slice(0, 4).map((m) => app.store.run(m.runId)?.output), [0, 1, 2, 3].map((i) => `answer from r${i}`));
   const error = row(app, requestId).error;
   assert.match(error, /4 member\(s\) finished an answer/);
   assert.match(error, /r3 \(completed, run /);
