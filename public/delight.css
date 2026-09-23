@@ -1,14 +1,16 @@
 /* phase2/delight: the corner (the pixel acorn and a pet), achievements, and your own background.
    Colours come from public/tokens.css only; everything that moves stops for "Keep things still". */
 
-/* ---------- the corner: bottom of the rail, just above its foot ---------- */
+/* ---------- the corner: bottom of the rail, just above its foot ----------
+   The approved corner tile: a 58px acorn 18px in from the rail's edge, 12px of room above it and 8px
+   below, with the pet 10px beside it at three times its 20×18 pixels (60×54). */
 .delight-corner {
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: var(--s2);
+  gap: 10px;
   min-height: 0;
-  padding: 0 var(--s3) var(--s1);
+  padding: 12px 18px 8px;
 }
 :root[data-acorn="off"] .delight-corner:not(.has-pet) {
   display: none;
@@ -22,8 +24,8 @@
 }
 .delight-corner #keepoak-acorn {
   display: block;
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
 }
 .delight-corner .acorn-motion {
   position: absolute;
@@ -79,34 +81,34 @@
 
 /* ---------- the pet ---------- */
 .delight-corner.has-pet {
-  min-height: 60px;
+  min-height: 74px;
 }
 .pet {
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 50px;
-  height: 45px;
+  width: 60px;
+  height: 54px;
   transform: translateX(var(--pet-x, 0px));
   cursor: pointer;
   border-radius: var(--r1);
 }
 .pet-art {
   display: block;
-  width: 50px;
-  height: 45px;
+  width: 60px;
+  height: 54px;
   image-rendering: pixelated;
 }
 .pet-3d,
 .acorn-3d {
   display: block;
-  width: 50px;
-  height: 45px;
+  width: 60px;
+  height: 54px;
   touch-action: none;
 }
 .acorn-3d {
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   cursor: grab;
 }
 .pet.in-3d .pet-art,
@@ -118,7 +120,8 @@
   width: 100%;
   height: 100%;
 }
-.pet.left .pet-art {
+.pet.left .pet-art,
+.pet.left .pet-3d {
   transform: scaleX(-1);
 }
 .pet-say {

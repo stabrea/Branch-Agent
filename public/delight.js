@@ -276,7 +276,8 @@ function applyStyle() {
   canvas.setAttribute("aria-label", say("delight.look.acorn", "The acorn, in 3D. Drag to turn it."));
   canvas.title = say("acorn.tip", "Drag to turn");
   art.prepend(canvas);
-  acorn3d = view3d(canvas, acornModel(), { distance: 2.7, still: acornStill });
+  // DG-138: the sample's camera for the corner acorn: 35° lens, 3.2 away, a little above; a slow turn.
+  acorn3d = view3d(canvas, acornModel(), { distance: 3.2, fov: 0.61, pitch: 0.062, spin: 0.0003, still: acornStill });
   if (!acorn3d) { canvas.remove(); return; }
   root.dataset.delightStyle = "3d";
 }
