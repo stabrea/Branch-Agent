@@ -126,9 +126,9 @@ const inTotoStatementSchema = z.object({
 /**
  * Fetches every build-provenance record GitHub has published for this file's SHA-256, or null when
  * it has none. GitHub answers some attestations inline and others only as a `bundle_url` to fetch
- * separately (its listed reason is size); either way, a bundle that does not come back as the plain
- * JSON this reads is treated the same as one that was never published — skipped, not trusted, and
- * never allowed to block an update the checksum already passed.
+ * separately (its listed reason is size); either way, a bundle that comes back as neither plain JSON
+ * nor a raw-Snappy body `decodeSnappy` can read is treated the same as one that was never published —
+ * skipped, not trusted, and never allowed to block an update the checksum already passed.
  */
 export async function fetchAttestationBundles(input: {
   fetch: typeof fetch; repo: string; digestHex: string; userAgent: string;

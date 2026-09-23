@@ -172,13 +172,17 @@ test("fetchAttestationBundles follows bundle_url when GitHub externalises the bu
  * JSON — which repeats punctuation, field names and base64 runs throughout — exercises the copy-op
  * path the decoder must handle, the same shape GitHub's blob storage actually serves
  * (`Content-Type: application/x-snappy`, confirmed live against `repos/cli/cli/attestations/...`).
- * Returns `{ encoded, usedCopy }` so a test can assert it did not silently fall back to literals-only.
+ * Prefers the 1-byte-offset copy form (type 1) whenever the match is in range for it — the form
+ * GitHub's real stream actually uses (confirmed: byte offset 0x48 of a live cli/cli bundle is tag
+ * `0x09`, a type-1 copy) — and falls back to the 2-byte-offset form (type 2) only when the offset is
+ * too far for type 1. Returns `{ encoded, usedCopyType1, usedCopyType2 }` so a test can assert it
+ * exercised both copy forms `decodeSnappy` supports, not just literals.
  */
 function snappyEncodeForTest(buf) {
   const chunks = [];
   let n = buf.length;
   do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; chunks.push(Buffer.from([b])); } while (n);
-  let usedCopy = false;
+  let usedCopyType1 = false, usedCopyType2 = false;
   let i = 0;
   while (i < buf.length) {
     let bestLen = 0, bestOff = 0;
@@ -190,15 +194,21 @@ function snappyEncodeForTest(buf) {
       if (l > bestLen) { bestLen = l; bestOff = off; }
     }
     if (bestLen >= 4) {
-      usedCopy = true;
-      chunks.push(Buffer.from([((bestLen - 1) << 2) | 0x02, bestOff & 0xff, (bestOff >> 8) & 0xff]));
+      if (bestLen <= 11 && bestOff <= 2047) {
+        usedCopyType1 = true;
+        const tag = (((bestOff >> 8) & 0x7) << 5) | ((bestLen - 4) << 2) | 0x01;
+        chunks.push(Buffer.from([tag, bestOff & 0xff]));
+      } else {
+        usedCopyType2 = true;
+        chunks.push(Buffer.from([((bestLen - 1) << 2) | 0x02, bestOff & 0xff, (bestOff >> 8) & 0xff]));
+      }
       i += bestLen;
     } else {
       chunks.push(Buffer.from([0x00]), buf.subarray(i, i + 1)); // literal, length 1
       i += 1;
     }
   }
-  return { encoded: Buffer.concat(chunks), usedCopy };
+  return { encoded: Buffer.concat(chunks), usedCopyType1, usedCopyType2 };
 }
 
 test("fetchAttestationBundles reads a bundle_url served as raw Snappy (as GitHub's blob storage does)", async () => {
@@ -208,8 +218,9 @@ test("fetchAttestationBundles reads a bundle_url served as raw Snappy (as GitHub
   const digestHex = createHash("sha256").update("archive bytes").digest("hex");
   const bundle = makeBundle(digestHex);
   const bundleJson = Buffer.from(JSON.stringify(bundle), "utf8");
-  const { encoded, usedCopy } = snappyEncodeForTest(bundleJson);
-  assert.ok(usedCopy, "the fixture should exercise the copy-op path, not just literals");
+  const { encoded, usedCopyType1, usedCopyType2 } = snappyEncodeForTest(bundleJson);
+  assert.ok(usedCopyType1, "the fixture should exercise the 1-byte-offset copy form, the one GitHub's real stream uses");
+  assert.ok(usedCopyType2, "the fixture should also exercise the 2-byte-offset copy form");
   const server = createServer((req, res) => {
     if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
       res.writeHead(200, { "content-type": "application/json" });
@@ -230,10 +241,11 @@ test("fetchAttestationBundles reads a bundle_url served as raw Snappy (as GitHub
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("fetchAttestationBundles skips a bundle_url it cannot read as JSON, rather than failing the update", async () => {
-  // GitHub has been seen serving the externalised bundle in a form that is not plain JSON (its
-  // reason is unstated). This is treated the same as no bundle at all — quietly skipped, never
-  // thrown — never something that could block an update.
+test("fetchAttestationBundles skips a bundle_url it cannot read as JSON or Snappy, rather than failing the update", async () => {
+  // These 6 bytes are a truncated raw-Snappy stream (a valid varint length and literal tag, but the
+  // literal itself cut short) — not plain JSON, and not a Snappy body `decodeSnappy` can finish
+  // reading either. That combination is treated the same as no bundle at all — quietly skipped,
+  // never thrown — never something that could block an update.
   const digestHex = createHash("sha256").update("archive bytes").digest("hex");
   const server = createServer((req, res) => {
     if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
