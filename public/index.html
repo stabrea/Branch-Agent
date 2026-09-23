@@ -212,20 +212,26 @@
             <p id="practice-state" class="subtle" role="status"></p>
             <button id="practice-toggle" type="button" data-t="action.try-the-practice-workspace">Try the practice workspace</button>
           </section>
-          <details id="saved-conversations" class="card saved-conversations">
-            <summary>Saved conversations</summary>
-            <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
-            <form id="saved-search-form" class="saved-search">
-              <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
-              <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
-              <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
-            </form>
-            <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
-            <input id="conversation-import" type="file" accept="application/json,.json" hidden />
-            <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
-            <div id="saved-list" class="card-list" aria-live="polite"></div>
-            <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
-          </details>
+          <template id="saved-history-template">
+            <section id="saved-conversations" class="saved-conversations">
+              <div class="saved-history-head">
+                <h2 id="saved-history-title" data-t="history.title">Conversation history</h2>
+                <button id="saved-history-close" type="button" class="quiet-button" aria-label="Close conversation history" data-t-label="history.close" data-t="history.closeButton">Close</button>
+              </div>
+              <p id="saved-history-status" role="status" aria-live="polite"></p>
+              <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
+              <form id="saved-search-form" class="saved-search">
+                <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
+                <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
+                <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
+              </form>
+              <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
+              <input id="conversation-import" type="file" accept="application/json,.json" hidden />
+              <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
+              <div id="saved-list" class="card-list" aria-live="polite"></div>
+              <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
+            </section>
+          </template>
           <div id="demo-notice" class="notice" hidden>
             <strong data-t="practice.title">Practice mode</strong
             ><span data-t="practice.body">Branch can't do real work yet. Choose how it thinks in Settings, then ask for anything.</span
