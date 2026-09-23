@@ -11,6 +11,7 @@ import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: r
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { quietJobsApi } from "./scheduler.js";
+import { newsIncluded } from "./brief.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -2715,7 +2716,11 @@ async function researchApi(app: Branch, request: IncomingMessage, path: string):
   const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check))?$/.exec(path);
   if (watch && request.method === "DELETE" && !watch[2]) return app.monitors.remove(owner, watch[1]!);
   if (watch && request.method === "POST" && watch[2] === "check") return app.monitors.check(owner, watch[1]!);
-  if (request.method === "GET" && path === "/api/brief") return { ...app.brief.preview(owner), settings: app.brief.settings(owner) };
+  if (request.method === "GET" && path === "/api/brief") {
+    // newsIncluded tells the feeds card whether saved feeds would show up in the brief at all.
+    const settings = app.brief.settings(owner);
+    return { ...app.brief.preview(owner), settings, newsIncluded: newsIncluded(settings) };
+  }
   if (request.method === "POST" && path === "/api/brief") return app.brief.configure(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/brief/send") return app.brief.send(owner);
   throw new HttpError(404, "Endpoint not found");

@@ -190,17 +190,47 @@ function fillInterruptions(card, settings, switches) {
 }
 
 /** One saved feed address, with a way to drop it before saving. */
-function feedRow(card, feeds, url) {
+function feedRow(card, brief, feeds, url) {
   const row = document.createElement("div");
   const remove = node("button", "schedules.brief.remove", "text-button");
   remove.type = "button";
   remove.addEventListener("click", () => {
     feeds.splice(feeds.indexOf(url), 1);
     card.dataset.editing = "1";
-    fillBriefNews(card, { newsFeeds: feeds });
+    fillBriefNews(card, withFeeds(brief, feeds));
   });
   row.append(plain("span", url), remove);
   return row;
+}
+function withFeeds(brief, feeds) {
+  return { ...brief, settings: { ...(brief?.settings ?? {}), newsFeeds: feeds } };
+}
+/* The same {{ name }} shape the brief's wording is filled from (src/recipes.ts). */
+const newsSlot = /\{\{\s*news\s*\}\}/;
+const newsBlock = "\n\n**In the news**\n{{news}}";
+/*
+ * Saved feeds are only read when the brief has somewhere to show them: its "In the news" section on,
+ * and {{news}} in its wording (GET /api/brief says so as newsIncluded). When it has not, the card
+ * says which is missing and offers one button that turns the section on and adds the news block to
+ * the end of the owner's own wording. The rest of the wording is never touched.
+ */
+function newsNotice(card, brief) {
+  const settings = brief?.settings;
+  if (!settings?.newsFeeds?.length || brief.newsIncluded !== false) return;
+  const sections = settings.sections ?? [], template = settings.template ?? "";
+  const notice = document.createElement("div");
+  notice.className = "brief-news-notice";
+  if (!sections.includes("news")) notice.append(node("p", "schedules.brief.news-off", "subtle"));
+  if (!newsSlot.test(template)) notice.append(node("p", "schedules.brief.news-missing", "subtle"));
+  notice.append(button("schedules.brief.add-news", async () => {
+    await api("brief", {
+      sections: sections.includes("news") ? sections : [...sections, "news"],
+      template: newsSlot.test(template) ? template : `${template}${newsBlock}`,
+    });
+    toast(t("schedules.brief.news-added"));
+    await load();
+  }, "quiet-button"));
+  card.append(notice);
 }
 /*
  * automations:scheduled — the owner's own RSS/Atom feed addresses the brief's "In the news" section
@@ -208,11 +238,12 @@ function feedRow(card, feeds, url) {
  * posts the whole list to POST /api/brief (the same route brief.configure already validates: an
  * address that is not http:// or https:// is refused there, and the refusal is shown as a toast).
  */
-function fillBriefNews(card, settings) {
-  const feeds = [...(settings?.newsFeeds ?? [])];
+function fillBriefNews(card, brief) {
+  const feeds = [...(brief?.settings?.newsFeeds ?? [])];
   card.replaceChildren(node("h2", "schedules.brief.title"), node("p", "schedules.brief.intro", "subtle"));
+  newsNotice(card, brief);
   if (!feeds.length) card.append(plain("p", t("schedules.brief.empty"), "subtle"));
-  for (const url of feeds) card.append(feedRow(card, feeds, url));
+  for (const url of feeds) card.append(feedRow(card, brief, feeds, url));
   const input = control("brief-feed-url", "url", "");
   card.append(field("schedules.brief.add-label", input));
   const add = node("button", "schedules.brief.add", "quiet-button");
@@ -223,7 +254,7 @@ function fillBriefNews(card, settings) {
     feeds.push(value);
     input.value = "";
     card.dataset.editing = "1";
-    fillBriefNews(card, { newsFeeds: feeds });
+    fillBriefNews(card, withFeeds(brief, feeds));
   });
   card.append(add);
   card.append(button("action.save", async () => {
@@ -263,7 +294,7 @@ function render() {
   fill("quiet-checkin", "automations:scheduled", (card) => fillCheckIn(card, heartbeat, switches, file));
   fill("quiet-health", "automations:scheduled", (card) => fillHealth(card, schedules, switches));
   fill("quiet-interruptions", "settings:notifications", (card) => fillInterruptions(card, heartbeat.settings, switches));
-  fill("brief-news-card", "automations:scheduled", (card) => fillBriefNews(card, brief?.settings));
+  fill("brief-news-card", "automations:scheduled", (card) => fillBriefNews(card, brief));
 }
 async function load() {
   const [overview, files, brief] = await Promise.all([api("heartbeat"), api("context-files").catch(() => null), api("brief").catch(() => null)]);

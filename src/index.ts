@@ -833,7 +833,8 @@ export async function createBranch(options: {
   // fresh each time (not a one-off snapshot) so it always sees the app's current network rules,
   // byte limits and (in a test) any swapped-in fetch.
   const webPages = new WebPages({ store, web, registry, runtime });
-  const brief = new MorningBrief(store, monitors, documents, deliverMessage, () => webPages.fetchDeps());
+  const brief = new MorningBrief(store, monitors, documents, deliverMessage,
+    () => ({ ...webPages.fetchDeps(), injectionPolicy: web.injectionPolicy }));
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
   registerChannelTools(registry, channels, brief, store.profiles);

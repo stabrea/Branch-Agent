@@ -1,4 +1,5 @@
 import { fetchChecked, type PageFetchDeps } from "./web-page-fetch.js";
+import { detectInjection, type InjectionPolicy } from "./content-guard.js";
 
 /**
  * R17-fq (packages: morning-brief news and health): the two extra kinds of line the morning brief
@@ -17,6 +18,8 @@ export interface BriefItem {
   title: string;
   link: string;
   source: string;
+  /** Set when the title read like instructions to the assistant and the owner's policy is "warn". */
+  flagged?: string;
 }
 
 /** Only http/https links belong in the brief; javascript:, data: and the like are dropped. */
@@ -219,9 +222,14 @@ export interface NewsFeed {
  * Reads the owner's own feed addresses through the app's checked fetch path and parses whatever
  * comes back. One broken feed is left out rather than failing the whole brief.
  */
-export async function fetchNewsItems(deps: PageFetchDeps, feeds: readonly NewsFeed[], signal: AbortSignal, perFeed = 5): Promise<BriefItem[]> {
+export async function fetchNewsItems(
+  deps: PageFetchDeps, feeds: readonly NewsFeed[], signal: AbortSignal, perFeed = 5, allowed: () => boolean = () => true,
+): Promise<BriefItem[]> {
   const items: BriefItem[] = [];
   for (const feed of feeds) {
+    // Asked before every feed, not once up front: Lockdown can come on while an earlier feed is
+    // still loading, and a cancelled task stops here instead of reaching the next address.
+    if (signal.aborted || !allowed()) break;
     try {
       const page = await fetchChecked(deps, feed.url, signal);
       if (page.status < 200 || page.status > 299 || !page.body) continue;
@@ -232,6 +240,22 @@ export async function fetchNewsItems(deps: PageFetchDeps, feeds: readonly NewsFe
     }
   }
   return items;
+}
+
+/**
+ * Feed titles are text from outside the app that ends up in front of the assistant (brief.preview
+ * returns them, and a sent brief is written into the conversation list), so they go through the
+ * owner's injection policy the way web.search titles do: "block" drops a flagged item, "redact"
+ * keeps its link but not its words, and "warn" keeps it with the reason it was flagged.
+ */
+export function guardNewsItems(items: readonly BriefItem[], policy: InjectionPolicy): BriefItem[] {
+  return items.flatMap((item) => {
+    const warnings = detectInjection(item.title);
+    if (!warnings.length) return [item];
+    if (policy === "block") return [];
+    if (policy === "redact") return [{ ...item, title: "[removed: this title looked like instructions to the assistant]" }];
+    return [{ ...item, flagged: warnings[0]!.reason }];
+  });
 }
 
 /**
@@ -246,5 +270,6 @@ export const noHealthConnected = "No health data source is connected.";
 
 /** One line for the brief: the item's title, its source, and the link it came from. */
 export function sourceLine(item: BriefItem): string {
-  return `${item.title} — ${item.link} (${item.source})`;
+  const flagged = item.flagged ? `; flagged: ${item.flagged}` : "";
+  return `${item.title} — ${item.link} (${item.source}${flagged})`;
 }
