@@ -240,6 +240,8 @@ async function cycleMode() {
 }
 $("prompt")?.addEventListener("keydown", (event) => {
   if (event.key !== "Tab" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  /* The slash-command list takes Tab for itself while it is open. */
+  if (event.defaultPrevented || document.getElementById("slash-menu")) return;
   event.preventDefault();
   void cycleMode();
 });

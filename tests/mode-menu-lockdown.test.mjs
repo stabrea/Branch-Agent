@@ -109,5 +109,10 @@ test("Shift+Tab in the message box moves to the next mode it can pick, never to 
   await f.page.keyboard.press("Shift+Tab");
   await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.mode === "ask");
   assert.match(await f.page.locator("body").innerText(), /Ask first\. Shift\+Tab again for the next one; No approvals is only in the menu\./);
+  // While the slash-command list is open (public/commands.js), Tab is its own.
+  await f.page.evaluate(() => { const list = document.createElement("ul"); list.id = "slash-menu"; document.body.append(list); });
+  await f.page.keyboard.press("Shift+Tab");
+  await f.page.evaluate(() => document.getElementById("slash-menu").remove());
+  assert.equal(await f.page.evaluate(() => document.getElementById("mode-chip").dataset.mode), "ask", "the slash list keeps Tab for itself");
   assert.deepEqual(f.errors, []);
 });
