@@ -102,7 +102,10 @@ test("run: the capability record kept in the store wins over the note beside the
   const stillWorks = await app.safetyExtras.wasm.run({ name: "guarded", input: "" });
   assert.equal(stillWorks.ok, true, stillWorks.error);
   assert.equal(stillWorks.log, "hi");
-  // narrowing the store record (its actual source of truth) does take hold, and the run is refused
+  // put the file back to its original, wider note, so a narrower store record is the only difference
+  await writeFile(file, JSON.stringify(note));
+  // narrowing the store record (its actual source of truth) does take hold, and the run is refused,
+  // even though the file beside it still says "log" is allowed
   const key = "safety-wasm-add-on:guarded";
   const kept = app.store.get("settings", app.runtime.owner, key).data;
   app.store.save("settings", app.runtime.owner, key, { ...kept, capabilities: [] });
@@ -137,4 +140,34 @@ test("api: the owner can build a tool through the HTTP route, and use it as wasm
   assert.equal(ran.status, 200, JSON.stringify(ran.body));
   assert.equal(ran.body.run.output, "through the http route");
   assert.ok(app.store.audit.list(app.runtime.owner).some((entry) => entry.subject === "WebAssembly add-on web-echo" && /capabilities: input_size, read_input, write_output/.test(entry.reason)));
+});
+
+test("the model can build a tool inside a task, from a request, and then use it in the same way", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-safety-wasm-build-task-"));
+  let turn = 0;
+  const steps = [
+    { content: "", toolCalls: [{ id: "b1", name: "wasm.build", arguments: JSON.stringify({ name: "asked", template: "echo" }) }] },
+    { content: "", toolCalls: [{ id: "r1", name: "wasm.run", arguments: JSON.stringify({ name: "asked", input: "from chat" }) }] },
+    { content: "Done.", toolCalls: [] },
+  ];
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return steps[Math.min(turn++, steps.length - 1)]; } } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const post = async (path, body) => {
+    const response = await fetch(server.url + path, { method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() };
+  };
+  await post("/api/safety-extras/switch", { part: "wasm-add-ons", mode: "on" });
+  assert.equal(app.registry.names().includes("wasm.build"), true, "on: the tool is offered");
+  await post("/api/policy", { preset: "off", unmatchedCommands: "allow" });
+  const run = await post("/api/run", { prompt: "build me a tool that echoes text back, then try it" });
+  assert.equal(run.body.status, "completed", run.body.output);
+  const events = app.store.events(run.body.id);
+  const built = events.find((event) => event.kind === "tool.completed" && event.data.name === "wasm.build");
+  const ran = events.find((event) => event.kind === "tool.completed" && event.data.name === "wasm.run");
+  assert.ok(built, "wasm.build ran as a tool the model asked for, inside the task");
+  assert.ok(ran, "the tool it just built could then be run in the same task");
+  assert.match(JSON.stringify(ran.data), /from chat/);
 });
