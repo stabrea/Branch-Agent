@@ -146,7 +146,7 @@
 }
 
 /* ---------- a tablet held upright: the side list stays a column, as on the computer ---------- */
-@media (min-width: 700px) and (max-width: 860px) {
+@media (min-width: 700px) and (max-width: 760px) {
   body.lx,
   body.lx.lx-aside {
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
@@ -195,7 +195,7 @@ body.lx {
     bottom: calc(max(var(--pane-gap), env(safe-area-inset-bottom, 0px)) + 8px);
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx {
     padding: max(6px, env(safe-area-inset-top, 0px)) max(6px, env(safe-area-inset-right, 0px))
       max(6px, env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));

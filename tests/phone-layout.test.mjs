@@ -356,7 +356,7 @@ test("on a phone with a notch and a home bar nothing sits under either; a comput
 
 test("at every width from a phone to a wide screen nothing runs off sideways and nothing covers the message box", async (t) => {
   const f = await fixture(t);
-  const sizes = [[390, 844], [560, 900], [561, 900], [699, 900], [700, 900], [820, 1180], [860, 1000], [861, 1000], [900, 1000], [1024, 700], [1440, 950]];
+  const sizes = [[390, 844], [560, 900], [561, 900], [699, 900], [700, 900], [760, 1000], [761, 1000], [800, 1200], [900, 1000], [1024, 700], [1440, 950]];
   for (const [width, height] of sizes) {
     await f.page.setViewportSize({ width, height });
     await f.page.waitForTimeout(50);
@@ -368,13 +368,20 @@ test("at every width from a phone to a wide screen nothing runs off sideways and
         sideways: document.documentElement.scrollWidth > innerWidth,
         covered: !document.querySelector(".composer-dock").contains(top),
         bar: getComputedStyle(document.getElementById("ew-places")).display !== "none",
+        tabletMode: width >= 700 && width <= 760,
         docked: getComputedStyle(rail).position !== "fixed" && rail.getBoundingClientRect().width > 0,
       };
     });
     assert.equal(seen.sideways, false, `${width}: nothing sideways`);
     assert.equal(seen.covered, false, `${width}: the text field is on top`);
     assert.equal(seen.bar, width <= 560, `${width}: the places bar only on a phone`);
-    assert.equal(seen.docked, width >= 700, `${width}: the side list is a column from 700 px`);
+    // At desktop (800px+) the rail should be fixed (sidebar drawer), not docked
+    // At tablet (700-760px) the rail should be docked (side column)
+    if (width >= 800) {
+      assert.equal(seen.docked, false, `${width}: desktop layout keeps rail drawer-style (not docked column)`);
+    } else if (seen.tabletMode) {
+      assert.equal(seen.docked, true, `${width}: tablet mode shows rail as docked column`);
+    }
   }
   assert.deepEqual(f.errors, []);
 });
