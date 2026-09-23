@@ -23,9 +23,16 @@ function dssePae(payloadType, payload) {
   return Buffer.concat([Buffer.from(`DSSEv1 ${type.length} `, "utf8"), type, Buffer.from(` ${payload.length} `, "utf8"), payload]);
 }
 
-/** A real, signed Sigstore-shaped bundle for `digestHex`, issued by a freshly made test certificate. */
-function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter } = {}) {
-  const { certificateDer, privateKey } = makeWorkflowCertificate({ workflowUri: uri, notBefore, notAfter });
+/**
+ * A real, signed Sigstore-shaped bundle for `digestHex`, issued by a freshly made test certificate.
+ * `integratedTime` (unix seconds) is the moment the transparency log says the bundle was signed,
+ * the same field the real world uses to check a short-lived certificate's window; it defaults to a
+ * moment inside that window, matching how a genuine bundle always looks.
+ */
+function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter, integratedTime } = {}) {
+  const window = { notBefore: notBefore ?? new Date(Date.now() - 60_000), notAfter: notAfter ?? new Date(Date.now() + 600_000) };
+  const { certificateDer, privateKey } = makeWorkflowCertificate({ workflowUri: uri, ...window });
+  const signedAt = integratedTime ?? Math.floor((window.notBefore.getTime() + window.notAfter.getTime()) / 2 / 1000);
   const payloadType = "application/vnd.in-toto+json";
   const payload = Buffer.from(JSON.stringify({
     _type: "https://in-toto.io/Statement/v1",
@@ -36,7 +43,10 @@ function makeBundle(digestHex, { uri = workflowUri, notBefore, notAfter } = {}) 
   const signature = cryptoSign("sha256", dssePae(payloadType, payload), privateKey);
   return {
     dsseEnvelope: { payload: payload.toString("base64"), payloadType, signatures: [{ sig: signature.toString("base64"), keyid: "" }] },
-    verificationMaterial: { certificate: { rawBytes: certificateDer.toString("base64") } },
+    verificationMaterial: {
+      certificate: { rawBytes: certificateDer.toString("base64") },
+      tlogEntries: [{ integratedTime: String(signedAt) }],
+    },
   };
 }
 
@@ -67,10 +77,34 @@ test("verifyAttestationBundle refuses a tampered signature", () => {
   assert.throws(() => verifyAttestationBundle(bundle, { repo, digestHex }), /signature does not check out/);
 });
 
-test("verifyAttestationBundle refuses a bundle whose certificate has expired", () => {
+test("verifyAttestationBundle accepts a certificate that has since expired, as long as it was valid when the log says it signed", () => {
+  // Fulcio certificates are only ever valid for about ten minutes; every real, months-old release
+  // is checked long after its certificate's window has passed. What must hold is that the window
+  // covered the moment in the transparency log, not that it still covers right now.
   const digestHex = createHash("sha256").update("archive bytes").digest("hex");
-  const bundle = makeBundle(digestHex, { notBefore: new Date(Date.now() - 86_400_000), notAfter: new Date(Date.now() - 3_600_000) });
-  assert.throws(() => verifyAttestationBundle(bundle, { repo, digestHex }), /not currently valid/);
+  const bundle = makeBundle(digestHex, {
+    notBefore: new Date("2026-01-01T00:00:00Z"), notAfter: new Date("2026-01-01T00:10:00Z"),
+    integratedTime: Math.floor(new Date("2026-01-01T00:05:00Z").getTime() / 1000),
+  });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex });
+  assert.equal(result.workflow, workflowUri);
+});
+
+test("verifyAttestationBundle refuses a certificate that was not valid at the log's signing time", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, {
+    notBefore: new Date("2026-01-01T00:00:00Z"), notAfter: new Date("2026-01-01T00:10:00Z"),
+    integratedTime: Math.floor(new Date("2026-01-02T00:00:00Z").getTime() / 1000), // a day after the window closed
+  });
+  assert.throws(() => verifyAttestationBundle(bundle, { repo, digestHex }), /not valid when it was signed/);
+});
+
+test("verifyAttestationBundle skips the window check when the bundle carries no signing time", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { notBefore: new Date("2026-01-01T00:00:00Z"), notAfter: new Date("2026-01-01T00:10:00Z") });
+  delete bundle.verificationMaterial.tlogEntries;
+  const result = verifyAttestationBundle(bundle, { repo, digestHex });
+  assert.equal(result.workflow, workflowUri);
 });
 
 test("fetchAttestationBundles treats a 404 as no published record, not an error", async () => {
@@ -103,6 +137,55 @@ test("fetchAttestationBundles reads a real GitHub-shaped response", async () => 
     });
     const result = verifyAttestationBundle(read, { repo, digestHex });
     assert.equal(result.workflow, workflowUri);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("fetchAttestationBundles follows bundle_url when GitHub externalises the bundle", async () => {
+  // GitHub's own API answers some attestations this way (`bundle: null`, `bundle_url` set) rather
+  // than inline — confirmed against `GET /repos/cli/cli/attestations/<digest>` on a real release.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex);
+  const server = createServer((req, res) => {
+    if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${origin()}/blob/one` }] }));
+    }
+    if (req.url === "/blob/one") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(bundle)); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  try {
+    const [read] = await fetchAttestationBundles({
+      fetch: (url, init) => fetch(url.replace("https://api.github.com", origin()), init),
+      repo, digestHex, userAgent: "test",
+    });
+    const result = verifyAttestationBundle(read, { repo, digestHex });
+    assert.equal(result.workflow, workflowUri);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("fetchAttestationBundles skips a bundle_url it cannot read as JSON, rather than failing the update", async () => {
+  // GitHub has been seen serving the externalised bundle in a form that is not plain JSON (its
+  // reason is unstated). This is treated the same as no bundle at all — quietly skipped, never
+  // thrown — never something that could block an update.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const server = createServer((req, res) => {
+    if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${origin()}/blob/one` }] }));
+    }
+    if (req.url === "/blob/one") { res.writeHead(200); return res.end(Buffer.from([0x84, 0x32, 0xf0, 0x43, 0x7b, 0x22])); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  try {
+    const result = await fetchAttestationBundles({
+      fetch: (url, init) => fetch(url.replace("https://api.github.com", origin()), init),
+      repo, digestHex, userAgent: "test",
+    });
+    assert.deepEqual(result, []);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 

@@ -17,6 +17,12 @@ import { z } from "zod";
  * CA) or check its inclusion in the Rekor transparency log. Both need the `sigstore` package, a new
  * dependency this change does not add. The certificate here is trusted only as far as GitHub's own
  * API, reached over TLS, is trusted — the same amount of trust the checksum download already needs.
+ *
+ * GitHub sometimes answers with `bundle_url` (a separate blob address) instead of an inline
+ * `bundle`; checked against a real, currently-published release (`gh api
+ * repos/cli/cli/attestations/sha256:<digest>`), that URL did not serve plain JSON, in a form this
+ * file does not decode. Such a bundle is skipped, the same as one that was never published — never
+ * trusted half-read, and never allowed to block an update the checksum already passed.
  */
 
 const certSchema = z.object({ rawBytes: z.string().min(1) });
@@ -29,17 +35,26 @@ const bundleSchema = z.object({
   verificationMaterial: z.object({
     certificate: certSchema.optional(),
     x509CertificateChain: z.object({ certificates: z.array(certSchema).min(1) }).optional(),
+    /** The Rekor entry the bundle was logged under; its time is what the signing certificate's short validity window is checked against, not the moment Branch happens to check. */
+    tlogEntries: z.array(z.object({ integratedTime: z.union([z.string(), z.number()]).optional() })).optional(),
   }),
 });
 export type AttestationBundle = z.infer<typeof bundleSchema>;
-const attestationsResponseSchema = z.object({
-  attestations: z.array(z.object({ bundle: bundleSchema })),
-});
+/** A bundle GitHub answered with directly, or only a URL to fetch it from (GitHub externalises some). */
+const attestationEntrySchema = z.object({ bundle: bundleSchema.nullable().optional(), bundle_url: z.string().url().optional() });
+const attestationsResponseSchema = z.object({ attestations: z.array(attestationEntrySchema) });
+
 const inTotoStatementSchema = z.object({
   subject: z.array(z.object({ digest: z.object({ sha256: z.string().optional() }).partial() })).min(1),
 });
 
-/** Fetches every build-provenance record GitHub has published for this file's SHA-256, or null when it has none. */
+/**
+ * Fetches every build-provenance record GitHub has published for this file's SHA-256, or null when
+ * it has none. GitHub answers some attestations inline and others only as a `bundle_url` to fetch
+ * separately (its listed reason is size); either way, a bundle that does not come back as the plain
+ * JSON this reads is treated the same as one that was never published — skipped, not trusted, and
+ * never allowed to block an update the checksum already passed.
+ */
 export async function fetchAttestationBundles(input: {
   fetch: typeof fetch; repo: string; digestHex: string; userAgent: string;
 }): Promise<AttestationBundle[] | null> {
@@ -51,7 +66,24 @@ export async function fetchAttestationBundles(input: {
   if (!response.ok) throw new Error(`GitHub did not answer about the build provenance record for this download (HTTP ${response.status}).`);
   const parsed = attestationsResponseSchema.safeParse(await response.json());
   if (!parsed.success || parsed.data.attestations.length === 0) return null;
-  return parsed.data.attestations.map((entry) => entry.bundle);
+  const bundles: AttestationBundle[] = [];
+  for (const entry of parsed.data.attestations) {
+    if (entry.bundle) { bundles.push(entry.bundle); continue; }
+    if (!entry.bundle_url) continue;
+    const fetched = await fetchExternalBundle(input.fetch, entry.bundle_url, input.userAgent);
+    if (fetched) bundles.push(fetched);
+  }
+  return bundles;
+}
+
+/** A bundle GitHub externalised; read as plain JSON, and quietly skipped when it is not (see above). */
+async function fetchExternalBundle(fetchImpl: typeof fetch, url: string, userAgent: string): Promise<AttestationBundle | null> {
+  try {
+    const response = await fetchImpl(url, { headers: { "user-agent": userAgent }, signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return null;
+    const parsed = bundleSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data : null;
+  } catch { return null; }
 }
 
 /** DSSE's Pre-Authentication Encoding: the exact bytes a bundle's signature is taken over. */
@@ -95,9 +127,18 @@ export function verifyAttestationBundle(bundle: AttestationBundle, expected: Pro
   let cert: X509Certificate;
   try { cert = new X509Certificate(Buffer.from(rawCert.rawBytes, "base64")); }
   catch { throw new Error("the provenance record's signing certificate could not be read"); }
-  const now = Date.now();
-  if (now < Date.parse(cert.validFrom) || now > Date.parse(cert.validTo))
-    throw new Error("the provenance record's signing certificate is not currently valid");
+  // Fulcio issues these certificates to be valid for about ten minutes around the moment of
+  // signing, not to stay valid afterwards — so what matters is whether the certificate was valid
+  // when it signed, not whether it still is now, days or months later. That moment is the Rekor
+  // transparency log entry's own timestamp, carried in the bundle for exactly this reason. Without
+  // one (an older bundle shape, or none logged) there is nothing to check the window against, so
+  // the window is left unchecked rather than compared to the wrong clock.
+  const integratedTime = bundle.verificationMaterial.tlogEntries?.[0]?.integratedTime;
+  if (integratedTime !== undefined) {
+    const signedAt = Number(integratedTime) * 1000;
+    if (!Number.isFinite(signedAt) || signedAt < Date.parse(cert.validFrom) || signedAt > Date.parse(cert.validTo))
+      throw new Error("the provenance record's signing certificate was not valid when it was signed");
+  }
 
   const names = (cert.subjectAltName ?? "").split(",").map((entry) => entry.trim());
   const workflowPrefix = `URI:https://github.com/${expected.repo}/`;
