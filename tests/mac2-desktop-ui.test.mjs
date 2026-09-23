@@ -475,6 +475,42 @@ async function openAndSettle(page, open) {
 
 const cardIds = ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"];
 
+for (const width of [1440, 860, 400]) {
+  test(`DG-008 computer Settings cards have native section headings at ${width}px`, async (t) => {
+    const { server, page } = await pageFixture(t);
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    // Exercise the real cards on every runner, without reading the owner's OS settings or Keychain.
+    await page.route("**/api/os-permissions", (route) => route.fulfill({ json: { platform: "darwin", permissions: [] } }));
+    await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: {
+      enabled: false, mode: "off", available: true, references: {}, entries: [],
+    } }));
+    await signIn(page, server);
+    for (const language of ["en", "fr"]) {
+      await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
+      await page.evaluate(() => globalThis.branchOsPermissions.render());
+      for (const id of cardIds) {
+        await openSettingFor(page, `#${id}`);
+        const card = page.locator(`#${id}`), heading = card.locator(":scope > [data-t]").first();
+        assert.equal(await card.isVisible(), true, `${id} is a real visible card`);
+        assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
+        const name = (await heading.textContent()).trim();
+        assert.ok(name && !name.startsWith("settings."), `${id} has translated copy`);
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        assert.equal(await card.evaluate((node) => node.closest(".lx-page").querySelectorAll(":scope > h2.lx-page-title").length), 1);
+        assert.equal(await card.locator(":scope > h3.settings-card-title + p + .kit-scope.sr-only").count(), 1);
+        assert.deepEqual(await heading.evaluate((node) => {
+          const css = getComputedStyle(node);
+          return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
+        }), ["16px", "640", "20.8px", "normal", "0px 0px 6px"]);
+      }
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
 test("the cards go to their homes, and a settings link opens only on a click", async (t) => {
   const { app, server, page } = await pageFixture(t);
   const errors = [];
@@ -562,12 +598,12 @@ test("the cards go to their homes, and a settings link opens only on a click", a
 
   // Every word on the cards is behind a key, so French replaces all of them.
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
-  assert.equal(await page.locator("#os-permissions-card h2").textContent(), "Ce que cet ordinateur autorise");
-  assert.equal(await page.locator("#keychain-card h2").textContent(), "Mots de passe du trousseau de votre Mac");
+  assert.equal(await page.locator("#os-permissions-card h3").textContent(), "Ce que cet ordinateur autorise");
+  assert.equal(await page.locator("#keychain-card h3").textContent(), "Mots de passe du trousseau de votre Mac");
   assert.equal(await page.locator("#system-voice-card button").textContent(), "Enregistrer ce choix");
   assert.equal(await buttons.first().textContent(), "Ouvrir les Réglages Système");
   assert.equal(await page.locator("#keychain-service").getAttribute("placeholder"), "par exemple api.github.com");
-  const unkeyed = await page.evaluate((ids) => ids.flatMap((id) => [...document.getElementById(id).querySelectorAll("h2, p, button, label, option")])
+  const unkeyed = await page.evaluate((ids) => ids.flatMap((id) => [...document.getElementById(id).querySelectorAll("h2, h3, p, button, label, option")])
     .filter((node) => !node.dataset.t && !node.querySelector("[data-t]") && node.getAttribute("role") !== "status"
       && !node.closest(".card-row:has(> strong:not([data-t]))") && node.textContent.trim())
     .map((node) => node.textContent.trim()), cardIds);
