@@ -11,6 +11,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch, savePolicy } from "../dist/index.js";
+import { savePins } from "../dist/settings-kit/pins.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 async function fixture(t, provider) {
@@ -61,4 +62,14 @@ test("the before and after is worked out for the owner only, and says when nothi
   assert.match(already.label, /every setting is already as asked/);
   assert.doesNotMatch(already.label, /off → off/, "a no-op is never shown as a change");
   assert.doesNotMatch(app.runtime.checkPolicy("settings.list", {}, owner).label, /→/, "reading changes nothing and shows no plan");
+});
+
+test("a pinned setting is shown staying as it is, since saving the change steps over it", async (t) => {
+  const app = await fixture(t);
+  savePins(app.store, app.runtime.owner, [
+    { key: "fly-core", field: "mode", value: "off", initial: "off", name: "The learning core", label: "Switch" },
+  ]);
+  const check = app.runtime.checkPolicy("settings.change", learning, app.runtime.context({ source: "owner" }));
+  assert.doesNotMatch(check.label, /off → on/, "the owner is never asked about a change that will not happen");
+  assert.match(check.label, /What Branch learns from experience, Switch: stays off \(pinned\)/);
 });

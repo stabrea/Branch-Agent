@@ -172,7 +172,10 @@ export function settingsPreview(store: Store, tool: string, args: unknown, conte
   const input = ChangeSchema.safeParse(args);
   if (!input.success || !ownerIsHere(store, context)) return null;
   const { changes } = plan(store, context.owner, input.data);
-  return (changes.length ? changes.map(said).join("; ") : "every setting is already as asked").slice(0, 600);
+  // A pinned setting is stepped over when the change is saved, so it is shown staying as it is.
+  const shown = (change: Change): string => change.pinned
+    ? `${change.name}, ${change.label}: stays ${String(change.from)} (pinned)` : said(change);
+  return (changes.length ? changes.map(shown).join("; ") : "every setting is already as asked").slice(0, 600);
 }
 
 /** Both change tools: the same plan, the same save, one rule about which may make Branch less careful. */
