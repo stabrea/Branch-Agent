@@ -49,7 +49,21 @@ export class WorkspaceHistory {
       CREATE TABLE IF NOT EXISTS workspace_undo(id TEXT PRIMARY KEY, owner TEXT NOT NULL, session_id TEXT NOT NULL,
         version_id TEXT NOT NULL, path TEXT NOT NULL, redo_version_id TEXT NOT NULL, redone INTEGER NOT NULL, created_at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS workspace_undo_session ON workspace_undo(owner, session_id, redone, created_at);`);
+    // FQ-routing.isolated-agents: file_versions used to be keyed by (owner, path) alone. files.scope()
+    // already resolves every path against a folder of its own for a Trunk's own turn (.branch-agents/<id>,
+    // src/trunks/file-root.ts) or a coding fork's worktree — but two different scopes can hold a file at
+    // the very same relative path, and a bare (owner, path) lookup could not tell them apart: one Trunk's
+    // files.history or files.restore could read or, through a restored version's bytes, effectively copy
+    // in another Trunk's (or the owner's) exact file content. This column, stamped at the moment each
+    // version is kept, narrows every read and every restore to the scope that wrote it. The same soft
+    // migration src/memory.ts already uses for a new column: existing rows default to "", the scope the
+    // owner's own turn has always used, so nothing already kept changes what it means.
+    if (!db.prepare("PRAGMA table_info(file_versions)").all().some((row) => row.name === "scope"))
+      db.exec("ALTER TABLE file_versions ADD COLUMN scope TEXT NOT NULL DEFAULT ''");
   }
+  /** The folder the caller's paths resolve inside right now: "" for the owner's own turn, a Trunk's own
+   *  folder for a Trunk's, a fork's worktree for a coding fork's — whatever files.checked() itself uses. */
+  private currentScope(): string { return this.files.scope(); }
   private async current(path: string): Promise<Buffer | null> {
     try { return await readFile(await this.files.checked(path)); } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -58,8 +72,8 @@ export class WorkspaceHistory {
   }
   private insert(path: string, content: Buffer | null, runId: string, reason: string, snapshotId: string | null): FileVersion {
     const version: FileVersion = { id: randomUUID(), path, bytes: content?.length ?? 0, existed: content !== null, runId, reason, snapshotId, createdAt: new Date().toISOString() };
-    this.db.prepare("INSERT INTO file_versions VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(version.id, this.owner, path, snapshotId, content ? content.toString("base64") : "", version.bytes, Number(version.existed), runId, reason, version.createdAt);
+    this.db.prepare("INSERT INTO file_versions VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+      .run(version.id, this.owner, path, snapshotId, content ? content.toString("base64") : "", version.bytes, Number(version.existed), runId, reason, version.createdAt, this.currentScope());
     return version;
   }
   /** Keeps the file's exact bytes before a change so the change can be undone. */
@@ -75,16 +89,23 @@ export class WorkspaceHistory {
     return { path, versionId: before.version.id, existed: before.version.existed, added, removed, diff };
   }
   history(path: string): FileVersion[] {
-    return this.db.prepare("SELECT * FROM file_versions WHERE owner=? AND path=? ORDER BY created_at DESC, rowid DESC LIMIT 50").all(this.owner, path).map((row) => this.toVersion(row));
+    // FQ-routing.isolated-agents: scoped to the caller's own folder, the same one files.checked()
+    // would resolve `path` against right now — never another Trunk's, fork's or the owner's.
+    return this.db.prepare("SELECT * FROM file_versions WHERE owner=? AND path=? AND scope=? ORDER BY created_at DESC, rowid DESC LIMIT 50")
+      .all(this.owner, path, this.currentScope()).map((row) => this.toVersion(row));
   }
-  /** Integration (hardening-3): the file a kept version belongs to, so a folder rule is told which file a restore writes. */
+  /** Integration (hardening-3): the file a kept version belongs to, so a folder rule is told which file a restore writes.
+   *  FQ-routing.isolated-agents: undefined for a version kept in a different scope, exactly as for an unknown id. */
   pathOf(versionId: string): string | undefined {
-    const row = this.db.prepare("SELECT path FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
+    const row = this.db.prepare("SELECT path FROM file_versions WHERE owner=? AND id=? AND scope=?").get(this.owner, versionId, this.currentScope());
     return row ? String(row.path) : undefined;
   }
   /** Writes a kept version's exact bytes back; a version of a file that did not exist removes nothing but writes an empty file only if asked. */
   async restore(versionId: string): Promise<{ path: string; bytes: number; restored: boolean }> {
-    const row = this.db.prepare("SELECT * FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
+    // FQ-routing.isolated-agents: a version kept in another scope is "not kept" here, the same refusal
+    // an unknown id gets — restoring it would otherwise write another Trunk's exact bytes into this
+    // caller's own folder, where files.read then shows them.
+    const row = this.db.prepare("SELECT * FROM file_versions WHERE owner=? AND id=? AND scope=?").get(this.owner, versionId, this.currentScope());
     if (!row) throw new Error("That earlier version is not kept");
     const path = String(row.path), target = await this.files.checked(path);
     if (!Number(row.existed)) return { path, bytes: 0, restored: false };
@@ -98,13 +119,26 @@ export class WorkspaceHistory {
    * Records every readable workspace file (bounded) under one snapshot id. mac7/walk-rules: a snapshot
    * a task takes leaves out what the owner's rules keep that task out of, and says so; one the owner
    * takes from the window keeps everything, as before (it stays on this computer).
+   *
+   * FQ-routing.isolated-agents: walked from `files.base` (root plus the caller's current scope), not
+   * always `files.root`. Before this, a Trunk calling this tool (`workspace.snapshot` needs only
+   * files.write, which a Trunk already has to save its own files) walked the whole shared workspace —
+   * every other Trunk's own folder and the owner's own files included — and every file it found was
+   * kept under file_versions with that Trunk's own scope stamped on it (see `insert`), so the Trunk
+   * could later read any of it back through its own files.history. For the owner's own turn `base`
+   * still equals `root` (no scope set), so a snapshot "from the window" keeps everything, unchanged.
    */
   async snapshot(input: unknown): Promise<Snapshot & { leftOut?: string }> {
     const { label } = z.object({ label: z.string().trim().min(1).max(120).default("Snapshot") }).strict().parse(input ?? {});
     const id = randomUUID(); let files = 0, bytes = 0;
     const rules = new WalkRules(this.files.walkRules());
-    for (const path of await this.walk(this.files.root, [], rules)) {
-      const content = await readFile(join(this.files.root, path));
+    const base = this.files.base;
+    // A Trunk's own folder may not exist yet if this is its first tool call (nothing has written
+    // through files.checked() to make it): a snapshot of an empty folder of one's own is 0 files,
+    // not a crash.
+    await mkdir(base, { recursive: true });
+    for (const path of await this.walk(base, [], rules, base)) {
+      const content = await readFile(join(base, path));
       if (content.length > snapshotLimits.fileBytes) continue;
       if (files >= snapshotLimits.files || bytes + content.length > snapshotLimits.totalBytes) throw new Error(`The workspace is too large to snapshot (limit ${snapshotLimits.files} files, ${snapshotLimits.totalBytes / 1048576} MB)`);
       this.insert(path, content, "", "snapshot", id); files++; bytes += content.length;
@@ -209,11 +243,13 @@ export class WorkspaceHistory {
     await writeFile(target, Buffer.from(String(row.content), "base64"), { mode: 0o600 });
   }
 
-  private async walk(dir: string, out: string[], rules: WalkRules): Promise<string[]> {
+  /** `base` is what a found path is written relative to (FQ-routing.isolated-agents: the caller's own
+   *  scoped folder for `snapshot`, so a path kept there means the same thing `files.checked` does). */
+  private async walk(dir: string, out: string[], rules: WalkRules, base: string = this.files.root): Promise<string[]> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name), rel = relative(this.files.root, full).split("\\").join("/");
+      const full = join(dir, entry.name), rel = relative(base, full).split("\\").join("/");
       if (secretName.test(entry.name)) continue;
-      if (entry.isDirectory()) { if (!skipDirs.has(entry.name) && rules.folder(rel)) await this.walk(full, out, rules); continue; }
+      if (entry.isDirectory()) { if (!skipDirs.has(entry.name) && rules.folder(rel)) await this.walk(full, out, rules, base); continue; }
       if (entry.isFile() && !(await lstat(full)).isSymbolicLink() && rules.file(rel)) out.push(rel);
       if (out.length > snapshotLimits.files) break;
     }
