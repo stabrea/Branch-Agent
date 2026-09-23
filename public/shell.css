@@ -1462,7 +1462,7 @@ details.tool-step > summary:hover {
     display: none;
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   /* the rail slides over the page instead of taking a column */
   body,
   body.no-aside,

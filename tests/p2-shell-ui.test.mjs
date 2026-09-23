@@ -123,10 +123,10 @@ test("on a phone the strip is a row across the top, a tablet's a row at the foot
   assert.ok(prompt.y + prompt.height <= places.y, "the message box stays above the places bar at the foot");
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.ok(await f.page.locator("#send").isVisible());
-  await f.page.setViewportSize({ width: 820, height: 1180 });
+  await f.page.setViewportSize({ width: 740, height: 1180 });
   await f.page.waitForTimeout(100);
   const tablet = await f.page.locator("#trunk-strip").boundingBox(), tabletPrompt = await f.page.locator("#prompt").boundingBox();
-  assert.ok(tablet.y > 1100 && tablet.width > 780, "a tablet: a row at the foot");
+  assert.ok(tablet.y > 1100 && tablet.width > 700, "a tablet: a row at the foot");
   assert.ok(tabletPrompt.y + tabletPrompt.height <= tablet.y, "the message box stays above it");
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.deepEqual(f.errors, []);

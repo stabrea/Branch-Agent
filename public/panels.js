@@ -230,7 +230,7 @@ function watchTabs() {
 /* ---------- panes you can resize ---------- */
 const WIDTHS = "branch-pane-widths";
 const RZ = {
-  rail: { v: "--rail-w", min: 200, max: 440, snap: 150, label: ["panels.rz.rail", "Side list width"], toggle: "rail-toggle", fold: "no-rail", wide: 861 },
+  rail: { v: "--rail-w", min: 200, max: 440, snap: 150, label: ["panels.rz.rail", "Side list width"], toggle: "rail-toggle", fold: "no-rail", wide: 761 },
   aside: { v: "--aside-w", min: 260, max: 640, snap: 200, label: ["panels.rz.aside", "Side panel width"], toggle: "aside-toggle", wide: 1181 },
 };
 /* Kept per workspace and per person at this window: a household person's widths are their own. */

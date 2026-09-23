@@ -722,12 +722,12 @@ html:root[data-hide~="side-list"] .panels-rz[data-rz="rail"] {
 
 /* integrate/p2-panels: phase2/shell's Trunks strip. It sits at the left edge (at the foot on a phone), so the
    corner gear and the floating panel step clear of it; hidden, the window takes its room back. */
-@media (min-width: 861px) {
+@media (min-width: 761px) {
   body.lx.lx-strip {
     --panels-left: calc(var(--pane-gap) + var(--strip-w));
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx.lx-strip {
     --panels-foot: calc(6px + 60px + 6px + env(safe-area-inset-bottom, 0px));
   }
@@ -740,7 +740,7 @@ html:root[data-hide~="strip"] body.lx {
 html:root[data-hide~="strip"] body.lx.lx-strip {
   padding: var(--pane-gap);
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   html:root[data-hide~="strip"] body.lx.lx-strip {
     padding: 6px;
   }

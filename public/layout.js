@@ -383,7 +383,22 @@ function tabButton(placeId, tab, key, english, oldView) {
   trigger.dataset.place = placeId;
   trigger.dataset.tab = tab;
   trigger.removeAttribute("title");
+
+  if (placeId === "inbox" && tab === "needs") countOnNeedsTab(trigger);
   return trigger;
+}
+/** DG-140: the "Needs you" tab carries the Inbox's live count, the same number as the side list's badge. */
+function countOnNeedsTab(trigger) {
+  const badge = $("lx-inbox-badge");
+  const count = make("span", "lx-tab-count");
+  count.id = "lx-needs-tab-count";
+  trigger.append(count);
+  const sync = () => {
+    count.textContent = badge ? badge.textContent.trim() : "";
+    count.hidden = !badge || badge.hidden || !count.textContent;
+  };
+  sync();
+  if (badge) new MutationObserver(sync).observe(badge, { attributes: true, childList: true, characterData: true, subtree: true });
 }
 /** A one-line ask box on every place, so a question never means going back to the conversation first. */
 function askDock(id, english) {
@@ -812,8 +827,6 @@ function showPlace(next, tab) {
     row.setAttribute("aria-current", row.dataset.place === next ? "page" : "false");
   const spec = PLACES[next];
   $("page-title").textContent = spec ? say(spec.key, spec.english) : say("nav.chat", titles.chat);
-  const crumb = spec?.tabs.find(([id]) => id === lastTab[next]);
-  $("lx-crumb").textContent = crumb ? say(crumb[1], crumb[2]) : "";
   $("thread-name").hidden = next !== "chat";
   document.body.classList.toggle("lx-chat", next === "chat");
   document.body.classList.remove("rail-open", "lx-pane-float");
@@ -842,21 +855,43 @@ function buildRail() {
     if (id === "overview") nav.prepend(row);
     else nav.append(row);
   }
-  /* The old Settings button becomes the gear beside search; the old Conversation button the way back. */
+  /* The old Settings button becomes the gear beside search; the old Conversation button the crumb's first step. */
   const gear = document.querySelector('.nav[data-view="settings"]');
   iconAndWords(gear, "settings");
   gear.className = "rail-icon lx-gear";
   gear.id = "rail-settings";
   gear.querySelector(".lx-words").classList.add("sr-only");
   $("appearance-shortcut").after(gear);
-  const back = document.querySelector('.nav[data-view="chat"]');
-  iconAndWords(back, "back");
-  back.className = "lx-back";
-  $("rail-toggle").after(back);
-  const crumb = make("span", "lx-crumb");
-  crumb.id = "lx-crumb";
-  $("page-title").after(crumb);
+  buildCrumb(document.querySelector('.nav[data-view="chat"]'));
   document.querySelector('.nav[data-view="usage"]')?.remove();
+}
+/**
+ * DG-141: the title reads as where you are: the computer or Trunk picked in the strip, a slash, then the
+ * place. That first step is the old Conversation button (every listener on it still fires), so it opens
+ * the picked one's conversation. Its face and name mirror the side list's own (public/shell.js), not a copy.
+ */
+function buildCrumb(where) {
+  delete where.dataset.t; // the language files would otherwise write "Conversation" over the face and name
+  where.replaceChildren();
+  where.className = "lx-crumb-where";
+  where.id = "lx-crumb-where";
+  where.removeAttribute("title");
+  const mark = make("span", "lx-crumb-mark");
+  mark.setAttribute("aria-hidden", "true");
+  const name = make("span", "lx-crumb-mid");
+  where.append(mark, name);
+  const slash = make("span", "lx-crumb-sep", "/");
+  slash.setAttribute("aria-hidden", "true");
+  $("page-title").before(where, slash);
+  const sourceName = $("rail-target-name"), sourceMark = $("rail-target-mark");
+  const sync = () => {
+    name.textContent = sourceName?.textContent.trim() || say("strip.here", "This computer");
+    mark.replaceChildren(...[...(sourceMark?.childNodes ?? [])].map((node) => node.cloneNode(true)));
+    where.setAttribute("aria-label", name.textContent);
+  };
+  sync();
+  for (const source of [sourceName, sourceMark])
+    if (source) new MutationObserver(sync).observe(source, { childList: true, characterData: true, subtree: true });
 }
 /* ---------- the title bar: the side pane, clear the view, lockdown ---------- */
 const PANE_TABS = [["activity", "pane.activity", "Activity"], ["plan", "pane.plan", "Plan"], ["files", "pane.files", "Files"], ["memory", "pane.memory", "Memory"],
