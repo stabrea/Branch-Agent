@@ -2587,3 +2587,56 @@ select.glass[aria-expanded="true"] {
 .glass-tip[hidden] {
   display: none;
 }
+
+/* DG-099: the top bar says where you are, as the sample's .crumbs: the face and name of the computer or Trunk, "/",
+   then the conversation's title or the place's name (public/topbar-crumbs.js). */
+body.lx .lx-crumbs-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+body.lx .lx-crumbs-mark svg {
+  width: 20px;
+  height: 20px;
+}
+body.lx .lx-crumbs-mid,
+body.lx .lx-crumbs-sep {
+  font-size: 13.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+body.lx .lx-crumbs-mid {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.lx .lx-crumbs-mid:empty,
+body.lx .lx-crumbs-mid:empty + .lx-crumbs-sep {
+  display: none;
+}
+/* In a conversation its own title is the one on show; the place's heading stays for a screen reader. */
+body.lx.lx-chat #page-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+body.lx.lx-chat .thread-name {
+  display: inline;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+body.lx.lx-chat .thread-name:empty::before {
+  content: attr(data-empty);
+}
+@media (max-width: 760px) {
+  body.lx .lx-crumbs-mid,
+  body.lx .lx-crumbs-sep {
+    display: none;
+  }
+}
