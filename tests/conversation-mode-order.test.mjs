@@ -5,7 +5,7 @@
    workspace (src/tool-reach.ts). "follow" is the owner's own rules, not a mode. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -14,20 +14,33 @@ import { createBranch, evaluatePolicy, isReadOnlyPermission, savePolicy } from "
 import { saveConversationMode } from "../dist/conversation-mode.js";
 import { permissionClassified, reachOf } from "../dist/tool-reach.js";
 import { noStandingRefusal } from "../dist/runtime.js";
-import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js";
-import { BranchShell, registerShell } from "../dist/integrations/shell.js";
+import { loadIntegrations } from "../dist/integrations/bootstrap.js";
+import { registerHttpTools } from "../dist/skill-http-tools.js";
+import { HttpToolSchema } from "../dist/skill-package.js";
 
 const modes = ["plan", "ask", "auto", "full"];
 const care = { allow: 0, ask: 1, deny: 2 };
 const page = "https://example.com/a";
 
-/** A real Branch with every switched part on, the browser and a command line: every tool Branch can offer. */
+/**
+ * A real Branch with every switched part on, and the families that need a launch setting or a
+ * connection, wired the way production wires them: the browser (with sign-in fill), a command line,
+ * git remotes, GitHub, GitLab and both issue trackers from a launch file (src/integrations/bootstrap.ts),
+ * a service's tools from a saved OpenAPI description, a skill package's web tool, a tool lent by a
+ * program, and add-on search. Nothing here is called, so nothing reaches the network.
+ */
 async function fullBranch(t, provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } }) {
   const root = await mkdtemp(join(tmpdir(), "branch-mode-order-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  const browser = new BranchBrowser({ allowedOrigins: ["https://example.com"], maxRuns: 1 });
-  const shell = new BranchShell({ executables: { node: { path: process.execPath } } });
-  t.after(async () => { await shell.close(); await browser.close(); await app.close(); await discardTemp(root); });
+  const launch = join(root, "integrations.json");
+  await writeFile(launch, JSON.stringify({
+    browser: { allowedOrigins: ["https://example.com"], maxRuns: 1 },
+    shell: { executables: { node: { path: process.execPath } } },
+    git: { remote: true, github: {}, gitlab: {} },
+    issues: { github: true, gitlab: true },
+  }));
+  const integrations = await loadIntegrations(app.registry, launch, process.env, app.secretsFor, app.channelHost);
+  t.after(async () => { await integrations.close(); await app.close(); await discardTemp(root); });
   for (const part of Object.values(app)) {
     if (!part || typeof part.setMode !== "function") continue;
     const names = typeof part.modes === "function" ? Object.keys(part.modes())
@@ -36,9 +49,15 @@ async function fullBranch(t, provider = { name: "scripted", async complete() { r
     const on = (input) => (name) => name === null ? part.setMode(input) : part.setMode(name, input);
     for (const name of names) { try { on({ mode: "on" })(name); } catch { on("on")(name); } }
   }
-  await shell.ready();
-  registerShell(app.registry, shell);
-  registerBrowser(app.registry, browser);
+  app.addOns.save({ modes: { search: "on" } });
+  registerHttpTools(app.registry, { store: app.store, policy: app.web.policy }, "weather",
+    [HttpToolSchema.parse({ name: "forecast", description: "The forecast for tomorrow.", url: "https://api.example.com/forecast" })]);
+  app.store.save("settings", app.runtime.owner, "openapi-service:weather", { name: "weather", allowlist: ["forecast"], from: "weather.json",
+    document: JSON.stringify({ openapi: "3.0.0", info: { title: "Weather", version: "1" }, servers: [{ url: "https://api.example.com" }],
+      paths: { "/forecast": { get: { operationId: "forecast", summary: "The forecast for tomorrow." } } } }) });
+  assert.deepEqual(app.openApiTools.restore(app.runtime.owner), ["weather"]);
+  app.interop.clients.open({ send() {}, close() {} })
+    .receive(JSON.stringify({ type: "hello", client: "lender", tools: [{ name: "look_up", description: "Looks something up." }] }));
   return app;
 }
 /** One conversation per mode, and what each would decide. */
@@ -105,7 +124,16 @@ test("every tool is classified by what it does: its permission, or its own decla
     const got = { local: held.filter((name) => reach(name) === "local").sort(), outbound: held.filter((name) => reach(name) === "outbound").sort() };
     assert.deepEqual(got, expected, `${permission} holds tools of both kinds: a tool added under it says what it does`);
   }
-  assert.equal(reachOf({ permission: "gitlab.read" }), "outbound", "GitLab reads are outbound");
+  // The outbound permissions whose tools need a launch setting or a connection: each is loaded above,
+  // and each is pinned here on its own, so moving one to the local list cannot pass unseen.
+  const connected = { "api.call": "api.weather.forecast", "skills.http": "skill.weather.forecast", "client.tools": "client.lender.look_up",
+    "gitlab.read": "gitlab.issues", "issues.read": "issues.search", "issues.write": "issues.comment", "github.manage": "github.create_issue",
+    "git.remote": "git.push", "addons.search": "addon.search", "signin.fill": "signin.fill" };
+  for (const [permission, name] of Object.entries(connected)) {
+    assert.equal(reachOf({ permission }), "outbound", `${permission} reaches beyond the workspace`);
+    assert.equal(app.registry.permissionOf(name), permission, `${name} is loaded, with ${permission}`);
+    assert.equal(reach(name), "outbound", `${name} reaches beyond the workspace`);
+  }
   assert.equal(reachOf({ permission: "something.new" }), "outbound", "a permission nobody classified counts as outbound");
   assert.equal(reachOf({ permission: "files.read", reach: "local", external: true }), "outbound", "somebody else's tool counts as outbound");
   assert.equal(app.registry.reachOf("no.such.tool"), "outbound");
