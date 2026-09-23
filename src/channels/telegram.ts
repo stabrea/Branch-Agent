@@ -3,7 +3,7 @@ import type { ChannelAdapter, InboundMessage, OutgoingFile } from "./router.js";
 import type { ChannelPosition } from "../never-break/channel-position.js";
 
 /**
- * Telegram Bot API adapter using long polling. Only text messages are delivered; a message is
+ * Telegram Bot API adapter using long polling. Text and media messages are delivered; a message is
  * "addressed" when it mentions the bot's username or replies to one of the bot's messages.
  */
 export interface TelegramOptions {
@@ -22,7 +22,11 @@ const voiceSchema = z.object({
   mime_type: z.string().max(100).optional(),
   file_size: z.number().nonnegative().optional(),
 }).passthrough();
+const mediaSchema = voiceSchema.extend({ file_unique_id: z.string().optional(), file_name: z.string().optional() });
 const messageSchema = z.object({
+  photo: z.array(mediaSchema).optional(),
+  document: mediaSchema.optional(),
+  video: mediaSchema.optional(),
   message_id: z.number(),
   text: z.string().optional(),
   caption: z.string().optional(),
@@ -204,7 +208,8 @@ export class TelegramAdapter implements ChannelAdapter {
   }
   private inbound(message: z.infer<typeof messageSchema>): InboundMessage | null {
     const spoken = message.voice ?? message.audio;
-    const written = message.text ?? (spoken ? message.caption ?? "" : undefined);
+    const media = message.document ?? message.video ?? message.photo?.at(-1);
+    const written = message.text ?? (spoken || media ? message.caption ?? "" : undefined);
     if (written === undefined || !message.from || message.from.is_bot) return null;
     const mention = this.username ? `@${this.username.toLowerCase()}` : null;
     const mentioned = !!mention && (message.entities ?? []).some((entity) =>
@@ -217,6 +222,13 @@ export class TelegramAdapter implements ChannelAdapter {
       ...(message.chat.title ? { chatTitle: message.chat.title } : {}),
       senderId: String(message.from.id), senderName: message.from.username ?? message.from.first_name ?? String(message.from.id),
       text, addressed: direct || mentioned || replyToBot || (!!spoken && direct), messageId: String(message.message_id),
+      ...(media ? { attachments: [{
+        name: message.document?.file_name ?? message.video?.file_name ?? `photo-${message.message_id}.jpg`,
+        sourceId: media.file_unique_id ?? media.file_id,
+        mediaType: message.document?.mime_type ?? message.video?.mime_type ?? "image/jpeg",
+        kind: message.document ? "document" as const : message.video ? "video" as const : "picture" as const,
+        bytes: () => this.downloadAttachment(media.file_id, media.file_size),
+      }] } : {}),
       ...(spoken ? { voice: {
         mediaType: spoken.mime_type ?? "audio/ogg",
         seconds: spoken.duration,
@@ -235,6 +247,37 @@ export class TelegramAdapter implements ChannelAdapter {
     if (!response.ok) throw new Error(`Telegram would not hand over that voice note (${response.status})`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > limit) throw new Error("That voice note is larger than 20 MB, so it was not used");
+    return bytes;
+  }
+  /** Fetch only after the router accepts the sender, enforcing the intake ceiling on both sides. */
+  private async downloadAttachment(fileId: string, declaredSize?: number): Promise<Uint8Array> {
+    const limit = 20 * 1024 * 1024; // Telegram Bot API getFile download ceiling
+    if (declaredSize !== undefined && declaredSize > limit) throw new Error("Telegram attachment exceeds 20 MB");
+    const info = z.object({ file_path: z.string().min(1).max(400), file_size: z.number().optional() })
+      .passthrough().parse(await this.call("getFile", { file_id: fileId }));
+    if (info.file_size !== undefined && info.file_size > limit) throw new Error("Telegram attachment exceeds 20 MB");
+    const response = await this.fetch(`${this.base.replace("/bot", "/file/bot")}/${info.file_path}`, {
+      redirect: "error", signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) throw new Error(`Telegram attachment download failed (${response.status})`);
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > limit) { await response.body?.cancel(); throw new Error("Telegram attachment exceeds 20 MB"); }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Telegram attachment has no bytes");
+    const chunks: Uint8Array[] = []; let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) throw new Error("Telegram attachment exceeds 20 MB");
+        chunks.push(value);
+      }
+    } catch (error) { await reader.cancel().catch(() => undefined); throw error; }
+    if (declaredSize !== undefined && size !== declaredSize) throw new Error("Telegram attachment size mismatch");
+    if (info.file_size !== undefined && size !== info.file_size) throw new Error("Telegram attachment size mismatch");
+    const bytes = new Uint8Array(size); let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     return bytes;
   }
   private async call(method: string, body: unknown, longPoll = false): Promise<unknown> {
