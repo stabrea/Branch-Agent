@@ -7,7 +7,10 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, Teams } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { TeamTasks, StaleTeamTaskClaimError } from "../dist/team-tasks.js";
+import { TeamTasks, StaleTeamTaskClaimError, storeBoot } from "../dist/team-tasks.js";
+import { TeamHandoffs, beginTeamTurn } from "../dist/team-handoff.js";
+import { spawn } from "node:child_process";
+import { resolve } from "node:path";
 
 // Q61: one durable identity and one claimant per team request. Inert runtimes only: nothing here
 // calls a model or does anything outside the disposable store.
@@ -259,4 +262,135 @@ test("event listeners hear about a finished team task only after it is committed
   assert.equal(new TeamTasks(store).get({ owner, source: "window" }, done.taskId).state, "completed");
   assert.equal(store.events(done.parentRunId).filter((e) => e.kind === "team.ran").length, 1);
   assert.deepEqual(state.app.teams.room(team.id).slice(-2).map((m) => m.content), ["[planner] answer 0", "[reviewer] answer 1"]);
+});
+
+const taskRow = (app, requestId) => app.store.sqlite.prepare("SELECT * FROM team_tasks WHERE request_id=?").get(requestId);
+
+test("a claim held by a process that died is never reported as claimed after a restart, and the same request id dispatches nothing", async (t) => {
+  const { state, owner, team, reopen } = await fixture(t);
+  const requestId = randomUUID();
+  // Boot A claims the task and its turn never ends; then the store is closed as if the process died.
+  const stuck = { dispatches: 0, run: (options) => { stuck.dispatches++; const run = state.app.store.createRun(owner, "team parent"); options.onStarted(run); return new Promise(() => {}); } };
+  void state.app.teams.run(stuck, knowledge, team.id, "hang", { requestId });
+  await new Promise((resolve) => setImmediate(resolve));
+  const bootA = storeBoot(state.app.store);
+  assert.equal(taskRow(state.app, requestId).state, "claimed");
+  assert.equal(taskRow(state.app, requestId).boot_id, bootA, "the claim records the opening of the store that made it");
+  // Boot B: the same request id is answered from the record, never as claimed for ever.
+  const app = await reopen();
+  assert.notEqual(storeBoot(app.store), bootA);
+  const retry = inertRuntime(app.store, owner);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const seen = await app.teams.run(retry, knowledge, team.id, "hang", { requestId });
+    assert.notEqual(seen.state, "claimed", `attempt ${attempt}: a dead process's claim is settled, not reported as live`);
+  }
+  assert.equal(retry.dispatches, 0, "nothing is dispatched again for the same request id");
+  assert.notEqual(taskRow(app, requestId).state, "claimed");
+});
+
+test("a real process that claims a team task and is SIGKILLed leaves a claim the next start settles, with no dispatch", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-team-crash-"));
+  t.after(() => discardTemp(root));
+  const child = spawn(process.execPath, [resolve("tests/fixtures/team-claim-crash.mjs"), root], { stdio: ["ignore", "pipe", "inherit"] });
+  const exited = new Promise((done) => child.on("exit", (code, signal) => done(signal)));
+  const line = await new Promise((done, fail) => {
+    let text = "";
+    child.stdout.on("data", (chunk) => { text += chunk; if (text.includes("\n")) done(JSON.parse(text.split("\n")[0])); });
+    child.on("exit", () => fail(new Error(`the child exited before claiming: ${text}`)));
+  });
+  child.kill("SIGKILL");
+  assert.equal(await exited, "SIGKILL");
+  const app = await open(root);
+  t.after(() => app.close().catch(() => undefined));
+  assert.equal(taskRow(app, line.requestId).state, "claimed", "the dead process left its claim behind");
+  const retry = inertRuntime(app.store, app.runtime.owner);
+  const seen = await app.teams.run(retry, knowledge, line.teamId, "hang here", { requestId: line.requestId });
+  assert.equal(seen.taskId, line.taskId);
+  assert.notEqual(seen.state, "claimed");
+  assert.equal(retry.dispatches, 0);
+});
+
+test("a task handed to a person keeps its claim across a restart: only a process's claim from an earlier start is settled", async (t) => {
+  const { state, owner, team, reopen } = await fixture(t);
+  const tasks = new TeamTasks(state.app.store), scope = { owner, source: "window" };
+  const requestId = randomUUID();
+  const task = tasks.observe(scope, team.id, requestId, "f");
+  const claim = tasks.claim(scope, task.taskId);
+  const handoffs = new TeamHandoffs(state.app.store);
+  const planner = { owner, id: `member:${team.members[0].specialistId}` };
+  handoffs.accept(planner, handoffs.offer(claim, planner.id, "planner takes it").offerId);
+  assert.equal(taskRow(state.app, requestId).boot_id, null, "a person, not a process, holds it now");
+  const app = await reopen();
+  assert.equal(app.teams.reconcile(task.taskId).state, "claimed");
+  const seen = new TeamTasks(app.store).get(scope, task.taskId);
+  assert.equal(seen.state, "claimed");
+  assert.equal(seen.claimant, planner.id);
+});
+
+test("a write to a task that is no longer claimed is refused even with the right claimant and generation", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const tasks = new TeamTasks(state.app.store), scope = { owner, source: "window" };
+  const task = tasks.observe(scope, team.id, randomUUID(), "f");
+  const claim = tasks.claim(scope, task.taskId);
+  tasks.markFailed(claim, "stopped before anything was done");
+  const settled = tasks.get(scope, task.taskId);
+  assert.equal(settled.state, "failed");
+  assert.equal(settled.claimant, claim.claimant);
+  assert.equal(settled.generation, claim.generation);
+  assert.throws(() => tasks.recordOutcome(claim, { answers: [] }), StaleTeamTaskClaimError);
+  assert.throws(() => tasks.markNeedsReconciliation(claim, "late"), StaleTeamTaskClaimError);
+  assert.throws(() => tasks.complete(claim, { answers: [] }, () => {}), StaleTeamTaskClaimError);
+  assert.deepEqual(tasks.get(scope, task.taskId), settled, "the settled row is unchanged");
+});
+
+test("a claim that moved before the turn started never reaches the runtime: no run, no model call", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const planner = { owner, id: `member:${team.members[0].specialistId}` };
+  // The claim is handed over (offer, accept) the moment it is won, before the turn begins.
+  const claim = TeamTasks.prototype.claim;
+  TeamTasks.prototype.claim = function takenOver(...args) {
+    const won = claim.apply(this, args);
+    const handoffs = new TeamHandoffs(state.app.store);
+    handoffs.accept(planner, handoffs.offer(won, planner.id, "planner takes it").offerId);
+    return won;
+  };
+  t.after(() => { TeamTasks.prototype.claim = claim; });
+  const runsBefore = state.app.store.runs(owner).length;
+  const runtime = inertRuntime(state.app.store, owner);
+  const seen = await state.app.teams.run(runtime, knowledge, team.id, "ship it", { requestId: randomUUID() });
+  TeamTasks.prototype.claim = claim;
+  assert.equal(runtime.dispatches, 0, "the stale claimant never asked the runtime for anything");
+  assert.equal(state.app.store.runs(owner).length, runsBefore, "no run was created");
+  assert.equal(seen.state, "claimed");
+  assert.equal(new TeamTasks(state.app.store).get({ owner, source: "window" }, seen.taskId).claimant, planner.id);
+});
+
+test("the same request id in upper and lower case is one request and runs the team once", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const runtime = inertRuntime(state.app.store, owner);
+  const requestId = randomUUID();
+  const first = await state.app.teams.run(runtime, knowledge, team.id, "plan", { requestId: requestId.toUpperCase() });
+  const second = await state.app.teams.run(runtime, knowledge, team.id, "plan", { requestId });
+  assert.equal(runtime.dispatches, 1);
+  assert.equal(second.taskId, first.taskId);
+  assert.equal(first.requestId, requestId, "the id is kept in lower case");
+});
+
+test("removing a team forgets its tasks, except one whose turn is still running here", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const other = state.app.teams.save({ name: "Other", members: team.members });
+  const runtime = inertRuntime(state.app.store, owner);
+  await state.app.teams.run(runtime, knowledge, team.id, "plan", { requestId: randomUUID() });
+  const kept = await state.app.teams.run(runtime, knowledge, other.id, "plan", { requestId: randomUUID() });
+  const tasks = new TeamTasks(state.app.store), scope = { owner, source: "window" };
+  const running = tasks.observe(scope, team.id, randomUUID(), "f");
+  tasks.claim(scope, running.taskId);
+  const ended = beginTeamTurn(state.app.store, running.taskId);
+  t.after(ended);
+  const count = (teamId) => state.app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM team_tasks WHERE team_id=?").get(teamId).n;
+  assert.equal(count(team.id), 2);
+  assert.deepEqual(state.app.teams.remove(team.id), { removed: true });
+  assert.equal(count(team.id), 1, "only the task with a turn running is kept");
+  assert.ok(tasks.get(scope, running.taskId));
+  assert.equal(tasks.get(scope, kept.taskId).state, "completed", "another team's tasks are untouched");
 });

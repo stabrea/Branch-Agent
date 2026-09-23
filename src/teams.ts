@@ -5,7 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Message, Run } from "./contracts.js";
 import { StaleTeamTaskClaimError, TeamTasks, teamRequestFingerprint, type TeamTaskClaim } from "./team-tasks.js";
-import { finishTeamTask, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
+import { dispatchHeld, finishTeamTask, holdDispatch, reconcileTeamTask, releaseDispatch, runStopped, settleUnfinished, settleWaiting, turnEffects, type ReconcileReport, type TeamRunResult } from "./team-reconcile.js";
 
 /**
  * Teams: a named, durable group of specialists with roles and a shared room. A team task fans out
@@ -52,8 +52,11 @@ export class Teams {
     if (!existing) this.store.message(room, { role: "system", content: `Team "${team.name}" room. ${team.purpose}`.trim() });
     return team;
   }
+  /** Removes a team and forgets its tasks, except one whose turn is still running here (its own writes must still land). */
   remove(id: string): { removed: boolean } {
-    return { removed: this.store.delete("governance", this.owner, `team:${id}`) };
+    const removed = this.store.delete("governance", this.owner, `team:${id}`);
+    if (removed) this.tasks.forgetTeam(this.owner, id, (taskId) => dispatchHeld(this.store, taskId));
+    return { removed };
   }
   /** The room's ordered history: what was asked and what every member answered. */
   room(id: string): Message[] {
@@ -68,7 +71,8 @@ export class Teams {
   async run(runtime: Runtime, knowledge: Knowledge, id: string, prompt: string, request: { requestId?: string | undefined; source?: string } = {}) {
     const team = this.get(id);
     const scope = { owner: this.owner, source: request.source ?? "window" };
-    const requestId = request.requestId ?? randomUUID();
+    // A request id is a UUID, so the same id in upper or lower case is the same request.
+    const requestId = (request.requestId ?? randomUUID()).toLowerCase();
     const task = this.tasks.observe(scope, team.id, requestId, teamRequestFingerprint({ teamId: team.id, prompt, ...team }));
     const claim = task.state === "pending" ? this.tasks.claim(scope, task.taskId) : null;
     if (!claim) return this.observed(scope, task.taskId);
@@ -103,6 +107,8 @@ export class Teams {
   }
   /** What a caller that did not win the claim sees: the recorded result, or only the task's state. */
   private observed(scope: { owner: string; source: string }, taskId: string) {
+    // A claim made by a process that is gone is settled from the record first, never reported as claimed for ever.
+    if (this.tasks.claimedByEarlierBoot(this.tasks.get(scope, taskId)!)) reconcileTeamTask(this.store, this.tasks, scope, taskId);
     const task = this.tasks.get(scope, taskId)!;
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
     if (task.state === "completed") return { ...(task.result as object), ...identity };
@@ -112,6 +118,8 @@ export class Teams {
     return { teamId: task.teamId, ...identity };
   }
   private async dispatch(runtime: Runtime, knowledge: Knowledge, team: Team, prompt: string, claim: TeamTaskClaim, turn: TurnProgress) {
+    // The claim must still be this caller's before the runtime is asked for anything; if it moved, only observe.
+    if (!this.tasks.held(claim)) return this.observed(claim.scope, claim.taskId);
     const parent = await this.startParent(runtime, team, prompt, claim, turn);
     if (parent.status !== "completed") return this.stopBeforeMembers(claim, parent);
     const context = runtime.context({ runId: parent.id });

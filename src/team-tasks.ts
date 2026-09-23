@@ -15,12 +15,16 @@ import type { Store } from "./store.js";
  * Every write after the claim names the owner, the source, the task, the claimant and the
  * generation, so a stale or wrong claimant changes nothing. Nothing here expires a claim or lets
  * another caller take it over.
+ * A claim also records which opening of the store made it (its boot). A claim made by an earlier
+ * opening belongs to a process that is gone, so it is never reported as simply "claimed": whoever
+ * reads it settles it from the record first (Teams.run, src/team-reconcile.ts). A task handed to a
+ * person (src/team-handoff.ts) has no boot: a person, not a process, holds it.
  */
 export type TeamTaskState = "pending" | "claimed" | "completed" | "failed" | "needs_reconciliation" | "waiting_owner";
 export interface TeamTaskScope { owner: string; source: string }
 export interface TeamTask {
   taskId: string; owner: string; source: string; teamId: string; requestId: string; fingerprint: string;
-  state: TeamTaskState; claimant: string | null; generation: number; parentRunId: string | null;
+  state: TeamTaskState; claimant: string | null; generation: number; parentRunId: string | null; bootId: string | null;
   result: unknown; error: string | null; question: string | null; createdAt: string; updatedAt: string;
 }
 /** A claim the caller holds; later writes must present all of it. */
@@ -31,6 +35,12 @@ export class StaleTeamTaskClaimError extends Error {}
 
 const maximumResultChars = 512_000;
 
+/** One random id per opening of a store, so a claim can tell whether the process that made it is still this one. */
+const boots = new WeakMap<Store, string>();
+export function storeBoot(store: Store): string {
+  return boots.get(store) ?? boots.set(store, randomUUID()).get(store)!;
+}
+
 /** A stable fingerprint of the request: the prompt and the team exactly as it will run. */
 export function teamRequestFingerprint(input: { teamId: string; prompt: string; name: string; purpose: string; members: { specialistId: string; role: string; brief: string }[] }): string {
   const members = input.members.map((m) => [m.specialistId, m.role, m.brief]);
@@ -39,11 +49,12 @@ export function teamRequestFingerprint(input: { teamId: string; prompt: string; 
 
 export class TeamTasks {
   constructor(private readonly store: Store) {
-    // Q61 and Q63 must land together: this table has no migration, so a database made by Q61 alone would need one.
+    // Q61 and Q63 must land together: this table has no migration, so a database made by an earlier
+    // build of either (before boot_id) would need one; none has shipped.
     this.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS team_tasks(
       task_id TEXT PRIMARY KEY, owner TEXT NOT NULL, source TEXT NOT NULL, team_id TEXT NOT NULL, request_id TEXT NOT NULL,
       fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','failed','needs_reconciliation','waiting_owner')),
-      claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, parent_run_id TEXT, result TEXT, error TEXT, question TEXT,
+      claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, boot_id TEXT, parent_run_id TEXT, result TEXT, error TEXT, question TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner, source, team_id, request_id))`);
   }
   /** Records the request once, or finds the one already recorded; a changed request under a reused id is refused. */
@@ -62,15 +73,30 @@ export class TeamTasks {
   /** Moves a pending task to claimed in one conditional write; only one caller can ever win it. */
   claim(scope: TeamTaskScope, taskId: string): TeamTaskClaim | null {
     const claimant = randomUUID();
-    const row = this.store.sqlite.prepare(`UPDATE team_tasks SET state='claimed', claimant=?, generation=generation+1, updated_at=?
+    const row = this.store.sqlite.prepare(`UPDATE team_tasks SET state='claimed', claimant=?, boot_id=?, generation=generation+1, updated_at=?
       WHERE owner=? AND source=? AND task_id=? AND state='pending' RETURNING generation`)
-      .get(claimant, new Date().toISOString(), scope.owner, scope.source, taskId);
+      .get(claimant, storeBoot(this.store), new Date().toISOString(), scope.owner, scope.source, taskId);
     return row ? { scope, taskId, claimant, generation: Number(row.generation) } : null;
   }
   /** The task as this scope sees it; another scope's task is not found. */
   get(scope: TeamTaskScope, taskId: string): TeamTask | undefined {
     const row = this.store.sqlite.prepare("SELECT * FROM team_tasks WHERE owner=? AND source=? AND task_id=?").get(scope.owner, scope.source, taskId);
     return row ? toTask(row) : undefined;
+  }
+  /** True when a process that is gone (an earlier opening of the store) holds this claimed task. */
+  claimedByEarlierBoot(task: TeamTask): boolean {
+    return task.state === "claimed" && task.bootId !== null && task.bootId !== storeBoot(this.store);
+  }
+  /** Whether this exact claim still holds its task: same claimant, same generation, still claimed. */
+  held(claim: TeamTaskClaim): boolean {
+    return !!this.store.sqlite.prepare("SELECT 1 FROM team_tasks WHERE owner=? AND source=? AND task_id=? AND claimant=? AND generation=? AND state='claimed'")
+      .get(claim.scope.owner, claim.scope.source, claim.taskId, claim.claimant, claim.generation);
+  }
+  /** Forgets a removed team's tasks, except those `keep` names (a turn still running here). */
+  forgetTeam(owner: string, teamId: string, keep: (taskId: string) => boolean): number {
+    const rows = this.store.sqlite.prepare("SELECT task_id FROM team_tasks WHERE owner=? AND team_id=?").all(owner, teamId);
+    const drop = this.store.sqlite.prepare("DELETE FROM team_tasks WHERE task_id=?");
+    return rows.map((row) => String(row.task_id)).filter((taskId) => !keep(taskId)).reduce((count, taskId) => count + Number(drop.run(taskId).changes), 0);
   }
   /** The claim as it stands in the store, for reconciling a task whose claimant is gone; null unless still claimed. */
   standingClaim(scope: TeamTaskScope, taskId: string): TeamTaskClaim | null {
@@ -132,7 +158,7 @@ function toTask(row: Record<string, unknown>): TeamTask {
     taskId: String(row.task_id), owner: String(row.owner), source: String(row.source), teamId: String(row.team_id),
     requestId: String(row.request_id), fingerprint: String(row.fingerprint), state: row.state as TeamTaskState,
     claimant: row.claimant == null ? null : String(row.claimant), generation: Number(row.generation),
-    parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id),
+    parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id), bootId: row.boot_id == null ? null : String(row.boot_id),
     result: row.result == null ? null : JSON.parse(String(row.result)), error: row.error == null ? null : String(row.error),
     question: row.question == null ? null : String(row.question),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),

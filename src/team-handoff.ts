@@ -103,7 +103,8 @@ export class TeamHandoffs {
       if (!offer) return { refusal: this.whyNot(who, offerId) };
       const gone = this.recipientGone(who.owner, String(offer.team_id), who.id);
       if (gone) return this.lapse(offerId, now, `The recipient could no longer take the task: ${gone}`);
-      const moved = this.store.sqlite.prepare(`UPDATE team_tasks SET claimant=?, generation=generation+1, updated_at=?
+      // The new holder is a person, not this process, so the task no longer belongs to this opening of the store (no boot).
+      const moved = this.store.sqlite.prepare(`UPDATE team_tasks SET claimant=?, boot_id=NULL, generation=generation+1, updated_at=?
         WHERE owner=? AND source=? AND task_id=? AND claimant=? AND generation=? AND state='claimed' RETURNING generation`)
         .get(who.id, iso(now), String(offer.owner), String(offer.source), String(offer.task_id), String(offer.offered_by), Number(offer.from_generation));
       if (!moved) return this.lapse(offerId, now, "The one who offered this task no longer holds it, so the offer lapsed and nothing moved.");

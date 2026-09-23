@@ -127,9 +127,7 @@ test("a crash before the acknowledgement is finished by reconcile from the recor
   const after = scripted();
   const app = await reopen(after);
   const retry = counted(app.runtime);
-  assert.equal((await app.teams.run(retry, knowledge, team.id, "summarise", { requestId })).state, "claimed");
-  const report = app.teams.reconcile(lost.taskId);
-  assert.equal(report.state, "completed");
+  // The claim was made by the process that "died", so the same request id settles it from the record first.
   const finished = await app.teams.run(retry, knowledge, team.id, "summarise", { requestId });
   assert.equal(finished.state, "completed");
   assert.deepEqual(finished.answers.map((a) => [a.role, a.status, a.output]), lost.answers.map((a) => [a.role, a.status, a.output]));

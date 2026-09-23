@@ -118,6 +118,8 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
     ({ taskId, state, parentRunId: task.parentRunId, effects: task.parentRunId ? turnEffects(store, task.parentRunId) : [], note });
   if (task.state !== "claimed") return report(task.state, "This task is already settled.");
   if (working(store).has(taskId)) return report("claimed", "This task is still running here.");
+  // Handed to a person (src/team-handoff.ts): they hold it, not a process, so there is nothing to settle.
+  if (task.bootId === null) return report("claimed", `It is held by ${task.claimant ?? "someone"}, who took it over.`);
   const parent = task.parentRunId ? store.run(task.parentRunId) : undefined;
   // No other process can be the claimant: a second Branch cannot open this database while one has it
   // (the store opens SQLite with locking_mode=EXCLUSIVE, src/store.ts; tests/team-turn-lineage.test.mjs
