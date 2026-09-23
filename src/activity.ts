@@ -1,5 +1,18 @@
 import type { Event, Run } from "./contracts.js";
 import type { Store } from "./store.js";
+import { localFirstReplyMs, toolLimits } from "./knobs/apply.js";
+import { localFirstReplyGraceMs } from "./reliability.js";
+
+/**
+ * Q51: how long a working task may record nothing before it reads "no update": the longest silence the owner's own
+ * limits allow, with their settings applied: a model's stall window, one tool's run, or a model on this computer
+ * starting its reply (with the grace the runtime gives it).
+ */
+export function staleAfterMs(store: Parameters<typeof toolLimits>[0], owner: string,
+  limits: { modelStallMs: number; toolTimeoutMs: number; toolResultChars: number; localFirstReplyMs: number }): number {
+  const firstMs = localFirstReplyMs(store, owner, limits);
+  return Math.max(limits.modelStallMs, toolLimits(store, owner, limits).toolTimeoutMs, firstMs + localFirstReplyGraceMs(firstMs));
+}
 
 /**
  * Plain-language activity for a task in progress: what the assistant is doing right now and how
@@ -218,15 +231,9 @@ function orchestrationState(events: Event[]): Partial<RunActivity> {
  * other screens count these as busy.
  */
 export function liveActivity(store: Store, owner: string, options: { waiting?: boolean; staleMs?: number; now?: number } = {}): RunActivity[] {
-  const runs = store.runs(owner); // the newest 100, newest first
-  const running = runs.filter((run) => run.status === "running");
-  /* The same tasks "Needs you" lists (server.ts `attention`): each conversation's newest, when it stopped to ask. */
-  const newest = new Set<string>(), waiting: Run[] = [];
-  if (options.waiting === true) for (const run of runs) {
-    if (newest.has(run.sessionId)) continue;
-    newest.add(run.sessionId);
-    if (run.status === "needs_input") waiting.push(run);
-  }
+  const running = store.runs(owner).filter((run) => run.status === "running");
+  /* Each conversation's newest task when it waits for the owner, read apart from the recent-history window. */
+  const waiting = options.waiting === true ? store.waitingRuns(owner) : [];
   return [...running, ...waiting].map((run) => {
     const working = store.working.describe(run.sessionId);
     return { ...runActivity(run, store.events(run.id), options), ...(working ? { working } : {}) };

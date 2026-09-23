@@ -16,7 +16,7 @@ import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
-import { liveActivity } from "./activity.js";
+import { liveActivity, staleAfterMs } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import {
   PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
@@ -1409,7 +1409,7 @@ async function api(
   if (request.method === "GET" && path === "/api/activity") {
     // Q51: `?waiting=1` adds the tasks waiting for the owner; stale is judged by the owner's own model and tool limits.
     const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
-    const staleMs = Math.max(app.runtime.reliability.modelStallMs, app.runtime.reliability.toolTimeoutMs);
+    const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
     return liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
   }
   if (request.method === "GET" && path === "/api/second-opinion")
