@@ -165,6 +165,71 @@ test("fetchAttestationBundles follows bundle_url when GitHub externalises the bu
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+/**
+ * A from-scratch, general-purpose raw-Snappy-block encoder, test-only, with no dependency: the
+ * inverse of `decodeSnappy` in `src/desktop/provenance.ts`. It greedily backreferences any repeat of
+ * 4+ bytes anywhere earlier in the buffer (a real LZ77 match, not a stub), so encoding real bundle
+ * JSON — which repeats punctuation, field names and base64 runs throughout — exercises the copy-op
+ * path the decoder must handle, the same shape GitHub's blob storage actually serves
+ * (`Content-Type: application/x-snappy`, confirmed live against `repos/cli/cli/attestations/...`).
+ * Returns `{ encoded, usedCopy }` so a test can assert it did not silently fall back to literals-only.
+ */
+function snappyEncodeForTest(buf) {
+  const chunks = [];
+  let n = buf.length;
+  do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; chunks.push(Buffer.from([b])); } while (n);
+  let usedCopy = false;
+  let i = 0;
+  while (i < buf.length) {
+    let bestLen = 0, bestOff = 0;
+    const maxOffset = Math.min(i, 65535);
+    for (let off = 4; off <= maxOffset; off++) {
+      let l = 0;
+      const cap = Math.min(64, buf.length - i);
+      while (l < cap && buf[i - off + l] === buf[i + l]) l++;
+      if (l > bestLen) { bestLen = l; bestOff = off; }
+    }
+    if (bestLen >= 4) {
+      usedCopy = true;
+      chunks.push(Buffer.from([((bestLen - 1) << 2) | 0x02, bestOff & 0xff, (bestOff >> 8) & 0xff]));
+      i += bestLen;
+    } else {
+      chunks.push(Buffer.from([0x00]), buf.subarray(i, i + 1)); // literal, length 1
+      i += 1;
+    }
+  }
+  return { encoded: Buffer.concat(chunks), usedCopy };
+}
+
+test("fetchAttestationBundles reads a bundle_url served as raw Snappy (as GitHub's blob storage does)", async () => {
+  // Confirmed live: `gh api repos/cli/cli/attestations/sha256:<digest>` answers `bundle_url` pointing
+  // at an Azure blob whose response has `Content-Type: application/x-snappy` and whose bytes are the
+  // raw Snappy block format (varint length, then literal/copy elements) — not gzip, not framed.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex);
+  const bundleJson = Buffer.from(JSON.stringify(bundle), "utf8");
+  const { encoded, usedCopy } = snappyEncodeForTest(bundleJson);
+  assert.ok(usedCopy, "the fixture should exercise the copy-op path, not just literals");
+  const server = createServer((req, res) => {
+    if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${origin()}/blob/one.json.sn` }] }));
+    }
+    if (req.url === "/blob/one.json.sn") { res.writeHead(200, { "content-type": "application/x-snappy" }); return res.end(encoded); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  try {
+    const [read] = await fetchAttestationBundles({
+      fetch: (url, init) => fetch(url.replace("https://api.github.com", origin()), init),
+      repo, digestHex, userAgent: "test",
+    });
+    const result = verifyAttestationBundle(read, { repo, digestHex });
+    assert.equal(result.workflow, workflowUri);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("fetchAttestationBundles skips a bundle_url it cannot read as JSON, rather than failing the update", async () => {
   // GitHub has been seen serving the externalised bundle in a form that is not plain JSON (its
   // reason is unstated). This is treated the same as no bundle at all — quietly skipped, never

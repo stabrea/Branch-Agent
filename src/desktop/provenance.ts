@@ -20,10 +20,85 @@ import { z } from "zod";
  *
  * GitHub sometimes answers with `bundle_url` (a separate blob address) instead of an inline
  * `bundle`; checked against a real, currently-published release (`gh api
- * repos/cli/cli/attestations/sha256:<digest>`), that URL did not serve plain JSON, in a form this
- * file does not decode. Such a bundle is skipped, the same as one that was never published — never
+ * repos/cli/cli/attestations/sha256:<digest>`), that URL serves `Content-Type: application/x-snappy`
+ * (the address itself ends `.json.sn`) — the raw Snappy block format (a varint uncompressed length,
+ * then literal/copy elements; RFC-less but documented at
+ * github.com/google/snappy/blob/main/format_description.txt), not a framed stream and not gzip.
+ * `decodeSnappy` below reads that shape with no dependency. Anything that is neither plain JSON nor a
+ * body `decodeSnappy` can read is skipped, the same as a bundle that was never published — never
  * trusted half-read, and never allowed to block an update the checksum already passed.
  */
+
+/**
+ * Decodes the raw Snappy block format (no framing, no CRC): a varint uncompressed length followed by
+ * literal and copy elements. Bounds-checked throughout — a malformed or hostile stream (this reads
+ * network input) throws rather than over-reading, and every caller treats that throw as "unreadable",
+ * the same as bytes that were never Snappy to begin with.
+ */
+function decodeSnappy(input: Buffer, maxLength = 8 * 1024 * 1024): Buffer {
+  let pos = 0;
+  const readVarint = (): number => {
+    let result = 0, shift = 0;
+    for (;;) {
+      if (pos >= input.length) throw new Error("truncated snappy varint");
+      const byte = input[pos]!; pos++;
+      result |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) break;
+      shift += 7;
+      if (shift > 28) throw new Error("snappy varint too long");
+    }
+    return result >>> 0;
+  };
+  const uncompressedLength = readVarint();
+  if (uncompressedLength > maxLength) throw new Error("snappy uncompressed length too large");
+  const out = Buffer.alloc(uncompressedLength);
+  let written = 0;
+  while (pos < input.length) {
+    const tag = input[pos]!;
+    const elementType = tag & 0x3;
+    if (elementType === 0) {
+      let length = (tag >>> 2) + 1;
+      pos++;
+      if (length > 60) {
+        const extraBytes = length - 60;
+        if (pos + extraBytes > input.length) throw new Error("truncated snappy literal length");
+        let n = 0;
+        for (let i = 0; i < extraBytes; i++) n |= input[pos + i]! << (8 * i);
+        pos += extraBytes;
+        length = (n >>> 0) + 1;
+      }
+      if (pos + length > input.length) throw new Error("truncated snappy literal");
+      if (written + length > out.length) throw new Error("snappy literal overruns declared length");
+      input.copy(out, written, pos, pos + length);
+      written += length; pos += length;
+    } else {
+      let length: number, offset: number;
+      if (elementType === 1) {
+        length = ((tag >>> 2) & 0x7) + 4;
+        if (pos + 1 >= input.length) throw new Error("truncated snappy copy");
+        offset = ((tag & 0xe0) << 3) | input[pos + 1]!;
+        pos += 2;
+      } else if (elementType === 2) {
+        length = (tag >>> 2) + 1;
+        if (pos + 2 >= input.length) throw new Error("truncated snappy copy");
+        offset = input.readUInt16LE(pos + 1);
+        pos += 3;
+      } else {
+        length = (tag >>> 2) + 1;
+        if (pos + 4 >= input.length) throw new Error("truncated snappy copy");
+        offset = input.readUInt32LE(pos + 1);
+        pos += 5;
+      }
+      if (offset === 0 || offset > written) throw new Error("snappy copy offset out of range");
+      if (written + length > out.length) throw new Error("snappy copy overruns declared length");
+      // Byte-by-byte on purpose: Snappy copies may overlap their own not-yet-finished source run.
+      for (let i = 0; i < length; i++) out[written + i] = out[written - offset + i]!;
+      written += length;
+    }
+  }
+  if (written !== uncompressedLength) throw new Error("snappy stream shorter than its declared length");
+  return out;
+}
 
 const certSchema = z.object({ rawBytes: z.string().min(1) });
 const bundleSchema = z.object({
@@ -76,12 +151,24 @@ export async function fetchAttestationBundles(input: {
   return bundles;
 }
 
-/** A bundle GitHub externalised; read as plain JSON, and quietly skipped when it is not (see above). */
+/**
+ * A bundle GitHub externalised: read as plain JSON first, and, when that is not what the body is,
+ * as JSON inside a raw-Snappy-compressed body (GitHub's own blob storage serves these as
+ * `Content-Type: application/x-snappy`) — either way quietly skipped, never thrown, when neither
+ * reading gives valid JSON of this shape (see the file-level comment above).
+ */
 async function fetchExternalBundle(fetchImpl: typeof fetch, url: string, userAgent: string): Promise<AttestationBundle | null> {
   try {
     const response = await fetchImpl(url, { headers: { "user-agent": userAgent }, signal: AbortSignal.timeout(15000) });
     if (!response.ok) return null;
-    const parsed = bundleSchema.safeParse(await response.json());
+    const bytes = Buffer.from(await response.arrayBuffer());
+    let json: unknown;
+    try { json = JSON.parse(bytes.toString("utf8")); }
+    catch {
+      try { json = JSON.parse(decodeSnappy(bytes).toString("utf8")); }
+      catch { return null; }
+    }
+    const parsed = bundleSchema.safeParse(json);
     return parsed.success ? parsed.data : null;
   } catch { return null; }
 }
