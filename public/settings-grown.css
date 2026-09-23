@@ -95,6 +95,21 @@
 .settings-directory-open {
   flex: none;
 }
+/* DG-184: Notifications is the sample's one section, When Branch gets your attention. Its cards read as that section's
+   rows under its one heading, with no titles or lines of their own (a search still shows them), and Days off sits on
+   the page like the other cards instead of in a box of its own. */
+body:not(.lx-settings-searching) [data-sg-bucket="notifications:attention"] > :is(h2, h3, p.subtle:not(.field-note, [role="status"])),
+body:not(.lx-settings-searching) [data-sg-bucket="notifications:attention"] > .collab-section > :is(h3, .collab-desc) {
+  display: none;
+}
+#lx-page-notifications #lx-collab-days-off > .collab-section {
+  margin: 0;
+  padding: 18px 0 22px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
 /* Destructive uninstall controls keep the warning enclosure from the full window. */
 .lx-page > .card.danger-zone {
   margin: 0 0 12px;
