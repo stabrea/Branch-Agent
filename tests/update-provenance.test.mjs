@@ -95,6 +95,7 @@ test("verifyAttestationBundle accepts only this repository's release workflow ru
     `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.3.0/extra`,
     `https://github.com/${repo}-fork/.github/workflows/package.yml@refs/tags/v0.3.0`,
     "https://dotcom.releases.github.com",
+    `https://evil.example/URI:https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.3.0`,
   ]) assert.throws(() => verifyAttestationBundle(makeBundle(digestHex, { uri }), { repo, digestHex }),
     /does not name this repository's release workflow for a version tag/, uri);
   for (const uri of [workflowUri, `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v12.0.1+build.7`])
@@ -298,6 +299,33 @@ test("fetchAttestationBundles counts a bundle_url it cannot read as JSON or Snap
   try {
     const result = await fetchAttestationBundles({ fetch: viaLocal(origin), repo, digestHex, userAgent: "test" });
     assert.deepEqual(result, { bundles: [], unreadable: 1 });
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("fetchAttestationBundles treats a bundle_url that answers with a redirect as unreadable, never following it", async (t) => {
+  // A redirect on a bundle_url is not followed — `redirect: "error"` in fetchExternalBundle
+  // rejects the response. The redirect target is never fetched, and the bundle counts as unreadable.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex);
+  const visited = [];
+  const server = createServer((req, res) => {
+    visited.push(req.url);
+    if (req.url === `/repos/${repo}/attestations/sha256:${digestHex}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ attestations: [{ bundle: null, bundle_url: `${blobHost}/blob/redirect` }] }));
+    }
+    if (req.url === "/blob/redirect") { res.writeHead(302, { location: `/blob/valid` }); return res.end(); }
+    if (req.url === "/blob/valid") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(bundle)); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  try {
+    const result = await fetchAttestationBundles({ fetch: viaLocal(origin), repo, digestHex, userAgent: "test" });
+    assert.deepEqual(result, { bundles: [], unreadable: 1 });
+    assert.ok(visited.includes("/blob/redirect"), "the redirect URL was visited");
+    assert.ok(!visited.includes("/blob/valid"), "the redirect target was never visited");
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
