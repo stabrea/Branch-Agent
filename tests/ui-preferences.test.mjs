@@ -456,13 +456,13 @@ test("a label or list entry made before the import keeps the older ones, merged 
   const [a, b, c] = [app.store.createSession(owner), app.store.createSession(owner), app.store.createSession(owner)];
   const api = (path, body) => uiPreferencesApi({ store: app.store, owner, isOwner: true }, "POST", path, async () => body);
   await api("/api/ui-preferences", { mark: { id: a, pinned: true, name: "Made here" } });
-  await api("/api/ui-preferences", { add: { petTipsSeen: ["delight.tip.mode"] } });
+  await api("/api/ui-preferences", { add: { petTipsSeen: ["delight.tip.mode", "delight.tip.name"] } });
 
   const imported = await api("/api/ui-preferences/import", { name: LEGACY_IMPORT, values: { petTipsSeen: ["delight.tip.palette", "delight.tip.mode"] },
     conversations: { names: { [a]: "Older", [b]: "Kept" }, pinned: [b, c, a], buried: [c] } });
   assert.deepEqual(imported.conversations, { names: { [b]: "Kept", [a]: "Made here" }, pinned: [b, c, a], buried: [c] },
     "the older labels join the one made here, and a name chosen here wins");
-  assert.deepEqual(imported.values.petTipsSeen, ["delight.tip.palette", "delight.tip.mode"], "a list gets the entries it lacked");
+  assert.deepEqual(imported.values.petTipsSeen, ["delight.tip.palette", "delight.tip.mode", "delight.tip.name"], "a list gets the entries it lacked");
 
   /* The caps still hold, and what was made here is what stays. */
   const full = await freshBranch(t);
