@@ -140,6 +140,9 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const spec = settingsCatalogue.find((entry) => entry.key === PutBackBody.parse(input).key);
   if (!spec?.putBack) throw new SettingsKitError(404, "That setting has no way to be put back as shipped.");
+  // Only a record that cannot be read: a readable one is changed through the kit or its card, where a
+  // loosening asks and a pin holds (a stale button in another window must not wipe what the owner just set).
+  if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
   spec.putBack(deps.store, deps.owner);
   audit(deps.store, deps.owner, { action: "policy.changed", actor: deps.owner, subject: `${spec.name}: put back as shipped`,
     reason: "The saved record could not be read, so the whole of it was started again from how Branch ships", outcome: "saved" });

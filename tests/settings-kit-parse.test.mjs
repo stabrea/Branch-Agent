@@ -341,6 +341,12 @@ test("the way out: an unreadable voice record is put back as shipped, then voice
   const saved = await call("/api/voice/settings", { autoReadAloud: true });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   assert.equal(voiceSettings(store, owner).autoReadAloud, true);
+  // Not on a record that reads fine: a stale button in another window must not wipe what the owner set and pinned.
+  const kept = { ...voiceSettings(store, owner), keepAudioOnThisComputer: true };
+  store.save("settings", owner, "voice", kept);
+  const stale = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(stale.status, 409, JSON.stringify(stale.body));
+  assert.deepEqual(store.get("settings", owner, "voice").data, kept, "a readable record is left as the owner set it");
   // Not while Lockdown holds the settings.
   store.save("settings", owner, "voice", brokenVoice);
   setLockdown(store, owner, { on: true });
