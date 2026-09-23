@@ -8,6 +8,7 @@ import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
 import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
+import { fetchAttestationBundles, verifyAttestationBundle, type AttestationBundle } from "./provenance.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -457,7 +458,42 @@ export class Updater {
     const hash = createHash("sha256");
     const { createReadStream } = await import("node:fs");
     for await (const chunk of createReadStream(archive)) hash.update(chunk as Buffer);
-    if (hash.digest("hex") !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
+    const digestHex = hash.digest("hex");
+    if (digestHex !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
+    await this.verifyProvenance(release, digestHex);
+  }
+  /**
+   * A second check on top of the checksum above: whether GitHub has published a signed build
+   * provenance record for this exact file, naming this repository. No release does yet (that needs
+   * a workflow change outside this update), so having none is not a failure and the update goes on
+   * with only the checksum behind it, as before. A record that is present and does not check out —
+   * a different file, a certificate for some other repository, a signature that does not verify —
+   * stops the update the same way a bad checksum does, because a provenance record that lies is
+   * worse than no provenance record at all.
+   */
+  private async verifyProvenance(release: ReleaseInfo, digestHex: string): Promise<void> {
+    this.set("verifying", "Checking for a build provenance record…", null, release);
+    let bundles: AttestationBundle[] | null;
+    try {
+      bundles = await fetchAttestationBundles({
+        fetch: this.fetch, repo: this.options.repo, digestHex,
+        userAgent: `BranchAgent/${this.options.currentVersion}`,
+      });
+    } catch {
+      // Trouble reaching GitHub for this second, additive check does not undo the checksum this
+      // download already passed.
+      return;
+    }
+    if (!bundles || bundles.length === 0) return;
+    const failures: string[] = [];
+    for (const bundle of bundles) {
+      try {
+        const result = verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex });
+        this.set("verifying", `The download's build provenance record checks out (signed by ${result.workflow}).`, null, release);
+        return;
+      } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    }
+    throw new Error(`The download's build provenance record did not check out (${failures[0]}), so Branch did not install it. Branch is still on the version it had, and nothing was changed.`);
   }
   private async unpack(archive: string): Promise<string> {
     this.set("unpacking", "Unpacking…", null, this.status.release);
