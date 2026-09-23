@@ -769,15 +769,20 @@ export class Runtime {
       throw error;
     }
   }
-  /** Consumes once-only overrules for a browser.flow's steps, after all steps pass judgment and before any step runs. */
-  consumeStepYeses(fingerprints: string[], context: ToolContext): void {
+  /**
+   * Consumes once-only overrules for a browser.flow's steps, after all steps pass judgment and before
+   * any step runs. False when one was already gone: two runs of the same flow judged side by side both
+   * saw it, and only the first may use it.
+   */
+  consumeStepYeses(fingerprints: string[], context: ToolContext): boolean {
     const session = context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+    let all = true;
     for (const fingerprint of fingerprints) {
-      if (this.approvals.takeOverrule(session, fingerprint)) {
-        if (this.store.run(context.runId))
-          this.store.event(context.runId, "policy.overruled", { name: "browser.flow", label: "step", id: fingerprint });
-      }
+      if (!this.approvals.takeOverrule(session, fingerprint)) { all = false; continue; }
+      if (this.store.run(context.runId))
+        this.store.event(context.runId, "policy.overruled", { name: "browser.flow", label: "step", id: fingerprint });
     }
+    return all;
   }
   async delegate(
     prompt: string,

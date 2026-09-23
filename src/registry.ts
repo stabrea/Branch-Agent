@@ -318,7 +318,7 @@ export class ToolRegistry {
    * approval lifecycle. If not provided, overrules are not consumed. Called with the fingerprints
    * returned by judgeStep calls.
    */
-  takeStepYeses?: (fingerprints: string[], context: ToolContext) => void;
+  takeStepYeses?: (fingerprints: string[], context: ToolContext) => boolean;
 }
 
 /**

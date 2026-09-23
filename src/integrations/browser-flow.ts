@@ -101,6 +101,9 @@ export function flowTargets(input: z.infer<typeof FlowSchema>, current: string):
  * (`Runtime.approve`): cut text would be a start that other flows share, and a rule on it would cover
  * them too.
  */
+/** A one-time yes for a step was taken by another run of the same flow judged at the same moment. */
+export const stepYesUsedRefusal = "A yes given just once for a step here was already used by another run of this flow, so nothing was done. Ask again.";
+
 export function flowTarget(sent: unknown, current: string): string {
   const parsed = FlowSchema.safeParse(sent);
   if (!parsed.success) return '';
@@ -159,9 +162,10 @@ function pageEvents(...seen: PageEvents[]): PageEvents {
 export async function runFlow(registry: ToolRegistry, host: FlowHost, input: z.infer<typeof FlowSchema>,
   context: ToolContext): Promise<{ steps: FlowStepReport[]; pages: number }> {
   const usedOverrules = await judgeFlow(registry, host, input, context);
-  // Consume the one-time overrules used during judgment, now that all steps have passed.
-  // Only if any were used and the runtime provides the hook.
-  if (usedOverrules.length > 0) registry.takeStepYeses?.(usedOverrules, context);
+  // The one-time yeses the steps were judged on are used now, before any step runs. One already
+  // used by a run judged alongside this one means this run has no yes of its own: nothing runs.
+  if (usedOverrules.length > 0 && registry.takeStepYeses?.(usedOverrules, context) === false)
+    throw new Error(stepYesUsedRefusal);
   const steps: FlowStepReport[] = [];
   const seen = new Set<string>();
   for (const [index, step] of input.steps.entries()) {

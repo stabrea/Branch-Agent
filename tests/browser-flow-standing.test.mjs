@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir, mkdtemp, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {createBranch} from '../dist/index.js';
+import {createBranch, saveComfort} from '../dist/index.js';
 import {BranchBrowser, registerBrowser} from '../dist/integrations/browser.js';
 import {addPolicyRule, readPolicy, savePolicy} from '../dist/policy.js';
 
@@ -55,9 +55,12 @@ async function boot(root, model, did) {
 
 async function harness(t, label) {
   const root = await scratch(label);
-  const model = scriptedModel(), did = [];
-  const state = {app: await boot(root, model, did), model, did, root};
-  state.reopen = async () => { await state.app.close(); state.app = await boot(root, model, did); };
+  const did = [];
+  const state = {model: scriptedModel(), did, root};
+  // The app asks whichever model the test has put in `state.model`, so a test may swap it for its own.
+  const current = {name: 'scripted', complete: (...args) => state.model.complete(...args)};
+  state.app = await boot(root, current, did);
+  state.reopen = async () => { await state.app.close(); state.app = await boot(root, current, did); };
   t.after(async () => { await state.app.close(); await rm(root, {recursive: true, force: true}); });
   return state;
 }
@@ -70,7 +73,8 @@ async function turn(state, args, sessionId) {
 }
 const waitingIn = (state, run) => state.app.runtime.approvals.questionFor(run.sessionId);
 const flowRules = (state) => readPolicy(state.app.store, state.app.runtime.owner).rules.filter(rule => rule.tool === 'browser.flow');
-const saveBrowser = (app, values) => app.store.save('settings', app.runtime.owner, 'comfort-browser', values);
+// Through the real setting, which fills in the card's other fields; a bare record would not parse and read as off.
+const saveBrowser = (app, values) => saveComfort(app.store, app.runtime.owner, 'browser', values);
 
 /**
  * The owner lets every single click and page through, and wants to be asked about browser.flow:
@@ -226,14 +230,11 @@ function dualModel() {
 
 test('(d) with confirmSensitive on, "Yes, just now" runs the flow; a retry asks again because the yes is consumed', async (t) => {
   const state = await harness(t, 'flow-once-only');
-  state.model = dualModel();
   const {store, runtime} = state.app;
   savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
   addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
   addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
   saveBrowser(state.app, {confirmSensitive: true});
-
-  state.model.click = {role: 'link', name: 'Next'};
 
   // First call asks about the flow step (the click, now marked as once-only by confirmSensitive).
   const first = await turn(state, docs);
@@ -326,4 +327,22 @@ test('(control) a single-step browser.click with confirmSensitive still works no
   // Second call of the same click: because it's single-step, the yes should also be consumed, so it should ask again.
   const third = await turn(state, {}, first.sessionId);
   assert.equal(third.status, 'needs_input', 'single-step click also consumes the yes');
+});
+
+test('(d3) a one-time yes another run of the same flow already used lets nothing run', async () => {
+  const {runFlow, stepYesUsedRefusal} = await import('../dist/integrations/browser-flow.js');
+  const {ToolRegistry} = await import('../dist/registry.js');
+  const registry = new ToolRegistry();
+  const ran = [];
+  registry.judgeStep = () => 'step-fingerprint';
+  registry.takeStepYeses = () => false; // the other run took it first
+  const host = {
+    hostFor: () => 'shop.example.com', checkAddress: async () => {},
+    navigate: async (url) => { ran.push(`navigate ${url}`); return {url, title: ''}; },
+    click: async () => { ran.push('click'); return {}; }, fill: async () => { ran.push('fill'); return {}; },
+    wait: async () => ({}), screenshot: async () => ({}),
+  };
+  await assert.rejects(runFlow(registry, host, {steps: [{action: 'click', role: 'button', name: 'Place order'}]}, {runId: 'r', owner: 'local'}),
+    (error) => error.message === stepYesUsedRefusal);
+  assert.deepEqual(ran, [], 'nothing ran');
 });
