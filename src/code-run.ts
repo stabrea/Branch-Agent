@@ -15,6 +15,7 @@ import {
   sandboxBackendSet, sliceFor, SandboxBackendSettingsSchema,
   type SandboxBackend, type SandboxBackendName, type SandboxProbe, type SandboxSpawn,
 } from "./sandbox-backends.js";
+import { agentContainerSlice } from "./sandbox-agent-containers.js";
 
 /**
  * Running a small script the assistant just wrote: a sum, a bit of reshaping, a quick check. It runs
@@ -112,7 +113,12 @@ export class CodeRunner {
       throw new Error("No Python is set up on this computer. The owner points at theirs in Settings, or ask for JavaScript instead.");
     const folder = context.sandboxPaths?.[0] ?? ".";
     const root = await new WorkspaceFiles(this.workspace).checked(".", true);
-    const handle = await backend.prepare(await sliceFor(root, context.sandboxPaths ?? []));
+    // FQ-security.containers: a container is one agent's own folder, not the shared workspace, so
+    // one agent's container can never see another's files — every other backend is unchanged.
+    const slice = backend.name === "docker"
+      ? await agentContainerSlice(root, context.agent, context.sandboxPaths ?? [])
+      : await sliceFor(root, context.sandboxPaths ?? []);
+    const handle = await backend.prepare(slice);
     const limits = { timeoutMs: settings.timeoutMs, maxMemoryMb: settings.maxMemoryMb,
       maxCpuSeconds: settings.maxCpuSeconds, maxOutputBytes: settings.maxOutputBytes,
       network: !shape.netless, job: shape.job,

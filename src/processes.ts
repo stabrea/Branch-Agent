@@ -16,6 +16,7 @@ import {
   chooseSandboxBackend, defaultSandboxProbe, sandboxBackendSet, sliceFor,
   SandboxBackendSettingsSchema, type SandboxBackendName, type SandboxProbe, type SandboxStart,
 } from "./sandbox-backends.js";
+import { agentContainerSlice } from "./sandbox-agent-containers.js";
 
 /**
  * Some programs are meant to keep going: a website being built as you edit it, a watcher, a little
@@ -215,7 +216,11 @@ export class BackgroundProcesses {
   ): Promise<SandboxStart> {
     const chosen = SandboxBackendSettingsSchema.parse(this.store.get("settings", this.owner, "sandbox-backends")?.data ?? {});
     const backend = await chooseSandboxBackend(sandboxBackendSet({ settings: chosen, probe: this.probe }), context.sandboxBackend);
-    const handle = await backend.prepare(await sliceFor(cwd, context.sandboxPaths ?? []));
+    // FQ-security.containers: a program left running in a container gets its own agent's folder too.
+    const slice = backend.name === "docker"
+      ? await agentContainerSlice(cwd, context.agent, context.sandboxPaths ?? [])
+      : await sliceFor(cwd, context.sandboxPaths ?? []);
+    const handle = await backend.prepare(slice);
     const start = await handle.argvFor(command, { timeoutMs: settings.maxMinutes * 60_000,
       maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds,
       maxOutputBytes: settings.bufferBytes, network: !shape.netless, job: shape.job,
