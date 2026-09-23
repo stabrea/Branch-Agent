@@ -727,6 +727,14 @@
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
+.shell-eyebrow {
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 0;
+}
 .people-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
@@ -741,6 +749,41 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.person-capabilities {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.person-capabilities li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.person-capabilities li.yes::before {
+  content: "✓";
+  color: var(--ok);
+  font-weight: 600;
+  flex: none;
+}
+.person-capabilities li.no::before {
+  content: "✕";
+  color: var(--text-3);
+  flex: none;
+}
+.people-invite-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.person-acts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .person-head {
   display: flex;

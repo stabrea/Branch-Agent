@@ -122,10 +122,13 @@ export async function drawPeople() {
   const owner = isOwner(), devices = await signedIn();
   const page = make("div", "shell-page people-page");
   const head = make("div", "shell-head");
-  head.append(make("h2", "shell-title", "place.household", "People"),
+  // DG-129: Add eyebrow above title
+  head.append(make("p", "shell-eyebrow", "place.this", "This computer"),
+    make("h2", "shell-title", "place.household", "People"),
     make("p", "shell-lede", "household.lede", "Everyone who uses Branch on this computer. Each person's conversations and memory are their own, and the owner decides what each may have Branch do."));
   page.append(head);
-  if (owner) page.append(addPerson());
+  // DG-125: Show invite button instead of inline form
+  if (owner) page.append(inviteButton());
   const cards = make("div", "people-cards");
   cards.append(ownerCard(owner), ...(shell.profiles?.profiles ?? []).filter((person) => owner || person.id === shell.profiles?.active?.id)
     .map((person) => personCard(person, owner, devices.get(person.id) ?? [])));
@@ -170,12 +173,34 @@ function personCard(person, owner, signedInOn) {
   const grant = grantOf(person.id), card = make("article", "person-card");
   card.dataset.person = person.id;
   card.append(cardHead(personSpec(person), person.name, lastUsed(person), grant.role), make("p", "shell-note", ...ROLE_WORDS[grant.role]));
+
+  // DG-123: Add capability list
+  const capabilities = make("ul", "person-capabilities");
+  const capList = [
+    { key: "household.cap.read", english: "Look things up", role: ["owner", "adult", "child"] },
+    { key: "household.cap.browse", english: "Use web pages", role: ["owner", "adult"] },
+    { key: "household.cap.files", english: "Write files", role: ["owner", "adult"] },
+    { key: "household.cap.commands", english: "Run commands", role: ["owner", "adult"] },
+    { key: "household.cap.message", english: "Send messages", role: ["owner", "adult"] },
+    { key: "household.cap.spend", english: "Spend money", role: ["owner"] },
+    { key: "household.cap.settings", english: "Change how Branch is set up", role: ["owner"] },
+  ];
+  for (const cap of capList) {
+    const can = cap.role.includes(grant.role);
+    const item = make("li", can ? "yes" : "no", cap.key, cap.english);
+    capabilities.append(item);
+  }
+  card.append(capabilities);
+
+  // DG-124: Add facts table with Trunks/Projects/Allowance/PIN
   const facts = make("dl", "shell-facts");
   const fact = (key, english, value) => { const term = make("dt", "", key, english); const said = make("dd"); said.textContent = value; facts.append(term, said); };
+  fact("household.trunks", "Trunks", say("household.trunks.all", "All of them"));
   fact("household.projects", "Projects", grant.projects.length ? grant.projects.join(", ") : say("household.projects.all", "All of them"));
   fact("household.allowance", "Daily allowance", grant.dailySpendLimit > 0 ? grant.dailySpendLimit.toFixed(2) : say("household.allowance.none", "None"));
-  if (signedInOn.length) fact("household.devices", "Signed in on", signedInOn.map((entry) => entry.device).join(", "));
+  fact("household.pin", "PIN", person.id === "owner" ? (shell.profiles?.ownerPin ? say("household.pin.set", "Set: switching back asks for it") : say("household.pin.off", "Off")) : say("household.pin.unset", "Not set"));
   card.append(facts);
+
   if (owner) card.append(personActions(person, grant));
   return card;
 }
@@ -189,7 +214,10 @@ function personActions(person, grant) {
     pick.setAttribute("aria-pressed", String(grant.role === role));
     roles.append(pick);
   }
-  acts.append(roles, button("", "household.switchTo", "Switch to {name}", () => askPinOnCard(acts, person), { name: person.name }),
+  // DG-127: Add "Change look" action
+  acts.append(roles,
+    button("", "household.changeLook", "Change look", () => displayView(`settings:trunks-people/person/${person.id}`)),
+    button("", "household.switchTo", "Switch to {name}", () => askPinOnCard(acts, person), { name: person.name }),
     button("studio-danger", "household.remove", "Remove", () => removePerson(acts, person)));
   return acts;
 }
@@ -213,7 +241,16 @@ function removePerson(acts, person) {
     button("studio-danger", "household.remove", "Remove", async () => { await api(`profiles/${person.id}/remove`, {}); await drawPeople(); }));
   acts.append(bar);
 }
-function addPerson() {
+// DG-125: Replace inline form with invite button
+function inviteButton() {
+  const container = make("div", "people-invite-container");
+  const btn = button("shell-btn studio-primary", "household.invite", "Invite someone", () => showInviteDialog());
+  container.append(btn);
+  return container;
+}
+
+function showInviteDialog() {
+  // TODO: Implement invite dialog - for now, show a simple form
   const form = make("form", "person-add");
   const name = document.createElement("input");
   name.id = "household-add-name";
@@ -232,7 +269,8 @@ function addPerson() {
       .then(async () => { toast(say("household.added", "{name} is added. They switch to their own profile with their PIN.", { name: name.value.trim() })); await drawPeople(); })
       .catch((error) => toast(error.message));
   });
-  return form;
+  // TODO: Show form as modal dialog
+  document.body.append(form);
 }
 
 /* ---------- Settings › Appearance: the strip and 3D faces ---------- */
