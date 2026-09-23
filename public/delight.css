@@ -174,7 +174,7 @@
 }
 .delight-pets {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: var(--s2);
 }
 .delight-pet-tile {
