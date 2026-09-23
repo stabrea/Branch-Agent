@@ -49,7 +49,8 @@ export const BUCKETS = {
   ],
   notifications: [
     ["attention", "bell", "When Branch gets your attention", "Sounds, banners and the times it should leave you alone.",
-      [["comfort-notify-card", R], ["lx-collab-days-off", R], ["quiet-interruptions", A]]],
+      /* DG-184: the sample's one section, its Regular row (Hold messages overnight) first, then where and how you are told. */
+      [["lx-collab-days-off", R], ["comfort-notify-card", R], ["quiet-interruptions", A]]],
   ],
   "models:connection": [
     ["connection", "chip", "Your model connection", "Which service answers, and how Branch signs in to it.",
