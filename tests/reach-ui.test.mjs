@@ -60,7 +60,8 @@ test("the cards sit in their homes, every control says what it does, a note is k
   assert.equal(app.reachParts.notes.list()[0].body, "water weekly");
   assert.equal(await wide(), false, "no sideways scrolling in Library");
 
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   await page.locator("#reach-relay-card").waitFor();
   await page.locator("#reach-chats-card").waitFor();
   assert.equal(await wide(), false, "no sideways scrolling in Channels");

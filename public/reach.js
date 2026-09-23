@@ -5,7 +5,7 @@
    settings:computer         Other computers side by side; using apps in the background; USB devices
    customize:specialists     Trunks on other computers
    settings:models:media     Making videos
-   customize:channels        The chat relay; sending and pausing chat apps
+   settings:channels         The chat relay; sending and pausing chat apps
    customize:skills          Sharing the assistant through git; skill bundles
    library:documents         Notes
    settings:models:second    Model arena */
@@ -245,9 +245,9 @@ async function videoCard(state) {
   return node;
 }
 
-/* ---------- customize:channels — the relay ---------- */
+/* ---------- settings:channels — the relay ---------- */
 async function relayCard(state) {
-  const { node, status } = card("reach-relay-card", "customize:channels", "reach.relay.title", "A relay that holds your chat app accounts",
+  const { node, status } = card("reach-relay-card", "settings:channels", "reach.relay.title", "A relay that holds your chat app accounts",
     "reach.relay.purpose", "Your chat app accounts live on a relay you run; every message between it and Branch is sealed end to end. Branch only answers chats that wrote to it first.");
   node.append(...switchFor("relay", state.modes, status));
   if (state.modes.relay !== "off") {
@@ -268,7 +268,7 @@ async function relayCard(state) {
   return node;
 }
 
-/* ---------- customize:channels — sending and pausing ---------- */
+/* ---------- settings:channels — sending and pausing ---------- */
 function ownerRow(account, accounts, status) {
   const item = plain("li", `${account.channel}: ${account.sender}`);
   const [remove, hint] = button(`reach-owner-remove-${account.channel}-${account.sender}`.replace(/[^\w-]/g, "_"), "reach.usb.remove", "Remove",
@@ -279,7 +279,7 @@ function ownerRow(account, accounts, status) {
 }
 
 async function chatsCard(state) {
-  const { node, status } = card("reach-chats-card", "customize:channels", "reach.chats.title", "Sending and pausing chat apps",
+  const { node, status } = card("reach-chats-card", "settings:channels", "reach.chats.title", "Sending and pausing chat apps",
     "reach.chats.purpose", "Send a script's output to a chat with: branch send <chat app> <chat>. Pause a chat app here, or from your own account with /platform pause.");
   node.append(...switchFor("send", state.modes, status), ...switchFor("platform-pause", state.modes, status));
   if (state.modes["platform-pause"] !== "off") {
