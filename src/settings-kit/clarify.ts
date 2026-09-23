@@ -11,17 +11,27 @@ import { acceptValue, changesFor, currentValue, type Value } from "./changes.js"
  */
 
 /**
- * Words that turn a request around or may ("don't", "never", "no", "stop", "pas", "jamais", "non",
- * "arrête"), with apostrophes and accents taken out. Any one of them anywhere means asking, never
- * planning: asking is always the careful answer.
+ * Words and phrases that turn a request around or hold it back ("don't", "never", "no", "stop",
+ * "wait", "hold on", "cancel", "nope", "nah", "never mind", and in French "pas", "jamais", "non",
+ * "arrête", "annule", "attends", "pas maintenant"), with apostrophes and accents taken out. Each is
+ * matched as whole words, so a setting's own "holds" or "waiting" is never "hold" or "wait". Any one
+ * of them anywhere means asking, never planning: asking is always the careful answer.
+ *
+ * That over-asks now and then: "stop the learning" means off, the careful way, and it asks all the
+ * same. That is accepted, since a question never changes anything.
  */
-const negations = ["dont", "doesnt", "didnt", "shouldnt", "wont", "not", "never", "no", "stop", "pas", "jamais", "non",
-  "arrete", "arreter", "arretez"];
+const cues = ["dont", "doesnt", "didnt", "shouldnt", "wont", "not", "never", "no", "stop", "wait", "hold", "cancel", "nope", "nah",
+  "pas", "jamais", "non", "arrete", "arreter", "arretez", "annule", "annuler", "annulez", "attends", "attendez",
+  "no longer", "hang on", "never mind", "pas maintenant"];
+const cueWords = cues.filter((cue) => !cue.includes(" "));
+
+/** Whether a padded run of plain words (" like this ") holds a cue as whole words. */
+const holdsCue = (padded: string): boolean => cues.some((cue) => padded.includes(` ${cue} `));
 
 /** Words that say what to do rather than which setting: they never pick a setting. */
 const filler = new Set(("a an and any are be branch branchs can change could do dont enable disable for from have i in is it its " +
   "let make me my of off on please put set setting settings should so start stop switch the then this to turn up down use want " +
-  "we when needed would you your yes no true false").split(" ").concat([...negations, "longer", "ne", "plus"]));
+  "we when needed would you your yes no true false").split(" ").concat([...cueWords, "longer", "ne", "plus", "hang", "mind", "maintenant"]));
 
 /** A crude stem, so "learning", "learns" and "learn" are one word. */
 function stem(word: string): string {
@@ -42,18 +52,17 @@ const plainWords = (text: string): string[] => wordsOf(text.normalize("NFD").rep
 
 /** Setting names and labels that hold a cue themselves ("A command no rule mentions"): said whole, they only name a setting. */
 const namesWithCues = [...new Set(settingsCatalogue.flatMap((spec) => [spec.name, ...spec.fields.map((field) => field.label)]))]
-  .map((text) => plainWords(text).join(" ")).filter((phrase) => phrase.split(" ").some((word) => negations.includes(word)));
+  .map((text) => plainWords(text).join(" ")).filter((phrase) => holdsCue(` ${phrase} `));
 
 /**
- * Whether the words say not to, or might: "don't", "do not", "not", "never", "no", "stop", "no longer",
- * and in French "ne ... pas", "n'... plus", "jamais", "non", "arrête". A request like that is never
- * planned as a change.
+ * Whether the words say not to, or might: any of the cues above, "do not", "no longer", and in French
+ * "ne ... pas" or "n'... plus". A request like that is never planned as a change.
  */
 export function negated(request: string): boolean {
   let said = ` ${plainWords(request).join(" ")} `;
   for (const phrase of namesWithCues) said = said.replaceAll(` ${phrase} `, " ");
+  if (holdsCue(said)) return true;
   const words = said.split(" ").filter(Boolean);
-  if (words.some((word) => negations.includes(word)) || ` ${words.join(" ")} `.includes(" no longer ")) return true;
   const frenchNe = words.includes("ne") || /(^|[^a-z])n['’][a-z]/i.test(request);
   return frenchNe && words.includes("plus");
 }

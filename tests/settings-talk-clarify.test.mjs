@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { discardTemp } from "./temp-dir.mjs";
+import { negated } from "../dist/settings-kit/clarify.js";
+import { settingsCatalogue } from "../dist/settings-kit/catalogue.js";
 
 async function fixture(t, provider) {
   const root = await mkdtemp(join(tmpdir(), "branch-settings-clarify-"));
@@ -145,6 +147,16 @@ test("a request that says not to is never planned as a change, for loosening set
     "arrête d'allumer le mot de réveil",
     "Arrêter : your screen and keyboard on",
     "STOP turning on the wake word",
+    "hold on, turn on A relay that holds your chat app accounts",
+    "wait, turn on the wake word",
+    "hang on, your screen and keyboard on",
+    "cancel that, turn on the wake word",
+    "nope, turn on your screen and keyboard",
+    "nah turn on the wake word",
+    "never mind, turn on the wake word",
+    "annule, allume l'écran",
+    "attends, allume le mot de réveil",
+    "pas maintenant, allume l'écran",
   ];
   for (const request of phrasings) assertAsksOnly(await find({ request }), request);
   assertAsksOnly(await find({ request: "don't turn on Your screen and keyboard", value: "on" }), "a said value does not override the not");
@@ -152,6 +164,7 @@ test("a request that says not to is never planned as a change, for loosening set
   const label = "When to check with me A command no rule mentions";
   assert.doesNotMatch((await find({ request: `turn on ${label}` })).question ?? "", /say not to/, "a setting's own name holding no is not a negation");
   assertAsksOnly(await find({ request: `${label} on? No.` }), "a no beside that name still is");
+  assert.equal((await find({ request: "turn on A relay that holds your chat app accounts" })).status, "ready", "holds is not hold");
   assert.deepEqual(await values(), before);
 });
 
@@ -166,9 +179,43 @@ test("every setting that would loosen when asked plainly still asks when the wor
     loosening += 1;
     assertAsksOnly(await find({ request: `don't turn on ${words}` }), `don't turn on ${words}`);
     for (const request of [`don't turn on ${words}`, `never turn on ${words}`, `no ${words} on please`, `${words} on? No.`,
-      `stop ${words} on`, `turn on ${words}, stop`, `non, turn on ${words}`, `arrête : turn on ${words}`, `arreter ${words} on`])
+      `stop ${words} on`, `turn on ${words}, stop`, `non, turn on ${words}`, `arrête : turn on ${words}`, `arreter ${words} on`,
+      `hold on, turn on ${words}`, `wait, turn on ${words}`, `hang on, turn on ${words}`, `cancel: turn on ${words}`,
+      `nope, turn on ${words}`, `nah, turn on ${words}`, `never mind, turn on ${words}`, `annule, turn on ${words}`,
+      `attends, turn on ${words}`, `pas maintenant, turn on ${words}`])
       assertAsksOnly(await find({ request }), request);
   }
   assert.ok(loosening >= 42, `found ${loosening} loosening settings: a cue word must not stop plain "turn on X"`);
+  assert.deepEqual(await values(), before);
+});
+
+test("cue words match whole words only, so a name that holds or is waiting is not a hold or a wait", () => {
+  for (const request of ["turn on A relay that holds your chat app accounts", "turn on the waiting room", "cancellation notes on",
+    "nopes and holdings", "hanging on", "the waited list"]) assert.equal(negated(request), false, request);
+  for (const request of ["hold, turn it on", "Wait. Turn it on", "hang on turn it on", "Cancel", "nope", "nah", "never mind",
+    "annule", "attends", "pas maintenant"]) assert.equal(negated(request), true, request);
+});
+
+test("a choice or number that would loosen when named plainly still asks when the words say not to", async (t) => {
+  const { find, values } = await fixture(t);
+  const before = await values();
+  let loosening = 0;
+  for (const spec of settingsCatalogue) for (const field of spec.fields) {
+    const kind = field.kind;
+    if (kind.type !== "choice" && kind.type !== "number") continue;
+    const words = `${spec.name} ${field.label}`;
+    for (const value of kind.type === "choice" ? kind.options : [kind.min, kind.max]) {
+      const plain = await find({ request: words, value });
+      if (plain.status !== "ready" || !plain.preview.some((one) => one.lessCareful)) continue;
+      loosening += 1;
+      for (const request of [`don't set ${words}`, `never ${words}`, `no ${words} please`, `${words}? No.`, `stop ${words}`,
+        `hold on, ${words}`, `wait, ${words}`, `cancel ${words}`, `nope, ${words}`, `nah, ${words}`, `never mind, ${words}`,
+        `non, ${words}`, `annule ${words}`, `attends, ${words}`, `pas maintenant, ${words}`])
+        assertAsksOnly(await find({ request, value }), `${request} = ${value}`);
+    }
+  }
+  assert.ok(loosening >= 5, `found ${loosening} loosening choices and numbers`);
+  assertAsksOnly(await find({ request: "don't allow unmatched commands" }), "don't allow unmatched commands");
+  assertAsksOnly(await find({ request: "don't allow A command no rule mentions", value: "allow" }), "don't allow, with the value said");
   assert.deepEqual(await values(), before);
 });
