@@ -213,6 +213,8 @@ export class ToolRegistry {
       throw new Error(`Permission denied: ${tool.permission}`);
     context.budget.step(context.signal);
     const parsed = tool.parameters.parse(args);
+    // Q12: a call that would change Branch's own source is held to its written contract first.
+    if (this.beforeTool) await this.beforeTool(name, parsed, context);
     let result: unknown;
     try {
       // household-followups: an owner-only guard inside the tool judges by this task's person.
@@ -232,6 +234,8 @@ export class ToolRegistry {
     // ── end mac7/r17-d ──
     return result;
   }
+  /** Q12 (src/self-development-contract.ts): may refuse a call, by throwing, before the tool runs. */
+  beforeTool?: (name: string, args: unknown, context: ToolContext) => Promise<void>;
   /** mac7/coding-next (src/coding/read-first.ts): told after every call, so what it wrote counts as read. */
   afterWrites?: (context: ToolContext) => Promise<void>;
   /** mac7/r17-d (src/coding/): looks at a finished call and may add to its answer (format-on-edit). */

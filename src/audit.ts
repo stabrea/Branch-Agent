@@ -36,6 +36,9 @@ export const auditActions = [
   "history.pruned",
   // Wave mac2 (move-in): chats, memory, skills or settings were brought in from another assistant.
   "data.imported",
+  // Q12: Branch changing its own source stepped outside its written contract and was refused, or
+  // the owner widened that contract (src/self-development-contract.ts).
+  "self_development.contract",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -109,6 +112,7 @@ const actionLabels: Record<AuditAction, string> = {
   "limit.reached": "Something reached the limit you set for a minute or an hour",
   "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
   "data.imported": "Chats, memory or settings were brought in from another assistant",
+  "self_development.contract": "Branch changing its own source was held to its contract, or the contract was widened",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 
