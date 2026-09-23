@@ -84,7 +84,7 @@ test("double acceptance: of two racing accepts exactly one wins, and afterwards 
   assert.equal(row().generation, claim.generation + 1);
   const before = row();
   assert.throws(() => tasks.complete(claim, { stale: true }, () => {}), StaleTeamTaskClaimError);
-  assert.throws(() => tasks.markUncertain(claim, "stale"), StaleTeamTaskClaimError);
+  assert.throws(() => tasks.markNeedsReconciliation(claim, "stale"), StaleTeamTaskClaimError);
   assert.deepEqual(row(), before, "the old claimant's writes change nothing");
   assert.equal(first.get(planner.owner, offer.offerId).state, "accepted");
   assert.equal(first.waiting(claim.scope, claim.taskId), null);
@@ -228,7 +228,8 @@ function heldRuntime(store, owner, hold) {
   let started;
   return {
     started: new Promise((resolve) => { started = resolve; }),
-    async run() { return { id: store.createRun(owner, "team parent").id }; },
+    // Q63: like the real runtime, the run is announced before it does anything, and settles as completed.
+    async run(runOptions) { const parent = store.createRun(owner, "team parent"); runOptions.onStarted?.(parent); return { id: parent.id, status: "completed", output: "" }; },
     context: ({ runId }) => ({ runId }),
     async fanout(_context, tasks) {
       started();
