@@ -13,7 +13,7 @@ export function showCollab(state, given) {
     ["labels", labelsSection(collab.labels ?? [], helpers)],
     ["workflows", workflowsSection(collab.workflows ?? [], helpers)],
     ["queue", queueSection(collab.queue ?? { waiting: [], settings: { atOnce: 3 } }, helpers)],
-    ["days-off", daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers)],
+    ...daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers),
     ["shares", sharesSection(collab.shares ?? [], helpers)],
     ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
   ];
@@ -148,9 +148,10 @@ function queueSection(queue, helpers) {
   return wrap;
 }
 
-/* DG-184: one row per setting, each named by its own words, in the order the approved sample shows them (Hold
-   messages overnight first: it is the one on show at Regular), and saved the moment one changes, as the sample
-   saves (DG-025). Each control has the id Settings knows it by (public/settings-index.js), so its row is leveled. */
+/* DG-184: one row per setting, each named by its own words, and saved the moment one changes, as the sample saves
+   (DG-025). Each control has the id Settings knows it by (public/settings-index.js), so its row is leveled. Two
+   parts, where the approved sample places them: Hold messages overnight leads its section at Regular; holidays,
+   from and until come last, behind the section's "More options". One save reads all four. */
 function daysOffSection(calendar, helpers) {
   const { el, api, toast, refresh } = helpers;
   const settings = calendar.settings ?? {};
@@ -179,8 +180,10 @@ function daysOffSection(calendar, helpers) {
   const to = el("input"); to.type = "time"; to.value = settings.quietHours?.to ?? "07:00";
   const quietRow = el("div", undefined, "collab-row");
   quietRow.append(quietLabel);
-  wrap.append(quietRow, row("hold-from", "days-off.from", from), row("hold-until", "days-off.until", to),
-    row("holidays", "days-off.holidays", country));
+  const overnight = el("div", undefined, "collab-section");
+  overnight.append(quietRow);
+  wrap.append(row("holidays", "days-off.holidays", country), row("hold-from", "days-off.from", from),
+    row("hold-until", "days-off.until", to));
   const save = async () => {
     try {
       await api("/api/calendar", { ...settings, country: country.value,
@@ -190,7 +193,7 @@ function daysOffSection(calendar, helpers) {
     await refresh();
   };
   for (const control of [country, quiet, from, to]) control.addEventListener("change", () => { void save(); });
-  return wrap;
+  return [["overnight", overnight], ["days-off", wrap]];
 }
 
 function sharesSection(shares, helpers) {

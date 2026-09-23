@@ -1,8 +1,9 @@
 /* DG-184: Settings › Notifications is the approved sample's page: its one section, When Branch gets your attention,
    with Hold messages overnight, Where you are told and Sound on show at Regular and "5 more with Advanced" for the
-   rest; its cards read as that section's rows, with no titles of their own (DG-008, DG-024), and every choice is
-   saved the moment it changes, with no Save button (DG-025). The same at 1440 and 400 px, with Show everything on
-   and off, and in French. Headless only. */
+   rest; at Advanced the same three, then the sample's "More options 5" holding news only, a second opinion,
+   holidays, from and until, in that order. Its cards read as that section's rows, with no titles of their own
+   (DG-008, DG-024), and every choice is saved the moment it changes, with no Save button (DG-025). The same at 1440,
+   860 and 400 px, with Show everything on and off, and in French. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -15,11 +16,14 @@ import { startServer } from "../dist/server.js";
 import { BUCKETS } from "../public/settings-buckets.js";
 
 const REGULAR = ["hold-overnight", "comfort-method", "comfort-sound"];
-const ADVANCED = ["hold-from", "hold-until", "holidays", "quiet-switch-news", "heartbeat-second"];
+/* The sample's order behind "More options" (design/Branch-Grown-Up.html, Notifications at Advanced). */
+const ADVANCED = ["quiet-switch-news", "heartbeat-second", "holidays", "hold-from", "hold-until"];
 
-test("DG-184 Notifications has the sample's one section, days off first, every card kept", () => {
+test("DG-184 Notifications has the sample's one section, in the sample's order, every card kept", () => {
   assert.deepEqual(BUCKETS.notifications.map((bucket) => bucket[2]), ["When Branch gets your attention"]);
-  assert.deepEqual(BUCKETS.notifications[0][4].map(([card]) => card), ["lx-collab-days-off", "comfort-notify-card", "quiet-interruptions"]);
+  assert.deepEqual(BUCKETS.notifications[0][4].map(([card]) => card),
+    ["lx-collab-overnight", "comfort-notify-card", "quiet-interruptions", "lx-collab-days-off"]);
+  assert.deepEqual(BUCKETS.notifications[0][5], { moreAfter: "comfort-notify-card" });
 });
 
 async function fixture(t) {
@@ -52,23 +56,33 @@ async function fixture(t) {
 const level = (page, value) => page.evaluate((one) => globalThis.branchSettingsLevel.set(one), value)
   .then(() => page.waitForFunction((one) => document.documentElement.dataset.settingsLevel === one, value))
   .then(() => page.waitForTimeout(300));
-/** What the page shows: its headings, its "N more" line, the settings on show, and any Save button. */
+/**
+ * What the page shows: its headings, its "N more" line, its "More options" and whether it is open, the settings on
+ * show in the order they stand (by place in the page, and checked to run down the screen), and any Save button.
+ */
 const shown = (page) => page.evaluate((ids) => {
   const box = document.getElementById("lx-page-notifications");
   const seen = (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden";
   const text = (node) => node.textContent.trim().replace(/\s+/g, " ");
+  const controls = ids.map((id) => document.getElementById(id)).filter((node) => node && box.contains(node) && seen(node))
+    .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  const tops = controls.map((node) => node.getBoundingClientRect().top);
   return {
     headings: [...box.querySelectorAll("h1, h2, h3, h4, h5, h6")].filter(seen).map(text),
     more: [...box.querySelectorAll(".sg-more")].filter(seen).map(text),
-    controls: ids.filter((id) => { const node = document.getElementById(id); return node && box.contains(node) && seen(node); }),
+    options: [...box.querySelectorAll(".sg-fold")].filter(seen).map((node) => `${text(node)} ${node.getAttribute("aria-expanded")}`),
+    controls: controls.map((node) => node.id),
+    downward: tops.every((top, i) => i === 0 || top > tops[i - 1]),
     saves: [...box.querySelectorAll("button")].filter(seen).filter((button) => /^(Save|Enregistrer)$/.test(text(button))).length,
     wide: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   };
 }, [...REGULAR, ...ADVANCED]);
 
-test("DG-184 the page's sections, counts and rows match the sample at 1440 and 400, Show everything on and off", async (t) => {
+const moreOptions = (page) => page.locator("#lx-page-notifications .sg-fold").click().then(() => page.waitForTimeout(200));
+
+test("DG-184 the page's sections, counts and rows match the sample at 1440, 860 and 400, Show everything on and off", async (t) => {
   const { page, errors } = await fixture(t);
-  for (const width of [1440, 400]) {
+  for (const width of [1440, 860, 400]) {
     await page.setViewportSize({ width, height: 950 });
     for (const everything of ["off", "on"]) {
       await page.evaluate((one) => { document.documentElement.dataset.everything = one; }, everything);
@@ -80,23 +94,40 @@ test("DG-184 the page's sections, counts and rows match the sample at 1440 and 4
       const regular = await shown(page);
       assert.deepEqual(regular.headings, ["Notifications", "When Branch gets your attention"], where);
       assert.deepEqual(regular.more, ["5 more with Advanced"], where);
+      assert.deepEqual(regular.options, [], `${where}: nothing to fold at Regular`);
       assert.deepEqual(regular.controls, REGULAR, where);
+      assert.ok(regular.downward, where);
       assert.equal(regular.saves, 0, `${where}: saved as you go`);
       assert.ok(regular.wide <= 0, `${where}: no sideways scrolling`);
       await level(page, "advanced");
       const advanced = await shown(page);
       assert.deepEqual(advanced.headings, ["Notifications", "When Branch gets your attention"], where);
       assert.deepEqual(advanced.more, [], where);
-      assert.deepEqual(advanced.controls, [...REGULAR, ...ADVANCED], where);
-      assert.equal(advanced.saves, 0, where);
+      assert.deepEqual(advanced.options, ["More options 5 false"], where);
+      assert.deepEqual(advanced.controls, REGULAR, `${where}: the rest wait behind More options`);
+      await moreOptions(page);
+      const opened = await shown(page);
+      assert.deepEqual(opened.options, ["More options 5 true"], where);
+      assert.deepEqual(opened.controls, [...REGULAR, ...ADVANCED], `${where}: the sample's order`);
+      assert.ok(opened.downward, `${where}: ${opened.controls.join(", ")} run down the page`);
+      assert.equal(opened.saves, 0, where);
+      assert.ok(opened.wide <= 0, `${where}: no sideways scrolling`);
+      await moreOptions(page);
+      assert.deepEqual((await shown(page)).controls, REGULAR, `${where}: More options closes again`);
     }
   }
   assert.deepEqual(errors, []);
 });
 
-test("DG-184 each choice on the page is saved the moment it changes", async (t) => {
+test("DG-184 search finds what More options keeps folded, and each choice is saved the moment it changes", async (t) => {
   const { app, page, call, errors } = await fixture(t);
   await level(page, "advanced");
+  await page.locator("#lx-settings-search").fill("Holidays for");
+  await page.locator("#holidays").waitFor({ state: "visible" });
+  await page.locator("#lx-settings-search").fill("");
+  await page.waitForFunction(() => !document.body.classList.contains("lx-settings-searching"));
+  await page.locator("#holidays").waitFor({ state: "hidden" });
+  await moreOptions(page);
   await page.locator("#comfort-sound").selectOption("chime");
   await page.waitForFunction(() => document.querySelector("#comfort-notify-card [role=status]")?.textContent.trim().length > 0);
   assert.equal(readComfort(app.store, "local", "notify").sound, "chime");
@@ -120,6 +151,7 @@ test("DG-184 in French the page keeps its one section and its rows speak French"
   assert.equal(regular.headings[1], "Quand Branch attire votre attention");
   assert.deepEqual(regular.controls, REGULAR);
   await level(page, "advanced");
+  assert.deepEqual((await shown(page)).options, ["Plus d’options 5 false"]);
   const words = await page.evaluate(() => ["hold-overnight", "hold-from", "hold-until", "holidays"]
     .map((id) => document.getElementById(id).labels[0].textContent.trim()));
   assert.deepEqual(words, ["Retenir les messages la nuit", "Retenir les messages à partir de", "Retenir les messages jusqu’à", "Jours fériés de"]);

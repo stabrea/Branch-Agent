@@ -178,7 +178,8 @@ function mark(node, name, value) {
 function wanted(page, host) {
   const order = [], placed = new Set();
   for (const bucket of BUCKETS[page]) {
-    const head = headFor(page, bucket), ids = [];
+    const head = headFor(page, bucket), ids = [], fold = bucket[5]?.moreAfter ? foldFor(head) : null;
+    let folding = false;
     order.push(head);
     for (const [ref, level] of bucket[4]) {
       const card = cardIn(host, ref);
@@ -194,10 +195,13 @@ function wanted(page, host) {
       placed.add(card);
       order.push(card);
       putKeys(card);
+      if (folding) mark(card, "sgFold", head.dataset.bucket);
+      else delete card.dataset.sgFold;
+      if (fold && ref === bucket[5].moreAfter) { order.push(fold); folding = true; }
     }
     mark(head, "cards", ids.join(" "));
   }
-  const rest = [...host.children].filter((node) => !node.matches(FIXED) && !placed.has(node) && !node.matches(".sg-head"));
+  const rest = [...host.children].filter((node) => !node.matches(FIXED) && !placed.has(node) && !node.matches(".sg-head, .sg-fold-line"));
   if (rest.length) {
     const head = headFor(page, ["other"]);
     mark(head, "cards", rest.map((node) => node.id).join(" "));
@@ -218,7 +222,53 @@ function arrange(page) {
     if (spot !== node) host.insertBefore(node, spot);
     before = node;
   }
-  for (const stale of host.querySelectorAll(":scope > .sg-head")) if (!order.includes(stale)) stale.remove();
+  for (const stale of host.querySelectorAll(":scope > :is(.sg-head, .sg-fold-line)")) if (!order.includes(stale)) stale.remove();
+}
+
+/* ---------- "More options" (DG-184) ---------- */
+/**
+ * The sample's disclosure in a section (design/Branch-Grown-Up.html, `details.bk-more`): the cards after the
+ * bucket's moreAfter card wait behind "More options N" until it is opened. The cards stay the page's own children,
+ * so it is a button that shows and hides them, not a <details> around them. Opened once, it stays open.
+ */
+const folds = new Map(), openFolds = new Set();
+function foldFor(head) {
+  if (folds.has(head)) return folds.get(head);
+  const line = make("p", "sg-fold-line");
+  line.hidden = true;
+  line.dataset.noSearch = "";
+  const button = make("button", "sg-fold");
+  button.type = "button";
+  button.setAttribute("aria-expanded", "false");
+  button.append(worded("span", "sg-fold-words", "settingsGrown.moreOptions", "More options"), " ", make("span", "sg-fold-count"));
+  button.addEventListener("click", () => {
+    const key = head.dataset.bucket;
+    if (openFolds.has(key)) openFolds.delete(key); else openFolds.add(key);
+    countHidden();
+  });
+  line.append(button);
+  folds.set(head, line);
+  return line;
+}
+/** Opens or closes a section's disclosure for the rows on show at this level; a lone row is shown, never folded. */
+function showFold(head, cards, now) {
+  const line = folds.get(head);
+  if (!line) return;
+  const behind = cards.filter((card) => card.dataset.sgFold && RANK[card.dataset.level ?? "regular"] <= now);
+  const count = behind.reduce((sum, card) => {
+    const { shown = [], every = [] } = rowsByCard.get(card) ?? {};
+    return sum + (every.length ? shown.filter((one) => ROW_RANK[one.level] <= now).length : 1);
+  }, 0);
+  const folding = count > 1, open = openFolds.has(head.dataset.bucket), button = line.firstElementChild;
+  if (line.hidden !== !folding) line.hidden = !folding;
+  const counted = String(count), expanded = String(open), controls = behind.map((card) => card.id).join(" ");
+  if (button.lastElementChild.textContent !== counted) button.lastElementChild.textContent = counted;
+  if (button.getAttribute("aria-expanded") !== expanded) button.setAttribute("aria-expanded", expanded);
+  if (button.getAttribute("aria-controls") !== controls) button.setAttribute("aria-controls", controls);
+  for (const card of cards) {
+    const folded = folding && !open && Boolean(card.dataset.sgFold);
+    if (folded !== (card.dataset.sgFolded === "1")) { if (folded) card.dataset.sgFolded = "1"; else delete card.dataset.sgFolded; }
+  }
 }
 
 /* ---------- Technical: where each card's settings are saved ---------- */
@@ -262,6 +312,7 @@ function countHidden() {
     const shown = cards.filter((card) => !above.includes(card));
     const hidden = outOfSight(cards, now);
     for (const card of cards) card.classList.toggle("sg-solo", shown.length === 1 && card === shown[0]);
+    showFold(head, cards, now);
     const line = moreLines.get(head), more = line.querySelector(".sg-more");
     /* The sample's Under the hood: never a thin head or an "N more" line, and not there at all with nothing on show.
        Nor is any section with nothing on show and no setting kept out of sight (DG-199). */
@@ -272,7 +323,7 @@ function countHidden() {
     const quiet = under || !hidden.length;
     if (line.hidden !== quiet) line.hidden = quiet;
     /* DG-073: at the end of the section, after its last card on show; in the head when none is on show. */
-    const home = !quiet && shown.length ? shown.at(-1) : head;
+    const home = !quiet && shown.length ? shown.filter((card) => !card.dataset.sgFolded).at(-1) ?? head : head;
     if (home.lastElementChild !== line) home.append(line);
     if (quiet) continue;
     const to = hidden.includes("advanced") ? "advanced" : "technical";

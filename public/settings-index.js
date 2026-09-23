@@ -213,7 +213,7 @@ export const SETTINGS_INDEX = [
   ["comfort-timestamps","settings:appearance","comfort-display-card","A time on every message","comfort.timestamps",null,"Status line and message times",true],
   ["flows-switch-focus","settings:appearance","flows-focus-card","Focus view","flowboards-focus",null,"Focus view",true],
   ["holidays","settings:notifications","lx-collab-days-off","Holidays for","days-off.holidays","#lx-collab-days-off select","Notifications",true],
-  ["hold-overnight","settings:notifications","lx-collab-days-off","Hold messages overnight","days-off.quietHours.enabled","#lx-collab-days-off input[type=checkbox]","Notifications",true],
+  ["hold-overnight","settings:notifications","lx-collab-overnight","Hold messages overnight","days-off.quietHours.enabled","#lx-collab-overnight input[type=checkbox]","Notifications",true],
   ["hold-from","settings:notifications","lx-collab-days-off","Hold messages from","days-off.quietHours.from","#lx-collab-days-off input[type=time]","Notifications",true],
   ["hold-until","settings:notifications","lx-collab-days-off","Hold messages until","days-off.quietHours.until","#lx-collab-days-off input[type=time]","Notifications",true],
   ["quiet-switch-news","settings:notifications","quiet-interruptions","Checks send only news","quiet.notifyGate",null,"Interruptions from background work",true],

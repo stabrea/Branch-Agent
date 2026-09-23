@@ -3,7 +3,8 @@
    this order, draws a heading in front of each group and gives each card the least level that shows it
    (regular, advanced or technical). A card that is not listed here still shows, at the end of its page
    under "More on this page", at every level. Row: [bucket id, icon, English title, English line,
-   [[card id, level], ...]]. A card id may also be the class of a block with no id (lx-look).
+   [[card id, level], ...], options?]. A card id may also be the class of a block with no id (lx-look).
+   Options: { moreAfter: card id } keeps the cards after that one behind the sample's "More options" disclosure.
    Regular never hides a safety control: what Branch may do without asking, the stop switches, a second look
    at approvals, updates and what runs in the background stay regular (tests/settings-grown.test.mjs S15). */
 const R = "regular", A = "advanced", T = "technical";
@@ -40,8 +41,10 @@ export const BUCKETS = {
   ],
   notifications: [
     ["attention", "bell", "When Branch gets your attention", "Sounds, banners and the times it should leave you alone.",
-      /* DG-184: the sample's one section, its Regular row (Hold messages overnight) first, then where and how you are told. */
-      [["lx-collab-days-off", R], ["comfort-notify-card", R], ["quiet-interruptions", A]]],
+      /* DG-184: the sample's one section in the sample's order: Hold messages overnight, where and how you are told,
+         then behind "More options" the news-only and second-opinion rows, and holidays, from and until. */
+      [["lx-collab-overnight", R], ["comfort-notify-card", R], ["quiet-interruptions", A], ["lx-collab-days-off", A]],
+      { moreAfter: "comfort-notify-card" }],
   ],
   "models:connection": [
     ["connection", "chip", "Your model connection", "Which service answers, and how Branch signs in to it.",

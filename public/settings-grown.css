@@ -102,13 +102,51 @@ body:not(.lx-settings-searching) [data-sg-bucket="notifications:attention"] > :i
 body:not(.lx-settings-searching) [data-sg-bucket="notifications:attention"] > .collab-section > :is(h3, .collab-desc) {
   display: none;
 }
-#lx-page-notifications #lx-collab-days-off > .collab-section {
+#lx-page-notifications :is(#lx-collab-overnight, #lx-collab-days-off) > .collab-section {
   margin: 0;
   padding: 18px 0 22px;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
+}
+/* DG-184: the sample's "More options" (`.bk-more > summary`): a line above, 14px semibold copper words after a
+   chevron that turns when open. What it folds away is out of sight until then, save while searching or peeked. */
+.sg-fold-line {
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+.lx-settings-searching .sg-fold-line {
+  display: none;
+}
+.sg-fold {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 12px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--copper-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.sg-fold::before {
+  content: "\203A";
+  display: inline-block;
+  margin-right: 4px;
+  transition: transform 0.2s;
+}
+.sg-fold[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+.sg-fold:hover {
+  background: transparent;
+  opacity: 0.8;
+}
+body:not(.lx-settings-searching) .lx-settings [data-sg-folded]:not([data-sg-peek]) {
+  display: none !important;
 }
 /* Destructive uninstall controls keep the warning enclosure from the full window. */
 .lx-page > .card.danger-zone {

@@ -884,7 +884,7 @@ function moveInto(id, slot) {
 }
 /* The collaboration panel is drawn again on every refresh, so its parts are sent home each time. */
 function moveCollab() {
-  const homes = { labels: "lx-collab-labels", "days-off": "lx-collab-days-off", shares: "lx-collab-people", people: "lx-collab-people" };
+  const homes = { labels: "lx-collab-labels", overnight: "lx-collab-overnight", "days-off": "lx-collab-days-off", shares: "lx-collab-people", people: "lx-collab-people" };
   const panel = $("collab-container")?.querySelector(".collab-panel");
   if (!panel) return;
   for (const [part, slot] of Object.entries(homes)) {
@@ -901,9 +901,11 @@ function collabSlots() {
   const people = make("div", "lx-collab");
   people.id = "lx-collab-people";
   $("lx-page-general").append(labels, people);
+  const overnight = make("div", "lx-collab");
+  overnight.id = "lx-collab-overnight";
   const days = make("div", "lx-collab");
   days.id = "lx-collab-days-off";
-  $("lx-page-notifications").append(days);
+  $("lx-page-notifications").append(overnight, days);
 }
 
 /* ---------- going somewhere ---------- */
