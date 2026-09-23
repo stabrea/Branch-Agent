@@ -363,7 +363,7 @@
 }
 .studio-header-home {
   color: var(--muted);
-  white-space: pre;
+  white-space: nowrap;
 }
 .studio-header b {
   font-weight: 600;
