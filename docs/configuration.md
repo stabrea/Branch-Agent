@@ -8115,6 +8115,13 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
 - **A2258** (several agent runtimes) — built: Claude Code, Codex, Copilot, Gemini CLI and Codex over
   app-server are added as connections, remembered, and follow their switch (`src/asks/runtimes.ts`,
   `tests/asks-runtimes.test.mjs` "A2258").
+- **packages.forecasting** (forecasts and calibration) — built: a question, a probability and a date
+  are kept; the answer is recorded once; the Brier score and a ten-band calibration table count only
+  answered forecasts and say "none yet" rather than invent a number. Its own three-way switch
+  (`asks-forecasts`, ships off), a card in Settings › Data, and the tools `forecast.add`,
+  `forecast.resolve` and `forecast.score`, each refusing a household task, a short-lived key, a chat
+  app or a lent conversation before it reads anything (`src/asks/forecasts.ts`,
+  `src/asks/owner-only.ts`, `tests/asks-forecasts.test.mjs`).
 - **A0032** (an app-server protocol) — built: `branch app-server` speaks Codex's app-server protocol
   (`src/asks/app-server.ts`, `tests/asks-runtimes.test.mjs` "A0032"); `branch acp-serve` still speaks ACP.
 - **A0601** (Codex's app-server as a backend) — built: Codex answers over app-server, read-only, and its

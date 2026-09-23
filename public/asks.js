@@ -75,6 +75,7 @@ const PARTS = {
   nodes: ["asks.part.nodes", "Other computers running Branch"],
   "app-server": ["asks.part.appServer", "Letting an editor drive Branch (app-server protocol)"],
   runtimes: ["asks.part.runtimes", "Other agents answering a conversation"],
+  forecasts: ["asks.part.forecasts", "Forecasts, and how well they turned out"],
 };
 
 /** The part's three-way switch; a change redraws the cards, since what they show depends on it. */
@@ -348,8 +349,25 @@ async function connectionsCard(modes) {
   return node;
 }
 
-const BUILDERS = [boardCard, analyticsCard, nodesCard, runtimesCard, madeCard, sourcesCard, hindsightCard, intentsCard, connectionsCard];
-const IDS = ["asks-board-card", "asks-analytics-card", "asks-nodes-card", "asks-runtimes-card", "asks-made-card", "asks-sources-card", "asks-hindsight-card", "asks-intents-card", "asks-connections-card"];
+/* ---------- settings:data — forecasts ---------- */
+async function forecastsCard(modes) {
+  const { node, status } = card("asks-forecasts-card", "settings:data", "asks.forecasts.title", "Forecasts",
+    "asks.forecasts.purpose", "Write down how likely something is, record what happened, and see how well the numbers held up.");
+  node.append(...switchFor("forecasts", modes, status));
+  if (modes.forecasts !== "off") {
+    const view = await api("asks/forecasts");
+    const brier = view.brier === null ? t("asks.forecasts.noneYet") : view.brier.toFixed(3);
+    node.append(plain("p", t("asks.forecasts.summary", { open: view.open.length, resolved: view.resolved, brier }), "field-note"));
+    for (const row of view.calibration.filter((one) => one.forecasts))
+      node.append(plain("p", t("asks.forecasts.band", { band: row.band, count: row.forecasts,
+        said: Math.round(row.said * 100), happened: Math.round(row.happened * 100) }), "field-note"));
+  }
+  node.append(status);
+  return node;
+}
+
+const BUILDERS = [boardCard, analyticsCard, nodesCard, runtimesCard, madeCard, sourcesCard, hindsightCard, intentsCard, connectionsCard, forecastsCard];
+const IDS = ["asks-board-card", "asks-analytics-card", "asks-nodes-card", "asks-runtimes-card", "asks-made-card", "asks-sources-card", "asks-hindsight-card", "asks-intents-card", "asks-connections-card", "asks-forecasts-card"];
 
 async function drawCards() {
   let modes;
