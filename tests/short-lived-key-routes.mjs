@@ -1009,6 +1009,10 @@ export const ROUTES = {
   "/api/settings-kit/apply": "owner POST",
   // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
   "/api/settings-kit/pins": "owner POST",
+  // Q48/Q49: the change records and "why is it set like this?" are names and values only; an undo is a change, the owner's.
+  "/api/settings-kit/history": "look",
+  "/api/settings-kit/undo": "owner POST",
+  "/api/settings-kit/why/[A-Za-z0-9_.:-]{3,160}": "look",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",
