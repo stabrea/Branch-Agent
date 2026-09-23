@@ -72,8 +72,11 @@ function stateOf(store: Store, tasks: TeamTasks, task: TeamTask, offered: boolea
     case "needs_reconciliation": return at("blocked", "reconciliation.required");
     case "claimed":
       if (task.bootId === null) return at("working", "handoff.accepted");
+      // An open offer waits on its recipient. It is never orphaned (src/team-tasks.ts), and a turn running
+      // here cannot be offered away (src/team-handoff.ts), so it is checked before "is it working".
+      if (offered) return at("blocked", "handoff.offered");
       if (!tasks.orphaned(task, dispatchHeld(store, task.taskId))) return at("working", "run.started");
-      return at("blocked", offered ? "handoff.offered" : "reconciliation.required");
+      return at("blocked", "reconciliation.required");
   }
 }
 /** A member run's state, told by Q51 from its own record (the run that carried it on after a restart speaks for it, as in memberRuns). */
