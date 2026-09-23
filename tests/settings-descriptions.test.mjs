@@ -63,7 +63,7 @@ function auditOpenPage(where) {
     const cardName = card.id || heading?.textContent.trim() || "a card with no id";
     /* DG-181: a card drawn as rows of its page's section, as in the sample, has its title read aloud only (a
        screen-reader-only h2, as DG-183's cards) and no purpose line of its own. */
-    const rows = heading?.matches(":scope > h2.sr-only");
+    const rows = heading?.matches("h2.sr-only");
     if (!rows && (!heading || heading.nextElementSibling?.tagName !== "P"))
       problems.push(`${where}: card ${cardName} needs its heading followed by one sentence saying what it is for`);
     if (!card.querySelector(":scope > .kit-scope[data-t]"))

@@ -114,3 +114,33 @@ test("DG-182: the list gives each file's first line to the owner only", async (t
   const stranger = await fetch(server.url + "/api/settings-kit/files", { headers: { authorization: "Bearer wrong" } });
   assert.notEqual(stranger.status, 200);
 });
+
+test("DG-182: each file's mode buttons read Off / When needed / On, and on fresh install Off is pressed", async (t) => {
+  const { browser, server } = await fixture(t);
+  const { page, errors } = await connect(browser, server, 1440);
+  await openAtLevel(page);
+  const card = page.locator("#agent-files");
+
+  /* For slots soul, identity and user, check the button texts are ["Off", "When needed", "On"]. */
+  for (const slot of ["soul", "identity", "user"]) {
+    const buttons = await card.locator(`.agent-file[data-slot="${slot}"] .agent-file-mode button`).allInnerTexts();
+    assert.deepEqual(buttons, ["Off", "When needed", "On"], `${slot} buttons in English`);
+  }
+
+  /* On fresh install Off has aria-pressed="true". */
+  for (const slot of ["soul", "identity", "user"]) {
+    const offButton = card.locator(`.agent-file[data-slot="${slot}"] .agent-file-mode button`, { hasText: "Off", exact: true });
+    assert.equal(await offButton.getAttribute("aria-pressed"), "true", `${slot} Off is pressed on fresh install`);
+  }
+
+  /* After switching to French, the buttons show French text. */
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.locator("#agent-files .agent-files-foot", { hasText: "Chaque fichier" }).waitFor();
+  for (const slot of ["soul", "identity", "user"]) {
+    const buttons = await card.locator(`.agent-file[data-slot="${slot}"] .agent-file-mode button`).allInnerTexts();
+    assert.deepEqual(buttons, ["Désactivé", "Au besoin", "Activé"], `${slot} buttons in French`);
+  }
+
+  assert.deepEqual(errors, []);
+  await page.close();
+});
