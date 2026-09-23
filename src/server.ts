@@ -226,6 +226,8 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// FQ-operations.sandbox-lifecycle: create, snapshot, stop and restore a configured agent sandbox.
+import { handlesAgentSandboxLifecyclePath, agentSandboxLifecycleApi, AgentSandboxLifecycleError } from "./agent-sandbox-lifecycle.js";
 // Wave mac2 (move-in): bringing chats and memory over from another assistant.
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
@@ -998,6 +1000,12 @@ async function api(
   if (handlesSandboxRemotePath(path))
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // FQ-operations.sandbox-lifecycle: a configured agent sandbox — create it, snapshot it, stop it,
+  // restore it — with the network reach and model services it was declared with carried over.
+  if (handlesAgentSandboxLifecyclePath(path))
+    return agentSandboxLifecycleApi(app.store, app.runtime.owner, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof AgentSandboxLifecycleError ? new HttpError(error.status, error.message) : error;
     });
   // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
   if (handlesMoveInPath(path))
@@ -4049,6 +4057,10 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // may touch; a script's key must not be able to take either down.
   if (path === "/api/os-sandbox" || path === "/api/sandboxes")
     return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
+  // FQ-operations.sandbox-lifecycle: creating, stopping, snapshotting and restoring an agent
+  // sandbox decides what it may reach and call, exactly like the wall above; same owner-only rule.
+  if (path === "/api/agent-sandboxes" || path.startsWith("/api/agent-sandboxes/"))
+    return "A short-lived key cannot create, stop, snapshot or restore an agent sandbox. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
