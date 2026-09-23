@@ -104,6 +104,7 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   await openSettings(page, "secrets");
   await page.waitForFunction(() =>
     document.querySelector("label[for=vault-autofill-site]")?.textContent === "Le site auquel il appartient");
-  assert.match(await card.locator("h2").innerText(), /identifiant enregistré/);
+  // DG-189: the card has no heading of its own; its switch's label names it, as in the sample.
+  assert.match(await card.locator("#vault-autofill-mode-label").innerText(), /identifiant enregistré/);
   assert.deepEqual(errors, []);
 });
