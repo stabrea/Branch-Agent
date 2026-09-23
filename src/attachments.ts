@@ -372,9 +372,14 @@ export class Attachments {
     try {
       listing = z.array(AttachmentRefSchema).parse(JSON.parse(readFileSync(join(folder, "kept.json"), "utf8")));
     } catch (error) {
-      // No folder and no listing is a conversation that was never given a file. Anything else is a
-      // question this cannot answer, and saying 0 would make it look small enough to keep.
-      return (error as NodeJS.ErrnoException).code === "ENOENT" ? 0 : null;
+      // `ENOENT` says one of two things and they are not the same. No folder at all is a conversation
+      // that was never given a file: a true zero. A folder that is there with no listing in it is a
+      // conversation whose files may well be sitting right there, with nothing left to say what they
+      // are — a number nobody has. Answering 0 to the second put a conversation with a film in it at
+      // the front of the queue to be deleted for being small.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+      try { statSync(folder); } catch { return 0; }
+      return null;
     }
     // The files themselves, not what the listing says about them. The listing records what each file
     // weighed when it arrived; it is not re-read when one changes, so adding those numbers up answers

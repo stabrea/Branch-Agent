@@ -90,6 +90,45 @@ async function listening(t, scratch) {
 
 
 
+
+test("a conversation whose listing is gone is unmeasured, not a conversation with nothing in it", async (t) => {
+  // Reading a listing that is not there answers ENOENT, and ENOENT says two different things. No
+  // folder at all is a conversation that was never given a file, which is a true zero. A folder that
+  // is there with no listing in it is a conversation whose files may be sitting right in it, with
+  // nothing left to say what they are. Answering 0 to the second put a conversation holding a film at
+  // the front of the queue to be deleted for being small.
+  const { app, root, post } = await branch(t);
+  const run = await post("/api/run", { prompt: "Keep this.", attachments: [FOUR[0]] });
+  const sessionId = run.body.sessionId;
+  const folder = join(root, "data", "attachments", sessionId.replace(/[^a-z0-9]/gi, ""));
+  assert.equal(app.attachments.bytesHeld(sessionId), png.length);
+
+  await rm(join(folder, "kept.json"));
+  assert.equal((await readdir(folder)).length, 1, "the file itself is still sitting there");
+  assert.equal(app.attachments.bytesHeld(sessionId), null,
+    "so what it weighs is a number nobody has, not nothing");
+
+  // And the true zero is still a zero, or every conversation that never had a file becomes unmeasured
+  // and nothing can ever be swept on size again.
+  assert.equal(app.attachments.bytesHeld("00000000-0000-4000-8000-000000000000"), 0,
+    "a conversation that was never given a file weighs nothing, and that is measured");
+});
+
+test("retention never offers a conversation it could not measure, whichever way it failed", async (t) => {
+  // The two unmeasurable shapes have to reach retention the same way: counted towards the history so
+  // the total is honest, and never the one offered up on the strength of a number nobody checked.
+  const { app, root, post } = await branch(t);
+  const { ConversationRetention, saveRetentionSettings } = await import("../dist/retention.js");
+  const run = await post("/api/run", { prompt: "Keep this.", attachments: [FOUR[0]] });
+  const sessionId = run.body.sessionId;
+  await rm(join(root, "data", "attachments", sessionId.replace(/[^a-z0-9]/gi, ""), "kept.json"));
+
+  saveRetentionSettings(app.store, "local", { enabled: true, keepDays: 0, megabytes: 1, exportBeforeDeleting: false });
+  const proposal = new ConversationRetention(app.store, "local").propose();
+  assert.equal(proposal.conversations.some((one) => one.sessionId === sessionId), false,
+    "not offered, because what it weighs was never established");
+});
+
 test("what a conversation weighs is what its files weigh now, not what the listing remembers", async (t) => {
   // The listing records what each file weighed when it arrived and is not re-read when one changes,
   // so adding those numbers up answers for a conversation as it used to be. A seventy-byte file
