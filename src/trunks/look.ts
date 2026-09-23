@@ -10,7 +10,7 @@ import { z } from "zod";
  * Leaving colour or shape empty keeps what the name gives, which is how every Trunk made before
  * this looked, so nothing changes for a Trunk nobody has restyled.
  */
-export const trunkFaces = ["drawn", "letters", "emoji", "pattern"] as const;
+export const trunkFaces = ["letters", "emoji", "pattern"] as const;
 export const trunkShapes = ["circle", "squircle", "leaf", "acorn", "shield", "hexagon", "pebble"] as const;
 export const trunkMotions = ["none", "breathe", "sway", "shimmer", "pulse", "dots"] as const;
 
@@ -18,8 +18,9 @@ export const trunkMotions = ["none", "breathe", "sway", "shimmer", "pulse", "dot
 const emoji = z.string().max(16).regex(/^[^\x00-\x7F]*$/u, "Choose an emoji, not letters");
 
 export const TrunkLookSchema = z.object({
-  /** drawn: the face made from the name; letters; emoji; pattern: pixel art made from the name. A photo is `avatar`. */
-  face: z.enum(trunkFaces).default("drawn"),
+  /** letters; emoji; pattern: pixel art made from the name. A photo is `avatar`. The drawn face was retired
+   *  (DG-108): a stored or sent "drawn" becomes the pattern, the other face made from the name. */
+  face: z.enum([...trunkFaces, "drawn"]).default("pattern").transform((face) => (face === "drawn" ? "pattern" : face)),
   letters: z.string().trim().max(2).regex(/^[\p{L}\p{N}]*$/u, "Use one or two letters").default(""),
   emoji: emoji.default(""),
   /** Changes the pixel pattern without renaming the Trunk. */
