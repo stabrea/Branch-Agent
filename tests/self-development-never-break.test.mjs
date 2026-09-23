@@ -141,6 +141,9 @@ test("the systemd drop-in folder of Branch's service is refused like the unit fi
   for (const line of [`rm -rf ${dropIn}`, `mkdir -p ${dropIn} && printf '[Service]\\nExecStart=\\n' > ${dropIn}/override.conf`, `mv ${dropIn}{,.off}`])
     assert.match(sh(line) ?? "", stops, line);
   assert.match(check("files.write", { path: "/home/o/.config/systemd/user/branch-agent.service.d/override.conf", content: "[Service]\n" }) ?? "", stops);
+  // systemd also applies the "branch-" prefix drop-in and the one for every service to Branch's unit.
+  for (const line of ["rm -rf ~/.config/systemd/user/branch-.service.d", "echo x > ~/.config/systemd/user/service.d/override.conf",
+    "mv /etc/systemd/system/service.d{,.off}"]) assert.match(sh(line) ?? "", stops, line);
   assert.equal(sh("rm -rf ~/.config/systemd/user/other.service.d"), null, "another service's drop-in is not Branch's");
 });
 
@@ -156,6 +159,7 @@ test("a brace group holding a quoted space is spelled out as the shell does it",
   for (const line of [
     'rm -rf ~/.local/share/{branch-agent,"a b"}', "rm -rf ~/.local/share/{branch-agent,'a b'}", 'rm -rf ~/.local/share/{"a b",branch-agent}',
     'mv ~/.config/systemd/user/branch-agent.service{,".off x"}', "rm -rf ~/.local/share/{branch-agent,a\\ b}",
+    'rm -rf ~/.local/share/branch{-agent,"-x y"}',
   ]) assert.notEqual(shIn(areas, line), null, line);
   // Braces entirely inside quotes are not opened by bash: the command names a folder literally called
   // "{branch-agent,x}", which is not Branch's, so never-break lets it through, as the shell would run it.

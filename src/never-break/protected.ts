@@ -474,6 +474,8 @@ const selfService = [
   new RegExp(`(?<![^\\s'"=:;|&(])${serviceName(systemdUnitName.replace(/\.service$/, ""))}(?:\\.service)?${ends}`, "i"),
   // ...and its drop-in folder (branch-agent.service.d), whole or any file inside it.
   new RegExp(`/${serviceName(systemdUnitName)}(?:\\.d(?:/[^\\s'";|&)]*)?)?${ends}`, "i"),
+  // ...and the drop-ins systemd also applies to it: every "branch-" unit's, and every service's.
+  new RegExp(`/(?:user|system)/(?:branch[-_]\\.service|service)\\.d(?:/[^\\s'";|&)]*)?${ends}`, "i"),
   /\b(cli\.js|branch)\s+(daemon|update|gateway)\b/i,
   /\b(pkill|killall|taskkill(\.exe)?|Stop-Process|spps)\b.*\b(branch|cli\.js|electron|node(\.exe)?)\b/i,
   /\bkill\b.*\b(pgrep|pidof)\b.*\b(branch|cli\.js|electron|node)\b/i,
