@@ -45,7 +45,8 @@ const items = (page) => page.evaluate(() => [...document.querySelectorAll("#lx-o
   .map((node) => ({ id: node.dataset.session, on: node.classList.contains("on") })));
 
 test("DG-096 two open conversations sit along the bottom, the one on screen marked, and one closes off the strip", async (t) => {
-  const { page, errors } = await signedIn(t, 1440);
+  /* an instant reply, so the test measures the strip rather than how quickly a model answers on a busy machine */
+  const { page, errors } = await signedIn(t, 1440, { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } });
   const strip = page.locator("#lx-open-strip");
   assert.equal(await strip.isVisible(), false, "nothing open, no strip");
   const first = await converse(page, "Say hello");

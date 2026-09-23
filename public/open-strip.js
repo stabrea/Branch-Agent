@@ -124,7 +124,7 @@ document.addEventListener("branch-strip", () => document.querySelectorAll("#lx-o
 /* marked in place, so a strip scrolled sideways stays where it was */
 document.addEventListener("branch-busy", (event) => {
   busy = { needsYou: event.detail?.needsYou ?? [], working: event.detail?.working ?? [] };
-  document.querySelectorAll("#lx-open-list .lx-open-item").forEach(dotOn);
+  document.querySelectorAll("#lx-open-list .lx-open-item").forEach((wrap) => { faceOn(wrap); dotOn(wrap); });
 });
 document.addEventListener("branch-language", () => {
   const strip = $("lx-open-strip");
