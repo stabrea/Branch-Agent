@@ -5441,6 +5441,8 @@
   "result.passed": "réussi",
   "result.not-passed": "échoué",
   "result.own": "Modification de Branch lui-même",
+  "result.code.changed": "code modifié",
+  "result.code.none": "aucun code modifié",
   "result.tests.passed": "tests réussis",
   "result.tests.failed": "tests échoués",
   "result.tests.none": "tests non lancés",

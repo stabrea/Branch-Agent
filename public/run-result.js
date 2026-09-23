@@ -36,8 +36,9 @@ export function resultRows(result) {
   if (own) {
     const tests = { passed: say("result.tests.passed", "tests passed"), failed: say("result.tests.failed", "tests failed"), "not run": say("result.tests.none", "tests not run") }[own.tests];
     const review = own.review === "pending" ? say("result.review.pending", "review pending") : say("result.review.none", "no review opened");
+    const code = own.codeChanged ? say("result.code.changed", "code changed") : say("result.code.none", "no code changed");
     out.push({ kind: "own", title: say("result.own", "Branch's own change"),
-      meta: [tests, review, say("result.merged.unknown", "merged: unknown"), say("result.release.unknown", "in a release: unknown")].join(" · ") });
+      meta: [code, tests, review, say("result.merged.unknown", "merged: unknown"), say("result.release.unknown", "in a release: unknown")].join(" · ") });
   }
   return out;
 }

@@ -5440,6 +5440,8 @@
   "result.passed": "passed",
   "result.not-passed": "did not pass",
   "result.own": "Branch's own change",
+  "result.code.changed": "code changed",
+  "result.code.none": "no code changed",
   "result.tests.passed": "tests passed",
   "result.tests.failed": "tests failed",
   "result.tests.none": "tests not run",
