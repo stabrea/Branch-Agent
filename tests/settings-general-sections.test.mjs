@@ -111,7 +111,7 @@ test("General's section headings and links are French in French", async (t) => {
   const heads = await page.locator("#lx-page-general .sg-head-title").evaluateAll((nodes) => nodes.map((node) => node.textContent));
   for (const english of ["People on this computer", "A PIN for switching back to you", "Signing in from other devices"])
     assert.ok(!heads.includes(english), `${english} is still English`);
-  assert.equal(await page.locator("#lx-general-links [data-to='lx-collab-people'] .lx-link-go").textContent(), "Réglé dans Personnes sur cet ordinateur ›");
+  assert.equal(await page.locator("#lx-general-links [data-to='lx-collab-people'] .lx-link-go").textContent(), "À régler dans Personnes sur cet ordinateur ›");
   assert.deepEqual(errors, []);
 });
 
@@ -179,4 +179,13 @@ test("on the page, neither section draws a line, in English or in French", async
   await page.waitForFunction(() => document.getElementById("sg-bucket-general-pin")?.textContent === "Un code PIN pour revenir à vous");
   assert.deepEqual(await lines(), [0, 0], "French");
   assert.deepEqual(errors, []);
+});
+
+test("every \"Set in … ›\" link says \"À régler dans … ›\" in French, the same words everywhere", async () => {
+  const en = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  const links = Object.keys(en).filter((key) => en[key].startsWith("Set in "));
+  assert.ok(links.length >= 4, `the links are found (${links.length})`);
+  assert.deepEqual(links.filter((key) => !fr[key]?.startsWith("À régler dans ")), []);
+  assert.deepEqual(Object.keys(fr).filter((key) => /^Réglée?s? dans /.test(fr[key])), []);
 });
