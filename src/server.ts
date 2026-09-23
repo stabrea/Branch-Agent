@@ -55,11 +55,8 @@ import { inspectRun } from "./inspect.js";
 import { buildTrajectory, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
-import { TryToolSchema, toolForms, tryTool } from "./playground.js";
-// mac5/manual-actions: the hand-pressed gate for "Try a tool".
-import { manualVerdict } from "./tool-gate.js";
+import { TryToolSchema, toolForms, tryToolByHand } from "./playground.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
-import { argumentFingerprint } from "./runtime.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
@@ -1171,16 +1168,9 @@ async function api(
   // The developer playground: the form for every tool, and running one by hand through the gate.
   if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
   if (request.method === "POST" && path === "/api/tools/try") {
-    const input = TryToolSchema.parse(await readBody(request));
-    // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
-    // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
-    return app.runtime.hideSecrets(
-      await tryTool(app.registry, app.store, app.runtime.owner,
-        app.runtime.context({ signal: AbortSignal.timeout(120000) }), input,
-        (tool, permission) => app.runtime.roleRefusal(tool, permission),
-        // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept. A
-        // short-lived key meets the full rules there: only "allow" runs, and it cannot confirm (key-sweep).
-        (tool, args, context) => manualVerdict(app.runtime, tool, args, context, argumentFingerprint(JSON.stringify(args)))));
+    // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept, the
+    // two-minute ceiling and the secret scrub; shared with the host-bridge card (src/playground.ts).
+    return tryToolByHand(app, TryToolSchema.parse(await readBody(request)));
   }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.

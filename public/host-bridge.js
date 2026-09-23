@@ -45,18 +45,31 @@ async function showComputers() {
   if (computers.some((computer) => computer.alias === chosen)) select.value = chosen;
 }
 
-async function runOnHost() {
-  const computer = $("host-bridge-computer").value;
-  const program = $("host-bridge-program").value.trim();
-  const args = $("host-bridge-args").value.split(" ").map((part) => part.trim()).filter(Boolean);
-  if (!computer) { say("host-bridge-status", "Add a computer above first."); return; }
-  if (!program) { say("host-bridge-status", "Name a program to run."); return; }
+/** The question the owner's approval settings put first, with the one button that answers yes. */
+function showQuestion(where, question, body) {
+  const row = document.createElement("div");
+  row.className = "card-row";
+  const text = document.createElement("p");
+  text.textContent = question;
+  const yes = document.createElement("button");
+  yes.type = "button";
+  yes.id = "host-bridge-confirm";
+  yes.textContent = "Yes, run it";
+  yes.addEventListener("click", () => void send({ ...body, confirm: true }));
+  row.append(text, yes);
+  where.append(row);
+  say("host-bridge-status", "Waiting for your yes.");
+}
+
+async function send(body) {
   say("host-bridge-status", "Running…");
   const where = list("host-bridge-result");
   try {
-    const result = await api("host-bridge/run", { computer, program, args });
-    // The row that comes back names the computer it ran on, explicitly, before the answer itself —
-    // so a reply is never read as if it came from whichever computer was merely selected.
+    // The same gate as "Try a tool": Lockdown and your own rules can refuse it, or ask first.
+    const result = await api("host-bridge/run", body);
+    if (result.status === "asked") { showQuestion(where, result.question, body); return; }
+    // The row that comes back names the computer it was sent to, explicitly, before the answer
+    // itself — so a reply is never read as if it came from whichever computer was merely selected.
     const row = document.createElement("div");
     row.className = "card-row";
     const title = document.createElement("h4");
@@ -71,11 +84,20 @@ async function runOnHost() {
   }
 }
 
+function runOnHost() {
+  const computer = $("host-bridge-computer").value;
+  const program = $("host-bridge-program").value.trim();
+  const args = $("host-bridge-args").value.split(" ").map((part) => part.trim()).filter(Boolean);
+  if (!computer) { say("host-bridge-status", "Add a computer above first."); return; }
+  if (!program) { say("host-bridge-status", "Name a program to run."); return; }
+  void send({ computer, program, args });
+}
+
 async function render() {
   if (!$("host-bridge-computer")) return;
   await showComputers().catch((error) => say("host-bridge-status", error.message));
 }
 
-$("host-bridge-run")?.addEventListener("click", () => void runOnHost());
+$("host-bridge-run")?.addEventListener("click", runOnHost);
 
 window.branchHostBridge = { render };
