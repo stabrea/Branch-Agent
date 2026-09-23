@@ -235,6 +235,76 @@ body.no-aside .context-panel {
   color: var(--faint);
   font-size: 13px;
 }
+/* DG-093: New conversation, and beside it a chevron to start with a chosen Trunk (it takes the plus's place) */
+.rail-new-line {
+  position: relative;
+}
+.rail-new-line:has(#rail-new-more:not([hidden])) .rail-plus {
+  visibility: hidden;
+}
+.rail-new-more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-3);
+}
+.rail-new-more:hover,
+.rail-new-more[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.rail-new-more svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail-new-more[hidden],
+#rail-new[hidden] ~ .rail-new-more,
+html:root[data-hide~="new"] body.lx .rail-new-more {
+  display: none;
+}
+.rail-new-menu {
+  top: calc(100% + 2px);
+  right: 0;
+  left: 0;
+}
+.rail-new-menu button > span {
+  display: grid;
+  min-width: 0;
+}
+.rail-new-menu b {
+  color: var(--text);
+  font-weight: 550;
+}
+.rail-new-menu small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.rail-new-menu hr {
+  margin: var(--s1) var(--s2);
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.rail-new-note {
+  margin: var(--s1) var(--s3) var(--s2);
+  color: var(--faint);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
 .rail-find {
   color: var(--faint);
 }
@@ -505,19 +575,75 @@ body.no-aside .context-panel {
   display: grid;
   min-width: 0;
 }
+/* DG-095: the owner's line is shown whole, never cut short; a long one wraps. */
 .owner-name {
   font-size: 12.5px;
   font-weight: 550;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .owner-status {
   font-size: 10.5px;
   color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+/* DG-094: one line of icons above the account row (public/rail-foot.js): the theme and the pet on the left,
+   then day/night, clear the view and the Settings cog on the right. */
+.lx-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0 0 2px;
+}
+.lx-foot-line .lx-foot-icon,
+.lx-foot-line .sg-gear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.lx-foot-line .lx-foot-icon:hover,
+.lx-foot-line .sg-gear:hover,
+.lx-foot-line .sg-gear[aria-expanded="true"] {
+  background: var(--rail-hover);
+  color: var(--text);
+}
+.lx-foot-line .lx-foot-icon svg,
+.lx-foot-line .sg-gear svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lx-foot-line #lx-foot-mode {
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+}
+.lx-foot-line .lx-foot-icon[hidden] {
+  display: none;
+}
+/* DG-159: day/night lives only here now, so the old half-moon beside the computer's name goes. */
+#appearance-shortcut {
+  display: none !important;
+}
+/* DG-161: as in the sample, the pet's switch is not in the folded sidebar nor on a phone. */
+@media (max-width: 960px) {
+  .lx-foot-line #lx-foot-pet {
+    display: none;
+  }
 }
 .dot {
   display: inline-block;

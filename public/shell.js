@@ -490,6 +490,66 @@ $("rail-new").addEventListener("click", () => {
   closeRailOverlay();
   setTimeout(loadRail, 400);
 });
+/* DG-093: beside New conversation, a chevron to start with a chosen Trunk, as in the approved sample. One click on
+   New conversation still starts with your own assistant; the chevron lists the real Trunks and is shown only when
+   there is one to choose and this is the owner. */
+function buildNewWith() {
+  const start = $("rail-new");
+  const line = Object.assign(document.createElement("div"), { className: "rail-new-line" });
+  start.before(line);
+  line.append(start);
+  const more = Object.assign(document.createElement("button"), { type: "button", id: "rail-new-more", className: "rail-new-more", hidden: true });
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("data-t-label", "rail.newWith");
+  more.setAttribute("aria-label", t("rail.newWith"));
+  more.title = t("rail.newWith");
+  more.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>';
+  const panel = Object.assign(document.createElement("div"), { id: "rail-new-menu", className: "menu rail-new-menu", hidden: true });
+  panel.setAttribute("role", "menu");
+  line.append(more, panel);
+  menu("rail-new-more", "rail-new-menu", (box) => void fillNewWith(box));
+  return more;
+}
+async function fillNewWith(box) {
+  const [{ visibleTrunks }, { avatar }] = await Promise.all([import("/strip.js"), import("/trunks.js")]);
+  const note = Object.assign(document.createElement("p"), { className: "menu-note", textContent: t("rail.newWith.head") });
+  note.dataset.t = "rail.newWith.head";
+  const rows = visibleTrunks().map((trunk) => {
+    const row = Object.assign(document.createElement("button"), { type: "button" });
+    row.setAttribute("role", "menuitem");
+    row.dataset.trunk = trunk.id;
+    const words = document.createElement("span");
+    words.append(Object.assign(document.createElement("b"), { textContent: trunk.name }),
+      Object.assign(document.createElement("small"), { textContent: `@${trunk.handle}` }));
+    row.append(avatar(trunk, 24), words);
+    row.addEventListener("click", () => void startWithTrunk(trunk));
+    return row;
+  });
+  const after = Object.assign(document.createElement("p"), { className: "rail-new-note", textContent: t("rail.newWith.note") });
+  after.dataset.t = "rail.newWith.note";
+  box.replaceChildren(note, ...rows, document.createElement("hr"), after);
+}
+/** A new conversation that this Trunk answers in, the same way @naming a Trunk in an empty conversation begins one. */
+async function startWithTrunk(trunk) {
+  try {
+    const { sessionId } = await api("trunks/conversations", { trunkId: trunk.id });
+    displayView("chat");
+    await openConversation(sessionId);
+    closeRailOverlay();
+    setTimeout(loadRail, 400);
+  } catch (error) {
+    globalThis.toast?.(error.message ?? String(error));
+  }
+}
+const newWith = buildNewWith();
+/** Shown for the owner when Trunks, and choosing one to answer a conversation, are on and one is there to choose. */
+async function syncNewWith() {
+  const { visibleTrunks, isOwner, shell } = await import("/strip.js");
+  newWith.hidden = !(isOwner() && visibleTrunks().length > 0 && shell.roster?.modes?.conversations !== "off");
+}
+for (const name of ["branch-strip", "branch-profile"]) document.addEventListener(name, () => void syncNewWith());
+setTimeout(() => void syncNewWith(), 0);
+document.addEventListener("branch-language", () => { newWith.title = t("rail.newWith"); });
 /* The label picker for whatever conversation is open. */
 $("thread-labels")?.addEventListener("click", (event) => {
   event.stopPropagation();
