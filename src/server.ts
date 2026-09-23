@@ -466,6 +466,8 @@ async function staticFile(
     "/danger-zone.js": ["danger-zone.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
+    // Git activity: publishing a patch and its repository status as a signed, searchable event.
+    "/collab-git.js": ["collab-git.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
     "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],

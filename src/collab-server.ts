@@ -34,7 +34,7 @@ export function collabState(app: Branch): unknown {
   // Shared copies, saved workflows, the waiting line and days off are the owner's, so a screen
   // opened under somebody else's profile shows their labels and nothing of the owner's.
   if (!profiles.isOwner())
-    return { profile: person, labels: app.store.labels.catalog(scope), shares: [], workflows: [],
+    return { profile: person, labels: app.store.labels.catalog(scope), shares: [], workflows: [], projects: [],
       queue: { waiting: [], recent: [], settings: app.runQueue.settings(owner) },
       calendar: { settings: app.calendar.settings(owner), countries: [] } };
   return {
@@ -42,6 +42,10 @@ export function collabState(app: Branch): unknown {
     labels: app.store.labels.catalog(scope),
     shares: app.store.shares.list(owner),
     workflows: app.workflows.list(owner),
+    // Which repositories a published git patch may link to (see /api/collab/git-patches). Projects
+    // are the owner's own, the same as the Projects panel, so a household member's screen does not
+    // offer them: they still see and search patches already published, through /api/collab/events.
+    projects: app.store.projects.list(owner),
     queue: { waiting: app.runQueue.list(owner), recent: app.runQueue.recent(owner), settings: app.runQueue.settings(owner) },
     calendar: { settings: app.calendar.settings(owner), countries: app.calendar.countries() },
   };
