@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadWeights, parseFilesFrom, parseShard, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
+import { loadWeights, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
 test("npm test isolates browser and desktop files while keeping ordinary tests together", () => {
   const listing = {
@@ -27,17 +27,29 @@ test("npm test isolates browser and desktop files while keeping ordinary tests t
 });
 
 test("the shares the build machines run cover every test file exactly once, for any number of shares", () => {
-  const { shared, browser, desktop } = testGroups();
+  const groups = testGroups(), { shared, browser, desktop } = groups;
   const all = [...shared, ...browser, ...desktop];
   for (const platform of ["win32", "darwin", "linux", "unmeasured"]) {
     for (const total of [1, 2, 3, 4, 5, 6, 8]) {
-      const shares = shards(all, total, loadWeights(platform));
+      const shares = Array.from({ length: total }, (_, index) => shareFiles(groups, index, total, loadWeights(platform)));
       assert.equal(shares.length, total);
       const seen = shares.flat();
       assert.equal(seen.length, all.length, `${platform} ${total}: a file ran twice or not at all`);
       assert.deepEqual([...seen].sort(), [...all].sort());
     }
   }
+});
+
+test("every share gets an even part of the one-at-a-time files, not whatever the three-at-a-time ones leave (Q38)", () => {
+  const file = (name) => join("tests", `${name}.test.mjs`);
+  // One long three-at-a-time file fills one share, so packed together both browser files land on the other.
+  const groups = { shared: ["heavy", "s2", "s3", "s4"].map(file), browser: ["b1", "b2"].map(file), desktop: [] };
+  const weight = { heavy: 300, s2: 100, s3: 100, s4: 100, b1: 100, b2: 100 };
+  const weights = Object.fromEntries(Object.entries(weight).map(([name, seconds]) => [`tests/${name}.test.mjs`, seconds]));
+  const browsersIn = (share) => share.filter((f) => groups.browser.includes(f)).length;
+  assert.deepEqual([0, 1].map((index) => browsersIn(shareFiles(groups, index, 2, weights))), [1, 1]);
+  // The control: packed together, one share draws both, and their minutes run end to end.
+  assert.deepEqual(shards([...groups.shared, ...groups.browser], 2, weights).map(browsersIn).sort(), [0, 2]);
 });
 
 test("shares are packed by measured time, not by counting files", () => {

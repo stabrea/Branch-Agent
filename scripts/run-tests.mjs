@@ -65,6 +65,15 @@ export function shards(files, total, weights = {}) {
   return shares.map((share) => files.filter((file) => share.files.includes(file)));
 }
 
+/**
+ * One build machine's files. The files that run three at a time and the ones that run one at a time are packed
+ * apart, so every share gets an even part of each: packed together, one share drew most of the one-at-a-time
+ * browser files, whose minutes add up end to end, and ran past its limit while the others finished early (Q38).
+ */
+export function shareFiles(groups, index, total, weights = {}) {
+  return [...shards(groups.shared, total, weights)[index], ...shards([...groups.browser, ...groups.desktop], total, weights)[index]];
+}
+
 /** `--shard=2/5` → { index: 1, total: 5 }; no flag → the whole suite as one share. */
 export function parseShard(argv) {
   const flag = argv.find((arg) => arg.startsWith("--shard="));
@@ -132,7 +141,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const { index, total } = parseShard(argv);
   const groups = testGroups();
   const explicit = parseFilesFrom(argv, groups);
-  const mine = new Set(explicit ?? shards([...groups.shared, ...groups.browser, ...groups.desktop], total, loadWeights())[index]);
+  const mine = new Set(explicit ?? shareFiles(groups, index, total, loadWeights()));
   const shared = groups.shared.filter((file) => mine.has(file));
   const browsers = groups.browser.filter((file) => mine.has(file));
   const apps = groups.desktop.filter((file) => mine.has(file));
