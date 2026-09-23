@@ -62,11 +62,13 @@ export function policyForMode(policy: Policy, mode: ConversationMode, locked = f
 /* ---------- what a new conversation starts on ---------- */
 
 /**
- * The owner's one switch for the default: a conversation begun in the window starts on Ask first (the
- * owner's decision for the redesign), or follows their setting the way every conversation used to.
+ * The owner's one switch for the default: a conversation begun in the window starts on one of the four
+ * modes (Ask first unless the owner picks another), or follows their setting the way every conversation
+ * used to. The mode picked here goes through `policyForMode` and every guard, exactly like the chip.
  */
+export const newConversationChoices = [...conversationModes, "follow"] as const;
 export const ConversationModeSettingsSchema = z.object({
-  newConversation: z.enum(["ask", "follow"]).default("ask"),
+  newConversation: z.enum(newConversationChoices).default(newConversationMode),
 }).strict();
 export type ConversationModeSettings = z.infer<typeof ConversationModeSettingsSchema>;
 const settingsKey = "conversation-mode-settings";

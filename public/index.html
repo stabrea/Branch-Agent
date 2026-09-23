@@ -1475,8 +1475,12 @@
             <label for="mode-new-conversation" data-t="mode.setting.label">New conversations start on</label>
             <select id="mode-new-conversation" aria-describedby="mode-new-conversation-note">
               <option value="ask" data-t="mode.setting.ask">Ask first (recommended)</option>
-              <option value="follow" data-t="mode.setting.follow">The setting above</option>
+              <option value="plan" data-t="mode.setting.plan">Plan first</option>
+              <option value="auto" data-t="mode.setting.auto">Auto</option>
+              <option value="full" data-t="mode.setting.full">No approvals</option>
+              <option value="follow" data-t="mode.setting.follow">Follow my rules</option>
             </select>
+            <p id="mode-new-conversation-choice" class="subtle field-note" aria-live="polite" data-t="mode.setting.ask.note">Asks before any change, command or web action. Reading is free.</p>
             <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following the setting above.</p>
             <div class="policy-block" data-level="technical">
               <h4 data-t="settings.policy.means">What that means</h4>
