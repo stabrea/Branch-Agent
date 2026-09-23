@@ -126,10 +126,8 @@ export async function openSettings(page, name) {
   await ready(page);
   if (!(await page.locator("#settings-window").isVisible())) await pressUntilOpen(page);
   if (name) {
-    /* phase2/settings: on a narrow window the pages are one choice under the search box. */
-    const link = page.locator(`.lx-settings-link[data-page="${name}"]`);
-    if (await link.isVisible()) await link.click();
-    else await page.locator("#sg-page-pick").selectOption(name);
+    /* DG-013: on a narrow window the pages are a strip of tabs, and a click scrolls the tab into view first. */
+    await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
   }
   await showEveryCard(page);
 }

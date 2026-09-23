@@ -158,7 +158,7 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
       editorCount: document.querySelectorAll("#agent-files").length,
       privateTextVisible: document.body.innerText.includes(privateValue),
       instructionsHidden: instructions.hidden || getComputedStyle(instructions).display === "none",
-      optionDisabled: document.querySelector('#sg-page-pick option[value="instructions"]').disabled,
+      tabShown: document.querySelector('.lx-settings-link[data-page="instructions"]').checkVisibility(),
       pageHidden: instructionsPage.hidden || getComputedStyle(instructionsPage).display === "none",
       generalCurrent: document.querySelector('.lx-settings-link[data-page="general"]').getAttribute("aria-current"),
     };
@@ -167,7 +167,7 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
     editorCount: 0,
     privateTextVisible: false,
     instructionsHidden: true,
-    optionDisabled: true,
+    tabShown: false,
     pageHidden: true,
     generalCurrent: "true",
   });
@@ -185,7 +185,7 @@ test("F4b switching profiles clears an open owner-only editor before it can be r
   await page.waitForFunction(() => document.documentElement.dataset.household === "off");
   await page.locator("#agent-files").waitFor({ state: "attached" });
   assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').isVisible(), true);
-  assert.equal(await page.locator('#sg-page-pick option[value="instructions"]').evaluate((node) => node.disabled), false);
+  assert.equal(await page.locator('.lx-settings-link[data-page="instructions"]').evaluate((node) => node.checkVisibility()), true);
 });
 
 // Integration review: undo re-checks where the file is and whether it may be written, and the saved

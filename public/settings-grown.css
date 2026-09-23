@@ -300,8 +300,9 @@
   font-weight: 560;
   line-height: 1.55;
 }
-.sg-picker {
-  display: none;
+/* DG-013: wide, the pages' holder is no box of its own, so the pages and their group names stay the list. */
+.sg-pages {
+  display: contents;
 }
 .sg-level {
   display: grid;
@@ -313,7 +314,7 @@
   background: var(--surface);
 }
 .sg-nav-group + .sg-level,
-.sg-picker + .sg-level {
+.sg-pages + .sg-level {
   margin-top: 16px;
 }
 .sg-level-label {
@@ -364,35 +365,49 @@
   }
 }
 
-/* ---------- a phone: one choice of page, the search and the level, nothing that scrolls sideways ---------- */
+/* ---------- a phone: the search, the pages as the sample's strip of tabs, then the level ---------- */
 @media (max-width: 860px) {
   .lx-settings-nav {
     flex-wrap: wrap;
     gap: 8px;
     overflow: visible;
   }
-  .lx-settings-nav .lx-settings-link,
-  .lx-settings-nav .sg-nav-group,
-  .sg-level-label,
-  .sg-level-note {
+  /* The sample's `.set-pages` under 760px: one row of the same page tabs, without their icons or group names,
+     that scrolls sideways from edge to edge of the window. */
+  .sg-pages {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 4px;
+    min-width: 0;
+    margin: 0 -44px 0 -10px;
+    padding: 0 8px 8px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .sg-pages .lx-settings-link {
+    flex: none;
+    width: auto;
+    white-space: nowrap;
+  }
+  .sg-pages .lx-settings-link[hidden],
+  .sg-pages .lx-settings-link .sg-icon,
+  .sg-pages .sg-nav-group {
     display: none;
   }
   .lx-settings-nav .lx-search {
     flex: 1 1 150px;
   }
-  .sg-picker {
-    display: block;
-    flex: 1 1 150px;
-    min-width: 0;
-  }
-  .sg-picker select {
-    width: 100%;
-  }
-  .sg-level {
+  /* The sample's level card under its strip: 4px below it, 8px in from each edge of the window, 8px inside. The
+     negative margins undo the nav's own padding, which keeps the search clear of the close button. */
+  .sg-level,
+  .sg-pages + .sg-level {
     flex: 1 1 100%;
-    margin: 0;
-    padding: 0;
-    border: 0;
+    margin: -4px -36px 0 -2px;
+    padding: 8px;
+  }
+  /* The sample's same rule leaves the version line out on a phone. */
+  #settings-window .lx-settings-version {
+    display: none;
   }
   .sg-head {
     grid-template-columns: minmax(0, 1fr);
@@ -406,10 +421,9 @@
     justify-self: start;
   }
 }
-/* A phone: the search and the page each get a whole row, so neither is cut short. */
+/* A phone: the search gets a whole row, so it is not cut short. */
 @media (max-width: 520px) {
-  .lx-settings-nav .lx-search,
-  .sg-picker {
+  .lx-settings-nav .lx-search {
     flex-basis: 100%;
   }
   .settings-directory-card {
