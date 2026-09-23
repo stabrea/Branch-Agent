@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalFields } from "../feature-switches.js"; // Q65
 import type { Store } from "../store.js";
 
 /**
@@ -41,9 +42,13 @@ export function reflectionSettings(store: Store, owner: string): ReflectionSetti
   return saved.success ? saved.data : ReflectionSettingsSchema.parse({});
 }
 
-/** Saves the switches; a field left out keeps its saved value. */
+/**
+ * Saves the switches; a field left out keeps its saved value. Q65: read through `optionalFields`, not
+ * `.partial()`, which in zod 4 fills each field left out with its default (turning looking back on used
+ * to put the other switch and both numbers back to how they started).
+ */
 export function saveReflectionSettings(store: Store, owner: string, input: unknown): ReflectionSettings {
-  const patch = ReflectionSettingsSchema.partial().strict().parse(input ?? {});
+  const patch = optionalFields(ReflectionSettingsSchema).parse(input ?? {});
   const value = ReflectionSettingsSchema.parse({ ...reflectionSettings(store, owner), ...patch });
   store.save("settings", owner, settingsKey, { ...value });
   return value;

@@ -48,6 +48,8 @@ import { contextFileSettings } from "../dist/context-files.js";
 import { retentionSettings } from "../dist/retention.js";
 import { readComfort } from "../dist/comfort/settings.js";
 import { voiceSettings } from "../dist/voice.js";
+import { saveReviewerSettings } from "../dist/approval-reviewer.js";
+import { saveReflectionSettings } from "../dist/reflection/settings.js";
 
 /*
  * Q65: the settings kit reads and writes every setting through the app's own parse. A record the app would
@@ -246,3 +248,31 @@ test("voice: a kit write to an unreadable record is refused, and the record is l
   assert.equal(currentValue(store, owner, specFor("voice"), voiceField("autoReadAloud")), true);
 });
 
+test("a kit write of one field keeps every other field of a readable record, catalogued or not", async (t) => {
+  const { app, store, owner } = await fixture(t);
+  const writers = settingsKitWriters(app);
+  // The fields the kit does not show, saved through each card's own save so any copy kept in memory agrees.
+  saveReviewerSettings(store, owner, { mode: "off", rules: "x", preset: "strict", maxTokens: 3000 });
+  saveReflectionSettings(store, owner, { reflection: "off", everyTurns: 50, newSkills: "on", retireAfterDays: 90 });
+  const write = (key, field, value) => {
+    const { changes } = changesFor(store, owner, [{ key, field, value }]);
+    applyChanges(store, owner, changes, { ...all(changes), writers });
+  };
+  write("approval_reviewer", "mode", "on");
+  assert.deepEqual(reviewerSettings(store, owner), { mode: "on", rules: "x", preset: "strict", maxTokens: 3000 });
+  assert.deepEqual(store.get("settings", owner, "approval_reviewer").data, { mode: "on", rules: "x", preset: "strict", maxTokens: 3000 });
+  write("reflection", "reflection", "on");
+  assert.deepEqual(reflectionSettings(store, owner), { reflection: "on", everyTurns: 50, newSkills: "on", retireAfterDays: 90 });
+  assert.deepEqual(store.get("settings", owner, "reflection").data, { reflection: "on", everyTurns: 50, newSkills: "on", retireAfterDays: 90 });
+  // Every strict setting with more than one field: the others, raised away from where they start, stay put.
+  const readers = { ...strictReaders, voice: voiceSettings };
+  for (const spec of settingsCatalogue.filter((entry) => readers[entry.key] && entry.fields.length > 1)) {
+    const reader = readers[spec.key];
+    store.save("settings", owner, spec.key, spec.fields.reduce((data, field) => setPath(data, field.field, raised(field)), {}));
+    const before = Object.fromEntries(spec.fields.map((field) => [field.field, inForce(reader, store, owner, field)]));
+    const [first, ...others] = spec.fields;
+    write(spec.key, first.field, raised(first, before[first.field]));
+    for (const field of others)
+      assert.deepEqual(inForce(reader, store, owner, field), before[field.field], `${spec.key}.${field.field}: kept when ${first.field} was written`);
+  }
+});

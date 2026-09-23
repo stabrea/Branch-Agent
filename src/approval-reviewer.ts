@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Budget, errorText, type ToolCall, type ToolContext, type Run } from "./contracts.js";
 import { checkResult } from "./delegation.js";
 import { FeatureSwitchSchema } from "./loop-guard.js";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import { redactLeaks } from "./leak-guard.js";
 import { evaluatePolicy, type Policy, type PolicyOutcome, type RunSource } from "./policy.js";
 import { isCommandTool } from "./policy-resources.js";
@@ -64,9 +65,13 @@ export function reviewerSettings(store: Store, owner: string): ReviewerSettings 
   kept.set(owner, settings);
   return settings;
 }
-/** Saves what was sent; anything left out keeps its current value. */
+/**
+ * Saves what was sent; anything left out keeps its current value. Q65: read through `optionalFields`, not
+ * `.partial()`, which in zod 4 fills each field left out with its default, so turning the switch alone
+ * used to wipe the owner's rules, connection and limit.
+ */
 export function saveReviewerSettings(store: Store, owner: string, input: unknown): ReviewerSettings {
-  const next = ReviewerSettingsSchema.parse({ ...reviewerSettings(store, owner), ...ReviewerSettingsSchema.partial().parse(input ?? {}) });
+  const next = ReviewerSettingsSchema.parse({ ...reviewerSettings(store, owner), ...optionalFields(ReviewerSettingsSchema).parse(input ?? {}) });
   store.save("settings", owner, settingsKey, next);
   settingsKept.get(store)?.set(owner, next);
   return next;
