@@ -86,5 +86,10 @@ $("todo-form")?.addEventListener("submit", async (event) => {
   } catch (error) { say(error.message); }
 });
 
-await drawTodos();
-document.addEventListener("branch-language", () => { void drawTodos(); });
+/* DG-119: drawn once the window is connected, never before. Asked for before the key was given, the list came back as
+   the sign-in's refusal and "Still to do" kept showing it after connecting instead of its own words. */
+const workspace = $("workspace");
+const connected = () => !workspace || !workspace.hidden;
+if (connected()) await drawTodos();
+if (workspace) new MutationObserver(() => { if (connected()) void drawTodos(); }).observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
+document.addEventListener("branch-language", () => { if (connected()) void drawTodos(); });
