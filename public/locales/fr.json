@@ -4403,6 +4403,7 @@
   "updates.build.commit": "Construite depuis le commit",
   "updates.build.not-recorded": "non enregistré",
   "updates.outcome.kept": "Rien n’a changé : Branch Agent {version} est toujours installé, et votre travail est resté tel quel.",
+  "updates.outcome.restored": "La dernière mise à jour, vers {to}, n’a pas abouti. Branch fonctionne avec {from}, la version d’avant cette mise à jour.",
   "updates.notes.title": "Nouveautés de la version {version}",
   "updates.notes.none": "Aucune note n’a été publiée pour cette version.",
   "settings.card.using-your-screen-and-keyboard": "Utiliser votre écran et votre clavier",

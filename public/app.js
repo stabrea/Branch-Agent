@@ -1042,7 +1042,19 @@ function showBuild(status) {
   $("updates-notes-title").textContent = t("updates.notes.title", { version: release.latestVersion });
   $("updates-notes-text").textContent = release.notes?.trim() || t("updates.notes.none");
 }
-document.addEventListener("branch-language", () => { if (window.branchDesktop && lastUpdateStatus) showBuild(lastUpdateStatus); });
+/* Q55: an update the hand-over could not finish is settled by the next start; say what runs now. */
+let lastActivation = null;
+function showRestored(last) {
+  lastActivation = last;
+  const line = $("updates-restored");
+  line.hidden = !(last?.kind === "update" && last.state === "failed" && last.fromVersion === state.version);
+  line.textContent = line.hidden ? "" : t("updates.outcome.restored", { to: last.toVersion, from: last.fromVersion });
+}
+document.addEventListener("branch-language", () => {
+  if (!window.branchDesktop) return;
+  if (lastUpdateStatus) showBuild(lastUpdateStatus);
+  showRestored(lastActivation);
+});
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
   showVersions(status);
@@ -1069,6 +1081,7 @@ async function renderUpdates() {
     if (choice) choice.checked = true;
   } catch { /* The main-process updater fails closed when owner state is unavailable. */ }
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
+  try { showRestored((await api("never-break/last-update")).last); } catch { showRestored(null); }
 }
 $("updates-channel").addEventListener("change", async (event) => {
   if (event.target?.name !== "release-channel") return;

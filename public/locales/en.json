@@ -4402,6 +4402,7 @@
   "updates.build.commit": "Built from commit",
   "updates.build.not-recorded": "not recorded",
   "updates.outcome.kept": "Nothing was changed: Branch Agent {version} is still installed, and your work is as it was.",
+  "updates.outcome.restored": "The last update, to {to}, did not finish. Branch is running {from}, the version from before that update.",
   "updates.notes.title": "What's new in {version}",
   "updates.notes.none": "No notes were published for this version.",
   "settings.card.using-your-screen-and-keyboard": "Using your screen and keyboard",

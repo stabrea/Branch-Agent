@@ -231,6 +231,22 @@ export function settleActivation(path: string, runningVersion: string): "activat
   finally { journal.close(); }
 }
 
+/**
+ * Q55: the newest recorded activation, read without opening the journal for writing (a journal that
+ * cannot be read is simply "nothing recorded" here). Settings says what a failed update left running.
+ */
+export function lastActivation(dataDir: string): { kind: ActivationEntry["kind"]; fromVersion: string; toVersion: string; state: string } | null {
+  let db: DatabaseSync | null = null;
+  try {
+    db = new DatabaseSync(join(dataDir, activationJournalName), { readOnly: true });
+    const row = db.prepare("SELECT kind, from_version, to_version, state FROM activations ORDER BY id DESC LIMIT 1").get() as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const kind = String(row.kind);
+    return { kind: kind === "install" || kind === "rollback" ? kind : "update", fromVersion: String(row.from_version), toVersion: String(row.to_version), state: String(row.state) };
+  } catch { return null; }
+  finally { db?.close(); }
+}
+
 export class ActivationJournal {
   private readonly db: DatabaseSync;
   /** Tests hand in a failure here to act out a full disk, as the task journal does. */

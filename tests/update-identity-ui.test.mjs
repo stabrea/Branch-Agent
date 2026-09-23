@@ -5,20 +5,22 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { ActivationJournal } from "../dist/never-break/activation.js";
 import { openPlace, openSettingFor } from "./places.mjs";
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const offered = { available: true, latestVersion: "9.9.9", currentVersion: "0.19.3", channel: "stable", notes: "Faster start.\nFixed the Files view." };
 
-async function openApp(t, status) {
+async function openApp(t, status, before = async () => {}) {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-update-identity-"));
+  await before(join(root, "data"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
@@ -105,4 +107,31 @@ test("in French, a missing commit reads as not recorded", async (t) => {
   await page.locator("#appearance-language").selectOption("fr");
   await openPlace(page, "settings:about");
   await page.waitForFunction(() => document.querySelector("#updates-build-commit")?.textContent === "non enregistré");
+});
+
+test("after an update the hand-over could not finish, the next start says which version runs", async (t) => {
+  const version = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")).version;
+  // Written down before the hand-over, never confirmed: the start that follows settles it as failed.
+  const staged = async (dataDir) => {
+    await mkdir(dataDir, { recursive: true });
+    const journal = new ActivationJournal(join(dataDir, "activation.sqlite"));
+    journal.stage({ kind: "update", fromVersion: version, toVersion: "9.9.9", target: join(dataDir, "app"), previous: null, candidate: null,
+      launcher: null, executableName: "Branch Agent.exe", understood: 1, databases: [], backups: [] });
+    journal.close();
+  };
+  const { page, errors } = await openApp(t, { phase: "idle", message: "", progress: null, installed: { version, commit: null }, outcome: null, release: null }, staged);
+  await page.waitForFunction(() => !document.querySelector("#updates-restored")?.hidden);
+  assert.equal(await text(page, "#updates-restored"), `The last update, to 9.9.9, did not finish. Branch is running ${version}, the version from before that update.`);
+  await openPlace(page, "settings:appearance");
+  await page.locator("#appearance-language").selectOption("fr");
+  await openPlace(page, "settings:about");
+  await page.waitForFunction(() => document.querySelector("#updates-restored")?.textContent.startsWith("La dernière mise à jour"));
+  assert.equal(await text(page, "#updates-restored"), `La dernière mise à jour, vers 9.9.9, n’a pas abouti. Branch fonctionne avec ${version}, la version d’avant cette mise à jour.`);
+  assert.deepEqual(errors, []);
+});
+
+test("with no update on record, nothing is said about one", async (t) => {
+  const { page } = await openApp(t, { phase: "idle", message: "", progress: null, installed: { version: "0.19.3", commit: COMMIT }, outcome: null, release: null });
+  await page.waitForFunction(() => document.querySelector("#updates-build-commit")?.textContent !== "");
+  assert.equal(await page.locator("#updates-restored").isVisible(), false);
 });

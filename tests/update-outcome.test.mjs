@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { Updater } from "../dist/desktop/updater.js";
+import { ActivationJournal, lastActivation, settleActivation } from "../dist/never-break/activation.js";
 
 const repo = "stabrea/Branch-Agent", name = "Branch-Agent-windows-x64.zip", tag = "v9.9.9";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -60,4 +61,19 @@ test("a hand-over that could not start gives the claim back and says what was ke
   assert.deepEqual(status.outcome, { kept: "0.19.3" });
   assert.equal(updater.inProgress, false);
   assert.equal(status.release.latestVersion, "9.9.9", "the offered release is still named");
+});
+
+test("the newest activation is read without writing, and an unconfirmed update settles as failed", async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "branch-update-outcome-"));
+  t.after(() => discardTemp(dataDir));
+  assert.equal(lastActivation(dataDir), null, "nothing recorded, and no journal is created by looking");
+  const path = join(dataDir, "activation.sqlite");
+  const journal = new ActivationJournal(path);
+  const entry = { kind: "update", target: join(dataDir, "app"), previous: null, candidate: null, launcher: null,
+    executableName: "Branch Agent.exe", understood: 1, databases: [], backups: [] };
+  journal.activated(journal.stage({ ...entry, fromVersion: "0.19.2", toVersion: "0.19.3" }));
+  journal.stage({ ...entry, fromVersion: "0.19.3", toVersion: "9.9.9" });
+  journal.close();
+  assert.equal(settleActivation(path, "0.19.3"), "failed");
+  assert.deepEqual(lastActivation(dataDir), { kind: "update", fromVersion: "0.19.3", toVersion: "9.9.9", state: "failed" });
 });
