@@ -62,7 +62,7 @@ test("morning brief: RSS feed items appear with their source link, a javascript:
   assert.equal(isSafeLink(fetched[0].link), true);
 
   // End to end: the brief itself lists the item with its link, once refreshed.
-  const brief = new MorningBrief(app.store, undefined, app.documents, undefined, fetchDeps());
+  const brief = new MorningBrief(app.store, undefined, app.documents, undefined, () => fetchDeps());
   brief.configure("local", { newsFeeds: [feedUrl] });
   await brief.refreshSources("local");
   const preview = brief.preview("local");

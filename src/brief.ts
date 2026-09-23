@@ -9,7 +9,7 @@ import { nextDailyOccurrence } from "./scheduler.js";
 import { placeholders, substitute } from "./recipes.js";
 import { optionalFields } from "./feature-switches.js";
 import type { PageFetchDeps } from "./web-page-fetch.js";
-import { fetchNewsItems, noHealthConnected, sourceLine, type BriefItem, type HealthSource } from "./brief-sources.js";
+import { fetchNewsItems, isSafeLink, noHealthConnected, sourceLine, type BriefItem, type HealthSource } from "./brief-sources.js";
 
 /**
  * One message first thing: what is planned today, what was left unfinished, documents that arrived,
@@ -50,8 +50,8 @@ export const BriefSettingsSchema = z.object({
   dailyAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("07:30"),
   timezone: zone.default("UTC"),
   deliverTo: z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().nullable().default(null),
-  /** The owner's own RSS/Atom feed addresses for the "In the news" section. */
-  newsFeeds: z.array(z.string().url().max(2048)).max(10).default([]),
+  /** The owner's own RSS/Atom feed addresses for the "In the news" section; http/https only. */
+  newsFeeds: z.array(z.string().url().max(2048).refine(isSafeLink, "Feed addresses must start with http:// or https://")).max(10).default([]),
   template: z.string().max(4000).default(defaultTemplate),
   sections: z.array(z.enum(briefSections)).max(briefSections.length).default([...briefSections]),
   nextAt: z.iso.datetime().nullable().default(null),
@@ -95,8 +95,11 @@ export class MorningBrief {
     private readonly monitors?: Monitors,
     private readonly documents?: DocumentLibrary,
     private readonly deliver?: DeliveryHandler,
-    /** How to read the owner's news feeds; the same checked fetch path `web.page` uses. */
-    private readonly newsFetch?: PageFetchDeps,
+    /**
+     * How to read the owner's news feeds; called fresh each time so it always sees the app's
+     * current network rules and byte limits, the same checked fetch path `web.page` uses.
+     */
+    private readonly newsFetch?: () => PageFetchDeps,
     /** Left unset until a local health integration exists; see brief-sources.ts. */
     private readonly health?: HealthSource,
   ) {}
@@ -107,8 +110,11 @@ export class MorningBrief {
   async refreshSources(owner: string): Promise<void> {
     const settings = this.settings(owner);
     if (this.newsFetch && settings.newsFeeds.length) {
-      const items = await fetchNewsItems(this.newsFetch, settings.newsFeeds.map((url) => ({ url })), AbortSignal.timeout(20000));
+      const items = await fetchNewsItems(this.newsFetch(), settings.newsFeeds.map((url) => ({ url })), AbortSignal.timeout(20000));
       this.newsCache.set(owner, items);
+    } else if (settings.newsFeeds.length === 0) {
+      // The owner removed every feed; drop whatever was cached rather than showing stale news forever.
+      this.newsCache.delete(owner);
     }
     if (this.health) this.healthCache.set(owner, await this.health.read(owner));
   }

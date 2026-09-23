@@ -137,7 +137,6 @@ import { Monitors, registerMonitors } from "./monitors.js";
 // Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
-import type { PageFetchDeps } from "./web-page-fetch.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
 import { migrateFeatureSwitches } from "./feature-switch-migration.js";
@@ -829,11 +828,12 @@ export async function createBranch(options: {
   const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
     () => desktop.enabled(runtime.owner), deliverMessage);
   registerScreenWatches(registry, screenWatches);
-  // The brief's own news feeds go through the same checked fetch path as web.page (w911): the
-  // owner's network rules and redirect limit, not a fresh HTTP client. Health has no local source
-  // wired up yet (see brief-sources.ts), so that argument is left unset.
-  const briefNewsFetch: PageFetchDeps = { policy: web.policy, fetch: globalThis.fetch, timeoutMs: web.settings().timeoutMs, maxBytes: web.settings().maxBytes, userAgent: "BranchAgent" };
-  const brief = new MorningBrief(store, monitors, documents, deliverMessage, briefNewsFetch);
+  // w911 (A0743, A1452) hook: constructed here (registered further down) so the brief's news
+  // section can read feeds through the exact same checked fetch path `web.page` uses — called
+  // fresh each time (not a one-off snapshot) so it always sees the app's current network rules,
+  // byte limits and (in a test) any swapped-in fetch.
+  const webPages = new WebPages({ store, web, registry, runtime });
+  const brief = new MorningBrief(store, monitors, documents, deliverMessage, () => webPages.fetchDeps());
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
   registerChannelTools(registry, channels, brief, store.profiles);
@@ -861,7 +861,7 @@ export async function createBranch(options: {
   // Bucket 21: tools for people building on Branch (switched off until the owner turns them on).
   registerSdkKit(registry, store);
   // w911 (A0743, A1452) hook: web.page and web.crawl (switched off until the owner turns them on).
-  const webPages = new WebPages({ store, web, registry, runtime }); registerWebPages(registry, webPages);
+  registerWebPages(registry, webPages);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
   workflows.resumeGraph = (id, within, source) => (flows.isGraph(id) // mac7/lockdown-fix: within; mac7/outside-resume: source

@@ -189,6 +189,50 @@ function fillInterruptions(card, settings, switches) {
   }));
 }
 
+/** One saved feed address, with a way to drop it before saving. */
+function feedRow(card, feeds, url) {
+  const row = document.createElement("div");
+  const remove = node("button", "schedules.brief.remove", "text-button");
+  remove.type = "button";
+  remove.addEventListener("click", () => {
+    feeds.splice(feeds.indexOf(url), 1);
+    card.dataset.editing = "1";
+    fillBriefNews(card, { newsFeeds: feeds });
+  });
+  row.append(plain("span", url), remove);
+  return row;
+}
+/*
+ * automations:scheduled — the owner's own RSS/Atom feed addresses the brief's "In the news" section
+ * reads. Add and remove only change what is typed on the page; nothing is saved until "Save", which
+ * posts the whole list to POST /api/brief (the same route brief.configure already validates: an
+ * address that is not http:// or https:// is refused there, and the refusal is shown as a toast).
+ */
+function fillBriefNews(card, settings) {
+  const feeds = [...(settings?.newsFeeds ?? [])];
+  card.replaceChildren(node("h2", "schedules.brief.title"), node("p", "schedules.brief.intro", "subtle"));
+  if (!feeds.length) card.append(plain("p", t("schedules.brief.empty"), "subtle"));
+  for (const url of feeds) card.append(feedRow(card, feeds, url));
+  const input = control("brief-feed-url", "url", "");
+  card.append(field("schedules.brief.add-label", input));
+  const add = node("button", "schedules.brief.add", "quiet-button");
+  add.type = "button";
+  add.addEventListener("click", () => {
+    const value = input.value.trim();
+    if (!value) return;
+    feeds.push(value);
+    input.value = "";
+    card.dataset.editing = "1";
+    fillBriefNews(card, { newsFeeds: feeds });
+  });
+  card.append(add);
+  card.append(button("action.save", async () => {
+    await api("brief", { newsFeeds: feeds });
+    toast(t("schedules.brief.saved"));
+    await load();
+  }));
+}
+
 /**
  * A card that says where it lives (docs/places.md). The window's layout moves it home; until that
  * layout is on the page it sits with the schedules, where these used to be.
@@ -204,7 +248,7 @@ function homedCard(id, home) {
   card.addEventListener("input", () => { card.dataset.editing = "1"; });
   card.addEventListener("change", () => { card.dataset.editing = "1"; });
   const list = document.getElementById("schedules-list");
-  const after = { "quiet-checkin": "schedules-list", "quiet-health": "quiet-checkin", "quiet-interruptions": "quiet-health" }[id];
+  const after = { "quiet-checkin": "schedules-list", "quiet-health": "quiet-checkin", "quiet-interruptions": "quiet-health", "brief-news-card": "quiet-interruptions" }[id];
   if (list) (document.getElementById(after) ?? list).after(card);
   else document.body.append(card);
   return card;
@@ -215,14 +259,15 @@ function fill(id, home, draw) {
 }
 function render() {
   if (!latest) return;
-  const { switches, heartbeat, schedules, file } = latest;
+  const { switches, heartbeat, schedules, file, brief } = latest;
   fill("quiet-checkin", "automations:scheduled", (card) => fillCheckIn(card, heartbeat, switches, file));
   fill("quiet-health", "automations:scheduled", (card) => fillHealth(card, schedules, switches));
   fill("quiet-interruptions", "settings:notifications", (card) => fillInterruptions(card, heartbeat.settings, switches));
+  fill("brief-news-card", "automations:scheduled", (card) => fillBriefNews(card, brief?.settings));
 }
 async function load() {
-  const [overview, files] = await Promise.all([api("heartbeat"), api("context-files").catch(() => null)]);
-  latest = { ...overview, file: files?.files?.find((entry) => entry.key === "heartbeat") ?? null };
+  const [overview, files, brief] = await Promise.all([api("heartbeat"), api("context-files").catch(() => null), api("brief").catch(() => null)]);
+  latest = { ...overview, file: files?.files?.find((entry) => entry.key === "heartbeat") ?? null, brief };
   render();
 }
 

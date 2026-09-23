@@ -2715,7 +2715,7 @@ async function researchApi(app: Branch, request: IncomingMessage, path: string):
   const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check))?$/.exec(path);
   if (watch && request.method === "DELETE" && !watch[2]) return app.monitors.remove(owner, watch[1]!);
   if (watch && request.method === "POST" && watch[2] === "check") return app.monitors.check(owner, watch[1]!);
-  if (request.method === "GET" && path === "/api/brief") return app.brief.preview(owner);
+  if (request.method === "GET" && path === "/api/brief") return { ...app.brief.preview(owner), settings: app.brief.settings(owner) };
   if (request.method === "POST" && path === "/api/brief") return app.brief.configure(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/brief/send") return app.brief.send(owner);
   throw new HttpError(404, "Endpoint not found");
