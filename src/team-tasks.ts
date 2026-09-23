@@ -16,9 +16,12 @@ import type { Store } from "./store.js";
  * generation, so a stale or wrong claimant changes nothing. Nothing here expires a claim or lets
  * another caller take it over.
  * A claim also records which opening of the store made it (its boot). A claim made by an earlier
- * opening belongs to a process that is gone, so it is never reported as simply "claimed": whoever
- * reads it settles it from the record first (Teams.run, src/team-reconcile.ts). A task handed to a
- * person (src/team-handoff.ts) has no boot: a person, not a process, holds it.
+ * opening belongs to a process that is gone, and one made by this opening whose turn is no longer
+ * running here was dropped, so neither is reported as simply "claimed": whoever reads it settles it
+ * from the record first (Teams.run, src/team-reconcile.ts). A task handed to a person
+ * (src/team-handoff.ts) has no boot: a person, not a process, holds it, so it is left alone.
+ * A stored result is found again only under the same fingerprint: after the team is edited, a
+ * repeat of an old request id is refused as a different request, and its result is not reachable.
  */
 export type TeamTaskState = "pending" | "claimed" | "completed" | "failed" | "needs_reconciliation" | "waiting_owner";
 export interface TeamTaskScope { owner: string; source: string }
@@ -83,9 +86,13 @@ export class TeamTasks {
     const row = this.store.sqlite.prepare("SELECT * FROM team_tasks WHERE owner=? AND source=? AND task_id=?").get(scope.owner, scope.source, taskId);
     return row ? toTask(row) : undefined;
   }
-  /** True when a process that is gone (an earlier opening of the store) holds this claimed task. */
-  claimedByEarlierBoot(task: TeamTask): boolean {
-    return task.state === "claimed" && task.bootId !== null && task.bootId !== storeBoot(this.store);
+  /**
+   * True when a claimed task's turn is gone: its claim came from an earlier opening of the store (a
+   * process that died), or from this one while no turn for it is running here. A task held by a
+   * person has no boot and is never orphaned.
+   */
+  orphaned(task: TeamTask, runningHere: boolean): boolean {
+    return task.state === "claimed" && task.bootId !== null && (task.bootId !== storeBoot(this.store) || !runningHere);
   }
   /** Whether this exact claim still holds its task: same claimant, same generation, still claimed. */
   held(claim: TeamTaskClaim): boolean {
@@ -171,4 +178,22 @@ function toTask(row: Record<string, unknown>): TeamTask {
     question: row.question == null ? null : String(row.question),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
+}
+
+/** What a team task keeps once the owner deleted a conversation its answers came from: that they are gone, and nothing of them. */
+export const deletedResult = { deleted: true };
+
+/**
+ * Called as a conversation is deleted (Store.purgeSession, before its runs go): every team task whose
+ * room, own turn or member runs were in it loses its stored answers, question and details. The task
+ * itself stays, so a repeat of its request id is still answered from the record and never runs again.
+ */
+export function forgetTeamResults(db: Store["sqlite"], sessionId: string): number {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_tasks'").get()) return 0;
+  const runsHere = "SELECT id FROM tasks WHERE session_id=?1";
+  return Number(db.prepare(`UPDATE team_tasks SET result=CASE WHEN result IS NULL THEN NULL ELSE ?2 END, question=NULL,
+      error=CASE WHEN error IS NULL THEN NULL ELSE 'Its details were removed when the owner deleted a conversation it came from.' END, updated_at=?3
+    WHERE parent_session_id=?1 OR json_extract(result,'$.roomSessionId')=?1 OR parent_run_id IN (${runsHere})
+      OR EXISTS (SELECT 1 FROM json_each(team_tasks.result,'$.answers') AS a WHERE json_extract(a.value,'$.runId') IN (${runsHere}))`)
+    .run(sessionId, JSON.stringify(deletedResult), new Date().toISOString()).changes);
 }

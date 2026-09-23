@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { forgetTeamResults } from "./team-tasks.js"; // Q61
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
@@ -318,6 +319,8 @@ export class Store {
       this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       // Wave 7: what this conversation taught about which tools a request needs goes with it.
       this.toolUsage.forgetSession(sessionId);
+      // Q61: a team task keeps no copy of the answers this conversation held (read before its runs go).
+      forgetTeamResults(this.db, sessionId);
       this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
       this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);

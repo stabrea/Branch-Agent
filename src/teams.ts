@@ -107,8 +107,9 @@ export class Teams {
   }
   /** What a caller that did not win the claim sees: the recorded result, or only the task's state. */
   private observed(scope: { owner: string; source: string }, taskId: string) {
-    // A claim made by a process that is gone is settled from the record first, never reported as claimed for ever.
-    if (this.tasks.claimedByEarlierBoot(this.tasks.get(scope, taskId)!)) reconcileTeamTask(this.store, this.tasks, scope, taskId);
+    // A claim whose turn is gone (a process that died, or a turn that ended here without settling it)
+    // is settled from the record first, never reported as claimed for ever.
+    if (this.tasks.orphaned(this.tasks.get(scope, taskId)!, dispatchHeld(this.store, taskId))) reconcileTeamTask(this.store, this.tasks, scope, taskId);
     const task = this.tasks.get(scope, taskId)!;
     const identity = { taskId: task.taskId, requestId: task.requestId, state: task.state };
     if (task.state === "completed") return this.recordedResult(task, identity);
@@ -119,7 +120,9 @@ export class Teams {
   }
   /** A finished task's recorded result; one too large to keep says so plainly and points at the room, where every answer is. */
   private recordedResult(task: { teamId: string; result: unknown }, identity: { taskId: string; requestId: string; state: string }) {
-    const result = task.result as { truncated?: boolean; chars?: number } | null;
+    const result = task.result as { truncated?: boolean; chars?: number; deleted?: boolean } | null;
+    if (result?.deleted) return { teamId: task.teamId, ...identity, deleted: true as const,
+      note: "The owner deleted a conversation this task's answers were in, so they are gone. Send a new request id to run it again." };
     if (!result?.truncated) return { ...result, ...identity };
     const room = this.list().find((team) => team.id === task.teamId)?.roomSessionId ?? null;
     return { teamId: task.teamId, roomSessionId: room, ...identity, truncated: true as const,

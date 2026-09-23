@@ -10,6 +10,7 @@ import { startServer } from "../dist/server.js";
 import { TeamTasks, StaleTeamTaskClaimError, storeBoot } from "../dist/team-tasks.js";
 import { TeamHandoffs, beginTeamTurn } from "../dist/team-handoff.js";
 import { spawn } from "node:child_process";
+import { ConversationRetention, saveRetentionSettings } from "../dist/retention.js";
 import { resolve } from "node:path";
 
 // Q61: one durable identity and one claimant per team request. Inert runtimes only: nothing here
@@ -42,6 +43,8 @@ function inertRuntime(store, owner, options = {}) {
     // Q63: like the real runtime, the run is announced before it does anything, and settles as completed.
     runOptions.onStarted?.(parent);
     if (options.hold) await options.hold;
+    // With `settle`, the parent run is finished in the store too, as the real runtime does.
+    if (options.settle) store.finish(parent.id, "completed", "");
     return { id: parent.id, status: "completed", output: "" };
   }, context: ({ runId }) => ({ runId }), async fanout(_context, tasks) {
     if (options.throwAfterDispatch) throw new Error("the connection dropped after the members started");
@@ -411,4 +414,63 @@ test("a repeat of a result too large to keep says so plainly and points at the r
   assert.equal(again.roomSessionId, team.roomSessionId);
   assert.equal(again.teamId, team.id);
   assert.equal(state.app.teams.room(team.id).filter((m) => m.content.includes(huge)).length, 2, "every answer is in the room");
+});
+
+test("a turn that ended here without settling its task is not reported as claimed: the same request id settles it, with no second dispatch", async (t) => {
+  const { state, owner, team } = await fixture(t);
+  const complete = TeamTasks.prototype.complete;
+  TeamTasks.prototype.complete = function broken() { throw new Error("disk full while finishing"); };
+  t.after(() => { TeamTasks.prototype.complete = complete; });
+  const runtime = inertRuntime(state.app.store, owner, { settle: true });
+  const requestId = randomUUID();
+  await assert.rejects(state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId }), /disk full/);
+  TeamTasks.prototype.complete = complete;
+  assert.equal(taskRow(state.app, requestId).state, "claimed", "the turn ended and left its claim behind");
+  const again = await state.app.teams.run(runtime, knowledge, team.id, "sum up", { requestId });
+  assert.equal(again.state, "completed", "settled from the recorded result in the same process");
+  assert.deepEqual(again.answers.map((a) => a.output), ["answer 0", "answer 1"]);
+  assert.equal(runtime.dispatches, 1);
+});
+
+/** Every table's rows, as text, that mention `needle`. */
+function tablesMentioning(store, needle) {
+  const tables = store.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => String(r.name));
+  return tables.filter((name) => {
+    try { return store.sqlite.prepare(`SELECT * FROM "${name}"`).all().some((row) => JSON.stringify(row).includes(needle)); } catch { return false; }
+  });
+}
+async function answeredTask(t) {
+  const fx = await fixture(t);
+  const secret = `private-answer-${randomUUID()}`;
+  const runtime = inertRuntime(fx.state.app.store, fx.owner, { settle: true });
+  runtime.fanout = async (_context, tasks) => ({ tasks: Object.fromEntries(tasks.map((task, index) => [task.id, { status: "completed", output: `${secret} ${index}`, runId: `child-${index}` }])) });
+  const requestId = randomUUID();
+  const first = await fx.state.app.teams.run(runtime, knowledge, fx.team.id, "tell me", { requestId });
+  assert.ok(first.answers[0].output.startsWith(secret));
+  assert.ok(tablesMentioning(fx.state.app.store, secret).includes("team_tasks"));
+  return { ...fx, secret, runtime, requestId, first };
+}
+
+test("after the owner deletes the team's room, the task keeps no copy of its answers and a repeat returns none and runs nothing", async (t) => {
+  const { state, owner, team, secret, runtime, requestId, first } = await answeredTask(t);
+  state.app.store.forgetSession(owner, team.roomSessionId);
+  assert.deepEqual(tablesMentioning(state.app.store, secret), [], "no table holds the answers any more");
+  const again = await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  assert.equal(again.taskId, first.taskId);
+  assert.equal(again.answers, undefined);
+  assert.equal(again.deleted, true);
+  assert.match(again.note, /deleted a conversation/);
+  assert.equal(runtime.dispatches, 1, "the repeat is not run again");
+});
+
+test("after the owner's retention rule deletes old conversations, the team task keeps no copy of the answers", async (t) => {
+  const { state, owner, team, secret, runtime, requestId } = await answeredTask(t);
+  saveRetentionSettings(state.app.store, owner, { enabled: true, keepDays: 1, exportBeforeDeleting: false });
+  const later = new ConversationRetention(state.app.store, owner, () => Date.now() + 30 * 86_400_000);
+  const pruned = later.prune({ approve: true });
+  assert.ok(pruned.removed.includes(team.roomSessionId), "the room was among the conversations deleted");
+  assert.deepEqual(tablesMentioning(state.app.store, secret), []);
+  const again = await state.app.teams.run(runtime, knowledge, team.id, "tell me", { requestId });
+  assert.equal(again.answers, undefined);
+  assert.equal(runtime.dispatches, 1);
 });
