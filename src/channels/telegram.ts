@@ -66,11 +66,12 @@ export class TelegramAdapter implements ChannelAdapter {
   private readonly fetch: typeof fetch;
   private readonly pollTimeout: number;
   private username: string | null = null;
+  /** Highest update observed; unlike the request offset, this may include unfinished work. */
+  private seenThrough = 0;
   private offset = 0;
   private stopping = new AbortController();
-  /** mac3/never-break: messages handed over and not yet settled, and how far everything is settled. */
+  /** Messages handed over but not settled; the oldest bounds Telegram's next offset. */
   private readonly inFlight = new Set<number>();
-  private settledUpTo = 0;
   private loop: Promise<void> | null = null;
   constructor(private readonly options: TelegramOptions) {
     this.id = options.id;
@@ -83,6 +84,7 @@ export class TelegramAdapter implements ChannelAdapter {
     const me = userSchema.parse(await this.call("getMe", {}));
     this.username = me.username ?? null;
     this.offset = Math.max(this.offset, this.options.position?.load() ?? 0); // mac3/never-break
+    this.seenThrough = Math.max(this.seenThrough, this.offset);
     this.loop = this.poll(onMessage);
   }
   async stop(): Promise<void> {
@@ -132,10 +134,14 @@ export class TelegramAdapter implements ChannelAdapter {
   private async poll(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     while (!this.stopping.signal.aborted) {
       try {
+        this.advance(); // Retry a failed position write before asking Telegram to acknowledge it.
         // "callback_query" has to be asked for by name, or a pressed button never arrives at all.
         const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message", "callback_query"] }, true));
-        for (const update of updates) {
-          this.offset = Math.max(this.offset, update.update_id + 1);
+        for (const update of updates.sort((a, b) => a.update_id - b.update_id)) {
+          // Telegram irrevocably acknowledges every lower id when getUpdates receives offset.
+          // Repeated polls at the oldest unfinished id must not hand that id to the router twice.
+          if (update.update_id < this.seenThrough) continue;
+          this.seenThrough = update.update_id + 1;
           // Handed over without waiting: a message sent while a task works is a note for that task,
           // and it has to be read while the task is still going. The router keeps one task per chat.
           const pressed = update.callback_query && this.fromButton(update.callback_query);
@@ -154,16 +160,24 @@ export class TelegramAdapter implements ChannelAdapter {
    * mac3/never-break: hands one update to the router without waiting for it, and saves the read
    * position only up to the oldest message still being handled, so a crash never skips one.
    */
+  /** Advances both the durable position and Telegram's requested acknowledgement together. */
+  private advance(): void {
+    const oldest = Math.min(...this.inFlight);
+    const safe = Number.isFinite(oldest) ? oldest : this.seenThrough;
+    if (safe <= this.offset) return;
+    try { this.options.position?.save(safe); }
+    catch { return; } // Do not acknowledge an update whose durable position failed to save.
+    this.offset = safe;
+  }
   private handOver(id: number, message: InboundMessage | null, onMessage: (message: InboundMessage) => Promise<void>): void {
     const settle = () => {
       this.inFlight.delete(id);
-      this.settledUpTo = Math.max(this.settledUpTo, id + 1);
-      const oldest = Math.min(...this.inFlight);
-      this.options.position?.save(Number.isFinite(oldest) ? Math.min(oldest, this.settledUpTo) : this.settledUpTo);
+      this.advance();
     };
     if (!message) { settle(); return; }
     this.inFlight.add(id);
-    void onMessage(message).catch(() => undefined).finally(settle);
+    try { void Promise.resolve(onMessage(message)).catch(() => undefined).finally(settle); }
+    catch { settle(); }
   }
   /**
    * A pressed button, as an ordinary addressed message carrying the button's own value. The router
