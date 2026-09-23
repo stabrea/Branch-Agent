@@ -461,8 +461,19 @@ function railTrunk(trunk) {
     badge.setAttribute("aria-label", say("trunks.unread", "{n} unread", { n: trunk.unread }));
     open.append(badge);
   }
+  open.append(statusDot(trunk));
   open.addEventListener("click", () => { void openChat(trunk); });
   return open;
+}
+/** DG-102: each row ends in the Trunk's state, the strip's own words for it: ready or working. */
+function statusDot(trunk) {
+  const [key, english] = trunk.working ? ["strip.status.working", "Working"] : ["strip.status.on", "Ready"];
+  const dot = plain("span", "", "trunk-rail-dot");
+  dot.dataset.status = trunk.working ? "working" : "on";
+  dot.setAttribute("role", "img");
+  dot.dataset.tLabel = key;
+  dot.setAttribute("aria-label", say(key, english));
+  return dot;
 }
 function railRoom(room) {
   const open = document.createElement("button");

@@ -306,3 +306,45 @@ body.lx .rail-group h2.trunks-rail-chip {
 #trunks-rail-rows .trunk-rail-row[aria-current="true"] {
   background: var(--selected);
 }
+/* each row ends in its state, the approved side panel's 8 px dot (DG-102) */
+.trunk-rail-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+/* "A new Trunk" under the rows reads as one more row, not a button (DG-102) */
+.rail-scroll[data-rail-view="trunks"] #rail-new-trunk {
+  padding: 6px 10px;
+  background: transparent;
+  font-size: 13.5px;
+}
+
+/* DG-109: the open Trunk before the page title, as the approved conversation header has it:
+   its 20 px face, its name and a slash, quieter than the title. Only beside a conversation. */
+.head-trunk {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  min-width: 0;
+  max-width: 40%;
+  color: var(--muted);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+.head-trunk-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.head-title:has(#thread-name[hidden]) .head-trunk {
+  display: none;
+}
+@media (max-width: 860px) {
+  .head-trunk-name,
+  .head-trunk-sep {
+    display: none;
+  }
+}

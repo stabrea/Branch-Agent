@@ -1,7 +1,7 @@
 /* The Trunks rail after the approved Grown-Up sample: the drawn face retired (DG-108), the studio
    preview's three states in one line and its conversation-header row (DG-109, DG-110), one Trunk
-   menu from the strip and the sidebar list (DG-112), the sidebar's Trunks here list (DG-102), and
-   the pet tiles eight in a row (DG-167). Headless, 127.0.0.1. */
+   menu from the strip and the sidebar list (DG-112), the sidebar's Trunks here list (DG-102),
+   the pet tiles eight in a row (DG-167), and the live header's Trunk crumb (DG-109). Headless, 127.0.0.1. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -80,6 +80,18 @@ test("the drawn face is retired, the preview matches the sample, and every Trunk
   await page.locator(`#trunk-strip [data-strip-id="trunk:${scout.id}"] .strip-face`).click();
   await page.locator(`#trunks-rail [data-trunk="${scout.id}"][aria-current="true"]`).waitFor({ state: "attached" });
   assert.equal(await page.locator('#trunks-rail [data-trunk][aria-current="true"]').count(), 1);
+  assert.deepEqual(await page.locator("#trunks-rail [data-trunk] .trunk-rail-dot").evaluateAll((dots) => dots.map((dot) => dot.getAttribute("aria-label"))),
+    ["Ready", "Ready"], "each row ends in its state");
+  const below = await page.evaluate(() => ({ top: document.getElementById("rail-new-trunk").getBoundingClientRect().top,
+    rows: Math.max(...[...document.querySelectorAll("#trunks-rail [data-trunk]")].map((row) => row.getBoundingClientRect().bottom)) }));
+  assert.ok(below.top >= below.rows - 0.5, `"A new Trunk" sits under the rows: ${JSON.stringify(below)}`);
+
+  // DG-109: the live header starts with the open Trunk's face, its name and a slash.
+  const crumb = page.locator(".head-title #head-trunk");
+  await crumb.waitFor({ state: "visible" });
+  assert.equal((await crumb.innerText()).replace(/\s+/g, " "), "Scout /");
+  assert.equal(await crumb.locator(".face").evaluate((node) => Math.round(node.getBoundingClientRect().width)), 20);
+  assert.equal(await crumb.evaluate((node) => node.nextElementSibling?.id), "page-title");
 
   // DG-112: the strip face and the sidebar row open the same menu, by right-click and by Shift+F10.
   await page.locator(`#trunk-strip [data-strip-id="trunk:${scout.id}"] .strip-face`).click({ button: "right" });
@@ -102,6 +114,13 @@ test("the drawn face is retired, the preview matches the sample, and every Trunk
   assert.equal(await page.locator("#strip-menu").getAttribute("aria-label"), first);
   assert.deepEqual(await page.locator("#strip-menu [role=menuitem]").allInnerTexts(), fromStrip);
   await page.keyboard.press("Escape");
+
+  // In French the state is said in French; an ordinary conversation drops the Trunk from the header.
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.locator('#trunks-rail .trunk-rail-dot[aria-label="Prêt"]').first().waitFor({ state: "attached" });
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  await page.locator('#trunk-strip [data-strip-id="here"] .strip-face').click();
+  await crumb.waitFor({ state: "detached" });
   assert.deepEqual(f.errors, []);
 });
 

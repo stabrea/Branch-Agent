@@ -109,12 +109,20 @@ function syncRailView() {
   if (group) group.hidden = !trunks;
   $("rail-trunks-actions").hidden = !trunks;
   $("rail-trunks-empty").hidden = Boolean(group);
+  placeNewTrunk(trunks ? group : null);
   $("rail-view-trunks").hidden = !railCanManageTrunks;
   for (const tab of document.querySelectorAll(".rail-view-tab")) {
     const chosen = tab.dataset.railView === (trunks ? "trunks" : "conversations");
     tab.setAttribute("aria-selected", String(chosen));
     tab.tabIndex = chosen ? 0 : -1;
   }
+}
+/* DG-102: "A new Trunk" sits under the Trunks here rows, as the approved side panel has it; with
+   the conversations showing (or no Trunks list) it goes back under the tabs. Only moves when it must,
+   so the rail's own observer settles. */
+function placeNewTrunk(group) {
+  const actions = $("rail-trunks-actions"), anchor = group ?? $("rail-view-tabs");
+  if (anchor.nextElementSibling !== actions) anchor.after(actions);
 }
 function chooseRailView(next, focus = false) {
   railView = next === "trunks" ? "trunks" : "conversations";
@@ -174,6 +182,7 @@ function setRailTargetFallback() {
     node.textContent = t(key);
   }
   selectedRailTarget = "here";
+  drawHeaderTrunk(null);
   $("rail-target-mark").classList.remove("has-face");
   $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
   if (ownerAtWindow() && railProfileOwner === true && localMachineName)
@@ -193,7 +202,27 @@ document.addEventListener("branch-strip-selection", (event) => {
   setRailTargetText("rail-target-name", id === "here" ? localMachineName || name : name);
   setRailTargetText("rail-target-kind", kind);
   setRailTargetText("rail-target-status", status);
+  drawHeaderTrunk(String(id ?? "").startsWith("trunk:") && spec ? { name, spec } : null);
 });
+/* DG-109: with a Trunk's conversation open, the header starts the way the approved sample's does:
+   the Trunk's face, its name, then a slash before the page's own title. Owner-only, like the rail. */
+function drawHeaderTrunk(trunk) {
+  if (!trunk) return $("head-trunk")?.remove();
+  let crumb = $("head-trunk");
+  if (!crumb) {
+    crumb = document.createElement("span");
+    crumb.id = "head-trunk";
+    crumb.className = "head-trunk";
+    $("page-title").before(crumb);
+  }
+  const name = document.createElement("span"), slash = document.createElement("span");
+  name.className = "head-trunk-name";
+  name.textContent = trunk.name;
+  slash.className = "head-trunk-sep";
+  slash.textContent = "/";
+  slash.setAttribute("aria-hidden", "true");
+  crumb.replaceChildren(face(trunk.spec, 20, { flat: true }), name, slash);
+}
 syncRailView();
 
 /* ---------- the two panes that fold away ---------- */
