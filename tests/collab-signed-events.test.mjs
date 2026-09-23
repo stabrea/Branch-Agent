@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, ownerMember } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { householdRefusal } from "../dist/household-routes.js";
 import { canonical } from "../dist/receipts.js";
 import { createHmac } from "node:crypto";
 
@@ -146,9 +147,90 @@ test("a key read that fails once is asked again, not kept failing until a restar
   const { CollabEvents } = await import("../dist/collab-events.js");
   let calls = 0;
   const keys = { async key() { calls += 1; if (calls === 1) throw new Error("keychain busy"); return Buffer.alloc(32, 7); } };
-  const events = new CollabEvents(new DatabaseSync(":memory:"), keys, () => true);
+  const events = new CollabEvents(new DatabaseSync(":memory:"), keys, () => [ownerMember]);
   await assert.rejects(events.publish("owner", ownerMember, "note", { text: "first" }), /keychain busy/);
   const made = await events.publish("owner", ownerMember, "note", { text: "second" });
   assert.equal((await events.verify(made)).valid, true);
   assert.equal(calls, 2);
+});
+
+/** A time `step` seconds into 2030, so rows written straight into the table sort exactly as the test says. */
+const at = (step) => new Date(Date.UTC(2030, 0, 1) + step * 1000).toISOString();
+/** Writes rows straight into the table in one transaction; `signature` defaults to one that never verifies. */
+function insertRows(app, owner, rows) {
+  const insert = app.store.sqlite.prepare("INSERT INTO collab_events(id, owner, member, kind, at, payload, signature) VALUES(?,?,?,?,?,?,?)");
+  app.store.sqlite.exec("BEGIN");
+  for (const row of rows) insert.run(row.id ?? crypto.randomUUID(), owner, row.member, row.kind ?? "note", row.at,
+    JSON.stringify(row.payload ?? { text: "stored" }), row.signature ?? "0".repeat(64));
+  app.store.sqlite.exec("COMMIT");
+}
+/** A genuine event at a chosen time, taken in the way a relay's would be. */
+async function genuineAt(events, owner, member, step) {
+  const claim = { id: crypto.randomUUID(), member, kind: "note", at: at(step), payload: { text: `genuine ${step}` } };
+  return events.receive(owner, { ...claim, signature: createHmac("sha256", await events.memberKey(member)).update(canonical(claim)).digest("hex") });
+}
+
+test("rows a removed member left behind never use up the scan: the owner still sees their own events", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  const mine = await genuineAt(events, owner, ownerMember, 0);
+  app.store.profiles.remove(ada.id);
+  // More than the scan looks at, all newer than the owner's event.
+  insertRows(app, owner, Array.from({ length: 6000 }, (_, i) => ({ member: ada.id, at: at(10 + i) })));
+  const listing = await events.list(owner);
+  assert.deepEqual(listing.events.map((e) => e.id), [mine.id]);
+  // Their ids are still named, as many as the scan allows, and the listing says it stopped short.
+  assert.equal(listing.rejected.length, 5000);
+  assert.equal(listing.truncated, true);
+});
+
+test("the scan stops at 5000 rows that fail to verify, reads none past it, and says it stopped", async (t) => {
+  const { app, events, owner } = await fixture(t);
+  // One genuine event, older than 5000 of the owner's own rows that no longer verify.
+  const hidden = await genuineAt(events, owner, ownerMember, 0);
+  insertRows(app, owner, Array.from({ length: 5000 }, (_, i) => ({ member: ownerMember, at: at(10 + i) })));
+  // 300 does not divide 5000: a last page of a full 300 would reach the genuine row at 5000.
+  const cut = await events.list(owner, { limit: 300 });
+  assert.deepEqual(cut.events, [], "the genuine row is past the cap and is not read");
+  assert.equal(cut.rejected.length, 5000);
+  assert.equal(cut.truncated, true);
+  // With nothing past the cap, the same scan is complete and says so.
+  app.store.sqlite.prepare("DELETE FROM collab_events WHERE id=?").run(hidden.id);
+  const whole = await events.list(owner, { limit: 300 });
+  assert.equal(whole.rejected.length, 5000);
+  assert.equal(whole.truncated, false);
+});
+
+test("a listing never holds more than its limit, even when a later page verifies in full", async (t) => {
+  const { app, events, owner } = await fixture(t);
+  // Newest first: one row that fails, then three genuine events. With a limit of 2 the first page
+  // gives one event and the second page two more, of which only one fits.
+  const older = [];
+  for (const step of [1, 2, 3]) older.push(await genuineAt(events, owner, ownerMember, step));
+  insertRows(app, owner, [{ member: ownerMember, at: at(4) }]);
+  const listing = await events.list(owner, { limit: 2 });
+  assert.deepEqual(listing.events.map((e) => e.id), [older[2].id, older[1].id]);
+  assert.equal(listing.truncated, false);
+});
+
+test("a household person reads the events and publishes as themselves; relay intake stays the owner's", async (t) => {
+  const { app, events, owner, ada } = await fixture(t);
+  const server = await startServer(app, { dataDir: app.store.folder, port: 0 });
+  t.after(() => server.close().catch(() => undefined));
+  const call = (method, path, body) => fetch(`${server.url}${path}`, { method,
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json", origin: server.url },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  const fromOwner = await events.publish(owner, ownerMember, "note", { text: "Dinner at seven" });
+  const relayed = await signedAs(events, ownerMember, "Relayed while Ada was at the window");
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: ada.id, pin: "1234" })).status, 200);
+  const made = await call("POST", "/api/collab/events", { kind: "note", payload: { text: "Back at six" } });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  assert.equal(made.body.member, ada.id, "signed as the person at the window, not the owner");
+  assert.deepEqual(await events.verify(made.body), { valid: true });
+  const listed = await call("GET", "/api/collab/events");
+  assert.equal(listed.status, 200, JSON.stringify(listed.body));
+  assert.deepEqual(listed.body.events.map((e) => e.id).sort(), [made.body.id, fromOwner.id].sort());
+  const refused = await call("POST", "/api/collab/events/receive", relayed);
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body.error, householdRefusal);
+  assert.ok(!(await events.list(owner)).events.some((e) => e.id === relayed.id), "nothing was taken in");
 });

@@ -26,7 +26,11 @@ export const CollabEventSchema = z.object({
 export type CollabEvent = z.infer<typeof CollabEventSchema>;
 export type CollabVerdict = { valid: true } | { valid: false; reason: string };
 export interface CollabSearch { kind?: string | undefined; text?: string | undefined; limit?: number | undefined }
-export interface CollabListing { events: CollabEvent[]; rejected: string[] }
+/**
+ * `truncated` is true when the listing stopped at `scanLimit` stored rows while more matching rows
+ * were still unread: then `events` may be missing older genuine events and `rejected` more ids.
+ */
+export interface CollabListing { events: CollabEvent[]; rejected: string[]; truncated: boolean }
 
 /** The most stored rows one listing looks at before it stops, however many of them fail to verify. */
 const scanLimit = 5000;
@@ -34,7 +38,7 @@ const scanLimit = 5000;
 export class CollabEvents {
   private root: Promise<Buffer> | undefined;
   constructor(private readonly db: DatabaseSync, private readonly keys: LockerKeySource,
-    private readonly isMember: (member: string) => boolean) {
+    private readonly members: () => readonly string[]) {
     db.exec(`CREATE TABLE IF NOT EXISTS collab_events(id TEXT PRIMARY KEY, owner TEXT NOT NULL, member TEXT NOT NULL,
       kind TEXT NOT NULL, at TEXT NOT NULL, payload TEXT NOT NULL, signature TEXT NOT NULL)`);
     db.exec("CREATE INDEX IF NOT EXISTS collab_events_owner ON collab_events(owner, at)");
@@ -52,7 +56,7 @@ export class CollabEvents {
   }
   /** Signs a new event under a member of this household and keeps it. */
   async publish(owner: string, member: string, kind: string, payload: Record<string, unknown>): Promise<CollabEvent> {
-    if (!this.isMember(member)) throw new Error("Only a member of this household can publish an event");
+    if (!this.members().includes(member)) throw new Error("Only a member of this household can publish an event");
     const unsigned = { id: randomUUID(), member, kind: collabKindSchema.parse(kind),
       // Round-tripped through JSON first, so what is signed is exactly what is stored and read back.
       at: new Date().toISOString(), payload: collabPayloadSchema.parse(JSON.parse(JSON.stringify(payload))) };
@@ -65,7 +69,7 @@ export class CollabEvents {
     const parsed = CollabEventSchema.safeParse(input);
     if (!parsed.success) return { valid: false, reason: "The event is not in the expected shape" };
     const { signature, ...unsigned } = parsed.data;
-    if (!this.isMember(unsigned.member)) return { valid: false, reason: "The event's member is not in this household" };
+    if (!this.members().includes(unsigned.member)) return { valid: false, reason: "The event's member is not in this household" };
     const given = Buffer.from(signature, "hex"), wanted = Buffer.from(await this.signature(unsigned), "hex");
     if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) return { valid: false, reason: "The signature does not match the event" };
     return { valid: true };
@@ -79,24 +83,40 @@ export class CollabEvents {
     this.insert(owner, event);
     return event;
   }
-  /** Newest first. Events that no longer verify are left out and named in `rejected`. */
+  /**
+   * Newest first. Events that no longer verify are left out and named in `rejected`. Rows whose
+   * member is not in the household are skipped in the query itself, so however many a removed member
+   * left behind they never use up the scan; their ids are still named in `rejected`.
+   */
   async list(owner: string, search: CollabSearch = {}): Promise<CollabListing> {
     const limit = Math.min(Math.max(Math.trunc(search.limit ?? 100), 1), 500);
     const text = search.text ? `%${search.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
-    const page = this.db.prepare(`SELECT * FROM collab_events WHERE owner=? AND (? IS NULL OR kind=?)
-      AND (? IS NULL OR payload LIKE ? ESCAPE '\\') ORDER BY at DESC, id LIMIT ? OFFSET ?`);
-    const listing: CollabListing = { events: [], rejected: [] };
+    const members = JSON.stringify(this.members());
+    const where = `owner=? AND (? IS NULL OR kind=?) AND (? IS NULL OR payload LIKE ? ESCAPE '\\')`;
+    const params = [owner, search.kind ?? null, search.kind ?? null, text, text];
+    const page = this.db.prepare(`SELECT * FROM collab_events WHERE ${where}
+      AND member IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id LIMIT ? OFFSET ?`);
+    const listing: CollabListing = { events: [], rejected: [], truncated: false };
     // Pages are read until `limit` events verify, so rows that no longer verify never use up the page.
-    // Bounded: at most `scanLimit` rows are looked at for one listing.
-    for (let offset = 0; listing.events.length < limit && offset < scanLimit; offset += limit) {
-      const rows = page.all(owner, search.kind ?? null, search.kind ?? null, text, text, limit, offset);
+    // Bounded: at most `scanLimit` rows are looked at for one listing, and no page reads past it.
+    let offset = 0;
+    while (listing.events.length < limit && offset < scanLimit) {
+      const size = Math.min(limit, scanLimit - offset);
+      const rows = page.all(...params, members, size, offset);
+      offset += rows.length;
       for (const row of rows) {
         const event = rowEvent(row);
         if (event && (await this.verify(event)).valid) { if (listing.events.length < limit) listing.events.push(event); }
-        else if (listing.rejected.length < scanLimit) listing.rejected.push(String(row.id));
+        else listing.rejected.push(String(row.id));
       }
-      if (rows.length < limit) break;
+      if (rows.length < size) break;
     }
+    // Stopped at the cap with events still wanted: say so when a matching row was left unread.
+    if (listing.events.length < limit && offset >= scanLimit) listing.truncated = page.all(...params, members, 1, offset).length > 0;
+    const strangers = this.db.prepare(`SELECT id FROM collab_events WHERE ${where}
+      AND member NOT IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id LIMIT ?`).all(...params, members, scanLimit + 1);
+    if (strangers.length > scanLimit) listing.truncated = true;
+    listing.rejected.push(...strangers.slice(0, scanLimit).map((row) => String(row.id)));
     return listing;
   }
   private insert(owner: string, event: CollabEvent): void {

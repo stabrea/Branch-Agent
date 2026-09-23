@@ -150,6 +150,8 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
 /**
  * Signed collaboration events. A new event is always published under whoever is using the app,
  * never under a member named in the request; a received event is kept only if its signature holds.
+ * Every household member may read and publish; taking in a relay's event is the owner's alone, and
+ * src/server.ts refuses it to a household profile before this runs (src/household-routes.ts).
  */
 async function eventsApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const owner = app.runtime.owner, events = app.store.collabEvents;

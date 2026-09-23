@@ -123,8 +123,8 @@ export const ROUTES = {
   "/api/code-check": "owner POST",
   "/api/code-run": "owner POST",
   "/api/collab": "look",
-  "/api/collab/events": "other GET,POST", // members' signed events; read and publish are the owner's
-  "/api/collab/events/receive": "other POST", // takes in a signed event from elsewhere
+  "/api/collab/events": "other GET,POST", // the household's signed events: every member reads and publishes as themselves; a key may not read them
+  "/api/collab/events/receive": "owner POST", // relay intake: takes in a signed event from elsewhere, the owner's alone
   "/api/comfort": "owner POST", // R17-S-C
   "/api/comfort/status": "look", // R17-S-C
   "/api/comfort/update-plan": "owner POST", // R17-S-C

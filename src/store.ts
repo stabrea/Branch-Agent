@@ -256,7 +256,7 @@ export class Store {
     this.receiptsStore ??= new Receipts(keys);
     // Collaboration events are signed per member; a member is the owner or a profile on this computer.
     this.collabEventsStore ??= new CollabEvents(this.db, keys,
-      (member) => member === ownerMember || this.profiles.list().some((profile) => profile.id === member));
+      () => [ownerMember, ...this.profiles.list().map((profile) => profile.id)]);
     this.lockerStore ??= new Locker(this.db, keys);
     this.secretsStore ??= new Secrets(this.db, this.lockerStore);
     return this.lockerStore;
