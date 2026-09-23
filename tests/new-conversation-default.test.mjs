@@ -147,6 +147,19 @@ test("Lockdown on with default No approvals: a new conversation is still gated",
   assert.notEqual(decision(f, run, "shell.execute", git), "allow");
 });
 
+test("Lockdown on: a window still showing the old default cannot start or pick No approvals or Auto", async (t) => {
+  /* NAS adversarial check of DG-187: a window opened before Lockdown still offers the old default, and sends it. */
+  const f = await realBranch(t);
+  await setDefault(f, "full");
+  const room = await startInWindow(f, "hello");
+  assert.equal((await f.call("/api/lockdown", { on: true })).status, 200);
+  for (const mode of ["full", "auto"]) {
+    assert.equal((await f.call("/api/run", { prompt: "write stale.txt", mode })).status, 403, `a new ${mode} conversation is refused`);
+    assert.equal((await f.call("/api/conversation-mode", { sessionId: room.run.sessionId, mode })).status, 403, `picking ${mode} is refused`);
+  }
+  assert.equal(written(f, "stale.txt"), false, "nothing was written");
+});
+
 test("an older conversation with no mode keeps following the owner's setting after the default changes", async (t) => {
   const f = await realBranch(t);
   await setDefault(f, "follow");
