@@ -4529,8 +4529,12 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
 - **This computer answers at an address that is not private.** A machine with a public address would
   be putting Branch on the internet, which this setting is not for and will not do. "Private" is the
   same idea the network rules already use for addresses the assistant may not reach
-  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus a
-  Tailscale address, which Branch already treats as private for the phone door.
+  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus the
+  address Tailscale itself reports as this computer's. Tailscale's addresses come from
+  `100.64.0.0/10`, which other networks hand out too, so an address in that range counts as private
+  only when Tailscale, running on this computer, says it is this computer's own. With Tailscale not
+  installed, not connected or not answering, such an address keeps Branch on `127.0.0.1`; connect
+  Tailscale and start Branch again.
 - **There is no local key.** Without the session token there would be nothing for the door to ask
   for, so Branch will not open it.
 - **This computer answers on no address beyond itself.** With no network address there is nowhere to

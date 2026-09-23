@@ -178,9 +178,10 @@ import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 // mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
 import {
-  decideListen, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal,
-  listenReadRefusal, listenView, ownAddresses, saveListenSettings, thisComputerAddress,
+  decideListenHere, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal,
+  listenReadRefusal, listenView, type OwnAddress, saveListenSettings, thisComputerAddress,
 } from "./listen-address.js";
+import type { ProbeTailscale } from "./remote/tailscale.js";
 import { lockdownActive, onLockdownChange } from "./lockdown.js";
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
@@ -3034,6 +3035,10 @@ export async function startServer(
     authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
     /** bucket 22: what `branch quit` does to this launch (src/install/quit.ts); without it, it refuses. */
     quit?: () => void;
+    /** mac7/bind: this computer's addresses for the door's decision; read from the system when left out. */
+    listenAddresses?: readonly OwnAddress[];
+    /** mac7/bind: how the door asks Tailscale for this computer's address; tests hand in their own. */
+    tailscale?: ProbeTailscale;
   },
 ) {
   const token = await sessionToken(options.dataDir);
@@ -3051,10 +3056,11 @@ export async function startServer(
   const phoneApp = new PhoneApp();
   // mac7/bind: where this door listens. 127.0.0.1 unless the owner said otherwise and every
   // protection the wider door needs is really on; see src/listen-address.ts for what is refused.
-  const listen = decideListen({
+  // An address in Tailscale's range counts only when Tailscale itself reports it, so it is asked here.
+  const listen = await decideListenHere({
     where: listenAsked(app.store, app.runtime.owner),
     lockdown: lockdownActive(app.store, app.runtime.owner),
-    token, addresses: ownAddresses(),
+    token, addresses: options.listenAddresses, tailscale: options.tailscale,
   });
   /** Every name a request may say it was sent to: the paired address, and the wider door's own. */
   const allowedHosts = (): string[] => [...remote.allowedHosts(), ...listen.extraHosts];

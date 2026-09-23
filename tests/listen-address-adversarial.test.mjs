@@ -17,7 +17,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer, hostAllowed, offLimitsToShortLivedKeys } from "../dist/server.js";
-import { decideListen, fromThisComputer, listenReadRefusal, saveListenSettings } from "../dist/listen-address.js";
+import { decideListen, fromThisComputer, listenReadRefusal, ownAddresses, saveListenSettings } from "../dist/listen-address.js";
+import { isTailnetAddress } from "../dist/remote/tailscale.js";
 import { tunnelMark } from "../dist/auth-limits.js";
 import { tokenFromProtocol } from "../dist/ws.js";
 import { setLockdown } from "../dist/lockdown.js";
@@ -30,11 +31,20 @@ const url = "http://127.0.0.1:3210";
 const privateHome = [{ address: "127.0.0.1", internal: true }, { address: "192.168.1.40", internal: false }];
 const wideHere = { where: "private-network", lockdown: false, token: key, addresses: privateHome };
 
+/**
+ * Tailscale as it would answer on this computer, without running it: this computer's own 100.64
+ * address, when it has one. These tests are about the door, so they keep what it meant before.
+ */
+async function tailscaleHere() {
+  const address = ownAddresses().find((entry) => !entry.internal && isTailnetAddress(entry.address))?.address ?? null;
+  return { present: true, running: address !== null, address, hostname: null, message: "" };
+}
+
 async function fixture(t, { where } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-bind-adv-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   if (where) saveListenSettings(app.store, app.runtime.owner, { where });
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, tailscale: tailscaleHere });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   return { app, server, root };
 }
@@ -137,12 +147,14 @@ test("X2 there is no state where the door is wide and nothing says so", () => {
   for (const addresses of [privateHome, [{ address: "100.101.102.103", internal: false }], []]) {
     for (const lockdown of [true, false]) {
       for (const token of [key, ""]) {
-        const decision = decideListen({ where: "private-network", lockdown, token, addresses });
-        // Wide and silent is the one combination that must not exist.
-        assert.equal(decision.beyond && decision.refusal !== null, false);
-        assert.equal(decision.beyond, decision.address === "0.0.0.0");
-        assert.equal(decision.beyond || decision.refusal !== null, true,
-          "either it is wide, or it says why it is not");
+        for (const tailnet of [[], ["100.101.102.103"]]) {
+          const decision = decideListen({ where: "private-network", lockdown, token, addresses, tailnet });
+          // Wide and silent is the one combination that must not exist.
+          assert.equal(decision.beyond && decision.refusal !== null, false);
+          assert.equal(decision.beyond, decision.address === "0.0.0.0");
+          assert.equal(decision.beyond || decision.refusal !== null, true,
+            "either it is wide, or it says why it is not");
+        }
       }
     }
   }
@@ -306,13 +318,17 @@ const notTheLan = [
   "::ffff:224.0.0.1", "fc::1", "fd::1", "fe8::1",
   // Public, either side of the private ranges.
   "172.32.0.1", "100.128.0.1", "192.169.0.1", "169.255.0.1", "::ffff:8.8.8.8",
+  // Tailscale reports a plain IPv4 address, never this spelling of one.
+  "::ffff:100.101.102.103",
 ];
 const onTheLan = [
   "10.0.0.1", "10.255.255.254", "172.16.0.9", "172.31.255.254", "192.168.1.40", "169.254.10.20",
-  "100.64.0.1", "100.101.102.103", "100.127.255.254", "127.0.0.2",
+  "127.0.0.2",
   "fc00::1", "fd12:3456::1", "fdff:ffff::1", "fe80::1", "fe80::1c2b:3cff:fe4d:5e6f", "febf::1", "::1",
-  "::ffff:192.168.1.40", "::ffff:10.0.0.1", "::ffff:c0a8:128", "0:0:0:0:0:ffff:c0a8:128", "::ffff:100.101.102.103",
+  "::ffff:192.168.1.40", "::ffff:10.0.0.1", "::ffff:c0a8:128", "0:0:0:0:0:ffff:c0a8:128",
 ];
+/** Addresses in the range Tailscale hands out: private here only when Tailscale reports them. */
+const inTailscaleRange = ["100.64.0.1", "100.101.102.103", "100.127.255.254"];
 
 test("X8 an address that is not on this computer's own network keeps the door on this computer", () => {
   for (const address of notTheLan) {
@@ -332,5 +348,21 @@ test("X8 every address a private network really hands out still opens the door",
     assert.equal(decision.refusal, null, address);
     assert.equal(decision.beyond, true, address);
     assert.equal(decision.address, "0.0.0.0", address);
+  }
+});
+
+test("X8 an address in Tailscale's range opens the door only when Tailscale reports it as this computer's", () => {
+  for (const address of inTailscaleRange) {
+    const addresses = [...privateHome, { address, internal: false }];
+    const reported = decideListen({ ...wideHere, addresses, tailnet: [address] });
+    assert.equal(reported.refusal, null, address);
+    assert.equal(reported.address, "0.0.0.0", address);
+    for (const tailnet of [undefined, [], ["100.64.0.2"]]) {
+      const unreported = decideListen({ ...wideHere, addresses, ...(tailnet ? { tailnet } : {}) });
+      assert.equal(unreported.beyond, false, address);
+      assert.equal(unreported.address, "127.0.0.1", address);
+      assert.deepEqual(unreported.extraHosts, [], address);
+      assert.ok(unreported.refusal?.includes(address), `${address}: ${unreported.refusal}`);
+    }
   }
 });
