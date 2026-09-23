@@ -224,11 +224,12 @@ function resetWidth(k) {
   applyWidths();
 }
 const paneEl = (k) => (k === "rail" ? $("conversation-rail") : $("context-panel"));
-/** Open as a column (not folded, not floating over the conversation, not the calm window's hidden pane). */
+/** Open on a window wide enough to resize it (not folded, not the calm window's hidden pane). DG-114: the side panel
+    is a fixed card now, and a fixed element's offsetParent is always null, so whether it shows is read from its boxes. */
 function columnOpen(k) {
   if (innerWidth < RZ[k].wide) return false;
   const pane = paneEl(k);
-  if (!pane || pane.offsetParent === null || !pane.getBoundingClientRect().width) return false;
+  if (!pane || !pane.getClientRects().length || !pane.getBoundingClientRect().width) return false;
   return k === "rail" ? !document.body.classList.contains("no-rail") : document.body.classList.contains("lx-aside");
 }
 const handles = {};

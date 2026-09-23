@@ -41,8 +41,11 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `customize:plugins` | Plugins |
 | `customize:connections` | MCP in both directions: servers the assistant uses, other AI tools using Branch |
 | `customize:channels` | Chat apps, the phone, pages and the browser extension that reach Branch |
+| `overview:here` | What this computer is working on, what needs attention and what finished lately |
+| `household:people` | The owner and everyone who uses Branch on this computer |
 | `settings:general` | Starting with the computer, projects, labels, shared copies, people on this computer |
 | `settings:assistant` | Name, picture, working instructions, persona |
+| `settings:instructions` | The owner-written SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY and HEARTBEAT files, with a real editor and preview |
 | `settings:appearance` | Theme, light or dark, season, contrast, text size, spacing, lettering, language |
 | `settings:notifications` | When Branch may interrupt, quiet hours, days off |
 | `settings:models:connection` | Signing in to a provider, API keys, checking connections |
@@ -58,6 +61,12 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `settings:data` | Usage and cost, how long things are kept, backup, snapshots, bringing things in from another assistant |
 | `settings:advanced` | Health check, diagnostics, tracing, evaluation and studies, developer tools |
 | `settings:about` | Version and updates |
+| `settings:trunks` | Directory to the real Trunks, Overview and People places |
+| `settings:channels` | Directory to the real chat apps and devices controls |
+| `settings:connections` | Directory to the real tool-server and app connections controls |
+| `settings:skills` | Directory to the real Skills, Specialists and Plugins places |
+| `settings:memory` | Directory to the real Memory, Documents and Made for you places |
+| `settings:automations` | Directory to the real Automations and Inbox places |
 
 Inside a conversation there are no homes to add to, only two surfaces with strict jobs:
 
@@ -79,11 +88,11 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Heartbeat and quiet jobs (`mac2/quiet-jobs`) | `automations:scheduled`; its interruptions setting in `settings:notifications` |
 | Undoing a goal (`mac2/goal-undo`) | The conversation: a message action and the Plan tab, no screen of its own |
 | Live chat on channels (`mac2/chat-live`) | `customize:channels` |
-| Persona, identity and "who the owner is" files (SOUL, IDENTITY, USER) | `settings:assistant` |
-| A project's own instructions (AGENTS.md and its aliases) | `settings:general`, under the project |
-| MEMORY.md | `library:memory` |
-| HEARTBEAT.md | `automations:scheduled` |
-| SOP.md | `automations:procedures` |
+| Persona, identity and "who the owner is" files (SOUL, IDENTITY, USER) | Edited in `settings:instructions`; `settings:assistant` may link there from the related assistant controls |
+| A project's own instructions (AGENTS.md and its aliases) | Edited in `settings:instructions`; `settings:general` may link there from the related project |
+| MEMORY.md | Edited in `settings:instructions`; `library:memory` shows the related remembered facts |
+| HEARTBEAT.md | Edited in `settings:instructions`; `automations:scheduled` shows the jobs it wakes |
+| SOP.md | Edited in `settings:instructions`; `automations:procedures` shows the procedures that use it |
 | Suggested automations, the automation catalogue, standing orders, repeating in conversations and the limits on automatic work (`mac7/r17-b`) | `automations:scheduled`; the `/loop`, `/heartbeat`, `/subgoal`, `/bg`, `/handoff`, `/suggestions` and `/blueprint` commands live in the message box |
 | Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
 | What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
@@ -204,7 +213,7 @@ the terminal does not list them among its places.
    `openSettingFor`), never by calling `branchLayout` directly.
 
 A new place in the sidebar, a new Settings page, or a new pane tab needs the owner's approval
-first. Four places and twelve pages is the point of the design.
+first. The places and named Settings pages are the point of the design.
 
 ## What the five references taught
 

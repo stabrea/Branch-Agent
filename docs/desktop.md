@@ -10,7 +10,7 @@ npm run desktop
 npm run package:desktop
 ```
 
-The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it. Keep the whole folder together. The Windows build is unsigned and does not install shortcuts, a startup service or automatic updates; the macOS build is signed with the project's own certificate once the owner turns signing on, which is what keeps its permissions across updates (see below). Those distribution capabilities remain on the feature inventory.
+The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it and keep the whole folder together. `npm run package:desktop -- --release` also makes the zip, its checksum and `Install Branch Agent.cmd`. The installer requires all three files together, verifies and preflights a private copy, then adds shortcuts and the uninstall entry. Installed copies can update from the app. Windows releases remain unsigned until a trusted publisher certificate is configured; the macOS build is signed with the project's own certificate once the owner turns signing on, which is what keeps its permissions across updates (see below).
 
 Electron is a development dependency because it supplies the native window, platform tray and bundled runtime. Electron Packager creates the distributable directory. Fontsource packages supply locally bundled typefaces; each font's license accompanies it. The package includes only runtime files, public assets, production dependencies, package metadata and notices.
 
@@ -24,7 +24,7 @@ Forest/Daylight preferences live in the application database, so they survive se
 
 ## Sign-in and updates
 
-`chatgpt-auth.json` in the user data folder holds the ChatGPT sign-in, encrypted with Electron `safeStorage`. The renderer only ever receives sign-in status, never tokens. Updates run in the main process (`updater.ts`): the GitHub release archive is downloaded to the temp folder, verified against the published SHA-256, expanded with PowerShell, and applied by `apply-update.cmd` after the app exits. The renderer may open only `https://auth.openai.com/` and the project's GitHub pages through `branch:open-external`.
+`chatgpt-auth.json` in the user data folder holds the ChatGPT sign-in, encrypted with Electron `safeStorage`. The renderer only ever receives sign-in status, never tokens. Stable updates use the latest final `vX.Y.Z` release. The owner may opt into Beta, which also considers published `vX.Y.Z-beta.N` releases; a final release outranks its prereleases, and switching back never downgrades. Updates run in the main process (`updater.ts`): Branch downloads the selected archive to the temp folder, verifies the published SHA-256, and requires the embedded package name and version to match before any safety copy or hand-over. The checked archive is expanded and applied after the app exits. Automatic installation is off by default and checks that no task is running or awaiting an answer before hand-over. The renderer may open only `https://auth.openai.com/` and the project's GitHub pages through `branch:open-external`.
 
 ## macOS: the first open, and permissions that are kept
 

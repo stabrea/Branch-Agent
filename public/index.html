@@ -38,13 +38,16 @@
     <!-- Wave 9 redesign: the pixel oak behind the glass (public/grove.js). -->
     <canvas id="wall" class="lx-wall" aria-hidden="true"></canvas>
     <canvas id="wall-fx" class="lx-wall" aria-hidden="true"></canvas>
-    <!-- The rail: brand and app switcher, quiet actions, the sections, projects,
+    <!-- The rail: this computer and project switcher, quiet actions, the sections, projects,
          conversations by day, and the owner at the foot. public/shell.js fills it. -->
     <aside class="rail" id="conversation-rail" aria-label="Sidebar">
       <div class="rail-head">
-        <button id="app-switcher" class="app-switcher" type="button" aria-haspopup="true" aria-expanded="false">
-          <span class="brand-icon"><img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" /><img class="oak-normal" src="/assets/keepoak-mark.png" alt="" /></span>
-          <span class="brand"><span id="brand-name">Branch Agent</span></span>
+        <button id="app-switcher" class="app-switcher" type="button" aria-describedby="rail-target-name" aria-haspopup="true" aria-expanded="false">
+          <span id="rail-target-mark" class="rail-target-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="12" rx="2" /><path d="M2 20h20" /></svg></span>
+          <span id="rail-target" class="rail-target" aria-live="polite">
+            <strong id="rail-target-name" data-t="strip.here">This computer</strong>
+            <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
+          </span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
         </button>
         <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything" data-t-label="rail.search">
@@ -65,6 +68,19 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
           <span data-t="rail.find">Find anything</span> <kbd>Ctrl K</kbd>
         </button>
+        <div id="rail-view-tabs" class="rail-view-tabs" role="tablist" aria-label="Sidebar view" data-t-label="rail.view">
+          <button id="rail-view-conversations" class="rail-view-tab" type="button" role="tab" data-rail-view="conversations"
+            aria-selected="true" data-t="rail.conversations">Conversations</button>
+          <button id="rail-view-trunks" class="rail-view-tab" type="button" role="tab" data-rail-view="trunks"
+            aria-selected="false" data-t="trunks.rail">Trunks</button>
+        </div>
+        <div id="rail-trunks-actions" class="rail-trunks-actions" hidden>
+          <p id="rail-trunks-empty" class="rail-empty" data-t="studio.off.lede">Trunks are switched off.</p>
+          <button id="rail-new-trunk" class="rail-row" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <span data-t="trunks.new">A new Trunk</span>
+          </button>
+        </div>
         <!-- Wave 8: the one Lockdown switch, and the shape branched conversations make. -->
         <section class="rail-group" id="lockdown-panel" data-group="lockdown" hidden></section>
         <section class="rail-group" id="branch-tree" data-group="branches" hidden></section>
@@ -140,6 +156,12 @@
         <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details" data-t-label="rail.details">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
         </button>
+        <!-- DG-097: the finder, where the approved sample has it. Its key hint is the owner's own binding (public/shell.js). -->
+        <button id="head-search" class="head-search" type="button" aria-label="Search" data-t-label="head.search" aria-keyshortcuts="Control+K">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
+          <span data-t="head.search">Search</span>
+          <kbd id="head-search-keys">Ctrl K</kbd>
+        </button>
       </header>
       <section id="login" class="card login">
         <span class="eyebrow">Welcome to Branch Agent</span>
@@ -190,20 +212,26 @@
             <p id="practice-state" class="subtle" role="status"></p>
             <button id="practice-toggle" type="button" data-t="action.try-the-practice-workspace">Try the practice workspace</button>
           </section>
-          <details id="saved-conversations" class="card saved-conversations">
-            <summary>Saved conversations</summary>
-            <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
-            <form id="saved-search-form" class="saved-search">
-              <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
-              <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
-              <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
-            </form>
-            <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
-            <input id="conversation-import" type="file" accept="application/json,.json" hidden />
-            <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
-            <div id="saved-list" class="card-list" aria-live="polite"></div>
-            <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
-          </details>
+          <template id="saved-history-template">
+            <section id="saved-conversations" class="saved-conversations">
+              <div class="saved-history-head">
+                <h2 id="saved-history-title" data-t="history.title">Conversation history</h2>
+                <button id="saved-history-close" type="button" class="quiet-button" aria-label="Close conversation history" data-t-label="history.close" data-t="history.closeButton">Close</button>
+              </div>
+              <p id="saved-history-status" role="status" aria-live="polite"></p>
+              <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
+              <form id="saved-search-form" class="saved-search">
+                <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
+                <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
+                <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
+              </form>
+              <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
+              <input id="conversation-import" type="file" accept="application/json,.json" hidden />
+              <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
+              <div id="saved-list" class="card-list" aria-live="polite"></div>
+              <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
+            </section>
+          </template>
           <div id="demo-notice" class="notice" hidden>
             <strong data-t="practice.title">Practice mode</strong
             ><span data-t="practice.body">Branch can't do real work yet. Choose how it thinks in Settings, then ask for anything.</span
@@ -1340,6 +1368,12 @@
           <section id="updates-card" class="card" hidden>
             <h2 data-t="settings.card.updates">Updates</h2>
             <p id="updates-version" class="subtle"></p>
+            <fieldset id="updates-channel" class="update-channel-choices" aria-describedby="updates-channel-note">
+              <legend data-t="updates.channel.label">Update channel</legend>
+              <label><input type="radio" name="release-channel" value="stable" checked> <span data-t="updates.channel.stable">Stable</span></label>
+              <label><input type="radio" name="release-channel" value="beta"> <span data-t="updates.channel.beta">Beta</span></label>
+            </fieldset>
+            <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Stable remains the default. Switching back never installs an older version.</p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
             <p id="updates-status" role="status"></p>
@@ -1905,11 +1939,11 @@
           </form>
           <!-- mac7/clean-uninstall: the danger zone, last in Settings, like the delete-account area
                in other products. It shows what would go before anything goes. -->
-          <!-- mac7/diagnostics: Report a problem (public/activity-log.js). Nothing is sent: the owner
-               reads every item, removes what they like, then saves a zip or opens a GitHub issue form. -->
+          <!-- mac7/diagnostics: manual reports are never sent; automatic reports are a separate,
+               off-by-default opt-in limited to an already linked owner destination. -->
           <section id="problem-report-card" class="card">
             <h2 data-t="settings.card.report">Report a problem</h2>
-            <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. Nothing is sent: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
+            <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. This manual report is not sent automatically: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
             <label for="problem-report-summary" data-t="field.report-summary">What went wrong (optional)</label>
             <input id="problem-report-summary" maxlength="500" aria-describedby="problem-report-intro" />
             <button id="problem-report-gather" type="button" data-t="action.report-gather">Gather a report to read</button>
@@ -1919,6 +1953,89 @@
               <button id="problem-report-save" type="button" data-t="action.report-save">Save as a zip</button>
               <button id="problem-report-issue" type="button" data-t="action.report-issue">Open a GitHub issue form</button>
             </div>
+            <hr />
+            <h3 data-t="automatic-report.title">Send future problems automatically</h3>
+            <p id="automatic-problem-help" class="subtle" data-t="automatic-report.help">Off unless you turn it on. Branch sends only the report parts you choose, through an owner chat or GitHub account already linked here. You can preview the exact words first, and every attempt is written in Allowed &amp; audit.</p>
+            <label for="automatic-problem-mode" data-t="automatic-report.field.mode">Automatic reports</label>
+            <select id="automatic-problem-mode" aria-describedby="automatic-problem-help">
+              <option value="off" data-t="automatic-report.mode.off">Off</option>
+              <option value="on" data-t="automatic-report.mode.on">On</option>
+            </select>
+            <label for="automatic-problem-destination" data-t="automatic-report.field.destination">Send through</label>
+            <select id="automatic-problem-destination" aria-describedby="automatic-problem-help"></select>
+            <div id="automatic-problem-github" hidden>
+              <label for="automatic-problem-repository" data-t="automatic-report.field.repository">GitHub repository</label>
+              <input id="automatic-problem-repository" maxlength="201" placeholder="owner/repository" aria-describedby="automatic-problem-help" />
+            </div>
+            <fieldset>
+              <legend data-t="automatic-report.field.events">Send when</legend>
+              <p id="automatic-problem-events-note" class="field-note" data-t="automatic-report.describe.events">Choose which kinds of product failure may make a report. Untick one and that kind stays on this computer.</p>
+              <label class="checkbox-row" for="automatic-problem-event-crash">
+                <input id="automatic-problem-event-crash" type="checkbox" checked aria-describedby="automatic-problem-events-note" />
+                <span data-t="automatic-report.event.crash">Crashes</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-event-update">
+                <input id="automatic-problem-event-update" type="checkbox" checked aria-describedby="automatic-problem-events-note" />
+                <span data-t="automatic-report.event.update">Update problems</span>
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend data-t="automatic-report.field.parts">Include these report parts</legend>
+              <p id="automatic-problem-items-note" class="field-note" data-t="automatic-report.describe.items">Each ticked part is gathered only after a chosen problem happens. Untick a part and Branch never reads it for an automatic report.</p>
+              <label class="checkbox-row" for="automatic-problem-item-about">
+                <input id="automatic-problem-item-about" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.about">About Branch and this computer</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-health">
+                <input id="automatic-problem-item-health" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.health">Health checks</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-services">
+                <input id="automatic-problem-item-services" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.services">What is running</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-settings">
+                <input id="automatic-problem-item-settings" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.settings">Settings (secrets removed)</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-log">
+                <input id="automatic-problem-item-log" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.log">Activity log</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-crashes">
+                <input id="automatic-problem-item-crashes" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.crashes">Crash notes</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-updates">
+                <input id="automatic-problem-item-updates" type="checkbox" checked aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.updates">Update details</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-tasks">
+                <input id="automatic-problem-item-tasks" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.tasks">Recent tasks (shape only)</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-disk">
+                <input id="automatic-problem-item-disk" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.disk">Disk space and permissions</span>
+              </label>
+              <label class="checkbox-row" for="automatic-problem-item-network">
+                <input id="automatic-problem-item-network" type="checkbox" aria-describedby="automatic-problem-items-note" />
+                <span data-t="automatic-report.item.network">Internet reachability</span>
+              </label>
+            </fieldset>
+            <label for="automatic-problem-preview-kind" data-t="automatic-report.field.preview-kind">Preview this kind of problem</label>
+            <select id="automatic-problem-preview-kind">
+              <option value="crash" data-t="automatic-report.event.crash">Crashes</option>
+              <option value="update" data-t="automatic-report.event.update">Update problems</option>
+            </select>
+            <label for="automatic-problem-preview-summary" data-t="automatic-report.field.summary">Example summary (optional)</label>
+            <input id="automatic-problem-preview-summary" maxlength="500" />
+            <div class="identity-actions">
+              <button id="automatic-problem-preview-button" type="button" data-t="automatic-report.action.preview">Preview exactly what would be sent</button>
+              <button id="automatic-problem-save" type="button" data-t="automatic-report.action.save">Save automatic reports</button>
+            </div>
+            <p id="automatic-problem-status" class="subtle" role="status"></p>
+            <pre id="automatic-problem-preview" hidden></pre>
           </section>
           <section id="danger-zone" class="card danger-zone" data-home="settings:about">
             <h2 data-t="danger.card.title">Danger zone</h2>
@@ -2140,6 +2257,7 @@
     <script src="/rewind.js" type="module"></script>
     <!-- Wave mac3 (tool-safety): a second look before approvals. -->
     <script src="/approval-reviewer.js" type="module"></script>
+    <script src="/jev-decisions.js" type="module"></script>
     <script src="/os-sandbox.js" type="module"></script>
     <!-- Wave 9 redesign: last, so every panel it moves already exists. -->
     <script src="/context-files.js" type="module"></script>

@@ -1,6 +1,6 @@
 {
   "name": "branch-agent",
-  "version": "0.19.0",
+  "version": "0.19.2",
   "description": "Hand work to Branch Agent, your own assistant on this computer, through the tools you shared with it.",
   "author": {
     "name": "Branch Agent"

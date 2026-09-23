@@ -1,11 +1,12 @@
 /* The app shell: one rail (brand, quiet actions, sections, projects, conversations,
    the owner at the foot), one reading column, one context pane, and Ctrl+K to reach
    anything. No section hides behind a drop-down. */
-import { api, displayView, openConversation, titles } from "/app.js";
+import { api, displayView, openConversation, openSavedConversations, ownerAtWindow, titles } from "/app.js";
 import { t } from "/i18n.js";
 import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
+import { face } from "/faces.js";
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -87,6 +88,113 @@ function rememberOwner(id) {
   localStorage.setItem("branch-owner", id);
   for (const restore of groups) restore();
 }
+
+/* ---------- Conversations / Trunks, after the approved Grown Up shell ---------- */
+const RAIL_VIEW_KEY = "branch-rail-view";
+const conversationRailNodes = () => [$("rail-new"), $("rail-find"),
+  document.querySelector('.rail-group[data-group="sections"]'),
+  document.querySelector('.rail-group[data-group="projects"]'),
+  document.querySelector('.rail-group[data-group="recents"]')].filter(Boolean);
+let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "conversations";
+let railCanManageTrunks = false;
+let railProfileOwner = null;
+let railProfileGeneration = Number(document.documentElement.dataset.profileGeneration || 0);
+let localMachineName = "";
+let selectedRailTarget = "here";
+const defaultRailMark = $("rail-target-mark").firstElementChild.cloneNode(true);
+function syncRailView() {
+  const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
+  $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
+  for (const node of conversationRailNodes()) node.hidden = trunks;
+  if (group) group.hidden = !trunks;
+  $("rail-trunks-actions").hidden = !trunks;
+  $("rail-trunks-empty").hidden = Boolean(group);
+  $("rail-view-trunks").hidden = !railCanManageTrunks;
+  for (const tab of document.querySelectorAll(".rail-view-tab")) {
+    const chosen = tab.dataset.railView === (trunks ? "trunks" : "conversations");
+    tab.setAttribute("aria-selected", String(chosen));
+    tab.tabIndex = chosen ? 0 : -1;
+  }
+}
+function chooseRailView(next, focus = false) {
+  railView = next === "trunks" ? "trunks" : "conversations";
+  localStorage.setItem(RAIL_VIEW_KEY, railView);
+  syncRailView();
+  if (focus) $(`rail-view-${railView}`)?.focus();
+}
+for (const tab of document.querySelectorAll(".rail-view-tab")) {
+  tab.addEventListener("click", () => chooseRailView(tab.dataset.railView));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const available = [...document.querySelectorAll(".rail-view-tab")].filter((choice) => !choice.hidden);
+    if (available.length < 2) return available[0]?.focus();
+    const at = available.indexOf(event.currentTarget), by = event.key === "ArrowRight" ? 1 : -1;
+    const next = available[(at + by + available.length) % available.length];
+    chooseRailView(next.dataset.railView, true);
+  });
+}
+$("rail-new-trunk").addEventListener("click", () => void import("/studio.js").then((studio) => studio.openAdd("trunk")));
+new MutationObserver(syncRailView).observe($("rail-scroll"), { childList: true });
+document.addEventListener("branch-strip", (event) => {
+  const generation = Number(event.detail?.profileGeneration ?? railProfileGeneration);
+  if (generation !== railProfileGeneration) return;
+  const profiles = event.detail?.profiles;
+  const confirmedOwner = event.detail?.profiles?.isOwner === true;
+  const newlyConfirmedOwner = confirmedOwner && railProfileOwner !== true;
+  if (profiles) railProfileOwner = confirmedOwner;
+  railCanManageTrunks = railProfileOwner === true && ownerAtWindow() && confirmedOwner;
+  syncRailView();
+  if (railCanManageTrunks) document.dispatchEvent(new CustomEvent("branch-strip-reselect"));
+  if (newlyConfirmedOwner) void loadMachineName();
+});
+document.addEventListener("branch-profile", (event) => {
+  const generation = Number(event.detail?.profileGeneration);
+  railProfileGeneration = Number.isSafeInteger(generation) ? generation : railProfileGeneration + 1;
+  railProfileOwner = event.detail?.owner !== false;
+  railCanManageTrunks = false;
+  if (railProfileOwner) { syncRailView(); void loadMachineName(); return; }
+  localMachineName = "";
+  setRailTargetFallback();
+  syncRailView();
+});
+function setRailTargetText(id, value) {
+  const node = $(id);
+  node.removeAttribute("data-t");
+  if (node.textContent !== value) node.textContent = value;
+}
+function setRailTargetFallback() {
+  for (const [id, key] of [
+    ["rail-target-name", "strip.here"],
+    ["rail-target-kind", "strip.kind.here"],
+    ["rail-target-status", "strip.status.online"],
+  ]) {
+    const node = $(id);
+    node.dataset.t = key;
+    node.textContent = t(key);
+  }
+  selectedRailTarget = "here";
+  $("rail-target-mark").classList.remove("has-face");
+  $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
+  if (ownerAtWindow() && railProfileOwner === true && localMachineName)
+    setRailTargetText("rail-target-name", localMachineName);
+}
+document.addEventListener("branch-strip-selection", (event) => {
+  if (railProfileOwner !== true || !railCanManageTrunks || !ownerAtWindow()) return setRailTargetFallback();
+  const { id, name, kind, status, spec } = event.detail;
+  selectedRailTarget = id;
+  if (spec) {
+    $("rail-target-mark").classList.add("has-face");
+    $("rail-target-mark").replaceChildren(face(spec, 32, { ground: "rail" }));
+  } else {
+    $("rail-target-mark").classList.remove("has-face");
+    $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
+  }
+  setRailTargetText("rail-target-name", id === "here" ? localMachineName || name : name);
+  setRailTargetText("rail-target-kind", kind);
+  setRailTargetText("rail-target-status", status);
+});
+syncRailView();
 
 /* ---------- the two panes that fold away ---------- */
 const overlayRail = () => globalThis.innerWidth < 700; // phase2/everywhere: a tablet held upright keeps the side list docked
@@ -363,6 +471,18 @@ export async function loadRail() {
   } catch {
     /* the owner row keeps its resting labels */
   }
+  await loadMachineName();
+}
+async function loadMachineName() {
+  if (!ownerAtWindow() || railProfileOwner !== true) return;
+  const generation = railProfileGeneration;
+  const reach = await api("reach").catch(() => null);
+  if (!ownerAtWindow() || railProfileOwner !== true || generation !== railProfileGeneration) return;
+  localMachineName = typeof reach?.machineName === "string" ? reach.machineName.trim() : "";
+  if (selectedRailTarget === "here") {
+    if (localMachineName) setRailTargetText("rail-target-name", localMachineName);
+    else { $("rail-target-name").dataset.t = "strip.here"; $("rail-target-name").textContent = t("strip.here"); }
+  }
 }
 $("rail-new").addEventListener("click", () => {
   displayView("chat");
@@ -376,6 +496,17 @@ $("thread-labels")?.addEventListener("click", (event) => {
   void openLabelPicker($("thread-labels"), $("conversation").dataset.sessionId || null, loadRail);
 });
 $("rail-find").addEventListener("click", () => openPalette());
+/* DG-097: the top-bar search box opens the same finder as Ctrl K, and shows the keys that really open it. */
+$("head-search").addEventListener("click", () => openPalette());
+function drawSearchKeys() {
+  const keys = hintFor("palette", "Ctrl K");
+  const hint = $("head-search-keys");
+  hint.textContent = keys;
+  hint.hidden = !keys;
+  const button = $("head-search");
+  if (keys) button.setAttribute("aria-keyshortcuts", keys.replace(/\bCtrl\b/g, "Control").replaceAll(" ", "+"));
+  else button.removeAttribute("aria-keyshortcuts");
+}
 $("cmd-open").addEventListener("click", () => openPalette());
 
 /* ---------- the command palette ---------- */
@@ -388,8 +519,10 @@ function entries() {
     hint: "Section",
     run: () => displayView(view),
   }));
+  const historyTitle = t("history.title");
   found.push(
     { label: "New conversation", hint: hintFor("newConversation", "Ctrl N"), run: () => $("rail-new").click() }, // R17-S15
+    { label: historyTitle === "history.title" ? "Conversation history" : historyTitle, hint: "Action", run: openSavedConversations },
     { label: "Appearance settings", hint: hintFor("appearance", "Ctrl ,"), run: () => $("appearance-shortcut").click() },
     { label: "Check for updates", hint: "Action", run: () => { displayView("settings"); $("updates-check")?.click(); } },
   );
@@ -512,6 +645,9 @@ function closePalette() {
 /* R17-S15: the owner's own keys for these four (public/comfort.js); without it, the keys they have always been. */
 const pressed = (event, action, always) => globalThis.branchComfort?.pressed(event, action) ?? always;
 const hintFor = (action, always) => globalThis.branchComfort?.hint(action) ?? always;
+/* Drawn here rather than beside the button: `hintFor` has to exist before the keys can be shown. */
+drawSearchKeys();
+document.addEventListener("branch-comfort", drawSearchKeys);
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   /* Ctrl+Shift+K folds the context pane away and back, where there is room for it. */
@@ -558,7 +694,7 @@ $("prompt").addEventListener("keydown", (event) => {
 /* ---------- the composer floats, so the column keeps room for it ---------- */
 const dock = $("composer-dock");
 const measureDock = () =>
-  document.documentElement.style.setProperty("--composer-h", `${Math.ceil(dock.offsetHeight)}px`);
+  document.documentElement.style.setProperty("--composer-h", `${Math.round(dock.getBoundingClientRect().height)}px`);
 new ResizeObserver(measureDock).observe(dock);
 measureDock();
 

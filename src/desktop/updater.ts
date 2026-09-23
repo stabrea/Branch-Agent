@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { chmod, lstat, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -16,6 +16,8 @@ import { checksumAssetName } from "./release-assets.js";
 export interface UpdaterOptions {
   repo: string;
   currentVersion: string;
+  /** Stable stays on GitHub's latest final release; beta also considers published prereleases. */
+  channel?: UpdateChannel;
   /** Folder that holds the running executable, or null when not running from an installed copy. */
   installDir: string | null;
   /** Windows and Linux: the program file. macOS: the `.app` bundle's folder name. */
@@ -34,10 +36,11 @@ export interface UpdaterOptions {
    * fails the update stops, because an update without something to go back to is not worth the risk.
    */
   backup?: () => Promise<void>;
+  /** Re-check all tasks at the last safe point, before a background engine can be stopped. */
+  beforeStop?: () => Promise<void>;
   /**
-   * Closes the engine that keeps working with the window closed, so the old program files are not
-   * held open while they are replaced. Answers with the process id that was closed, or null when
-   * nothing was working in the background.
+   * Politely closes the engine that keeps working with the window closed. A refusal defers the
+   * update; it must not be swallowed and followed by a hand-over that forcibly ends the engine.
    */
   stopDaemon?: () => Promise<number | null>;
   /**
@@ -50,6 +53,8 @@ export interface UpdaterOptions {
   /** Windows: the registry key the update's recovery script is registered under (HKCU RunOnce); tests hand in their own. */
   runOnceKey?: string;
 }
+export type UpdateChannel = "stable" | "beta";
+export class UpdateDeferredError extends Error {}
 export interface ReleaseInfo {
   currentVersion: string;
   latestVersion: string;
@@ -62,6 +67,7 @@ export interface ReleaseInfo {
   checksumUrl: string;
   assetBytes: number;
   pageUrl: string;
+  channel: UpdateChannel;
 }
 export type UpdatePhase =
   | "idle" | "checking" | "current" | "available" | "downloading" | "verifying"
@@ -77,6 +83,8 @@ export interface UpdateStatus {
 }
 const releaseSchema = z.object({
   tag_name: z.string().min(1),
+  draft: z.boolean().optional(),
+  prerelease: z.boolean().optional(),
   name: z.string().nullable().optional(),
   body: z.string().nullable().optional(),
   published_at: z.string().nullable().optional(),
@@ -85,24 +93,78 @@ const releaseSchema = z.object({
 });
 
 export function compareVersions(a: string, b: string): number {
-  const parts = (value: string) => value.replace(/^v/i, "").split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const left = parts(a), right = parts(b);
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+  const parse = (value: string) => {
+    const match = /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
+    if (!match) throw new Error(`Invalid Branch version: ${value}`);
+    return { numbers: [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)],
+      pre: match[4]?.split(".") ?? [] };
+  };
+  const left = parse(a), right = parse(b);
+  for (let index = 0; index < 3; index++) {
+    const difference = left.numbers[index]! - right.numbers[index]!;
     if (difference) return Math.sign(difference);
   }
+  if (!left.pre.length || !right.pre.length) return Number(right.pre.length > 0) - Number(left.pre.length > 0);
+  for (let index = 0; index < Math.max(left.pre.length, right.pre.length); index++) {
+    const one = left.pre[index], two = right.pre[index];
+    if (one === undefined || two === undefined) return one === undefined ? -1 : 1;
+    if (one === two) continue;
+    const numericOne = /^\d+$/.test(one), numericTwo = /^\d+$/.test(two);
+    if (numericOne && numericTwo) return Math.sign(Number(one) - Number(two));
+    if (numericOne !== numericTwo) return numericOne ? -1 : 1;
+    return one < two ? -1 : 1;
+  }
   return 0;
+}
+
+/** Automatic updates accept only ordinary final SemVer tags, never aliases or prereleases. */
+export function finalReleaseVersion(tag: string): string {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(tag);
+  if (!match) throw new Error("The newest GitHub entry does not use a final release tag such as v1.2.3, so Branch did not offer it as an update.");
+  return `${match[1]}.${match[2]}.${match[3]}${match[4] ?? ""}`;
+}
+
+/** Rolling beta artifacts have one next-patch line and a monotonically increasing run number. */
+export function betaReleaseVersion(tag: string): string {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.([1-9]\d*)$/.exec(tag);
+  if (!match) throw new Error("The beta release tag is not a Branch beta version.");
+  return tag.slice(1);
+}
+
+function newestBetaCandidate(raw: unknown): z.infer<typeof releaseSchema> {
+  const releases = z.array(releaseSchema).parse(raw);
+  const accepted = releases.filter((entry) => {
+    if (entry.draft) return false;
+    try {
+      if (entry.prerelease) betaReleaseVersion(entry.tag_name);
+      else finalReleaseVersion(entry.tag_name);
+      return true;
+    } catch { return false; }
+  });
+  accepted.sort((one, two) => compareVersions(two.tag_name, one.tag_name));
+  if (!accepted[0]) throw new Error("No published Branch beta or stable release is available yet.");
+  return accepted[0];
+}
+
+function betaAssetMatches(release: z.infer<typeof releaseSchema>, repo: string,
+  asset: { name: string; browser_download_url: string }): boolean {
+  const url = new URL(asset.browser_download_url);
+  return url.protocol === "https:" && url.hostname === "github.com" && !url.search && !url.hash &&
+    url.pathname === `/${repo}/releases/download/${release.tag_name}/${asset.name}`;
 }
 
 export class Updater {
   status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   private busy = false;
+  private channel: UpdateChannel;
+  private generation = 0;
   /** True while a download, check, unpack or hand-over is under way. */
   get inProgress(): boolean { return this.busy; }
   private readonly fetch: typeof fetch;
   private readonly extract: (archive: string, into: string) => Promise<void>;
   private readonly platform: NodeJS.Platform;
   constructor(private readonly options: UpdaterOptions) {
+    this.channel = options.channel ?? "stable";
     this.fetch = options.fetch ?? globalThis.fetch;
     this.platform = options.platform ?? process.platform;
     const platform = this.platform;
@@ -111,14 +173,25 @@ export class Updater {
     if (reason)
       this.status = { phase: "unsupported", message: reason, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   }
+  get selectedChannel(): UpdateChannel { return this.channel; }
+  setChannel(channel: UpdateChannel): UpdateStatus {
+    if (this.busy) throw new Error("Wait for the current update before changing channels.");
+    if (channel === this.channel) return this.status;
+    this.channel = channel;
+    this.generation++;
+    return this.set("idle", `Checking ${channel} updates has not started yet.`, null, null);
+  }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
+    const generation = ++this.generation;
     this.set("checking", "Checking GitHub for a newer version…");
     try {
       const release = await this.latestRelease();
+      if (generation !== this.generation) return this.status;
       if (!release.available) return this.set("current", `You have the newest version (${release.currentVersion}).`, null, release);
       return this.set("available", `Version ${release.latestVersion} is ready to install.`, null, release);
     } catch (error) {
+      if (generation !== this.generation) return this.status;
       return this.set("error", error instanceof Error ? error.message : String(error));
     }
   }
@@ -127,7 +200,8 @@ export class Updater {
     const reason = unsupportedReason(this.options, this.platform);
     if (reason) throw new Error(reason);
     if (this.busy) throw new Error("An update is already in progress.");
-    const release = this.status.release?.available ? this.status.release : (await this.check()).release;
+    const selected = this.status.release;
+    const release = selected?.available && selected.channel === this.channel ? selected : (await this.check()).release;
     if (!release?.available) throw new Error("There is no newer version to install.");
     this.busy = true;
     try {
@@ -138,13 +212,16 @@ export class Updater {
       await this.download(release, archive);
       await this.verify(archive, release);
       const stagedDir = await this.unpack(archive);
+      await validateStagedPackage(stagedDir, release.latestVersion, this.platform);
       await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
       await this.safetyCopy();
+      await this.options.beforeStop?.();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };
     } catch (error) {
-      this.set("error", error instanceof Error ? error.message : String(error), null, release);
+      this.set(error instanceof UpdateDeferredError ? "available" : "error",
+        error instanceof Error ? error.message : String(error), null, release);
       // mac7/real-update: a download that went wrong is 130 MB or more of nothing; it is not kept.
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
       await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
@@ -174,32 +251,39 @@ export class Updater {
   }
   /**
    * Closes the engine working in the background before the files are swapped, and answers with its
-   * process id so the hand-over waits for it as well. A refusal never stops the update: the hand-over
-   * script ends that process itself if it has to.
+   * process id so the hand-over waits for it as well. A refusal stops this attempt.
    */
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    try { return await this.options.stopDaemon(); } catch { return null; }
+    return this.options.stopDaemon();
   }
   private async latestRelease(): Promise<ReleaseInfo> {
-    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/latest`, {
+    const path = this.channel === "stable" ? "releases/latest" : "releases?per_page=100";
+    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/${path}`, {
       headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
       signal: AbortSignal.timeout(15000),
     });
     if (response.status === 404) throw new Error("No release has been published yet.");
     if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
-    const data = releaseSchema.parse(await response.json());
+    const raw = await response.json();
+    const data = this.channel === "stable" ? releaseSchema.parse(raw) : newestBetaCandidate(raw);
+    if (data.draft || (this.channel === "stable" && data.prerelease))
+      throw new Error("The newest stable release is not a published final release.");
     const asset = data.assets.find((entry) => entry.name === this.options.assetName);
     const checksum = data.assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
     if (!asset || !checksum) throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
-    const latestVersion = data.tag_name.replace(/^v/i, "");
+    if (this.channel === "beta" &&
+      (!betaAssetMatches(data, this.options.repo, asset) || !betaAssetMatches(data, this.options.repo, checksum)))
+      throw new Error("The beta download does not belong to the selected Branch release.");
+    const latestVersion = data.prerelease ? betaReleaseVersion(data.tag_name) : finalReleaseVersion(data.tag_name);
     return {
       currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
       available: compareVersions(latestVersion, this.options.currentVersion) > 0,
       title: data.name || data.tag_name, notes: data.body ?? "", publishedAt: data.published_at ?? null,
       assetUrl: asset.browser_download_url, checksumUrl: checksum.browser_download_url, assetBytes: asset.size,
       pageUrl: data.html_url,
+      channel: this.channel,
     };
   }
   private async download(release: ReleaseInfo, target: string): Promise<void> {
@@ -319,6 +403,22 @@ export class Updater {
     this.busy = true;
     return this.set("applying", "Closing to finish the update. The app opens again by itself in a moment.", 1, this.status.release);
   }
+}
+
+const packagedManifestSchema = z.object({ name: z.literal("branch-agent"), version: z.string() }).passthrough();
+
+/** The bytes inside the archive must identify the same Branch release GitHub selected. */
+export async function validateStagedPackage(stagedDir: string, expectedVersion: string, platform: NodeJS.Platform): Promise<void> {
+  const manifest = platform === "darwin"
+    ? join(stagedDir, "Contents", "Resources", "app", "package.json")
+    : join(stagedDir, "resources", "app", "package.json");
+  let raw: unknown;
+  try { raw = JSON.parse(await readFile(manifest, "utf8")); }
+  catch { throw new Error("The download did not contain a readable Branch Agent package identity, so nothing was changed."); }
+  const parsed = packagedManifestSchema.safeParse(raw);
+  if (!parsed.success) throw new Error("The download is not a Branch Agent package, so nothing was changed.");
+  if (parsed.data.version !== expectedVersion)
+    throw new Error(`The download contains version ${parsed.data.version}, but the selected release is ${expectedVersion}, so nothing was changed.`);
 }
 
 export { windowsKeep };

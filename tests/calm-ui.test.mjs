@@ -18,7 +18,7 @@ const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
   "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
-  "#saved-conversations", "#rail-find", "#cmd-open", "#context-panel",
+  "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn",
 ];
 /* What the calm window always shows. phase2/settings: the account row now shows too, with the Settings cog after it (#37).
@@ -112,12 +112,36 @@ test("the calm window is the default: one box, Send, New conversation, Recents, 
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.everything), "off");
   const hidden = await shown(f.page, HIDDEN_WHEN_CALM);
   assert.deepEqual(Object.entries(hidden).filter(([, on]) => on).map(([selector]) => selector), [], "these still show in the calm window");
+  assert.equal(await f.page.locator("#saved-conversations").count(), 0, "conversation history is not built in the thread");
   for (const selector of HIDDEN_WHEN_CALM.filter((s) => s.startsWith("#")))
     assert.equal(await f.page.locator(selector).count(), 1, `${selector} is hidden, not removed`);
   const always = await shown(f.page, ALWAYS);
   assert.deepEqual(Object.entries(always).filter(([, on]) => !on).map(([selector]) => selector), [], "these must always show");
   assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), true, "recent conversations stay in the rail");
   assert.equal(await f.page.locator("#greeting").innerText(), "What do you want done?");
+  assert.deepEqual(f.errors, []);
+});
+
+test("conversation history is built only when requested and closes with Escape", async (t) => {
+  const f = await fixture(t, { onboarded: true, width: 390, height: 844 });
+  assert.equal(await f.page.locator("#saved-conversations").count(), 0);
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").fill("Conversation history");
+  await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
+  const dialog = f.page.getByRole("dialog", { name: "Conversation history" });
+  await dialog.waitFor({ state: "visible" });
+  assert.equal(await f.page.locator("#conversation #saved-conversations").count(), 0);
+  assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await f.page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").fill("Conversation history");
+  await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
+  await dialog.waitFor({ state: "visible" });
+  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } })));
+  await dialog.waitFor({ state: "hidden" });
+  assert.equal(await f.page.locator("#saved-list").evaluate((list) => list.childElementCount), 0,
+    "a profile switch clears the prior person's history even if its search is still loading");
   assert.deepEqual(f.errors, []);
 });
 
@@ -148,9 +172,14 @@ test("Show everything brings the full window back, and is remembered for this pe
   await openSettingFor(f.page, "#appearance-everything");
   await f.page.locator("#appearance-everything").check();
   await closeSettings(f.page);
-  const back = await shown(f.page, ["#lx-pane-tabs", "#lx-shield", "#aside-toggle", "#composer-attach", "#temporary-toggle",
-    "#ask-first-toggle", "#composer-specialist", "#new-session", "#context-panel", "#rail-find", "#owner-menu-button", ".lx-gear"]);
+  const back = await shown(f.page, ["#lx-shield", "#aside-toggle", "#composer-attach", "#temporary-toggle",
+    "#ask-first-toggle", "#composer-specialist", "#new-session", "#rail-find", "#owner-menu-button", ".lx-gear"]);
   assert.deepEqual(Object.entries(back).filter(([, on]) => !on).map(([selector]) => selector), [], "these did not come back");
+  /* DG-114: the side panel is a card over the conversation, closed until asked for, in the full window too. */
+  assert.equal(await visible(f.page, "#context-panel"), false, "the side panel waits to be asked for");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("#context-panel").waitFor({ state: "visible" });
+  assert.equal(await visible(f.page, "#lx-pane-tabs"), true, "and it brings its tabs");
   assert.equal(await visible(f.page, "#lx-more"), false, "the full window is the old one, without More");
   /* Kept with the person's own preferences, not only in this browser. */
   /* The window saves the change a moment after it shows it; on a loaded machine that moment is longer. */
@@ -163,6 +192,8 @@ test("Show everything brings the full window back, and is remembered for this pe
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
   await f.page.waitForFunction(() => document.documentElement.dataset.everything === "on");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("#context-panel").waitFor({ state: "visible" });
   assert.equal(await visible(f.page, "#lx-pane-tabs"), true);
   assert.deepEqual(f.errors, []);
 });
@@ -218,11 +249,22 @@ test("with no model, the window says so exactly once, and says nothing about its
   assert.deepEqual(sayings, ["Practice mode"], "the missing model is said once");
   assert.equal(await visible(f.page, "#connection"), false, "\"Connected\" is not said while all is well");
   /* When the window can no longer reach Branch, it says so plainly and offers a restart. */
-  await f.page.route("**/api/health", (route) => route.abort());
-  await f.page.evaluate(async () => { await globalThis.branchLayout.checkServer(); await globalThis.branchLayout.checkServer(); });
+  let healthAuthorization = "";
+  await f.page.route("**/api/alive", (route) => {
+    healthAuthorization = route.request().headers().authorization ?? "";
+    return route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' });
+  });
+  /* A ten-second background probe may already be in flight. The first call can join it, so make
+     three calls to guarantee the product observes its required two consecutive misses. */
+  await f.page.evaluate(async () => {
+    await globalThis.branchLayout.checkServer();
+    await globalThis.branchLayout.checkServer();
+    await globalThis.branchLayout.checkServer();
+  });
+  assert.equal(healthAuthorization, `Bearer ${f.server.token}`, "the liveness check uses the signed-in session");
   assert.equal(await f.page.locator("#connection").innerText(), "Branch stopped responding");
   assert.equal(await visible(f.page, "#lx-restart"), true);
-  await f.page.unroute("**/api/health");
+  await f.page.unroute("**/api/alive");
   await f.page.evaluate(() => globalThis.branchLayout.checkServer());
   assert.equal(await visible(f.page, "#connection"), false);
   assert.equal(await visible(f.page, "#lx-restart"), false);
@@ -348,15 +390,16 @@ test("calm: More works from the keyboard and names its groups", async (t) => {
 test("calm: a finished conversation is in Recents at once, and the next steps are offered once", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("Tell me a joke");
-  await f.page.locator("#send").click();
+  await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator("#rail-list .rail-item").filter({ hasText: "Tell me a joke" }).waitFor({ timeout: 10000 });
+  await f.page.locator(".message.assistant").first().waitFor({ state: "visible", timeout: 60000 });
   const tip = f.page.locator("#lx-tip");
-  await tip.waitFor({ state: "visible", timeout: 10000 });
+  await tip.waitFor({ state: "visible", timeout: 30000 });
   assert.equal(await tip.getByRole("button", { name: "Use it from my phone" }).isVisible(), true);
   await tip.getByRole("button", { name: "Not now" }).click();
   await tip.waitFor({ state: "detached" });
   await f.page.locator("#prompt").fill("And another");
-  await f.page.locator("#send").click();
+  await f.page.locator("#send").dispatchEvent("click");
   await f.page.locator(".message.user").filter({ hasText: "And another" }).waitFor();
   await f.page.waitForFunction(() => document.querySelectorAll(".message.assistant").length >= 2);
   await f.page.waitForTimeout(1000);
@@ -390,15 +433,54 @@ test("calm: the empty screen is the question over the box in the middle, over th
 
 test("calm: Restart asks the desktop app to start Branch again, and a browser loads the page again", async (t) => {
   const f = await fixture(t, { onboarded: true });
-  await f.page.route("**/api/health", (route) => route.abort());
-  const lose = () => f.page.evaluate(async () => { await globalThis.branchLayout.checkServer(); await globalThis.branchLayout.checkServer(); });
-  await lose();
+  let refused = 0;
+  await f.page.route("**/api/alive", (route) => route.abort());
+  const lose = () => f.page.evaluate(async () => {
+    const restart = document.getElementById("lx-restart");
+    /* A ten-second background check may already be in flight. The first call can legitimately join
+       that one, so drive fresh checks until two refused probes have actually made Restart visible. */
+    for (let tries = 0; tries < 5 && restart.hidden; tries++) await globalThis.branchLayout.checkServer();
+    return !restart.hidden;
+  });
+  f.page.on("requestfailed", (request) => { if (request.url().includes("/api/alive")) refused++; });
+  assert.equal(await lose(), true, "two failed health probes reveal Restart");
+  assert.ok(refused >= 2, `only ${refused} health probes were refused`);
   await f.page.evaluate(() => { globalThis.branchDesktop = { restartBranch: async () => { globalThis.restartAsked = true; return true; } }; });
   await f.page.locator("#lx-restart").click();
   assert.equal(await f.page.evaluate(() => globalThis.restartAsked), true, "the desktop app was asked");
   await f.page.evaluate(() => { delete globalThis.branchDesktop; document.getElementById("lx-restart").disabled = false; globalThis.stillHere = true; });
   await Promise.all([f.page.waitForEvent("load"), f.page.locator("#lx-restart").click()]);
   assert.equal(await f.page.evaluate(() => globalThis.stillHere), undefined, "the browser loaded the page again");
+});
+
+test("calm: a health request that never answers times out and reveals Restart", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.evaluate(async () => {
+    const originalFetch = globalThis.fetch;
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.fetch = (input, init = {}) => {
+      if (!String(input).includes("/api/alive")) return originalFetch(input, init);
+      return new Promise((resolve, reject) => {
+        const stop = () => reject(new DOMException("The operation was aborted.", "AbortError"));
+        if (init.signal?.aborted) stop();
+        else init.signal?.addEventListener("abort", stop, { once: true });
+      });
+    };
+    globalThis.setTimeout = (run, milliseconds, ...args) =>
+      originalSetTimeout(run, milliseconds === 8000 ? 0 : milliseconds, ...args);
+    try {
+      const checks = (async () => {
+        await globalThis.branchLayout.checkServer();
+        await globalThis.branchLayout.checkServer();
+      })();
+      await Promise.race([checks, new Promise((resolve) => originalSetTimeout(resolve, 50))]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+  assert.equal(await f.page.locator("#lx-restart").isVisible(), true, "two timed-out probes mark Branch as unavailable");
+  assert.deepEqual(f.errors, []);
 });
 
 test("the desktop restart channel answers only its own window's page, and relaunches once", async () => {

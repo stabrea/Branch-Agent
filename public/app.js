@@ -5,7 +5,7 @@ import { fillMarkdown, inlineNodes } from "/markdown.js";
 import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
-import { t } from "/i18n.js";
+import { applyLanguage, t } from "/i18n.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 /* One notice area, one timer. A second notice inside the six seconds has to cancel the first
@@ -15,6 +15,8 @@ let toastTimer = null;
 export function toast(message) {
   $("toast").textContent = message;
   $("toast").hidden = false;
+  const historyStatus = $("saved-history-status");
+  if (historyStatus?.closest("dialog")?.open) historyStatus.textContent = message;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     $("toast").hidden = true;
@@ -31,6 +33,7 @@ let currentTemporary = false;
 let savedSearchRevision = 0;
 let savedNextOffset = null;
 let savedQuery = "";
+let savedHistoryDialog = null;
 const memoryEditors = new Map();
 let memoryCapacityDraft = null;
 let identityDraft = null, identityDirty = false, identityBusy = false;
@@ -59,9 +62,11 @@ function el(tag, text, className) {
 }
 /* `method` is only given where the route needs something other than the usual GET-or-POST rule —
    PUT to save a flow, DELETE to take a line off the to-do list. */
-async function api(path, body, method) {
+async function api(path, body, method, signal) {
   const response = await fetch("/api/" + path, {
     method: method ?? (body === undefined ? "GET" : "POST"),
+    cache: "no-store",
+    signal,
     headers: {
       authorization: "Bearer " + token,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
@@ -84,11 +89,15 @@ async function api(path, body, method) {
 export function ownerAtWindow() {
   return document.documentElement.dataset.household !== "on";
 }
+export function noteWindowProfile(owner, { force = false } = {}) {
+  if (!force && ownerAtWindow() === owner) return;
+  const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
+  document.documentElement.dataset.household = owner ? "off" : "on";
+  document.documentElement.dataset.profileGeneration = String(generation);
+  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner, profileGeneration: generation } }));
+}
 function noteProfile(profile) {
-  const household = !!profile && profile.isOwner === false;
-  if (ownerAtWindow() === !household) return;
-  document.documentElement.dataset.household = household ? "on" : "off";
-  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: !household } }));
+  noteWindowProfile(!profile || profile.isOwner !== false);
 }
 window.addEventListener("unhandledrejection", (event) => {
   if (event.reason?.household === true) event.preventDefault();
@@ -1031,8 +1040,24 @@ async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
   showVersions(null);
   if (!window.branchDesktop) return;
+  try {
+    const channel = (await api("comfort")).values.notify.releaseChannel;
+    const choice = document.querySelector(`#updates-channel input[value="${channel}"]`);
+    if (choice) choice.checked = true;
+  } catch { /* The main-process updater fails closed when owner state is unavailable. */ }
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
 }
+$("updates-channel").addEventListener("change", async (event) => {
+  if (event.target?.name !== "release-channel") return;
+  try {
+    await api("comfort", { card: "notify", values: { releaseChannel: event.target.value } });
+    await globalThis.branchComfort?.refresh?.();
+    showUpdateStatus(await window.branchDesktop.checkForUpdates());
+  } catch (error) {
+    toast(error.message);
+    await renderUpdates();
+  }
+});
 $("updates-check").addEventListener("click", async () => {
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
@@ -1259,7 +1284,6 @@ for (const operation of ["activate", "disable", "remove"]) $("skill-" + operatio
 };
 selectSkill(null);
 function renderIdentity() {
-  $("brand-name").textContent = state.identity?.name || "Branch Agent";
   document.title = `${state.identity?.name || "Branch Agent"} — Your personal assistant`;
   if (identityDirty || identityBusy || !state.identity) return;
   if (identityDraft && state.identity.revision < identityDraft.revision) return;
@@ -1393,7 +1417,7 @@ function setConversationBusy(busy) {
   // A follow-up message carries words only, so pictures cannot be attached while a task is working.
   $("composer-media").disabled = busy;
   $("new-session").disabled = busy;
-  $("conversation-import").disabled = busy;
+  if ($("conversation-import")) $("conversation-import").disabled = busy;
   document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
 }
 function selectConversation(id, branch = null, imported = false) {
@@ -1402,7 +1426,7 @@ function selectConversation(id, branch = null, imported = false) {
   currentImported = imported;
   $("conversation").dataset.sessionId = id || "";
   $("session-label").textContent = branch ? "Branched conversation" : imported ? "Imported conversation" : "Saved conversation";
-  $("saved-conversations").open = false;
+  if (savedHistoryDialog?.open) savedHistoryDialog.close();
   displayView("chat");
   renderConversationContext();
 }
@@ -1600,24 +1624,52 @@ async function importConversation(file) {
   const result = await api("sessions/import", archive);
   await openCreatedConversation(result, true);
 }
-$("saved-conversations").addEventListener("toggle", () => {
-  if ($("saved-conversations").open) void searchSavedConversations();
-});
-$("saved-search-form").addEventListener("submit", event => {
-  event.preventDefault(); void searchSavedConversations();
-});
-$("saved-more").addEventListener("click", () => {
-  if (savedNextOffset !== null) void searchSavedConversations(savedNextOffset);
-});
-$("import-conversation").addEventListener("click", () => {
-  if (!conversationBusy) $("conversation-import").click();
-});
-$("conversation-import").addEventListener("change", async () => {
+async function handleConversationImport() {
   const file = $("conversation-import").files[0]; $("conversation-import").value = "";
   if (!file || conversationBusy) return;
   setConversationBusy(true);
   try { await importConversation(file); } catch (error) { toast(error.message); }
   finally { setConversationBusy(false); }
+}
+function createSavedHistoryDialog() {
+  const dialog = el("dialog");
+  dialog.id = "saved-history-dialog";
+  dialog.className = "saved-history-dialog";
+  dialog.setAttribute("aria-labelledby", "saved-history-title");
+  dialog.append($("saved-history-template").content.cloneNode(true));
+  document.body.append(dialog);
+  if (t("history.title") !== "history.title") applyLanguage(dialog);
+  $("saved-history-close").addEventListener("click", () => dialog.close());
+  $("saved-search-form").addEventListener("submit", event => {
+    event.preventDefault(); void searchSavedConversations();
+  });
+  $("saved-more").addEventListener("click", () => {
+    if (savedNextOffset !== null) void searchSavedConversations(savedNextOffset);
+  });
+  $("import-conversation").addEventListener("click", () => {
+    if (!conversationBusy) $("conversation-import").click();
+  });
+  $("conversation-import").addEventListener("change", handleConversationImport);
+  $("conversation-import").disabled = conversationBusy;
+  $("import-conversation").disabled = conversationBusy;
+  return dialog;
+}
+export function openSavedConversations() {
+  savedHistoryDialog ??= createSavedHistoryDialog();
+  if (!savedHistoryDialog.open) savedHistoryDialog.showModal();
+  $("saved-history-status").textContent = "";
+  $("saved-query").focus();
+  void searchSavedConversations();
+}
+document.addEventListener("branch-profile", () => {
+  savedSearchRevision++;
+  savedQuery = "";
+  savedNextOffset = null;
+  if (!savedHistoryDialog) return;
+  if (savedHistoryDialog.open) savedHistoryDialog.close();
+  $("saved-query").value = "";
+  $("saved-list").replaceChildren();
+  $("saved-history-status").textContent = "";
 });
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1640,6 +1692,7 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
     globalThis.branchContextFilesReady?.();
+    globalThis.branchHeartbeatReady?.();
     /* mac3/security-check: the security check card reads its switches once you are in. */
     globalThis.branchSecurityCheckReady?.();
     globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2

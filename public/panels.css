@@ -54,18 +54,6 @@ body.lx.lx-working #aside-toggle::after {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Narrow: every tab is its picture, and the chosen one also says its name, so nothing wraps or clips. */
-@container (max-width: 560px) {
-  .context-panel .lx-pane-tab .lx-words {
-    display: none;
-  }
-  .context-panel .lx-pane-tab[aria-pressed="true"] {
-    flex: 2 1 auto;
-  }
-  .context-panel .lx-pane-tab[aria-pressed="true"] .lx-words {
-    display: inline;
-  }
-}
 /* Terminal and Browser are the owner's; a household person's window never offers them. */
 :root[data-household="on"] :is(.lx-pane-tab, .lx-more-item):is([data-pane="browser"], [data-pane="terminal"], [data-target="browser"], [data-target="terminal"]) {
   display: none !important;
@@ -92,6 +80,120 @@ body.lx.lx-working #aside-toggle::after {
     top: calc(max(var(--pane-gap), env(safe-area-inset-top, 0px)) + 60px + var(--panels-top, 0px));
     bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px + var(--panels-foot, 0px) + var(--ew-bar-h, 0px));
   }
+}
+
+/* ---------- DG-114: the side panel is one card over the conversation, at every width ----------
+   The approved sample (design/Branch-Grown-Up.html, `.pane`) floats a 340px card with rounded corners over the
+   conversation rather than giving it a column, so opening it never narrows what you are reading. Below 1180 px
+   layout.css already floated it; these rules make that its only shape. They live here, not in layout.css, and
+   panels.css loads after it. */
+:root {
+  --aside-w: 340px; /* the sample's --pane; a width the owner drags (public/panels.js) is set inline and still wins */
+}
+/* Only above 1180 px: below it layout.css already floats the card, and the phone layout owns the columns. */
+@media (min-width: 1181px) {
+  body.lx.lx-aside {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr) 0;
+  }
+  body.lx.no-rail.lx-aside {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+  body.lx.lx-aside > .context-panel {
+    position: fixed;
+    top: calc(var(--pane-gap) + 60px);
+    right: calc(var(--pane-gap) + 8px);
+    bottom: calc(var(--pane-gap) + 8px);
+    z-index: 60;
+    width: min(var(--aside-w), calc(100vw - 40px));
+    margin: 0;
+    border-radius: 16px;
+    background: var(--glass-2);
+  }
+  /* In a conversation it stops above the message box, as it already did below 1180 px. */
+  body.lx.lx-chat.lx-aside > .context-panel {
+    top: calc(var(--pane-gap) + 60px + var(--panels-top, 0px));
+    bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px + var(--panels-foot, 0px) + var(--ew-bar-h, 0px));
+  }
+  /* layout.css joined the docked pane to the conversation's right edge in the calm window; a card joins nothing,
+     so both keep their own rounded corners and borders. */
+  :root:not([data-everything="on"]) body.lx.lx-aside > main {
+    border-right-color: var(--glass-edge);
+    border-top-right-radius: var(--pane-r);
+    border-bottom-right-radius: var(--pane-r);
+  }
+  :root:not([data-everything="on"]) body.lx.lx-aside > .context-panel {
+    border-left-color: var(--glass-edge);
+    border-top-left-radius: 16px;
+    border-bottom-left-radius: 16px;
+  }
+}
+/* The handle that resizes it sits on the card's own edge, so it has to be above the card. */
+.panels-rz[data-rz="aside"] {
+  z-index: 61;
+}
+/* Its head: the card's name and a close button on one line, then the tabs. */
+.lx-pane-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.lx-pane-top .lx-pane-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lx-pane-close {
+  flex: none;
+}
+/* Its tabs, as the sample's .pane-tabs: six equal columns, each its picture over its name, the chosen one in full colour
+   and underlined in copper, with one line under the row. They replace the pill that showed only the chosen tab's name. */
+:root body.lx #context-panel #lx-pane-tabs {
+  gap: 0;
+  padding: 4px 0 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+}
+.context-panel .lx-pane-tab {
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: -1px;
+  padding: 6px 1px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+}
+.context-panel .lx-pane-tab[aria-pressed="true"],
+.context-panel .lx-pane-tab[aria-pressed="true"]:hover {
+  flex: 1 1 0;
+  border-bottom-color: var(--copper);
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 600;
+}
+/* Too narrow for six names (public/layout.js measures it): every tab is its picture, and the chosen one also says its
+   name, so nothing wraps or is cut short. */
+.context-panel #lx-pane-tabs.lx-tabs-tight .lx-pane-tab .lx-words {
+  display: none;
+}
+.context-panel #lx-pane-tabs.lx-tabs-tight .lx-pane-tab[aria-pressed="true"] {
+  flex: 2 1 auto;
+}
+.context-panel #lx-pane-tabs.lx-tabs-tight .lx-pane-tab[aria-pressed="true"] .lx-words {
+  display: inline;
+}
+/* Help, read in the same card, has its own Close help. */
+body.lx-help .lx-pane-close {
+  display: none;
 }
 
 /* ---------- Browser and Terminal ---------- */

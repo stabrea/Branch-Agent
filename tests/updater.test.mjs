@@ -8,18 +8,19 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { discardTemp } from "./temp-dir.mjs";
-import { Updater, compareVersions } from "../dist/desktop/updater.js";
+import { Updater, UpdateDeferredError, compareVersions } from "../dist/desktop/updater.js";
 
 const run = promisify(execFile);
 const windows = process.platform === "win32";
 
-async function releaseFixture(t, { tag = "v0.3.0", tamper = false } = {}) {
+async function releaseFixture(t, { tag = "v0.3.0", tamper = false, embeddedVersion = tag.replace(/^v/, ""), embeddedName = "branch-agent" } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-update-"));
   t.after(() => discardTemp(root));
   const source = join(root, "Branch Agent-win32-x64");
-  await mkdir(join(source, "resources"), { recursive: true });
+  await mkdir(join(source, "resources", "app"), { recursive: true });
   await writeFile(join(source, "Branch Agent Test.exe"), "new executable");
   await writeFile(join(source, "resources", "app.txt"), "new resources");
+  await writeFile(join(source, "resources", "app", "package.json"), JSON.stringify({ name: embeddedName, version: embeddedVersion }));
   const archive = join(root, "Branch-Agent-windows-x64.zip");
   if (windows)
     await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
@@ -60,7 +61,70 @@ test("version comparison handles tags, prefixes and uneven lengths", () => {
   assert.equal(compareVersions("v0.2.0", "0.2.0"), 0);
   assert.equal(compareVersions("0.10.0", "0.9.9"), 1);
   assert.equal(compareVersions("1.0", "1.0.1"), -1);
-  assert.equal(compareVersions("0.2.0-beta", "0.2.0"), 0);
+  assert.equal(compareVersions("0.2.0-beta", "0.2.0"), -1);
+  assert.equal(compareVersions("0.19.2-beta.10", "0.19.2-beta.9"), 1);
+  assert.equal(compareVersions("0.19.2-beta.10", "0.19.1"), 1);
+  assert.equal(compareVersions("0.19.2", "0.19.2-beta.10"), 1);
+  assert.equal(compareVersions("1.2.3+build.7", "1.2.3"), 0);
+});
+
+test("beta sees newest published prerelease, stable ignores it, and switching back never downgrades", async () => {
+  const asset = (tag) => [
+    { name: "Branch-Agent-windows-x64.zip", browser_download_url: `https://github.com/stabrea/Branch-Agent/releases/download/${tag}/Branch-Agent-windows-x64.zip`, size: 100 },
+    { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: `https://github.com/stabrea/Branch-Agent/releases/download/${tag}/Branch-Agent-windows-x64.zip.sha256`, size: 96 },
+  ];
+  const release = (tag, prerelease) => ({ tag_name: tag, name: tag, body: "", published_at: "2026-09-23T00:00:00Z",
+    html_url: `https://github.com/stabrea/Branch-Agent/releases/tag/${tag}`, prerelease, draft: false, assets: asset(tag) });
+  const stable = release("v0.19.1", false);
+  const beta9 = release("v0.19.2-beta.9", true);
+  const beta10 = release("v0.19.2-beta.10", true);
+  const call = async (url) => ({ ok: true, status: 200, json: async () => url.endsWith("/latest") ? stable :
+    [beta9, { ...release("v0.19.2-beta.11", true), draft: true }, beta10, stable] });
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: call });
+  assert.equal((await updater.check()).phase, "current");
+  updater.setChannel("beta");
+  assert.equal((await updater.check()).release.latestVersion, "0.19.2-beta.10");
+  const onBeta = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.2-beta.10", channel: "beta",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: call });
+  assert.equal((await onBeta.check()).phase, "current");
+  onBeta.setChannel("stable");
+  assert.equal((await onBeta.check()).phase, "current", "returning to stable does not install the older version");
+  const final = release("v0.19.2", false);
+  const finalAhead = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.2-beta.10", channel: "beta",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: async () => ({ ok: true, status: 200, json: async () => [beta10, final, stable] }) });
+  assert.equal((await finalAhead.check()).release.latestVersion, "0.19.2", "the final stable release outranks its betas");
+});
+
+test("beta refuses an asset URL outside the selected repo and tag", async () => {
+  const release = { tag_name: "v0.19.2-beta.1", prerelease: true, draft: false,
+    html_url: "https://github.com/stabrea/Branch-Agent/releases/tag/v0.19.2-beta.1", assets: [
+      { name: "Branch-Agent-windows-x64.zip", browser_download_url: "https://github.com/elsewhere/fork/releases/download/v0.19.2-beta.1/Branch-Agent-windows-x64.zip", size: 100 },
+      { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: "https://github.com/elsewhere/fork/releases/download/v0.19.2-beta.1/Branch-Agent-windows-x64.zip.sha256", size: 96 },
+    ] };
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1", channel: "beta",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: async () => ({ ok: true, status: 200, json: async () => [release] }) });
+  const status = await updater.check();
+  assert.equal(status.phase, "error");
+  assert.match(status.message, /does not belong/);
+});
+
+test("switching channels discards a check that was still in flight", async () => {
+  let answer;
+  const fetchPending = () => new Promise((resolve) => { answer = resolve; });
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: fetchPending });
+  const pending = updater.check();
+  assert.equal(updater.status.phase, "checking");
+  updater.setChannel("beta");
+  answer({ ok: true, status: 200, json: async () => ({ tag_name: "v0.19.2", html_url: "https://github.com/stabrea/Branch-Agent/releases/tag/v0.19.2", assets: [] }) });
+  assert.equal((await pending).phase, "idle");
+  assert.equal(updater.status.release, null);
 });
 
 test("check reports availability against the current version", async (t) => {
@@ -78,6 +142,28 @@ test("check reports availability against the current version", async (t) => {
     assetName: "Branch-Agent-windows-x64.zip", scratchDir: join(root, "scratch3"), fetch: fetchViaFixture });
   assert.equal(unsupported.status.phase, "unsupported");
   await assert.rejects(unsupported.install(), /installed app only/);
+});
+
+test("automatic updates accept only final release tags", async (t) => {
+  for (const tag of ["v0.3.0-beta", "0.3.0", "v01.3.0", "v0.3", "v0.3.0+", "latest"]) {
+    const { root, installDir, fetchViaFixture } = await releaseFixture(t, { tag });
+    const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+      executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+      scratchDir: join(root, "scratch"), fetch: fetchViaFixture });
+    const status = await updater.check();
+    assert.equal(status.phase, "error", tag);
+    assert.match(status.message, /final release tag/i, tag);
+  }
+});
+
+test("automatic updates accept stable tags with build metadata", async (t) => {
+  const { root, installDir, fetchViaFixture } = await releaseFixture(t, { tag: "v0.3.0+build.7" });
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+    executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: join(root, "scratch"), fetch: fetchViaFixture });
+  const status = await updater.check();
+  assert.equal(status.phase, "available");
+  assert.equal(status.release.latestVersion, "0.3.0+build.7");
 });
 
 test("install downloads, verifies, unpacks beside the install and writes the hand-over script", { skip: !windows && "Windows archive tooling" }, async (t) => {
@@ -119,4 +205,34 @@ test("a checksum mismatch refuses to install", { skip: !windows && "Windows arch
   await assert.rejects(updater.install(), /did not match the published checksum/);
   assert.equal(updater.status.phase, "error");
   assert.equal(await readFile(join(installDir, "Branch Agent Test.exe"), "utf8"), "old executable");
+});
+
+test("work beginning during staging defers the update before any background engine is stopped", { skip: !windows && "Windows archive tooling" }, async (t) => {
+  const { root, installDir, fetchViaFixture } = await releaseFixture(t);
+  let stopped = 0;
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+    executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: join(root, "scratch"), fetch: fetchViaFixture,
+    beforeStop: async () => { throw new UpdateDeferredError("Waiting for a task to finish."); },
+    stopDaemon: async () => { stopped++; return null; } });
+  await assert.rejects(updater.install(), /Waiting for a task/);
+  assert.equal(updater.status.phase, "available", "the pending update is retried after work ends");
+  assert.equal(stopped, 0);
+  assert.equal(await readFile(join(installDir, "Branch Agent Test.exe"), "utf8"), "old executable");
+});
+
+test("a checksummed archive with the wrong package identity is refused before hand-over", { skip: !windows && "Windows archive tooling" }, async (t) => {
+  for (const fixture of [
+    { embeddedVersion: "9.9.9", message: /contains version 9\.9\.9.*release is 0\.3\.0/i },
+    { embeddedName: "lookalike", message: /not a Branch Agent package/i },
+  ]) {
+    const { root, installDir, fetchViaFixture } = await releaseFixture(t, fixture);
+    let backedUp = false;
+    const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir,
+      executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+      scratchDir: join(root, "scratch"), fetch: fetchViaFixture, backup: async () => { backedUp = true; } });
+    await assert.rejects(updater.install(), fixture.message);
+    assert.equal(backedUp, false, "identity refusal happens before any owner-data backup or hand-over");
+    await assert.rejects(stat(join(root, "scratch", "apply-update.cmd")), /ENOENT/);
+  }
 });

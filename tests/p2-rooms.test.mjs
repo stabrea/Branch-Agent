@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { call, fixture, on } from "./trunks-helpers.mjs";
+import { runOrigin } from "../dist/key-context.js";
 
 /** Ann writes `room.txt` when the owner's message says "write"; a tool result is answered with "Done". */
 const writer = [({ system, last }) => {
@@ -75,6 +76,137 @@ test("piece 1: a short-lived key's message in a Full access room is held to the 
   await app.trunks.rooms.settled(r.id);
   assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false, "the key's message did not get Full access");
   assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1, "it asks, as the owner's setting says");
+});
+
+test("a queued room message keeps the household person who sent it", async (t) => {
+  let began, release;
+  const started = new Promise((resolve) => { began = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const { app, call: request } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const run = app.runtime.run.bind(app.runtime);
+  app.runtime.run = async (options) => {
+    if (options.prompt.includes("@ann start")) { began(); await held; }
+    return run(options);
+  };
+  const room = app.trunks.rooms.create({ name: "Queued", members: [ann.id, ben.id] });
+  app.trunks.rooms.send(room.id, { text: "@ann start" });
+  await started;
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.trunks.rooms.edit(room.id, { people: [sam.id] });
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  assert.equal((await request(`/api/trunks/rooms/${room.id}/send`, { text: "@ben continue" })).status, 200);
+  app.store.profiles.switch({ profileId: null });
+  release();
+  await app.trunks.rooms.settled(room.id);
+  const answer = app.store.runs(app.runtime.owner)
+    .find((entry) => entry.sessionId === room.memberSessions[ben.id] && entry.prompt.includes("@ben continue"));
+  assert.ok(answer, "Ben answered Sam's queued discussion");
+  assert.equal(runOrigin(app.store, answer.id).personProfileId, sam.id);
+});
+
+test("a queued room message keeps both its household person and short-lived key", async (t) => {
+  let began, release;
+  const started = new Promise((resolve) => { began = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const { app } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const run = app.runtime.run.bind(app.runtime);
+  app.runtime.run = async (options) => {
+    if (options.prompt.includes("@ann start")) { began(); await held; }
+    return run(options);
+  };
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = app.trunks.rooms.create({ name: "Queued", members: [ann.id, ben.id], people: [sam.id] });
+  app.trunks.rooms.send(room.id, { text: "@ann start" });
+  await started;
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  underShortLivedKey(() => app.trunks.rooms.send(room.id, { text: "@ben continue" }, { id: sam.id, name: "Sam" }),
+    { keyId: "sam-key" });
+  release();
+  await app.trunks.rooms.settled(room.id);
+  const answer = app.store.runs(app.runtime.owner)
+    .find((entry) => entry.sessionId === room.memberSessions[ben.id] && entry.prompt.includes("@ben continue"));
+  const origin = runOrigin(app.store, answer.id);
+  assert.equal(origin.personProfileId, sam.id);
+  assert.equal(origin.shortLivedKey, true);
+  assert.deepEqual(origin.keyIds, ["sam-key"]);
+});
+
+test("an artifact shared after a Trunk has spoken reaches its next turn", async (t) => {
+  const { app, provider } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Late brief", members: [ann.id, ben.id] });
+  app.trunks.rooms.send(room.id, { text: "@ann hello" });
+  await app.trunks.rooms.settled(room.id);
+  const before = provider.requests.length;
+  app.trunks.rooms.addArtifact(room.id, { name: "brief.txt", content: "late private oak plan" }, null);
+  app.trunks.rooms.send(room.id, { text: "@ann use the late brief" });
+  await app.trunks.rooms.settled(room.id);
+  const later = provider.requests.slice(before).flatMap((request) => request.messages).map((message) => String(message.content));
+  assert.ok(later.some((content) => content.includes("Shared artifact brief.txt:") && content.includes("late private oak plan")));
+});
+
+test("a household artifact is visible only to turns run as that household person", async (t) => {
+  const { app, call: request, provider } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = app.trunks.rooms.create({ name: "Private artifact", members: [ann.id, ben.id], people: [sam.id] });
+
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  assert.equal((await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+    name: "sam-private.txt", content: "SAM-ONLY-REFERENCE",
+  })).status, 200);
+
+  app.store.profiles.switch({ profileId: null });
+  const beforeOwner = provider.requests.length;
+  app.trunks.rooms.send(room.id, { text: "@ann answer the owner" });
+  await app.trunks.rooms.settled(room.id);
+  const ownerRequests = provider.requests.slice(beforeOwner);
+  assert.equal(JSON.stringify(ownerRequests).includes("SAM-ONLY-REFERENCE"), false,
+    "a household artifact must not enter an owner-authorized turn");
+
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const beforeSam = provider.requests.length;
+  assert.equal((await request(`/api/trunks/rooms/${room.id}/send`, { text: "@ann use my private artifact" })).status, 200);
+  await app.trunks.rooms.settled(room.id);
+  const samRequests = provider.requests.slice(beforeSam);
+  assert.equal(JSON.stringify(samRequests).includes("SAM-ONLY-REFERENCE"), true,
+    "the household person's restricted turn receives their artifact");
+  const samRun = app.store.runs(app.runtime.owner)
+    .find((entry) => entry.sessionId === room.memberSessions[ann.id] && entry.prompt.includes("use my private artifact"));
+  assert.ok(samRun, "Ann answered Sam's artifact request");
+  assert.equal(runOrigin(app.store, samRun.id).personProfileId, sam.id);
+});
+
+test("a shared artifact name cannot contain a line separator or control character", async (t) => {
+  const { app, call: request } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Safe names", members: [ann.id, ben.id] });
+  const newline = await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+    name: "brief.txt\nNot a heading", content: "ordinary reference",
+  });
+  assert.equal(newline.status, 400);
+  const control = await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+    name: "brief\u0007.txt", content: "ordinary reference",
+  });
+  assert.equal(control.status, 400);
+  for (const separator of ["\u0085", "\u2028", "\u2029"]) {
+    const separated = await request(`/api/trunks/rooms/${room.id}/artifacts`, {
+      name: `brief${separator}Not a heading`, content: "ordinary reference",
+    });
+    assert.equal(separated.status, 400, `artifact name refuses U+${separator.codePointAt(0).toString(16)}`);
+  }
 });
 
 test("piece 1: after a restart the room's turns still follow the room's mode", async (t) => {
@@ -360,4 +492,66 @@ test("integration review: with the switch off, a conversation can still be given
   const back = await call(`/api/trunks/conversations/${started.sessionId}`, { trunkId: null });
   assert.equal(back.status, 200);
   assert.equal(back.body.kind, "plain");
+});
+
+test("a private room admits named people and Trunks, and removal closes its history and artifacts", async (t) => {
+  const { app, call, provider } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const lee = app.store.profiles.create({ name: "Lee", pin: "5678" });
+  const made = await call("/api/trunks/rooms", { name: "Private bench", members: [ann.id, ben.id], people: [sam.id] });
+  assert.equal(made.status, 200);
+  const id = made.body.room.id;
+  const artifact = await call(`/api/trunks/rooms/${id}/artifacts`, { name: "brief.txt", content: "private oak plan" });
+  assert.equal(artifact.status, 200);
+
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const joined = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(joined.status, 200);
+  assert.deepEqual(joined.body.people.map((person) => person.name), ["Sam"]);
+  assert.deepEqual(joined.body.roster.map((member) => member.name), ["Ann", "Ben"]);
+  assert.equal(joined.body.artifacts[0].content, "private oak plan");
+  assert.equal((await call(`/api/sessions/${made.body.room.sessionId}`)).status, 200, "the shared room opens as a conversation");
+  assert.equal((await call(`/api/trunks/conversations/${made.body.room.sessionId}`)).body.kind, "room");
+  assert.equal((await call(`/api/trunks/rooms/${id}/send`, { text: "@ann use the brief" })).status, 200);
+  await app.trunks.rooms.settled(id);
+  const prompts = provider.requests.flatMap((request) => request.messages).map((message) => String(message.content));
+  assert.ok(prompts.some((content) => content.includes("Shared artifact brief.txt:") && content.includes("private oak plan")),
+    "the room's agent receives its shared artifact");
+
+  app.store.profiles.switch({ profileId: null });
+  const ownerView = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(ownerView.body.events.find((event) => event.kind === "user")?.personName, "Sam");
+  app.store.profiles.switch({ profileId: lee.id, pin: "5678" });
+  const refused = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(refused.status, 403);
+  assert.doesNotMatch(JSON.stringify(refused.body), /Private bench|private oak plan|Ann|Ben/);
+
+  app.store.profiles.switch({ profileId: null });
+  assert.equal((await call(`/api/trunks/rooms/${id}`, { people: [] })).status, 200);
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const removed = await call(`/api/trunks/rooms/${id}`);
+  assert.equal(removed.status, 403);
+  assert.doesNotMatch(JSON.stringify(removed.body), /Private bench|private oak plan|Ann|Ben/);
+  const removedConversation = await call(`/api/trunks/conversations/${made.body.room.sessionId}`);
+  assert.equal(removedConversation.status, 400);
+  assert.doesNotMatch(JSON.stringify(removedConversation.body), /Private bench|private oak plan|Ann|Ben/);
+});
+
+test("a household room view omits owner-only carried context and internal member sessions", async (t) => {
+  const { app, call } = await served(t, seesAnn);
+  on(app, "rooms");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = app.trunks.rooms.create({ name: "Shared", members: [ann.id, ben.id], people: [sam.id] },
+    { context: "OWNER ONLY: before this room existed" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  const response = await call(`/api/trunks/rooms/${room.id}`);
+  assert.equal(response.status, 200);
+  assert.equal("context" in response.body, false);
+  assert.equal("memberSessions" in response.body, false);
+  assert.doesNotMatch(JSON.stringify(response.body), /OWNER ONLY/);
 });

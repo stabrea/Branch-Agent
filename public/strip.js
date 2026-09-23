@@ -48,24 +48,30 @@ export const shell = {
   /** What the Overview is about: "here", "device:<id>" or "trunk:<id>". */
   target: "here",
 };
+let profileGeneration = 0;
 const PLATFORM = { darwin: ["devices.platform.darwin", "Mac computer"], linux: ["devices.platform.linux", "Linux computer"], win32: ["devices.platform.win32", "Windows computer"],
   ios: ["devices.platform.ios", "iPhone or iPad"], android: ["devices.platform.android", "Android phone"] };
 export const platformWord = (platform) => say(...(PLATFORM[platform] ?? ["strip.kind.computer", "Computer"]));
 
-export async function load() {
-  shell.look = await api("shell-look").catch(() => shell.look);
-  document.body.classList.toggle("faces-3d", shell.look.faces3d === "on");
-  shell.profiles = await api("profiles").catch(() => null);
-  const owner = ownerAtWindow() && shell.profiles?.isOwner !== false;
-  shell.roster = owner ? await api("trunks").catch(() => null) : null;
-  shell.devices = owner ? await api("devices").catch(() => null) : null;
-  shell.join = owner ? await api("devices/join").catch(() => null) : null;
+export async function load(expectedGeneration = profileGeneration) {
+  const look = await api("shell-look").catch(() => shell.look);
+  const profiles = await api("profiles").catch(() => null);
+  const owner = ownerAtWindow() && profiles?.isOwner !== false;
+  const roster = owner ? await api("trunks").catch(() => null) : null;
+  const devices = owner ? await api("devices").catch(() => null) : null;
+  const join = owner ? await api("devices/join").catch(() => null) : null;
+  if (expectedGeneration !== profileGeneration) return false;
+  Object.assign(shell, { look, profiles, roster, devices, join });
+  document.body.classList.toggle("faces-3d", look.faces3d === "on");
+  return true;
 }
 export const isOwner = () => ownerAtWindow() && shell.profiles?.isOwner !== false;
 export const trunksOn = () => !!shell.roster && shell.roster.modes?.trunks !== "off";
 export const visibleTrunks = () => (trunksOn() ? shell.roster.trunks.filter((trunk) => !trunk.hidden) : []);
 export const findTrunk = (id) => shell.roster?.trunks.find((trunk) => trunk.id === id) ?? null;
 export const findDevice = (id) => shell.devices?.devices.find((device) => device.id === id) ?? null;
+const trunkItem = (trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
+  spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 });
 /** Something is waiting for the owner's yes: the Inbox counts it. */
 const needsYou = () => Number($("lx-inbox-badge")?.textContent || 0) > 0 && !$("lx-inbox-badge")?.hidden;
 
@@ -79,8 +85,7 @@ export function stripItems() {
   // A computer or phone asking to join shows at once, its ring turning until it is let in (critique #46).
   const asking = (shell.devices?.requests ?? []).filter((request) => request.status === "waiting").map((request) => ({ id: `asking:${request.id}`,
     kind: "asking", name: request.name, request, spec: computerSpec({ id: request.id, name: request.name, platform: request.platform }), status: "pairing" }));
-  const trunks = visibleTrunks().map((trunk) => ({ id: `trunk:${trunk.id}`, kind: "trunk", name: trunk.name, trunk,
-    spec: trunkSpec(trunk), status: "on", working: !!trunk.working, unread: trunk.unread ?? 0 }));
+  const trunks = visibleTrunks().map(trunkItem);
   return { computers: [here, ...devices, ...asking], trunks };
 }
 function statusWords(item) {
@@ -97,17 +102,23 @@ function kindWords(item) {
 
 /* ---------- which face is picked ---------- */
 function currentSession() { return $("conversation")?.dataset.sessionId || ""; }
+let assignedTrunk = "";
 function selectedId() {
   const overview = !$("overview")?.hidden;
   if (overview) return shell.target;
   const session = currentSession();
-  const trunk = session && shell.roster?.trunks.find((entry) => entry.chatSessionId === session);
+  const trunk = session && shell.roster?.trunks.find((entry) => entry.chatSessionId === session || entry.id === assignedTrunk);
   return trunk ? `trunk:${trunk.id}` : "here";
 }
 function markSelected() {
-  const picked = selectedId();
+  const picked = selectedId(), { computers, trunks } = stripItems(), items = [...computers, ...trunks];
   for (const node of document.querySelectorAll("#trunk-strip .strip-item"))
     node.setAttribute("aria-current", String(node.dataset.stripId === picked));
+  const selectedTrunk = picked.startsWith("trunk:") ? findTrunk(picked.slice("trunk:".length)) : null;
+  const item = items.find((entry) => entry.id === picked) ?? (selectedTrunk ? trunkItem(selectedTrunk) : computers[0]);
+  if (item) document.dispatchEvent(new CustomEvent("branch-strip-selection", {
+    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item), spec: item.spec },
+  }));
 }
 
 /* ---------- drawing ---------- */
@@ -200,7 +211,7 @@ export function drawStrip() {
   remember(on);
   document.body.classList.toggle("lx-strip", on);
   let nav = $("trunk-strip");
-  if (!on) { nav?.remove(); return; }
+  if (!on) { nav?.remove(); markSelected(); return; }
   if (!nav) {
     nav = make("nav", "strip");
     nav.id = "trunk-strip";
@@ -390,10 +401,11 @@ function wireDragging() {
 
 /* ---------- keeping it current ---------- */
 export async function refresh() {
-  await load();
+  const expectedGeneration = profileGeneration;
+  if (!await load(expectedGeneration)) return;
   // An open menu keeps the faces it was opened from; the next refresh draws them again.
   if (!$("strip-menu") && !$("who-menu")) drawStrip();
-  document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell }));
+  document.dispatchEvent(new CustomEvent("branch-strip", { detail: { ...shell, profileGeneration } }));
 }
 function whenReady(work) {
   const ready = () => document.body.classList.contains("lx-ready") && $("workspace") && !$("workspace").hidden;
@@ -404,12 +416,25 @@ function whenReady(work) {
 }
 reserveRoom();
 whenReady(() => {
+  profileGeneration = Number(document.documentElement.dataset.profileGeneration || profileGeneration);
   wireGestures();
   void refresh();
   setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
-  document.addEventListener("branch-profile", () => void refresh());
-  document.addEventListener("branch-language", () => { drawStrip(); document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell })); });
+  document.addEventListener("branch-profile", (event) => {
+    const generation = Number(event.detail?.profileGeneration);
+    profileGeneration = Number.isSafeInteger(generation) ? generation : profileGeneration + 1;
+    void refresh();
+  });
+  document.addEventListener("branch-rooms-changed", (event) => {
+    assignedTrunk = String(event.detail?.trunkId ?? "");
+    markSelected();
+  });
+  document.addEventListener("branch-language", () => {
+    drawStrip();
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { ...shell, profileGeneration } }));
+  });
   document.addEventListener("branch-place", markSelected);
+  document.addEventListener("branch-strip-reselect", markSelected);
   if ($("conversation")) new MutationObserver(markSelected).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
   new MutationObserver(() => repaintPatterns()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
 });

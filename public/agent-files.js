@@ -4,7 +4,7 @@
 // Save and an undo of the last save. It replaces R17-S05's "Which file does what" list and uses its
 // routes (src/settings-kit/file-map.ts): the owner's alone, never a household person's or a chat
 // app's (the server refuses the reads and writes to anybody else; there is no tool for them).
-import { api } from "/app.js";
+import { api, ownerAtWindow } from "/app.js";
 import { t } from "/i18n.js";
 import { fillMarkdown } from "/markdown.js";
 
@@ -23,6 +23,7 @@ function button(key, english, onClick, className = "quiet-button") {
   return node;
 }
 const bytesOf = (text) => new TextEncoder().encode(text).length;
+let drawGeneration = 0;
 
 const ABOUT = {
   soul: "Its character: how it sounds, what it cares about, where it draws lines. Replaces the built-in character.",
@@ -143,17 +144,18 @@ function editorParts(file, slot, reopen) {
   return parts;
 }
 
-/** Draws the card on Settings › Assistant. Shown at the Advanced and Technical levels of detail. */
+/** Draws the real file editor on Settings › Instructions & personality. */
 export async function drawAgentFiles() {
+  const generation = ++drawGeneration;
+  if (!ownerAtWindow()) { document.getElementById("agent-files")?.remove(); return; }
   let map;
   try { map = await api("settings-kit/files"); } catch { return; }
+  if (generation !== drawGeneration || !ownerAtWindow()) return;
   document.getElementById("agent-files")?.remove();
   const section = el("section", undefined, undefined, "card agent-files");
   section.id = "agent-files";
-  section.dataset.home = "settings:assistant";
-  /* phase2/settings integration: the level itself hides this at Regular and shows it again at Advanced, so the card
-     never marks itself hidden (a hidden card stayed hidden after the level went up). */
-  section.dataset.level = "advanced";
+  section.dataset.home = "settings:instructions";
+  section.dataset.level = "regular";
   section.append(el("h2", "agent-files.title", "Your assistant's files"),
     el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do."));
   const list = el("ul", undefined, undefined, "agent-files-list");
@@ -169,4 +171,9 @@ export async function drawAgentFiles() {
 if (typeof document !== "undefined") {
   globalThis.branchAgentFiles = { draw: drawAgentFiles };
   document.addEventListener("branch-language", () => { if (!document.querySelector(".agent-files-editor:not([hidden])")) void drawAgentFiles(); });
+  document.addEventListener("branch-profile", (event) => {
+    drawGeneration += 1;
+    document.getElementById("agent-files")?.remove();
+    if (event.detail?.owner) void drawAgentFiles();
+  });
 }

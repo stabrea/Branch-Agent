@@ -88,7 +88,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     page.setDefaultTimeout(10000);
     await connected(page);
     await openSettingFor(page, "#model-provider");
-    await page.getByLabel("Provider", { exact: true }).selectOption("openai");
+    await page.locator("#model-provider").selectOption("openai");
     await page.getByLabel("Web address of the service", { exact: true }).fill(provider.endpoint);
     await page.getByLabel("Model identifier", { exact: true }).fill("fixture-model");
     await page.getByLabel("API key", { exact: true }).fill("fixture-device-key-82743");
@@ -165,7 +165,7 @@ test("native settings remain usable after a corrupt file or undecryptable key", 
       await connected(page);
       await openSettingFor(page, "#model-provider");
       await page.locator("#model-settings-note").filter({ hasText: /could not/ }).waitFor();
-      await page.getByLabel("Provider", { exact: true }).selectOption("demo");
+      await page.locator("#model-provider").selectOption("demo");
       assert.equal(await page.locator("#model-settings-form").evaluate((form) => form.checkValidity()), true);
       await page.getByRole("button", { name: "Save model connection", exact: true }).click();
       await page.getByText("Connection saved. Quit from the tray and reopen Branch Agent to apply it.").waitFor();

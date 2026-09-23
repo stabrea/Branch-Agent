@@ -87,6 +87,16 @@ test("the planner never goes past three rounds or ten messages for one message f
   assert.equal(busy.filter((e) => e.kind === "member").length, 10);
 });
 
+test("the planner carries the sender's authority onto every room task", () => {
+  const byKey = { keyId: "sam-key", sessionId: "phone" };
+  const events = [{ seq: 1, kind: "user", text: "@kim help", at,
+    personId: "sam-profile", personName: "Sam", byKey }];
+  const next = nextRoomTurn("Private", members, events);
+  assert.equal(next.status, "task");
+  assert.equal(next.task.personId, "sam-profile");
+  assert.deepEqual(next.task.byKey, byKey);
+});
+
 test("a room of Trunks: each answers as itself, @mentions pull others in, and @you raises needs-you", async (t) => {
   const rules = [({ last, system, request }) => {
     const text = last?.content ?? "";
@@ -156,7 +166,9 @@ test("a member waiting for a yes is answered in the room, a stop stops it, and a
     notify: (room, why) => flagged.push(why), changed: () => undefined });
   const fake = fakeRuntime([{ status: "needs_input", output: "May I send the email?" }, { status: "completed", output: "Sent." }]);
   const rooms = make(fake);
-  const room = rooms.create({ name: "Mail", members: [a.id, b.id] });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  const room = rooms.create({ name: "Mail", members: [a.id, b.id], people: [sam.id] });
+  rooms.addArtifact(room.id, { name: "brief.txt", content: "keep this" }, null);
   rooms.send(room.id, { text: "@ann send it" });
   await rooms.settled(room.id);
   assert.equal(rooms.get(room.id).needsYou, true);
@@ -178,6 +190,8 @@ test("a member waiting for a yes is answered in the room, a stop stops it, and a
   assert.deepEqual(hanging.cancelled, ["run-1"]);
   assert.equal(before.get(room.id).events.at(-1).kind, "user");
   const after = make(fakeRuntime([{ status: "completed", output: "Done again." }]));
+  assert.deepEqual(after.view(room.id).people, [{ id: sam.id, name: "Sam" }], "people survive a restart");
+  assert.equal(after.view(room.id).artifacts[0].content, "keep this", "shared artifacts survive a restart");
   after.resumeAll();
   await after.settled(room.id);
   assert.equal(after.get(room.id).events.at(-1).text, "Done again.");

@@ -466,11 +466,22 @@ function attention(item) {
 }
 
 let updateTimer = null;
+let updateAttempt = false;
+function scheduleUpdate() {
+  clearTimeout(updateTimer);
+  const notify = view?.values.notify;
+  if (!notify || notify.autoUpdate === "off" || !window.branchDesktop) return;
+  const interval = notify.autoUpdate === "install" ? 30_000
+    : notify.releaseChannel === "beta" ? 5 * 60 * 1000 : 60 * 60 * 1000;
+  updateTimer = setTimeout(() => void autoUpdate(), interval);
+}
 async function autoUpdate() {
   const desktop = window.branchDesktop;
   /* Until the owner's choice has been read, treat it as off: never go looking for an update
      before we know it was wanted. */
-  if (!desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  if (updateAttempt || !desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  clearTimeout(updateTimer);
+  updateAttempt = true;
   try {
     let status = await desktop.updateStatus();
     let plan = await api("comfort/update-plan", { updaterPhase: status?.phase });
@@ -480,8 +491,15 @@ async function autoUpdate() {
     }
     // The same path as the Update button: checksum, a try on a copy of your work, a safety copy.
     if (plan.step === "install") await desktop.installUpdate();
-    else if (status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
+    else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
+  finally {
+    updateAttempt = false;
+    // The server records completion, so start the next delay after that response, not on a
+    // fixed tick that can arrive just before the check is due. Read the latest owner choice:
+    // a refresh while this attempt was pending must not revive an old channel or an off timer.
+    scheduleUpdate();
+  }
 }
 
 /* ---------- R17-S18: push-to-talk and the longest recording ---------- */
@@ -506,14 +524,15 @@ const maxRecordingSeconds = () => view?.values.voice.maxRecordingSeconds ?? null
 
 /* ---------- putting it to work ---------- */
 function apply() {
+  /* DG-097: anything that shows the owner's keys (the top-bar search box) redraws from `hint`. */
+  document.dispatchEvent(new Event("branch-comfort"));
   const box = $("prompt");
   if (box) vimIndicator(box);
   if (!view?.values.keys.vim) vim.mode = "insert";
   void refreshStatus();
-  clearInterval(updateTimer);
+  clearTimeout(updateTimer);
   if (view?.values.notify.autoUpdate !== "off" && window.branchDesktop) {
     void autoUpdate();
-    updateTimer = setInterval(() => void autoUpdate(), 60 * 60 * 1000);
   }
 }
 async function refresh() {

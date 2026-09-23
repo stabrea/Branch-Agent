@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/mascot-night.png">
+    <img src="docs/images/mascot.png" alt="Branch Agent's mascot: a small round green sprout with big green eyes, standing on root feet, with copper branches that end in glowing lanterns." width="280">
+  </picture>
+</p>
+
 # Branch Agent
 
 Branch Agent is a personal assistant that runs on your own Windows computer. You ask for something in
@@ -14,8 +21,9 @@ allowed.](docs/images/conversation.png)
 
 ## Install, in three steps
 
-1. Download `Branch-Agent-windows-x64.zip` and `Install Branch Agent.cmd` from the
-   [latest release](https://github.com/stabrea/Branch-Agent/releases/latest), into the same folder.
+1. Download `Branch-Agent-windows-x64.zip`, `Branch-Agent-windows-x64.zip.sha256` and
+   `Install Branch Agent.cmd` from the [latest release](https://github.com/stabrea/Branch-Agent/releases/latest),
+   into the same folder. The installer refuses a missing or changed download.
 2. Double-click **Install Branch Agent.cmd**. Windows may warn you the download is unsigned: choose
    **More info**, then **Run anyway**.
 3. Open Branch Agent and connect a model — a ChatGPT plan, a key from any of 38 services, or a model

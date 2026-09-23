@@ -335,6 +335,28 @@ form > button {
   font-size: 13px;
   color: var(--muted);
 }
+.saved-history-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(80vh, 760px);
+  padding: 24px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: 18px;
+  box-shadow: var(--card-shadow);
+}
+.saved-history-dialog::backdrop {
+  background: var(--scrim);
+}
+.saved-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.saved-history-head h2 { margin: 0; }
+.saved-history-dialog #saved-history-status:empty { display: none; }
 .saved-search {
   display: grid;
   gap: 10px;
@@ -442,6 +464,11 @@ summary {
 .memory-error { color: var(--danger); }
 #memory-transfer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 .identity-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.update-channel-choices { display: flex; flex-wrap: wrap; gap: 10px; border: 0; padding: 0; margin: 16px 0 8px; }
+.update-channel-choices legend { font-weight: 650; margin-bottom: 8px; }
+.update-channel-choices label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.update-channel-choices label:has(input:checked) { background: var(--panel); border-color: var(--accent); }
+.update-channel-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 #identity-fields { border: 0; padding: 0; margin: 0; }
 .skill-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 #skill-document { font-family: var(--font-mono, monospace); }

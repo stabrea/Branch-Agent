@@ -70,8 +70,14 @@ export function note(item, words, done = () => undefined) {
   const finish = () => { box.remove(); done(); };
   box.addEventListener("click", finish);
   document.body.append(box);
+  underTopBar(box);
   setTimeout(() => box.classList.add("out"), 6600);
   setTimeout(() => { if (box.isConnected) finish(); }, 7200);
+}
+/** Just under the conversation's top bar, so none of its buttons is covered. */
+function underTopBar(box) {
+  const bar = document.querySelector("main > header")?.getBoundingClientRect();
+  if (bar && bar.height && bar.bottom > 0) box.style.setProperty("top", `${Math.round(bar.bottom + 8)}px`);
 }
 /* ---------- the card and its party, for Gold and above ---------- */
 const LEVEL = { Gold: 1, Diamond: 2, Godly: 3, "SSS+": 4 };

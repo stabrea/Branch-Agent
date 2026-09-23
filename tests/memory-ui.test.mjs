@@ -46,6 +46,19 @@ async function upload(page, archive) {
   await importDone(page);
 }
 
+test('opening the selected memory tab does not send a redundant browser click', async t => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    window.__memoryTabClicks = 0;
+    document.querySelector('.lx-tab[data-place="library"][data-tab="memory"]')
+      .addEventListener('click', () => { window.__memoryTabClicks += 1; });
+  });
+  await openPlace(f.page, 'memory');
+  assert.equal(await f.page.evaluate(() => window.__memoryTabClicks), 0);
+  assert.equal(await f.page.locator('#memory').isVisible(), true);
+  assert.deepEqual(f.errors, []);
+});
+
 test('memory edits persist after reload and a new chat retrieves the corrected fact', async t => {
   const f = await fixture(t), before = record(f);
   await edit(f.page, 'Juniper meeting Friday', 'Corrected calendar');

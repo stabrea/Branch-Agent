@@ -17,12 +17,14 @@ export interface TrunksHttpDeps {
   trunks: Trunks;
   method: string;
   readBody: () => Promise<unknown>;
+  person: { id: string; name: string } | null;
+  requireOwner: (what: string) => void;
 }
 
 const SwitchSchema = z.object({ part: TrunkPartSchema, mode: z.enum(["off", "when-needed", "on"]) }).strict();
 const TextSchema = z.object({ text: z.string().trim().min(1).max(16000) }).strict();
 const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach))?$/;
-const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer|revoke))?$/; // phase2/rooms: revoke
+const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer|revoke|artifacts))?$/; // phase2/rooms: revoke
 const routinePath = /^\/api\/trunks\/routines\/([a-f0-9-]{36})\/remove$/;
 /** mac7/residuals (integration): Answer / Not now on a Trunk's message that waits for the owner. */
 const messagePath = /^\/api\/trunks\/messages\/([a-f0-9-]{36})\/(answer|decline)$/;
@@ -31,6 +33,15 @@ const conversationPath = /^\/api\/trunks\/conversations(?:\/([a-f0-9-]{36})(?:\/
 
 async function conversationRoute(deps: TrunksHttpDeps, id: string | undefined, action: string | undefined): Promise<unknown> {
   const { trunks } = deps, post = deps.method === "POST";
+  if (!post && id && !action && deps.person) {
+    const room = trunks.rooms.forPerson(deps.person.id).find((candidate) => candidate.sessionId === id);
+    if (!room) {
+      deps.requireOwner("Trunk conversations");
+      throw new TrunksHttpError(403, "This private room is only for its members");
+    }
+    return trunks.conversations.sharedRoomInfo(room);
+  }
+  deps.requireOwner("Trunk conversations");
   trunks.require("trunks");
   if (!id) {
     if (!post) return undefined;
@@ -50,15 +61,33 @@ async function conversationRoute(deps: TrunksHttpDeps, id: string | undefined, a
   return { room: trunks.conversations.room(id, await deps.readBody()) };
 }
 
-function overview(trunks: Trunks) {
+function roomSummary(room: ReturnType<Trunks["rooms"]["get"]>) {
+  return { id: room.id, name: room.name, members: room.members, people: room.people, needsYou: room.needsYou, pinned: room.pinned,
+    section: room.section, order: room.order, picture: room.picture, sessionId: room.sessionId,
+    latest: room.events.filter((event) => event.kind === "user" || event.kind === "member").at(-1)?.text.slice(0, 160) ?? null,
+    at: room.updatedAt };
+}
+
+function householdRoomView(view: ReturnType<Trunks["rooms"]["view"]>) {
+  const { context: _context, memberSessions: _memberSessions, ...shared } = view;
+  return { ...shared, owner: false, waiting: [], allowed: [] };
+}
+
+function overview(trunks: Trunks, person: TrunksHttpDeps["person"]) {
   const modes = trunks.modes();
+  if (person) {
+    trunks.require("rooms");
+    return { modes, labels: [], trunks: [], rooms: trunks.rooms.forPerson(person.id).map(roomSummary) };
+  }
   return { modes, labels: trunkParts.map((part) => ({ part, label: trunkLabels[part] })),
     ...(modes.trunks === "off" ? { trunks: [], rooms: [] } : trunks.roster()) };
 }
 
 async function topRoute(deps: TrunksHttpDeps, path: string): Promise<unknown> {
   const { trunks, method } = deps, post = method === "POST";
-  if (path === "/api/trunks") return post ? { trunk: trunks.create(await deps.readBody()) } : overview(trunks);
+  if (path === "/api/trunks" && !post) return overview(trunks, deps.person);
+  deps.requireOwner("Trunks");
+  if (path === "/api/trunks") return { trunk: trunks.create(await deps.readBody()) };
   if (!post) return undefined;
   if (path === "/api/trunks/switch") {
     const { part, mode } = SwitchSchema.parse(await deps.readBody());
@@ -81,6 +110,7 @@ async function topRoute(deps: TrunksHttpDeps, path: string): Promise<unknown> {
 }
 
 async function trunkRoute(deps: TrunksHttpDeps, id: string, action: string | undefined): Promise<unknown> {
+  deps.requireOwner("Trunks");
   const { trunks } = deps, post = deps.method === "POST";
   if (!action) return post ? { trunk: trunks.edit(id, await deps.readBody()) } : details(trunks, id);
   if (action === "export") return trunks.exportFile(id);
@@ -109,10 +139,17 @@ function details(trunks: Trunks, id: string) {
 async function roomRoute(deps: TrunksHttpDeps, id: string, action: string | undefined): Promise<unknown> {
   const { trunks } = deps, rooms = trunks.rooms, post = deps.method === "POST";
   trunks.require("rooms");
-  if (!action) return post ? { room: rooms.edit(id, await deps.readBody()) } : rooms.view(id);
+  rooms.requireAccess(id, deps.person?.id ?? null);
+  if (!action && !post) {
+    const view = rooms.view(id);
+    return deps.person ? householdRoomView(view) : { ...view, owner: true };
+  }
+  if (action === "send" && post) return rooms.send(id, await deps.readBody(), deps.person);
+  if (action === "artifacts" && post) return { artifact: rooms.addArtifact(id, await deps.readBody(), deps.person) };
+  deps.requireOwner("Changing a private room");
+  if (!action) return { room: rooms.edit(id, await deps.readBody()) };
   if (!post) return undefined;
   if (action === "remove") return rooms.remove(id);
-  if (action === "send") return rooms.send(id, await deps.readBody());
   if (action === "stop") return rooms.stop(id);
   if (action === "revoke") return rooms.revoke(id, await deps.readBody()); // phase2/rooms (integration review)
   return { answered: rooms.answer(id, await deps.readBody()) };

@@ -51,9 +51,11 @@ export async function onPage(t, options = {}) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   for (const file of options.block ?? []) await page.route("**" + file, (route) => route.abort());
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
+  const token = page.getByLabel("Session token", { exact: true });
+  await token.waitFor({ state: "visible", timeout: 120000 });
+  await token.fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await finishFirstRun(page);
   /* These tests exercise the full window's own controls: "Show everything" since 0.18.1. */
@@ -777,6 +779,9 @@ test("G1 the context pane lists a grant and the approval card says what a yes le
   assert.match(sentences[2], /standing rule/);
 
   await page.locator("#live-ask").getByRole("button", { name: "Yes, for this conversation", exact: true }).click();
+  /* DG-114: the side panel is a card, closed until asked for, in the full window too. */
+  await page.locator("#aside-toggle").click();
+  await page.locator("#context-panel").waitFor({ state: "visible" });
   const list = page.locator("#context-allowed");
   await list.locator(".allowed-row").first().waitFor({ timeout: 15000 });
   assert.match(await list.locator(".allowed-row strong").first().textContent(), /gated\.txt|files\.write/);

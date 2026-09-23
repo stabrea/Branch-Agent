@@ -131,18 +131,36 @@ document.addEventListener("branch-achievements", () => paintAchievementsCard());
 function backgroundCard() {
   const box = card("delight-bg-card", "delight.bg.title", "Your own background", "delight.bg.note",
     "A picture, a video or an animation behind the glass instead of the oak. It stays in this window on this computer and is never sent anywhere. Switching it off keeps the file for next time; Remove picture throws it away.");
-  const more = part("delight-bg-more"), pick = el("label", "delight-field delight-file"), file = el("input");
-  file.type = "file";
-  file.id = "delight-bg-file";
-  file.accept = "image/png,image/jpeg,image/webp,image/gif,image/apng,image/avif,video/mp4,video/webm,.glb,model/gltf-binary";
-  file.addEventListener("change", () => void pickFile(file));
-  pick.append(el("span", "", say("delight.bg.choose", "Choose a file")), file);
+  const more = part("delight-bg-more");
   const limits = el("p", "field-note", say("delight.bg.limits3d", "Pictures and animations up to {picture} MB, videos up to {video} MB, 3D models (.glb) up to {model} MB.", { picture: LIMITS.picture, video: LIMITS.video, model: LIMITS["3d"] }));
-  more.append(pick, limits, builtIns(), scrimRow(), fitRow(), statusLine("delight-bg-said"));
+  limits.id = "delight-bg-limits";
+  more.append(backgroundPicker(), limits, builtIns(), scrimRow(), fitRow(), statusLine("delight-bg-said"));
   // mac7/residuals: the kept file and "Remove picture" show whether it is switched on or off.
   box.append(checkRow("delight-bg-on", "delight.bg.on", "Use my own background", (v) => saveDelight({ background: { on: v } }).then(paintBackgroundCard)),
     keptLine(), more);
   return box;
+}
+/** The sample's small choose button, with native keyboard activation and a real file input. */
+function backgroundPicker() {
+  const row = el("div", "delight-file"), file = el("input"), choose = el("button");
+  const label = `${say("delight.bg.choose", "Choose a file")}…`;
+  Object.assign(file, { type: "file", id: "delight-bg-file", hidden: true });
+  file.accept = "image/png,image/jpeg,image/webp,image/gif,image/apng,image/avif,video/mp4,video/webm,.glb,model/gltf-binary";
+  file.setAttribute("aria-label", label);
+  file.addEventListener("change", () => void pickFile(file));
+  Object.assign(choose, { type: "button", id: "delight-bg-choose" });
+  choose.setAttribute("aria-controls", file.id);
+  choose.setAttribute("aria-describedby", "delight-bg-name delight-bg-limits delight-bg-said");
+  choose.addEventListener("click", () => file.click());
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9h.01");
+  svg.append(path);
+  choose.append(svg, el("span", "", label));
+  row.append(choose, file);
+  return row;
 }
 /** The file kept in this window, and the one button that throws it away (after a yes). */
 function keptLine() {
@@ -290,6 +308,9 @@ function noticeFlags() {
   if (root.dataset.motion === "reduced") flag("still");
   if (root.dataset.everything === "on") flag("everything");
   if ($("appearance-follow")?.checked) flag("follow-system");
+  const hidden = new Set((root.dataset.hide ?? "").split(" ").filter(Boolean));
+  const hideable = globalThis.branchOnscreen?.ids?.() ?? [];
+  if (hideable.length && hideable.every((id) => hidden.has(id))) flag("lonely");
 }
 document.addEventListener("change", (event) => { if (event.target?.id === "appearance-follow" && event.target.checked) flag("follow-system"); });
 new MutationObserver(() => { noticeLook(); noticeFlags(); })

@@ -286,44 +286,55 @@
 .t-diamond { --tier: var(--tier-diamond); }
 .t-godly { --tier: var(--tier-godly); }
 .t-sssp { --tier: var(--tier-sss); }
+/* The sample's small medal card (design/Branch-Grown-Up.html, `.ach-pop.small`): top-right, just under the top bar
+   (public/delight-achievements.js sets its top), never over the bar's buttons. */
 .ach-note {
   position: fixed;
   top: 12px;
-  left: 50%;
+  right: 16px;
   z-index: 90;
   display: flex;
   align-items: center;
-  gap: var(--s2);
-  max-width: min(360px, calc(100vw - 32px));
-  padding: 8px 14px 8px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
+  gap: 8px;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 6px 12px 6px 6px;
+  border-radius: 14px;
+  border: 1px solid var(--copper-edge);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   color: var(--text);
-  box-shadow: var(--shadow);
-  transform: translateX(-50%);
-  animation: ach-in 0.25s ease-out;
+  box-shadow: var(--card-shadow);
+  animation: ach-in 0.5s cubic-bezier(0.3, 1.5, 0.5, 1);
+  transition: opacity 0.6s;
   cursor: pointer;
 }
 .ach-note.out {
   opacity: 0;
-  transition: opacity 0.5s;
+}
+.ach-note .ach-badge {
+  border-radius: 9px;
 }
 .ach-lines {
   display: grid;
   min-width: 0;
-  font-size: 13px;
+  line-height: 1.55;
 }
 .ach-lines small {
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--copper-text);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ach-lines b {
+  font-size: 13px;
 }
 .ach-lines b {
   overflow-wrap: anywhere;
 }
 @keyframes ach-in {
-  from { opacity: 0; transform: translate(-50%, -8px); }
-  to { opacity: 1; transform: translateX(-50%); }
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
 }
 .ach-party {
   position: fixed;
@@ -539,5 +550,8 @@
   .ach-party .bit,
   .ach-party .rays {
     display: none;
+  }
+  .ach-note {
+    animation: none;
   }
 }

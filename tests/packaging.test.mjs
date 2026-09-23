@@ -12,6 +12,7 @@ import {
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
 import { builtOutputs, missingOutputs, pathInTarball } from "../scripts/pack-cli.mjs";
+import { remoteName } from "../scripts/publish-release.mjs";
 import { WINDOW_ICON_SIZE, isTemplateTrayIcon, trayIconScales, trayIconSize } from "../dist/desktop/icon-sizes.js";
 import { LINUX_ICON_SIZES, iconFileName, iconFileSize } from "../dist/install/unix-icons.js";
 import { readPng, scale } from "../apps/mobile/scripts/png.mjs";
@@ -299,22 +300,18 @@ test("the packed name of the command is the one the tarball is checked for", asy
   assert.equal(pathInTarball(manifest.bin.branch), "package/dist/cli.js");
 });
 
-// ---- mac7/packaging-real: the release job has to compare names the way GitHub stores them ----
+// ---- mac7/packaging-real: the release publisher has to compare names the way GitHub stores them ----
 // GitHub turns every character that is not a letter, a digit, a hyphen, an underscore or a dot into
 // a dot, so "Install Branch Agent.cmd" is attached as "Install.Branch.Agent.cmd". Comparing the
 // file's own name against the release therefore never matched for the two installer scripts, and a
-// re-run tried to upload a name that was already there. The rule the job uses is run here, not
-// restated, so the test fails if the line changes.
-test("the release job compares asset names the way GitHub writes them", { skip: process.platform === "win32" }, async () => {
-  const workflow = await readFile(join(".github", "workflows", "package.yml"), "utf8");
-  const rule = workflow.split(/\r?\n/).map((line) => line.trim()).find((line) => line.startsWith("as_attached()"));
-  assert.ok(rule, "package.yml no longer has an as_attached rule to compare names with");
-  const naming = (name) => execFileSync("sh", ["-c", `${rule}; as_attached "$1"`, "sh", name], { encoding: "utf8" });
-  assert.equal(naming("Install Branch Agent.cmd"), "Install.Branch.Agent.cmd");
+// re-run tried to upload a name that was already there. The publisher's actual helper is exercised
+// here so its comparison cannot drift away from the release logic.
+test("the release publisher compares asset names the way GitHub writes them", () => {
+  assert.equal(remoteName("Install Branch Agent.cmd"), "Install.Branch.Agent.cmd");
   // Everything else is already made of characters GitHub keeps, so nothing else moves.
   for (const kept of ["install-branch-agent.sh", "Branch-Agent-macos-arm64.zip", "Branch-Agent-linux-x64.tar.gz",
     "branch-agent-0.18.0.tgz", "branch-agent-0.18.0.tgz.sha256"])
-    assert.equal(naming(kept), kept);
+    assert.equal(remoteName(kept), kept);
 });
 
 /** mac7/app-icon: one size for the window, the menu bar and the dock was wrong for all three. */
@@ -432,12 +429,13 @@ test("a version tag cannot build or publish until fail-closed CI passed for that
 
   assert.match(workflow, /permissions:\n\s+actions: read\n\s+contents: read/);
   const gate = job("release-gate");
+  assert.match(gate, /node scripts\/release-lineage\.mjs --version "\$TAG"/);
+  assert.match(gate, /git merge-base --is-ancestor "\$GITHUB_SHA" refs\/remotes\/origin\/mac\/cross-platform/);
   assert.match(gate, /repos\/\$GH_REPO\/actions\/runs/);
-  assert.match(gate, /for workflow in pr-fast\.yml checks\.yml/);
-  assert.match(gate, /--arg path "\.github\/workflows\/\$workflow"/);
-  assert.match(gate, /select\(\.path == \$path/);
+  assert.match(gate, /node scripts\/release-lineage\.mjs "\$GITHUB_SHA" "\$GH_REPO"/);
+  assert.match(gate, /\.path == "\.github\/workflows\/checks\.yml"/);
+  assert.match(gate, /\.head_branch == "mac\/cross-platform"/);
   assert.match(gate, /head_sha="\$GITHUB_SHA"/);
-  assert.match(gate, /if \[ "\$status" = completed \] && \[ "\$conclusion" = success \]/);
   assert.match(gate, /exit 1/);
   assert.match(job("android"), /needs: release-gate/);
   assert.match(job("build"), /needs: \[release-gate, android\]/);

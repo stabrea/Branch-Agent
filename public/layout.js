@@ -1,14 +1,14 @@
 /* Branch Agent's window, rebuilt (wave 9 redesign, approved by the owner on 2026-09-16).
 
    Five places instead of ten pages: the conversation, Inbox, Automations, Library and Customize, and
-   Settings as a floating window of twelve short pages. Nothing is rewritten here. Every panel keeps its
+   Settings as a floating window of short pages. Nothing is rewritten here. Every panel keeps its
    id and the module that fills it, and is moved by id into the place it now belongs (see MOVES), so
    the forty-odd modules that bind to those ids keep working untouched.
 
    The window wears the 44 KeepOak themes as glass over a pixel oak: theme-catalogue.js holds each
    theme's finished colours, theme-bridge.js hands them to Branch's own token names, grove.js paints the oak.
    public/app.js calls go() from displayView, so every existing way of opening a page still lands. */
-import { api, displayView, openConversation, titles } from "/app.js";
+import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
@@ -228,6 +228,7 @@ const PLACES = {
 const SETTINGS_PAGES = [
   ["general", "settings.page.general", "General", "How Branch starts and runs on this computer, your projects, and the people who use it."],
   ["assistant", "settings.page.assistant", "Assistant", "Who your assistant is, and how much it keeps and learns."],
+  ["instructions", "settings.page.instructions", "Instructions & personality", "Plain files Branch reads before it works: who it is, who you are, and how you want things done."],
   ["appearance", "settings.page.appearance", "Appearance", "Every KeepOak theme, light or dark, with the oak in any season. Changes show behind this window as you pick."],
   ["notifications", "settings.page.notifications", "Notifications", "When Branch may interrupt you, and the days it should leave you alone."],
   ["models", "settings.page.models", "Models", "Which models your assistant uses, and how it signs in to them."],
@@ -239,9 +240,41 @@ const SETTINGS_PAGES = [
   ["data", "settings.page.data", "Data & usage", "What it costs, what is kept, and your safety copies."],
   ["advanced", "settings.page.advanced", "Advanced", "Tools for checking and fixing Branch."],
   ["about", "settings.page.about", "Updates & about", "Your version, and updates."],
+  ["trunks", "settings.page.trunks", "Trunks & people", "Your own assistants, the computers they use, and the people who use Branch here."],
+  ["channels", "settings.page.channels", "Chat apps & devices", "The chat apps, pages and devices that reach Branch."],
+  ["connections", "settings.page.connections", "Connections", "Tool servers Branch uses, other AI tools using Branch, and your own accounts."],
+  ["skills", "settings.page.skills", "Skills & plugins", "What your assistant can do: skills, specialists and plugins."],
+  ["memory", "settings.page.memory", "Memory & library", "What it remembers, your documents and what it has made."],
+  ["automations", "settings.page.automations", "Automations & inbox", "Work that runs by itself, and how Inbox keeps the record."],
 ];
 const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], ["defaults", "settings.models.defaults", "Defaults"],
   ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
+const SETTINGS_DIRECTORY = {
+  trunks: [
+    ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:specialists"],
+    ["overview", "place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "overview"],
+    ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
+  ],
+  channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
+  connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
+  skills: [
+    ["skills", "place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "customize:skills"],
+    ["specialists", "place.customize.specialists", "Specialists", "settingsDirectory.specialists.line", "Create and manage Trunks with their own jobs and character.", "customize:specialists"],
+    ["plugins", "place.customize.plugins", "Plugins", "settingsDirectory.plugins.line", "Install and review add-ons from other tools and people.", "customize:plugins"],
+  ],
+  memory: [
+    ["memory", "place.library.memory", "Memory", "settingsDirectory.memory.line", "Review what Branch remembers and how it learns.", "library:memory"],
+    ["documents", "place.library.documents", "Documents", "settingsDirectory.documents.line", "Manage the documents Branch may use when it answers.", "library:documents"],
+    ["made", "place.library.made", "Made for you", "settingsDirectory.made.line", "Open the pages, articles and widgets Branch made.", "library:made"],
+  ],
+  automations: [
+    ["scheduled", "place.automations.scheduled", "Scheduled", "settingsDirectory.scheduled.line", "Manage work that runs at a particular time.", "automations:scheduled"],
+    ["procedures", "place.automations.procedures", "Procedures", "settingsDirectory.procedures.line", "Manage saved ways of doing repeatable work.", "automations:procedures"],
+    ["triggers", "place.automations.triggers", "Triggers", "settingsDirectory.triggers.line", "Manage work started by an outside event.", "automations:triggers"],
+    ["needs", "place.inbox.needs", "Needs you", "settingsDirectory.needs.line", "Answer work waiting for your decision.", "inbox:needs"],
+    ["history", "place.inbox.history", "History", "settingsDirectory.history.line", "Review what ran and how it ended.", "inbox:history"],
+  ],
+};
 /* Where every existing panel now lives: [its id, the slot it moves into]. Order inside a slot follows this list. */
 const MOVES = [
   ["policy-waiting-card", "lx-slot-inbox-needs"],
@@ -439,7 +472,8 @@ function buildSettings() {
     page.id = `lx-page-${id}`;
     page.dataset.page = id;
     page.hidden = true;
-    page.append(worded("h2", "lx-page-title", key, english), make("p", "lx-page-intro", intro));
+    page.append(worded("h2", "lx-page-title", key, english),
+      worded("p", "lx-page-intro", `settings.window.${id}.intro`, intro));
     body.append(page);
   }
 
@@ -455,6 +489,48 @@ function buildSettings() {
   buildModelTabs();
   buildAppearanceBlock();
 }
+/** Honest Settings directories for controls that live in Branch's full places. */
+function buildSettingsDirectories() {
+  for (const [page, entries] of Object.entries(SETTINGS_DIRECTORY)) {
+    const host = $(`lx-page-${page}`);
+    if (!host) continue;
+    for (const [id, titleKey, title, lineKey, line, route] of entries)
+      host.append(settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route));
+  }
+  syncDirectoryButtons();
+  document.addEventListener("branch-language", syncDirectoryButtons);
+}
+function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) {
+  const card = make("section", "card settings-directory-card");
+  card.id = `settings-directory-${page}-${id}`;
+  card.dataset.home = `settings:${page}`;
+  const heading = worded("h2", "settings-directory-title", titleKey, title);
+  heading.id = `${card.id}-title`;
+  const description = worded("p", "settings-directory-line", lineKey, line);
+  description.id = `${card.id}-description`;
+  const words = make("div", "settings-directory-words");
+  words.append(heading, description);
+  const open = button("settings-directory-open", "settingsDirectory.open", "Open");
+  open.dataset.route = route;
+  open.setAttribute("aria-describedby", description.id);
+  open.addEventListener("click", () => displayView(route));
+  card.append(words, open);
+  return card;
+}
+function syncDirectoryButtons() {
+  for (const open of document.querySelectorAll(".settings-directory-open")) {
+    const title = open.closest(".settings-directory-card")?.querySelector("h2")?.textContent ?? "";
+    open.setAttribute("aria-label", `${say("settingsDirectory.open", "Open")} ${title}`.trim());
+  }
+}
+function showOwnerSettings(owner) {
+  const link = document.querySelector('.lx-settings-link[data-page="instructions"]');
+  const page = $("lx-page-instructions");
+  if (link) link.hidden = !owner;
+  if (page && !owner) page.hidden = true;
+  if (!owner && settingsPage === "instructions") showSettingsPage("general");
+}
+document.addEventListener("branch-profile", (event) => showOwnerSettings(event.detail?.owner !== false));
 function settingsSearch() {
   const wrap = make("label", "lx-search");
   wrap.append(icon("search"));
@@ -581,6 +657,7 @@ function buildOnThisPage(page) {
 }
 
 function showSettingsPage(id) {
+  if (id === "instructions" && !ownerAtWindow()) id = "general";
   settingsPage = id;
   for (const page of document.querySelectorAll(".lx-page")) page.hidden = page.dataset.page !== id;
   for (const link of document.querySelectorAll(".lx-settings-link"))
@@ -805,19 +882,38 @@ function buildTitleBar() {
   shield.append(icon("shield"));
   /* phase2/panels: one switch in the title bar (the panel button); the tabs live inside the panel (tagPaneBlocks). */
   paneSeg = seg;
+  new ResizeObserver(fitPaneTabs).observe(seg);
+  document.addEventListener("branch-language", () => requestAnimationFrame(fitPaneTabs));
   $("connection").before(clear, shield);
+  /* DG-114: the side panel is a card over the conversation at every width, so this one switch opens and closes it
+     everywhere; public/shell.js's column fold (no-aside) no longer applies to it. */
   $("aside-toggle").addEventListener("click", (event) => {
-    if (!calm() && !narrow.matches) return; // a wide full window folds the pane as it always has (public/shell.js)
     event.stopImmediatePropagation();
     togglePane();
   }, true);
   buildLockdown(shield);
 }
 let paneSeg = null;
+/* DG-114: every tab shows its name when all six fit, as in the sample. When they do not (a card dragged narrow, a wider
+   font, a longer language), the others show only their pictures and the chosen one its name, so no name is ever cut
+   short. Measured, not guessed from a width, because the width that fits depends on the font. */
+function fitPaneTabs() {
+  if (!paneSeg || !paneSeg.getClientRects().length) return;
+  paneSeg.classList.remove("lx-tabs-tight");
+  /* A name can overflow its tab without being cut inside its own words, so the tabs themselves are measured too. */
+  const over = (node) => node.getClientRects().length && node.scrollWidth > node.clientWidth + 1;
+  const cut = [...paneSeg.querySelectorAll(".lx-pane-tab, .lx-words")].some(over);
+  paneSeg.classList.toggle("lx-tabs-tight", cut);
+}
 /* phase2/panels: the calm window's pane can be shut while work runs; it opens by itself again for the next task. */
 let paneShut = false;
 function togglePane() {
-  if (!calm()) { document.body.classList.toggle("lx-pane-float"); return syncPane(); }
+  if (!calm()) {
+    const opened = document.body.classList.toggle("lx-pane-float");
+    syncPane();
+    if (opened) document.dispatchEvent(new CustomEvent("branch-pane-draw")); // the fold's own redraw (context-pane.js) is stopped above
+    return;
+  }
   if (calmPaneWanted()) {
     paneAsked = false;
     paneShut = calmWorking;
@@ -832,16 +928,14 @@ function pickPaneTab(id) {
   if (open && paneTab === id) return;
   choosePaneTab(id);
 }
-/* On a narrow window the pane floats over the conversation, so it starts closed and opens only when asked. */
+/* DG-114: the full window's pane floats over the conversation at every width, so it starts closed and opens only
+   when asked. The calm window still opens it by itself while work runs, except on a narrow window. */
 const narrow = matchMedia("(max-width: 1180px)");
-const paneOpen = () => narrow.matches
-  ? document.body.classList.contains("lx-pane-float")
-  : !document.body.classList.contains("no-aside");
+const paneOpen = () => document.body.classList.contains("lx-pane-float");
 function choosePaneTab(id) {
   if (calm()) return askForPane(id);
   const open = paneOpen();
-  if (narrow.matches) document.body.classList.toggle("lx-pane-float", !(open && paneTab === id));
-  else if (!open || paneTab === id) $("aside-toggle").click();
+  document.body.classList.toggle("lx-pane-float", !(open && paneTab === id));
   paneTab = id;
   store.set("branch-pane-tab", id === "activity" ? null : id);
   syncPane();
@@ -854,8 +948,19 @@ function tagPaneBlocks() {
     if (block) block.dataset.pane = tab;
   }
   document.querySelector(".context-stats").dataset.pane = "memory";
+  /* DG-114: the card's head is its own name and a close button, then the tabs (the approved sample's .pane-top). */
+  const top = make("div", "lx-pane-top");
+  const close = make("button", "head-icon lx-pane-close");
+  close.type = "button";
+  close.id = "lx-pane-close";
+  close.setAttribute("aria-label", say("pane.close", "Close the side panel"));
+  close.title = close.getAttribute("aria-label");
+  close.append(icon("close"));
+  /* Closing takes the keyboard back to the button that opens it again, rather than dropping it on the page. */
+  close.addEventListener("click", () => { $("aside-toggle").click(); $("aside-toggle").focus(); });
+  top.append(make("strong", "lx-pane-name"), close);
   const head = make("div", "lx-pane-head");
-  head.append(make("strong", "lx-pane-name"), paneSeg); // phase2/panels: the tabs sit in the panel's own head
+  head.append(top, paneSeg); // phase2/panels: the tabs sit in the panel's own head
   $("context-panel").prepend(head);
 }
 /** The pane belongs to the conversation: shown there when open, or anywhere while help is being read. */
@@ -870,8 +975,8 @@ function syncPane() {
   $("aside-toggle").setAttribute("aria-pressed", String(open)); // phase2/panels: the one switch says whether the panel is open
   for (const trigger of document.querySelectorAll(".lx-pane-tab"))
     trigger.setAttribute("aria-pressed", String(open && trigger.dataset.pane === paneTab));
-  const tab = PANE_TABS.find(([id]) => id === paneTab);
-  panel.querySelector(".lx-pane-name").textContent = helping ? say("help.title", "Help") : say(tab[1], tab[2]);
+  /* DG-114: the card is named for what it is, not for the tab in it; the tabs already say which one is chosen. */
+  panel.querySelector(".lx-pane-name").textContent = helping ? say("help.title", "Help") : say("pane.title", "Side panel");
 }
 function setQuiet(on) {
   if (on) root.dataset.quiet = "1";
@@ -1098,7 +1203,9 @@ function calmPaneWanted() {
   return paneAsked || (calmWorking && !paneShut); // phase2/panels: shut with the switch while work runs
 }
 function askForPane(id) {
-  paneAsked = !(paneAsked && paneTab === id);
+  /* DG-114: decided by whether the pane is showing, not by the old request: opened on a wide window and then narrowed
+     past 1180 px, the pane had closed while still counted as asked for, so the next press only cleared it. */
+  paneAsked = !(calmPaneWanted() && paneTab === id);
   paneTab = id;
   if (narrow.matches) document.body.classList.toggle("lx-pane-float", paneAsked);
   syncPane();
@@ -1291,20 +1398,31 @@ function buildSettingsRow() {
 
 /* "Connected" only ever meant the window reached Branch on this computer. It is said only when that stops being true. */
 let misses = 0;
-async function checkServer() {
-  if (document.hidden || $("workspace").hidden) return;
+let serverProbe = null;
+async function probeServer() {
+  const aborter = new AbortController();
+  const timeout = setTimeout(() => aborter.abort(), 8000);
+  let reached = true;
   try {
-    await fetch("/api/health", { cache: "no-store" });
-    misses = 0;
+    await api("alive", undefined, undefined, aborter.signal);
   } catch {
-    misses += 1;
+    reached = false;
+  } finally {
+    clearTimeout(timeout);
   }
+  misses = reached ? 0 : misses + 1;
   const lost = misses >= 2;
   const chip = $("connection");
   if (lost) chip.textContent = say("server.lost", "Branch stopped responding");
   else if (chip.dataset.state === "lost") chip.textContent = "Connected";
   chip.dataset.state = lost ? "lost" : "ok";
   $("lx-restart").hidden = !lost;
+}
+async function checkServer() {
+  if (document.hidden || $("workspace").hidden) return;
+  if (serverProbe) return serverProbe;
+  serverProbe = probeServer();
+  try { await serverProbe; } finally { serverProbe = null; }
 }
 /** The desktop app starts Branch again for real (src/desktop/restart-ipc.ts); a browser can only load the page again. */
 async function restartBranch() {
@@ -1479,6 +1597,7 @@ function start() {
   for (const [id, spec] of Object.entries(PLACES)) buildPlace(id, spec);
   buildInboxLists();
   buildSettings();
+  buildSettingsDirectories();
   moveAll();
   buildTitleBar();
   tagPaneBlocks();
@@ -1489,7 +1608,7 @@ function start() {
   installGrownComposer();
   wireKeys();
   extendPalette();
-  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer };
+  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer, showOwnerSettings };
   applyLook();
   const open = [...document.querySelectorAll("#workspace > .view")].find((node) => !node.hidden)?.id || "chat";
   go(open === "settings" ? "chat" : open);

@@ -61,6 +61,42 @@ const boxesHit = (page, one, two) =>
     },
     [one, two],
   );
+
+test("the sidebar starts with this real computer and keeps project switching available", async (t) => {
+  const f = await fixture(t);
+  assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "This computer");
+  assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "This computer/,
+    "the visible computer name is part of the switcher's accessible name");
+  assert.equal(await f.page.locator("#brand-name").count(), 0, "the old app-name header is not built invisibly");
+  await f.page.locator("#rail-target-mark .face-computer").waitFor();
+  assert.equal(await f.page.locator(".rail-scroll #rail-target").count(), 0, "the identity is not repeated below the actions");
+
+  const saved = await fetch(`${f.server.url}/api/reach/machine-name`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${f.server.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "studio-mac" }),
+  });
+  assert.equal(saved.status, 200);
+  await f.page.evaluate(async () => (await import("/shell.js")).loadRail());
+  assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "studio-mac");
+  assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "studio-mac/);
+  await f.page.reload();
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator(".rail-head #rail-target-name").filter({ hasText: "studio-mac" }).waitFor();
+
+  await f.page.locator("#app-switcher").click();
+  assert.equal(await f.page.locator("#app-menu").isVisible(), true, "project switching still works");
+  for (const width of [1440, 1024]) {
+    await f.page.setViewportSize({ width, height: 900 });
+    const fits = await f.page.locator("#app-switcher").evaluate((button) => {
+      const head = button.closest(".rail-head").getBoundingClientRect();
+      const identity = button.querySelector("#rail-target-name").getBoundingClientRect();
+      return identity.left >= head.left && identity.right <= head.right;
+    });
+    assert.equal(fits, true, `the computer name fits the sidebar header at ${width}px`);
+  }
+  assert.deepEqual(f.errors, []);
+});
 /** Walks Tab and reports where the focus landed each time. */
 async function tabStops(page, count) {
   const stops = [];
@@ -102,15 +138,182 @@ test("every place opens from the sidebar in one click, and every Settings page f
   await f.page.getByRole("button", { name: "Settings", exact: true }).click();
   await f.page.locator("#settings-window").waitFor({ state: "visible" });
   const pages = f.page.locator(".lx-settings-link");
-  // phase2/accounts: Accounts became its own page after Models, so thirteen.
-  assert.equal(await pages.count(), 13, "Settings has thirteen pages");
-  for (let index = 0; index < 13; index += 1) {
+  assert.equal(await pages.count(), 20, "Settings includes every first-class page and honest place directory");
+  for (let index = 0; index < await pages.count(); index += 1) {
     await pages.nth(index).click();
     assert.equal(await pages.nth(index).getAttribute("aria-current"), "true");
     assert.equal(await f.page.locator(".lx-page:not([hidden])").count(), 1, "one page at a time");
   }
   await f.page.keyboard.press("Escape");
   await f.page.locator("#settings-window").waitFor({ state: "hidden" });
+  assert.deepEqual(f.errors, []);
+});
+
+test("the rail switches between conversations and real Trunks without duplicating either", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), true);
+  assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-target-name").textContent(), "This computer");
+  await f.page.locator("#branch-tree").evaluate((node) => { node.hidden = false; node.textContent = "A branch"; });
+  assert.equal(await f.page.locator("#branch-tree").isVisible(), true);
+  await f.page.locator("#rail-view-trunks").click();
+  assert.equal(await f.page.locator("#rail-view-trunks").getAttribute("aria-selected"), "true");
+  assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), false);
+  assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), true);
+  assert.equal(await f.page.locator("#branch-tree").isVisible(), false, "conversation branches do not mix into Trunks");
+  await f.page.locator("#branch-tree").evaluate((node) => { node.hidden = false; });
+  assert.equal(await f.page.locator("#branch-tree").isVisible(), false, "a redraw cannot override the chosen rail view");
+  assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-rail-view")), "trunks");
+  await f.page.locator("#rail-new-trunk").click();
+  await f.page.locator("#studio").waitFor({ state: "visible" });
+  assert.equal(await f.page.locator("#studio").getByText("Trunks are switched off.").isVisible(), true);
+  await f.page.locator("#studio").getByRole("button", { name: "Switch Trunks on" }).click();
+  await f.page.locator("#trunks-rail").waitFor({ state: "visible" });
+  await f.page.locator("#studio-name").fill("Scout");
+  await f.page.locator("#studio").getByRole("button", { name: "Create the Trunk" }).click();
+  await f.page.locator("#studio").waitFor({ state: "detached" });
+  await f.page.locator('#trunks-rail [data-trunk]').filter({ hasText: "Scout" }).waitFor({ state: "visible" });
+  await f.page.locator("#rail-view-trunks").press("ArrowLeft");
+  assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the selected Trunk stays named when its visual strip is off", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const selected = await f.page.evaluate(async () => {
+    const strip = await import("/strip.js");
+    strip.shell.roster = { modes: { trunks: "on" }, trunks: [{ id: "ada", name: "Ada", chatSessionId: "ada-chat" }] };
+    strip.shell.look.strip = "off";
+    document.getElementById("conversation").dataset.sessionId = "ada-chat";
+    strip.drawStrip();
+    document.getElementById("rail-target-name").textContent = "This computer";
+    const { setLanguage } = await import("/i18n.js");
+    await setLanguage("fr");
+    return document.getElementById("rail-target-name").textContent;
+  });
+  assert.equal(selected, "Ada");
+  assert.equal(await f.page.locator("#trunk-strip").count(), 0);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a hidden active Trunk stays named in the rail", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const selected = await f.page.evaluate(async () => {
+    const strip = await import("/strip.js");
+    strip.shell.roster = { modes: { trunks: "on" }, trunks: [
+      { id: "hidden-ada", name: "Ada", chatSessionId: "hidden-ada-chat", hidden: true },
+    ] };
+    document.getElementById("conversation").dataset.sessionId = "hidden-ada-chat";
+    document.getElementById("rail-target-name").textContent = "This computer";
+    strip.drawStrip();
+    return { name: document.getElementById("rail-target-name").textContent,
+      visible: !!document.querySelector('[data-strip-id="trunk:hidden-ada"]') };
+  });
+  assert.deepEqual(selected, { name: "Ada", visible: false }, "hiding the roster face does not change who owns the conversation");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the Trunks rail stays owner-only", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  await f.page.locator("#rail-view-trunks").click();
+  const headers = { authorization: `Bearer ${f.server.token}`, "content-type": "application/json" };
+  const person = await fetch(`${f.server.url}/api/profiles`, {
+    method: "POST", headers, body: JSON.stringify({ name: "Sam", pin: "2468" }),
+  }).then((response) => response.json());
+  assert.equal((await fetch(`${f.server.url}/api/profiles/switch`, {
+    method: "POST", headers, body: JSON.stringify({ profileId: person.id, pin: "2468" }),
+  })).status, 200);
+  const synchronous = await f.page.evaluate(() => {
+    const oldGroup = document.getElementById("trunks-rail");
+    oldGroup?.remove();
+    const group = document.createElement("section");
+    group.id = "trunks-rail";
+    group.textContent = "Private Trunk name and latest words";
+    document.getElementById("rail-scroll").append(group);
+    document.dispatchEvent(new CustomEvent("branch-strip", {
+      detail: { profiles: { isOwner: true }, profileGeneration: 0 },
+    }));
+    const ownerGroupVisible = !group.hidden;
+    document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
+      name: "Private Ada", kind: "Private Trunk", status: "Working",
+    } }));
+    const generation = Number(document.documentElement.dataset.profileGeneration || 0) + 1;
+    document.documentElement.dataset.household = "on";
+    document.documentElement.dataset.profileGeneration = String(generation);
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false, profileGeneration: generation } }));
+    return { ownerGroupVisible, group: group.hidden,
+      tab: document.getElementById("rail-view-trunks").hidden,
+      conversations: document.getElementById("rail-view-conversations").getAttribute("aria-selected"),
+      target: document.getElementById("rail-target-name").textContent,
+      translated: document.getElementById("rail-target-name").dataset.t };
+  });
+  assert.deepEqual(synchronous, { ownerGroupVisible: true, group: true, tab: true, conversations: "true",
+    target: "This computer", translated: "strip.here" },
+  "owner-only names, actions and selected identity disappear in the profile event itself");
+  /* A strip refresh that began for the owner may finish after the profile event. It must not put
+     owner-only names and actions back into somebody else's window. */
+  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip", {
+    detail: { profiles: { isOwner: true },
+      profileGeneration: Number(document.documentElement.dataset.profileGeneration || 0) - 1 },
+  })));
+  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
+    name: "Stale private Ada", kind: "Private Trunk", status: "Working",
+  } })));
+  assert.equal(await f.page.locator("#rail-view-trunks").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-new-trunk").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-view-conversations").getAttribute("aria-selected"), "true");
+  assert.equal(await f.page.locator("#rail-target-name").textContent(), "This computer",
+    "a late owner-side selection cannot restore a private name");
+  await f.page.locator("#rail-view-conversations").focus();
+  await f.page.keyboard.press("ArrowRight");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.id), "rail-view-conversations",
+    "arrow navigation contains only visible choices");
+  assert.deepEqual(f.errors, []);
+});
+
+test("an ordinary conversation assigned to a Trunk updates the shell target", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const target = await f.page.evaluate(async () => {
+    const strip = await import("/strip.js");
+    strip.shell.roster = { modes: { trunks: "on" }, trunks: [
+      { id: "assigned-ada", name: "Ada", handle: "ada", chatSessionId: "ada-own-chat" },
+    ] };
+    document.getElementById("conversation").dataset.sessionId = "ordinary-chat";
+    strip.drawStrip();
+    document.dispatchEvent(new CustomEvent("branch-rooms-changed", { detail: {
+      kind: "trunk", trunkId: "assigned-ada",
+    } }));
+    return document.getElementById("rail-target-name").textContent;
+  });
+  assert.equal(target, "Ada");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the Trunks rail recovers after profile loading fails or the owner returns", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator('#trunk-strip [data-strip-id="here"]').waitFor();
+  const targets = await f.page.evaluate(() => {
+    const selectAda = () => document.dispatchEvent(new CustomEvent("branch-strip-selection", { detail: {
+      name: "Ada", kind: "Trunk", status: "Online",
+    } }));
+    document.addEventListener("branch-strip-reselect", selectAda);
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: null } }));
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: { isOwner: true } } }));
+    const afterRetry = document.getElementById("rail-target-name").textContent;
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } }));
+    document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: true } }));
+    selectAda();
+    const beforeRefresh = document.getElementById("rail-target-name").textContent;
+    document.dispatchEvent(new CustomEvent("branch-strip", { detail: { profiles: { isOwner: true } } }));
+    return { afterRetry, beforeRefresh, afterRefresh: document.getElementById("rail-target-name").textContent };
+  });
+  assert.deepEqual(targets, { afterRetry: "Ada", beforeRefresh: "This computer", afterRefresh: "Ada" });
   assert.deepEqual(f.errors, []);
 });
 
@@ -404,16 +607,17 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("Ctrl+Shift+K folds the context pane away and back", async (t) => {
+test("Ctrl+Shift+K opens the side panel and folds it away again", async (t) => {
   const f = await fixture(t);
   const open = () => f.page.locator("#context-panel").isVisible();
-  assert.equal(await open(), true);
+  /* DG-114: the side panel is a card, closed until asked for. */
+  assert.equal(await open(), false, "closed until asked for");
   await f.page.keyboard.press("Control+Shift+K");
   await f.page.waitForTimeout(150);
-  assert.equal(await open(), false, "the pane folds away");
+  assert.equal(await open(), true, "the keys open it");
   await f.page.keyboard.press("Control+Shift+K");
   await f.page.waitForTimeout(150);
-  assert.equal(await open(), true, "and comes back");
+  assert.equal(await open(), false, "and fold it away");
   assert.equal(await f.page.locator("#cmd-input").count(), 0, "the palette stays shut");
   assert.deepEqual(f.errors, []);
 });
@@ -481,6 +685,7 @@ test("a folded Projects group stays folded, remembered for this workspace", asyn
 test("with nothing connected the context pane offers one thing to do", async (t) => {
   const f = await fixture(t);
   assert.equal(await f.page.locator("#context-panel").getAttribute("data-connected"), "false");
+  await f.page.locator("#aside-toggle").click(); // DG-114: the side panel is a card, closed until asked for
   await f.page.locator("#context-connect").waitFor({ state: "visible" });
   assert.equal(await f.page.locator("#context-change-model").isVisible(), false);
   await f.page.locator("#context-connect").click();
@@ -494,8 +699,8 @@ test("with nothing connected the context pane offers one thing to do", async (t)
    glossary; Q5 focus can be seen, Escape closes what it opened, and stillness is honoured. */
 
 /** Every screen the owner can open, as [how it is opened, the element that holds it]. */
-const SETTINGS_PAGES = ["general", "assistant", "appearance", "notifications", "models", "voice", "permissions",
-  "computer", "secrets", "data", "advanced", "about"];
+const SETTINGS_PAGES = ["general", "assistant", "instructions", "appearance", "notifications", "models", "accounts", "voice", "permissions",
+  "computer", "secrets", "data", "advanced", "about", "trunks", "channels", "connections", "skills", "memory", "automations"];
 const SCREENS = [
   ["chat", "chat"], ["runs", "runs"], ["memory", "memory"], ["skills", "skills"], ["specialists", "specialists"],
   ["procedures", "procedures"], ["schedules", "schedules"], ["documents", "documents"],
