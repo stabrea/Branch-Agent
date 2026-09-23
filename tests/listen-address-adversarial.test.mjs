@@ -329,10 +329,22 @@ const onTheLan = [
 ];
 /** Addresses in the range Tailscale hands out: private here only when Tailscale reports them. */
 const inTailscaleRange = ["100.64.0.1", "100.101.102.103", "100.127.255.254"];
+/**
+ * Of `notTheLan`, the ones a connection reaches over IPv6 only. The door is the IPv4 wildcard, which
+ * IPv6 never reaches, so beside a private IPv4 network these leave the door on IPv4 rather than
+ * keeping it on this computer. The IPv4-mapped spellings are IPv4 and are not among them.
+ */
+const onlyOverIPv6 = [
+  "fec0::5", "fedc::1", "ff02::1", "ff05::2", "2002:c0a8:105::1", "2002:6440:1::1",
+  "2001:0:a00:1::f7f7:f7f7", "2001:0:808:808::f5ff:fffe", "64:ff9b::a00:1", "64:ff9b::10.0.0.1",
+  "64:ff9b:1::5", "::a00:1", "::10.0.0.1", "::ffff:0:a00:1", "::ffff:0:192.168.1.40",
+  "::", "fc::1", "fd::1", "fe8::1",
+];
 
 test("X8 an address that is not on this computer's own network keeps the door on this computer", () => {
   for (const address of notTheLan) {
-    for (const addresses of [[{ address, internal: false }], [...privateHome, { address, internal: false }]]) {
+    const beside = onlyOverIPv6.includes(address) ? [] : [[...privateHome, { address, internal: false }]];
+    for (const addresses of [[{ address, internal: false }], ...beside]) {
       const decision = decideListen({ ...wideHere, addresses });
       assert.equal(decision.beyond, false, address);
       assert.equal(decision.address, "127.0.0.1", address);
@@ -348,6 +360,16 @@ test("X8 every address a private network really hands out still opens the door",
     assert.equal(decision.refusal, null, address);
     assert.equal(decision.beyond, true, address);
     assert.equal(decision.address, "0.0.0.0", address);
+  }
+});
+
+test("X8 beside a private IPv4 network, an IPv6-only address that is not private leaves the door on IPv4 only", () => {
+  for (const address of onlyOverIPv6) {
+    const decision = decideListen({ ...wideHere, addresses: [...privateHome, { address, internal: false }] });
+    assert.equal(decision.address, "0.0.0.0", address);
+    assert.equal(decision.refusal, null, address);
+    assert.ok(decision.ipv4Only?.includes(address), `${address}: ${decision.ipv4Only}`);
+    assert.deepEqual(decision.extraHosts, ["localhost", "127.0.0.1", "[::1]", "192.168.1.40"], address);
   }
 });
 

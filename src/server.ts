@@ -3576,7 +3576,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   url = `http://127.0.0.1:${address.port}`;
   if (listen.refusal) console.log(`Branch Agent: ${listen.refusal}`);
   else if (listen.beyond)
-    console.log("Branch Agent is listening on every address this computer answers on, not only this computer."
+    console.log((listen.ipv4Only ? `Branch Agent: ${listen.ipv4Only}`
+      : "Branch Agent is listening on every address this computer answers on, not only this computer.")
       + " Anyone who can reach it still needs the local session token.");
   // mac7/bind (integration review): switching Lockdown on while the wide door is already open has
   // to TAKE THE DOOR AWAY, not merely refuse what arrives at it. `decideListen` is asked once, at
@@ -3610,6 +3611,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     listen.address = thisComputerAddress;
     listen.beyond = false;
     listen.extraHosts = [];
+    listen.ipv4Only = null;
     listen.refusal = "Lockdown is on, so Branch is listening on this computer only.";
     console.log(`Branch Agent: ${listen.refusal}`);
   }

@@ -4480,7 +4480,7 @@ Settings → Computer, with two positions:
 | `where` | What it means |
 | --- | --- |
 | `this-computer` | `127.0.0.1`. Only this computer can reach Branch. This is how it ships. |
-| `private-network` | Every address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
+| `private-network` | Every IPv4 address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
 
 Be plain with yourself about the second one: you are moving Branch from "nobody but me, on this
 machine" to "anybody who is already on my network, if they have the key". That is a real change and
@@ -4535,6 +4535,11 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
   only when Tailscale, running on this computer, says it is this computer's own. With Tailscale not
   installed, not connected or not answering, such an address keeps Branch on `127.0.0.1`; connect
   Tailscale and start Branch again.
+  An IPv6 address that is not private is the one exception. The wider door is `0.0.0.0`, the IPv4
+  wildcard, which a connection over IPv6 never reaches. So when every IPv4 address this computer
+  answers on is private, Branch listens on those private IPv4 networks only and says so, on the
+  start-up line and as `ipv4Only` in `GET /api/listen`; the names it answers to then leave out the
+  IPv6 addresses. With no IPv4 network at all, it stays on `127.0.0.1`.
 - **There is no local key.** Without the session token there would be nothing for the door to ask
   for, so Branch will not open it.
 - **This computer answers on no address beyond itself.** With no network address there is nowhere to
