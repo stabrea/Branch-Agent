@@ -30,6 +30,7 @@ case "$1" in
   symbolic-ref) echo refs/remotes/origin/main; exit 0;;
   switch|push|--literal-pathspecs|merge-base) exit 0;;
   diff) cat '${diffOut}'; exit 0;;
+  log) exit 0;;
   ls-files) exit 0;;
   *) exit 1;;
 esac

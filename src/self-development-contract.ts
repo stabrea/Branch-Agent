@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -210,50 +210,92 @@ export interface ContractGuardDeps {
 }
 
 /** The workspace paths (forward slashes, from the workspace) a call names. */
-function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: ToolContext, scope: string): string[] {
-  const named: string[] = [];
+interface NamedPath { path: string; folder: boolean }
+
+/** Whether a workspace path is a folder on disk now. */
+function folderOnDisk(workspace: string, path: string): boolean {
+  try { return statSync(resolve(workspace, path)).isDirectory(); } catch { return false; }
+}
+
+function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: ToolContext, scope: string): NamedPath[] {
+  const named: { path: string; folder: boolean }[] = [];
   const many = deps.registry.targetsOf(name, args, context);
-  if (many) for (const one of many) { if (one.path) named.push(one.path); }
+  if (many) for (const one of many) { if (one.path) named.push({ path: one.path, folder: one.folder === true }); }
   else {
     const target = deps.registry.targetOf(name, args, context);
     const resource = target ? deps.registry.resourceOf(name, target, args) : null;
     // A tool that words its own target (the pull request tool: "send changes to GitHub on ...") is
     // not naming a file unless it works on files, as the approval policy reads it too.
     const worded = deps.registry.declaresTarget(name).target && !/^(files|documents|media|data|code)\./.test(deps.registry.permissionOf(name));
-    if (resource?.kind === "path" && !worded) named.push(resource.value);
+    if (resource?.kind === "path" && !worded) named.push({ path: resource.value, folder: false });
   }
   // A command's working folder counts too, read exactly as the command tool reads it (from the
   // workspace, not the active project: commandFolder), so the folder judged is the folder it runs in.
   const cwd = cwdOf(args).cwd;
-  if (cwd) named.push(commandFolder(context.workspace || deps.workspace, cwd));
-  return named.map((path) => workspacePath(deps.workspace, scope, path)).filter((path): path is string => path !== null);
+  if (cwd) named.push({ path: commandFolder(context.workspace || deps.workspace, cwd), folder: true });
+  return named.flatMap(({ path, folder }) => {
+    const where = workspacePath(deps.workspace, scope, path);
+    return where === null ? [] : [{ path: where, folder: folder || folderOnDisk(deps.workspace, where) }];
+  });
 }
 
+/**
+ * Whether the allowed paths cover a whole folder inside the worktree ("" for the worktree itself):
+ * `**`, or `<folder>/**` (or `<folder>/`) for the folder or one above it. A tool that works on a
+ * whole folder (git.pull, a command's working folder, a folder a tool names) can change anything
+ * in it, so a glob that only fits some files there is not enough.
+ */
+function coversFolder(allowedPaths: readonly string[], folder: string): boolean {
+  return allowedPaths.some((pattern) => {
+    if (pattern === "**") return true;
+    const fixed = pattern.endsWith("/**") ? pattern.slice(0, -3) : pattern.endsWith("/") ? pattern.slice(0, -1) : null;
+    return fixed !== null && !/[*?[]/.test(fixed) && folder !== "" && (folder === fixed || folder.startsWith(`${fixed}/`));
+  });
+}
+
+/** Tools whose folder target is what they send, judged commit by commit instead (`remoteBroken`). */
+const sendingTools = new Set(["git.push", "github.pull_request_from_changes", "github.open_pull_request"]);
+
 /** Why the call breaks the contract's worktree, tools or paths, or null when it keeps to them. */
-function termsBroken(contract: SelfDevelopmentContract, name: string, paths: string[]): string | null {
+function termsBroken(contract: SelfDevelopmentContract, name: string, paths: readonly NamedPath[]): string | null {
   if (!contract.permissions.includes(name))
     return `${name} is not one of the tools this contract allows (${contract.permissions.join(", ")}).`;
-  for (const path of paths) {
+  for (const { path, folder } of paths) {
     const worktree = worktreeOf(path);
     if (worktree !== contract.worktreePath) return `${path} is outside the contract's worktree ${contract.worktreePath}.`;
     const inside = path.slice(worktree.length + 1);
-    if (inside && !contract.allowedPaths.some((pattern) => globFits(pattern, inside)))
+    if (folder || !inside) {
+      if (!sendingTools.has(name) && !coversFolder(contract.allowedPaths, inside))
+        return `${name} works on the whole of ${inside || "the worktree"}, and the contract's allowed paths do not cover all of it (${contract.allowedPaths.join(", ")}).`;
+    } else if (inside && !contract.allowedPaths.some((pattern) => globFits(pattern, inside)))
       return `${inside} is outside the contract's allowed paths (${contract.allowedPaths.join(", ")}).`;
   }
   return null;
 }
 
-/** Why a remote step breaks the contract (the source commit, or a changed file outside it), or null. */
-async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal): Promise<string | null> {
+/** The paths on both sides of every change in a list of `git log --name-status` lines. */
+const namesInLog = (text: string): string[] =>
+  text.split("\n").filter((line) => line.includes("\t")).flatMap((line) => line.split("\t").slice(1));
+
+/**
+ * Why sending `ref` breaks the contract, or null. `ref` must still start from the contract's source
+ * commit, and every change on the way there is checked, commit by commit, on both sides (renames as
+ * a removal and an addition, merges against each parent), along with what is changed or new in the
+ * worktree and not yet committed. A file added and removed again, or moved out of the allowed paths
+ * under another name, is caught as surely as one left changed at the end.
+ */
+async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, ref = "HEAD"): Promise<string | null> {
   const cwd = resolve(deps.workspace, contract.worktreePath);
-  const git = (args: string[]) => deps.git({ cwd, args, timeoutMs: 60_000 }, signal);
-  if ((await git(["merge-base", "--is-ancestor", contract.sourceSha, "HEAD"])).status !== "completed")
-    return `This worktree no longer starts from the contract's source commit ${contract.sourceSha.slice(0, 12)}.`;
-  const changed = await git(["diff", "--name-only", "-z", contract.sourceSha]);
+  const git = (args: string[]) => deps.git({ cwd, args, timeoutMs: 60_000, maxOutputBytes: 4_194_304 }, signal);
+  if ((await git(["merge-base", "--is-ancestor", contract.sourceSha, ref])).status !== "completed")
+    return `${ref === "HEAD" ? "This worktree" : ref} no longer starts from the contract's source commit ${contract.sourceSha.slice(0, 12)}.`;
+  const walked = await git(["log", "--no-renames", "-m", "--name-status", "--format=", `${contract.sourceSha}..${ref}`]);
+  const changed = await git(["diff", "--no-renames", "--name-only", "-z", contract.sourceSha]);
   const untracked = await git(["ls-files", "--others", "--exclude-standard", "-z"]);
-  if (changed.status !== "completed" || untracked.status !== "completed") return "Branch could not list what changed in this worktree.";
-  const files = `${changed.stdout}\0${untracked.stdout}`.split("\0").map(tidy).filter(Boolean);
-  const outside = files.filter((file) => !contract.allowedPaths.some((pattern) => globFits(pattern, file)));
+  if ([walked, changed, untracked].some((outcome) => outcome.status !== "completed" || outcome.truncated))
+    return "Branch could not list everything that changed in this worktree.";
+  const files = [...namesInLog(walked.stdout), ...`${changed.stdout}\0${untracked.stdout}`.split("\0")].map(tidy).filter(Boolean);
+  const outside = [...new Set(files.filter((file) => !contract.allowedPaths.some((pattern) => globFits(pattern, file))))];
   return outside.length ? `These changed files are outside the contract's allowed paths: ${outside.slice(0, 10).join(", ")}.` : null;
 }
 
@@ -284,14 +326,14 @@ function heldTerms(deps: ContractGuardDeps, name: string, args: unknown, context
   const permission = deps.registry.permissionOf(name);
   if (isReadOnlyPermission(permission)) return null;
   const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
-  let paths: string[];
+  let paths: NamedPath[];
   try { paths = pathsOf(deps, name, args, context, scope); } catch (error) {
     // Outside the source the approval policy already refuses a call whose targets cannot be told.
     if (!insideSource(scope)) return null;
     refuse(deps, context, name, worktreeOf(scope), `Branch could not tell what this call would change: ${(error as Error).message}`);
   }
-  if (!insideSource(scope) && !paths.some(insideSource)) return null;
-  const worktree = worktreeOf(insideSource(scope) ? scope : paths.find(insideSource)!);
+  if (!insideSource(scope) && !paths.some((one) => insideSource(one.path))) return null;
+  const worktree = worktreeOf(insideSource(scope) ? scope : paths.find((one) => insideSource(one.path))!.path);
   if (!worktree) refuse(deps, context, name, "", "The protected Branch Agent source checkout is never changed directly; work in a self-development worktree.");
   let contract: SelfDevelopmentContract | null;
   try { contract = deps.book.current(deps.owner, worktree); } catch (error) { refuse(deps, context, name, worktree, (error as Error).message); }
@@ -338,7 +380,8 @@ async function confineCommand(deps: ContractGuardDeps, name: string, args: unkno
   heldTerms(deps, name, args, context);
   if (!(await (deps.confinement ?? canConfineWrites)()))
     refuse(deps, context, name, worktree, `${whileCheckedOut}commands are refused on this computer: it has no sandbox that can hold a command's writes to one folder.`);
-  return { writesConfinedTo: resolve(deps.workspace, worktree) };
+  // The folder it runs in, which the allowed paths cover whole (termsBroken): its writes are held there.
+  return { writesConfinedTo: resolve(deps.workspace, folder) };
 }
 
 /**
@@ -352,7 +395,10 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     if (startsProgram(deps, name, args) && sourceCheckedOut(deps.workspace)) return confineCommand(deps, name, args, context);
     const held = heldTerms(deps, name, args, context);
     if (!held || !remotePermissions.has(held.permission)) return;
-    const broken = await remoteBroken(deps, held.contract, context.signal);
+    // git.push sends the branch it names (or the one checked out); that ref is the one walked.
+    const named = (args as { branch?: unknown } | null)?.branch;
+    const ref = name === "git.push" && typeof named === "string" && named ? named : "HEAD";
+    const broken = await remoteBroken(deps, held.contract, context.signal, ref);
     if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
   };
 }

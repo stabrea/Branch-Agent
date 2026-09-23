@@ -90,16 +90,21 @@ test("while Branch's source is checked out, a command outside a worktree is refu
   assert.equal(entry.source, "system");
 });
 
-test("a command in the worktree, listed in its contract, runs behind the real OS sandbox with writes held to the worktree",
+test("a command in the worktree, listed in its contract, runs behind the real OS sandbox with writes held to the folder it runs in",
   { skip: process.platform === "win32" || !(await wallReport()).available }, async (t) => {
   const branch = await withSource(t, { project: "worktree", permissions: ["shell.execute"] });
-  const { failed, result } = await branch.command({ executable: "sh", cwd: worktree,
-    args: ["-c", "echo ok > src/ui/inside.txt; echo PWNED >> ../../src/main.ts; for f in ../../src/main.ts; do echo PWNED >> $f; done"] });
+  // Run from src/ui, which the contract's src/ui/** covers whole: writes are held to that folder.
+  const { failed, result } = await branch.command({ executable: "sh", cwd: `${worktree}/src/ui`,
+    args: ["-c", "echo ok > inside.txt; echo PWNED >> ../../../../src/main.ts; for f in ../../../../src/main.ts; do echo PWNED >> $f; done; echo x > ../../package.json"] });
   assert.equal(failed, null, failed);
-  assert.equal(await readFile(join(branch.workspace, worktree, "src", "ui", "inside.txt"), "utf8"), "ok\n", "a write in the worktree works");
+  assert.equal(await readFile(join(branch.workspace, worktree, "src", "ui", "inside.txt"), "utf8"), "ok\n", "a write in the allowed folder works");
   assert.equal(await branch.protectedFile(), original, "the sandbox blocked the write to the protected checkout");
+  assert.equal(existsSync(join(branch.workspace, worktree, "package.json")), false, "and the write outside the allowed folder");
   assert.notEqual(result.exitCode, 0);
-  assert.equal(result.target.cwd.endsWith("self-remove-button"), true);
+  assert.equal(result.target.cwd.endsWith(join("self-remove-button", "src", "ui")), true);
+  // From the worktree itself the contract's src/ui/** does not cover the folder, so it is refused first.
+  const { failed: wide } = await branch.command({ executable: "sh", cwd: worktree, args: ["-c", "ls"] });
+  assert.match(wide ?? "", /works on the whole of the worktree/);
 });
 
 /** The guard alone with a stand-in sandbox check: `confinement` is a test double for "this computer can hold writes to one folder". */
@@ -123,12 +128,12 @@ function guardWith(t, confinement) {
 
 test("the stand-in sandbox: available holds the command to the worktree, missing refuses every command plainly", async (t) => {
   const yes = await guardWith(t, async () => true);
-  const held = await yes.guard("shell.execute", { cwd: worktree }, { runId: "r" });
-  assert.equal(held.writesConfinedTo, join(yes.workspace, worktree));
+  const held = await yes.guard("shell.execute", { cwd: `${worktree}/src` }, { runId: "r" });
+  assert.equal(held.writesConfinedTo, join(yes.workspace, worktree, "src"), "held to the folder it runs in");
   for (const name of ["code.run", "process.start"])
     await assert.rejects(yes.guard(name, { cwd: worktree }, { runId: "r" }), /cannot hold the program it starts to one folder/, name);
   const no = await guardWith(t, async () => false);
-  await assert.rejects(no.guard("shell.execute", { cwd: worktree }, { runId: "r" }),
+  await assert.rejects(no.guard("shell.execute", { cwd: `${worktree}/src` }, { runId: "r" }),
     /commands are refused on this computer: it has no sandbox that can hold a command's writes to one folder/);
   assert.equal(no.log.list("local", { action: "self_development.contract" }).length, 1);
 });

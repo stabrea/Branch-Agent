@@ -191,7 +191,7 @@ test("widening needs the owner's yes every time, and then writes a new revision 
 });
 
 /** The guard alone, with a registry of test tools and a Git double that answers as told. */
-function guardWith(git) {
+function guardWith(git, contract = {}) {
   const db = new DatabaseSync(":memory:");
   const book = new ContractBook(db);
   const log = new AuditLog(db);
@@ -199,8 +199,13 @@ function guardWith(git) {
   registry.pathScope = () => worktree;
   registry.register({ name: "github.pull_request_from_changes", permission: "github.manage", description: "double",
     parameters: z.object({ name: z.string() }), execute: async () => ({}) });
+  // Stand-ins shaped like the real git tools: each names its folder, and the whole of it when no file is named.
+  const inFolder = (args) => [{ kind: "write", path: args.folder, folder: true }];
+  for (const name of ["git.push", "git.pull"])
+    registry.register({ name, permission: "git.remote", description: "double", targets: inFolder,
+      parameters: z.object({ folder: z.string().default("."), remote: z.string().default("origin"), branch: z.string().optional() }), execute: async () => ({}) });
   book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree,
-    terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes"] } });
+    terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes", "git.push", "git.pull"], ...contract } });
   const calls = [];
   const guard = contractGuard({ store: { audit: log }, owner: "local", workspace: "/w", registry, book,
     git: async (options) => { calls.push(options.args.join(" ")); return git(options.args); } });
@@ -319,4 +324,35 @@ test("every spelling of the source folder is held to the contract or refused, an
   for (const path of ["branch-agent-source/.Branch-Worktrees/self-remove-button/src/ui/a.ts",
     "branch-agent-source/.branch-worktrees/SELF-REMOVE-BUTTON/src/ui/a.ts", "Branch-Agent-Source/.branch-worktrees./self-remove-button/src/ui/a.ts"])
     await assert.rejects(bare("files.write", { path, content: "x" }, { runId: "r" }), /protected Branch Agent source checkout/, path);
+});
+
+const signal = () => AbortSignal.timeout(1000);
+
+test("a tool that works on a whole folder needs the allowed paths to cover all of it", async () => {
+  // Legion's repro: git.pull on the worktree could bring in scripts/evil.mjs under a src/ui/** contract.
+  const narrow = guardWith(() => answer(""));
+  await assert.rejects(narrow.guard("git.pull", { folder: "." }, { runId: "r", signal: signal() }),
+    /git\.pull works on the whole of the worktree, and the contract's allowed paths do not cover all of it/);
+  await assert.rejects(narrow.guard("git.pull", { folder: "src" }, { runId: "r", signal: signal() }), /works on the whole of src/);
+  assert.equal(narrow.calls.length, 0, "refused before Git is asked anything");
+  await narrow.guard("git.pull", { folder: "src/ui" }, { runId: "r", signal: signal() });
+  const wide = guardWith(() => answer(""), { allowedPaths: ["**"] });
+  await wide.guard("git.pull", { folder: "." }, { runId: "r", signal: signal() });
+});
+
+test("a push is walked commit by commit, both sides of each change, for the branch actually sent", async () => {
+  const walk = (lines) => guardWith((args) => (args[0] === "log" ? answer(lines) : answer("")));
+  const addedAndRemoved = walk("A\t.github/workflows/x.yml\n\nD\t.github/workflows/x.yml\n");
+  await assert.rejects(addedAndRemoved.guard("git.push", { folder: "." }, { runId: "r", signal: signal() }),
+    /outside the contract's allowed paths: \.github\/workflows\/x\.yml/);
+  assert.ok(addedAndRemoved.calls.includes(`log --no-renames -m --name-status --format= ${sha}..HEAD`), addedAndRemoved.calls.join("\n"));
+  const moved = walk("D\tscripts/a.mjs\nA\tsrc/ui/p.mjs\n");
+  await assert.rejects(moved.guard("git.push", { folder: "." }, { runId: "r", signal: signal() }), /allowed paths: scripts\/a\.mjs/);
+  // The branch pushed is the one walked, not whatever is checked out.
+  const side = guardWith((args) => (args[0] === "log" && args.at(-1) === `${sha}..side` ? answer("A\tscripts/evil.mjs\n") : answer("")));
+  await side.guard("git.push", { folder: "." }, { runId: "r", signal: signal() });
+  await assert.rejects(side.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() }), /scripts\/evil\.mjs/);
+  assert.ok(side.calls.includes(`merge-base --is-ancestor ${sha} side`));
+  const clean = walk("M\tsrc/ui/button.ts\n");
+  await clean.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() });
 });
