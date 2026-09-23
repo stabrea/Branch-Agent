@@ -47,7 +47,7 @@ export function trunkSpec(trunk) {
   const photo = trunk.avatar && trunk.avatar.kind !== "face" ? trunk.avatar.dataUrl : null;
   return {
     kind: "trunk", name: trunk.name, seed,
-    face: photo ? "photo" : look.face ?? "drawn", photo, letters: look.letters || initialsOf(trunk.name), emoji: look.emoji || "",
+    face: photo ? "photo" : !look.face || look.face === "drawn" ? "pattern" : look.face, photo, letters: look.letters || initialsOf(trunk.name), emoji: look.emoji || "",
     shuffle: look.shuffle ?? 0, colour: colourVar(look.colour ?? ((seed >>> 9) % 8) + 1),
     shape: look.shape ?? (seed % 4 % 2 ? "squircle" : "circle"), motion: look.motion ?? "none", depth: look.depth ?? "flat",
   };
