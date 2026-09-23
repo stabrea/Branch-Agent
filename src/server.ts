@@ -3018,6 +3018,24 @@ export async function pairingRequest(
   send(response, 200, device ? { ...redeemed, deviceId: device.device.id, deviceKey: device.secret } : redeemed);
   return true;
 }
+/**
+ * Q45 leaf 0: listens on `port`; when it is taken and `anyPortIfTaken` is set, on any free port instead, on the same
+ * server, so nothing set up before listening is set up twice.
+ */
+export function listenOn(server: Server, port: number, address: string, anyPortIfTaken = false): Promise<void> {
+  const bind = (at: number) => new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(at, address, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return bind(port).catch((error: NodeJS.ErrnoException) => {
+    if (anyPortIfTaken && port && error?.code === "EADDRINUSE") return bind(0);
+    throw error;
+  });
+}
+
 export async function startServer(
   app: Branch,
   options: {
@@ -3559,17 +3577,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     liveConnections.add(socket);
     socket.once("close", () => liveConnections.delete(socket));
   });
-  const bind = (port: number) => new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, listen.address, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  await bind(options.port ?? 3210).catch((error: NodeJS.ErrnoException) => {
-    if (options.anyPortIfTaken && options.port && error?.code === "EADDRINUSE") return bind(0);
-    throw error;
-  });
+  await listenOn(server, options.port ?? 3210, listen.address, options.anyPortIfTaken === true);
   const address = server.address();
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
