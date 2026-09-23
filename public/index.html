@@ -1000,19 +1000,15 @@
             <pre id="doctor-report" class="meta"></pre>
           </section>
           <form id="identity-form" class="card">
-            <h2 data-t="settings.card.assistant-identity">Assistant identity</h2>
+            <h3 data-t="settings.card.assistant-identity">Assistant identity</h3>
             <p>Changes apply to the next task, including the next message in an existing conversation. Tasks already running keep their current instructions.</p>
             <fieldset id="identity-fields">
               <label for="identity-name" data-t="field.assistant-name">Assistant name</label>
               <input id="identity-name" maxlength="80" required />
               <label for="identity-instructions" data-t="field.working-instructions">Working instructions</label>
               <textarea id="identity-instructions" maxlength="4000" rows="5" placeholder="Describe how you want your assistant to work."></textarea>
-              <div class="identity-actions">
-                <button id="identity-save" data-t="action.save-identity">Save identity</button>
-                <button id="identity-reload" type="button" data-t="action.reload-saved-identity">Reload saved identity</button>
-              </div>
             </fieldset>
-            <p class="subtle">Reload discards your unsaved identity changes. Identity settings do not grant additional tool permissions.</p>
+            <p class="subtle">Identity settings do not grant additional tool permissions.</p>
             <p id="identity-status" role="status"></p>
           </form>
           <!-- Appearance (public/appearance.js). Changes show at once; Save keeps them. -->

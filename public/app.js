@@ -1307,11 +1307,15 @@ async function changeIdentity(reload) {
   } catch (error) { $("identity-status").textContent = error.message; }
   finally { identityBusy = false; $("identity-fields").disabled = false; }
 }
-$("identity-form").addEventListener("submit", event => { event.preventDefault(); void changeIdentity(false); });
-$("identity-reload").addEventListener("click", () => { void changeIdentity(true); });
+let identitySaveTimer = null;
+function scheduleIdentitySave() {
+  if (identitySaveTimer) clearTimeout(identitySaveTimer);
+  identitySaveTimer = setTimeout(() => { if (identityDirty) void changeIdentity(false); }, 1500);
+}
 for (const [id, key] of [["identity-name", "name"], ["identity-instructions", "instructions"]]) {
-  $(id).addEventListener("input", () => {
-    if (!identityBusy && identityDraft) { identityDraft[key] = $(id).value; identityDirty = true; }
+  const input = $(id);
+  input.addEventListener("input", () => {
+    if (!identityBusy && identityDraft) { identityDraft[key] = input.value; identityDirty = true; scheduleIdentitySave(); }
   });
 }
 /** Plain language for one tool call, so the step row reads like a sentence. */
