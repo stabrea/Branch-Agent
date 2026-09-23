@@ -400,10 +400,10 @@ async function devicePanel(panel) {
   panel.append(make("p", "", "household.invite.deviceWords", "They open this computer's address followed by /people on their own phone or laptop, and sign in with their name and PIN. Each person sees only their own conversations and what you share."), where);
 }
 
-/* ---------- Settings › Trunks & people: a way to each person's card ---------- */
+/* ---------- Settings › Trunks & people: a way to each person's card, in the sample's "A person's card" section ---------- */
 function drawSettingsPeople() {
-  const card = $("settings-directory-trunks-people");
-  if (!card) return;
+  const card = $("settings-person-card");
+  if (!card) return; // Settings is not drawn yet; public/settings-trunks.js says when it is (branch-settings-trunks)
   card.querySelector(".settings-people")?.remove();
   if (!isOwner()) return;
   const list = make("ul", "settings-people");
@@ -422,8 +422,10 @@ function drawSettingsPeople() {
     item.append(row);
     list.append(item);
   }
-  card.append(list);
+  const open = card.querySelector(".settings-trunks-open");
+  if (open) open.after(list); else card.append(list);
 }
+document.addEventListener("branch-settings-trunks", drawSettingsPeople);
 document.addEventListener("branch-strip", drawSettingsPeople);
 document.addEventListener("branch-profile", drawSettingsPeople);
 document.addEventListener("branch-language", drawSettingsPeople);
