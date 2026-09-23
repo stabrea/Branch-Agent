@@ -287,7 +287,11 @@ test("every spelling of the source folder is held to the contract or refused, an
   const guard = contractGuard({ store: { audit: log }, owner: "local", workspace, registry, book, git: async () => answer("") });
   const write = (path) => guard("files.write", { path, content: "x" }, { runId: "r" });
   await write(`${worktree}/src/ui/button.ts`);
-  await write("BRANCH-AGENT-SOURCE/.Branch-Worktrees/SELF-REMOVE-BUTTON/src/ui/button.ts"); // the same folder, held to the same contract
+  // Where the disk ignores case this is the same folder, read back in its true spelling and held to the
+  // same contract; where it does not, it is some other folder inside the protected checkout: refused.
+  const foldsCase = existsSync(join(workspace, "BRANCH-AGENT-SOURCE"));
+  const shouted = write("BRANCH-AGENT-SOURCE/.Branch-Worktrees/SELF-REMOVE-BUTTON/src/ui/button.ts");
+  if (foldsCase) await shouted; else await assert.rejects(shouted, /protected Branch Agent source checkout/);
   for (const [path, why] of [
     ["Branch-Agent-Source/src/main.ts", /protected Branch Agent source checkout/],
     ["BRANCH-AGENT-SOURCE/.branch-worktrees/self-remove-button/package.json", /package\.json is outside the contract's allowed paths/],
@@ -304,10 +308,15 @@ test("every spelling of the source folder is held to the contract or refused, an
   // A command's folder is read from the workspace, not the active project, exactly as the shell tool reads it.
   await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: "Branch-Agent-Source" }, { runId: "r" }),
     /Refused by the self-development contract/, "a folder named from the workspace while another project is active");
-  assert.equal(log.list("local", { action: "self_development.contract" }).length, 10);
+  assert.equal(log.list("local", { action: "self_development.contract" }).length, foldsCase ? 10 : 11);
   // Before the folder exists on disk the spelling alone must be enough (the first write can make it).
   const bare = contractGuard({ store: { audit: log }, owner: "local", workspace: join(root, "empty"), registry, book, git: async () => answer("") });
   scope = "";
   for (const path of ["Branch-Agent-Source/src/main.ts", "BRANCH-AGENT-SOURCE/.branch-worktrees/self-remove-button/package.json"])
     await assert.rejects(bare("files.write", { path, content: "x" }, { runId: "r" }), /self-development contract/, path);
+  // Only the source folder's own name is folded. A worktree folder or name in another case is not a
+  // worktree until the disk says it is the same folder, so it is refused as the protected checkout.
+  for (const path of ["branch-agent-source/.Branch-Worktrees/self-remove-button/src/ui/a.ts",
+    "branch-agent-source/.branch-worktrees/SELF-REMOVE-BUTTON/src/ui/a.ts", "Branch-Agent-Source/.branch-worktrees./self-remove-button/src/ui/a.ts"])
+    await assert.rejects(bare("files.write", { path, content: "x" }, { runId: "r" }), /protected Branch Agent source checkout/, path);
 });

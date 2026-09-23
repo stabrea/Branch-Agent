@@ -170,17 +170,18 @@ function onDisk(path: string): string {
   try { return join(realpathSync.native(existing), ...rest); } catch { return path; }
 }
 /**
- * The one spelling of a path inside the source folder. macOS and Windows find `Branch-Agent-Source`,
- * `BRANCH-AGENT-SOURCE` and (on Windows) `branch-agent-source.` or `branch-agent-source ` as the same
- * folder, so the folder, `.branch-worktrees` and the worktree's name are compared lowercased with
- * trailing dots and spaces taken off, on every platform: a spelling that is not the same folder on
- * this disk is still held to the contract, which fails closed. The rest keeps its case, so a
- * differently spelled file inside the worktree must still fit the allowed paths as written.
+ * The one spelling of a path inside the source folder. Only the source folder's own name is folded
+ * (lowercased, trailing dots and spaces taken off): macOS and Windows find `Branch-Agent-Source` or
+ * `branch-agent-source.` as the same folder, and on a disk that tells them apart treating them as
+ * the source fails closed. `.branch-worktrees` and the worktree's name are never folded: where the
+ * disk ignores case the path has already been read back from the disk in its true spelling, and
+ * anywhere else `.Branch-Worktrees` or `SELF-X` is some other folder inside the protected checkout,
+ * so a misspelled one is not a worktree and is refused as the checkout itself.
  */
 function sourceSpelling(path: string): string {
-  const parts = path.split("/").map((part) => part.replace(/[. ]+$/, "") || part);
-  if (parts[0]?.toLowerCase() !== sourceFolder) return path;
-  return [...parts.slice(0, 3).map((part) => part.toLowerCase()), ...parts.slice(3)].join("/");
+  const parts = path.split("/");
+  if ((parts[0] ?? "").replace(/[. ]+$/, "").toLowerCase() !== sourceFolder) return path;
+  return [sourceFolder, ...parts.slice(1)].join("/");
 }
 /** Where a path named from `scope` really is, from the workspace, or null when it is outside it. */
 export function workspacePath(workspace: string, scope: string, path: string): string | null {
