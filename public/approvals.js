@@ -195,5 +195,6 @@ async function render() {
 }
 
 $("policy-preset").addEventListener("change", (event) => void save({ preset: event.target.value }));
-$("policy-limits-save").addEventListener("click", () => void saveLimits());
+// DG-025: saved as you go, as the sample saves a number: when the box is left or Enter is pressed.
+for (const id of limitBoxes) $(id)?.addEventListener("change", () => void saveLimits());
 window.branchApprovals = { render };

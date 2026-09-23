@@ -25,6 +25,8 @@ const BY_CARD = new Map();
 export const ALWAYS = {
   "safety-stop-card": "#safety-stop-press", "policy-card": "#policy-preset", "approval-reviewer-card": "#approval-reviewer-mode",
   "desktop-card": null, "reach-background-card": null, "deployment-card": null, "updates-card": null, "comfort-updates-card": null,
+  /* DG-187: what is pinned shows at Regular, as the sample's list does; only choosing a setting to pin is Advanced. */
+  "pins-form": "#pins-list",
 };
 for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: true });
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
