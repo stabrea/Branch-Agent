@@ -1,6 +1,6 @@
 /* Q45: the window's own choices (which side list, the folded panes and groups, the side pane's tab,
-   Focus view, the one-time lines already shown, and the side list's names, pins and hidden rows for
-   conversations) are kept by Branch in its data folder, through
+   the side list's and side panel's widths, Focus view, the one-time lines already shown, and the side
+   list's names, pins and hidden rows for conversations) are kept by Branch in its data folder, through
    /api/ui-preferences, and read here before the parts that use them draw. Browser storage belongs to
    the page's address, and the desktop app picks a new port each time it starts, so a choice kept only
    there came back as the default after an update.
@@ -9,7 +9,9 @@
    same address finds what was chosen, and a window the engine cannot answer (not signed in yet) still
    has something. What the engine holds always wins over the copy. The first time, whatever an older
    version left in this page's storage and the engine does not hold yet is handed to the engine, which
-   only fills empty fields (src/ui-preferences.ts), so nothing already saved is ever overwritten.
+   only fills empty fields and adds older entries to lists and labels (src/ui-preferences.ts), so nothing
+   already saved is ever overwritten, and a choice made before the import never loses an older one.
+   An update or a restart first waits, a few seconds at most, for the choices made so far (choicesSettled).
 
    Signing in, or switching to another person, reads the engine again; the parts that use a choice hear
    "branch-ui-prefs" with the choices that changed and show them, without saving anything back. */
@@ -39,6 +41,23 @@ const group = (name) => ({
   field: `${name}Open`, ...openClosed,
   copyKey: () => `branch-group-${name}` + (local.get("branch-owner") ? "::" + local.get("branch-owner") : ""),
 });
+/* How wide the side list and side panel were dragged (public/panels.js): older versions kept this per person at
+   this address; only the owner's is brought over. A width outside what the window allows is brought to its edge. */
+const WIDTH_RANGES = { rail: [200, 440], aside: [260, 640] };
+const paneWidths = {
+  field: "paneWidths",
+  read: (s) => {
+    let parsed;
+    try { parsed = JSON.parse(s ?? "null"); } catch { return undefined; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const kept = {};
+    for (const [pane, [min, max]] of Object.entries(WIDTH_RANGES))
+      if (Number.isFinite(parsed[pane])) kept[pane] = Math.round(Math.max(min, Math.min(max, parsed[pane])));
+    return Object.keys(kept).length ? kept : undefined;
+  },
+  write: (v) => JSON.stringify(v),
+  copyKey: () => `branch-pane-widths:${local.get("branch-owner") || "owner"}:owner`,
+};
 /** Each choice: its field in the engine, and the browser-storage key and wording older versions used. */
 const FIELDS = {
   "branch-rail-view": { field: "railView", read: (s) => (s === "trunks" || s === "conversations" ? s : undefined), write: (v) => v },
@@ -55,6 +74,7 @@ const FIELDS = {
   "branch-pet-hint-at": { field: "petHintAt", ...stamp },
   "branch-pet-tips-seen": { field: "petTipsSeen", ...list(/^[A-Za-z0-9._-]{1,80}$/) },
   "branch-save-progress-asked": { field: "saveProgressAsked", ...list(/^[^\u0000-\u001f\u007f]{1,200}$/) },
+  "branch-pane-widths": paneWidths,
 };
 const copyKey = (key) => FIELDS[key]?.copyKey?.() ?? key;
 const copyOf = (key) => local.get(copyKey(key)) ?? (copyKey(key) === key ? null : local.get(key));
@@ -63,13 +83,31 @@ const copyOf = (key) => local.get(copyKey(key)) ?? (copyKey(key) === key ? null 
 const MARKS = "branch-conversations";
 const MARK_COPIES = { names: "branch-names", pinned: "branch-pins", buried: "branch-buried" };
 const noMarks = () => ({ names: {}, pinned: [], buried: [] });
+/* The engine's checks and caps (src/conversation-marks.ts), so the import never offers more than it can take:
+   an older version kept these lists without a cap. The newest entries are the ones kept. */
+const MARK_CAPS = { names: 500, pinned: 200, buried: 1000 };
+const markId = (id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(id);
+const markName = (name) => (typeof name === "string" && /^[^\u0000-\u001f\u007f]{1,120}$/.test(name.trim()) ? name.trim() : null);
+const markIds = (list, cap) => {
+  const kept = [];
+  for (const id of Array.isArray(list) ? list : []) if (markId(id) && !kept.includes(id)) kept.push(id);
+  return kept.slice(-cap);
+};
 function marksCopy() {
   const parse = (key) => { try { return JSON.parse(local.get(key) ?? "null"); } catch { return null; } };
   const names = parse(MARK_COPIES.names), pinned = parse(MARK_COPIES.pinned), buried = parse(MARK_COPIES.buried);
+  const named = names && typeof names === "object" && !Array.isArray(names)
+    ? Object.entries(names).filter(([id, name]) => markId(id) && markName(name)).map(([id, name]) => [id, markName(name)]) : [];
   return {
-    names: names && typeof names === "object" && !Array.isArray(names) ? names : {},
-    pinned: Array.isArray(pinned) ? pinned : [], buried: Array.isArray(buried) ? buried : [],
+    names: Object.fromEntries(named.slice(-MARK_CAPS.names)),
+    pinned: markIds(pinned, MARK_CAPS.pinned), buried: markIds(buried, MARK_CAPS.buried),
   };
+}
+/** This page's older labels merged with the engine's, as the import will merge them (src/conversation-marks.ts). */
+function mergedMarks(older, now) {
+  const merge = (list) => [...older[list].filter((id) => !now[list].includes(id)), ...now[list]].slice(-MARK_CAPS[list]);
+  const names = [...Object.entries(older.names).filter(([id]) => !(id in now.names)), ...Object.entries(now.names)];
+  return { names: Object.fromEntries(names.slice(-MARK_CAPS.names)), pinned: merge("pinned"), buried: merge("buried") };
 }
 const someMarks = (marks) => Boolean(Object.keys(marks.names).length || marks.pinned.length || marks.buried.length);
 
@@ -100,9 +138,11 @@ async function call(path, body, wait = 4000) {
 /** What an older version left in this page's storage that the engine does not hold yet. */
 function unsaved(values) {
   const offered = {};
-  for (const [key, { field, read }] of Object.entries(FIELDS)) {
+  for (const [key, { field, read, list }] of Object.entries(FIELDS)) {
     const value = read(copyOf(key));
-    if (value !== undefined && values[field] === undefined) offered[field] = value;
+    /* A list's older entries are offered even when the engine holds some: the engine adds the ones it lacks. */
+    if (value !== undefined && (values[field] === undefined || (list && value.some((one) => !values[field].includes(one)))))
+      offered[field] = value;
   }
   return offered;
 }
@@ -134,21 +174,29 @@ function keepMarkCopies(marks) {
 }
 function keepCopies() {
   if (!engine?.forOwner) return;
-  for (const [key, { field, write }] of Object.entries(FIELDS))
-    if (engine.values[field] !== undefined) local.set(copyKey(key), write(engine.values[field]));
-  if (someMarks(engine.conversations)) keepMarkCopies(engine.conversations);
+  /* Until the import is written down, a list's copy and the labels' copies still hold older entries the import
+     will bring, so they are left as they are rather than written over with the engine's. */
+  const importing = copyCounts();
+  for (const [key, { field, write, list }] of Object.entries(FIELDS))
+    if (engine.values[field] !== undefined && !(list && importing)) local.set(copyKey(key), write(engine.values[field]));
+  if (someMarks(engine.conversations) && !importing) keepMarkCopies(engine.conversations);
 }
 
 /** A choice, in the words older versions stored it in: the engine's if it holds one, else this page's copy while that still counts. */
 export function choice(key) {
   const known = FIELDS[key];
   const value = known && engine ? engine.values[known.field] : undefined;
+  /* Before the import is written down, a list shows this page's older entries too, as the import will keep them. */
+  if (value !== undefined && known.list && copyCounts()) {
+    const older = known.read(copyOf(key)) ?? [];
+    return known.write([...older.filter((one) => !value.includes(one)), ...value].slice(-50));
+  }
   if (value !== undefined) return known.write(value);
   return !known || copyCounts() ? copyOf(key) : null;
 }
 function marksNow() {
-  if (engine && (someMarks(engine.conversations) || !copyCounts())) return engine.conversations;
-  return copyCounts() ? marksCopy() : noMarks();
+  if (!engine) return copyCounts() ? marksCopy() : noMarks();
+  return copyCounts() ? mergedMarks(marksCopy(), engine.conversations) : engine.conversations;
 }
 /** The side list's labels: { names: Map, pinned: Set, buried: Set }, the engine's, or this page's copy while that still counts. */
 export function conversationMarks() {
@@ -226,6 +274,21 @@ export function markConversation(id, change) {
 }
 /** Settles once every choice made so far has been answered, for whatever waits before a restart. */
 export function choicesSaved() { return pending ? queue : Promise.resolve(); }
+/** How long an update or a restart waits for the choices made so far to be answered, at most. */
+export const HANDOVER_WAIT = 4000;
+/**
+ * What an update or a restart waits for before it hands over (Q45): every choice made so far answered by the
+ * engine, or `bound` milliseconds, whichever comes first, so an engine that has stopped answering never holds
+ * an update back. True when every choice was answered.
+ */
+export function choicesSettled(bound = HANDOVER_WAIT) {
+  if (!pending) return Promise.resolve(true);
+  let timer;
+  const late = new Promise((done) => { timer = setTimeout(() => done(false), bound); });
+  return Promise.race([choicesSaved().then(() => true), late]).finally(() => clearTimeout(timer));
+}
+/* app.js and comfort.js start an update without importing this module, which reads the engine before it runs. */
+globalThis.branchChoicesSettled = choicesSettled;
 
 /* Signing in (a plain browser tab answered 401 at start) or switching person: read the engine again and
    tell the parts that use a choice which ones changed. Only the newest read lands. */

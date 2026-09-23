@@ -6,9 +6,11 @@
 
    The side list and the side panel can be dragged wider or narrower, as in the Claude desktop app:
    drag the edge, double-click it to go back to normal, or focus it and use the arrow keys (Enter folds it).
-   Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only. */
+   Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept with the window's other choices, by the
+   engine, for whoever is using the window (Q45, public/ui-prefs.js), so they survive an update. */
 import { api, displayView } from "/app.js";
 import { t, formatDate } from "/i18n.js";
+import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -22,10 +24,6 @@ function make(tag, className, text) {
   if (text !== undefined) node.textContent = text;
   return node;
 }
-const store = {
-  get: (key) => { try { return localStorage.getItem(key); } catch { return null; } },
-  set: (key, value) => { try { value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch { /* a private window forgets */ } },
-};
 
 /* ---------- Browser and Terminal ---------- */
 const STATES = {
@@ -193,15 +191,15 @@ const RZ = {
   rail: { v: "--rail-w", min: 200, max: 440, snap: 150, label: ["panels.rz.rail", "Side list width"], toggle: "rail-toggle", fold: "no-rail", wide: 861 },
   aside: { v: "--aside-w", min: 260, max: 640, snap: 200, label: ["panels.rz.aside", "Side panel width"], toggle: "aside-toggle", wide: 1181 },
 };
-/* Kept per workspace and per person at this window: a household person's widths are their own. */
-const widthsKey = (household = root.dataset.household === "on") =>
-  `${WIDTHS}:${store.get("branch-owner") || "owner"}:${household ? "household" : "owner"}`;
+/* Kept per person by the engine (paneWidths, src/ui-preferences.ts): a household person's widths are their own.
+   Not per device yet: the design asks geometry to be per device too (Q45-PREFERENCES-DESIGN.md), and Branch has
+   no name for a computer's window to keep it by, so a person's widths follow them to every wide window. */
 let widths = {};
-function loadWidths(owner) {
-  const household = owner === false ? true : owner === true ? false : undefined;
-  try { widths = JSON.parse(store.get(widthsKey(household)) || "{}") || {}; } catch { widths = {}; }
+function loadWidths() {
+  try { widths = JSON.parse(choice(WIDTHS) || "{}") || {}; } catch { widths = {}; }
   applyWidths();
 }
+const saveWidths = () => keepChoice(WIDTHS, Object.keys(widths).length ? JSON.stringify(widths) : null);
 const keys = () => (mac ? "Cmd+B" : "Ctrl+B");
 const tip = () => say("panels.rz.tip", "Drag to resize · Double-click to reset · {keys} hides the side list", { keys: keys() });
 const widthOf = (k) => widths[k] ?? (parseFloat(getComputedStyle(root).getPropertyValue(RZ[k].v)) || 280);
@@ -216,11 +214,11 @@ function setWidth(k, px, save = true) {
   const c = RZ[k];
   widths[k] = Math.round(Math.max(c.min, Math.min(c.max, px)));
   applyWidths();
-  if (save) store.set(widthsKey(), JSON.stringify(widths));
+  if (save) saveWidths();
 }
 function resetWidth(k) {
   delete widths[k];
-  store.set(widthsKey(), Object.keys(widths).length ? JSON.stringify(widths) : null);
+  saveWidths();
   applyWidths();
 }
 const paneEl = (k) => (k === "rail" ? $("conversation-rail") : $("context-panel"));
@@ -284,7 +282,7 @@ function endDrag() {
   root.classList.remove("panels-resizing");
   handle.classList.remove("panels-will-fold");
   if (fold) return foldPane(k);
-  store.set(widthsKey(), JSON.stringify(widths));
+  saveWidths();
 }
 function foldPane(k) {
   $(RZ[k].toggle)?.click();
@@ -330,7 +328,8 @@ function watchPanes() {
   document.addEventListener("transitionend", again);
   const railToggle = $("rail-toggle");
   if (railToggle) railToggle.title = say("panels.railToggle", "Hide or show the side list ({keys})", { keys: keys() });
-  document.addEventListener("branch-profile", (event) => loadWidths(event.detail?.owner));
+  /* Signing in or switching person reads the engine again (public/ui-prefs.js), which says when the widths changed. */
+  document.addEventListener("branch-ui-prefs", (event) => { if (event.detail?.keys?.includes(WIDTHS)) loadWidths(); });
   loadWidths();
 }
 

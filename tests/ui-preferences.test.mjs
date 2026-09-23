@@ -14,6 +14,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { importUiPreferences, patchUiPreferences, readUiPreferences, uiPreferencesApi, LEGACY_IMPORT, LIST_CAP } from "../dist/ui-preferences.js";
+import { MARK_CAPS, readConversationMarks } from "../dist/conversation-marks.js";
 
 /** A fresh engine in a throwaway folder, closed before the folder is removed. */
 async function freshBranch(t) {
@@ -420,5 +421,196 @@ test("a choice made while the engine is read after signing in is not undone by t
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(async () => (await import("/ui-prefs.js")).choice("branch-aside")), "closed", "the window still shows it");
   await waitFor(() => saved(server).then((kept) => kept.values.asideOpen === false), "and the engine has it");
+  assert.deepEqual(errors, []);
+});
+
+test("a wrong method is answered 405, and the import takes every label at its cap", async (t) => {
+  const { server, app } = await freshWindowSetup(t);
+  const owner = app.runtime.owner;
+  const put = await fetch(new URL("/api/ui-preferences", server.url), {
+    method: "PUT", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: "{}",
+  });
+  assert.equal(put.status, 405, "a method the route does not take is not a bad request");
+
+  /* The worst the import can carry: every label at its cap, each name as long as it may be and in the
+     characters JSON writes longest (a lone surrogate is six bytes), every list full. */
+  const ids = Array.from({ length: MARK_CAPS.buried }, () => app.store.createSession(owner));
+  const names = Object.fromEntries(ids.slice(0, MARK_CAPS.names).map((id) => [id, "\ud800".repeat(120)]));
+  const values = {
+    petTipsSeen: Array.from({ length: LIST_CAP }, (_, at) => `delight.tip.${"n".repeat(60)}${at}`),
+    saveProgressAsked: Array.from({ length: LIST_CAP }, (_, at) => `${at}|` + "\udc00".repeat(195)),
+  };
+  const body = { name: LEGACY_IMPORT, values, conversations: { names, pinned: ids.slice(0, MARK_CAPS.pinned), buried: ids } };
+  assert.ok(Buffer.byteLength(JSON.stringify(body)) > 450 * 1024, "the body really is that large");
+  const imported = await post(server, "/api/ui-preferences/import", body);
+  assert.equal(imported.status, 200, `the import is taken (${imported.status})`);
+  const kept = (await imported.json()).conversations;
+  assert.deepEqual([Object.keys(kept.names).length, kept.pinned.length, kept.buried.length], [MARK_CAPS.names, MARK_CAPS.pinned, MARK_CAPS.buried]);
+  assert.equal(readUiPreferences(app.store, owner).values.saveProgressAsked.length, LIST_CAP);
+  assert.equal(readConversationMarks(app.store, owner).buried.length, MARK_CAPS.buried, "and the engine keeps it");
+});
+
+test("a label or list entry made before the import keeps the older ones, merged and capped", async (t) => {
+  const app = await freshBranch(t);
+  const owner = app.runtime.owner;
+  const [a, b, c] = [app.store.createSession(owner), app.store.createSession(owner), app.store.createSession(owner)];
+  const api = (path, body) => uiPreferencesApi({ store: app.store, owner, isOwner: true }, "POST", path, async () => body);
+  await api("/api/ui-preferences", { mark: { id: a, pinned: true, name: "Made here" } });
+  await api("/api/ui-preferences", { add: { petTipsSeen: ["delight.tip.mode"] } });
+
+  const imported = await api("/api/ui-preferences/import", { name: LEGACY_IMPORT, values: { petTipsSeen: ["delight.tip.palette", "delight.tip.mode"] },
+    conversations: { names: { [a]: "Older", [b]: "Kept" }, pinned: [b, c, a], buried: [c] } });
+  assert.deepEqual(imported.conversations, { names: { [b]: "Kept", [a]: "Made here" }, pinned: [b, c, a], buried: [c] },
+    "the older labels join the one made here, and a name chosen here wins");
+  assert.deepEqual(imported.values.petTipsSeen, ["delight.tip.palette", "delight.tip.mode"], "a list gets the entries it lacked");
+
+  /* The caps still hold, and what was made here is what stays. */
+  const full = await freshBranch(t);
+  const fullOwner = full.runtime.owner;
+  const many = Array.from({ length: MARK_CAPS.pinned + 5 }, () => full.store.createSession(fullOwner));
+  const fullApi = (path, body) => uiPreferencesApi({ store: full.store, owner: fullOwner, isOwner: true }, "POST", path, async () => body);
+  await fullApi("/api/ui-preferences", { mark: { id: many[0], pinned: true } });
+  const capped = await fullApi("/api/ui-preferences/import", { name: LEGACY_IMPORT, values: {}, conversations: { pinned: many.slice(1) } });
+  assert.equal(capped.conversations.pinned.length, MARK_CAPS.pinned);
+  assert.equal(capped.conversations.pinned.at(-1), many[0], "the pin made here is the newest");
+});
+
+test("labels and list entries left by an older version join the ones made before the import finished", async (t) => {
+  const { browser, server, app } = await freshWindowSetup(t);
+  const owner = app.runtime.owner;
+  const [older, newer] = [app.store.createSession(owner), app.store.createSession(owner)];
+  /* A pin and a tip made by this version, before its import could finish (it failed, or timed out). */
+  assert.equal((await post(server, "/api/ui-preferences", { mark: { id: newer, pinned: true } })).status, 200);
+  assert.equal((await post(server, "/api/ui-preferences", { add: { petTipsSeen: ["delight.tip.mode"] } })).status, 200);
+  const { errors, imports } = await openWindow(browser, server, {
+    "branch-pins": JSON.stringify([older]),
+    "branch-pet-tips-seen": JSON.stringify(["delight.tip.palette"]),
+  });
+  await waitFor(() => Promise.resolve(imports.length > 0), "the import runs");
+  assert.deepEqual(imports, [200]);
+  const kept = await saved(server);
+  assert.deepEqual(kept.conversations.pinned, [older, newer], "the older pin is brought, not written over");
+  assert.deepEqual(kept.values.petTipsSeen, ["delight.tip.palette", "delight.tip.mode"], "and so is the older tip");
+  assert.deepEqual(errors, []);
+});
+
+test("an older version's labels longer than the caps are still imported, the newest kept", async (t) => {
+  const { browser, server, app } = await freshWindowSetup(t);
+  const owner = app.runtime.owner;
+  const mine = [app.store.createSession(owner), app.store.createSession(owner)];
+  /* An older version kept hidden rows without a cap: far more than the engine keeps, and than one body takes. */
+  const buried = [...Array.from({ length: 25000 }, (_, at) => `gone-${String(at).padStart(30, "0")}`), ...mine];
+  const { errors, imports } = await openWindow(browser, server, { "branch-buried": JSON.stringify(buried) });
+  await waitFor(() => Promise.resolve(imports.length > 0), "the import runs");
+  assert.deepEqual(imports, [200], "the import is taken, not refused as too large");
+  assert.deepEqual((await saved(server)).conversations.buried, mine, "the person's own hidden rows are kept");
+  assert.deepEqual(errors, []);
+});
+
+test("the side list's and side panel's widths are kept by the engine, per person, and come back at a new address", async (t) => {
+  const { browser, server, app } = await freshWindowSetup(t);
+  const owner = app.runtime.owner;
+  assert.throws(() => patchUiPreferences(app.store, owner, { set: { paneWidths: { rail: 9000 } } }), "a width outside the range is refused");
+  assert.throws(() => patchUiPreferences(app.store, owner, { set: { paneWidths: { rail: 300, height: 5 } } }), "only the two panes");
+  /* An older version kept the owner's widths in this page's storage; one beyond the range comes in at its edge. */
+  const { page, errors, imports } = await openWindow(browser, server, { "branch-pane-widths:owner:owner": JSON.stringify({ rail: 999, aside: 300 }) });
+  await waitFor(() => Promise.resolve(imports.length > 0), "the import runs");
+  assert.deepEqual((await saved(server)).values.paneWidths, { rail: 440, aside: 300 });
+  const rail = page.locator('.panels-rz[data-rz="rail"]');
+  await rail.focus();
+  await page.keyboard.press("ArrowLeft");
+  await waitFor(() => saved(server).then((kept) => kept.values.paneWidths?.rail === 424), "a new width is saved to the engine");
+  await rail.dblclick();
+  await waitFor(() => saved(server).then((kept) => kept.values.paneWidths?.rail === undefined), "going back to normal is saved too");
+  await rail.focus();
+  await page.keyboard.press("End");
+  await waitFor(() => saved(server).then((kept) => kept.values.paneWidths?.rail === 440), "the widest is saved");
+
+  /* A new address, with nothing in its storage, shows the engine's widths. */
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addInitScript((token) => sessionStorage.setItem("branch-token", token), server.token);
+  const fresh = await context.newPage();
+  await fresh.goto(server.url);
+  await fresh.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await fresh.waitForFunction(() => globalThis.branchPanels);
+  assert.equal(await fresh.evaluate(() => document.documentElement.style.getPropertyValue("--rail-w")), "440px");
+  await context.close();
+
+  /* A household person's widths are their own, and switching back brings the owner's. */
+  const sam = await (await post(server, "/api/profiles", { name: "Sam", pin: "2468" })).json();
+  await switchTo(page, sam.id, "2468");
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue("--rail-w") === "", undefined, { timeout: 10000 });
+  await rail.focus();
+  await page.keyboard.press("Home");
+  await waitFor(() => Promise.resolve(readUiPreferences(app.store, `profile:${sam.id}`).values.paneWidths?.rail === 200), "Sam's width is Sam's");
+  assert.equal(readUiPreferences(app.store, owner).values.paneWidths.rail, 440, "the owner's is untouched");
+  await switchTo(page, null);
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue("--rail-w") === "440px", undefined, { timeout: 10000 });
+  assert.deepEqual(errors, []);
+});
+
+/** Stands in for the desktop app's updater and restart, noting what the engine held when each was asked. */
+const fakeDesktop = (page) => page.evaluate(() => {
+  const token = sessionStorage.getItem("branch-token");
+  const heldThen = () => fetch("/api/ui-preferences", { headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+  globalThis.handovers = [];
+  globalThis.branchDesktop = {
+    updateStatus: async () => ({ phase: "idle", message: "", progress: null, release: null }),
+    installUpdate: async () => {
+      const at = performance.now();
+      globalThis.handovers.push({ what: "update", at, asideOpen: (await heldThen()).values.asideOpen });
+      return { phase: "idle", message: "", progress: null, release: null };
+    },
+    restartBranch: async () => {
+      const at = performance.now();
+      globalThis.handovers.push({ what: "restart", at, asideOpen: (await heldThen()).values.asideOpen });
+    },
+  };
+});
+
+test("an update or a restart waits for the choices just made to reach the engine", async (t) => {
+  const { browser, server } = await freshWindowSetup(t);
+  const { page, errors, imports } = await openWindow(browser, server);
+  await waitFor(() => Promise.resolve(imports.length > 0), "the import is written down");
+  await page.route("**/api/ui-preferences", async (route) => {
+    if (route.request().method() === "POST") await new Promise((done) => setTimeout(done, 1500));
+    await route.continue();
+  });
+  await fakeDesktop(page);
+  await page.evaluate(async () => { const { keepChoice } = await import("/ui-prefs.js"); keepChoice("branch-aside", "closed"); });
+  await page.evaluate(() => document.getElementById("updates-install").click());
+  await page.waitForFunction(() => globalThis.handovers.length === 1, undefined, { timeout: 10000 });
+  assert.equal((await page.evaluate(() => globalThis.handovers))[0].asideOpen, false, "the update starts after the choice is saved");
+
+  await page.evaluate(async () => { const { keepChoice } = await import("/ui-prefs.js"); keepChoice("branch-aside", "open"); });
+  await page.evaluate(() => { const button = document.getElementById("lx-restart"); button.disabled = false; button.click(); });
+  await page.waitForFunction(() => globalThis.handovers.length === 2, undefined, { timeout: 10000 });
+  assert.equal((await page.evaluate(() => globalThis.handovers))[1].asideOpen, true, "and so does a restart");
+  assert.deepEqual(errors, []);
+});
+
+test("an engine that never answers a choice does not hold an update back for long", async (t) => {
+  const { browser, server } = await freshWindowSetup(t);
+  const { page, errors, imports } = await openWindow(browser, server);
+  await waitFor(() => Promise.resolve(imports.length > 0), "the import is written down");
+  let release;
+  const held = new Promise((done) => { release = done; });
+  t.after(() => release());
+  await page.route("**/api/ui-preferences", async (route) => {
+    if (route.request().method() === "POST") { await held; return route.abort().catch(() => undefined); }
+    await route.continue();
+  });
+  await fakeDesktop(page);
+  const started = await page.evaluate(async () => {
+    const { keepChoice } = await import("/ui-prefs.js");
+    keepChoice("branch-aside", "closed");
+    const at = performance.now();
+    document.getElementById("updates-install").click();
+    return at;
+  });
+  await page.waitForFunction(() => globalThis.handovers.length === 1, undefined, { timeout: 15000 });
+  const waited = (await page.evaluate(() => globalThis.handovers))[0].at - started;
+  assert.ok(waited >= 3500 && waited < 9000, `the update waited a few seconds, then went ahead (${Math.round(waited)} ms)`);
+  release();
   assert.deepEqual(errors, []);
 });

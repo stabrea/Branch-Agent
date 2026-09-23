@@ -172,7 +172,7 @@ import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
 import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
-import { uiPreferencesApi } from "./ui-preferences.js";
+import { CHANGE_BODY_LIMIT, IMPORT_BODY_LIMIT, uiPreferencesApi } from "./ui-preferences.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
@@ -1305,7 +1305,9 @@ async function api(
   // under whoever is using the window (profiles.scope(): the owner's name, or a household person's own).
   if (path === "/api/ui-preferences" || path === "/api/ui-preferences/import")
     return uiPreferencesApi({ store: app.store, owner: app.store.profiles.scope(), isOwner: app.store.profiles.isOwner() },
-      request.method ?? "GET", path, () => readBody(request, 16 * 1024));
+      request.method ?? "GET", path,
+      /* Sized from the record's own caps: the import can carry every label at its cap (src/ui-preferences.ts). */
+      () => readBody(request, path === "/api/ui-preferences/import" ? IMPORT_BODY_LIMIT : CHANGE_BODY_LIMIT));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);

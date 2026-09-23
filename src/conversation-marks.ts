@@ -12,8 +12,11 @@ import type { Store } from "./store.js";
 
 const RECORD_ID = "conversation-marks";
 export const MARK_CAPS = { names: 500, pinned: 200, buried: 1000 } as const;
-const SessionId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
-const Name = z.string().trim().min(1).max(120).regex(/^[^\u0000-\u001f\u007f]+$/);
+/** The longest conversation id (letters, digits, - and _ only) and the longest chosen name, in UTF-16 units. */
+export const MARK_ID_MAX = 100;
+export const MARK_NAME_MAX = 120;
+const SessionId = z.string().regex(new RegExp(`^[A-Za-z0-9_-]{1,${MARK_ID_MAX}}$`));
+const Name = z.string().trim().min(1).max(MARK_NAME_MAX).regex(/^[^\u0000-\u001f\u007f]+$/);
 
 export interface ConversationMarks {
   /** A name chosen for a conversation, by its id. */
@@ -80,15 +83,19 @@ export function markConversation(store: Store, owner: string, input: unknown): C
 }
 
 /**
- * The one-time import of what an older version kept in this page's storage: it fills only a list the
- * engine does not hold yet, and keeps only conversations this person owns, whatever the page offered.
+ * The one-time import of what an older version kept in this page's storage, kept only for conversations
+ * this person owns, whatever the page offered. It is merged into what the engine holds, never dropped
+ * because a label was made here first: an older label is older than any made here, so it goes first
+ * and a name chosen here wins over an older one for the same conversation. The caps then drop the oldest.
  */
 export function importConversationMarks(store: Store, owner: string, offered: unknown): ConversationMarks {
   const current = readConversationMarks(store, owner);
   const incoming = checkedMarks(offered, (id) => store.ownsSession(owner, id));
-  return save(store, owner, {
-    names: Object.keys(current.names).length ? current.names : incoming.names,
-    pinned: current.pinned.length ? current.pinned : incoming.pinned,
-    buried: current.buried.length ? current.buried : incoming.buried,
-  });
+  const older = (list: string[], now: string[]) => [...list.filter((id) => !now.includes(id)), ...now];
+  const names = [...Object.entries(incoming.names).filter(([id]) => !(id in current.names)), ...Object.entries(current.names)];
+  return save(store, owner, checkedMarks({
+    names: Object.fromEntries(names),
+    pinned: older(incoming.pinned, current.pinned),
+    buried: older(incoming.buried, current.buried),
+  }, () => true));
 }

@@ -10,11 +10,13 @@
  * an old value of a field it did not touch. The two lists (tips already shown, questions already
  * asked) only ever grow by the entries a change adds, capped, so two windows adding at once both
  * count. The one-time import of what an older version left in browser storage only fills fields
- * that are still empty: what the engine already holds always wins.
+ * that are still empty, and adds its older entries to the two lists: what the engine already holds
+ * always wins, and a choice made here before the import never makes an older one get lost.
  */
 import { z } from "zod";
 import type { Store } from "./store.js";
-import { importConversationMarks, markConversation, readConversationMarks, type ConversationMarks } from "./conversation-marks.js";
+import { importConversationMarks, markConversation, readConversationMarks, MARK_CAPS, MARK_ID_MAX, MARK_NAME_MAX, type ConversationMarks } from "./conversation-marks.js";
+import { HttpError } from "./server-http.js";
 
 const RECORD_ID = "ui-preferences";
 /** The import from browser storage this version understands; a later one gets its own name. */
@@ -24,10 +26,13 @@ export const LIST_CAP = 50;
 
 /** When something was last seen, in milliseconds since 1970: never before then, never absurdly late. */
 const Stamp = z.number().int().nonnegative().max(8_640_000_000_000_000);
+/** The longest entry of each list, in UTF-16 units. */
+const TIP_MAX = 80;
+const ASKED_MAX = 200;
 /** A tip's name, as the page's words name it (delight.tip.palette). */
-const TipId = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/);
+const TipId = z.string().regex(new RegExp(`^[A-Za-z0-9._-]{1,${TIP_MAX}}$`));
 /** A usage window's name (connection|account|window|refill): bounded, and no control characters. */
-const AskedKey = z.string().min(1).max(200).regex(/^[^\u0000-\u001f\u007f]+$/);
+const AskedKey = z.string().min(1).max(ASKED_MAX).regex(/^[^\u0000-\u001f\u007f]+$/);
 const LIST_ITEMS = { petTipsSeen: TipId, saveProgressAsked: AskedKey } as const;
 type ListName = keyof typeof LIST_ITEMS;
 const LISTS = Object.keys(LIST_ITEMS) as ListName[];
@@ -53,6 +58,15 @@ export const UiPreferenceFieldsSchema = z.object({
   petHintAt: Stamp,
   petTipsSeen: z.array(TipId).max(LIST_CAP),
   saveProgressAsked: z.array(AskedKey).max(LIST_CAP),
+  /**
+   * How wide the side list and the side panel were dragged, in CSS pixels (public/panels.js), within the
+   * ranges the window allows. Kept per person like every other choice here, not per device yet: the
+   * design asks geometry to be per device too, and Branch has no name for a computer's window to key it by.
+   */
+  paneWidths: z.object({
+    rail: z.number().int().min(200).max(440).optional(),
+    aside: z.number().int().min(260).max(640).optional(),
+  }).strict(),
 });
 export type UiPreferenceFields = z.infer<typeof UiPreferenceFieldsSchema>;
 export type UiPreferenceName = keyof UiPreferenceFields;
@@ -149,16 +163,37 @@ export function importUiPreferences(store: Store, owner: string, isOwner: boolea
   const current = readUiPreferences(store, owner);
   if (!isOwner) return { ...current, filled: [] };
   const incoming = checked(offered);
-  const filled = NAMES.filter((field) => incoming[field] !== undefined && current.values[field] === undefined);
+  /* A list is merged, never dropped because an entry was added here first: the older entries go first. */
+  const merged = (field: ListName): string[] => {
+    const now = current.values[field] ?? [];
+    return checkedList(field, [...(incoming[field] ?? []).filter((entry) => !now.includes(entry)), ...now]) ?? [];
+  };
+  const isList = (field: UiPreferenceName): field is ListName => (LISTS as string[]).includes(field);
+  const filled = NAMES.filter((field) => incoming[field] !== undefined && (current.values[field] === undefined
+    || (isList(field) && JSON.stringify(merged(field)) !== JSON.stringify(current.values[field]))));
   if (!filled.length && current.imports[name]) return { ...current, filled };
   const values: Record<string, unknown> = { ...current.values };
-  for (const field of filled) values[field] = incoming[field];
+  for (const field of filled) values[field] = isList(field) ? merged(field) : incoming[field];
   const imports = current.imports[name] ? current.imports : { ...current.imports, [name]: now.toISOString() };
   const next = write(store, owner, {
     revision: current.revision + (filled.length ? 1 : 0), values: values as Partial<UiPreferenceFields>, imports,
   });
   return { ...next, filled };
 }
+
+/** The most bytes one string of up to `units` UTF-16 units takes as JSON, with its quotes: a lone surrogate is written \udXXX. */
+const jsonBytes = (units: number) => 2 + 6 * units;
+/** The same for a string of plain letters and digits. */
+const plainBytes = (units: number) => 2 + units;
+const LIST_BYTES = 64 + LIST_CAP * (plainBytes(TIP_MAX) + 1) + 64 + LIST_CAP * (jsonBytes(ASKED_MAX) + 1);
+const SCALAR_BYTES = 128 * SCALARS.length;
+const NAME_BYTES = plainBytes(MARK_ID_MAX) + 1 + jsonBytes(MARK_NAME_MAX) + 1;
+const MARK_BYTES = 64 + MARK_CAPS.names * NAME_BYTES + (MARK_CAPS.pinned + MARK_CAPS.buried) * (plainBytes(MARK_ID_MAX) + 1);
+const withMargin = (bytes: number) => Math.ceil((bytes + 256) * 1.1 / 1024) * 1024;
+/** The largest body a change can need: every field, the most entries a list takes at once, and one label. */
+export const CHANGE_BODY_LIMIT = withMargin(SCALAR_BYTES + LIST_BYTES + NAME_BYTES);
+/** The largest body the one-time import can need: every field, full lists, and every label at its cap. */
+export const IMPORT_BODY_LIMIT = withMargin(SCALAR_BYTES + LIST_BYTES + MARK_BYTES);
 
 /** A request body as named parts, so the conversation labels can be taken out of it; anything else is left for the schema to refuse. */
 const parts = (input: unknown): Record<string, unknown> =>
@@ -190,7 +225,7 @@ export async function uiPreferencesApi(
       if (isOwner && !before && conversations !== undefined) importConversationMarks(store, owner, conversations);
       return imported;
     }
-    throw Object.assign(new Error("Use GET or POST"), { status: 405 });
+    throw new HttpError(405, "Use GET or POST");
   };
   const result = await answer();
   return { ...result, conversations: readConversationMarks(store, owner), forOwner: isOwner };

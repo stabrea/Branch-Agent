@@ -1068,6 +1068,7 @@ $("updates-check").addEventListener("click", async () => {
 $("updates-install").addEventListener("click", async () => {
   try {
     window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
+    await globalThis.branchChoicesSettled?.(); // Q45: the choices just made reach the engine first (public/ui-prefs.js)
     showUpdateStatus(await window.branchDesktop.installUpdate());
   } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
 });

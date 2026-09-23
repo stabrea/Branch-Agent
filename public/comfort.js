@@ -490,7 +490,10 @@ async function autoUpdate() {
       plan = await api("comfort/update-plan", { updaterPhase: status?.phase, checked: true });
     }
     // The same path as the Update button: checksum, a try on a copy of your work, a safety copy.
-    if (plan.step === "install") await desktop.installUpdate();
+    if (plan.step === "install") {
+      await globalThis.branchChoicesSettled?.(); // Q45: the choices just made reach the engine first (public/ui-prefs.js)
+      await desktop.installUpdate();
+    }
     else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
   finally {

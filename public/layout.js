@@ -16,7 +16,7 @@ import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-b
 import { paint as paintGrove, seasonToday } from "/grove.js";
 import { popover } from "/popover.js";
 import { installGrownComposer } from "/composer-grown.js";
-import { choice, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
+import { choice, choicesSettled, keepChoice } from "/ui-prefs.js"; // Q45: kept by the engine, not this page's address
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -1441,6 +1441,7 @@ async function checkServer() {
 /** The desktop app starts Branch again for real (src/desktop/restart-ipc.ts); a browser can only load the page again. */
 async function restartBranch() {
   $("lx-restart").disabled = true;
+  await choicesSettled(); // Q45: the choices just made reach the engine first, a few seconds at most
   try {
     if (globalThis.branchDesktop?.restartBranch) return void await globalThis.branchDesktop.restartBranch();
   } catch { /* the page is loaded again below */ }
