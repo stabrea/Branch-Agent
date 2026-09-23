@@ -2,13 +2,14 @@
  * The code editor (A0098), in the side pane's Files tab, and its switch in Settings → Advanced.
  * A folder list, a plain text editor with line numbers, and one Save. Saving goes through the
  * assistant's own file tool, so the bytes before are kept and the change can be put back; a file
- * that changed since it was opened is not overwritten. Off by default.
+ * changed since it was opened is merged in when the two edits touch different lines, and only a
+ * real conflict is refused. Off by default.
  */
 import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const token = () => sessionStorage.getItem("branch-token") || "";
-const state = { folder: ".", path: "", opened: null, dirty: false, readOnly: false };
+const state = { folder: ".", path: "", opened: null, base: "", dirty: false, readOnly: false };
 
 async function call(path, body) {
   const response = await fetch(`/api/workspace-editor/${path}`, {
@@ -53,7 +54,7 @@ async function open(path) {
   if (state.dirty && !confirm(t("wsedit.discard"))) return;
   try {
     const file = await call(`read?path=${encodeURIComponent(path)}`);
-    Object.assign(state, { path: file.path, opened: file.opened, dirty: false, readOnly: file.readOnly });
+    Object.assign(state, { path: file.path, opened: file.opened, base: file.content, dirty: false, readOnly: file.readOnly });
     $("wsedit-text").value = file.content;
     $("wsedit-text").readOnly = file.readOnly;
     $("wsedit-path").textContent = file.path;
@@ -69,10 +70,12 @@ async function open(path) {
 async function save() {
   if (!state.path || state.readOnly) return;
   try {
-    const saved = await call("save", { path: state.path, content: $("wsedit-text").value, opened: state.opened });
-    Object.assign(state, { opened: saved.opened, dirty: false });
+    const content = $("wsedit-text").value;
+    const saved = await call("save", { path: state.path, content, opened: state.opened, base: state.base });
+    if (saved.merged) $("wsedit-text").value = saved.content;
+    Object.assign(state, { opened: saved.opened, base: saved.merged ? saved.content : content, dirty: false });
     refresh();
-    say(t("wsedit.saved"));
+    say(saved.merged ? t("wsedit.merged") : t("wsedit.saved"));
   } catch (error) {
     say(error.message);
   }
