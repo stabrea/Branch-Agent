@@ -6,6 +6,7 @@ import type { Store } from "../store.js";
 import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./catalogue.js";
 import { applyWithPins, changesFor, currentValue, type Change, type Proposal, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
+import type { ChangeOrigin } from "./history.js";
 
 /**
  * Changing Branch's own settings by asking for it: "turn the wake word on", "switch off the learning
@@ -135,6 +136,12 @@ function plan(store: Store, owner: string, input: ChangeInput): Planned {
   return { changes: checked.changes, refused: [...refused, ...checked.refused] };
 }
 
+/** Q48: a change asked for in a conversation is written down with the conversation it came from. */
+function talked(store: Store, context: ToolContext): ChangeOrigin {
+  const sessionId = context.runId ? store.run(context.runId)?.sessionId : undefined;
+  return { writer: "conversation", source: "talk", detail: "asked for in a conversation", runId: context.runId, sessionId };
+}
+
 const said = (change: Change): string => `${change.name}, ${change.label}: ${String(change.from)} → ${String(change.to)}`;
 
 /**
@@ -161,7 +168,7 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
     const { applied, skipped } = applyWithPins(store, context.owner, changes, {
       accept: changes.map((change) => change.id), confirmLoosening: loosen, why: "asked for in a conversation",
       // A pinned setting stays as the owner fixed it: only the owner, moving the switch by hand, changes it.
-      pinnedAllowed: false, writers: writers() });
+      pinnedAllowed: false, writers: writers(), record: talked(store, context) });
     return { changed: applied.map(said), skipped, refused };
   };
 }
