@@ -99,15 +99,15 @@ test("R17-S05: which file does what, and changing one without leaving the window
   await card.scrollIntoViewIfNeeded();
   assert.equal(await card.locator(".agent-file").count(), 8);
   const soul = card.locator(".agent-file", { hasText: "SOUL.md" });
-  assert.match(await soul.textContent(), /Its character/);
+  assert.match(await soul.textContent(), /Who your assistant is: personality, tone and boundaries/);
   assert.match(await soul.textContent(), /Not written yet/);
-  await soul.getByRole("button", { name: "Change SOUL.md here" }).click();
+  await soul.getByRole("button", { name: "Edit SOUL.md" }).click();
   await card.getByLabel("What the file says").fill("Speak plainly and briefly.");
   await card.getByRole("button", { name: "Save this file" }).click();
   await card.locator("[role=status]", { hasText: "Saved" }).waitFor();
   assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "Speak plainly and briefly.\n");
   await card.getByRole("button", { name: "Back to all files" }).click();
-  await card.locator(".agent-file", { hasText: "SOUL.md" }).locator("text=Not read: switched off").waitFor();
+  await card.locator(".agent-file", { hasText: "SOUL.md" }).locator(".agent-file-where", { hasText: "Not read: switched off" }).waitFor({ state: "attached" }); // DG-182: shown at Technical
   assert.ok(await noSidewaysScroll(page));
 });
 
