@@ -26,6 +26,7 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerSecondOpinion } from "./second-opinion-tools.js";
 import { registerMemory } from "./memory.js";
+import { registerMemoryHosts } from "./memory-hosts.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
 import { chooseForInjection } from "./memory-layers.js";
@@ -578,6 +579,7 @@ export async function createBranch(options: {
   // guard every other outside address in Branch is checked against.
   memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch);
   registerMemory(registry, store, memory.retrieval, memory.backend);
+  registerMemoryHosts(registry, store); // memory.cross-agent: ingest a host's session log, read it back through another
   offerSelfDevelopment({
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal),
@@ -1992,6 +1994,7 @@ export * from "./learn/index.js";
 export * from "./learn/api.js";
 export * from "./memory-mirror.js";
 export * from "./memory-ephemeral.js";
+export * from "./memory-hosts.js";
 // Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
 // may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
 export * from "./session-tokens.js";

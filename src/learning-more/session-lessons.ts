@@ -46,7 +46,7 @@ const chatBytes = 16 * 1024 * 1024;
 /** Integration review: the most read from one assistant's chats in one look, all files together. */
 export const scanBytes = 256 * 1024 * 1024;
 /** "[hidden key-like value", the start of what the leak guard leaves where it hid something. */
-const hiddenPrefix = hiddenMarker("").split(":")[0]!;
+export const hiddenPrefix = hiddenMarker("").split(":")[0]!;
 const signInName = /(credential|auth\.json|token|secret|\.env|keychain|password)/i;
 const preference = /\b(i (?:really |always |usually |generally )?(?:prefer|like|want|love|hate|dislike|don't like|do not like|don't want|do not want)|always|never|from now on|by default|in general|going forward|stop (?:using|adding|writing))\b/i;
 
@@ -86,7 +86,7 @@ const withoutSummaries = (text: string): string =>
   text.split("\n").filter((line) => !/"isCompactSummary"\s*:\s*true/.test(line)).join("\n");
 
 /** The owner's own messages in one chat file, and a title for it. */
-function ownerWords(source: SessionSource, text: string): { title: string; words: string[] } {
+export function ownerWords(source: SessionSource, text: string): { title: string; words: string[] } {
   if (source === "claude-code") {
     const chat = readClaudeChat(withoutSummaries(text));
     return { title: chat.title, words: chat.messages.filter((m) => m.role === "user").map((m) => withoutTagged(m.content)) };
