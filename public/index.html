@@ -1684,7 +1684,7 @@
             </details>
           </section>
           <section id="health-card" class="card">
-            <h2 data-t="settings.card.health-check">Health check</h2>
+            <h3 class="settings-card-title" data-t="settings.card.health-check">Health check</h3>
             <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
             <label class="check-row"><input type="checkbox" id="health-probe" /> <span data-t="field.also-send-a-tiny-test">Also send a tiny test message to the default model</span></label>
             <button id="health-run" type="button" data-t="action.check-now">Check now</button>
@@ -1732,7 +1732,7 @@
             <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
           </section>
           <section id="developer-card" class="card">
-            <h2 data-t="settings.card.developer">Developer</h2>
+            <h3 class="settings-card-title" data-t="settings.card.developer">Developer</h3>
             <details id="playground">
               <summary data-t="playground.title">Try things out</summary>
               <p class="subtle" data-t="playground.intro">Run one tool on its own, or ask two models the same question. Everything here follows your usual permission settings.</p>
@@ -1742,7 +1742,7 @@
               <button id="play-run" type="button" data-t="playground.run">Run it</button>
               <p id="play-status" class="subtle" role="status"></p>
               <div id="play-result" class="play-result"></div>
-              <h3 data-t="playground.comparePrompt">Ask two models the same thing</h3>
+              <h4 data-t="playground.comparePrompt">Ask two models the same thing</h4>
               <label class="sr-only" for="play-compare-text" data-t="field.ask-two-models-the-same">Ask two models the same thing</label>
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
@@ -1803,12 +1803,12 @@
             </details>
           </section>
           <section id="diagnostics-card" class="card">
-            <h2 data-t="settings.card.diagnostics">Diagnostics</h2>
+            <h3 class="settings-card-title" data-t="settings.card.diagnostics">Diagnostics</h3>
             <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
             <p>If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
             <button id="diagnostics-save" type="button" data-t="action.save-a-diagnostics-folder">Save a diagnostics folder</button>
             <p id="diagnostics-status" class="subtle" aria-live="polite"></p>
-            <h3>Trace files for a tracing viewer</h3>
+            <h4 data-t="settings.card.diagnostics.trace">Trace files for a tracing viewer</h4>
             <p>Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
             <label class="check-row"><input type="checkbox" id="trace-enabled" /> <span data-t="field.write-a-trace-file-for">Write a trace file for every finished task</span></label>
             <label for="trace-folder" data-t="field.folder-for-the-trace-files">Folder for the trace files</label>
@@ -1818,7 +1818,7 @@
           </section>
           <!-- mac7/diagnostics: the activity log (public/activity-log.js). Off unless the owner turns it on. -->
           <section id="activity-log-card" class="card">
-            <h2 data-t="settings.card.activity-log">Activity log</h2>
+            <h3 class="settings-card-title" data-t="settings.card.activity-log">Activity log</h3>
             <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off. When needed keeps warnings and errors only; On keeps everything.</p>
             <label for="activity-log-mode" data-t="field.activity-log-mode">Keep an activity log</label>
             <select id="activity-log-mode" aria-describedby="activity-log-intro">
@@ -1901,7 +1901,7 @@
           <!-- mac7/adapt: getting what a stopped task is missing. Its own card, because it works
                for blockers that have nothing to do with models on this computer. -->
           <section id="adapt-card" class="card">
-            <h2 data-t="settings.card.adapt">Getting what a stopped task is missing</h2>
+            <h3 class="settings-card-title" data-t="settings.card.adapt">Getting what a stopped task is missing</h3>
             <p data-t="settings.adapt.purpose">When a task cannot go on because something is missing, Branch works out what it is, tells you what would fix it and what that costs, and gets it only after you say yes. Then the task carries on from where it stopped.</p>
             <div id="adapt-body"></div>
           </section>

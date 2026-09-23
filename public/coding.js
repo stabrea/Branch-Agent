@@ -181,7 +181,7 @@ async function buildCard() {
   const node = make("section", "card");
   node.id = "coding-card";
   node.dataset.home = "settings:advanced";
-  node.append(make("h2", "", "coding.title", "Coding polish"),
+  node.append(make("h3", "settings-card-title", "coding.title", "Coding polish"),
     make("p", "subtle", "coding.purpose", "Extra help for work on code: tidying and checking files, your own shell, @ mentions, separate copies, checklists, project rules and checks."));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");

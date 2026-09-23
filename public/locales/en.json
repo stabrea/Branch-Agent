@@ -4372,6 +4372,7 @@
   "settings.card.check-your-connections": "Check your connections",
   "settings.card.developer": "Developer",
   "settings.card.diagnostics": "Diagnostics",
+  "settings.card.diagnostics.trace": "Trace files for a tracing viewer",
   "settings.card.dictation": "Speak and see the words",
   "settings.card.flow-yaml": "Flows as files",
   "settings.card.gemini": "Gemini",

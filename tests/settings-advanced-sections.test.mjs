@@ -93,3 +93,17 @@ test("Advanced's section headings and counts are French in French", async (t) =>
   await page.waitForFunction(() => /Avancé/.test(document.querySelector("#lx-page-advanced .sg-more-line:not([hidden]) .sg-more")?.textContent ?? ""));
   assert.deepEqual(errors, []);
 });
+
+test("DG-008: on Advanced only the page title is level two; each card's title sits under its section's", async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+  for (const id of CARDS) await page.locator(`#${id === "settings" ? "adapt-card" : id}`).waitFor({ state: "visible" });
+  const host = page.locator("#lx-page-advanced");
+  assert.deepEqual(await host.locator("h2").evaluateAll((nodes) => nodes.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim())), ["Advanced"]);
+  for (const id of CARDS.filter((id) => id !== "settings").concat("adapt-card"))
+    assert.equal(await page.locator(`#${id} > h3.settings-card-title`).count(), 1, `${id} has one card title at level three`);
+  /* Headings inside a card sit one level below its title. */
+  for (const inner of ["#diagnostics-card h4", "#playground h4", "#sdk-kit-card > h4"])
+    assert.equal(await page.locator(inner).count(), 1, `${inner} is level four`);
+  assert.deepEqual(errors, []);
+});

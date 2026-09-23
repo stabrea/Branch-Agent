@@ -4373,6 +4373,7 @@
   "settings.card.check-your-connections": "Vérifier vos connexions",
   "settings.card.developer": "Développeur",
   "settings.card.diagnostics": "Diagnostics",
+  "settings.card.diagnostics.trace": "Fichiers de trace pour une visionneuse de traces",
   "settings.card.dictation": "Parlez et voyez les mots",
   "settings.card.flow-yaml": "Flux en fichiers",
   "settings.card.gemini": "Gemini",

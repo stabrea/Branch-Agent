@@ -55,7 +55,7 @@ function switchRow(mode) {
 /** One stop: what the task was doing, and the step it stopped on. */
 function stopRow(stop) {
   const row = el("div", undefined, "item");
-  row.append(el("h3", stop.what));
+  row.append(el("h4", stop.what));
   row.append(keyed("p", "adapt.stopped-at", "local-detail", { step: stop.nextStep, said: stop.blocker.said }));
   if (stop.done.length) row.append(keyed("p", "adapt.already-done", "local-detail", { count: String(stop.done.length) }));
   return row;
