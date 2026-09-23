@@ -15,9 +15,14 @@ const NOTE = ":is(p, small, span, div):is(.subtle, .field-note, .note, .hint, .m
  * draws some as a control of its own, at Regular) follows its card, and makes the card partial.
  */
 const BY_CARD = new Map();
-/* Controls the sample levels nowhere that must stay within reach whatever the level: pressing the emergency stop
-   (coordinator, 2026-09-23). The sample puts the stop's setup at Technical; the press itself is never hidden. */
-export const ALWAYS = { "safety-stop-card": "#safety-stop-press" };
+/* Cards never raised above their section by their rows, whatever the sample's rows say: pressing the emergency stop
+   (coordinator, 2026-09-23; the sample puts only the stop's setup at Technical), and the rest of "Regular never hides
+   a safety control" (S15 in tests/settings-grown.test.mjs): what Branch may do, approvals, desktop control,
+   background work, how Branch runs, and updates. */
+export const ALWAYS = {
+  "safety-stop-card": "#safety-stop-press", "policy-card": "#policy-preset", "approval-reviewer-card": "#approval-reviewer-mode",
+  "desktop-card": null, "reach-background-card": null, "deployment-card": null, "updates-card": null, "comfort-updates-card": null,
+};
 for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: true });
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   if (!card) continue;

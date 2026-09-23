@@ -287,7 +287,8 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   for (const id of ["folder-trust-card", "loop-guard-card"]) {
     const card = page.locator(`#${id}`);
     assert.equal(await card.getAttribute("data-home"), "settings:permissions");
-    assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, id);
+    /* The section's "N more with …" link can end a card (DG-073, DG-199); it is a link, not the card's button. */
+    assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1, id);
   }
   // The loop guard switch is kept by its Save button.
   await page.locator("#loop-guard-mode").selectOption("when-needed");

@@ -257,7 +257,8 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   assert.equal(await f.page.locator("#never-break-card").isVisible(), false, "an Advanced card waits for Advanced");
   /* DG-073: the link ends its section, wherever that section's last card on show is. */
   const more = f.page.locator('.sg-more-line[data-bucket="general:start"] .sg-more');
-  assert.match(await more.textContent(), /1 more with Advanced/);
+  /* DG-199: it counts the section's settings kept out of sight, row by row, as the sample does. */
+  assert.match(await more.textContent(), /^\d+ more with Advanced$/);
   await more.click();
   await f.page.waitForFunction(() => document.documentElement.dataset.settingsLevel === "advanced");
   assert.equal(await f.page.locator("#never-break-card").isVisible(), true);
@@ -267,10 +268,11 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   assert.equal(saved.settingsLevel, "advanced");
   assert.equal(saved.showEverything, true);
   /* Technical shows the plumbing and where each card is saved. */
+  /* Under the hood waits for Technical (the sample's rule, DG-199). */
   await openSettings(f.page, "advanced");
-  assert.equal(await f.page.locator("#developer-card").isVisible(), false);
+  assert.equal(await f.page.locator("#counters-card").isVisible(), false);
   await f.page.locator('.sg-level [data-level-pick="technical"]').click();
-  await f.page.locator("#developer-card").waitFor({ state: "visible" });
+  await f.page.locator("#counters-card").waitFor({ state: "visible" });
   await openSettings(f.page, "general");
   assert.equal(await f.page.locator("#never-break-card .sg-keys").isVisible(), true);
   assert.match(await f.page.locator("#never-break-card .sg-keys-names").textContent(), /never-break\.mode/);
