@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
-import { isTailnetAddress } from "../remote/tailscale.js";
+import { isTailnetAddress, type ProbeTailscale, probeTailscale } from "../remote/tailscale.js";
 
 /**
  * mac7/phone-qr: which address the phone download door listens on.
@@ -64,7 +64,33 @@ export async function defaultInterface(platform: NodeJS.Platform, run: Runner = 
   return null;
 }
 
+/**
+ * Filter 100.64/10 addresses by checking Tailscale: keep only the address that Tailscale
+ * reports as this computer's own, while running. Other networks (VPNs, CGNAT) hand out
+ * addresses in this range too, so range alone is not reliable.
+ */
+export async function filterTailnetAddresses(
+  addresses: readonly string[], probe: ProbeTailscale = probeTailscale,
+): Promise<string[]> {
+  // Fast path: no 100.64 addresses, no need to probe
+  const hasTailnet = addresses.some(isTailnetAddress);
+  if (!hasTailnet) return addresses.slice();
+
+  try {
+    const status = await probe();
+    if (!status.running || !status.address) return addresses.filter((a) => !isTailnetAddress(a));
+    // Keep only the address Tailscale reports, drop other 100.64 addresses
+    return addresses.filter((a) => !isTailnetAddress(a) || a === status.address);
+  } catch {
+    // Probe failed: drop all 100.64 addresses
+    return addresses.filter((a) => !isTailnetAddress(a));
+  }
+}
+
 /** Everything the door may listen on here, best first. */
-export async function candidateAddresses(platform: NodeJS.Platform = process.platform, run: Runner = runQuietly): Promise<string[]> {
-  return doorAddresses(namedAddresses(), await defaultInterface(platform, run));
+export async function candidateAddresses(
+  platform: NodeJS.Platform = process.platform, run: Runner = runQuietly, tailscale?: ProbeTailscale,
+): Promise<string[]> {
+  const candidates = doorAddresses(namedAddresses(), await defaultInterface(platform, run));
+  return filterTailnetAddresses(candidates, tailscale);
 }
