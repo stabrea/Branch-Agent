@@ -234,3 +234,14 @@ test("a household person reads the events and publishes as themselves; relay int
   assert.equal(refused.body.error, householdRefusal);
   assert.ok(!(await events.list(owner)).events.some((e) => e.id === relayed.id), "nothing was taken in");
 });
+
+test("a listing walks only the owner's newest 10000 rows: an older match is not read, and it says so", async (t) => {
+  const { app, events, owner } = await fixture(t);
+  // The oldest row is the only one the search matches; newer rows that do not match fill the window.
+  const old = await genuineAt(events, owner, ownerMember, 0);
+  assert.deepEqual((await events.list(owner, { text: "genuine" })).events.map((e) => e.id), [old.id], "found while inside the window");
+  insertRows(app, owner, Array.from({ length: 10000 }, (_, i) => ({ member: ownerMember, at: at(10 + i) })));
+  const listing = await events.list(owner, { text: "genuine" });
+  assert.deepEqual(listing.events, [], "the match past the window is never read");
+  assert.equal(listing.truncated, true);
+});
