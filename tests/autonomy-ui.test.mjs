@@ -11,6 +11,12 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { openPlace } from "./places.mjs";
+/* DG-198: these cards live on Settings › Automations & inbox, some of them past Regular. */
+const openAutomations = async (page) => {
+  await openPlace(page, "settings:automations");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+};
+
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -41,10 +47,10 @@ test("the cards sit in their homes, a blueprint is made from the window, and not
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
-  await openPlace(page, "automations:scheduled");
+  await openAutomations(page);
   const suggestions = page.locator("#autonomy-suggestions-card");
   await suggestions.waitFor();
-  assert.equal(await suggestions.locator("h2").innerText(), "Suggested automations");
+  assert.equal(await suggestions.locator("h3").innerText(), "Suggested automations");
   assert.equal(await page.locator("#autonomy-switch-suggestions").inputValue(), "off");
   await page.locator("#autonomy-switch-suggestions").selectOption("on");
   await page.locator("#autonomy-blueprint").waitFor();
@@ -57,7 +63,7 @@ test("the cards sit in their homes, a blueprint is made from the window, and not
   await page.locator("#autonomy-limits-card").waitFor();
   assert.equal(await wide(), false, "no sideways scrolling in Automations");
 
-  await openPlace(page, "automations:procedures");
+  await openAutomations(page);
   await page.locator("#autonomy-procedures-card").waitFor();
   assert.equal(await page.locator("#autonomy-switch-procedures").inputValue(), "off");
 

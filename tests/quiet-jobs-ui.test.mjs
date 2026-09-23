@@ -13,8 +13,14 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettingFor } from "./places.mjs";
+/* DG-198: these cards live on Settings › Automations & inbox, some of them past Regular. */
+const openAutomations = async (page) => {
+  await openPlace(page, "settings:automations");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+};
 
-const cards = { "quiet-checkin": "automations:scheduled", "quiet-health": "automations:scheduled", "quiet-interruptions": "settings:notifications" };
+
+const cards = { "quiet-checkin": "settings:automations", "quiet-health": "settings:automations", "quiet-interruptions": "settings:notifications" };
 
 async function signIn(page, server) {
   await page.goto(server.url);
@@ -33,16 +39,16 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await signIn(page, server);
-  await openPlace(page, "schedules");
-  await page.locator("#quiet-checkin h2").waitFor({ state: "visible" });
+  await openAutomations(page);
+  await page.locator("#quiet-checkin h3").waitFor({ state: "visible" });
   for (const [id, home] of Object.entries(cards)) {
     const shape = await page.evaluate((cardId) => {
       const card = document.getElementById(cardId);
       const filled = [...card.querySelectorAll("button")].filter((b) => !b.classList.contains("quiet-button") && !b.classList.contains("text-button"));
       const unnamed = [...card.querySelectorAll("input, select, textarea")].filter((c) => !c.labels?.length);
-      return { home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2").length,
-        sentence: card.querySelector("h2 + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
-        keyless: [...card.querySelectorAll("h2, label, button")].filter((n) => !n.dataset.t).length };
+      return { home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2, h3").length,
+        sentence: card.querySelector(":is(h2, h3) + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
+        keyless: [...card.querySelectorAll("h2, h3, label, button")].filter((n) => !n.dataset.t).length };
     }, id);
     assert.equal(shape.home, home, id);
     assert.equal(shape.tag, "SECTION");
@@ -70,9 +76,9 @@ test("HEARTBEAT.md has one switch: Legion's card, which the check-in card points
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
   await signIn(page, server);
-  await openPlace(page, "automations:scheduled");
-  await page.locator("#quiet-checkin h2").waitFor({ state: "visible" });
-  await page.locator("#context-heartbeat h2").waitFor({ state: "visible" });
+  await openAutomations(page);
+  await page.locator("#quiet-checkin h3").waitFor({ state: "visible" });
+  await page.locator("#context-heartbeat h3").waitFor({ state: "visible" });
   const found = await page.evaluate(() => ({
     switches: document.querySelectorAll("select[id*='heartbeat-file'], select#context-switch-heartbeat").length,
     inCheckIn: [...document.querySelectorAll("#quiet-checkin select")].map((s) => s.id),

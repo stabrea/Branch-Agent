@@ -13,6 +13,12 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettingFor } from "./places.mjs";
+/* DG-198: these cards live on Settings › Automations & inbox, some of them past Regular. */
+const openAutomations = async (page) => {
+  await openPlace(page, "settings:automations");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+};
+
 
 function writesAFile(name) {
   let round = 0;
@@ -40,9 +46,9 @@ function cardShape(page, id) {
     const filled = [...card.querySelectorAll("button")].filter((b) => !b.classList.contains("quiet-button") && !b.classList.contains("text-button"));
     const unnamed = [...card.querySelectorAll("input, select, textarea")].filter((c) => !c.labels?.length);
     return {
-      home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2").length,
-      sentence: card.querySelector("h2 + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
-      keyless: [...card.querySelectorAll("h2, label, button, summary")].filter((n) => !n.dataset.t).length,
+      home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2, h3").length,
+      sentence: card.querySelector(":is(h2, h3) + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
+      keyless: [...card.querySelectorAll("h2, h3, label, button, summary")].filter((n) => !n.dataset.t).length,
     };
   }, id);
 }
@@ -69,10 +75,11 @@ test("Watch a task again: off at first, then a finished task plays back step by 
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await signIn(page, server);
-  await openPlace(page, "inbox:history");
+  await openAutomations(page);
   const card = page.locator("#recordings-card");
-  await card.locator("h2").waitFor({ state: "visible" });
-  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card", "inbox:history");
+  /* Its title repeats its section heading, so it is kept for a screen reader only (DG-198). */
+  await card.locator("#recordings-mode").waitFor({ state: "visible" });
+  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card", "settings:automations");
   assert.equal(await card.locator("#recordings-task").count(), 0, "nothing to pick while off");
 
   await card.locator("#recordings-mode").selectOption("when-needed");
@@ -87,7 +94,7 @@ test("Watch a task again: off at first, then a finished task plays back step by 
   assert.equal(await steps.nth(1).getAttribute("aria-current"), "step");
   await page.locator("#recordings-card summary").click();
   await page.locator("#recordings-card svg[role=img]").waitFor({ state: "visible" });
-  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card (open)", "inbox:history");
+  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card (open)", "settings:automations");
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 0, `no sideways scrolling at 400 px (${wide} px over)`);
 

@@ -11,6 +11,12 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { openPlace } from "./places.mjs";
+/* DG-198: these cards live on Settings › Automations & inbox, some of them past Regular. */
+const openAutomations = async (page) => {
+  await openPlace(page, "settings:automations");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+};
+
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -57,10 +63,10 @@ test("the personal cards sit in their homes, the switches work from the window, 
   assert.equal(await wide(), false, "no sideways scrolling in Connections");
 
   for (const [card, home] of [["personal-files-card", "customize:channels"], ["personal-mail-card", "customize:channels"],
-    ["personal-tunnel-card", "automations:triggers"], ["personal-voice-card", "settings:voice"], ["personal-x-card", "customize:connections"],
+    ["personal-tunnel-card", "settings:automations"], ["personal-voice-card", "settings:voice"], ["personal-x-card", "customize:connections"],
     ["personal-home-card", "customize:connections"]])
     assert.equal(await page.evaluate((id) => document.getElementById(id)?.dataset.home ?? null, card), home, `${card} is not in its home`);
-  await openPlace(page, "automations:triggers");
+  await openAutomations(page);
   await page.locator("#personal-tunnel-card").waitFor({ state: "visible" });
   assert.equal(await page.locator("#personal-switch-tunnel").inputValue(), "off");
   assert.equal(await wide(), false, "no sideways scrolling in Triggers");

@@ -12,6 +12,12 @@ import { chromium } from "playwright";
 import { z } from "zod";
 import { discardTemp } from "./temp-dir.mjs";
 import { openPlace } from "./places.mjs";
+/* DG-198: these cards live on Settings › Automations & inbox, some of them past Regular. */
+const openAutomations = async (page) => {
+  await openPlace(page, "settings:automations");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+};
+
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { boardParts } from "../dist/flows-boards/settings.js";
@@ -31,13 +37,13 @@ test("every word on the flows-and-boards cards has English and real French, and 
 });
 
 const CARDS = {
-  "flows-travel-card": ["automations:procedures", "Go back in a flow"],
-  "flows-recipes-card": ["automations:procedures", "Checks for procedures"],
-  "flows-board-card": ["automations:scheduled", "Shared board"],
-  "flows-waiting-card": ["automations:scheduled", "Change the waiting line"],
+  "flows-travel-card": ["settings:automations", "Go back in a flow"],
+  "flows-recipes-card": ["settings:automations", "Checks for procedures"],
+  "flows-board-card": ["settings:automations", "Shared board"],
+  "flows-waiting-card": ["settings:automations", "Change the waiting line"],
   "flows-widgets-card": ["library:made", "Widgets the assistant built"],
   "flows-focus-card": ["settings:appearance", "Focus view"],
-  "flows-installs-card": ["inbox:needs", "Package and tool server requests"],
+  "flows-installs-card": ["settings:automations", "Package and tool server requests"],
 };
 
 /** What is wrong with one card's shape, as it stands on screen. */
@@ -47,13 +53,13 @@ function shapeOf(cardId) {
   const controls = [...card.querySelectorAll("input, select, textarea")].filter(shown);
   const filled = [...card.querySelectorAll("button")].filter((b) => shown(b) && !b.classList.contains("quiet-button") && !b.classList.contains("text-button"));
   return {
-    home: card.dataset.home, tag: card.tagName, title: card.querySelector(":scope > h2")?.textContent ?? "",
-    headings: card.querySelectorAll("h2").length, sentence: card.querySelector("h2 + p")?.textContent ?? "",
+    home: card.dataset.home, tag: card.tagName, title: card.querySelector(":scope > :is(h2, h3)")?.textContent ?? "",
+    headings: card.querySelectorAll("h2, h3").length, sentence: card.querySelector(":is(h2, h3) + p")?.textContent ?? "",
     filled: filled.length,
     unnamed: controls.filter((c) => !c.labels?.length).map((c) => c.id),
     undescribed: controls.filter((c) => !(c.getAttribute("aria-describedby") || "").split(/\s+/)
       .some((id) => document.getElementById(id)?.textContent.trim())).map((c) => c.id),
-    keyless: [...card.querySelectorAll("h2, label, button, summary")].filter((n) => !n.dataset.t).map((n) => n.textContent),
+    keyless: [...card.querySelectorAll("h2, h3, label, button, summary")].filter((n) => !n.dataset.t).map((n) => n.textContent),
   };
 }
 
@@ -92,8 +98,9 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
   for (const [id, [home, title]] of Object.entries(CARDS)) {
-    await openPlace(page, home);
-    await page.locator(`#${id} h2`).waitFor({ state: "visible" });
+    if (home === "settings:automations") await openAutomations(page);
+    else await openPlace(page, home);
+    await page.locator(`#${id} :is(h2, h3)`).waitFor({ state: "visible" });
     const shape = await page.evaluate(shapeOf, id);
     assert.equal(shape.home, home, id);
     assert.equal(shape.tag, "SECTION", id);
@@ -107,14 +114,14 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
     assert.ok(await wide() <= 0, `${id}: no sideways scrolling at 400 px`);
   }
 
-  await openPlace(page, "automations:scheduled");
+  await openAutomations(page);
   const board = page.locator("#flows-board-card");
   await board.locator("#flows-board-title").fill("Sweep the path");
   await board.getByRole("button", { name: "Add card" }).click();
   for (let i = 0; i < 100 && app.flowsBoards.kanban.view().lanes.todo.length < 2; i++) await page.waitForTimeout(50);
   assert.ok(app.flowsBoards.kanban.view().lanes.todo.some((card) => card.title === "Sweep the path"));
 
-  await openPlace(page, "inbox:needs");
+  await openAutomations(page);
   const needs = page.locator("#flows-installs-card");
   await needs.getByText("keep notes", { exact: false }).waitFor();
   await needs.getByRole("button", { name: "Approve", exact: true }).click();
@@ -126,7 +133,7 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
     "while the choice is to wait, the message box keeps its own way");
   // Integration review: a steer the server refuses (a key on the phone, a conversation it cannot find)
   // hands the message back to the ordinary queue instead of losing it.
-  await openPlace(page, "automations:scheduled");
+  await openAutomations(page);
   await page.locator("#flows-busy").selectOption("steer");
   await page.locator("#flows-waiting-card").getByRole("button", { name: "Save", exact: true }).click();
   for (let i = 0; i < 100 && app.flowsBoards.waiting.busyMode() !== "steer"; i++) await page.waitForTimeout(50);

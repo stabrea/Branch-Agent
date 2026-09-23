@@ -411,6 +411,8 @@ for (const [width, height] of [[1440, 950], [390, 844]]) {
     const f = await fixture(t, { width, height });
     for (const [page, entries] of Object.entries(SETTINGS_DIRECTORIES)) {
       await openSettings(f.page, page);
+      /* DG-198: the links on Automations & inbox wait at Technical. */
+      if (page === "automations") await f.page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
       assert.equal(await f.page.locator(`#lx-page-${page} .settings-directory-card`).count(), entries.length);
       for (const [id, place, tab] of entries) {
         const card = f.page.locator(`#settings-directory-${page}-${id}`);

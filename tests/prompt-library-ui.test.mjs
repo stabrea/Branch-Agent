@@ -14,6 +14,12 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { zipWrite } from "../dist/skill-package.js";
 import { openPlace } from "./places.mjs";
+/* DG-198: these cards live on Settings › Automations & inbox, some of them past Regular. */
+const openAutomations = async (page) => {
+  await openPlace(page, "settings:automations");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+};
+
 
 async function fixture(t, viewport = { width: 1280, height: 900 }) {
   const root = await mkdtemp(join(tmpdir(), "branch-prompts-ui-"));
@@ -40,7 +46,7 @@ const sideways = (page) => page.evaluate(() => document.documentElement.scrollWi
 
 test("saved prompts: switched on in Procedures, written, saved, then typed as a command in the message box", async (t) => {
   const { page, errors, seen } = await fixture(t);
-  await openPlace(page, "automations:procedures");
+  await openAutomations(page);
   const card = page.locator("#prompts-card");
   await card.waitFor({ state: "visible" });
   assert.equal(await card.locator("#prompts-editor").count(), 0, "off: only the switch");
@@ -68,7 +74,7 @@ test("saved prompts: switched on in Procedures, written, saved, then typed as a 
 
 test("saved prompts and the install record fit a 400 px window, and a skill folder installs with its steps shown", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 860 });
-  await openPlace(page, "automations:procedures");
+  await openAutomations(page);
   await page.getByLabel("Saved prompts", { exact: true }).selectOption("on");
   await page.locator("#prompts-editor").waitFor({ state: "visible" });
   assert.ok(await sideways(page) <= 0, "no sideways scrolling in Procedures");
