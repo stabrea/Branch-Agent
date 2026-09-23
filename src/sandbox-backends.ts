@@ -484,6 +484,8 @@ interface WallPlan {
   extraWrites: string[]; keys: EdgeKey[]; deps: WallDeps;
   /** Q12: the program's only temporary folder is `temp` (a private one), not the system's shared ones. */
   onlyTemp: boolean;
+  /** Q12: a command held to one folder by a self-development contract (no `.git` may be made in it). */
+  held: boolean;
   /** Linux only: a private folder for the filter and the door, made when the wall is built. */
   staging?: string;
   /** A program left running: no door is ever opened for it. */
@@ -520,7 +522,7 @@ function edgeKeys(wall: WallContext, secrets: Readonly<Record<string, string>>):
 }
 
 async function planWall(
-  wall: WallContext, options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean; temp?: string }, deps: WallDeps,
+  wall: WallContext, options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean; temp?: string; held?: boolean }, deps: WallDeps,
 ): Promise<WallPlan> {
   const real = deps.realpath ?? realpath;
   const workspace = await real(options.workspace), temp = await real(options.temp ?? tmpdir());
@@ -538,7 +540,7 @@ async function planWall(
   const keys = edgeKeys(wall, options.secrets ?? {});
   // A program left running cannot keep a door open after the call, so it gets no network instead.
   const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
-  return { wall, network, workspace, temp, hidden, readOnly, extraWrites, keys, deps, doorless: options.proxy === false, onlyTemp: !!options.temp };
+  return { wall, network, workspace, temp, hidden, readOnly, extraWrites, keys, deps, doorless: options.proxy === false, onlyTemp: !!options.temp, held: options.held === true };
 }
 
 function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
@@ -559,7 +561,7 @@ async function macWall(plan: WallPlan, start: SandboxStart): Promise<{ start: Sa
   const ports = address ? [address.httpPort!, address.socksPort!] : undefined;
   // The hidden places go in as the system names them (`/private/var`, not `/var`), or macOS would not match them.
   const args = seatbeltArgs({ workspace: plan.workspace, network: plan.network, proxyPorts: ports, extraWrites: plan.extraWrites,
-    unreadable: plan.hidden, readOnly: plan.readOnly, temp: plan.onlyTemp ? [plan.temp] : [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
+    unreadable: plan.hidden, readOnly: plan.readOnly, temp: plan.onlyTemp ? [plan.temp] : [plan.temp, "/private/tmp", "/private/var/tmp"], held: plan.held }, start);
   const env = { ...start.env, ...keyEnv(plan.keys), ...(address && door ? proxyEnvironment({ httpPort: address.httpPort!, socksPort: address.socksPort! }, door.secret) : {}) };
   return { door, start: { executable: sandboxExecPath, args, cwd: start.cwd, env } };
 }
@@ -602,7 +604,9 @@ export async function openWall(
   wall: WallContext, start: SandboxStart,
   options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean;
     /** Q12: a private temporary folder, the only one the program may write to besides the workspace. */
-    temp?: string }, deps: WallDeps = {},
+    temp?: string;
+    /** Q12: a command held to one folder by a self-development contract. */
+    held?: boolean }, deps: WallDeps = {},
 ): Promise<OpenedWall> {
   const platform = deps.platform ?? process.platform;
   if (platform === "win32") return passThrough(start);

@@ -88,6 +88,8 @@ export interface SeatbeltInput {
   readOnly?: readonly string[];
   /** Branch's own data folder: never readable, whatever else is allowed. */
   dataDir?: string | undefined;
+  /** Q12: a command held to one folder by a self-development contract: no `.git` at any depth in it. */
+  held?: boolean;
 }
 
 type Param = [key: string, value: string];
@@ -109,9 +111,10 @@ function writeRules(input: SeatbeltInput, params: Param[]): string[] {
     params.push([`KEEP_${index}`, path]);
     rules.push(`(deny file-write* (literal (param "KEEP_${index}")) (subpath (param "KEEP_${index}")))`);
   });
-  // Q12: no `.git` anywhere under the workspace either, however deep: a repository planted there
-  // could name a program in its own config for Branch's Git to run outside the wall.
-  rules.push(`(deny file-write* (require-all (subpath (param "WRITE_0")) (regex #"/\\.git(/|$)")))`);
+  // Q12: for a held command, no `.git` anywhere under its folder either, however deep and in any case
+  // (the disk ignores case, so `.GIT` is a repository too): one planted there could name a program in
+  // its own config for Branch's Git to run outside the wall. Ordinary walled commands keep their repositories.
+  if (input.held) rules.push(`(deny file-write* (require-all (subpath (param "WRITE_0")) (regex #"/\\.[Gg][Ii][Tt](/|$)")))`);
   return rules;
 }
 

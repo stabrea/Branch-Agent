@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch, savePolicy } from "../dist/index.js";
@@ -14,6 +14,8 @@ import { ContractBook, contractGuard } from "../dist/self-development-contract.j
 import { gitFoldersUnder, sweepNewGitFolders } from "../dist/integrations/shell.js";
 import { EditChecks } from "../dist/coding/format-on-edit.js";
 import { wallReport } from "../dist/sandbox-backends.js";
+import { sandboxExecPath, seatbeltArgs } from "../dist/sandbox-seatbelt.js";
+import { execFileSync } from "node:child_process";
 import { AuditLog } from "../dist/audit.js";
 import { ToolRegistry } from "../dist/registry.js";
 import { DatabaseSync } from "node:sqlite";
@@ -156,13 +158,13 @@ test("a held command cannot make a .git anywhere in its folder: the real sandbox
   const branch = await withSource(t, { project: "worktree", permissions: ["shell.execute"] });
   const { failed, result } = await branch.command({ executable: "sh", cwd: `${worktree}/src/ui`,
     // The shell starts with no PATH of its own, so the programs are named in full.
-    args: ["-c", "/bin/mkdir -p x/.git; echo '[core] fsmonitor = /tmp/evil' > x/.git/config; /bin/mkdir -p y && /usr/bin/git init -q y; echo ok > fine.txt; /bin/mkdir -p z && echo ok > z/also.txt"] });
+    args: ["-c", "/bin/mkdir -p x/.git; echo '[core] fsmonitor = /tmp/evil' > x/.git/config; /bin/mkdir -p y && /usr/bin/git init -q y; /bin/mkdir -p w/.GIT v/.Git; echo ok > fine.txt; /bin/mkdir -p z && echo ok > z/also.txt"] });
   assert.equal(failed, null, failed);
   assert.doesNotMatch(result.stderr, /Branch removed the \.git/, "the sandbox refused it: nothing was left for the sweep");
   const ui = join(branch.workspace, worktree, "src", "ui");
   assert.equal(existsSync(join(ui, "fine.txt")), true, "an ordinary write in the folder works");
   assert.equal(existsSync(join(ui, "z", "also.txt")), true, "and so does an ordinary new folder (the programs really ran)");
-  for (const planted of ["x/.git/config", "x/.git", "y/.git"]) assert.equal(existsSync(join(ui, planted)), false, planted);
+  for (const planted of ["x/.git/config", "x/.git", "y/.git", "w/.GIT", "v/.Git"]) assert.equal(existsSync(join(ui, planted)), false, planted);
 });
 
 test("where the sandbox cannot refuse it (Linux), a .git a held command made is removed afterwards", async (t) => {
@@ -172,8 +174,9 @@ test("where the sandbox cannot refuse it (Linux), a .git a held command made is 
   const before = await gitFoldersUnder(root);
   await mkdir(join(root, "x", "deep", ".git"), { recursive: true });
   await writeFile(join(root, "x", "deep", ".git", "config"), "[core]\n\tfsmonitor = /tmp/evil\n");
+  await mkdir(join(root, "w", ".GIT"), { recursive: true });
   await writeFile(join(root, "y.txt"), "kept");
-  assert.deepEqual(await sweepNewGitFolders(root, before), [join("x", "deep", ".git")]);
+  assert.deepEqual((await sweepNewGitFolders(root, before)).sort(), [join("w", ".GIT"), join("x", "deep", ".git")].sort(), "any case");
   assert.equal(existsSync(join(root, "x", "deep", ".git")), false, "the planted one is gone");
   assert.equal(existsSync(join(root, "old", ".git")), true, "one that was there before stays");
   await assert.rejects(gitFoldersUnder(root, 2), /too many files for Branch to check/);
@@ -213,4 +216,25 @@ test("no formatter runs after an edit while Branch's own source is checked out",
   const held = await checks.check("src/a.ts", context);
   assert.match(held.note ?? "", /Branch's own source is checked out in this workspace, and no formatter runs while it is/);
   assert.equal(calls.length, 1, "with the checkout there it does not");
+});
+
+test("only a held command's sandbox refuses .git; an ordinary walled command keeps its repositories", { skip: process.platform !== "darwin" }, async (t) => {
+  // The sandbox matches paths as the system names them (/private/var, not /var).
+  const root = await realpath(await mkdtemp(join(tmpdir(), "branch-self-wall-")));
+  t.after(() => discardTemp(root));
+  const run = (held) => {
+    const workspace = join(root, held ? "held" : "plain");
+    execFileSync("/bin/mkdir", ["-p", workspace, join(root, "scratch")]);
+    const args = seatbeltArgs({ workspace, network: "none", temp: [join(root, "scratch")], held },
+      { executable: "/bin/sh", args: ["-c", "/bin/mkdir -p proj/.git deep/a/.Git; echo ok > ok.txt"] });
+    try { execFileSync(sandboxExecPath, args, { cwd: workspace, stdio: "ignore" }); } catch { /* a refused mkdir exits non-zero */ }
+    return (path) => existsSync(join(workspace, path));
+  };
+  const plain = run(false);
+  assert.equal(plain("ok.txt"), true);
+  assert.equal(plain("proj/.git"), true, "an ordinary walled command may make a repository");
+  const held = run(true);
+  assert.equal(held("ok.txt"), true);
+  assert.equal(held("proj/.git"), false);
+  assert.equal(held("deep/a/.Git"), false, "in any case");
 });

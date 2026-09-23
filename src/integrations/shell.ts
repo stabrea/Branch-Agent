@@ -132,7 +132,7 @@ export class BranchShell {
     // wave mac3 (os-sandbox): behind the wall when the owner's switch says so. A saved key the owner
     // tied to a site reaches the program only as a stand-in; the wall's door swaps the real one in.
     const plain = { executable: run.executable.path, args: [...run.executable.args, ...run.args], cwd: run.cwd, env };
-    const wall = run.wall ? await openWall(run.wall, plain, { workspace: run.workspace, secrets: run.injected, ...(scratch ? { temp: scratch } : {}) }) : null;
+    const wall = run.wall ? await openWall(run.wall, plain, { workspace: run.workspace, secrets: run.injected, ...(scratch ? { temp: scratch, held: true } : {}) }) : null;
     const start = wall?.start ?? plain;
     try {
       const result = await new ShellProcess({ executable: start.executable, args: start.args,
@@ -196,7 +196,8 @@ export async function gitFoldersUnder(folder: string, limit = gitSweepLimit): Pr
     for (const entry of await readdir(here, { withFileTypes: true }).catch(() => [])) {
       if (++seen > limit) throw new Error('The folder this command is held to holds too many files for Branch to check, so it did not run.');
       const path = join(here, entry.name);
-      if (entry.name === '.git') found.add(path);
+      // Any case: where the disk ignores it, `.GIT` is a repository as surely as `.git`.
+      if (entry.name.toLowerCase() === '.git') found.add(path);
       else if (entry.isDirectory() && !entry.isSymbolicLink()) queue.push(path);
     }
   }
