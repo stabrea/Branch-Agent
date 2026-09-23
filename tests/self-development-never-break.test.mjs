@@ -94,6 +94,11 @@ test("brace patterns are spelled out the way the shell does", () => {
   assert.deepEqual(expandBraces("a{b,c{d,e}}f"), ["abf", "acdf", "acef"]);
   assert.deepEqual(expandBraces("{plain}"), ["{plain}"], "a group with no comma is left as written");
   assert.equal(expandBraces("{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}"), null, "past 64 words it is refused, not guessed at");
+  assert.deepEqual(expandBraces("branch-agen{s..u}"), ["branch-agens", "branch-agent", "branch-agenu"], "a letter sequence");
+  assert.deepEqual(expandBraces("v{1..3}"), ["v1", "v2", "v3"]);
+  assert.deepEqual(expandBraces("{10..1..3}"), ["10", "7", "4", "1"], "a number sequence with a step, counting down");
+  assert.equal(expandBraces("{1..1000}"), null, "a sequence past 64 words is refused too");
+  assert.deepEqual(expandBraces("{a..9}"), ["{a..9}"], "a group that is not a sequence is left as written");
 });
 
 const reinstalls = ["npm install -g {branch-agent,x}@latest", "pnpm add -g branch-{agent,x}@latest", "npm i -g ./branch-agent-2.0.0.tgz",
@@ -103,11 +108,13 @@ const spellings = {
     "rm -rf ~/.local/share/{branch-agent,x}", "rm -rf ~/.local/share/branch-agent{,}", "rm -rf ~/.local/share/branch-agent/{app,x}",
     "rm -rf /tmp/{branch-agent-update,x}", "rm ~/.config/systemd/user/{branch-agent.service,x}",
     "mv ~/.config/systemd/user/branch-agent.service{,.off}",
+    "rm -rf ~/.local/share/branch-agen{s..u}", "mv ~/.config/systemd/user/branch-agent.servic{d..f}",
   ],
   darwin: [
     "rm -rf /Applications/{Branch\\ Agent.app,x}", "rm -rf ~/Library/Application\\ Support/{Branch\\ Agent,x}",
     "rm -rf /tmp/{branch-agent-update,x}", "rm -rf /opt/{branch,x}", 'rm -rf "/opt/"{branch,x}',
     "mv ~/Library/LaunchAgents/com.keepoak.branch-agent.plist{,.off}", "launchctl bootout gui/501/com.keepoak.{branch-agent,x}",
+    "rm -rf /opt/branc{g..i}",
   ],
 };
 for (const [name, areas] of Object.entries(layouts)) {
@@ -127,4 +134,11 @@ test("the systemd drop-in folder of Branch's service is refused like the unit fi
     assert.match(sh(line) ?? "", stops, line);
   assert.match(check("files.write", { path: "/home/o/.config/systemd/user/branch-agent.service.d/override.conf", content: "[Service]\n" }) ?? "", stops);
   assert.equal(sh("rm -rf ~/.config/systemd/user/other.service.d"), null, "another service's drop-in is not Branch's");
+});
+
+test("NAS's own spelling with $TMPDIR is refused on this computer's layout", () => {
+  // The updater's folder sits under this computer's temporary folder, which $TMPDIR names; where it is
+  // not set, the variable cannot be read and the removal is refused as unreadable instead.
+  const here = protectedAreas({ workspace: join(home, "work"), dataDir: join(home, ".never-branch-data"), installRoot: "/opt/branch", platform: process.platform });
+  assert.notEqual(shIn(here, "rm -rf $TMPDIR/{branch-agent-update,x}"), null);
 });

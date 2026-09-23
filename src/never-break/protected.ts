@@ -166,8 +166,8 @@ const braceLimit = 64, callBraceLimit = 256;
 
 /**
  * Q12: a word with its brace groups spelled out the way bash, zsh and macOS's /bin/sh do it:
- * `~/.local/share/{branch-agent,x}` is two paths, `branch-agent{,}` is the name twice, and a group
- * inside a group opens too. A group with no comma is left as written. Null when the word stands for
+ * `~/.local/share/{branch-agent,x}` is two paths, `branch-agent{,}` is the name twice, a group
+ * inside a group opens too, and `branch-agen{s..u}` is a sequence. Any other group is left as written. Null when the word stands for
  * more than `limit` words, which the caller refuses rather than guess at.
  */
 export function expandBraces(word: string, limit = braceLimit): string[] | null {
@@ -181,7 +181,18 @@ export function expandBraces(word: string, limit = braceLimit): string[] | null 
       else if (char === "," && depth === 1) commas.push(at);
     }
     if (close < 0) return [word];
-    if (!commas.length) continue;
+    const middles = commas.length ? null : sequence(word.slice(open + 1, close), limit);
+    if (middles === undefined) return null;
+    if (!commas.length && !middles) continue;
+    if (middles) {
+      const out: string[] = [];
+      for (const middle of middles) {
+        const more = expandBraces(word.slice(0, open) + middle + word.slice(close + 1), limit - out.length);
+        if (!more || out.length + more.length > limit) return null;
+        out.push(...more);
+      }
+      return out;
+    }
     const cuts = [open, ...commas, close], out: string[] = [];
     for (let part = 0; part < cuts.length - 1; part++) {
       const more = expandBraces(word.slice(0, open) + word.slice(cuts[part]! + 1, cuts[part + 1]) + word.slice(close + 1), limit - out.length);
@@ -191,6 +202,25 @@ export function expandBraces(word: string, limit = braceLimit): string[] | null 
     return out;
   }
   return [word];
+}
+
+/**
+ * A brace sequence's words: `{a..e}`, `{1..10}`, `{10..1..3}` (single letters or whole numbers, an
+ * optional step), as the shell counts them. Null when the group is not a sequence; undefined when it
+ * stands for more than `limit` words.
+ */
+function sequence(body: string, limit: number): string[] | null | undefined {
+  const match = /^(-?\d+|[A-Za-z])\.\.(-?\d+|[A-Za-z])(?:\.\.(-?\d+))?$/.exec(body);
+  if (!match) return null;
+  const letters = /^[A-Za-z]$/.test(match[1]!) && /^[A-Za-z]$/.test(match[2]!);
+  if (!letters && (!/^-?\d+$/.test(match[1]!) || !/^-?\d+$/.test(match[2]!))) return null;
+  const from = letters ? match[1]!.charCodeAt(0) : Number(match[1]), to = letters ? match[2]!.charCodeAt(0) : Number(match[2]);
+  const step = Math.abs(Number(match[3] ?? 1)) || 1;
+  if (Math.floor(Math.abs(to - from) / step) + 1 > limit) return undefined;
+  const words: string[] = [];
+  for (let at = from; from <= to ? at <= to : at >= to; at += from <= to ? step : -step)
+    words.push(letters ? String.fromCharCode(at) : String(at));
+  return words;
 }
 
 /** A text with every brace pattern in it spelled out, word by word; null past the limits. */
