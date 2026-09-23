@@ -4202,6 +4202,8 @@
   "settings-kit.history.none": "No changes have been recorded yet.",
   "settings-kit.history.undo": "Undo this change",
   "settings-kit.history.undone": "Undone.",
+  "settings-kit.how.card": "you, on its own card in Settings",
+  "settings-kit.how.command": "a command you typed",
   "settings-kit.how.import": "a settings file you brought in",
   "settings-kit.how.preset": "a preset",
   "settings-kit.how.reset": "putting settings back to how they started",

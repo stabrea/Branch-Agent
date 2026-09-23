@@ -155,6 +155,7 @@ import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsK
 import { settingsKitWriters } from "./settings-kit/writers.js";
 import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
 import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
+import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48 review
 import { dictationOwnerOnlyRefusal, dictationSettings, dictationView, saveDictationSettings } from "./voice-dictation.js"; // mac7/live-voice
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
@@ -1113,7 +1114,9 @@ async function api(
     if (request.method === "GET")
       return wakeWordView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner(), app.wake.listening);
     app.store.profiles.requireOwner("The word that starts a turn");
-    saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request));
+    const wake = await readBody(request);
+    recordedWrite(app.store, app.runtime.owner, { writer: "owner-in-window", source: "card", detail: "wake-word" }, ["wake-word"],
+      () => saveWakeWordSettings(app.store, app.runtime.owner, wake));
     app.wake.refresh(); // the switch going on or off starts or stops the listener at once
     return { settings: wakeWordSettings(app.store, app.runtime.owner),
       state: wakeWordView(app.store, app.runtime.owner, process.platform, true, app.wake.listening) };
@@ -1578,8 +1581,11 @@ async function api(
     return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
-  if (request.method === "POST" && path === "/api/policy")
-    return { policy: savePolicy(app.store, app.runtime.owner, await readBody(request)) };
+  if (request.method === "POST" && path === "/api/policy") {
+    const input = await readBody(request);
+    return { policy: recordedWrite(app.store, app.runtime.owner, { writer: "owner-in-window", source: "card", detail: "policy" }, ["policy"],
+      () => savePolicy(app.store, app.runtime.owner, input)) };
+  }
   if (request.method === "POST" && path === "/api/policy/approve") {
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
       remember: PolicyRememberSchema.default("session"),

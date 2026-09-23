@@ -11,6 +11,7 @@ import { saveWallSettings, wallSettings } from "./sandbox.js";
 import { audit } from "./audit.js";
 import { saveSessionLimits, sessionLimits } from "./session-limits.js";
 import { retentionSettings, saveRetentionSettings, sentenceFor } from "./retention.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js";
 
 /**
  * Batch 26 (wave 8): the screens for where scripts run, what may reach the internet, how much one
@@ -62,7 +63,9 @@ export async function sandboxRemoteApi(
   if (path === "/api/os-sandbox") {
     if (post) {
       const before = wallSettings(app.store, owner);
-      const after = saveWallSettings(app.store, owner, await readBody(request));
+      const input = await readBody(request);
+      const after = recordedWrite(app.store, owner, { writer: "owner-in-window", source: "card", detail: "os-sandbox" }, ["os-sandbox"],
+        () => saveWallSettings(app.store, owner, input));
       // Integration review: the wall widens or narrows what a program may reach, so every change is written down.
       audit(app.store, owner, { action: "policy.changed", actor: owner,
         subject: `Wall around programs: ${after.mode}, network ${after.network}`.slice(0, 300),
@@ -110,7 +113,9 @@ export async function sandboxRemoteApi(
   // Letting old conversations go: the rule, what it would sweep up, and the sweep itself.
   if (path === "/api/retention") {
     if (post) {
-      const saved = saveRetentionSettings(app.store, owner, await readBody(request));
+      const input = await readBody(request);
+      const saved = recordedWrite(app.store, owner, { writer: "owner-in-window", source: "card", detail: "retention" }, ["retention"],
+        () => saveRetentionSettings(app.store, owner, input));
       return { ...app.retention.propose(), settings: saved, sentence: sentenceFor(saved) };
     }
     return { ...app.retention.propose(), settings: retentionSettings(app.store, owner) };

@@ -233,6 +233,8 @@ const HOW_WORDS = {
   import: ["settings-kit.how.import", "a settings file you brought in"],
   talk: ["settings-kit.how.talk", "a conversation, when you asked for it"],
   undo: ["settings-kit.how.undo", "undoing an earlier change"],
+  card: ["settings-kit.how.card", "you, on its own card in Settings"],
+  command: ["settings-kit.how.command", "a command you typed"],
   unknown: ["settings-kit.how.unknown", "a change whose source was not recorded"],
 };
 const howWords = (record) => {

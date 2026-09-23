@@ -3,6 +3,7 @@ import type { ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Store } from "./store.js";
 import { saveVoiceSettings } from "./voice.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js";
 import { audioPricedAt, sttPricesPerMinute } from "./voice-stt.js";
 import { speechPricedAt, ttsPricesPerThousand } from "./voice-tts.js";
 import { realtimeNote } from "./voice-talk.js";
@@ -41,7 +42,11 @@ export async function voiceApi(
 ): Promise<unknown> {
   const { store, models, owner, voice } = deps;
   if (method === "GET" && path === "/api/voice/plan") return voicePlan(deps);
-  if (method === "POST" && path === "/api/voice/settings") return saveVoiceSettings(store, owner, await body());
+  if (method === "POST" && path === "/api/voice/settings") {
+    const input = await body();
+    return recordedWrite(store, owner, { writer: "owner-in-window", source: "card", detail: "voice" }, ["voice"],
+      () => saveVoiceSettings(store, owner, input));
+  }
   if (method === "GET" && path === "/api/voice/voices") return systemVoices(voice, owner);
   // Wave 8: a live conversation hangs off a task like everything else, so the browser is given one
   // to open a socket on. Nothing reaches outside this computer until the browser says "start" on

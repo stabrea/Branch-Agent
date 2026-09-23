@@ -4203,6 +4203,8 @@
   "settings-kit.history.none": "Aucune modification n'a encore été notée.",
   "settings-kit.history.undo": "Annuler cette modification",
   "settings-kit.history.undone": "Annulée.",
+  "settings-kit.how.card": "vous, sur sa propre carte dans les Réglages",
+  "settings-kit.how.command": "une commande que vous avez tapée",
   "settings-kit.how.import": "un fichier de réglages que vous avez importé",
   "settings-kit.how.preset": "un préréglage",
   "settings-kit.how.reset": "la remise des réglages à leur état de départ",

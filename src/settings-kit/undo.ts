@@ -96,6 +96,8 @@ const byWhom: Record<ChangeRecord["source"], string> = {
   import: "a settings file you brought in",
   talk: "a conversation, when you asked for it",
   undo: "undoing an earlier change",
+  card: "you, on its own card in Settings",
+  command: "a command you typed",
   unknown: "a change whose source was not recorded",
 };
 
@@ -103,7 +105,7 @@ function wordsFor(kind: WhyKind, value: Value, found: ReturnType<typeof lastChan
   if (kind === "starting-value") return `It is ${String(value)}, how it starts. No change to it was recorded.`;
   if (kind === "not-recorded") return `It is ${String(value)}. Nothing was recorded about who or what set it.`;
   const { record, entry } = found!;
-  const how = `${byWhom[record.source]}${record.source === "preset" && record.detail ? ` (${record.detail})` : ""}`;
+  const how = `${byWhom[record.source]}${(record.source === "preset" || record.source === "command") && record.detail ? ` (${record.detail})` : ""}`;
   if (kind === "changed-since")
     return `It is ${String(value)}. The last recorded change set it to ${String(entry.after)} (${how}, ${record.at}), but it was changed again since by something that keeps no record.`;
   return `It is ${String(value)}, set by ${how} on ${record.at}.`;

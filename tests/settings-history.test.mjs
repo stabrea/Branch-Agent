@@ -15,6 +15,8 @@ import { settingsKitApi, SettingsKitError } from "../dist/settings-kit/api.js";
 import { settingsHistory } from "../dist/settings-kit/history.js";
 import { exportSettings } from "../dist/settings-kit/transfer.js";
 import { saveVoiceSettings } from "../dist/voice.js";
+import { startServer } from "../dist/server.js";
+import { choosePreset } from "../dist/terminal-commands.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-settings-history-"));
@@ -32,7 +34,7 @@ async function fixture(t) {
     return ask("POST", "/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id), confirmLoosening: true });
   };
   const refused = (status, pattern) => (error) => error instanceof SettingsKitError && error.status === status && pattern.test(error.message);
-  return { app, owner, ask, values, preset, refused };
+  return { root, app, owner, ask, values, preset, refused };
 }
 
 test("a preset's many changes are recorded, and undo puts back exactly the before-values", async (t) => {
@@ -165,4 +167,47 @@ test("undoing a change to a setting Branch no longer has says so, not that it ch
     writer: "owner-in-window", source: "switch", detail: "gone-setting.mode", changes: [{ setting: "gone-setting.mode", before: "off", after: "on" }] }] });
   await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record: "old-one", confirmLoosening: true }),
     refused(409, /gone-setting[.]mode is no longer a setting Branch has/));
+});
+
+test("the cards that save around the kit, and /preset, are recorded, so why names the right source", async (t) => {
+  const { root, app, ask } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const post = async (path, body) => {
+    const answer = await fetch(server.url + path, { method: "POST", body: JSON.stringify(body),
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } });
+    assert.equal(answer.status, 200, `${path}: ${await answer.clone().text()}`);
+  };
+  const why = (setting) => ask("GET", `/api/settings-kit/why/${setting}`);
+  const byCard = async (setting, detail) => {
+    const answer = await why(setting);
+    assert.equal(answer.kind, "recorded", `${setting}: ${answer.words}`);
+    assert.equal(answer.record.writer, "owner-in-window", setting);
+    assert.equal(answer.record.source, "card", setting);
+    assert.equal(answer.record.detail, detail, setting);
+    assert.match(answer.words, /its own card in Settings/);
+  };
+  await post("/api/policy", { preset: "read-only" });
+  await byCard("policy.preset", "policy");
+  await post("/api/voice/wake", { mode: "on" });
+  await byCard("wake-word.mode", "wake-word");
+  const { value: aloud } = await why("voice.autoReadAloud");
+  await post("/api/voice/settings", { autoReadAloud: !aloud });
+  await byCard("voice.autoReadAloud", "voice");
+  await post("/api/os-sandbox", { mode: "on", network: "limited", keySites: {}, unreadable: [] });
+  await byCard("os-sandbox.network", "os-sandbox");
+  await post("/api/retention", { enabled: true, keepDays: 30, megabytes: 1, exportBeforeDeleting: true });
+  await byCard("retention.keepDays", "retention");
+
+  choosePreset(app.runtime, "workspace");
+  const typed = await why("policy.preset");
+  assert.equal(typed.kind, "recorded");
+  assert.equal(typed.value, "workspace");
+  assert.equal(typed.record.writer, "owner-by-command");
+  assert.equal(typed.record.source, "command");
+  assert.equal(typed.record.detail, "/preset workspace");
+  assert.deepEqual([typed.record.before, typed.record.after], ["read-only", "workspace"]);
+  // A recorded card change is an ordinary change: it can be undone like any other.
+  await ask("POST", "/api/settings-kit/undo", { record: typed.record.id, confirmLoosening: true });
+  assert.equal((await why("policy.preset")).value, "read-only");
 });
