@@ -218,6 +218,17 @@ export const descriptions = [
   ["#counters-mode", "describe.counters", "Whether counts about tasks are sent to a place you chose. Off sends nothing."],
   ["#event-loop-mode", "describe.event-loop", "Watches whether Branch itself is keeping up, and says so when it falls behind."],
   ["#sdk-kit-mode", "describe.sdk-kit", "Whether the tools for building your own app on Branch are offered."],
+  // DG-198: the settings that moved to Settings › Automations & inbox.
+  ["#heartbeat-every", "describe.heartbeat-every", "How often it wakes to look at its list, in minutes. The shortest is 5."],
+  ["#heartbeat-from", "describe.heartbeat-from", "It only wakes after this time of day. Leave this and the next one empty to let it wake at any hour."],
+  ["#heartbeat-to", "describe.heartbeat-to", "It stops waking after this time of day, until the next day's start time."],
+  ["#heartbeat-zone", "describe.heartbeat-zone", "The timezone the two times above are read in."],
+  ["#heartbeat-list", "describe.heartbeat-list", "What to look at each time it wakes, one thing per line. It is used when HEARTBEAT.md is off or not there."],
+  ["#queue-at-once", "describe.queue-at-once", "How many tasks from the waiting line may work at the same time, from 1 to 8. The rest wait their turn."],
+  ["#autonomy-limit-runs", "describe.autonomy-limit-runs", "How many turns standing orders, procedures and repeating conversations may take in a day, all together. Past it, the next turn waits and says why."],
+  ["#autonomy-limit-steps", "describe.autonomy-limit-steps", "How many steps one of those turns may take before it stops and says why."],
+  ["#autonomy-limit-tokens", "describe.autonomy-limit-tokens", "How many tokens one of those turns may use before it stops and says why."],
+  ["#recordings-pictures", "describe.recordings-pictures", "A saved page of a task also holds the pictures it looked at, such as screenshots. Off leaves them out and keeps the page smaller."],
 ];
 
 /** Any three-way switch without a line of its own gets this one. */
