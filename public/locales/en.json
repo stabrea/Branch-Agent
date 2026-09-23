@@ -5423,5 +5423,8 @@
   "task.until": "until about {time}",
   "task.with": "{words}: {reason}",
   "task.queued": "Waiting its turn",
-  "task.queued.behind": "{words} · position {position}, behind \"{behind}\""
+  "task.queued.behind": "{words} · position {position}, behind \"{behind}\"",
+  "queue.reply.next": "Got it. I will do this as soon as the current task finishes.",
+  "queue.reply.afterOne": "Got it. I will do this after the message already waiting.",
+  "queue.reply.afterMany": "Got it. I will do this after the {n} messages already waiting."
 }

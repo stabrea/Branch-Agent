@@ -423,3 +423,14 @@ test("Q58 when the task ahead is cancelled, the next queued message starts and t
   assert.deepEqual(moved.busy, ["Then rename them"], "the first queued message is the busy one");
   assert.deepEqual(moved.list, [["Then back them up", 1, "Then rename them"]], "the other moved up to position 1 behind it");
 });
+
+test("Q58 the reply to a queued message comes from the language files, in English and in French", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.equal(/Got it\. I will do this/.test(source), false, "no reply is written into app.js in English");
+  for (const lang of ["en", "fr"]) {
+    const words = JSON.parse(await readFile(new URL(`../public/locales/${lang}.json`, import.meta.url), "utf8"));
+    for (const key of ["queue.reply.next", "queue.reply.afterOne", "queue.reply.afterMany"]) assert.ok(words[key], `${lang} ${key}`);
+    assert.match(words["queue.reply.afterMany"], /\{n\}/, `${lang} names how many wait`);
+  }
+});

@@ -1382,6 +1382,11 @@ function conversationButton(label, handler) {
 }
 let pendingFollowUps = 0;
 /** A message typed while the assistant is busy waits its turn in the same conversation. */
+/** Q58: the reply to a message that waits its turn, in the owner's language. */
+function queuedReply(position) {
+  if (position <= 1) return t("queue.reply.next");
+  return position === 2 ? t("queue.reply.afterOne") : t("queue.reply.afterMany", { n: position - 1 });
+}
 async function queueFollowUp(prompt) {
   try {
     // r17-h: wait, pass it on, or stop and go next, as the owner chose (public/flows-boards.js); null keeps the plain queue.
@@ -1389,7 +1394,7 @@ async function queueFollowUp(prompt) {
     const result = busy ?? await api(`sessions/${sessionId}/followups`, { prompt });
     $("prompt").value = "";
     message("user", prompt);
-    message("assistant", busy && busy.mode !== "queue" ? busy.message : result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    message("assistant", busy && busy.mode !== "queue" ? busy.message : queuedReply(result.position));
     if (busy?.mode === "steer") return;
     pendingFollowUps++;
   } catch (e) { toast(e.message); }

@@ -5424,5 +5424,8 @@
   "task.until": "jusqu’à environ {time}",
   "task.with": "{words} : {reason}",
   "task.queued": "En attente de son tour",
-  "task.queued.behind": "{words} · position {position}, derrière « {behind} »"
+  "task.queued.behind": "{words} · position {position}, derrière « {behind} »",
+  "queue.reply.next": "Bien reçu. Je le ferai dès que la tâche en cours sera terminée.",
+  "queue.reply.afterOne": "Bien reçu. Je le ferai après le message qui attend déjà.",
+  "queue.reply.afterMany": "Bien reçu. Je le ferai après les {n} messages qui attendent déjà."
 }
