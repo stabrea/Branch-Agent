@@ -65,6 +65,8 @@ const boxesHit = (page, one, two) =>
 test("the sidebar starts with this real computer and keeps project switching available", async (t) => {
   const f = await fixture(t);
   assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "This computer");
+  assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "This computer/,
+    "the visible computer name is part of the switcher's accessible name");
   assert.equal(await f.page.locator("#brand-name").count(), 0, "the old app-name header is not built invisibly");
   await f.page.locator("#rail-target-mark .face-computer").waitFor();
   assert.equal(await f.page.locator(".rail-scroll #rail-target").count(), 0, "the identity is not repeated below the actions");
@@ -77,6 +79,7 @@ test("the sidebar starts with this real computer and keeps project switching ava
   assert.equal(saved.status, 200);
   await f.page.evaluate(async () => (await import("/shell.js")).loadRail());
   assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "studio-mac");
+  assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "studio-mac/);
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.locator(".rail-head #rail-target-name").filter({ hasText: "studio-mac" }).waitFor();
