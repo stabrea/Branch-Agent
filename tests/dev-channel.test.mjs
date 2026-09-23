@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { Updater } from "../dist/desktop/updater.js";
-import { devBranch } from "../dist/desktop/dev-build.js";
+import { devBranch, buildEnv } from "../dist/desktop/dev-build.js";
 import { updatePlan, betaCheckEveryMs } from "../dist/comfort/auto-update.js";
 import { buildInfo } from "../scripts/package-desktop.mjs";
 
@@ -26,7 +26,7 @@ async function folders(t) {
 }
 
 /** A git and npm that answer like the real ones, write what a real build writes, and record every call. */
-function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false } = {}) {
+function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false, shared = OLD } = {}) {
   const calls = [];
   const run = async (file, args, options) => {
     const line = [file, ...args.filter((arg) => !arg.startsWith("credential.helper") && !arg.startsWith("core.askPass") && arg !== "-c")].join(" ");
@@ -40,6 +40,7 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
       await writeFile(join(where.sourceDir, "package-lock.json"), JSON.stringify({ name: "branch-agent", version: "0.19.2", packages: { "": { version: "0.19.2" } } }));
       return "";
     }
+    if (line.startsWith("git merge-base")) { if (shared === null) throw new Error("git merge-base did not finish."); return `${shared}\n`; }
     if (line.startsWith("git show")) return `${COMMITTED}\n`;
     if (line.startsWith("git rev-parse")) return `${headAfterReset}\n`;
     if (line.startsWith("npm run package:desktop")) {
@@ -94,7 +95,7 @@ test("installing a Dev build clones, resets to the exact change, installs, build
   const build = tools.calls.filter((call) => !call.endsWith("--version") && !call.startsWith("git ls-remote"));
   assert.deepEqual(build, [
     `git clone --no-tags --single-branch --branch ${devBranch} https://github.com/${repo}.git ${where.sourceDir}`,
-    `git reset --hard ${NEW}`, "git clean -fdx -e node_modules", "git rev-parse HEAD",
+    `git reset --hard ${NEW}`, "git clean -fdx -e node_modules", "git rev-parse HEAD", `git merge-base ${OLD} ${NEW}`,
     "npm ci --no-audit --no-fund", `git show -s --format=%ct ${NEW}`, "npm run package:desktop -- --release",
   ]);
   const lock = JSON.parse(await readFile(join(where.sourceDir, "package-lock.json"), "utf8"));
@@ -114,6 +115,7 @@ test("a Dev build that fails, lands on another change, or comes out incomplete c
     ["npm ci fails", { failOn: "npm ci" }, /npm ci did not finish/],
     ["the source is not the change looked up", { headAfterReset: OLD }, /did not arrive at the change that was looked up/],
     ["the build's checksum does not match", { tamper: true }, /came out incomplete/],
+    ["the newest change does not contain the running one", { shared: "c".repeat(40) }, /does not include the version running now \(change bbbbbbb\), so installing it would go back/],
   ]) {
     const where = await folders(t), tools = fakeTools(where, options);
     const dev = updater(where, tools);
@@ -144,4 +146,21 @@ test("each Dev build has its own version: later changes sort higher, and above t
   assert.equal(compareVersions(`0.19.3-dev.${COMMITTED + 60}`, BUILT), 1);
   assert.equal(compareVersions(BUILT, "0.19.3-beta.999"), 1, "switching back to Beta never offers the same line's older builds");
   assert.equal(compareVersions("0.19.3", BUILT), 1, "the Stable release of that line is newer than any of its Dev builds");
+});
+
+test("a running change the clone has never heard of cannot be compared, so the build goes on", async (t) => {
+  const where = await folders(t), tools = fakeTools(where, { shared: null });
+  const dev = updater(where, tools);
+  await dev.check();
+  await dev.install();
+  assert.ok(tools.calls.includes("npm run package:desktop -- --release"));
+});
+
+test("the build never sees the running app's own switches, and never waits on a password prompt", () => {
+  const env = buildEnv({ PATH: "/usr/bin", HOME: "/Users/me", BRANCH_DATA_DIR: "/data", BRANCH_MOBILE_OUT: "/x", ELECTRON_RUN_AS_NODE: "1" }, "darwin");
+  assert.deepEqual(Object.keys(env).filter((key) => /^(BRANCH|ELECTRON)_/.test(key)), []);
+  assert.equal(env.HOME, "/Users/me");
+  assert.equal(env.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(env.PATH, "/opt/homebrew/bin:/usr/local/bin:/usr/bin");
+  assert.equal(buildEnv({ Path: "C:/x" }, "win32").GCM_INTERACTIVE, "never");
 });

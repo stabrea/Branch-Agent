@@ -374,7 +374,7 @@ export class Updater {
       building: "Building Branch on this computer (a few minutes)…",
     };
     const built = await buildDev(this.options.devRun ?? realRun(this.platform), {
-      repo: this.options.repo, sourceDir: this.options.devSourceDir, commit: release.commit, assetName: this.options.assetName!,
+      repo: this.options.repo, sourceDir: this.options.devSourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
       onPhase: (phase) => this.set("downloading", words[phase], null, release),
     });
     this.set("verifying", "Checking the build is whole…", null, release);

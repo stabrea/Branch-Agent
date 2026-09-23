@@ -23,12 +23,7 @@ const quietGit = ["-c", "credential.helper=", "-c", "core.askPass="];
 
 /** The real runner: hidden, no prompts, npm through the command shell Windows needs for `npm.cmd`. */
 export function realRun(platform: NodeJS.Platform = process.platform): Run {
-  const extraPath = platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [];
-  const env = {
-    ...process.env,
-    GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_ASKPASS: "", SSH_ASKPASS: "",
-    PATH: [...extraPath, process.env.PATH ?? ""].filter(Boolean).join(platform === "win32" ? ";" : ":"),
-  };
+  const env = buildEnv(process.env, platform);
   return (file, args, options) => new Promise((resolve, reject) => {
     const [program, programArgs] = platform === "win32" && file === "npm"
       ? [join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe"), ["/d", "/s", "/c", "npm", ...args]]
@@ -40,6 +35,21 @@ export function realRun(platform: NodeJS.Platform = process.platform): Run {
         reject(new Error(`${file} ${args[0] ?? ""} did not finish${error.killed ? " in time" : ""}${lastLine ? `: ${lastLine.slice(0, 300)}` : "."}`));
       });
   });
+}
+
+/**
+ * What the build's programs see: this computer's own environment without the running app's own switches (a
+ * BRANCH_* or ELECTRON_* value meant for this app must not steer the build), with prompts off, and on a Mac the
+ * places Homebrew puts git and Node, which an app started from the Dock is not told about.
+ */
+export function buildEnv(from: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  const kept = Object.fromEntries(Object.entries(from).filter(([key]) => !/^(BRANCH|ELECTRON)_/i.test(key)));
+  const extraPath = platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [];
+  return {
+    ...kept,
+    GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_ASKPASS: "", SSH_ASKPASS: "",
+    PATH: [...extraPath, from.PATH ?? ""].filter(Boolean).join(platform === "win32" ? ";" : ":"),
+  };
 }
 
 /** Whether this computer has what a Dev build needs; the reason in plain words when it does not. */
@@ -64,9 +74,9 @@ export async function remoteHead(run: Run, repo: string): Promise<string> {
  * Brings Branch's own clone to exactly `commit` and builds the release download from it. Returns the download's
  * path and the version the source says it is. A failure leaves the installed app untouched.
  */
-export async function buildDev(run: Run, plan: { repo: string; sourceDir: string; commit: string; assetName: string; onPhase: (phase: DevPhase) => void }):
+export async function buildDev(run: Run, plan: { repo: string; sourceDir: string; commit: string; running: string | null; assetName: string; onPhase: (phase: DevPhase) => void }):
 Promise<{ archive: string; checksumFile: string; version: string }> {
-  const { repo, sourceDir, commit, assetName, onPhase } = plan;
+  const { repo, sourceDir, commit, running, assetName, onPhase } = plan;
   onPhase("fetching");
   const cloned = await access(join(sourceDir, ".git")).then(() => true, () => false);
   if (!cloned) await run("git", [...quietGit, "clone", "--no-tags", "--single-branch", "--branch", devBranch, `https://github.com/${repo}.git`, sourceDir], { timeoutMs: minutes(15) });
@@ -75,6 +85,13 @@ Promise<{ archive: string; checksumFile: string; version: string }> {
   await run("git", ["clean", "-fdx", "-e", "node_modules"], { cwd: sourceDir, timeoutMs: minutes(2) });
   const head = (await run("git", ["rev-parse", "HEAD"], { cwd: sourceDir, timeoutMs: 30_000 })).trim();
   if (head !== commit) throw new Error("The source did not arrive at the change that was looked up, so nothing was built.");
+  // Never back: the change offered must already contain the one running (a Beta can be built from a newer change
+  // than the main line's head for a while). A running change this clone has never heard of cannot be compared.
+  if (running && running !== commit) {
+    const shared = await run("git", ["merge-base", running, commit], { cwd: sourceDir, timeoutMs: 30_000 }).then((out) => out.trim(), () => "");
+    if (shared && shared !== running)
+      throw new Error(`The newest Dev change does not include the version running now (change ${running.slice(0, 7)}), so installing it would go back. Nothing was changed; it is offered again once it catches up.`);
+  }
   onPhase("installing");
   await run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: sourceDir, timeoutMs: minutes(30) });
   const committedAt = Number((await run("git", ["show", "-s", "--format=%ct", commit], { cwd: sourceDir, timeoutMs: 30_000 })).trim());
