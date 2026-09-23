@@ -73,9 +73,9 @@ test("DG-192 Updates shows Branch Agent and its version in a browser; the deskto
   assert.equal(await page.locator(".updates-brand b").textContent(), "Branch Agent");
   assert.equal(await page.locator("#updates-check").isVisible(), false, "a browser cannot check");
   assert.equal(await page.locator("#updates-channel").isVisible(), false);
-  /* The channel is the desktop app's, and keeps its two choices exactly (tests/comfort-ui.test.mjs drives it). */
+  /* The channel is the desktop app's, and keeps its choices exactly: Stable, Beta and Dev (tests/dev-channel.test.mjs). */
   const labels = await page.locator("#updates-channel label").allTextContents();
-  assert.deepEqual(labels.map((words) => words.trim()), ["Stable", "Beta"]);
+  assert.deepEqual(labels.map((words) => words.trim()), ["Stable", "Beta", "Dev"]);
   assert.deepEqual(errors, []);
 });
 
