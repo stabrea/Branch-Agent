@@ -84,3 +84,25 @@ test("morning brief: RSS feed items appear with their source link, a javascript:
   assert.match(healthPreview.markdown, /https:\/\/health\.example\/steps/);
   assert.match(healthPreview.markdown, /Test Health/);
 });
+
+test("morning brief: the running app itself, not just the library, reads news feeds through brief.configure/brief.preview", async (t) => {
+  // This is the end-to-end check that the brief the owner actually gets (via createBranch, wired
+  // in index.ts) has a real newsFetch, not only the MorningBrief class tested in isolation above.
+  // allowPrivateAddresses lets the app's own network policy reach the local fixture feed server.
+  const root = await mkdtemp(join(tmpdir(), "branch-brief-sources-"));
+  const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, web: { allowPrivateAddresses: true } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const feedUrl = await feedServer(t, (base) => `<?xml version="1.0"?><rss version="2.0"><channel>
+    <item><title>City council approves new park</title><link>${base}/park</link></item>
+  </channel></rss>`);
+  const own = await app.runtime.run({ prompt: "set up my brief" });
+  const context = app.runtime.context({ runId: own.id });
+
+  await app.registry.execute("brief.configure", { newsFeeds: [feedUrl] }, context);
+  const preview = await app.registry.execute("brief.preview", {}, context);
+
+  assert.match(preview.markdown, /City council approves new park/);
+  assert.match(preview.markdown, new RegExp(`${feedUrl.replace(/[.]/g, "\\.")}\\/park`));
+  assert.match(preview.markdown, /No health data source is connected\./, "health is honest with nothing wired up");
+});

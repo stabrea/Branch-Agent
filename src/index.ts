@@ -137,6 +137,7 @@ import { Monitors, registerMonitors } from "./monitors.js";
 // Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
+import type { PageFetchDeps } from "./web-page-fetch.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
 import { migrateFeatureSwitches } from "./feature-switch-migration.js";
@@ -828,7 +829,11 @@ export async function createBranch(options: {
   const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
     () => desktop.enabled(runtime.owner), deliverMessage);
   registerScreenWatches(registry, screenWatches);
-  const brief = new MorningBrief(store, monitors, documents, deliverMessage);
+  // The brief's own news feeds go through the same checked fetch path as web.page (w911): the
+  // owner's network rules and redirect limit, not a fresh HTTP client. Health has no local source
+  // wired up yet (see brief-sources.ts), so that argument is left unset.
+  const briefNewsFetch: PageFetchDeps = { policy: web.policy, fetch: globalThis.fetch, timeoutMs: web.settings().timeoutMs, maxBytes: web.settings().maxBytes, userAgent: "BranchAgent" };
+  const brief = new MorningBrief(store, monitors, documents, deliverMessage, briefNewsFetch);
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
   registerChannelTools(registry, channels, brief, store.profiles);
