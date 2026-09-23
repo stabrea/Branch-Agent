@@ -146,7 +146,7 @@ test("R17-053: usage counts over recent tasks, look-alike skills, a dry run that
   assert.equal(merged.proposals.length, 2);
   assert.equal(app.store.skills.view(owner, b.id).activeVersion !== null, true, "nothing is switched off before the owner accepts");
   // Accepting the "set aside" suggestion switches the other skill off and keeps it installed.
-  app.store.review.decide(owner, merged.proposals[1], true);
+  await app.store.review.decide(owner, merged.proposals[1], true);
   assert.equal(app.store.skills.view(owner, b.id).activeVersion, null);
 });
 
@@ -157,7 +157,7 @@ test("R17-054: the timeline shows facts, changes, skills and decisions, newest f
   app.store.updateMemory(owner, { id: fact.id, text: "The shed key is in the drawer", source: "test", expectedRevision: 1 }, "");
   app.store.skills.install(owner, { document: "---\nname: tidy-shed\ndescription: Tidy the shed.\n---\n\nSweep.\n" });
   const proposal = app.store.review.propose(owner, { kind: "put", text: "Likes tea", source: "test" });
-  app.store.review.decide(owner, proposal.id, false);
+  await app.store.review.decide(owner, proposal.id, false);
   const all = await api("/api/learning-more/journey");
   const kinds = new Set(all.entries.map((e) => e.kind));
   for (const kind of ["memory", "memory-change", "skill", "decision"]) assert.ok(kinds.has(kind), kind);

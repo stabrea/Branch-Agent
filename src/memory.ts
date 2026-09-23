@@ -404,7 +404,7 @@ export const memoryScope = (store: Store, context: { owner: string }): string =>
  * the hygiene/versions screens) stay on this computer's database either way: they are Branch's own
  * bookkeeping on top of a fact, not part of what `MemoryBackend` promises a backend does.
  */
-interface OutsideMemoryProvider extends MemoryBackend { isOutside(owner: string): boolean }
+export interface OutsideMemoryProvider extends MemoryBackend { isOutside(owner: string): boolean }
 
 export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch, provider?: OutsideMemoryProvider): void {
   registry.register({ name: "memory.put", description: "Save one clear fact with its source. Give entity and attribute when it may change later, so a newer fact ends the earlier one.",

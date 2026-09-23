@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { visibleTo, type MemoryFacts, type MemoryRecord } from "./memory.js";
+import { visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
 import { FactKindSchema } from "./memory-layers.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
@@ -91,6 +91,16 @@ export class MemoryReview {
    * in at start-up like `acceptCard`. Without it a skill note is only noted.
    */
   applySkillNote?: (owner: string, proposal: Proposal) => unknown;
+  /**
+   * FQ-memory.providers: set at start-up once `src/memory-provider.ts` exists. When the owner has an
+   * outside memory service switched on, an accepted put/update/delete suggestion is written there
+   * instead of this computer's database, exactly as `memory.put`/`memory.update`/`memory.delete`
+   * already do — so a staged change does not land somewhere the owner switched away from. Every
+   * other kind of suggestion (tidying, knowledge cards, skill notes) stays on this computer's
+   * database either way: it is Branch's own bookkeeping on top of a fact, not a remembered fact
+   * itself, the same boundary `src/memory.ts` draws for `memory.keep`/`memory.at`/`memory.timeline`.
+   */
+  provider?: OutsideMemoryProvider;
   /** The consolidation under way for each person, so a second request shares it (see `consolidate`). */
   private readonly consolidating = new Map<string, Promise<ConsolidationReport>>();
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
@@ -125,30 +135,38 @@ export class MemoryReview {
     return rows.map((row) => ({ ...ProposalSchema.parse(JSON.parse(String(row.data))), id: String(row.id), status: String(row.status) as Proposal["status"], createdAt: String(row.created_at), decidedAt: row.decided_at === null ? null : String(row.decided_at) }));
   }
   /** Accepting applies the change exactly as staged; rejecting only records the decision. */
-  decide(owner: string, id: string, accept: boolean): { proposal: Proposal; applied: unknown } {
+  async decide(owner: string, id: string, accept: boolean): Promise<{ proposal: Proposal; applied: unknown }> {
     const proposal = this.proposals(owner, "all").find((p) => p.id === id);
     if (!proposal) throw new Error("No such suggestion");
     if (proposal.status !== "pending") throw new Error("That suggestion was already decided");
     let applied: unknown = null;
-    if (accept) applied = this.apply(owner, proposal);
+    if (accept) applied = await this.apply(owner, proposal);
     const decidedAt = new Date().toISOString();
     this.db.prepare("UPDATE memory_proposals SET status=?, decided_at=? WHERE id=?").run(accept ? "accepted" : "rejected", decidedAt, id);
     return { proposal: { ...proposal, status: accept ? "accepted" : "rejected", decidedAt }, applied };
   }
-  private apply(owner: string, proposal: Proposal): unknown {
+  private async apply(owner: string, proposal: Proposal): Promise<unknown> {
+    // FQ-memory.providers: put/update/delete are exactly the three methods `memory.put`/`.update`/
+    // `.delete` already send to the outside service when one is switched on, so an accepted
+    // suggestion of the same kind goes the same way rather than always landing in SQLite.
+    const outside = this.provider?.isOutside(owner) ? this.provider : undefined;
     if (proposal.kind === "put") {
       // A suggestion the assistant noticed for itself says what sort of fact it is; anything else
       // is saved exactly as it always was, as a fact about the world.
       const kind = FactKindSchema.safeParse(proposal.learned?.kind).data;
-      return this.memories.save(owner, randomUUID(),
-        { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) });
+      const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) };
+      return outside ? outside.write(owner, randomUUID(), data) : this.memories.save(owner, randomUUID(), data);
     }
     if (proposal.kind === "update") {
-      const current = proposal.memoryId ? this.memories.get(owner, proposal.memoryId) : undefined;
+      const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
       if (!current) throw new Error("The memory this suggestion changes no longer exists");
-      return this.memories.save(owner, current.id, { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
+      const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId };
+      return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
     }
-    if (proposal.kind === "delete") return { removed: proposal.memoryId ? this.memories.delete(owner, proposal.memoryId, `accepted suggestion ${proposal.id}`) : false };
+    if (proposal.kind === "delete") {
+      if (!proposal.memoryId) return { removed: false };
+      return { removed: outside ? await outside.forget(owner, proposal.memoryId) : this.memories.delete(owner, proposal.memoryId, `accepted suggestion ${proposal.id}`) };
+    }
     if (tidyingKinds.includes(proposal.kind)) return this.tidy(owner, proposal);
     if (proposal.kind === "knowledge-card") {
       if (!proposal.card) throw new Error("That card suggestion has nothing in it");

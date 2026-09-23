@@ -563,6 +563,10 @@ export async function createBranch(options: {
   // src/memory-provider.ts reads the owner's choice fresh on every call, and web.policy is the same
   // guard every other outside address in Branch is checked against.
   memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch);
+  // An accepted put/update/delete suggestion in the Memory review screen goes wherever memory.put/
+  // update/delete themselves would go right now, rather than always landing in this computer's
+  // database — see the comment on `MemoryReview.provider`.
+  store.review.provider = memory.backend;
   registerMemory(registry, store, memory.retrieval, memory.backend);
   offerSelfDevelopment({
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,

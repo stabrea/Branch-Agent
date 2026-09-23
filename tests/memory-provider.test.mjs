@@ -122,6 +122,46 @@ test("an outside memory service needs a usable address before it can be switched
   await assert.rejects(async () => app.memory.backend.configure("local", { mode: "outside", url: "ftp://example.com" }), /http/i);
 });
 
+test("an accepted put/update/delete suggestion goes to the outside service, not this computer's database", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  app.store.review.configure("local", { requireApproval: true });
+
+  // A put made while approval is required is staged rather than saved anywhere yet.
+  const staged = await app.registry.execute("memory.put", { text: "The spare key is under the mat", source: "owner" }, context);
+  assert.equal(staged.staged, true, "the write waits for the owner rather than landing anywhere");
+  assert.equal(double.requests.some((r) => r.method === "PUT"), false, "not sent to the outside service yet");
+  assert.deepEqual(app.store.list("memory", "local"), [], "and not written locally either");
+
+  // Accepting it now sends it to the outside service — the bug this proves: it used to always go to SQLite.
+  const pending = app.store.review.proposals("local", "pending");
+  assert.equal(pending.length, 1);
+  const { applied } = await app.store.review.decide("local", pending[0].id, true);
+  assert.equal(applied.data.text, "The spare key is under the mat");
+  assert.equal(double.requests.some((r) => r.method === "PUT" && r.body.text === "The spare key is under the mat"), true,
+    "the accepted suggestion was written to the outside service");
+  assert.deepEqual(app.store.list("memory", "local"), [], "this computer's database stayed empty");
+  const savedId = applied.id;
+
+  // An accepted update proposal for that same fact also goes to the outside service.
+  const updateProposal = await app.registry.execute("memory.update",
+    { id: savedId, text: "The spare key is inside the shed", source: "owner", expectedRevision: applied.revision }, context);
+  assert.equal(updateProposal.staged, true);
+  const updateDecision = await app.store.review.decide("local", app.store.review.proposals("local", "pending")[0].id, true);
+  assert.equal(updateDecision.applied.data.text, "The spare key is inside the shed");
+  assert.deepEqual(app.store.list("memory", "local"), [], "the update did not fall back to SQLite");
+
+  // And an accepted delete proposal removes it from the outside service, not from SQLite (there is nothing there to remove).
+  const deleteProposal = await app.registry.execute("memory.delete", { id: savedId }, context);
+  assert.equal(deleteProposal.staged, true);
+  const deleteDecision = await app.store.review.decide("local", app.store.review.proposals("local", "pending")[0].id, true);
+  assert.equal(deleteDecision.applied.removed, true);
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "spare key" }, context), []);
+});
+
 test("memory.update against an outside service rejects a stale revision the same way SQLite does", async (t) => {
   const double = memoryDouble();
   const base = await double.listen();
