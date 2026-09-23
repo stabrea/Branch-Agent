@@ -87,7 +87,7 @@ export const SETTINGS_INDEX = [
   ["addons-drafts","settings:skills","add-ons-card","Letting the assistant draft an add-on for you to review","add-ons.modes.drafts",null,"Add-ons other people wrote",true],
   ["addons-search","settings:skills","add-ons-card","Search sources that plugins bring","add-ons.modes.search",null,"Add-ons other people wrote",true],
   ["addons-export","settings:skills","add-ons-card","Branch as a plugin for Claude Code and Codex","add-ons.modes.export",null,"Add-ons other people wrote",true],
-  ["addons-wall-every","settings:skills","add-ons-card","Also run plugin files I put in the plugins folder myself in their own walled program","add-ons.wallEveryPlugin","#add-ons-card","Add-ons other people wrote",true],
+  ["addons-wall-every","settings:skills","add-ons-card","Also run plugin files I put in the plugins folder myself in their own walled program","add-ons.wallEveryPlugin","#addons-wall","Add-ons other people wrote",true],
   ["mcp-enabled","customize:connections","mcp-card","Let other AI tools use Branch","mcp-sharing.enabled",null,"Sharing with other AI tools",true],
   ["mcp-tools","customize:connections","mcp-choose","Which Branch tools other AI tools may use (a tick per tool, read-only ones and “can change things” ones)","mcp-sharing.exposedTools",null,"Sharing with other AI tools",true],
   ["mcp-connect-when","customize:connections","mcp-card","Start these servers","mcp-connections.connect",null,"Sharing with other AI tools",true],
