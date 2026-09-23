@@ -171,20 +171,29 @@ test('failed pending memory save restores both fields with the original draft in
   assert.deepEqual(f.errors, []);
 });
 
+/* DG-197: how much it keeps (the limit, the count, export and import) is in Settings › Memory & library; the facts
+   themselves stay in Library › Memory. */
+const limits = page => openPlace(page, 'settings:memory');
+
 test('memory capacity rejects additional facts and cannot drop below the saved count', async t => {
   const f = await fixture(t);
+  await limits(f.page);
   await f.page.locator('#memory-capacity').fill('1');
   await f.page.getByRole('button', { name: 'Update memory limit', exact: true }).click();
   await f.page.locator('#memory-count').filter({ hasText: '1 of 1 saved facts' }).waitFor();
+  await openPlace(f.page, 'memory');
   await f.page.locator('#memory-text').fill('Extra fact');
   await f.page.getByRole('button', { name: 'Save memory', exact: true }).click();
   await f.page.locator('#toast').filter({ hasText: /capacity reached/ }).waitFor();
   assert.equal(f.app.store.list('memory', 'local').length, 1);
+  await limits(f.page);
   await f.page.locator('#memory-capacity').fill('2');
   await f.page.getByRole('button', { name: 'Update memory limit', exact: true }).click();
   await f.page.locator('#memory-count').filter({ hasText: '1 of 2 saved facts' }).waitFor();
+  await openPlace(f.page, 'memory');
   await f.page.getByRole('button', { name: 'Save memory', exact: true }).click();
-  await f.page.locator('#memory-count').filter({ hasText: '2 of 2 saved facts' }).waitFor();
+  await f.page.waitForFunction(() => document.getElementById('memory-count')?.textContent.includes('2 of 2 saved facts'));
+  await limits(f.page);
   await f.page.locator('#memory-capacity').fill('1');
   await f.page.getByRole('button', { name: 'Update memory limit', exact: true }).click();
   await f.page.locator('#toast').filter({ hasText: /below the current count/ }).waitFor();
@@ -193,6 +202,7 @@ test('memory capacity rejects additional facts and cannot drop below the saved c
 
 test('capacity draft survives blur and polling, and a pending save preserves newer input', async t => {
   const f = await fixture(t), input = f.page.locator('#memory-capacity');
+  await limits(f.page);
   const submit = f.page.getByRole('button', { name: 'Update memory limit', exact: true });
   await input.fill('2'); await input.press('Tab');
   assert.equal(await submit.evaluate(node => document.activeElement === node), true);
@@ -215,6 +225,7 @@ test('capacity draft survives blur and polling, and a pending save preserves new
 
 test('memory file export/import preserves metadata in an empty store and conflicts merge atomically', async t => {
   const source = await fixture(t), destination = await fixture(t, false);
+  await limits(source.page); await limits(destination.page);
   const download = source.page.waitForEvent('download');
   await source.page.getByRole('button', { name: 'Export memory JSON', exact: true }).click();
   const file = await download, path = join(source.root, 'memory.json'); await file.saveAs(path);

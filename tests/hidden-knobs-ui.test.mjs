@@ -97,7 +97,8 @@ for (const width of [1440, 860, 400]) {
       assert.equal(await page.locator("#knobs-reasoning-card").getByRole("heading", {
         level: 4, name: (await subsection.textContent()).trim(), exact: true,
       }).count(), 1);
-      assert.equal(await page.locator("#knobs-memory-card > h2").count(), 1, "Library heading is unchanged");
+      /* DG-197: the memory card left the Library for Settings › Memory & library, so it has a Settings card's title. */
+      assert.equal(await page.locator("#knobs-memory-card > h3.settings-card-title").count(), 1, "the memory card has a Settings title");
     }
     assert.deepEqual(errors, []);
   });
@@ -112,9 +113,9 @@ test("each knob card is in its home, every control has its own sentence, and sav
     assert.equal(await page.locator(`#${id} > h3.settings-card-title + p.subtle`).count(), 1, `${id} says what it is for`);
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
   }
-  await openPlace(page, "memory");
-  await page.waitForFunction(() => document.getElementById("knobs-memory-card")?.closest("#memory"));
-  assert.ok(await page.locator("#knobs-memory-card").isVisible(), "the memory card is in Library, Memory");
+  await openPlace(page, "settings:memory");
+  await page.waitForFunction(() => document.getElementById("knobs-memory-card")?.closest("#lx-page-memory"));
+  assert.ok(await page.locator("#knobs-memory-card").isVisible(), "the memory card is in Settings, Memory & library (DG-197)");
   assert.deepEqual(await undescribed(page, "knobs-memory-card"), []);
 
   await openSettingFor(page, "#knobs-limits-card");
