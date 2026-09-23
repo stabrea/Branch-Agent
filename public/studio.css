@@ -832,10 +832,7 @@
   font: 13px / 1.5 var(--mono);
   overflow-wrap: anywhere;
 }
-/* Settings › Trunks & people: everyone, under the People line and its Open. */
-.settings-directory-card:has(.settings-people) {
-  flex-wrap: wrap;
-}
+/* Settings › Trunks & people: everyone, in A person's card under its Open People. */
 .settings-people {
   display: grid;
   flex: 1 0 100%;

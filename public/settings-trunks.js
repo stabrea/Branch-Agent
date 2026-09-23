@@ -180,6 +180,8 @@ export async function drawAll() {
     place(switchesCard(roster.modes));
     place(edit);
     place(await personCard(profiles.profiles ?? []));
+    /* The cards are new each time: public/people-place.js puts its list of people back into A person's card. */
+    document.dispatchEvent(new CustomEvent("branch-settings-trunks"));
   } catch { /* the cards failing leave the rest of Settings as it was */ }
 }
 /* Drawn once the window is connected, as public/trunks.js is. */
