@@ -510,6 +510,7 @@ async function staticFile(
     "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
     "/topbar-crumbs.js": ["topbar-crumbs.js", "text/javascript; charset=utf-8"], // DG-099
     "/rail-foot.js": ["rail-foot.js", "text/javascript; charset=utf-8"], // DG-094
+    "/open-strip.js": ["open-strip.js", "text/javascript; charset=utf-8"], // DG-096
     "/strip.css": ["strip.css", "text/css; charset=utf-8"],
     "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
     "/studio.css": ["studio.css", "text/css; charset=utf-8"],

@@ -1610,6 +1610,7 @@ details.tool-step > summary:hover {
 .profile-badge button {
   padding: 2px var(--s2);
   font-size: 12px;
+}
 
 /* A conversation with a task at work, in Recents (public/shell.js railItem). */
 .rail-line[data-running] .rail-item {
@@ -1633,4 +1634,107 @@ details.tool-step > summary:hover {
   height: 6px;
   border-radius: 50%;
   background: var(--copper);
+}
+
+/* DG-096: the conversations open in this window, along the bottom of the reading pane (public/open-strip.js) */
+.lx-open-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 10px 0 14px;
+  border-top: 1px solid var(--line);
+}
+.lx-open-strip[hidden] {
+  display: none;
+}
+.lx-open-label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.lx-open-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lx-open-item {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 220px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--text-2);
+}
+.lx-open-item:hover,
+.lx-open-item.on {
+  background: var(--hover);
+  color: var(--text);
+}
+.lx-open-item.on::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--copper);
+}
+.lx-open-go {
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font-size: 12.5px;
+}
+.lx-open-go span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lx-open-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+}
+.lx-open-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* the message box, which floats at the pane's foot, sits on top of the strip rather than over it */
+main:has(> .lx-open-strip:not([hidden])) .composer-dock {
+  bottom: 48px;
+}
+/* as in the sample, a phone has no room for it */
+@media (max-width: 760px) {
+  body .lx-open-strip {
+    display: none !important;
+  }
 }
