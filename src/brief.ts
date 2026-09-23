@@ -8,6 +8,8 @@ import type { DeliveryHandler } from "./scheduler.js";
 import { nextDailyOccurrence } from "./scheduler.js";
 import { placeholders, substitute } from "./recipes.js";
 import { optionalFields } from "./feature-switches.js";
+import type { PageFetchDeps } from "./web-page-fetch.js";
+import { fetchNewsItems, noHealthConnected, sourceLine, type BriefItem, type HealthSource } from "./brief-sources.js";
 
 /**
  * One message first thing: what is planned today, what was left unfinished, documents that arrived,
@@ -15,7 +17,7 @@ import { optionalFields } from "./feature-switches.js";
  * from what the app already knows — no calendar account and nothing read aloud — and the wording is
  * a template the person can change.
  */
-export const briefSections = ["schedules", "tasks", "documents", "watches", "reminders"] as const;
+export const briefSections = ["schedules", "tasks", "documents", "watches", "news", "health", "reminders"] as const;
 export type BriefSection = (typeof briefSections)[number];
 export const defaultTemplate = `Good morning. Here is {{date}}.
 
@@ -31,6 +33,12 @@ export const defaultTemplate = `Good morning. Here is {{date}}.
 **Watches that changed**
 {{watches}}
 
+**In the news**
+{{news}}
+
+**Health**
+{{health}}
+
 **Reminders**
 {{reminders}}`;
 const zone = z.string().min(1).max(64).refine((value) => {
@@ -42,8 +50,10 @@ export const BriefSettingsSchema = z.object({
   dailyAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("07:30"),
   timezone: zone.default("UTC"),
   deliverTo: z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().nullable().default(null),
+  /** The owner's own RSS/Atom feed addresses for the "In the news" section. */
+  newsFeeds: z.array(z.string().url().max(2048)).max(10).default([]),
   template: z.string().max(4000).default(defaultTemplate),
-  sections: z.array(z.enum(briefSections)).max(5).default([...briefSections]),
+  sections: z.array(z.enum(briefSections)).max(briefSections.length).default([...briefSections]),
   nextAt: z.iso.datetime().nullable().default(null),
   lastSentAt: z.iso.datetime().nullable().default(null),
 }).strict();
@@ -77,12 +87,36 @@ export function assembleBrief(settings: BriefSettings, content: BriefContent, no
 }
 
 export class MorningBrief {
+  /** The last news/health read for each owner; filled by refreshSources, read back by gather(). */
+  private readonly newsCache = new Map<string, BriefItem[]>();
+  private readonly healthCache = new Map<string, BriefItem[] | null | undefined>();
   constructor(
     readonly store: Store,
     private readonly monitors?: Monitors,
     private readonly documents?: DocumentLibrary,
     private readonly deliver?: DeliveryHandler,
+    /** How to read the owner's news feeds; the same checked fetch path `web.page` uses. */
+    private readonly newsFetch?: PageFetchDeps,
+    /** Left unset until a local health integration exists; see brief-sources.ts. */
+    private readonly health?: HealthSource,
   ) {}
+  /**
+   * Re-reads the owner's news feeds (and the health source, when one is wired in) right now. Cheap
+   * to skip: gather() falls back to whatever was last cached, or nothing before the first refresh.
+   */
+  async refreshSources(owner: string): Promise<void> {
+    const settings = this.settings(owner);
+    if (this.newsFetch && settings.newsFeeds.length) {
+      const items = await fetchNewsItems(this.newsFetch, settings.newsFeeds.map((url) => ({ url })), AbortSignal.timeout(20000));
+      this.newsCache.set(owner, items);
+    }
+    if (this.health) this.healthCache.set(owner, await this.health.read(owner));
+  }
+  private healthLines(owner: string): string[] {
+    if (!this.health) return [noHealthConnected];
+    const items = this.healthCache.get(owner);
+    return items && items.length ? items.map(sourceLine) : [noHealthConnected];
+  }
   settings(owner: string): BriefSettings {
     const saved = BriefSettingsSchema.safeParse(this.store.get("settings", owner, "brief")?.data ?? {});
     return saved.success ? saved.data : BriefSettingsSchema.parse({});
@@ -111,6 +145,8 @@ export class MorningBrief {
       watches: (this.monitors?.list(owner) ?? [])
         .filter((monitor) => monitor.changes > 0 && (monitor.lastCheckedAt ?? "") >= since)
         .slice(0, 8).map((monitor) => `${monitor.label} changed ${monitor.changes} time${monitor.changes === 1 ? "" : "s"}`),
+      news: (this.newsCache.get(owner) ?? []).map(sourceLine),
+      health: this.healthLines(owner),
       reminders: this.store.list("memory", owner)
         .filter((record) => /remind/i.test(`${String(record.data.attribute ?? "")} ${String(record.data.text ?? "")}`) && !record.data.validTo)
         .slice(0, 5).map((record) => String(record.data.text).slice(0, 160)),
@@ -122,6 +158,7 @@ export class MorningBrief {
   }
   /** Writes the brief into the conversation list and sends it on, when a chat was chosen. */
   async send(owner: string, now = new Date()): Promise<{ markdown: string; delivered: string | null; runId: string }> {
+    await this.refreshSources(owner);
     const settings = this.settings(owner);
     const markdown = assembleBrief(settings, this.gather(owner, now), now);
     const run = this.store.createRun(owner, "Morning brief");
@@ -151,7 +188,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     name: "brief.preview", permission: "brief.read",
     description: "Put together the morning brief for right now and show it, without sending it anywhere.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => brief.preview(context.owner),
+    execute: async (_input, context) => { await brief.refreshSources(context.owner); return brief.preview(context.owner); },
   });
   registry.register({
     name: "brief.configure", permission: "brief.manage",
