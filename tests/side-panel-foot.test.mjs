@@ -74,6 +74,30 @@ test("DG-116 the card ends in one switch, on by default, pinned to its bottom ed
   assert.deepEqual(errors, []);
 });
 
+test("DG-116 the foot stays on the card's bottom edge while its list is scrolled, at 1440 and 400 px", async (t) => {
+  for (const width of [1440, 400]) {
+    const { page, errors } = await fixture(t, { width, height: width > 500 ? 950 : 860 });
+    await openCard(page);
+    await tab(page, "activity");
+    await page.locator("#lx-pane-foot").waitFor();
+    /* A list far taller than the card, so the card scrolls; the foot is measured partway down it, not at its end. */
+    const where = await page.evaluate(() => {
+      const panel = document.getElementById("context-panel");
+      const filler = document.createElement("div");
+      filler.style.height = "3000px";
+      document.getElementById("context-tasks").append(filler);
+      /* Measured in the same turn: the tab redraws its list on its own, which would take the filler away. */
+      panel.scrollTop = 400;
+      const card = panel.getBoundingClientRect(), box = document.getElementById("lx-pane-foot").getBoundingClientRect();
+      const inner = card.bottom - parseFloat(getComputedStyle(panel).borderBottomWidth);
+      return { scrolled: panel.scrollTop, room: panel.scrollHeight - panel.clientHeight, gap: inner - box.bottom };
+    });
+    assert.ok(where.scrolled > 0 && where.scrolled < where.room, `${width}: the list is scrolled partway (${where.scrolled} of ${where.room})`);
+    assert.ok(Math.abs(where.gap) <= 1, `${width}: the foot's bottom edge sits on the card's bottom edge (${where.gap})`);
+    assert.deepEqual(errors, []);
+  }
+});
+
 test("DG-117 the Terminal tab offers Open a terminal for me, the sample's small button, joining this conversation safely", async (t) => {
   const { page, errors, sessionId } = await fixture(t);
   await openCard(page);
