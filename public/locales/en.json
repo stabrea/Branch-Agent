@@ -1719,7 +1719,6 @@
   "documents.heading.knowledge-base-limits": "Knowledge base limits",
   "documents.heading.sum-up-a-knowledge-base": "Sum up a knowledge base",
   "documents.heading.what-is-mentioned-with-what": "What is mentioned with what",
-  "documents.heading.where-your-vectors-are-kept": "Where your vectors are kept",
   "documents.intro.your-own-documents-kept-on": "Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, slide decks, OpenDocument files, e-books, rich text, web pages, notes, tables, plain text and PDFs are all read here. A PDF that is pictures of text has no words to lift out, and says so.",
   "documents.note.a-filter-that-matches-nothing": "A filter narrows the search before anything is ranked, and two filters narrow it further. If nothing matches, Branch says so rather than answering from everything else you have.",
   "documents.note.a-picture-of-what-is": "A picture of what is in a folder of code or a knowledge base and how the parts connect, and a guided walk through it. Every claim names the line or the passage it came from, and a claim with nothing behind it says so.",

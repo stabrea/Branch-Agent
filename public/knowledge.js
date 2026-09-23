@@ -98,6 +98,14 @@ function button(label, run) {
   node.addEventListener("click", () => act(node, run));
   return node;
 }
+async function saveVectors() {
+  const vectorsIn = $("knowledge-vectors-in").value, vectorsFile = $("knowledge-vectors-file").value.trim();
+  if (vectorsIn === "file" && !vectorsFile) return;
+  try {
+    await request("/api/knowledge/vectors", { body: { vectorsIn, vectorsFile } });
+    await loadKnowledge();
+  } catch (error) { $("knowledge-vectors-status").textContent = error.message; }
+}
 async function act(node, run) {
   node.disabled = true;
   say(node.textContent === "Read it again" ? "Reading your files…" : "");
@@ -148,12 +156,9 @@ function wire() {
     if (!query) return;
     try { await search(query); say(""); } catch (error) { say(error.message); }
   });
-  $("knowledge-vectors-save")?.addEventListener("click", () => act($("knowledge-vectors-save"), async () => {
-    const answer = await request("/api/knowledge/vectors", {
-      body: { vectorsIn: $("knowledge-vectors-in").value, vectorsFile: $("knowledge-vectors-file").value.trim() },
-    });
-    $("knowledge-vectors-status").textContent = answer.note || `Your vectors are kept in ${answer.backend}.`;
-  }));
+  /* DG-025: where the meaning index is kept saves as you choose, as the sample does; a file of your own once its path is given. */
+  $("knowledge-vectors-in")?.addEventListener("change", saveVectors);
+  $("knowledge-vectors-file")?.addEventListener("change", saveVectors);
   document.querySelector('.nav[data-view="documents"]')
     ?.addEventListener("click", () => { loadKnowledge().catch((error) => say(error.message)); });
 }

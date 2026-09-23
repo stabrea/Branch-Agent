@@ -1720,7 +1720,6 @@
   "documents.heading.knowledge-base-limits": "Limites des bases de connaissances",
   "documents.heading.sum-up-a-knowledge-base": "Résumer une base de connaissances",
   "documents.heading.what-is-mentioned-with-what": "Ce qui est mentionné avec quoi",
-  "documents.heading.where-your-vectors-are-kept": "Où sont conservés vos vecteurs",
   "documents.intro.your-own-documents-kept-on": "Vos propres documents, conservés sur cet ordinateur pour que l'assistant puisse les citer. Les fichiers Word, les tableurs, les diaporamas, les fichiers OpenDocument, les livres numériques, le texte enrichi, les pages web, les notes, les tableaux, le texte simple et les PDF sont tous lus ici. Un PDF qui n'est qu'une image de texte n'a aucun mot à en extraire, et le dit.",
   "documents.note.a-filter-that-matches-nothing": "Un filtre restreint la recherche avant tout classement, et deux filtres la restreignent davantage. Si rien ne correspond, Branch le dit clairement au lieu de répondre à partir de tout le reste de vos documents.",
   "documents.note.a-picture-of-what-is": "Une image de ce que contient un dossier de code ou une base de connaissances et de la façon dont les parties se relient, ainsi qu'une visite guidée. Chaque affirmation indique la ligne ou le passage dont elle vient, et une affirmation sans rien derrière elle le dit.",

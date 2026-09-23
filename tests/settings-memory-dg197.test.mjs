@@ -59,7 +59,7 @@ async function fixture(t) {
   await page.evaluate(() => globalThis.branchLayout.go("settings:memory"));
   for (const id of ["knobs-snapshotFacts", "lmore-switch-providers", "asks-switch-source-sync", "flows-switch-widgets", "look-back-switch", "learning-core-mode", "context-switch-memory"])
     await page.locator(`#lx-page-memory #${id}`).waitFor({ state: "attached", timeout: 20000 });
-  return { page, errors };
+  return { page, errors, root };
 }
 const level = (page, value) => page.evaluate((one) => globalThis.branchSettingsLevel.set(one), value)
   .then(() => page.waitForFunction((one) => document.documentElement.dataset.settingsLevel === one, value))
@@ -133,5 +133,39 @@ test("DG-197 in French the page keeps its sections, in French", async (t) => {
   const regular = await shown(page);
   assert.deepEqual(regular.headings.slice(1), FRENCH);
   assert.equal(regular.more.length, MORE.length);
+  assert.deepEqual(errors, []);
+});
+
+/** Where the server keeps the meaning index, once it is where the page chose (or after ten seconds, whatever it is). */
+async function savedAs(page, want) {
+  let now;
+  for (let tries = 0; tries < 50; tries += 1) {
+    now = await page.evaluate(async () => (await (await fetch("/api/knowledge", {
+      headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).vectorStore?.vectorsIn);
+    if (now === want) break;
+    await page.waitForTimeout(200);
+  }
+  return now;
+}
+
+test("DG-197 the meaning index row has the sample's words and saves as you choose, with no Save (DG-023, DG-025)", async (t) => {
+  const { page, errors, root } = await fixture(t);
+  await level(page, "regular");
+  const label = page.locator('#knowledge-card label[for="knowledge-vectors-in"]');
+  assert.equal(await label.isVisible(), true, "the row is on show at Regular");
+  assert.equal((await label.textContent()).trim(), "Where the meaning index of your documents is kept");
+  assert.doesNotMatch(await page.locator("#knowledge-card").innerText(), /vectors/i, "no word 'vectors' on show at Regular");
+  assert.equal(await page.locator("#knowledge-vectors-save").count(), 0, "no Save under a single choice");
+  await level(page, "technical");
+  /* A file of your own is saved once its path is given; going back to Branch's database is saved at once. */
+  await page.locator("#knowledge-vectors-in").selectOption("file");
+  await page.locator("#knowledge-vectors-file").fill(join(root, "meaning.db"));
+  await page.locator("#knowledge-vectors-file").press("Tab");
+  assert.equal(await savedAs(page, "file"), "file", "a file of your own is kept once its path is given");
+  await page.locator("#knowledge-vectors-in").selectOption("database");
+  assert.equal(await savedAs(page, "database"), "database", "choosing Branch's database is kept at once");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.documentElement.lang === "fr");
+  assert.equal((await label.textContent()).trim(), "Où est gardé l'index qui retrouve vos documents par leur sens");
   assert.deepEqual(errors, []);
 });

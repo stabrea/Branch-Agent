@@ -898,16 +898,14 @@
               <p class="subtle" data-t="documents.note.a-filter-that-matches-nothing">A filter narrows the search before anything is ranked, and two filters narrow it further. If nothing matches, Branch says so rather than answering from everything else you have.</p>
               <div id="knowledge-results" class="card-list"></div>
             </form>
-            <h4 data-t="documents.heading.where-your-vectors-are-kept">Where your vectors are kept</h4>
-            <p class="subtle" data-t="documents.note.vectors-are-kept-in-branchs">Matching by meaning needs a list of numbers for every passage. They are kept in the database Branch already has. If you have a large library you can put them in a database file of your own instead, on any drive. Nothing is deleted by changing this: press Read it again to fill the new place.</p>
-            <div class="input-row">
-              <select id="knowledge-vectors-in">
-                <option value="database" data-t="option.in-branchs-own-database">In Branch's own database</option>
-                <option value="file" data-t="option.in-a-file-i-choose">In a file I choose</option>
-              </select>
-              <input id="knowledge-vectors-file" type="text" maxlength="400" placeholder="D:/branch/vectors.db" data-t-label="field.the-full-path-of-that" aria-label="The full path of that file" />
-              <button id="knowledge-vectors-save" type="button" data-t="action.save">Save</button>
-            </div>
+            <label for="knowledge-vectors-in" data-t="settingsIndex.knowledge-vectors-in">Where the meaning index of your documents is kept</label>
+            <select id="knowledge-vectors-in" aria-describedby="knowledge-vectors-note">
+              <option value="database" data-t="option.in-branchs-own-database">In Branch's own database</option>
+              <option value="file" data-t="option.in-a-file-i-choose">In a file I choose</option>
+            </select>
+            <p class="subtle" id="knowledge-vectors-note" data-t="documents.note.vectors-are-kept-in-branchs">Matching by meaning needs a list of numbers for every passage. They are kept in the database Branch already has. If you have a large library you can put them in a database file of your own instead, on any drive. Nothing is deleted by changing this: press Read it again to fill the new place.</p>
+            <label for="knowledge-vectors-file" data-t="field.the-full-path-of-that">The full path of that file</label>
+            <input id="knowledge-vectors-file" type="text" maxlength="400" placeholder="D:/branch/vectors.db" aria-describedby="knowledge-vectors-status" />
             <p id="knowledge-vectors-status" role="status" class="meta"></p>
           </div>
           <div class="card" id="docs3-card">
