@@ -69,15 +69,18 @@ test("the preview's code keeps to its own sample: no server, no storage, no othe
 
 test("the owner opens it from More or the workspace menu, at the sample's size, in both lights and French", async (t) => {
   const f = await fixture(t);
+  const surfaces = new Set();
   for (const [width, height] of [[1440, 900], [860, 900], [400, 800]]) {
     for (const colorScheme of ["dark", "light"]) {
       const { page, errors } = await f.open({ width, height, colorScheme });
+      await page.evaluate((light) => { document.documentElement.dataset.theme = light ? "daylight" : ""; }, colorScheme === "light");
       await everything(page, false);
       const group = page.locator("#lx-more-menu .lx-more-group", { has: page.locator("#lx-more-more-elsewhere") });
       await openFromMore(page);
       assert.equal(await group.locator(".lx-more-head").innerText(), "Branch elsewhere");
       assert.equal(await text(page, "#ew-title"), "Branch in the terminal and on your phone");
       assert.deepEqual(await page.locator(".ew-tab").allInnerTexts(), ["Terminal", "iPhone", "Android", "Tablet"]);
+      surfaces.add(await page.locator("#ew-dialog").evaluate((node) => getComputedStyle(node).backgroundColor));
       const box = await page.locator("#ew-dialog").boundingBox();
       assert.equal(Math.round(box.width), Math.min(width - 48, 1400), `${width}: the window less 48px, at most 1400px`);
       assert.equal(Math.round(box.height), height - 48);
@@ -98,6 +101,7 @@ test("the owner opens it from More or the workspace menu, at the sample's size, 
       await page.close();
     }
   }
+  assert.equal(surfaces.size, 2, "the dialog wears each light's own surface");
   const { page } = await f.open();
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await everything(page, false);
