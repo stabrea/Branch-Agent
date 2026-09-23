@@ -2794,9 +2794,10 @@ async function researchApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "GET" && path === "/api/research") return { reports: app.research.list(owner) };
   if (request.method === "GET" && path === "/api/monitors") return { monitors: app.monitors.list(owner) };
   if (request.method === "POST" && path === "/api/monitors") return app.monitors.create(owner, await readBody(request));
-  const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check))?$/.exec(path);
+  const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check|history))?$/.exec(path);
   if (watch && request.method === "DELETE" && !watch[2]) return app.monitors.remove(owner, watch[1]!);
   if (watch && request.method === "POST" && watch[2] === "check") return app.monitors.check(owner, watch[1]!);
+  if (watch && request.method === "GET" && watch[2] === "history") return { observations: app.monitors.history(owner, watch[1]!) };
   if (request.method === "GET" && path === "/api/brief") return app.brief.preview(owner);
   if (request.method === "POST" && path === "/api/brief") return app.brief.configure(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/brief/send") return app.brief.send(owner);
