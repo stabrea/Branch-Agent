@@ -150,7 +150,11 @@ export function uninstallScript(options: {
     `rmdir /s /q "${options.installRoot}.previous" 2>NUL`,
     `if defined DELETE_DATA rmdir /s /q "${options.userDataDir}" 2>NUL`,
     // A script cannot delete the folder it is running from, so the last step runs from the temp folder.
-    `start "" /d "%TEMP%" ${sys}cmd.exe /d /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q ""${options.installRoot}"""`,
+    // The installed folder is `Programs\Branch Agent`, with a space, so it must reach `rmdir` as one
+    // quoted path: inside `cmd /c "..."` doubled quotes become empty strings around an unquoted path,
+    // which left the install behind and handed `rmdir` a differently named path instead. `/b` keeps the
+    // step in the uninstaller's own console rather than opening a second window.
+    `start "" /b /d "%TEMP%" ${sys}cmd.exe /d /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q "${options.installRoot}""`,
     "exit /b 0", "",
   ].join("\r\n");
 }
