@@ -135,7 +135,9 @@ function paintMenu(menu = $("mode-menu")) {
   // DG-153: Add footer explaining mode choices and keyboard shortcuts
   if (!state.locked && !state.outside && mode !== null) {
     const footer = el("div", undefined, "mode-footer");
-    const starts = state.settings?.newConversation === "follow" ? t("mode.setting.follow") : t(`mode.${state.settings?.newConversation ?? "ask"}`);
+    // What a new conversation from this window really starts on (the view's own answer), not the owner's saved choice:
+    // somebody else in the house, or a default the picker cannot offer here, follows the owner's rules instead.
+    const starts = state.newConversation ? t(`mode.${state.newConversation}`) : t("mode.setting.follow");
     const line1 = el("p", `New conversations start on ${starts}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
     const line2 = el("p", `Number keys 1, 3, 4 in the message box switch modes. More choices (Just do it inside my workspace, Read only) are in Settings › Permissions.`, "mode-note");
     footer.append(line1, line2);
