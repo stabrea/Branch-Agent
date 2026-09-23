@@ -23,7 +23,7 @@ const asking = {
   },
 };
 
-async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
+async function fixture(t, { width = 390, height = 844, connect = true, beforeOpen } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-phone-layout-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: asking });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
@@ -46,6 +46,7 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 900 });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await beforeOpen?.(page);
   const signIn = async () => {
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     const workspace = page.locator("#workspace");
@@ -57,7 +58,7 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   await page.locator("#ew-places").waitFor({ state: "attached", timeout: 120000 });
   if (connect) await signIn();
-  return { page, call, errors, app, signIn, browser, url: server.url, connected: connect };
+  return { page, call, errors, app, signIn, browser, url: server.url, token: server.token, connected: connect };
 }
 const box = (page, selector) => page.locator(selector).first().boundingBox();
 const lit = (page) => page.locator('.ew-place[aria-current="page"]').getAttribute("data-place");
@@ -92,6 +93,26 @@ test("the sign-in screen has no places bar; it comes once the window is connecte
   assert.equal(await f.page.locator("#ew-places").isVisible(), false);
   await f.signIn();
   await f.page.locator("#ew-places").waitFor({ state: "visible" });
+  assert.deepEqual(f.errors, []);
+});
+
+test("a phone can connect when the shared shell stylesheet does not load", async (t) => {
+  const f = await fixture(t, {
+    width: 400,
+    height: 900,
+    connect: false,
+    beforeOpen: (page) => page.route("**/shell.css", (route) => route.abort()),
+  });
+  const connect = f.page.getByRole("button", { name: "Connect", exact: true });
+  await f.page.getByLabel("Session token", { exact: true }).fill(f.token);
+  assert.equal(await f.page.locator("#conversation-rail").isVisible(), false, "the closed phone rail stays out of the sign-in screen");
+  assert.equal(await connect.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    return hit === button || button.contains(hit);
+  }), true, "Connect owns its hit target");
+  await connect.click();
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 30000 });
   assert.deepEqual(f.errors, []);
 });
 
