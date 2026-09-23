@@ -66,6 +66,7 @@ export function describeToolCall(name: string, args: unknown): string {
     case "shell.session.list": return "Listing the command lines being kept open";
     case "shell.session.close": return "Closing a kept-open command line";
     case "remote.run": return `Running a program on ${String(a.computer ?? "another computer")}`;
+    case "serverless.run": return `Calling a function on ${String(a.endpoint ?? "a serverless endpoint")}`;
     case "git.status": return "Checking what changed";
     case "git.diff": return "Looking at the changed lines";
     case "git.log": return "Looking back through saved versions";

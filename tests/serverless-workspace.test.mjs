@@ -196,6 +196,38 @@ test("the real invoker never buffers past its byte cap, and reports a refusal by
   assert.equal(refused.statusCode, 403);
 });
 
+// ------------------------------------------------------------ shared treatment with remote.run
+
+test("serverless.run is held to the same policy, resource and activity treatment as remote.run", async (t) => {
+  const { app } = await fixture(t);
+  const { presetRules, evaluatePolicy, standingRule, PolicySchema } = await import("../dist/policy.js");
+  const { resourceOf } = await import("../dist/policy-resources.js");
+  const { isTerminalTool } = await import("../dist/panels-work.js");
+  const { describeToolCall } = await import("../dist/activity.js");
+
+  // The "workspace" preset asks before a call to somebody else's computer, whether that is a
+  // program over SSH or a function over HTTPS — see src/policy.ts.
+  const workspaceRules = presetRules("workspace");
+  assert.ok(workspaceRules.some((rule) => rule.tool === "remote.run" && rule.decision === "ask"));
+  assert.ok(workspaceRules.some((rule) => rule.tool === "serverless.run" && rule.decision === "ask"));
+
+  // A remembered answer narrows to the same endpoint, never to every endpoint's every function —
+  // exactly the narrowing src/command-prefix.ts already gives remote.run.
+  const remembered = standingRule({ tool: "serverless.run", match: "reports: git status extra", decision: "allow", remember: "always" });
+  assert.equal(remembered.match, "reports: *");
+  assert.deepEqual(remembered.resource, { kind: "command", pattern: "git status" });
+
+  assert.deepEqual(
+    resourceOf("serverless.run", "remote.execute", "reports: build march", { endpoint: "reports", function: "build", args: ["march"] }),
+    { kind: "command", value: "build march" });
+
+  assert.equal(isTerminalTool("serverless.run"), true, "a serverless call shows in the same work panel as a command");
+  assert.equal(describeToolCall("serverless.run", { endpoint: "reports" }), "Calling a function on reports");
+
+  const asks = PolicySchema.parse({ preset: "workspace", rules: presetRules("workspace") });
+  assert.equal(evaluatePolicy(asks, { tool: "serverless.run", target: "reports: build", readOnly: false }).decision, "ask");
+});
+
 test("the real invoker treats a dead address as an answerable failure, not a thrown error", async (t) => {
   const { serverlessInvoker } = await import("../dist/remote/serverless-workspace.js");
   const invoke = serverlessInvoker(2000);

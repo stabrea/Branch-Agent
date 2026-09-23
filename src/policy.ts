@@ -126,6 +126,8 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       // Batch 26 (wave 8): a program on somebody else's computer always asks, whatever the rule
       // for commands here says. It is a different computer.
       { tool: "remote.run", decision: "ask", remember: "session" },
+      // FQ-execution.remote: a serverless function is somebody else's computer too.
+      { tool: "serverless.run", decision: "ask", remember: "session" },
       { tool: "browser.click", decision: "ask", remember: "session" },
       { tool: "browser.fill", decision: "ask", remember: "session" },
       // Sending one of your own files to a website is always worth a question, whatever site it is.
@@ -336,7 +338,7 @@ export function savePolicy(store: Store, owner: string, input: unknown, reason =
  * and a program on another computer stays tied to that computer.
  */
 export function standingRule(rule: PolicyRule): PolicyRule {
-  const remote = rule.tool === "remote.run";
+  const remote = rule.tool === "remote.run" || rule.tool === "serverless.run";
   if (rule.resource || rule.match === "*" || !(remote || isCommandTool(rule.tool))) return rule;
   const at = remote ? rule.match.indexOf(": ") : 0;
   if (at < 0) return rule;
