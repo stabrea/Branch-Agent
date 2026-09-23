@@ -255,6 +255,42 @@ test("under Lockdown the looser modes are greyed with the reason, not hidden, an
   assert.deepEqual(f.errors, []);
 });
 
+test("the menu's footer names what a new conversation from this window really starts on", async (t) => {
+  const f = await windowFixture(t);
+  const chip = f.page.locator("#mode-chip"), menu = f.page.locator("#mode-menu");
+  const footer = async () => {
+    await chip.click();
+    await menu.waitFor({ state: "visible" });
+    const text = await menu.locator(".mode-footer").innerText();
+    await chip.click();
+    await menu.waitFor({ state: "hidden" });
+    return text;
+  };
+  savePolicy(f.app.store, f.app.runtime.owner, { preset: "ask-before-changes" });
+  assert.equal((await f.call("/api/conversation-mode/settings", { newConversation: "auto" })).status, 200);
+  await f.page.evaluate(() => globalThis.branchConversationMode.refresh());
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "auto");
+  assert.match(await footer(), /New conversations start on Auto\./, "default Auto: the footer names Auto");
+  // Somebody else in the house: Auto is looser than the owner's setting, so the view gives null and the
+  // window sends nothing (the conversation follows the owner's rules), whatever the owner saved.
+  const person = f.app.store.profiles.create({ name: "Sam", pin: "1234" });
+  f.app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  const view = await f.call("/api/conversation-mode");
+  assert.equal(view.body.newConversation, null);
+  assert.equal(view.body.settings.newConversation, "auto", "the owner's saved default is still Auto");
+  await f.page.evaluate(() => globalThis.branchConversationMode.refresh());
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode !== "auto");
+  // The footer shows once a mode is chosen for the next conversation: Sam picks Plan first.
+  await chip.click();
+  await menu.locator('[data-mode="plan"]').click();
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "plan");
+  const text = await footer();
+  assert.match(text, /New conversations start on Follow my rules\./, "a household person: the footer names what the window sends");
+  assert.doesNotMatch(text, /start on Auto/);
+  f.app.store.profiles.switch({ profileId: null });
+  assert.deepEqual(f.errors, []);
+});
+
 test("a conversation from before keeps following the owner's setting, and says so", async (t) => {
   const f = await windowFixture(t);
   const old = (await f.call("/api/run", { prompt: "an older conversation" })).body;
