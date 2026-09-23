@@ -15,6 +15,8 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { openPlace } from "./places.mjs";
 import { createBranch, setLockdown, defaultTemplate, previousDefaultTemplate, newsTemplateBlock } from "../dist/index.js";
+import { underShortLivedKey, runOrigin } from "../dist/key-context.js";
+import { runForCurrentPerson } from "../dist/collab-server.js";
 import { startServer } from "../dist/server.js";
 
 const quiet = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
@@ -347,4 +349,48 @@ test("headless UI: a feed the brief cannot show is called out on the card, and o
   assert.equal((await call("/api/brief")).body.newsIncluded, true);
   assert.equal(await page.locator("#brief-news-card .brief-news-notice").count(), 0);
   assert.deepEqual(errors, []);
+});
+
+test("a task started with a short-lived key cannot change the brief's feeds or send it through the tools", async (t) => {
+  const { app, call } = await served(t);
+  const owner = app.runtime.owner;
+  const feed = await feedServer(t);
+  await call("/api/brief", { newsFeeds: [feed.url] });
+  const sentBefore = app.store.runs(owner).filter((run) => run.prompt === "Morning brief").length;
+
+  // Legion review: the run is started under the key; its tools are called later, outside that request,
+  // so only what the run wrote down (run.started shortLivedKey) can tell.
+  const keyed = await underShortLivedKey(() => app.runtime.run({ prompt: "tidy my brief" }));
+  assert.equal(app.store.events(keyed.id).find((event) => event.kind === "run.started")?.data.shortLivedKey, true);
+  const context = app.runtime.context({ runId: keyed.id });
+  await assert.rejects(app.registry.execute("brief.configure", { newsFeeds: ["https://attacker.example/feed.xml"] }, context), /short-lived key/);
+  await assert.rejects(app.registry.execute("brief.send", {}, context), /short-lived key/);
+  // And straight under the key, with the owner's own task.
+  const own = await app.runtime.run({ prompt: "my own task" });
+  const ownContext = app.runtime.context({ runId: own.id });
+  await assert.rejects(underShortLivedKey(() => app.registry.execute("brief.configure", { newsFeeds: [] }, ownContext)), /short-lived key/);
+
+  assert.deepEqual(app.brief.settings(owner).newsFeeds, [feed.url], "the owner's feeds are unchanged");
+  assert.equal(app.store.runs(owner).filter((run) => run.prompt === "Morning brief").length, sentBefore, "nothing was sent");
+  // The owner's own task still can.
+  await app.registry.execute("brief.configure", { newsFeeds: [] }, ownContext);
+  assert.deepEqual(app.brief.settings(owner).newsFeeds, []);
+});
+
+test("a household person cannot change the owner's brief or send it through the tools", async (t) => {
+  const { app, call } = await served(t);
+  const owner = app.runtime.owner;
+  const feed = await feedServer(t);
+  await call("/api/brief", { newsFeeds: [feed.url] });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  // A task started for Sam, the way the window starts one while it is switched to them.
+  const theirs = await runForCurrentPerson(app, { prompt: "change the brief" });
+  assert.equal(runOrigin(app.store, theirs.id).personProfileId, sam.id);
+  const context = app.runtime.context({ runId: theirs.id });
+  await assert.rejects(app.registry.execute("brief.configure", { newsFeeds: ["https://attacker.example/feed.xml"] }, context), /belongs to the owner/);
+  await assert.rejects(app.registry.execute("brief.send", {}, context), /belongs to the owner/);
+  app.store.profiles.switch({ profileId: null });
+  assert.deepEqual(app.brief.settings(owner).newsFeeds, [feed.url]);
 });

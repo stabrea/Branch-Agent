@@ -252,11 +252,32 @@ export async function fetchNewsItems(
  * owner's injection policy the way web.search titles do: "block" drops a flagged item, "redact"
  * keeps its link but not its words, and "warn" keeps it with the reason it was flagged.
  */
-/** A link's text as words, so instructions hidden in its path or query (encoded, or joined by _ + - / ? = &) are seen. */
+const lenientUtf8 = new TextDecoder("utf-8", { fatal: false });
+
+/**
+ * Every run of %XX escapes decoded on its own, so one malformed escape (say %E0%A4 cut short) cannot
+ * switch decoding off for the rest of the link: bytes that are not valid UTF-8 become U+FFFD, the rest
+ * decode as usual. A lone "%" or "%A" is not an escape and stays as it is.
+ */
+function decodeEscapes(text: string): string {
+  return text.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) =>
+    lenientUtf8.decode(Uint8Array.from(run.slice(1).split("%"), (hex) => parseInt(hex, 16))));
+}
+
+/**
+ * A link's text as words, so instructions hidden in its path or query (encoded, or joined by
+ * _ + - / ? = &) are seen. Decoded up to three times, so %2520-style double (or triple) encoding is
+ * read too; it stops as soon as a pass changes nothing.
+ */
 function linkWords(link: string): string {
   let text = link;
-  try { text = decodeURIComponent(link); } catch { /* a malformed escape is checked as it is */ }
-  return text.replace(/[_+\-./?=&#%]+/g, " ");
+  for (let pass = 0; pass < 3; pass += 1) {
+    const decoded = decodeEscapes(text);
+    if (decoded === text) break;
+    text = decoded;
+  }
+  // Separators, whitespace of any kind and U+FFFD (a bad escape) all read as one space between words.
+  return text.replace(/[\s\uFFFD_+\-./?=&#%]+/g, " ");
 }
 
 export function guardNewsItems(items: readonly BriefItem[], policy: InjectionPolicy): BriefItem[] {

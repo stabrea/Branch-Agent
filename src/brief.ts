@@ -1,4 +1,6 @@
-import { chatOwnerOnly, startedFromChat } from "./key-context.js";
+import { chatOwnerOnly, runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
+import { currentPerson } from "./people/context.js";
+import type { ToolContext } from "./contracts.js";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -258,6 +260,23 @@ export class MorningBrief {
   }
 }
 
+/**
+ * Changing the brief (its feed addresses decide what Branch fetches, deliverTo decides which chat it
+ * reaches) and sending it are the owner's alone, the same as the routes: POST /api/brief and
+ * /api/brief/send refuse a short-lived key and a household person (short-lived-keys.ts,
+ * household-routes.ts). The tools answer the same way for work started by either, however far back
+ * along the task chain the key or the person is written down, and for a chat message's task.
+ */
+export function briefOwnerOnly(store: Store, context: Pick<ToolContext, "runId" | "source">, what: string): void {
+  if (startedFromChat(context, store)) throw chatOwnerOnly(what);
+  const origin = context.runId ? runOrigin(store, context.runId) : null;
+  if (startedWithShortLivedKey() || origin?.shortLivedKey)
+    throw new Error(`${what} is for the owner only, and this task was started with a short-lived key. Do it in the Branch app.`);
+  if (currentPerson() || origin?.personProfileId || origin?.lentTo)
+    throw new Error(`${what} belongs to the owner. Switch back to the owner's profile to use it.`);
+  store.profiles.requireOwner(what);
+}
+
 export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void {
   registry.register({
     name: "brief.preview", permission: "brief.read",
@@ -270,7 +289,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     description: "Turn the morning brief on or off, choose the time of day and timezone, choose which parts it covers, change its wording, and choose the chat it is sent to.",
     parameters: optionalFields(BriefSettingsSchema),
     execute: async (input, context) => {
-      if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Changing the morning brief");
+      briefOwnerOnly(brief.store, context, "Changing the morning brief");
       return brief.configure(context.owner, input);
     },
   });
@@ -279,7 +298,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     description: "Send the morning brief now: it appears in the conversation list and goes to the chosen chat.",
     parameters: z.object({}).strict(),
     execute: async (_input, context) => {
-      if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Sending the morning brief to a chat");
+      briefOwnerOnly(brief.store, context, "Sending the morning brief to a chat");
       return brief.send(context.owner, new Date(), context.signal);
     },
   });
