@@ -32,9 +32,9 @@
 
 
 
-
  ╭─ Offline demonstration ─ Ask before changes ───────────────────────────────────────────────────────────────────────╮
  │ › Describe what you want to do… (Enter sends, Alt+Enter adds a line)                                               │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  9.7k in / 168 out · no price on file · Ctrl+P Side pane · Esc then 1-5 for places
  Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves
+ Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize · Ctrl+K or /: find anything
