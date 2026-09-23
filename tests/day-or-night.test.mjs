@@ -44,6 +44,12 @@ const control = (page) => page.evaluate(() => {
     signsHidden: [...group.querySelectorAll(".lx-seg-sign")].every((sign) => sign.getAttribute("aria-hidden") === "true"),
     note: row.querySelector(".lx-look-note")?.textContent,
     noteBelow: row.querySelector(".lx-look-note")?.getBoundingClientRect().top >= group.getBoundingClientRect().bottom,
+    /* Across the row, as the sample's `.cn` (grid-column 1 / -1): from the label's left edge, on one line. */
+    noteAcross: (() => {
+      const note = row.querySelector(".lx-look-note"), box = note?.getBoundingClientRect();
+      return Boolean(box) && Math.abs(box.left - row.querySelector(".lx-look-label").getBoundingClientRect().left) < 1
+        && box.height < parseFloat(getComputedStyle(note).lineHeight) * 1.5;
+    })(),
   };
 });
 
@@ -52,7 +58,7 @@ test("DG-160: the choices read ☾ Moonlight and ☀ Daylight, named by their wo
   assert.deepEqual(await control(page), {
     label: "Day or night", group: "Day or night",
     shown: ["Follow this computer", "☾ Moonlight", "☀ Daylight"], pressed: ["☾ Moonlight"], signsHidden: true,
-    note: "Every theme has both. Switching keeps the theme you chose.", noteBelow: true,
+    note: "Every theme has both. Switching keeps the theme you chose.", noteBelow: true, noteAcross: true,
   });
   assert.equal(await page.getByRole("group", { name: "Day or night", exact: true }).count(), 1, "the choices are named by the row's label");
   const names = await page.locator("#lx-mode").getByRole("button").evaluateAll((choices) => choices.map((choice) => choice.textContent.trim()));
