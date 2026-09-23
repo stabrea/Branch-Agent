@@ -1,6 +1,7 @@
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Updater, UpdateDeferredError, type UpdateChannel } from "./updater.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
@@ -46,6 +47,14 @@ export interface UpdateHooks {
   record?: (stagedDir: string, version: string) => Promise<void>;
 }
 
+/** The commit written into this build by scripts/package-desktop.mjs, or null for a copy built without one. */
+export function builtFrom(appPath: string): string | null {
+  try {
+    const commit = JSON.parse(readFileSync(join(appPath, "dist", "build-info.json"), "utf8"))?.commit;
+    return typeof commit === "string" && /^[0-9a-f]{40}$/.test(commit) ? commit : null;
+  } catch { return null; }
+}
+
 export function registerUpdaterIpc(
   window: BrowserWindow, origin: string, version: string, requestQuit: () => void,
   hooks?: UpdateHooks,
@@ -63,6 +72,9 @@ export function registerUpdaterIpc(
     installDir: installedAppRoot(app.isPackaged, process.platform, process.execPath),
     packaged: app.isPackaged,
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
+    // Dev channel: which change this copy was built from, and Branch's own clone of its source to build the next one.
+    currentCommit: builtFrom(app.getAppPath()),
+    devSourceDir: join(app.getPath("userData"), "dev-source"),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
