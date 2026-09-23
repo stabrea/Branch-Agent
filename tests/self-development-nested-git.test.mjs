@@ -185,3 +185,71 @@ test("Q12: a link to Branch's source still gets the source pins", { skip: posixO
   await symlink(cwd, link);
   assert.ok(hardening(link).includes("protocol.file.allow=never"), "decided on the real path, not the link's name");
 });
+
+test("Q79: git.push and git.pull in source refuse LOCAL scoped credential.helper", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "credential.helper", "fake"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*local scope/);
+});
+
+test("Q79: git.push and git.pull in source refuse LOCAL scoped core.askPass", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "core.askPass", "/bin/false"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /core\.askPass.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /core\.askPass.*local scope/);
+});
+
+test("Q79: git.push and git.pull in source refuse LOCAL scoped core.sshCommand", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "core.sshCommand", "/bin/false"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /core\.sshCommand.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /core\.sshCommand.*local scope/);
+});
+
+test("Q79: git.push and git.pull in source refuse WORKTREE scoped credential.helper", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  try { execFileSync("git", ["config", "--unset-all", "credential.helper"], { cwd, stdio: "ignore" }); } catch {}
+  execFileSync("git", ["config", "--worktree", "credential.helper", "fake"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*(local|worktree) scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential\.helper.*(local|worktree) scope/);
+});
+
+test("Q79: git.push and git.pull in source allow GLOBAL scoped credential.helper", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-global-"));
+  t.after(() => discardTemp(root));
+  const home = join(root, "home"), workspace = join(root, "workspace");
+  await mkdir(home, { recursive: true });
+  await writeFile(join(home, ".gitconfig"), "[credential]\n\thelper = fake\n");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); });
+  const folder = "branch-agent-source/.branch-worktrees/self-global";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", args, { cwd, env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") }, stdio: "pipe" });
+  git("init", "-q", "-b", "feature");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
+  execFileSync("git", ["init", "--bare", "-q", join(cwd, "origin")], { env: { HOME: home, XDG_CONFIG_HOME: join(home, ".config") } });
+  const signal = AbortSignal.timeout(10_000);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/, "push rejected for unconfigured remote, not for the GLOBAL credential helper");
+});
+
+test("Q79: outside Branch's source, a LOCAL scoped credential.helper is not refused", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-outside-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const folder = "normal-repo";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "custom"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial"], { cwd });
+  execFileSync("git", ["config", "--local", "credential.helper", "fake"], { cwd });
+  execFileSync("git", ["remote", "add", "origin", "https://example.invalid/repo.git"], { cwd });
+  const signal = AbortSignal.timeout(10_000);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "custom" }, signal), /reach the server|credential\.helper is set at/, "rejected for the invalid host or network, not refused by Q79 scope check");
+});

@@ -194,12 +194,30 @@ export class GitTools {
   }
 
   /**
+   * Q79: when Git run inside Branch's source, refuse LOCAL or WORKTREE scoped
+   * settings that could run a program during sign-in or key management.
+   */
+  private async checkScopeKeys(cwd: string, signal: AbortSignal): Promise<string | void> {
+    const keys = ["credential.helper", "core.askPass", "core.sshCommand"];
+    for (const key of keys) {
+      const result = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-all", key], timeoutMs: 10_000 }, signal);
+      if (result.status !== "completed") continue;
+      for (const line of result.stdout.split("\n")) {
+        const match = /^(local|worktree)\s+/.exec(line);
+        if (match) return `Git config "${key}" is set at ${match[1]} scope, which could run a program during sign-in or key management.`;
+      }
+    }
+  }
+
+  /**
    * Q12: when Git run inside Branch's source, validate that a remote is configured
    * and uses only https:// or ssh:// (including scp-like user@host:path).
    * Refuses file://, plain paths, ext::, and other transports that could execute code.
    */
   private async validateRemoteURL(cwd: string, remote: string, signal: AbortSignal): Promise<string | void> {
     if (!inBranchSource(cwd)) return;
+    const scopeError = await this.checkScopeKeys(cwd, signal);
+    if (scopeError) return scopeError;
     // Git reads a name nobody configured as a folder; only a configured network remote may be used here.
     const read = await this.runner.run({ cwd, args: ["remote", "get-url", "--push", "--all", remote], timeoutMs: 10_000 }, signal);
     if (read.status !== "completed") return `Remote "${remote}" is not configured in this repository, so nothing was sent.`;
