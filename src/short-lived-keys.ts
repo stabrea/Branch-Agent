@@ -105,6 +105,8 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
 const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
   /^\/api\/jev$/,
+  // FQ-operations.sandbox-lifecycle: a sandbox's listing carries its real folder path on disk.
+  /^\/api\/agent-sandboxes$/,
   // mac7/smoke-fixes (B4): the list of short-lived keys, and the terminal's own places, which hand
   // back the owner's memory, settings and conversations as plain lines.
   /^\/api\/tokens(\/.*)?$/,
