@@ -304,13 +304,13 @@ test("a new screen that names its home with data-home is shown there, even when 
 
 test("the command palette jumps to a section and closes on Escape", async (t) => {
   const f = await fixture(t);
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
   await f.page.locator("#cmd-input").fill("Schedu");
   await f.page.locator(".cmd-item").first().click();
   assert.match(await f.page.locator("#page-title").innerText(), /Automations/);
   assert.equal(await f.page.locator('.lx-tab[data-view="schedules"]').getAttribute("aria-selected"), "true");
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
   await f.page.keyboard.press("Escape");
   await f.page.locator("#cmd-input").waitFor({ state: "hidden" });
@@ -575,10 +575,10 @@ test("Ctrl+Shift+K folds the context pane away and back", async (t) => {
   const f = await fixture(t);
   const open = () => f.page.locator("#context-panel").isVisible();
   assert.equal(await open(), true);
-  await f.page.keyboard.press("Control+Shift+K");
+  await f.page.keyboard.press("ControlOrMeta+Shift+K");
   await f.page.waitForTimeout(150);
   assert.equal(await open(), false, "the pane folds away");
-  await f.page.keyboard.press("Control+Shift+K");
+  await f.page.keyboard.press("ControlOrMeta+Shift+K");
   await f.page.waitForTimeout(150);
   assert.equal(await open(), true, "and comes back");
   assert.equal(await f.page.locator("#cmd-input").count(), 0, "the palette stays shut");
@@ -802,7 +802,7 @@ test("Q4 every section says what it is for, and every card carries a title", asy
 
 test("Q5 Escape closes every popover this pass touched", async (t) => {
   const f = await fixture(t);
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
   await f.page.keyboard.press("Escape");
   await f.page.locator("#cmd-input").waitFor({ state: "hidden" });
