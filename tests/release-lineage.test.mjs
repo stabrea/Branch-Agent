@@ -7,6 +7,7 @@ const repo = "stabrea/Branch-Agent";
 const good = {
   path: ".github/workflows/checks.yml", event: "push", head_branch: "mac/cross-platform",
   head_sha: sha, repository: { full_name: repo }, head_repository: { full_name: repo },
+  id: 101, created_at: "2026-09-23T01:00:00Z", run_attempt: 1,
   status: "completed", conclusion: "success", html_url: "https://github.com/example/run",
 };
 const select = (run) => trustedExactRun({ workflow_runs: [run] }, { sha, repo });
@@ -34,4 +35,19 @@ test("missing and stale run inventories fail closed", () => {
   assert.equal(trustedExactRun({}, { sha, repo }), null);
   assert.equal(trustedExactRun({ workflow_runs: [good] }, { sha: "b".repeat(40), repo }), null);
   assert.throws(() => trustedExactRun({}, { sha: "short", repo }));
+});
+
+test("a newer trusted red or unfinished run blocks an older green one regardless of API order", () => {
+  const newer = { ...good, id: 102, created_at: "2026-09-23T02:00:00Z", conclusion: "failure" };
+  for (const runs of [[good, newer], [newer, good]])
+    assert.equal(trustedExactRun({ workflow_runs: runs }, { sha, repo }), null);
+  assert.equal(trustedExactRun({ workflow_runs: [good, { ...newer, status: "in_progress", conclusion: null }] },
+    { sha, repo }), null);
+  assert.equal(trustedExactRun({ workflow_runs: [good, { ...newer, event: "pull_request" }] },
+    { sha, repo })?.id, good.id, "an unrelated run cannot poison the exact trusted history");
+});
+
+test("ambiguous trusted run ordering refuses publication", () => {
+  assert.equal(trustedExactRun({ workflow_runs: [good, { ...good, id: 102, created_at: "invalid" }] },
+    { sha, repo }), null);
 });

@@ -14,12 +14,18 @@ export function trustedExactRun(payload, { sha, repo, branch = "mac/cross-platfo
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("Release commit must be a full SHA-1.");
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw new Error("Release repository is invalid.");
   const runs = Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : [];
-  return runs.find((run) =>
+  const trusted = runs.filter((run) =>
     run.path === ".github/workflows/checks.yml" &&
     (run.event === "push" || run.event === "workflow_dispatch") &&
     run.head_branch === branch && run.head_sha === sha &&
-    run.repository?.full_name === repo && run.head_repository?.full_name === repo &&
-    run.status === "completed" && run.conclusion === "success") ?? null;
+    run.repository?.full_name === repo && run.head_repository?.full_name === repo);
+  if (trusted.some((run) => !Number.isSafeInteger(run.id) || run.id < 1 ||
+    !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 ||
+    !Number.isFinite(Date.parse(run.created_at)))) return null;
+  trusted.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) ||
+    right.id - left.id || right.run_attempt - left.run_attempt);
+  const newest = trusted[0];
+  return newest?.status === "completed" && newest.conclusion === "success" ? newest : null;
 }
 
 async function main() {
