@@ -33,7 +33,7 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   return { page, errors, app };
 }
 async function openAbout(page) {
-  const cog = page.locator(".sg-foot-line > .sg-gear:visible");
+  const cog = page.locator(".lx-foot-line > .sg-gear:visible");
   if (!(await cog.count())) await page.locator("#rail-toggle").click();
   await cog.click();
   await page.locator('.lx-settings-link[data-page="about"]').click();
