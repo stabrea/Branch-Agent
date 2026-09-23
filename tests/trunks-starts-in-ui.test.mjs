@@ -17,7 +17,7 @@ const device = (id, name, platform) => ({ id, name, platform, publicKey: "k".rep
   lastSeen: null, offers: [], enabled: [], folder: null, sharedWith: [] });
 
 /** `before` runs once the Trunk is made and before the window connects, which is when it reads the paired devices. */
-async function fixture(t, before = async () => undefined) {
+async function fixture(t, before = async () => undefined, { devicesFail = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-starts-in-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted });
   app.store.save("settings", app.runtime.owner, "devices-book", { mode: "on", requests: [],
@@ -39,6 +39,7 @@ async function fixture(t, before = async () => undefined) {
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 950 } })).newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  if (devicesFail) await page.route(/\/api\/devices$/, (route) => route.abort());
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -119,6 +120,19 @@ test("a computer no longer paired shows as This computer, and Save without touch
   assert.equal(saves[0].startsIn, null, "Save sends This computer without the list being touched");
   assert.equal((await f.call(`/api/trunks/${f.trunk.id}`)).trunk.startsIn, null);
   assert.deepEqual(f.errors, []);
+});
+
+test("when the paired devices could not be read, a rename keeps where it starts", async (t) => {
+  const f = await fixture(t, async ({ call, trunk }) => {
+    assert.equal((await call(`/api/trunks/${trunk.id}`, { startsIn: tower })).trunk.startsIn, tower);
+  }, { devicesFail: true });
+  await openChange(f);
+  await f.page.locator("#studio-name").fill("Scout Two");
+  await f.page.getByRole("button", { name: "Save", exact: true }).click();
+  await f.page.locator("#studio").waitFor({ state: "detached" });
+  const saved = (await f.call(`/api/trunks/${f.trunk.id}`)).trunk;
+  assert.equal(saved.name, "Scout Two");
+  assert.equal(saved.startsIn, tower, "a failed read is not a computer removed");
 });
 
 test("in French the control and its choices follow", async (t) => {

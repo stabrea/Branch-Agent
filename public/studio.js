@@ -216,7 +216,8 @@ function startsInField() {
   }
   const listed = (id) => choices.some((choice) => choice.id === (id ?? ""));
   // A computer no longer paired shows as This computer, so the draft says so too and Save sends null.
-  if (!listed(d.startsIn)) d.startsIn = null;
+  // Only when the paired devices were read: a failed read must not reset the owner's choice on a rename.
+  if (shell.devices && !listed(d.startsIn)) d.startsIn = null;
   select.value = d.startsIn ?? "";
   select.addEventListener("change", () => { d.startsIn = select.value || null; drawForm(); });
   label.append(make("span", "", "studio.startsIn", "Starts in"), select);
