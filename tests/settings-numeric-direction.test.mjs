@@ -173,3 +173,26 @@ test("a quiet wait saved between whole seconds is compared as it is, so turning 
   await assert.rejects(tool("settings.change", { changes: [{ setting: "live-dictation.silenceSeconds", value: 3 }] }), /less careful.*settings\.loosen/s);
   assert.equal(await value("live-dictation.silenceSeconds"), 1.5, "refused tool changed nothing");
 });
+
+test("a whole-number setting saved as a fraction is weighed as the app runs it, so lowering it still asks every time", async (t) => {
+  const { app, owner, tool, value } = await fixture(t);
+  /* The wake word keeps whole numbers only (src/voice-wake.ts): a stored 60.5 makes the app run on its starting 80. */
+  app.store.save("settings", owner, "wake-word", { mode: "off", word: "", sureness: 60.5, windowSeconds: 2 });
+  assert.equal(await value("wake-word.sureness"), 80, "the list shows what is really in force");
+  const [change] = changesFor(app.store, owner, [{ key: "wake-word", field: "sureness", value: 70 }]).changes;
+  assert.deepEqual([change?.from, change?.to, change?.loosens], [80, 70, true]);
+  await assert.rejects(tool("settings.change", { changes: [{ setting: "wake-word.sureness", value: 70 }] }), /less careful.*settings\.loosen/s);
+});
+
+test("a record the app would not accept is shown as the starting values the app runs on", async (t) => {
+  const { app, owner, value } = await fixture(t);
+  app.store.save("settings", owner, "wake-word", { mode: "bogus", sureness: 60 });
+  assert.equal(await value("wake-word.sureness"), 80, "an unreadable record is not shown as if it were in force");
+});
+
+test("only a setting the app keeps between whole steps is read as a fraction; a whole-number one reads its starting value", async (t) => {
+  const { app, owner, value } = await fixture(t);
+  /* The tool-server start wait is whole seconds in the app (src/comfort/settings.ts), so 10.5 is not a value it runs on. */
+  app.store.save("settings", owner, "comfort-mcp", { startupTimeoutSeconds: 10.5 });
+  assert.equal(await value("comfort-mcp.startupTimeoutSeconds"), 10);
+});

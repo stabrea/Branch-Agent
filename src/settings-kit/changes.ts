@@ -66,10 +66,10 @@ export function currentValue(store: Store, owner: string, spec: SettingSpec, fie
   if (saved === undefined && field.field === "mode" && spec.keepsEnabled && data.enabled === true) saved = "when-needed";
   const accepted = acceptValue(field, saved);
   if (accepted !== undefined) return accepted;
-  // A number saved between whole steps (the dictation route takes 1.5 seconds) is read as it is, so a
-  // change from it is weighed against what is really saved, never against the starting value.
+  // A number saved between whole steps, on a setting the app itself keeps that way (the dictation wait takes
+  // 1.5 seconds), is read as it is, so a change from it is weighed against what is really in force.
   const kind = field.kind;
-  if (kind.type === "number" && typeof saved === "number" && Number.isFinite(saved) && saved >= kind.min && saved <= kind.max) return saved;
+  if (kind.type === "number" && kind.fractions && typeof saved === "number" && Number.isFinite(saved) && saved >= kind.min && saved <= kind.max) return saved;
   // A choice saved outside the list ("custom" approval rules) is shown as it is, and counts as the
   // least known position, so moving away from it always asks for the separate yes.
   return field.kind.type === "choice" && typeof saved === "string" ? saved.slice(0, 40) : field.initial;

@@ -10,6 +10,8 @@ import { saveWallSettings, wallSettings } from "../sandbox.js";
 import { saveKeychainSettings } from "../vault-sources.js";
 import { saveVaultAutofillSettings } from "../vault-autofill.js"; // mac7/vault-autofill (R17-068)
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
+import { WakeWordSettingsSchema, wakeWordKey } from "../voice-wake.js";
+import { DictationSettingsSchema, dictationKey } from "../voice-dictation.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
 import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
@@ -44,12 +46,23 @@ export const switchPositions = ["off", "when-needed", "on"] as const;
  */
 export type Guard = "reach" | "guard" | "plain";
 
+/**
+ * Q46: what a voice setting holds in force, read through the app's own schema: a record the app would not
+ * accept counts as the app's starting values, as it does when it runs (src/voice-wake.ts, src/voice-dictation.ts).
+ * Lockdown's override of the switch is left out: the kit weighs the owner's own setting.
+ */
+function inForce(schema: { safeParse: (value: unknown) => { success: boolean; data?: unknown }; parse: (value: unknown) => unknown }, saved: unknown): Record<string, unknown> {
+  const parsed = schema.safeParse(saved ?? {});
+  return { ...(parsed.success ? parsed.data : schema.parse({})) as Record<string, unknown> };
+}
+
 export type FieldKind =
   | { type: "switch" }
   | { type: "yes-no" }
   /** Choices written from most careful to least careful. */
   | { type: "choice"; options: readonly string[] }
-  | { type: "number"; min: number; max: number };
+  /** `fractions`: the app itself keeps values between whole steps (the dictation wait does, at 1.5 seconds). */
+  | { type: "number"; min: number; max: number; fractions?: true };
 
 export interface FieldSpec {
   /** The field inside the saved record; a dot reaches one level in ("files.soul"). */
@@ -212,6 +225,7 @@ const reach: SettingSpec[] = [
   // file or a preset may ever choose what this computer listens for.
   {
     key: "wake-word", name: "A word that starts a turn", t: "settings-kit.name.wake-word", home: "settings:voice",
+    read: (store, owner) => inForce(WakeWordSettingsSchema, store.get("settings", owner, wakeWordKey)?.data),
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
       { field: "sureness", label: "How sure it must be before it answers", t: "settings-kit.field.wake-sureness",
         guard: "guard", initial: 80, kind: { type: "number", min: 50, max: 99 } }],
@@ -221,9 +235,10 @@ const reach: SettingSpec[] = [
   // nothing brought in from a file or a preset starts it, because only a press at this window can.
   {
     key: "live-dictation", name: "Speak and see the words", t: "settings-kit.name.live-dictation", home: "settings:voice",
+    read: (store, owner) => inForce(DictationSettingsSchema, store.get("settings", owner, dictationKey)?.data),
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
       { field: "silenceSeconds", label: "How long a quiet room ends it", t: "settings-kit.field.dictation-silence",
-        guard: "reach", initial: 4, kind: { type: "number", min: 1, max: 30 } }],
+        guard: "reach", initial: 4, kind: { type: "number", min: 1, max: 30, fractions: true } }],
   },
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
   // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
