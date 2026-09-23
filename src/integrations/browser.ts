@@ -16,6 +16,7 @@ import { SiteSkills, applyQuirks, type QuirksApplied } from './browser-sites.js'
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import { registerPageNotes } from './browser-notes-tool.js'; // w911 (A2144)
+import { registerBrowserFlow } from './browser-flow.js'; // FQ-execution.browser
 import type { MarkChecks } from './browser-heal.js'; // w911 (A2144)
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
@@ -779,4 +780,5 @@ function registerBrowserSecondPass(registry: ToolRegistry, browser: BranchBrowse
     parameters: z.object({ action: z.enum(['start', 'keep']) }).strict(),
     execute: (a, c) => a.action === 'start' ? browser.startRecording(c) : browser.keepRecording(c) });
   registerPageNotes(registry, browser); // w911 (A2144) hook: page notes, hidden and refused while switched off.
+  registerBrowserFlow(registry, browser); // FQ-execution.browser: a named multi-page journey, one picture per step.
 }
