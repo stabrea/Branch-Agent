@@ -40,17 +40,22 @@ const WORDS = {
   },
 };
 
+const ordinal = (n) => {
+  if (n === 1) return "1st"; if (n === 2) return "2nd"; if (n === 3) return "3rd";
+  return `${n}th`;
+};
+
 /** The state in words, with the task's own reason after it; null while it simply works. */
 export function taskWords(task) {
   if (!task || task.state === "working" || task.state === "finished") return null;
   const table = WORDS[task.state] ?? {};
   const [key, fallback] = table[task.why] ?? table[""] ?? ["", ""];
   const words = say(key, fallback);
-  // Q58: for queued tasks, show position and what it waits behind
+  // Q58: queued tasks show ordinal position and waiting reason, fully localized
   if (task.state === "queued") {
-    const position = task.position ?? 1;
-    const behind = task.waitingBehind ? say("task.queued.behind", `#${position} waiting for: ${task.waitingBehind}`, { position, behind: task.waitingBehind }) : say("task.queued.position", `#${position} in queue`, { position });
-    return behind;
+    const pos = ordinal(task.position ?? 1);
+    if (task.waitingBehind) return say("task.queued.behind", `${words} · ${pos} in line, behind "${task.waitingBehind}"`, { position: pos, behind: task.waitingBehind });
+    return words;
   }
   return task.reason ? say("task.with", `${words}: ${task.reason}`, { words, reason: task.reason }) : words;
 }

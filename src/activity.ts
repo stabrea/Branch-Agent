@@ -3,6 +3,9 @@ import type { Store } from "./store.js";
 import { localFirstReplyMs, toolLimits } from "./knobs/apply.js";
 import { localFirstReplyGraceMs } from "./reliability.js";
 
+/** Q58: minimal shape of a queued follow-up message (matches Runtime's FollowUp interface). */
+interface QueuedMessage { id: string; prompt: string; createdAt: string }
+
 /**
  * Q51: how long a working task may record nothing before it reads "no update": the longest silence the owner's own
  * limits allow, with their settings applied: a model's stall window, one tool's run, or a model on this computer
@@ -242,5 +245,21 @@ export function liveActivity(store: Store, owner: string, options: { waiting?: b
   return [...running, ...waiting].map((run) => {
     const working = store.working.describe(run.sessionId);
     return { ...runActivity(run, store.events(run.id), options), ...(working ? { working } : {}) };
+  });
+}
+
+/**
+ * Q58: pseudo-activities for queued messages waiting in a conversation's queue.
+ * Each shows position (1-based), what it waits behind (running task or earlier queued message),
+ * and when it was queued. Pure function: no side effects, <50 lines.
+ */
+export function queuedActivity(activity: RunActivity, queued: QueuedMessage[]): RunActivity[] {
+  return queued.map((item, i) => {
+    const waitingBehind = i === 0 && activity.task?.state === "working" ? activity.prompt.slice(0, 60) : i === 0 ? "" : queued[i - 1]!.prompt.slice(0, 60);
+    return {
+      runId: item.id, sessionId: activity.sessionId, prompt: item.prompt,
+      status: "running" as const, startedAt: item.createdAt, current: null,
+      steps: [], task: { state: "queued" as const, why: "run.queued", reason: "", lastUpdate: item.createdAt, stale: false, position: i + 1, waitingBehind },
+    };
   });
 }

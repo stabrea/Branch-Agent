@@ -151,8 +151,9 @@ async function draw() {
   try {
     /* The count beside Activity is kept up to date even when the pane is folded away. */
     /* Q51: the list also shows tasks waiting for you; the count beside Activity stays the running ones. */
+    /* Q58: queued tasks are listed but not counted as busy. */
     const running = await api("activity?waiting=1").catch(() => []);
-    setActivityCount(running.filter((item) => item.status === "running").length);
+    setActivityCount(running.filter((item) => item.status === "running" && item.task?.state !== "queued").length);
     /* public/layout.js says whether the pane is on screen (lx-aside): nothing is fetched for a pane
        nobody can see, and the calm window can still show it while work runs after a fold by hand. */
     const shownByLayout = document.body.classList.contains("lx");

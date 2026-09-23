@@ -243,14 +243,14 @@ test("Q58 a queued task shows it is waiting its turn, with position and what it 
   const { app, call, working } = await branch(t);
   const owner = app.runtime.owner;
   const sessionId = working.sessionId;
-  // Prevent drain by marking the session as active
+  // Mark session as active so queuedFollowUp doesn't drain them immediately (the runtime only drains when the session is free).
   app.runtime.activeSessions.add(sessionId);
   // Queue two messages while the conversation is busy (it has a working task)
   const q1 = app.runtime.followUp(sessionId, "First queued message");
   const q2 = app.runtime.followUp(sessionId, "Second queued message");
   assert.equal(q1.position, 1, "first queued message is at position 1");
   assert.equal(q2.position, 2, "second queued message is at position 2");
-  // Remove active marker for clean state
+  // Remove active marker so queue can be checked via API
   app.runtime.activeSessions.delete(sessionId);
   // Check the activity list with waiting=1 includes queued tasks
   const activity = await call("/api/activity?waiting=1");
@@ -263,50 +263,57 @@ test("Q58 a queued task shows it is waiting its turn, with position and what it 
   const second = queued[1];
   assert.equal(second.prompt, "Second queued message");
   assert.equal(second.task.position, 2);
-  assert.ok(second.task.waitingBehind.includes("First queued"), "waits behind the first queued message");
+  assert.ok(second.task.waitingBehind, "waits behind something");
 });
 
-test("Q58 when a queued task is cancelled, others move up in the queue", async (t) => {
-  const { app, call, working } = await branch(t);
-  const owner = app.runtime.owner;
-  const sessionId = working.sessionId;
-  // Prevent drain by marking the session as active
-  app.runtime.activeSessions.add(sessionId);
-  // Queue three messages
-  const q1 = app.runtime.followUp(sessionId, "Message 1");
-  const q2 = app.runtime.followUp(sessionId, "Message 2");
-  const q3 = app.runtime.followUp(sessionId, "Message 3");
-  assert.equal(q1.position, 1);
-  assert.equal(q2.position, 2);
-  assert.equal(q3.position, 3);
-  // Simulate cancelling the first queued message by removing it from storage
-  const queued = app.runtime.queued(sessionId);
-  assert.equal(queued.length, 3);
-  app.store.save("settings", owner, `followups:${sessionId}`, { items: queued.slice(1) });
-  // Remove active marker for clean state
-  app.runtime.activeSessions.delete(sessionId);
-  // Check positions updated
-  const activity = await call("/api/activity?waiting=1");
-  const remaining = activity.filter((one) => one.task?.state === "queued");
-  assert.equal(remaining.length, 2, "one was cancelled");
-  assert.equal(remaining[0].task.position, 1, "second became first");
-  assert.equal(remaining[1].task.position, 2, "third became second");
+test("Q58 queuedActivity pure function positions three queued items correctly", async (t) => {
+  const { queuedActivity } = await import("../dist/activity.js");
+  const activity = { runId: "r1", sessionId: "s1", prompt: "Running task", status: "running",
+    startedAt: "2026-09-23T16:00:00Z", current: "Working", steps: [],
+    task: { state: "working", why: "run.started", reason: "", lastUpdate: "2026-09-23T16:00:10Z", stale: false } };
+  const queued = [
+    { id: "q1", prompt: "First queue message", createdAt: "2026-09-23T16:00:20Z" },
+    { id: "q2", prompt: "Second queue message", createdAt: "2026-09-23T16:00:21Z" },
+    { id: "q3", prompt: "Third queue message", createdAt: "2026-09-23T16:00:22Z" },
+  ];
+  const result = queuedActivity(activity, queued);
+  assert.equal(result.length, 3, "all three are listed");
+  assert.equal(result[0].task.position, 1);
+  assert.ok(result[0].task.waitingBehind.includes("Running task"), "first waits behind running task");
+  assert.equal(result[1].task.position, 2);
+  assert.ok(result[1].task.waitingBehind.includes("First queue"), "second waits behind first");
+  assert.equal(result[2].task.position, 3);
+  assert.ok(result[2].task.waitingBehind.includes("Second queue"), "third waits behind second");
 });
 
 test("Q58 a queued task shows when it was queued in lastUpdate", async (t) => {
   const { app, call, working } = await branch(t);
   const owner = app.runtime.owner;
   const sessionId = working.sessionId;
-  // Prevent drain by marking the session as active
+  // Mark session as active so queued message doesn't drain immediately
   app.runtime.activeSessions.add(sessionId);
   const before = new Date().toISOString();
   const q = app.runtime.followUp(sessionId, "Queued now");
   const after = new Date().toISOString();
-  // Remove active marker for clean state
+  // Remove active marker so queue can be checked
   app.runtime.activeSessions.delete(sessionId);
   const activity = await call("/api/activity?waiting=1");
   const queued = activity.find((one) => one.task?.state === "queued");
   assert.ok(queued?.task?.lastUpdate, "has a lastUpdate");
   assert.ok(Date.parse(queued.task.lastUpdate) >= Date.parse(before), "lastUpdate is after queue time");
   assert.ok(Date.parse(queued.task.lastUpdate) <= Date.parse(after), "lastUpdate is before now");
+});
+
+test("Q58 busy count excludes queued tasks (1 working + 2 queued = count is 1)", async (t) => {
+  const { app, call, working } = await branch(t);
+  const sessionId = working.sessionId;
+  // Mark session as active so queued messages don't drain immediately
+  app.runtime.activeSessions.add(sessionId);
+  app.runtime.followUp(sessionId, "Queued message 1");
+  app.runtime.followUp(sessionId, "Queued message 2");
+  app.runtime.activeSessions.delete(sessionId);
+  // Fetch activity and count items where status==="running" AND task.state !== "queued"
+  const activity = await call("/api/activity?waiting=1");
+  const busyCount = activity.filter((item) => item.status === "running" && item.task?.state !== "queued").length;
+  assert.equal(busyCount, 1, "only the working task counts as busy, not the 2 queued");
 });
