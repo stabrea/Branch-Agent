@@ -74,6 +74,8 @@ export const BUCKETS = {
       [["accounts-card", R]]],
   ],
   voice: [
+    ["now", "bell", "Listening right now", "What Branch is monitoring for sound.",
+      [["voice-listening-card", R]]],
     ["talk", "mic", "Talking and listening", "Speaking to Branch and how it hears you.",
       [["voice-settings-form", R], ["dictation-form", R], ["wake-word-form", A], ["comfort-voice-card", A]]],
     ["voices", "speaker", "The voices it speaks with", "How it answers out loud.",

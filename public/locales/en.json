@@ -4659,6 +4659,8 @@
   "settingsGrown.bucket.permissions.safe.line": "Hiding secrets, trusted folders and security checks.",
   "settingsGrown.bucket.secrets.keys": "Passwords and keys",
   "settingsGrown.bucket.secrets.keys.line": "Keys and passwords Branch may use, one at a time.",
+  "settingsGrown.bucket.voice.now": "Listening right now",
+  "settingsGrown.bucket.voice.now.line": "What Branch is monitoring for sound.",
   "settingsGrown.bucket.voice.talk": "Talking and listening",
   "settingsGrown.bucket.voice.talk.line": "Speaking to Branch and how it hears you.",
   "settingsGrown.bucket.appearance.fun": "Just for fun",
