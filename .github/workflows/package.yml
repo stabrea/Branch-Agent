@@ -4,7 +4,8 @@ name: Package
 # and publishes nothing: the release job runs for a version tag only.
 on:
   push:
-    tags: ['v*']
+    # Rolling prereleases have their own publisher; this workflow is Stable only.
+    tags: ['v*', '!v*-*']
   workflow_dispatch:
     inputs:
       phone_only:

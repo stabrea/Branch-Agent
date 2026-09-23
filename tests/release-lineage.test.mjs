@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { assertReleaseVersion, trustedExactRun } from "../scripts/release-lineage.mjs";
 
 const sha = "a".repeat(40);
@@ -11,6 +12,12 @@ const good = {
   status: "completed", conclusion: "success", html_url: "https://github.com/example/run",
 };
 const select = (run) => trustedExactRun({ workflow_runs: [run] }, { sha, repo });
+
+test("Stable packaging excludes rolling Beta tags", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/package.yml", import.meta.url), "utf8");
+  assert.match(workflow, /tags:\s*\['v\*', '!v\*-\*'\]/);
+  assert.throws(() => assertReleaseVersion("v0.19.2-beta.1", "0.19.2"));
+});
 
 test("release tags match the packaged version exactly", () => {
   assert.doesNotThrow(() => assertReleaseVersion("v0.19.2", "0.19.2"));
