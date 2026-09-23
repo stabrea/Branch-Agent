@@ -257,7 +257,7 @@ test("news is only read when the brief would show it: section off, or no {{news}
   assert.equal(app.brief.settings(app.runtime.owner).template, custom, "the owner's own wording was not rewritten");
 });
 
-test("a brief set up before news existed moves to the new default wording and sections when a feed is saved", async (t) => {
+test("a brief set up before news existed moves to the new default wording and gains only the news section when a feed is saved", async (t) => {
   const { app, call, tool } = await served(t);
   const owner = app.runtime.owner;
   const feed = await feedServer(t);
@@ -271,10 +271,23 @@ test("a brief set up before news existed moves to the new default wording and se
   await call("/api/brief", { newsFeeds: [feed.url] });
   const saved = app.brief.settings(owner);
   assert.equal(saved.template, defaultTemplate);
-  assert.ok(saved.sections.includes("news"));
+  assert.deepEqual(saved.sections, ["schedules", "tasks", "documents", "watches", "reminders", "news"],
+    "only news is added; every other section stays as it was and health is not turned on");
   const preview = await tool("brief.preview", {});
   assert.equal(feed.hits(), 1);
   assert.match(preview.markdown, /\*\*In the news\*\*\n- Storm warning lifted/);
+  assert.doesNotMatch(preview.markdown, /Health|No health data source/);
+});
+
+test("a brief set up before news existed with sections of its own keeps them all and gains only news", async (t) => {
+  const { app, call } = await served(t);
+  const owner = app.runtime.owner;
+  app.store.save("settings", owner, "brief", {
+    enabled: false, dailyAt: "07:30", timezone: "UTC", deliverTo: null, template: previousDefaultTemplate,
+    sections: ["reminders", "tasks"], nextAt: null, lastSentAt: null,
+  });
+  await call("/api/brief", { timezone: "Europe/Paris" });
+  assert.deepEqual(app.brief.settings(owner).sections, ["reminders", "tasks", "news"]);
 });
 
 test("an owner on this version who turned news and health off keeps that choice when a feed is saved", async (t) => {

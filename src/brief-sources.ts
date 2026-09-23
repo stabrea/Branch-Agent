@@ -186,8 +186,10 @@ function* feedBlocks(xml: string): Generator<Scan> {
 
 /** One block's title and link, or null when either is missing or the link is not http/https. */
 function readItem(body: Scan, source: string): BriefItem | null {
-  const title = firstTagText(body, "title");
-  const link = firstTagText(body, "link") || atomLinkHref(body);
+  // Each item is one line of the brief: a newline or tab in a title (or a link) from the feed must
+  // not start a line of its own, so whitespace runs become one space in the title and go from the link.
+  const title = firstTagText(body, "title")?.replace(/\s+/g, " ").trim();
+  const link = (firstTagText(body, "link") || atomLinkHref(body))?.replace(/\s+/g, "");
   return title && link && isSafeLink(link) ? { title, link, source } : null;
 }
 

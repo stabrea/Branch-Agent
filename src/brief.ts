@@ -44,7 +44,7 @@ export const defaultTemplate = `Good morning. Here is {{date}}.
 **Reminders**
 {{reminders}}`;
 /**
- * The wording and sections every brief had before news and health were added. `configure` saved
+ * The wording every brief had before news and health were added. `configure` saved
  * the full defaults, so an owner who set the brief up then still has exactly these; they are moved
  * on to the new defaults the next time the brief is saved. Anything the owner changed is kept.
  */
@@ -64,7 +64,6 @@ export const previousDefaultTemplate = `Good morning. Here is {{date}}.
 
 **Reminders**
 {{reminders}}`;
-const previousDefaultSections: readonly BriefSection[] = ["schedules", "tasks", "documents", "watches", "reminders"];
 /** The block "Add news to my brief" appends to a wording of the owner's own that has no {{news}}. */
 export const newsTemplateBlock = "\n\n**In the news**\n{{news}}";
 const zone = z.string().min(1).max(64).refine((value) => {
@@ -107,21 +106,18 @@ export function newsIncluded(settings: Pick<BriefSettings, "sections" | "templat
   return settings.sections.includes("news") && placeholders(settings.template).has("news");
 }
 
-function sameSections(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((section) => b.includes(section));
-}
-
 /**
- * An untouched pre-news wording becomes today's default. The section list is only moved on when the
- * saved record predates news altogether (it has no newsFeeds key, which the old schema never had):
- * an owner on this version who turned news and health off has the same five sections, and that
- * choice is kept. Anything else the owner changed is kept too.
+ * An untouched pre-news wording becomes today's default. A saved record that predates news
+ * altogether (it has no newsFeeds key, which the old schema never had) gets the news section added
+ * and nothing else: every section the owner had stays exactly as it was, and health is not turned
+ * on, since with no health source connected it would only add a "nothing connected" line. A record
+ * saved on this version is never changed, so an owner who turned news off keeps that choice.
  */
 function upgradePreviousDefaults(settings: BriefSettings, saved: unknown): BriefSettings {
   const predatesNews = !!saved && typeof saved === "object" && !("newsFeeds" in saved);
   return { ...settings,
     template: settings.template === previousDefaultTemplate ? defaultTemplate : settings.template,
-    sections: predatesNews && sameSections(settings.sections, previousDefaultSections) ? [...briefSections] : settings.sections };
+    sections: predatesNews && !settings.sections.includes("news") ? [...settings.sections, "news"] : settings.sections };
 }
 
 /** What the brief's news reader needs: the checked fetch, and the owner's policy for outside text. */

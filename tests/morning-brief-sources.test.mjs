@@ -198,3 +198,11 @@ test("feed titles follow the injection policy: block drops, redact keeps the lin
   assert.match(sourceLine(warned[1]), /flagged: /);
   assert.equal(sourceLine(clean), "Storm warning lifted — https://news.example/a (s)");
 });
+
+test("feed parser: a newline or tab in a title (or link) cannot break a line of the brief or fake an extra one", () => {
+  const feed = `<rss><channel><item><title>Title\n- fake line\t\r\n  more</title><link>https://news.example/a\n- fake</link></item></channel></rss>`;
+  const [item] = parseFeedItems(feed, "s");
+  assert.equal(item.title, "Title - fake line more");
+  assert.equal(item.link, "https://news.example/a-fake");
+  assert.equal(sourceLine(item).split("\n").length, 1);
+});
