@@ -3740,7 +3740,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     });
     response.writeHead(200, {
       "content-type": played.contentType, "cache-control": "no-store",
-      "x-content-type-options": "nosniff", "content-disposition": `inline; filename="${played.name}"`,
+      "x-content-type-options": "nosniff", "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(played.name)}`,
       "content-security-policy": "default-src 'none'; sandbox",
     });
     response.end(played.bytes);

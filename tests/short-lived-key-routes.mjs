@@ -647,6 +647,11 @@ export const ROUTES = {
   "/api/mcp/signin": "owner POST",
   "/api/mcp/snapshots": "look",
   "/api/mcp/try": "owner POST",
+  // FQ-collaboration: comments pinned to a moment in a video are kept under the owner, and the video's
+  // bytes are opened through the code editor, so reading either is the owner's alone, like the editor.
+  "/api/media-comments": "secret-read",
+  "/api/media-comments/:id": "owner DELETE",
+  "/api/media-comments/media": "secret-read",
   "/api/media/programs": "owner POST",
   "/api/media/settings": "owner POST",
   "/api/media/understand": "task POST",

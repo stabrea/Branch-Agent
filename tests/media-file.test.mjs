@@ -49,6 +49,8 @@ test("A0098/FQ-collaboration: off by default, and a video's own bytes come back 
   assert.equal(on.status, 200);
   assert.equal(on.headers.get("content-type"), "video/mp4");
   assert.ok(on.bytes.equals(clip), "the bytes served are exactly the file on disk");
+  await writeFile(join(workspace, "日本の動画.mp4"), clip);
+  assert.equal((await media("日本の動画.mp4")).status, 200, "a name outside Latin-1 still opens (the header is encoded)");
 });
 
 test("FQ-collaboration: only a video's own kinds are served; everything else is 415, 404 or 403", async (t) => {
