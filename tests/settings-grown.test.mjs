@@ -318,7 +318,8 @@ test("S8 somebody else's profile sees Regular, cannot change the level, and sear
   await f.page.waitForTimeout(300);
   assert.equal(await f.page.locator('#sg-found [data-setting="reach-video-secret"]').count(), 0, "an owner-only setting was named to somebody else");
   await f.page.locator("#lx-settings-search").fill("Also name the files of this project");
-  await f.page.locator('#sg-found [data-setting="documents-repository"]').waitFor();
+  /* DG-197: it moved from Library › Documents into Settings › Memory & library, so search shows it where it is. */
+  await f.page.locator("#documents-repository").waitFor({ state: "visible" });
   /* The server keeps the level the owner's too. */
   assert.notEqual(offLimitsToHousehold("POST", "/api/preferences"), null);
   assert.deepEqual(f.errors, []);
