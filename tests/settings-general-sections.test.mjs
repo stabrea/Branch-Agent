@@ -155,3 +155,28 @@ test("the section lines are the sample's words, with real French", async () => {
   }
   for (const key of ["people.owner-pin.change", "people.owner-pin.not-set"]) assert.ok(fr[key] && fr[key] !== en[key], `${key}: real French`);
 });
+
+/* The rendered sample draws no line under "A PIN for switching back to you" (General) or under "Its files"
+   (Instructions & personality): Branch draws none either, in English or in French. */
+const LINELESS = [["general", "pin"], ["instructions", "files"]];
+
+test("the PIN section and Its files have no line under their heading, as the sample", async () => {
+  const en = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  for (const [page, id] of LINELESS) {
+    assert.equal(BUCKETS[page].find((bucket) => bucket[0] === id)[3], "", `${page}:${id}: public/settings-buckets.js`);
+    for (const [name, words] of [["en", en], ["fr", fr]])
+      assert.equal(words[`settingsGrown.bucket.${page}.${id}.line`], undefined, `${page}:${id}: no line in ${name}.json`);
+  }
+});
+
+test("on the page, neither section draws a line, in English or in French", async (t) => {
+  const { page, errors } = await fixture(t, 1440);
+  const lines = () => page.evaluate((list) => list.map(([name, id]) =>
+    document.querySelectorAll(`.sg-head[data-bucket="${name}:${id}"] .sg-head-line`).length), LINELESS);
+  assert.deepEqual(await lines(), [0, 0], "English");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.getElementById("sg-bucket-general-pin")?.textContent === "Un code PIN pour revenir à vous");
+  assert.deepEqual(await lines(), [0, 0], "French");
+  assert.deepEqual(errors, []);
+});

@@ -11,12 +11,13 @@ const R = "regular", A = "advanced", T = "technical";
 export const BUCKETS = {
   /* DG-180: the approved sample's sections, in its order. The sample's KeepOak account comes first there; Branch has
      no KeepOak account to connect yet, so it is not drawn. Labels, starting from a preset and putting settings back
-     have no section in the sample: they stay here, at Technical, until they are given one. */
+     have no section in the sample: they stay here, at Technical, until they are given one. The sample draws no
+     line under the PIN's heading, so its line is empty (bucketHead then draws none). */
   general: [
     ["people", "people", "People on this computer",
       "Profiles give somebody else a name and a PIN of four to eight digits. While their profile is on, the conversation list, saved conversations and Memory are theirs and not yours.",
       [["lx-collab-people", R]]],
-    ["pin", "lock", "A PIN for switching back to you", "Whether switching back to you asks for a PIN.",
+    ["pin", "lock", "A PIN for switching back to you", "",
       [["lx-collab-owner-pin", R]]],
     ["start", "power", "How Branch starts and keeps running", "Whether it starts with your computer and keeps going when the window is closed.",
       [["deployment-card", R], ["never-break-card", A]]],
@@ -32,7 +33,8 @@ export const BUCKETS = {
       [["identity-form", R], ["context-assistant", A], ["autonomy-instructions-card", A]]],
   ],
   instructions: [
-    ["files", "instructions", "Its files", "The plain files that shape how Branch works and talks to you.",
+    /* The sample draws no line under "Its files". */
+    ["files", "instructions", "Its files", "",
       [["agent-files", R], ["context-persona", R]]],
   ],
   appearance: [
