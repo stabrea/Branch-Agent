@@ -1815,6 +1815,7 @@ export * from "./research.js";
 export * from "./research-claims.js";
 export * from "./monitors.js";
 export * from "./brief.js";
+export * from "./brief-sources.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
 // Batch 20 (wave 7) — orchestration, second pass.
@@ -2000,4 +2001,5 @@ export * from "./execution-metrics.js";
 export * from "./flow-yaml.js";
 export * from "./sdk-kit.js";
 export * from "./web-pages-settings.js"; // w911 (A0743, A1452) hook
+export * from "./web-page-fetch.js";
 export * from "./sdk-starters.js";

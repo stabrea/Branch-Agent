@@ -25,7 +25,7 @@ export interface RawPage {
 
 const redirects = new Set([301, 302, 303, 307, 308]);
 const maxHops = 5;
-const textual = /^(text\/|application\/(xhtml\+xml|json|xml))/i;
+const textual = /^(text\/|application\/(xhtml\+xml|json|xml|rss\+xml|atom\+xml))/i;
 
 /** Reads a response body up to a byte limit and lets go of the rest. */
 async function readBounded(response: Response, maxBytes: number): Promise<string> {
