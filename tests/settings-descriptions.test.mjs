@@ -56,12 +56,21 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
 function auditOpenPage(where) {
   const shown = (node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
   const name = (control) => control.id ? `#${control.id}` : `${control.tagName.toLowerCase()}[${control.name || control.type || ""}] in #${control.closest(".card")?.id || "?"}`;
+  const purposed = (heading) => heading?.nextElementSibling?.tagName === "P" && !!heading.nextElementSibling.textContent.trim();
+  /* The approved sample gives each section one heading and one purpose line, and its cards no heading of their own. A
+     section is the .sg-head in front of its cards (public/settings-grown.js), matched by the card's data-sg-bucket. */
+  const sectionHeading = (card) => {
+    const bucket = card.dataset.sgBucket;
+    if (!bucket || !card.parentElement) return null;
+    const head = [...card.parentElement.children].find((node) => node.matches(".sg-head") && node.dataset.bucket === bucket);
+    return head?.querySelector("h3.sg-head-title") ?? null;
+  };
   const problems = [];
   for (const card of document.querySelectorAll(".lx-page:not([hidden]) .card")) {
     if (!shown(card)) continue;
     const heading = card.querySelector(card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title");
     const cardName = card.id || heading?.textContent.trim() || "a card with no id";
-    if (!heading || heading.nextElementSibling?.tagName !== "P")
+    if (heading ? heading.nextElementSibling?.tagName !== "P" : !purposed(sectionHeading(card)))
       problems.push(`${where}: card ${cardName} needs its heading followed by one sentence saying what it is for`);
     if (!card.querySelector(":scope > .kit-scope[data-t]"))
       problems.push(`${where}: card ${cardName} has no scope chip (public/settings-describe.js adds it; give the card an <h2>)`);
@@ -94,6 +103,24 @@ test("R17-S01/S04: every Settings control has a description, and every Settings 
   assert.ok(checked > 150, `only ${checked} controls were found; the walk is not reaching the pages`);
   assert.deepEqual(problems, []);
   assert.deepEqual(errors, []);
+});
+
+test("R17-S04: a headless card passes only inside a section with a heading and a purpose line", async (t) => {
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const chip = '<p class="kit-scope" data-t="settings-kit.scope.everything">Applies to everything</p>';
+  await page.setContent(`<div class="lx-page">
+    <div class="sg-head" data-bucket="p:told"><div class="sg-head-words"><h3 class="sg-head-title">Told</h3><p>What this section is for.</p></div></div>
+    <div class="card" id="in-told" data-sg-bucket="p:told">${chip}</div>
+    <div class="sg-head" data-bucket="p:untold"><div class="sg-head-words"><h3 class="sg-head-title">Untold</h3></div><p class="sg-more-line"><button>2 more</button></p></div>
+    <div class="card" id="in-untold" data-sg-bucket="p:untold">${chip}</div>
+    <div class="card" id="alone">${chip}</div>
+  </div>`);
+  assert.deepEqual(await page.evaluate(auditOpenPage, "fixture"), [
+    "fixture: card in-untold needs its heading followed by one sentence saying what it is for",
+    "fixture: card alone needs its heading followed by one sentence saying what it is for",
+  ]);
 });
 
 test("R17-S01: the descriptions are in English and real French, and show in the language chosen", async (t) => {
