@@ -14,7 +14,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -266,4 +266,47 @@ test("a backup keeps every contract revision, and a restore brings them back wit
   const { self_development_contracts: _gone, ...older } = archive.tables;
   importBackup(into.app.store.sqlite, { ...archive, tables: older }, { replaceExisting: true });
   assert.equal(into.book.history(into.owner, worktree).length, 2);
+});
+
+test("every spelling of the source folder is held to the contract or refused, and the real path still works", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-spelling-"));
+  t.after(() => discardTemp(root));
+  const workspace = join(root, "workspace");
+  await mkdir(join(workspace, worktree, "src", "ui"), { recursive: true });
+  await mkdir(join(workspace, "proj"), { recursive: true });
+  await symlink(join(workspace, "branch-agent-source"), join(workspace, "link"));
+  const db = new DatabaseSync(":memory:");
+  const book = new ContractBook(db), log = new AuditLog(db), registry = new ToolRegistry();
+  let scope = "";
+  registry.pathScope = () => scope;
+  registry.register({ name: "files.write", permission: "files.write", description: "double",
+    parameters: z.object({ path: z.string(), content: z.string() }), execute: async () => ({}) });
+  registry.register({ name: "shell.execute", permission: "shell.execute", description: "double",
+    parameters: z.object({ command: z.string(), cwd: z.string().optional() }), execute: async () => ({}) });
+  book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms });
+  const guard = contractGuard({ store: { audit: log }, owner: "local", workspace, registry, book, git: async () => answer("") });
+  const write = (path) => guard("files.write", { path, content: "x" }, { runId: "r" });
+  await write(`${worktree}/src/ui/button.ts`);
+  await write("BRANCH-AGENT-SOURCE/.Branch-Worktrees/SELF-REMOVE-BUTTON/src/ui/button.ts"); // the same folder, held to the same contract
+  for (const [path, why] of [
+    ["Branch-Agent-Source/src/main.ts", /protected Branch Agent source checkout/],
+    ["BRANCH-AGENT-SOURCE/.branch-worktrees/self-remove-button/package.json", /package\.json is outside the contract's allowed paths/],
+    // Where the disk ignores case this is src/NEW, elsewhere SRC/NEW: outside src/ui/** either way.
+    [`${worktree}/SRC/NEW/button.ts`, /NEW\/button\.ts is outside the contract's allowed paths/],
+    ["branch-agent-source./src/main.ts", /protected Branch Agent source checkout/],
+    ["branch-agent-source /src/main.ts", /protected Branch Agent source checkout/],
+    ["link/.branch-worktrees/self-remove-button/package.json", /package\.json is outside the contract's allowed paths/],
+    ["link/src/main.ts", /protected Branch Agent source checkout/],
+    ["proj/../branch-agent-source/src/main.ts", /protected Branch Agent source checkout/],
+    ["branch-agent-source/.branch-worktrees/self-other/src/ui/a.ts", /no contract/],
+  ]) await assert.rejects(write(path), why, path);
+  scope = "proj";
+  await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: "../Branch-Agent-Source" }, { runId: "r" }),
+    /protected Branch Agent source checkout/, "a relative folder from another working folder");
+  assert.equal(log.list("local", { action: "self_development.contract" }).length, 10);
+  // Before the folder exists on disk the spelling alone must be enough (the first write can make it).
+  const bare = contractGuard({ store: { audit: log }, owner: "local", workspace: join(root, "empty"), registry, book, git: async () => answer("") });
+  scope = "";
+  for (const path of ["Branch-Agent-Source/src/main.ts", "BRANCH-AGENT-SOURCE/.branch-worktrees/self-remove-button/package.json"])
+    await assert.rejects(bare("files.write", { path, content: "x" }, { runId: "r" }), /self-development contract/, path);
 });

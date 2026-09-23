@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { audit, auditOrigins, type AuditOrigin } from "./audit.js";
@@ -158,6 +159,34 @@ export function globFits(pattern: string, path: string): boolean {
 }
 
 const tidy = (value: string): string => value.replace(/\\/g, "/").split("/").filter((part) => part && part !== ".").join("/");
+/** A path with its links followed: the nearest part that exists is read back from the disk, the rest kept as written. */
+function onDisk(path: string): string {
+  let existing = path;
+  const rest: string[] = [];
+  while (!existsSync(existing) && dirname(existing) !== existing) { rest.unshift(basename(existing)); existing = dirname(existing); }
+  try { return join(realpathSync.native(existing), ...rest); } catch { return path; }
+}
+/**
+ * The one spelling of a path inside the source folder. macOS and Windows find `Branch-Agent-Source`,
+ * `BRANCH-AGENT-SOURCE` and (on Windows) `branch-agent-source.` or `branch-agent-source ` as the same
+ * folder, so the folder, `.branch-worktrees` and the worktree's name are compared lowercased with
+ * trailing dots and spaces taken off, on every platform: a spelling that is not the same folder on
+ * this disk is still held to the contract, which fails closed. The rest keeps its case, so a
+ * differently spelled file inside the worktree must still fit the allowed paths as written.
+ */
+function sourceSpelling(path: string): string {
+  const parts = path.split("/").map((part) => part.replace(/[. ]+$/, "") || part);
+  if (parts[0]?.toLowerCase() !== sourceFolder) return path;
+  return [...parts.slice(0, 3).map((part) => part.toLowerCase()), ...parts.slice(3)].join("/");
+}
+/** Where a path named from `scope` really is, from the workspace, or null when it is outside it. */
+export function workspacePath(workspace: string, scope: string, path: string): string | null {
+  const root = onDisk(resolve(workspace));
+  const full = onDisk(resolve(workspace, scope, path));
+  const inside = relative(root, full);
+  if (inside.startsWith("..") || isAbsolute(inside)) return null;
+  return sourceSpelling(tidy(inside));
+}
 const insideSource = (path: string): boolean => path === sourceFolder || path.startsWith(`${sourceFolder}/`);
 /** The self-development worktree a workspace path is in, or "" for the protected checkout itself. */
 export function worktreeOf(path: string): string {
@@ -187,9 +216,7 @@ function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: 
   // A command's working folder counts too, so a command started from the workspace inside a worktree is held to it.
   const cwd = cwdOf(args).cwd;
   if (cwd) named.push(cwd);
-  const root = resolve(deps.workspace);
-  return named.map((path) => relative(root, resolve(root, scope, path)))
-    .filter((path) => !path.startsWith("..") && !isAbsolute(path)).map(tidy);
+  return named.map((path) => workspacePath(deps.workspace, scope, path)).filter((path): path is string => path !== null);
 }
 
 /** Why the call breaks the contract's worktree, tools or paths, or null when it keeps to them. */
@@ -248,7 +275,7 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     if (name === prepareToolName || name === widenToolName) return;
     const permission = deps.registry.permissionOf(name);
     if (isReadOnlyPermission(permission)) return;
-    const scope = tidy(deps.registry.pathScope());
+    const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
     let paths: string[];
     try { paths = pathsOf(deps, name, args, context, scope); } catch (error) {
       // Outside the source the approval policy already refuses a call whose targets cannot be told.
