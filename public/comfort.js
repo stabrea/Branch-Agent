@@ -258,6 +258,12 @@ function buildCard(spec) {
   /* A card of choices saves the moment one is picked, as the sample's update cards do. */
   if (controls.some(([, c]) => c.instant))
     card.addEventListener("change", (event) => { if (event.target.type === "radio") row.querySelector("button")?.click(); });
+  /* DG-184: the sample saves how Branch gets your attention as you choose (DG-025), so that card has no Save. */
+  if (spec.id === "notify") {
+    const save = row.querySelector("button");
+    save.remove(); // still pressed below, out of sight
+    card.addEventListener("change", (event) => { if (event.target.matches("select")) save.click(); });
+  }
   return card;
 }
 function tryButton() {

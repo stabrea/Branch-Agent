@@ -179,14 +179,20 @@ function fillHealth(card, schedules, switches) {
 function fillInterruptions(card, settings, switches) {
   const gate = modeSelect("quiet-switch-news", switches.notifyGate);
   const second = control("heartbeat-second", "checkbox", settings.secondOpinion);
-  card.replaceChildren(node("h2", "schedules.switch.title"), node("p", "schedules.switch.intro", "subtle"),
+  /* DG-184: a card inside its Settings section (h3, DG-008), saved the moment a choice changes, as the sample saves (DG-025). */
+  card.replaceChildren(node("h3", "schedules.switch.title", "settings-card-title"), node("p", "schedules.switch.intro", "subtle"),
     field("schedules.switch.news-only", gate), field("schedules.checkin.second", second));
-  card.append(button("action.save", async () => {
-    await api("heartbeat/switches", { notifyGate: gate.value });
-    await api("heartbeat", { ...settings, secondOpinion: second.checked });
-    toast(t("schedules.switch.saved"));
+  const save = async () => {
+    try {
+      await api("heartbeat/switches", { notifyGate: gate.value });
+      await api("heartbeat", { ...settings, secondOpinion: second.checked });
+      toast(t("schedules.switch.saved"));
+    } catch (error) { toast(error.message); }
+    delete card.dataset.editing;
     await load();
-  }));
+  };
+  gate.addEventListener("change", () => { void save(); });
+  second.addEventListener("change", () => { void save(); });
 }
 
 /**
