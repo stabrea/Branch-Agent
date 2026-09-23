@@ -68,7 +68,7 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["skills", ["skills.", "plugins.", "recipes.", "mcp.", "sdk.", "addon."]],
   // The owner's own instruction files (AGENTS.md, SOUL.md and the rest) are part of how Branch is
   // set up, so they file under settings rather than opening a box of their own for two tools.
-  ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models.", "context."]],
+  ["settings", ["settings.", "help.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models.", "context."]],
   // A service the owner turned into tools from its own OpenAPI description. These have their own
   // box rather than the unrecognised one, which closes as soon as there are more than a dozen
   // things in it — one ordinary document can bring far more tools than that on its own.
