@@ -3948,19 +3948,44 @@ async function trajectoriesResponse(app: Branch, request: IncomingMessage, respo
     response.write(line + "\n");
   response.end();
 }
-/** A date query param parses with `Date.parse`, which accepts both a bare day and a full ISO stamp. */
-function isValidQueryDate(value: string): boolean { return !Number.isNaN(Date.parse(value)); }
+const isoDateOnly = /^\d{4}-\d{2}-\d{2}$/;
+const isoDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * A `since`/`until` query value, turned into the exact ISO-UTC-with-milliseconds string
+ * `created_at` is stored in (`new Date().toISOString()`), so the comparison in
+ * `Store.runsFiltered` is a plain string compare that means what it looks like. Only ISO 8601 is
+ * accepted: a bare day (`2026-09-23`) or a date-time carrying its own zone, `Z` or a numeric
+ * offset (`2026-09-23T14:00:00+02:00`). A locale string such as "September 23, 2026" is refused
+ * rather than silently parsed by `Date.parse` alone, which would then match the wrong rows or none.
+ *
+ * A bare day is the given calendar day in UTC: `since` starts at its first millisecond, `until` at
+ * its last (`:23:59:59.999Z`), so `?until=2026-09-23` still includes a run made that afternoon.
+ */
+function isoQueryBoundary(value: string, edge: "start" | "end"): string | null {
+  if (isoDateOnly.test(value)) return `${value}T${edge === "start" ? "00:00:00.000" : "23:59:59.999"}Z`;
+  if (!isoDateTime.test(value)) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+const isoBoundarySchema = (edge: "start" | "end") =>
+  z.string().min(1)
+    .refine((value) => isoQueryBoundary(value, edge) !== null,
+      "must be an ISO 8601 date (YYYY-MM-DD) or date-time with a zone (Z or an offset)")
+    .transform((value) => isoQueryBoundary(value, edge)!);
 
 /**
  * FQ-packages.trajectories: a batch is asked for either as a chosen list (`?ids=a,b,c`) or as a
  * filter (`?session=` and/or `?since=`/`?until=`) — never both, and never neither. `limit` narrows
  * the filter form below the cap; the id-list form is already bounded by how many ids were typed.
+ * `since`/`until` come out of this schema already normalised to the store's own ISO-UTC shape.
  */
 const TrajectoryBatchQuerySchema = z.object({
   ids: z.string().min(1).optional(),
   session: z.string().min(1).max(64).optional(),
-  since: z.string().min(1).refine(isValidQueryDate, "is not a valid date").optional(),
-  until: z.string().min(1).refine(isValidQueryDate, "is not a valid date").optional(),
+  since: isoBoundarySchema("start").optional(),
+  until: isoBoundarySchema("end").optional(),
   limit: z.coerce.number().int().positive().max(trajectoryBatchCap).optional(),
 }).strict()
   .refine((q) => !(q.ids !== undefined && (q.session !== undefined || q.since !== undefined || q.until !== undefined)),

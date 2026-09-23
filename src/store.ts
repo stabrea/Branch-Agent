@@ -123,6 +123,11 @@ export class Store {
     // Wave 8: which project a task was done under, so the figures can be counted per project.
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "project"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'default'");
+    // FQ-packages.trajectories: runsFiltered below reads this table by owner, newest first, and
+    // optionally narrowed to one conversation — index both shapes so that read stays a lookup
+    // instead of a scan that grows with how long an owner has used Branch.
+    this.db.exec("CREATE INDEX IF NOT EXISTS tasks_owner_created ON tasks(owner, created_at)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS tasks_owner_session_created ON tasks(owner, session_id, created_at)");
     this.labels = new Labels(this.db);
     this.toolUsage = new ToolUsage(this.db);
     this.shares = new ShareLinks(this.db);
@@ -363,22 +368,35 @@ export class Store {
       .all(owner)
       .map((row) => this.toRun(row));
   }
-  /**
-   * FQ-packages.trajectories: the owner's own runs narrowed by conversation and/or a created_at
-   * window, newest first, read straight out of the tasks table with one query — so a filtered
-   * batch export never has to pull every run into memory first just to throw most of them away.
-   */
-  runsFiltered(owner: string, filter: { sessionId?: string; since?: string; until?: string }, limit: number): Run[] {
+  /** The WHERE clause and bound params `runsFiltered` and `explainRunsFiltered` both run, kept in
+   *  one place so a test that checks the query plan is checking the very query that runs for real. */
+  private runsFilteredQuery(
+    owner: string, filter: { sessionId?: string; since?: string; until?: string }, limit: number,
+  ): { sql: string; params: (string | number)[] } {
     const clauses = ["owner=?"];
     const params: (string | number)[] = [owner];
     if (filter.sessionId !== undefined) { clauses.push("session_id=?"); params.push(filter.sessionId); }
     if (filter.since !== undefined) { clauses.push("created_at>=?"); params.push(filter.since); }
     if (filter.until !== undefined) { clauses.push("created_at<=?"); params.push(filter.until); }
     params.push(limit);
-    return this.db
-      .prepare(`SELECT * FROM tasks WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC, rowid DESC LIMIT ?`)
-      .all(...params)
-      .map((row) => this.toRun(row));
+    return { sql: `SELECT * FROM tasks WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC, rowid DESC LIMIT ?`, params };
+  }
+  /**
+   * FQ-packages.trajectories: the owner's own runs narrowed by conversation and/or a created_at
+   * window, newest first, read straight out of the tasks table with one query — so a filtered
+   * batch export never has to pull every run into memory first just to throw most of them away.
+   * `tasks_owner_created`/`tasks_owner_session_created` (created above) keep this a lookup rather
+   * than a scan; `explainRunsFiltered` below is how a test checks that stays true.
+   */
+  runsFiltered(owner: string, filter: { sessionId?: string; since?: string; until?: string }, limit: number): Run[] {
+    const { sql, params } = this.runsFilteredQuery(owner, filter, limit);
+    return this.db.prepare(sql).all(...params).map((row) => this.toRun(row));
+  }
+  /** Test-only: the query plan `runsFiltered` actually runs for this filter, one line per step, so
+   *  a test can assert it lands on an index (no "SCAN tasks") instead of re-deriving the SQL itself. */
+  explainRunsFiltered(owner: string, filter: { sessionId?: string; since?: string; until?: string }, limit: number): string[] {
+    const { sql, params } = this.runsFilteredQuery(owner, filter, limit);
+    return this.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params).map((row) => String(row.detail));
   }
   /** Running or waiting work that is still the newest task in its conversation. */
   activeRuns(owner: string): Run[] {

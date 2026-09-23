@@ -143,6 +143,41 @@ test("FQ ?since=/?until= bound the batch by created_at", async (t) => {
   assert.deepEqual(untilEarly.body.trajectories.map((doc) => doc.run.id), [early.id]);
 });
 
+test("FQ ?until= as a bare day means the end of that UTC day, not midnight", async (t) => {
+  const { app, api } = await served(t);
+  const afternoon = (await api("POST", "/api/run", { prompt: "afternoon" })).body;
+  // Test-only backdating, same as above: a run made that afternoon, well past midnight UTC.
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id=?").run("2026-09-23T18:30:00.000Z", afternoon.id);
+  const nextDay = (await api("POST", "/api/run", { prompt: "next day" })).body;
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id=?").run("2026-09-24T00:00:01.000Z", nextDay.id);
+
+  const filtered = await api("GET", "/api/runs/trajectories/batch?until=2026-09-23");
+  assert.equal(filtered.status, 200);
+  assert.deepEqual(filtered.body.trajectories.map((doc) => doc.run.id), [afternoon.id],
+    "a bare-day until still includes a run made that same afternoon");
+});
+
+test("FQ a since with a numeric UTC offset is normalised before comparing", async (t) => {
+  const { app, api } = await served(t);
+  // 2026-09-23T12:00:00+02:00 is 2026-09-23T10:00:00.000Z: one run one millisecond either side of it.
+  const before = (await api("POST", "/api/run", { prompt: "before" })).body;
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id=?").run("2026-09-23T09:59:59.999Z", before.id);
+  const after = (await api("POST", "/api/run", { prompt: "after" })).body;
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id=?").run("2026-09-23T10:00:00.000Z", after.id);
+
+  const since = encodeURIComponent("2026-09-23T12:00:00+02:00");
+  const filtered = await api("GET", `/api/runs/trajectories/batch?since=${since}`);
+  assert.equal(filtered.status, 200);
+  assert.deepEqual(filtered.body.trajectories.map((doc) => doc.run.id), [after.id],
+    "the offset is converted to UTC before the boundary is compared, not string-compared as written");
+});
+
+test("FQ a locale date string is refused, not silently parsed by Date.parse alone", async (t) => {
+  const { api } = await served(t);
+  const refused = await api("GET", `/api/runs/trajectories/batch?since=${encodeURIComponent("September 23, 2026")}`);
+  assert.equal(refused.status, 400);
+});
+
 test("FQ ids and a filter are mutually exclusive", async (t) => {
   const { api } = await served(t);
   const run = (await api("POST", "/api/run", { prompt: "x" })).body;
@@ -200,4 +235,35 @@ test("FQ a non-owner short-lived key is refused the batch, gzipped or not", asyn
   // not on trajectories in general.
   const single = await call("GET", `/api/runs/${runId}/trajectory`, runKey);
   assert.equal(single.status, 200);
+});
+
+test("FQ runsFiltered lands on the tasks_owner_created/tasks_owner_session_created index, never a scan", async (t) => {
+  const { app } = await served(t);
+  const byOwnerAndDate = app.store.explainRunsFiltered("owner-x", { since: "2026-01-01T00:00:00.000Z" }, 10);
+  assert.ok(byOwnerAndDate.some((line) => /SEARCH tasks USING (COVERING )?INDEX tasks_owner_created/.test(line)),
+    `expected the owner+created_at index, got: ${byOwnerAndDate.join(" | ")}`);
+  assert.ok(!byOwnerAndDate.some((line) => /\bSCAN tasks\b/.test(line)),
+    `expected no full scan, got: ${byOwnerAndDate.join(" | ")}`);
+
+  const byOwnerAndSession = app.store.explainRunsFiltered("owner-x", { sessionId: "some-session" }, 10);
+  assert.ok(byOwnerAndSession.some((line) => /SEARCH tasks USING (COVERING )?INDEX tasks_owner_session_created/.test(line)),
+    `expected the owner+session+created_at index, got: ${byOwnerAndSession.join(" | ")}`);
+  assert.ok(!byOwnerAndSession.some((line) => /\bSCAN tasks\b/.test(line)),
+    `expected no full scan, got: ${byOwnerAndSession.join(" | ")}`);
+});
+
+test("FQ a filtered batch never returns another owner's run, even inside the window", async (t) => {
+  const { app, api } = await served(t);
+  const mine = (await api("POST", "/api/run", { prompt: "mine" })).body;
+  // Test-only: created straight through the store, not the HTTP API (which always files a run
+  // under the caller), so a run owned by someone else can sit in the very same window this filter
+  // asks for and prove the owner clause, not just the date clause, is what keeps it out.
+  const theirs = app.store.createRun("someone-else", "not mine");
+  app.store.finish(theirs.id, "completed", "done");
+
+  const filtered = await api("GET", "/api/runs/trajectories/batch?since=2000-01-01");
+  assert.equal(filtered.status, 200);
+  const ids = filtered.body.trajectories.map((doc) => doc.run.id);
+  assert.ok(ids.includes(mine.id), "the caller's own run is in the window");
+  assert.ok(!ids.includes(theirs.id), "another owner's run must never appear in this owner's filtered batch");
 });
