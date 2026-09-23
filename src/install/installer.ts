@@ -150,11 +150,15 @@ export function uninstallScript(options: {
     `rmdir /s /q "${options.installRoot}.previous" 2>NUL`,
     `if defined DELETE_DATA rmdir /s /q "${options.userDataDir}" 2>NUL`,
     // A script cannot delete the folder it is running from, so the last step runs from the temp folder.
-    // The installed folder is `Programs\Branch Agent`, with a space, so it must reach `rmdir` as one
-    // quoted path: inside `cmd /c "..."` doubled quotes become empty strings around an unquoted path,
-    // which left the install behind and handed `rmdir` a differently named path instead. `/b` keeps the
-    // step in the uninstaller's own console rather than opening a second window.
-    `start "" /b /d "%TEMP%" ${sys}cmd.exe /d /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q "${options.installRoot}""`,
+    // The folder's path never appears on that step's command line. Nested inside `cmd /c "..."`, a path
+    // is outside quotes for one of the two parsers whichever way it is quoted, so a space, `&` or `^` in
+    // it (`Programs\Branch Agent`, or an account folder such as `Tom&Jerry`) split the line: the install
+    // was left behind and `rmdir` was handed a differently named path. It is set in a variable here and
+    // expanded only when the step runs (`/v:on`, `!…!`), when nothing is parsed again. `%` is doubled
+    // because the script's own parser reads it even inside quotes. `/b` keeps the step in the
+    // uninstaller's own console rather than opening a second window.
+    `set "BRANCH_REMOVE=${options.installRoot.replaceAll("%", "%%")}"`,
+    `start "" /b /d "%TEMP%" ${sys}cmd.exe /d /v:on /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q "!BRANCH_REMOVE!""`,
     "exit /b 0", "",
   ].join("\r\n");
 }

@@ -31,10 +31,13 @@ function script(installRoot) {
   });
 }
 
+/** The step handed to a second command, and the line before it that names the folder for it. */
 function lastStep(text) {
-  const handed = text.split("\r\n").filter((line) => line.startsWith('start "'));
+  const lines = text.split("\r\n");
+  const handed = lines.filter((line) => line.startsWith('start "'));
   assert.equal(handed.length, 1, "exactly one step is handed to a second command");
-  return handed[0];
+  const at = lines.indexOf(handed[0]);
+  return `${lines[at - 1]}\r\n${handed[0]}`;
 }
 
 /** A throwaway folder holding a fake Programs and a fake %TEMP%, each with a folder that must survive. */
@@ -81,12 +84,21 @@ async function runHidden(folders, line) {
   return opened;
 }
 
-test("the last step names the installed folder once, quoted as one path", () => {
-  const root = "C:\\Users\\someone\\AppData\\Local\\Programs\\Branch Agent";
-  const line = lastStep(script(root));
-  assert.ok(line.includes(`rmdir /s /q "${root}"`), line);
-  assert.ok(!line.includes(`""${root}`), `the path is not wrapped in doubled quotes: ${line}`);
-  assert.match(line, /^start "" \/b /, "it stays in the uninstaller's own console");
+/**
+ * Nested inside `cmd /c "..."`, a path is outside quotes for one of the two parsers whichever way it is
+ * quoted, so the folder's path must not be on that line at all: it is set in a variable on the line
+ * before and expanded only when the step runs, when nothing is parsed again.
+ */
+test("the last step never puts the folder's path on the line that is parsed twice", () => {
+  const root = "C:\\Users\\Tom&Jerry\\AppData\\Local\\Programs\\Branch Agent";
+  const [named, handed] = lastStep(script(root)).split("\r\n");
+  assert.equal(named, `set "BRANCH_REMOVE=${root}"`, "the folder is named once, whole, inside quotes");
+  assert.ok(!handed.includes("Tom&Jerry"), `the path is not on the handed-over line: ${handed}`);
+  assert.match(handed, /cmd\.exe \/d \/v:on \/c /, "the step expands the name only when it runs");
+  assert.match(handed, /rmdir \/s \/q "!BRANCH_REMOVE!"/);
+  assert.match(handed, /^start "" \/b /, "it stays in the uninstaller's own console");
+  assert.equal(lastStep(script("C:\\A%PATH%B\\Branch Agent")).split("\r\n")[0], 'set "BRANCH_REMOVE=C:\\A%%PATH%%B\\Branch Agent"',
+    "a % in the path is doubled, because the script's own parser reads it even inside quotes");
 });
 
 test("this test can see a console window that is meant to be seen", { skip: !onWindows }, async (t) => {
@@ -104,3 +116,23 @@ test("the last step removes the installed folder, and only that folder, with not
     assert.equal(existsSync(folders.otherTemp), true, "a folder in %TEMP% is untouched");
     assert.deepEqual([...opened], [], "no window appeared");
   });
+
+/**
+ * A Windows account folder can hold `&`, `^`, `!`, `%` or `'`. Before this, `&` cut the path at that
+ * character and removed the folder named by what came before it, and `^` left the install behind. Each
+ * case puts the install under such a folder and a folder named by the part before the character beside
+ * it, which must survive.
+ */
+test("a folder name with & ^ ! % or ' still removes only the installed folder", { skip: !onWindows }, async (t) => {
+  for (const [parent, before] of [["Tom&Jerry", "Tom"], ["Tom^Jerry", "Tom"], ["Tom!Jerry", "Tom"],
+    ["100%Done", "100"], ["A%PATH%B", "A"], ["Tom's", "Tom"], ["Tom(1)", "Tom"]]) {
+    const folders = box(t);
+    const installed = join(folders.root, parent, "Programs", "Branch Agent");
+    const neighbour = join(folders.root, before);
+    for (const path of [installed, neighbour]) { mkdirSync(path, { recursive: true }); writeFileSync(join(path, "keep.txt"), "x"); }
+    await runHidden(folders, lastStep(script(windowsPath(installed))));
+    assert.equal(existsSync(installed), false, `${parent}: the installed folder is gone`);
+    assert.equal(existsSync(neighbour), true, `${parent}: the folder named "${before}" beside it is untouched`);
+    assert.equal(existsSync(folders.otherTemp), true, `${parent}: a folder in %TEMP% is untouched`);
+  }
+});
