@@ -6,7 +6,7 @@
 
 **Updating on Windows opens no window.** Handing over to the new version runs hidden, including on computers where the scheduled task cannot be created, and two quick presses of Update are one update, not two.
 
-**Limits.** Windows builds remain unsigned. Automatic installation still waits while tasks are running or waiting for an answer, as in 0.19.2; it does not yet cover every kind of background activity.
+**Limits.** The two "no window appears" checks for Windows (the update hand-over and the uninstaller's last step) could not be watched on the build machines, which show no console windows at all, so for this release they are proven by how the code starts those steps, not by watching a screen; the work itself (the hand-over runs, the right folder is removed) is tested on every build. Windows builds remain unsigned. Automatic installation still waits while tasks are running or waiting for an answer, as in 0.19.2; it does not yet cover every kind of background activity.
 
 **Install**
 In an existing desktop installation, open **Settings → Updates & about → Check for updates**. Beta stays an opt-in choice on that same page.
