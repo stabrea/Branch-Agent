@@ -30,6 +30,15 @@ const approval = { id: 1, state: "APPROVED", commit_id: head, user: { login: "re
 const appApproval = { ...approval, user: { login: "keepoak-branch-reviewer[bot]", id: 332788682, type: "Bot" },
   author_association: "NONE" };
 
+test("beta publishing uses standard public runners and one-day temporary artifacts", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/beta.yml", import.meta.url), "utf8");
+  assert.match(workflow, /os: \[windows-latest, macos-latest, ubuntu-latest\]/);
+  assert.deepEqual([...workflow.matchAll(/^    runs-on: (.+)$/gm)].map((match) => match[1]),
+    ["ubuntu-latest", "${{ matrix.os }}", "ubuntu-latest"]);
+  assert.match(workflow, /retention-days: 1/);
+  assert.doesNotMatch(workflow, /retention-days: [2-9]/);
+});
+
 test("only the exact installed reviewer App bot can approve a fast beta", () => {
   assert.equal(approvedExactHead([appApproval], pull), true);
   assert.equal(approvedExactHead([{ ...appApproval, user: { ...appApproval.user, id: 123 } }], pull), false);

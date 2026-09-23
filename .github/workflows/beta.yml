@@ -196,7 +196,8 @@ jobs:
             release/Branch-Agent-*.tar.gz
             release/Branch-Agent-*.sha256
           if-no-files-found: error
-          retention-days: 7
+          # Build hand-off only; release assets are retained on GitHub Releases.
+          retention-days: 1
   publish:
     needs: [gate, build]
     if: needs.gate.outputs.ready == 'true' && needs.build.result == 'success'
