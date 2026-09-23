@@ -87,11 +87,13 @@ test("DG-199 each marked row holds one setting and its words, never a title or a
 const onPage = (page, name) => page.evaluate(async (name) => {
   const { SETTINGS_INDEX } = await import("/settings-index.js");
   const { ROW_LEVELS } = await import("/settings-row-levels.js");
+  const { LINKED } = await import("/settings-rows.js"); // rows the sample draws as a "Set in …" link (DG-180)
+  const levelOf = (id) => ROW_LEVELS[id] ?? LINKED[id];
   const word = { R: "regular", A: "advanced", T: "technical" }, rank = { regular: 0, advanced: 1, technical: 2 };
   const now = rank[document.documentElement.dataset.settingsLevel];
   const host = document.getElementById(`lx-page-${name}`);
   const rows = [...host.querySelectorAll("[data-sg-row]")].filter((piece) => piece.closest("[data-sg-bucket]")?.checkVisibility());
-  const leveled = (card) => SETTINGS_INDEX.filter((row) => row[2] === card.id && ROW_LEVELS[row[0]]).map((row) => word[ROW_LEVELS[row[0]]]);
+  const leveled = (card) => SETTINGS_INDEX.filter((row) => row[2] === card.id && levelOf(row[0])).map((row) => word[levelOf(row[0])]);
   const sections = [...host.querySelectorAll(".sg-head")].map((head) => {
     const cards = head.dataset.cards.split(" ").filter(Boolean).map((id) => document.getElementById(id)).filter((card) => card && !card.hidden);
     let expected = 0;

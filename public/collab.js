@@ -264,16 +264,30 @@ function ownerPinCard(profile, helpers) {
   /* DG-029: as the approved sample draws it: its section's heading names it, then the field, the buttons, and
      what the PIN does (or does not do) right now. */
   const card = el("div", undefined, "collab-section collab-owner-pin");
-  const pin = pinInput(helpers, t("people.owner-pin.field"));
+  const pin = el("input");
+  Object.assign(pin, { type: "password", inputMode: "numeric", maxLength: 8, autocomplete: "off", id: "owner-pin-field" });
+  pin.placeholder = profile.ownerPin ? "••••" : t("people.owner-pin.not-set");
+  const label = el("label", t("people.owner-pin.field"), "collab-label");
+  label.htmlFor = pin.id;
+  label.dataset.t = "people.owner-pin.field";
+  /* One button, as in the sample: Set this PIN while there is none; with one set, Switch the PIN off, which reads
+     Change the PIN once new digits are typed (the same save as setting it). */
+  const setting = () => !profile.ownerPin || pin.value !== "";
+  const button = smallButton(helpers, "", async () => {
+    await api("/api/profiles/owner-pin", { pin: setting() ? pin.value : null }); pin.value = ""; toast("Saved"); await refresh();
+  });
+  const word = () => {
+    button.dataset.t = !profile.ownerPin ? "people.owner-pin.set" : pin.value ? "people.owner-pin.change" : "people.owner-pin.remove";
+    button.textContent = t(button.dataset.t);
+  };
+  pin.addEventListener("input", word);
+  word();
   const row = el("div", undefined, "collab-row");
-  row.append(pin, smallButton(helpers, t("people.owner-pin.set"), async () => {
-    await api("/api/profiles/owner-pin", { pin: pin.value }); pin.value = ""; toast("Saved"); await refresh();
-  }));
-  if (profile.ownerPin)
-    row.appendChild(smallButton(helpers, t("people.owner-pin.remove"), async () => {
-      await api("/api/profiles/owner-pin", { pin: null }); toast("Saved"); await refresh();
-    }));
-  card.append(row, el("p", t(profile.ownerPin ? "people.owner-pin.on" : "people.owner-pin.off"), "collab-meta"));
+  row.append(pin, button);
+  const now = el("p", undefined, "collab-meta");
+  now.dataset.t = profile.ownerPin ? "people.owner-pin.on" : "people.owner-pin.off";
+  now.textContent = t(now.dataset.t);
+  card.append(label, row, now);
   return card;
 }
 

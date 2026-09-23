@@ -752,7 +752,8 @@ function buildOnThisPage(page) {
   const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
     // Only include headings that are not hidden by the current level
     const card = h.closest(".lx-page > *, .lx-subpanel > *");
-    return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
+    /* A section with no cards at all (an empty "More on this page") is never drawn, so it is not listed either. */
+    return card && !card.hidden && !card.classList.contains("sg-empty") && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
   });
 
   if (headings.length === 0) return; // No sections to link to
@@ -894,6 +895,7 @@ function moveCollab() {
     if (!host) continue;
     /* Somebody else's profile has no PIN of the owner's to set: its slot, and the link to it, are out of sight. */
     if (!node) { if (panel.childElementCount && part === "owner-pin") host.replaceChildren(); }
+    else if (inUse(host.querySelector(`:scope > [data-part="${part}"]`))) node.remove(); // no second copy of its boxes
     else { host.querySelector(`:scope > [data-part="${part}"]`)?.remove(); host.append(node); }
     const empty = !host.childElementCount;
     if (host.hidden !== empty) host.hidden = empty;
@@ -902,6 +904,13 @@ function moveCollab() {
     const gone = Boolean($(row.dataset.to)?.hidden);
     if (row.hidden !== gone) row.hidden = gone;
   }
+}
+/* The panel is drawn again every few seconds: a part somebody is typing in (the keyboard in one of its boxes, or
+   PIN typed and not yet saved) stays as it is until they leave it, so a PIN is not wiped half typed. */
+function inUse(part) {
+  if (!part) return false;
+  if (part.contains(document.activeElement) && document.activeElement.matches("input, select, textarea")) return true;
+  return [...part.querySelectorAll("input[type=password]")].some((box) => box.value);
 }
 /* DG-028/029/030, Settings › General as the approved sample has it: the people, the owner's PIN and the shared
    copies each have a slot of their own (public/settings-buckets.js puts each in its section). */
@@ -916,13 +925,14 @@ function collabSlots() {
   days.id = "lx-collab-days-off";
   $("lx-page-notifications").append(days);
 }
-/* DG-030: the sample's cross-links on General, each a real way to the section that sets it. */
+/* DG-030: the sample's cross-links on General, each a real way to the section that sets it. As the sample draws
+   them, they are rows of Keys and typed commands with no heading of their own, so they are not a card. */
 const GENERAL_LINKS = [
   ["lx-collab-owner-pin", "general.link.ownerPin", "A PIN for switching back to you (the owner)", "general.link.ownerPin.go", "Set in A PIN for switching back to you ›"],
   ["lx-collab-people", "general.link.people", "People on this computer (list: name and a PIN of 4–8 digits each)", "general.link.people.go", "Set in People on this computer ›"],
 ];
 function generalLinks() {
-  const card = make("div", "card lx-general-links");
+  const card = make("div", "lx-general-links");
   card.id = "lx-general-links";
   for (const [to, key, english, goKey, goEnglish] of GENERAL_LINKS) {
     const row = make("div", "lx-link-row");

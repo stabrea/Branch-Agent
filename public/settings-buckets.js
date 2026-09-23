@@ -13,7 +13,8 @@ export const BUCKETS = {
      no KeepOak account to connect yet, so it is not drawn. Labels, starting from a preset and putting settings back
      have no section in the sample: they stay here, at Technical, until they are given one. */
   general: [
-    ["people", "people", "People on this computer", "Who else uses Branch here, each with a name and a PIN.",
+    ["people", "people", "People on this computer",
+      "Profiles give somebody else a name and a PIN of four to eight digits. While their profile is on, the conversation list, saved conversations and Memory are theirs and not yours.",
       [["lx-collab-people", R]]],
     ["pin", "lock", "A PIN for switching back to you", "Whether switching back to you asks for a PIN.",
       [["lx-collab-owner-pin", R]]],
@@ -21,9 +22,9 @@ export const BUCKETS = {
       [["deployment-card", R], ["never-break-card", A]]],
     ["projects", "folder", "Your projects", "The folders Branch works in, and what it leaves alone there.",
       [["projects-form", R], ["asks-board-card", A], ["context-project", A], ["comfort-files-card", A], ["lx-collab-labels", T]]],
-    ["keys", "keyboard", "Keys and typed commands", "Shortcuts, and the commands you can type with a slash.",
+    ["keys", "keyboard", "Keys and typed commands", "Shortcuts and the commands you can type with a slash.",
       [["lx-general-links", R], ["comfort-keys-card", A], ["commands-card", A], ["settings-kit-presets", T], ["settings-kit-reset", T]]],
-    ["signin", "globe", "Signing in from other devices", "Lets the people you added reach their own conversations from their own phone or laptop, and lets you share a conversation with them.",
+    ["signin", "globe", "Signing in from other devices", "Lets the people you added to this computer reach their own conversations from their own phone or laptop, and lets you share a conversation with them.",
       [["people-signin-admin", A], ["lx-collab-shares", T]]],
   ],
   assistant: [

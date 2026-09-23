@@ -38,7 +38,7 @@ async function connect({ page, server }) {
   await page.locator("#people-signin-admin").waitFor({ state: "attached", timeout: 15000 });
 }
 
-test("P1 the card is in Settings → General, starts off, has one filled button, and saves the switch", async (t) => {
+test("P1 the card is in Settings → General, starts off, has one filled button, and saves the switch as it changes", async (t) => {
   const f = await fixture(t);
   await connect(f);
   const card = f.page.locator("#people-signin-admin");
@@ -48,9 +48,12 @@ test("P1 the card is in Settings → General, starts off, has one filled button,
   assert.equal(await card.locator("#people-admin-mode").inputValue(), "off");
   assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1, "one filled button"); // "N more" can end the card (DG-199)
   assert.equal(await card.locator("[data-person] strong").innerText(), "Ada");
+  /* DG-180: the switch saves as it changes (Save is for the hours and the checks), and the keyboard stays on it. */
+  const before = await card.elementHandle();
   await card.locator("#people-admin-mode").selectOption("on");
-  await card.locator("#people-admin-save").click();
-  await f.page.waitForFunction(() => document.querySelector("#people-admin-mode")?.value === "on");
+  /* Saved, and drawn again from what was saved, with the keyboard back on the switch. */
+  await f.page.waitForFunction((old) => { const now = document.querySelector("#people-signin-admin");
+    return now && now !== old && now.querySelector("#people-admin-mode").value === "on" && document.activeElement?.id === "people-admin-mode"; }, before);
   assert.equal(f.app.people.settings().mode, "on");
   await openPlace(f.page, "chat");
   assert.equal(await card.isVisible(), false);
