@@ -139,6 +139,7 @@ export const SETTINGS_INDEX = [
   ["channels-more-homeassistant","customize:channels","channels-more-form","Home Assistant",null,null,"More chat apps",true],
   ["channels-more-xmpp","customize:channels","channels-more-form","XMPP (Jabber)",null,null,"More chat apps",true],
   ["channels-more-mqtt","customize:channels","channels-more-form","MQTT",null,null,"More chat apps",true],
+  ["channels-more-serial","customize:channels","channels-more-form","Serial device",null,null,"More chat apps",true],
   ["channels-more-keybase","customize:channels","channels-more-form","Keybase",null,null,"More chat apps",true],
   ["channels-more-simplex","customize:channels","channels-more-form","SimpleX Chat",null,null,"More chat apps",true],
   ["channels-more-deltachat","customize:channels","channels-more-form","Delta Chat",null,null,"More chat apps",true],
