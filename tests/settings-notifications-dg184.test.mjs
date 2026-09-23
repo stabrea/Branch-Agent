@@ -47,11 +47,18 @@ async function fixture(t) {
   await page.evaluate(() => globalThis.branchLayout.go("settings:notifications"));
   await page.locator("#heartbeat-second").waitFor({ state: "attached" });
   await page.locator("#hold-overnight").waitFor({ state: "attached" });
+  await page.locator("#comfort-sound").waitFor({ state: "attached" });
+  await settled(page);
   return { app, page, call, errors };
 }
+/* The cards come from three modules that each draw when their data arrives. Settings levels a redrawn card's rows in
+   the same turn and puts the page in order and counts it on the next frame, so one frame after the last card is
+   there (requestAnimationFrame runs in the order asked) the page is settled. */
+const settled = (page) => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done())));
+/* Choosing a level applies it, rows and "N more" count included, before the next task: the level on <html> is the signal. */
 const level = (page, value) => page.evaluate((one) => globalThis.branchSettingsLevel.set(one), value)
   .then(() => page.waitForFunction((one) => document.documentElement.dataset.settingsLevel === one, value))
-  .then(() => page.waitForTimeout(300));
+  .then(() => settled(page));
 /** What the page shows: its headings, its "N more" line, the settings on show, and any Save button. */
 const shown = (page) => page.evaluate((ids) => {
   const box = document.getElementById("lx-page-notifications");
@@ -74,9 +81,6 @@ test("DG-184 the page's sections, counts and rows match the sample at 1440 and 4
       await page.evaluate((one) => { document.documentElement.dataset.everything = one; }, everything);
       const where = `${width} px, Show everything ${everything}`;
       await level(page, "regular");
-      /* The cards come from three modules that each draw when their data arrives; the count settles after the last. */
-      await page.waitForFunction(() => [...document.querySelectorAll("#lx-page-notifications .sg-more")]
-        .some((node) => node.getClientRects().length && node.textContent.trim().startsWith("5 ")), null, { timeout: 5000 }).catch(() => {});
       const regular = await shown(page);
       assert.deepEqual(regular.headings, ["Notifications", "When Branch gets your attention"], where);
       assert.deepEqual(regular.more, ["5 more with Advanced"], where);

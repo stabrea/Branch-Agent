@@ -185,9 +185,7 @@ function wanted(page, host) {
       const card = cardIn(host, ref);
       if (!card) continue;
       /* DG-199: its rows at the sample's levels, and the card at its lowest row's; Under the hood is Technical. */
-      const leveled = levelRows(card, level, mark);
-      rowsByCard.set(card, leveled);
-      mark(card, "level", bucket[0] === "under" ? "technical" : leveled.level);
+      levelCard(card, level, bucket[0] === "under");
       mark(card, "sgSectionLevel", level); // what its section gives it, before its rows decide
       if (peeked.has(card.id) || peekedPages.has(page.split(":")[0])) mark(card, "sgPeek", "1");
       mark(card, "sgBucket", head.dataset.bucket);
@@ -206,6 +204,28 @@ function wanted(page, host) {
     order.push(head, ...rest);
   }
   return order.filter(Boolean);
+}
+/** DG-199: a card's rows at the sample's levels, and the card at its lowest row's; Under the hood is Technical. */
+function levelCard(card, sectionLevel, under) {
+  const leveled = levelRows(card, sectionLevel, mark);
+  rowsByCard.set(card, leveled);
+  mark(card, "level", under ? "technical" : leveled.level);
+}
+/**
+ * A card that draws itself anew (the collaboration panel does on every refresh) brings rows with no level yet.
+ * They are leveled at once, in the same turn as the redraw, so no moment shows them above the level; the order
+ * and the "N more" line follow on the next frame. Only the cards that changed are leveled again, unless a card
+ * came or went. Only what differs is written, so this settles at once.
+ */
+function levelChanged(page, host, records) {
+  const cards = new Set();
+  for (const { target } of records) {
+    if (target === host) { wanted(page, host); return; }
+    let node = target;
+    while (node.parentElement && node.parentElement !== host) node = node.parentElement;
+    if (node.parentElement === host && node.dataset?.sgSectionLevel) cards.add(node);
+  }
+  for (const card of cards) levelCard(card, card.dataset.sgSectionLevel, card.dataset.sgBucket?.endsWith(":under"));
 }
 /** Puts the page in order, touching only what is out of place, so running it again moves nothing. */
 function arrange(page) {
@@ -293,7 +313,8 @@ function watchPages() {
   for (const page of Object.keys(BUCKETS)) {
     const host = hostFor(page);
     if (!host) continue;
-    new MutationObserver(again).observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+    new MutationObserver((records) => { levelChanged(page, host, records); again(); })
+      .observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   }
 }
 
