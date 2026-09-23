@@ -531,6 +531,8 @@ test("trusting a fake-IP proxy is a warning that says what it gives up", async (
   assert.match(found.detail, /this computer or your home network/, "a name that really points there can get through");
   // The title the card shows, in each language, says it too.
   const title = async (language) => JSON.parse(await readFile(new URL(`../public/locales/${language}.json`, import.meta.url), "utf8"))["security.check.web.fake-ip-proxy"];
-  assert.match(await title("en"), /home network/);
+  assert.match(await title("en"), /looks up site names itself/, "who does the name lookups when the setting is off");
+  assert.match(await title("en"), /home network/, "what the setting gives up");
+  assert.match(await title("fr"), /résout lui-même les noms/);
   assert.match(await title("fr"), /réseau local/);
 });
