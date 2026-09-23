@@ -108,6 +108,13 @@ function applyLook() {
   root.style.setProperty("--surface", surface);
   paintGrove({ mode, season: look.season || seasonToday() });
   drawLookControls();
+  /* DG-176: the desktop window's own minimise, maximise and close are drawn to read on this light. */
+  globalThis.branchDesktop?.windowLook?.(mode === "dark").catch?.(() => undefined);
+}
+/* DG-176: in the desktop app the window has no system title bar; the top row takes its place (see layout.css). */
+if (new URLSearchParams(location.search).get("desktop") === "1") {
+  document.body.classList.add("lx-desktop-frame");
+  if (/Mac/i.test(navigator.platform)) document.body.classList.add("lx-desktop-mac");
 }
 function setLook(patch) {
   Object.assign(look, patch);
