@@ -243,6 +243,7 @@ export interface ContractGuardDeps {
 }
 
 /** The workspace paths (forward slashes, from the workspace) a call names. */
+/** A path a call names, and whether the call acts on the whole of it (a folder it pulls into, runs in, or commits whole). */
 interface NamedPath { path: string; folder: boolean }
 
 /** Whether a workspace path is a folder on disk now. */
@@ -251,24 +252,26 @@ function folderOnDisk(workspace: string, path: string): boolean {
 }
 
 function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: ToolContext, scope: string): NamedPath[] {
-  const named: { path: string; folder: boolean }[] = [];
+  // `probe`: whether a folder on disk means the call acts on all of it. A tool that lists its targets
+  // says so itself (git tools name the repository folder beside the files they touch, whole only when no file is named).
+  const named: { path: string; folder: boolean; probe: boolean }[] = [];
   const many = deps.registry.targetsOf(name, args, context);
-  if (many) for (const one of many) { if (one.path) named.push({ path: one.path, folder: one.folder === true }); }
+  if (many) for (const one of many) { if (one.path) named.push({ path: one.path, folder: one.folder === true, probe: false }); }
   else {
     const target = deps.registry.targetOf(name, args, context);
     const resource = target ? deps.registry.resourceOf(name, target, args) : null;
     // A tool that words its own target (the pull request tool: "send changes to GitHub on ...") is
     // not naming a file unless it works on files, as the approval policy reads it too.
     const worded = deps.registry.declaresTarget(name).target && !/^(files|documents|media|data|code)\./.test(deps.registry.permissionOf(name));
-    if (resource?.kind === "path" && !worded) named.push({ path: resource.value, folder: false });
+    if (resource?.kind === "path" && !worded) named.push({ path: resource.value, folder: false, probe: true });
   }
   // A command's working folder counts too, read exactly as the command tool reads it (from the
   // workspace, not the active project: commandFolder), so the folder judged is the folder it runs in.
   const cwd = cwdOf(args).cwd;
-  if (cwd) named.push({ path: commandFolder(context.workspace || deps.workspace, cwd), folder: true });
-  return named.flatMap(({ path, folder }) => {
+  if (cwd) named.push({ path: commandFolder(context.workspace || deps.workspace, cwd), folder: true, probe: false });
+  return named.flatMap(({ path, folder, probe }) => {
     const where = workspacePath(deps.workspace, scope, path);
-    return where === null ? [] : [{ path: where, folder: folder || folderOnDisk(deps.workspace, where) }];
+    return where === null ? [] : [{ path: where, folder: folder || (probe && folderOnDisk(deps.workspace, where)) }];
   });
 }
 
@@ -297,7 +300,8 @@ function termsBroken(contract: SelfDevelopmentContract, name: string, paths: rea
     const worktree = worktreeOf(path);
     if (worktree !== contract.worktreePath) return `${path} is outside the contract's worktree ${contract.worktreePath}.`;
     const inside = path.slice(worktree.length + 1);
-    if (folder || !inside) {
+    // A folder named only as where the files are (git.commit with paths) is judged by those files.
+    if (folder) {
       if (!sendingTools.has(name) && !coversFolder(contract.allowedPaths, inside))
         return `${name} works on the whole of ${inside || "the worktree"}, and the contract's allowed paths do not cover all of it (${contract.allowedPaths.join(", ")}).`;
     } else if (inside && !contract.allowedPaths.some((pattern) => globFits(pattern, inside)))

@@ -196,7 +196,7 @@ test("widening needs the owner's yes every time, and then writes a new revision 
 });
 
 /** The guard alone, with a registry of test tools and a Git double that answers as told. */
-function guardWith(git, contract = {}) {
+function guardWith(git, contract = {}, workspace = "/w") {
   const db = new DatabaseSync(":memory:");
   const book = new ContractBook(db);
   const log = new AuditLog(db);
@@ -209,10 +209,15 @@ function guardWith(git, contract = {}) {
   for (const name of ["git.push", "git.pull"])
     registry.register({ name, permission: "git.remote", description: "double", targets: inFolder,
       parameters: z.object({ folder: z.string().default("."), remote: z.string().default("origin"), branch: z.string().optional() }), execute: async () => ({}) });
+  // Like the real git.commit: the repository folder beside the named files, whole only when none are named.
+  registry.register({ name: "git.commit", permission: "git.write", description: "double",
+    targets: (args) => [{ kind: "write", path: args.folder, ...(args.paths?.length ? {} : { folder: true }) },
+      ...(args.paths ?? []).map((path) => ({ kind: "write", path: `${args.folder}/${path}` }))],
+    parameters: z.object({ folder: z.string().default("."), message: z.string().default("m"), paths: z.array(z.string()).optional() }), execute: async () => ({}) });
   book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree,
-    terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes", "git.push", "git.pull"], ...contract } });
+    terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes", "git.push", "git.pull", "git.commit"], ...contract } });
   const calls = [];
-  const guard = contractGuard({ store: { audit: log }, owner: "local", workspace: "/w", registry, book,
+  const guard = contractGuard({ store: { audit: log }, owner: "local", workspace, registry, book,
     git: async (options) => { calls.push(options.args.join(" ")); return git(options.args); } });
   return { guard, calls, log };
 }
@@ -424,4 +429,16 @@ test("a valid row copied under another worktree, or out of its revision order, i
     .run("local", worktree, 2, row.body, row.hash, row.created_at);
   assert.throws(() => book.history("local", worktree), /revision 2\) does not match its hash/, "revision 1's body stored as revision 2");
   assert.equal(first.revision, 1);
+});
+
+test("git.commit of named files is judged by those files; with none named it commits the whole worktree", async (t) => {
+  // A real workspace, so the worktree folder is on disk: naming it beside the files must not make the commit whole-folder.
+  const root = await mkdtemp(join(tmpdir(), "branch-self-commit-"));
+  t.after(() => discardTemp(root));
+  await mkdir(join(root, worktree, "src", "ui"), { recursive: true });
+  const guard = guardWith(() => answer(""), {}, root);
+  await guard.guard("git.commit", { folder: ".", paths: ["src/ui/button.ts"] }, { runId: "r", signal: signal() });
+  await assert.rejects(guard.guard("git.commit", { folder: ".", paths: ["package.json"] }, { runId: "r", signal: signal() }),
+    /package\.json is outside the contract's allowed paths/);
+  await assert.rejects(guard.guard("git.commit", { folder: "." }, { runId: "r", signal: signal() }), /git\.commit works on the whole of the worktree/);
 });
