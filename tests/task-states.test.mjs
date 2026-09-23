@@ -317,3 +317,31 @@ test("Q58 busy count excludes queued tasks (1 working + 2 queued = count is 1)",
   const busyCount = activity.filter((item) => item.status === "running" && item.task?.state !== "queued").length;
   assert.equal(busyCount, 1, "only the working task counts as busy, not the 2 queued");
 });
+
+test("Q58 when the task ahead finishes, the next queued message starts and the rest move up", async (t) => {
+  /* A model that holds its first two answers until the test lets them go, so the queue can be watched moving. */
+  const gates = [], opened = [];
+  for (let i = 0; i < 2; i++) gates.push(new Promise((resolve) => opened.push(resolve)));
+  let calls = 0;
+  const provider = { name: "gated", async complete() { const mine = calls++; if (mine < 2) await gates[mine]; return { content: "Done.", toolCalls: [] }; } };
+  const root = await mkdtemp(join(tmpdir(), "branch-q58-drain-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(async () => { opened.forEach((open) => open()); await server.close(); await app.close(); await discardTemp(root); });
+  const call = (path) => fetch(new URL(path, server.url), { headers: { authorization: `Bearer ${server.token}` } }).then((response) => response.json());
+  const until = async (check) => { for (let i = 0; i < 200; i++) { const value = await check(); if (value) return value; await new Promise((r) => setTimeout(r, 25)); } throw new Error("timed out"); };
+  const first = app.runtime.run({ prompt: "Sort the photos" });
+  const running = await until(() => app.store.runs(app.runtime.owner).find((run) => run.status === "running" && calls === 1));
+  app.runtime.followUp(running.sessionId, "Then rename them");
+  app.runtime.followUp(running.sessionId, "Then back them up");
+  const queuedNow = async () => (await call("/api/activity?waiting=1")).filter((one) => one.task?.state === "queued")
+    .map((one) => [one.prompt, one.task.position, one.task.waitingBehind]);
+  assert.deepEqual(await queuedNow(), [["Then rename them", 1, "Sort the photos"], ["Then back them up", 2, "Then rename them"]]);
+  opened[0]();
+  await first;
+  /* The first queued message is now the task that works; the other moved up behind it. */
+  const moved = await until(async () => { const list = await queuedNow(); return calls === 2 && list.length === 1 ? list : null; });
+  assert.deepEqual(moved, [["Then back them up", 1, "Then rename them"]]);
+  const busy = (await call("/api/activity")).map((one) => one.prompt);
+  assert.deepEqual(busy, ["Then rename them"], "the one that moved up to work is the busy one");
+});
