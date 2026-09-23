@@ -67,13 +67,49 @@ async function pressForStatus(page, card, button, words) {
     `${button} to report ${words}`);
 }
 
+for (const width of [1440, 860, 400]) {
+  test(`DG-008 knob Settings headings preserve hierarchy and descriptions at ${width}px`, async (t) => {
+    const { page } = await openApp(t, width);
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const language of ["en", "fr"]) {
+      await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
+      await page.evaluate(() => globalThis.branchKnobs.refresh());
+      for (const id of Object.keys(homes)) {
+        await openSettingFor(page, `#${id}`);
+        const card = page.locator(`#${id}`), heading = card.locator(":scope > [data-t]").first();
+        assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
+        const name = (await heading.textContent()).trim();
+        assert.ok(name && !name.startsWith("knobs."), `${id} has translated copy`);
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        assert.equal(await card.evaluate((node) => node.closest(".lx-page").querySelectorAll(":scope > h2.lx-page-title").length), 1);
+        assert.equal(await card.locator(":scope > h3.settings-card-title + p.subtle + .kit-scope.sr-only").count(), 1);
+        assert.deepEqual(await undescribed(page, id), []);
+        assert.deepEqual(await heading.evaluate((node) => {
+          const css = getComputedStyle(node);
+          return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
+        }), ["16px", "640", "20.8px", "normal", "0px 0px 6px"]);
+      }
+      await openSettingFor(page, "#knobs-reasoning-card");
+      const subsection = page.locator('#knobs-reasoning-card > [data-t="knobs.field.effortByModel"]');
+      assert.equal(await subsection.evaluate((node) => node.tagName), "H4");
+      assert.equal(await page.locator("#knobs-reasoning-card").getByRole("heading", {
+        level: 4, name: (await subsection.textContent()).trim(), exact: true,
+      }).count(), 1);
+      assert.equal(await page.locator("#knobs-memory-card > h2").count(), 1, "Library heading is unchanged");
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
 test("each knob card is in its home, every control has its own sentence, and saving reaches the server", async (t) => {
   const { app, page, launchFile } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
     await openSettingFor(page, `#${id}`);
     assert.ok(await page.locator(`#${id}`).isVisible(), `${id} can be seen on its page`);
-    assert.equal(await page.locator(`#${id} h2 + p.subtle`).count(), 1, `${id} says what it is for`);
+    assert.equal(await page.locator(`#${id} > h3.settings-card-title + p.subtle`).count(), 1, `${id} says what it is for`);
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
   }
   await openPlace(page, "memory");
