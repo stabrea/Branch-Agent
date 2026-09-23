@@ -80,6 +80,10 @@ async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unkn
   const { asks } = deps, post = deps.method === "POST";
   if (path === "/api/asks/sources") return post ? { sources: asks.sources.save(await deps.readBody()) } : { sources: asks.sources.sources(), status: asks.sources.status() };
   if (path === "/api/asks/sources/sync" && post) return runPartTool(deps, "source-sync", "sources.sync");
+  if (path === "/api/asks/sources/search" && post) {
+    const { query } = z.object({ query: z.string().trim().max(200).default("") }).strict().parse(await deps.readBody());
+    return { results: await asks.sources.search(query) };
+  }
   if (path === "/api/asks/hindsight") return { hindsight: post ? asks.hindsight.save(await deps.readBody()) : asks.hindsight.settings() };
   if (path === "/api/asks/hindsight/recall" && post) return runPartTool(deps, "hindsight", "hindsight.recall");
   if (path === "/api/asks/blocks") return { blocks: asks.blocks.list() };

@@ -249,18 +249,30 @@ async function surfacesBlock(status) {
 /* ---------- library:documents — sources ---------- */
 async function sourcesCard(modes) {
   const { node, status } = card("asks-sources-card", "library:documents", "asks.sources.title", "Bringing in new items",
-    "asks.sources.purpose", "New GitHub issues, mail and Telegram messages since the last time, written into sources/ in your workspace.");
+    "asks.sources.purpose", "New GitHub issues, mail, Telegram messages and CalDAV calendar events since the last time, written into sources/ in your workspace.");
   node.append(...switchFor("source-sync", modes, status));
   if (modes["source-sync"] !== "off") {
     const view = await api("asks/sources");
     const list = field("textarea", view.sources.map((s) => [s.id, s.kind, s.target, s.secret].join(" | ")).join("\n"));
-    node.append(...labelled("asks-sources-list", "asks.sources.list", "One per line: short name | github-issues, imap or telegram | where | saved secret", list),
+    node.append(...labelled("asks-sources-list", "asks.sources.list", "One per line: short name | github-issues, imap, telegram or caldav | where | saved secret", list),
       row(button("asks.save", "Save", async () => {
         try { await api("asks/sources", { sources: lines(list.value).map(([id, kind, target, secret]) => ({ id, kind, target: target ?? "", secret: secret ?? "" })) }); done(status); } catch (error) { tell(status, error); }
       }), button("asks.sources.sync", "Bring in what is new", async () => {
         try { status.textContent = (await api("asks/sources/sync", {})).results.map((r) => `${r.id}: ${r.error ?? r.added}`).join(" · "); } catch (error) { tell(status, error); }
       })),
       plain("p", view.status.map((s) => `${s.id}: ${s.items} (${s.syncedAt?.slice(0, 16) ?? "—"})`).join(" · "), "field-note"));
+    const query = field("input", "");
+    const results = plain("p", "", "field-note");
+    node.append(...labelled("asks-sources-search", "asks.sources.search.label", "Search what came in", query),
+      row(button("asks.sources.search.run", "Search", async () => {
+        try {
+          const { results: hits } = await api("asks/sources/search", { query: query.value });
+          results.textContent = hits.length
+            ? hits.map((h) => `${h.source} · ${h.item}`).join(" · ")
+            : say("asks.sources.search.none", "No matches.");
+        } catch (error) { tell(results, error); }
+      })));
+    node.append(results);
   }
   node.append(status);
   return node;
