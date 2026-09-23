@@ -148,9 +148,14 @@ test("Show everything brings the full window back, and is remembered for this pe
   await openSettingFor(f.page, "#appearance-everything");
   await f.page.locator("#appearance-everything").check();
   await closeSettings(f.page);
-  const back = await shown(f.page, ["#lx-pane-tabs", "#lx-shield", "#aside-toggle", "#composer-attach", "#temporary-toggle",
-    "#ask-first-toggle", "#composer-specialist", "#new-session", "#context-panel", "#rail-find", "#owner-menu-button", ".lx-gear"]);
+  const back = await shown(f.page, ["#lx-shield", "#aside-toggle", "#composer-attach", "#temporary-toggle",
+    "#ask-first-toggle", "#composer-specialist", "#new-session", "#rail-find", "#owner-menu-button", ".lx-gear"]);
   assert.deepEqual(Object.entries(back).filter(([, on]) => !on).map(([selector]) => selector), [], "these did not come back");
+  /* DG-114: the side panel is a card over the conversation, closed until asked for, in the full window too. */
+  assert.equal(await visible(f.page, "#context-panel"), false, "the side panel waits to be asked for");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("#context-panel").waitFor({ state: "visible" });
+  assert.equal(await visible(f.page, "#lx-pane-tabs"), true, "and it brings its tabs");
   assert.equal(await visible(f.page, "#lx-more"), false, "the full window is the old one, without More");
   /* Kept with the person's own preferences, not only in this browser. */
   /* The window saves the change a moment after it shows it; on a loaded machine that moment is longer. */
@@ -163,6 +168,8 @@ test("Show everything brings the full window back, and is remembered for this pe
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
   await f.page.waitForFunction(() => document.documentElement.dataset.everything === "on");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("#context-panel").waitFor({ state: "visible" });
   assert.equal(await visible(f.page, "#lx-pane-tabs"), true);
   assert.deepEqual(f.errors, []);
 });
