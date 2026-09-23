@@ -17,9 +17,12 @@ export async function drawObsidian() {
     $("obsidian-enabled").checked = Boolean(saved.enabled);
     $("obsidian-vault").value = saved.vault ?? "";
     $("obsidian-folder").value = saved.folder ?? "Branch";
+    say("obsidian-status", ""); // a refusal from before signing in is not left standing
   } catch (error) { say("obsidian-status", error.message); }
 }
-$("obsidian-save")?.addEventListener("click", async () => {
+/* DG-025: the notes folder saves as you change it, as the sample does. Switching it on before the folder is named
+   says why it cannot, and the switch goes back to what is saved; what you typed stays for you to correct. */
+async function saveObsidian() {
   try {
     await api("obsidian", {
       enabled: $("obsidian-enabled").checked,
@@ -27,8 +30,12 @@ $("obsidian-save")?.addEventListener("click", async () => {
       folder: $("obsidian-folder").value.trim() || "Branch",
     });
     say("obsidian-status", t("obsidian.saved"));
-  } catch (error) { say("obsidian-status", error.message); }
-});
+  } catch (error) {
+    say("obsidian-status", error.message);
+    try { $("obsidian-enabled").checked = Boolean((await api("obsidian")).enabled); } catch { /* the message above stands */ }
+  }
+}
+for (const id of ["obsidian-enabled", "obsidian-vault", "obsidian-folder"]) $(id)?.addEventListener("change", saveObsidian);
 
 /** The two switches for the small ask box and the browser extension. */
 export async function drawEmbeds() {
@@ -58,5 +65,7 @@ document.addEventListener("branch-place", (event) => {
   if (view === "documents" || view === "library:documents") void drawObsidian();
   if (view === "customize:channels") void drawEmbeds();
 });
+/* DG-197: the notes folder card is in Settings › Memory & library. */
+document.addEventListener("branch-settings-page", (event) => { if (event.detail.page === "memory") void drawObsidian(); });
 await drawObsidian();
 await drawEmbeds();

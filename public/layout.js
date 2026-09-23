@@ -791,6 +791,8 @@ function showSettingsPage(id) {
 
   if (id === "data") void globalThis.branchUsage?.render().then(() => globalThis.branchAllowed?.render());
   if (id === "appearance") drawLookControls();
+  /* DG-197: cards that moved into a Settings page read themselves again when it is shown, as they did on their old tab. */
+  document.dispatchEvent(new CustomEvent("branch-settings-page", { detail: { page: id } }));
 }
 /** A card's own words: not what Settings adds to it, such as the "N more with Advanced" line (DG-073). */
 function wordsOf(card) {

@@ -168,5 +168,9 @@ function wire() {
   document.addEventListener("branch-place", (event) => {
     if (["documents", "library:documents"].includes(event.detail.view)) loadDocuments().catch((error) => say(error.message));
   });
+  /* DG-197: Answering from your documents is in Settings › Memory & library. */
+  document.addEventListener("branch-settings-page", (event) => {
+    if (event.detail.page === "memory") loadDocuments().catch((error) => say(error.message));
+  });
 }
 wire();

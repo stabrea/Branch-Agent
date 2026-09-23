@@ -169,3 +169,53 @@ test("DG-197 the meaning index row has the sample's words and saves as you choos
   assert.equal((await label.textContent()).trim(), "Où est gardé l'index qui retrouve vos documents par leur sens");
   assert.deepEqual(errors, []);
 });
+
+/** Asks the server directly, as the page does. */
+const ask = (page, path, body) => page.evaluate(async ([where, what]) => {
+  const headers = { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" };
+  const answer = await fetch(where, what === undefined ? { headers } : { method: "POST", headers, body: JSON.stringify(what) });
+  return answer.json();
+}, [path, body]);
+
+test("DG-197 the cards that came from Library › Documents read what is saved when the page opens", async (t) => {
+  const { page, errors, root } = await fixture(t);
+  /* Saved elsewhere (another window, the assistant) while this page was not on show. */
+  await ask(page, "/api/documents/settings", { useDocuments: true });
+  await ask(page, "/api/knowledge/vectors", { vectorsIn: "file", vectorsFile: join(root, "meaning.db") });
+  await ask(page, "/api/obsidian", { enabled: true, vault: root, folder: "Branch" });
+  await page.evaluate(() => globalThis.branchLayout.go("settings:general"));
+  await page.evaluate(() => globalThis.branchLayout.go("settings:memory"));
+  const now = () => page.evaluate(() => ({ documents: document.getElementById("documents-use").checked,
+    vectors: document.getElementById("knowledge-vectors-in").value, notes: document.getElementById("obsidian-enabled").checked,
+    notesFolder: document.getElementById("obsidian-vault").value }));
+  const want = { documents: true, vectors: "file", notes: true, notesFolder: root };
+  await page.waitForFunction((one) => document.getElementById("documents-use").checked === one.documents
+    && document.getElementById("knowledge-vectors-in").value === one.vectors && document.getElementById("obsidian-enabled").checked === one.notes,
+  want, { timeout: 10000 }).catch(() => {});
+  assert.deepEqual(await now(), want);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-197 the notes folder saves as you change it, with no Save (DG-025)", async (t) => {
+  const { page, errors, root } = await fixture(t);
+  await level(page, "regular");
+  const card = page.locator("#obsidian-card");
+  const buttons = () => card.evaluate((node) => [...node.querySelectorAll("button")]
+    .filter((one) => one.getClientRects().length && !one.closest(".sg-more-line")).map((one) => one.textContent.trim()));
+  assert.deepEqual(await buttons(), [], "no Save under the notes folder switch");
+  /* Switched on before the folder is named: it says why not, and the switch goes back to off. */
+  await page.locator("#obsidian-enabled").click(); // a click: the switch may already be back to off when it is read
+  await page.locator("#obsidian-status").filter({ hasText: "Give the notes folder in full" }).waitFor({ timeout: 10000 });
+  await page.waitForFunction(() => !document.getElementById("obsidian-enabled").checked, null, { timeout: 10000 });
+  assert.equal((await ask(page, "/api/obsidian")).enabled, false);
+  /* Named at Technical, then switched on: both are kept as they change. */
+  await level(page, "technical");
+  await page.locator("#obsidian-vault").fill(root);
+  await page.locator("#obsidian-vault").press("Tab");
+  await page.locator("#obsidian-enabled").check();
+  let saved;
+  for (let tries = 0; tries < 50 && !(saved = await ask(page, "/api/obsidian")).enabled; tries += 1) await page.waitForTimeout(200);
+  assert.deepEqual({ enabled: saved.enabled, vault: saved.vault }, { enabled: true, vault: root });
+  assert.deepEqual(await buttons(), [], "no Save at Technical either");
+  assert.deepEqual(errors, []);
+});

@@ -161,5 +161,9 @@ function wire() {
   $("knowledge-vectors-file")?.addEventListener("change", saveVectors);
   document.querySelector('.nav[data-view="documents"]')
     ?.addEventListener("click", () => { loadKnowledge().catch((error) => say(error.message)); });
+  /* DG-197: the Knowledge card is in Settings › Memory & library. */
+  document.addEventListener("branch-settings-page", (event) => {
+    if (event.detail.page === "memory") loadKnowledge().catch((error) => say(error.message));
+  });
 }
 wire();
