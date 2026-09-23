@@ -34,6 +34,7 @@ import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
+import { MemoryProvider } from "./memory-provider.js"; // FQ-memory.providers
 import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
@@ -516,7 +517,9 @@ export async function createBranch(options: {
     retrieval: new MemoryRetrieval(store, runtime.models),
     hygiene: undefined as unknown as MemoryHygiene,
     tidy: undefined as unknown as MemoryTidy,
-    backend: new SqliteMemoryBackend(store),
+    // FQ-memory.providers: set once `web` exists, below — an outside memory service can then
+    // replace this computer's database rather than only sit beside it.
+    backend: undefined as unknown as MemoryProvider,
     transfer: new MemoryTransfer(store),
   };
   memory.hygiene = new MemoryHygiene(store, memory.retrieval);
@@ -534,7 +537,6 @@ export async function createBranch(options: {
   runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
   // ── end R17-S-B ──
   syncMixtures(store, runtime.owner, runtime.models); // R17-051: none until the owner makes one
-  registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
@@ -569,6 +571,12 @@ export async function createBranch(options: {
   registerOrchestrationModes(registry, runtime, knowledge);
   registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
+  // FQ-memory.providers: an outside memory service the owner switches on in Settings replaces this
+  // computer's database for the assistant's remember/recall/forget loop, not only sits beside it —
+  // src/memory-provider.ts reads the owner's choice fresh on every call, and web.policy is the same
+  // guard every other outside address in Branch is checked against.
+  memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch);
+  registerMemory(registry, store, memory.retrieval, memory.backend);
   offerSelfDevelopment({
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal),
