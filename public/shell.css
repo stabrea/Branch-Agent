@@ -235,6 +235,76 @@ body.no-aside .context-panel {
   color: var(--faint);
   font-size: 13px;
 }
+/* DG-093: New conversation, and beside it a chevron to start with a chosen Trunk (it takes the plus's place) */
+.rail-new-line {
+  position: relative;
+}
+.rail-new-line:has(#rail-new-more:not([hidden])) .rail-plus {
+  visibility: hidden;
+}
+.rail-new-more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-3);
+}
+.rail-new-more:hover,
+.rail-new-more[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.rail-new-more svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail-new-more[hidden],
+#rail-new[hidden] ~ .rail-new-more,
+html:root[data-hide~="new"] body.lx .rail-new-more {
+  display: none;
+}
+.rail-new-menu {
+  top: calc(100% + 2px);
+  right: 0;
+  left: 0;
+}
+.rail-new-menu button > span {
+  display: grid;
+  min-width: 0;
+}
+.rail-new-menu b {
+  color: var(--text);
+  font-weight: 550;
+}
+.rail-new-menu small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.rail-new-menu hr {
+  margin: var(--s1) var(--s2);
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.rail-new-note {
+  margin: var(--s1) var(--s3) var(--s2);
+  color: var(--faint);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
 .rail-find {
   color: var(--faint);
 }
@@ -505,19 +575,75 @@ body.no-aside .context-panel {
   display: grid;
   min-width: 0;
 }
+/* DG-095: the owner's line is shown whole, never cut short; a long one wraps. */
 .owner-name {
   font-size: 12.5px;
   font-weight: 550;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .owner-status {
   font-size: 10.5px;
   color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+/* DG-094: one line of icons above the account row (public/rail-foot.js): the theme and the pet on the left,
+   then day/night, clear the view and the Settings cog on the right. */
+.lx-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0 0 2px;
+}
+.lx-foot-line .lx-foot-icon,
+.lx-foot-line .sg-gear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.lx-foot-line .lx-foot-icon:hover,
+.lx-foot-line .sg-gear:hover,
+.lx-foot-line .sg-gear[aria-expanded="true"] {
+  background: var(--rail-hover);
+  color: var(--text);
+}
+.lx-foot-line .lx-foot-icon svg,
+.lx-foot-line .sg-gear svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lx-foot-line #lx-foot-mode {
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+}
+.lx-foot-line .lx-foot-icon[hidden] {
+  display: none;
+}
+/* DG-159: day/night lives only here now, so the old half-moon beside the computer's name goes. */
+#appearance-shortcut {
+  display: none !important;
+}
+/* DG-161: as in the sample, the pet's switch is not in the folded sidebar nor on a phone. */
+@media (max-width: 960px) {
+  .lx-foot-line #lx-foot-pet {
+    display: none;
+  }
 }
 .dot {
   display: inline-block;
@@ -1484,6 +1610,7 @@ details.tool-step > summary:hover {
 .profile-badge button {
   padding: 2px var(--s2);
   font-size: 12px;
+}
 
 /* A conversation with a task at work, in Recents (public/shell.js railItem). */
 .rail-line[data-running] .rail-item {
@@ -1507,4 +1634,109 @@ details.tool-step > summary:hover {
   height: 6px;
   border-radius: 50%;
   background: var(--copper);
+}
+
+/* DG-096: the conversations open in this window, along the bottom of the reading pane (public/open-strip.js) */
+.lx-open-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 10px 0 14px;
+  border-top: 1px solid var(--line);
+}
+.lx-open-strip[hidden] {
+  display: none;
+}
+.lx-open-label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.lx-open-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lx-open-item {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 220px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--text-2);
+}
+.lx-open-item:hover,
+.lx-open-item.on {
+  background: var(--hover);
+  color: var(--text);
+}
+.lx-open-item.on::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--copper);
+}
+.lx-open-go {
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font-size: 12.5px;
+}
+.lx-open-go span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lx-open-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+}
+.lx-open-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* the message box, which floats at the pane's foot, sits on top of the strip rather than over it */
+@media (min-width: 761px) {
+  main:has(> .lx-open-strip:not([hidden])) .composer-dock {
+    bottom: 48px;
+  }
+}
+/* as in the sample, a phone has no room for it */
+@media (max-width: 760px) {
+  body .lx-open-strip {
+    display: none !important;
+  }
 }

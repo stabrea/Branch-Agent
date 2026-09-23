@@ -393,8 +393,8 @@ test("a household person's bar offers exactly what their side list offers, and c
     sideCount: document.getElementById("lx-inbox-badge").hidden ? "" : document.getElementById("lx-inbox-badge").textContent,
     barCount: document.getElementById("ew-inbox-badge").hidden ? "" : document.getElementById("ew-inbox-badge").textContent,
   }));
-  assert.deepEqual(seen.bar.filter((place) => !["chat", "settings"].includes(place)), seen.side.filter((place) => place !== "customize"),
-    "the bar lists the side list's places (the conversation and Settings in Customize's spot, as in the sample)");
+  assert.deepEqual(seen.bar.filter((place) => !["chat", "settings"].includes(place)), seen.side.filter((place) => !["customize", "overview"].includes(place)),
+    "the bar lists the side list's places (the conversation and Settings in Customize's spot, as in the sample; Overview is the sidebar's own)");
   assert.equal(seen.barCount, seen.sideCount, "and the Inbox count is the side list's own");
   assert.deepEqual(f.errors, []);
 });

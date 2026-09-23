@@ -75,8 +75,8 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   return { page, call, errors, refused, app, url: server.url, headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } };
 }
-/** The cog after the account row: the calm window's, or the full window's. */
-const cog = (page) => page.locator(".sg-foot-line > .sg-gear:visible");
+/** The cog at the right end of the icon line over the account row (DG-094): the calm window's, or the full window's. */
+const cog = (page) => page.locator(".lx-foot-line > .sg-gear:visible");
 async function openSettings(page, name) {
   if (!(await page.locator("#settings-window").isVisible())) {
     /* On a phone the rail, with the account row and the cog at its foot, opens from the title bar. */
@@ -422,13 +422,14 @@ for (const [width, height] of [[1440, 950], [390, 844]]) {
   });
 }
 
-test("S10 Settings is a cog right after the account row, in the calm and the full window, and draws every card", async (t) => {
+test("S10 Settings is a cog at the right end of the icon line over the account row, in the calm and the full window, and draws every card", async (t) => {
   const f = await fixture(t);
   const after = () => f.page.evaluate(() => {
-    const cog = [...document.querySelectorAll(".sg-foot-line > .sg-gear")].find((node) => node.checkVisibility());
+    const cog = [...document.querySelectorAll(".lx-foot-line > .sg-gear")].find((node) => node.checkVisibility());
     const owner = document.getElementById("owner-menu-button");
     const a = owner.getBoundingClientRect(), b = cog?.getBoundingClientRect();
-    return { owner: owner.checkVisibility(), cog: Boolean(cog), right: b ? b.left >= a.right - 1 : false, row: b ? Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 6 : false };
+    /* DG-094: the cog ends the icon line, above the account row, at its right edge */
+    return { owner: owner.checkVisibility(), cog: Boolean(cog), right: b ? Math.abs(b.right - a.right) < 2 : false, row: b ? b.bottom <= a.top + 1 : false };
   });
   assert.deepEqual(await after(), { owner: true, cog: true, right: true, row: true }, "calm window");
   await cog(f.page).click();
