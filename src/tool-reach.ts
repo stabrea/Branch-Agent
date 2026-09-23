@@ -38,7 +38,7 @@ const local: readonly string[] = [
   "automations.read", "automations.propose", "boards.read", "boards.write", "widgets.read", "widgets.propose",
   "installs.read", "installs.request", "intents.read", "labels.read", "labels.manage", "projects.read",
   "projects.manage", "pages.write", "research.read", "blocks.read", "sources.read", "addons.wasm", "addons.draft",
-  "gateway.propose",
+  "gateway.propose", "help.read", "settings.read", "settings.write",
 ];
 const byPermission = new Map<string, ToolReach>([
   ...outbound.map((permission) => [permission, "outbound"] as const),
