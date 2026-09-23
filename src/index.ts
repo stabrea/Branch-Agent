@@ -160,6 +160,7 @@ import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
 // pictures described in words, a Markdown mirror of what is remembered, and text held for one job.
 import { DocumentAuthoring, registerDocumentAuthoring } from "./document-authoring.js";
 import { GraphRetriever, KnowledgeGraph } from "./knowledge-graph.js";
+import { registerWiki, WikiPages, WikiRetriever } from "./wiki.js";
 import { KnowledgeSummaries } from "./knowledge-summary.js";
 import { KnowledgeManagement } from "./knowledge-manage.js";
 import { KnowledgePictures } from "./knowledge-pictures.js";
@@ -997,6 +998,12 @@ export async function createBranch(options: {
   // ── end mac7/learn ──
   // One hop through that map is another way of finding passages, beside words and meaning.
   retrieval.add(new GraphRetriever(knowledgeGraph, knowledgeBases));
+  // A small personal wiki: pages the owner writes down that link to each other with [[Page Title]].
+  // A search follows those links one hop out, and a correction the owner made on a page is always
+  // shown first however the page is reached afterwards. See src/wiki.ts.
+  const wiki = new WikiPages(store);
+  registerWiki(registry, wiki);
+  retrieval.add(new WikiRetriever(wiki));
   // Text pasted in for one job: searchable while the job runs, gone the moment it ends.
   const taskText = new EphemeralDocuments();
   registerEphemeralDocuments(registry, taskText);
@@ -1338,6 +1345,8 @@ export async function createBranch(options: {
     learning,
     /** Wave 8: summaries, the map of names, pictures in words, and knowledge-base housekeeping. */
     knowledgeParts,
+    /** A small personal wiki: linked pages, followed one hop out, with corrections that persist. */
+    wiki,
     /** Wave 8: what the assistant remembers, written into the workspace as Markdown. */
     memoryMirror,
     /** Wave 8: text held for one job only. */
