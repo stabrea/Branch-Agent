@@ -26,6 +26,7 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerSecondOpinion } from "./second-opinion-tools.js";
 import { registerMemory } from "./memory.js";
+import { registerMemoryHosts } from "./memory-hosts.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
 import { chooseForInjection } from "./memory-layers.js";
@@ -522,6 +523,7 @@ export async function createBranch(options: {
   // ── end R17-S-B ──
   syncMixtures(store, runtime.owner, runtime.models); // R17-051: none until the owner makes one
   registerMemory(registry, store, memory.retrieval);
+  registerMemoryHosts(registry, store); // memory.cross-agent: ingest a host's session log, read it back through another
   registerHistory(registry, store);
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
@@ -1945,6 +1947,7 @@ export * from "./learn/index.js";
 export * from "./learn/api.js";
 export * from "./memory-mirror.js";
 export * from "./memory-ephemeral.js";
+export * from "./memory-hosts.js";
 // Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
 // may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
 export * from "./session-tokens.js";
