@@ -165,17 +165,54 @@ function segmented(label, options, isOn, onPick) {
   }
   return group;
 }
-function drawLookControls() {
+/* DG-035/DG-036: the sample's search and filter chips above the tiles. The words typed and the chip
+   chosen live here, so redrawing the tiles (a new light, a new theme) keeps them. */
+let themeQuery = "", themeFilter = "all";
+/** How strongly a theme's text stands out from its ground, as the sample measures it for its chips. */
+function textContrast(family, mode) {
+  const tokens = tokensFor(family, mode);
+  const light = (hex) => {
+    if (!/^#[0-9a-f]{6}$/i.test(hex ?? "")) return null;
+    const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const a = light(tokens["--text"]), b = light(tokens["--ground"]);
+  return a === null || b === null ? 0 : (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+/** The sample's filters (its effective, later `tilesHTML`): a group, 14:1 in daylight, or 14:1 in the light shown now. */
+function themeShown(family) {
+  if (themeQuery && !family[1].toLowerCase().includes(themeQuery)) return false;
+  if (themeFilter === "lightok") return textContrast(family, "light") >= 14;
+  if (themeFilter === "high") return textContrast(family, modeNow()) >= 14;
+  return themeFilter === "all" || family[2] === themeFilter;
+}
+function drawThemeTiles() {
   const gallery = $("lx-theme-gallery");
-  if (gallery) {
-    gallery.replaceChildren();
-    for (const [id, name] of THEME_GROUPS) {
-      gallery.append(make("p", "lx-eyebrow", name));
-      const grid = make("div", "lx-tiles");
-      for (const family of THEMES.filter((item) => item[2] === id))
-        grid.append(themeTile(family, (value) => setLook({ family: value })));
-      gallery.append(grid);
-    }
+  if (!gallery) return;
+  gallery.replaceChildren();
+  let shown = 0;
+  for (const [id, name] of THEME_GROUPS) {
+    const families = THEMES.filter((item) => item[2] === id && themeShown(item));
+    if (!families.length) continue;
+    shown += families.length;
+    gallery.append(make("p", "lx-eyebrow", name));
+    const grid = make("div", "lx-tiles");
+    for (const family of families) grid.append(themeTile(family, (value) => setLook({ family: value })));
+    gallery.append(grid);
+  }
+  if (!shown) gallery.append(worded("p", "lx-theme-none", "look.search.none", "No theme matches. Try All, or a shorter name."));
+  const results = $("lx-theme-results");
+  /* The language's own plural rule: French says "0 thème", English "0 themes". */
+  const single = new Intl.PluralRules(root.lang || "en").select(shown) === "one";
+  if (results) results.textContent = single ? say("look.search.one", "1 theme").replace("1", String(shown))
+    : say("look.search.results", "{count} themes").replace("{count}", String(shown));
+  for (const chip of document.querySelectorAll("#lx-theme-chips .lx-fchip"))
+    chip.setAttribute("aria-pressed", String(chip.dataset.filter === themeFilter));
+}
+function drawLookControls() {
+  if ($("lx-theme-gallery")) {
+    drawThemeTiles();
     $("lx-theme-count").textContent = `${THEMES.length} · ${themeById(look.family)[1]}`;
   }
   const follow = $("appearance-follow")?.checked;
@@ -578,6 +615,7 @@ function buildAppearanceBlock() {
   const count = make("span", "lx-count");
   count.id = "lx-theme-count";
   head.append(worded("h3", "", "look.theme", "Theme"), count);
+  const tools = themeTools();
   const gallery = make("div", "lx-gallery");
   gallery.id = "lx-theme-gallery";
   const modeRow = lookRow("look.mode", "Light and dark", "lx-mode");
@@ -588,9 +626,54 @@ function buildAppearanceBlock() {
   contrast.id = "lx-contrast";
   contrast.addEventListener("change", () => setLook({ contrast: contrast.checked ? "more" : "standard" }));
   contrastRow.append(contrast, worded("span", "", "look.contrast", "More contrast between text and background"));
-  block.append(head, gallery, modeRow, seasonRow, contrastRow);
+  block.append(head, tools, gallery, modeRow, seasonRow, contrastRow);
   $("lx-page-appearance").append(block);
 }
+/** The sample's `.theme-tools`: a search over the themes' names and one row of filter chips. */
+const THEME_CHIPS = [["all", "look.filter.all", "All"], ["branch", "look.filter.branch", "Branch"],
+  ["keepoak", "look.filter.keepoak", "KeepOak"], ["editors", "look.filter.editors", "Editors & terminals"],
+  ["lightok", "look.filter.lightok", "Easy in daylight"], ["high", "look.filter.high", "High contrast"]];
+function themeTools() {
+  const tools = make("div", "lx-theme-tools");
+  const field = make("label", "lx-search lx-theme-search");
+  field.append(icon("search"));
+  const input = make("input");
+  input.id = "lx-theme-search";
+  input.type = "search";
+  input.autocomplete = "off";
+  input.placeholder = say("look.search", "Search {count} themes").replace("{count}", String(THEMES.length));
+  input.setAttribute("aria-label", say("look.search.label", "Search themes"));
+  input.setAttribute("aria-describedby", "lx-theme-results");
+  input.addEventListener("input", () => { themeQuery = input.value.trim().toLowerCase(); drawThemeTiles(); });
+  field.append(input);
+  const chips = make("div", "lx-theme-chips");
+  chips.id = "lx-theme-chips";
+  chips.setAttribute("role", "group");
+  chips.setAttribute("aria-label", say("look.filter", "Show"));
+  /* A group chip appears only for a group Branch really has (the sample's Branch group is DG-038's). */
+  const groups = new Set(THEME_GROUPS.map(([id]) => id));
+  for (const [value, key, english] of THEME_CHIPS) {
+    if (!["all", "lightok", "high"].includes(value) && !groups.has(value)) continue;
+    const chip = button("lx-fchip", key, english);
+    chip.dataset.filter = value;
+    chip.setAttribute("aria-pressed", String(value === themeFilter));
+    chip.addEventListener("click", () => { themeFilter = value; drawThemeTiles(); });
+    chips.append(chip);
+  }
+  const results = make("p", "sr-only");
+  results.id = "lx-theme-results";
+  results.setAttribute("role", "status");
+  tools.append(field, chips, results);
+  return tools;
+}
+/* The placeholder carries the count, which the language file's plain placeholder swap cannot fill. */
+document.addEventListener("branch-language", () => {
+  const input = $("lx-theme-search");
+  if (!input) return;
+  input.placeholder = say("look.search", "Search {count} themes").replace("{count}", String(THEMES.length));
+  input.setAttribute("aria-label", say("look.search.label", "Search themes"));
+  drawThemeTiles();
+});
 function lookRow(key, english, hostId) {
   const row = make("div", "lx-look-row");
   const host = make("div");
