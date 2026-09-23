@@ -141,7 +141,7 @@ test("R17-049 the round-by-round chart appears in the meter's popover only when 
 });
 
 test("a round whose service never reported the cache is said to be unknown, never drawn or counted as none", async (t) => {
-  const { app, page, errors } = await openApp(t, 1280, [{ input: 700, output: 20 }, reportedUsage]);
+  const { app, page, errors } = await openApp(t, 1280, [{ input: 700, output: 20 }, reportedUsage, { input: 700, output: 20, cachedInput: 0 }]);
   saveSavings(app.store, "local", "roundChart", { mode: "on" });
   const first = await app.runtime.run({ prompt: "hello" });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, first.sessionId);
@@ -167,5 +167,12 @@ test("a round whose service never reported the cache is said to be unknown, neve
   assert.equal(both.bars, 5, "the second round is drawn too: from the cache, the rest sent, and the answer");
   assert.match(both.summary, /Rounds: 2\. Tokens in: 1,400\. Served from the cache: at least 500 \(not reported for 1 of the rounds\)\. Summaries: 0\./);
   assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1, "only the unreported round is faded");
+  /* A service that reports its cache served nothing did report: it is not the silent round. */
+  await app.runtime.run({ prompt: "and again", sessionId: first.sessionId });
+  const three = await drawn();
+  assert.match(three.summary, /Rounds: 3\. Tokens in: 2,100\. Served from the cache: at least 500 \(not reported for 1 of the rounds\)\. Summaries: 0\./,
+    "a reported zero counts as reported, so only one round is still unreported");
+  assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1,
+    "and a round reporting zero is not faded");
   assert.deepEqual(errors, []);
 });
