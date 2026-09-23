@@ -8,10 +8,11 @@ import { SiteSkillFileSchema, siteSkillEntry } from "./integrations/browser-site
 
 /**
  * A skill package is one file the owner can hand to someone else. Inside it is the folder they
- * wrote: SKILL.md, an optional tools.json describing web addresses the skill may call, and an
- * optional hooks.json linking an event to one of their recipes. The package also carries a
- * manifest naming the author, the version, the fingerprint of every file, and what the package
- * asks to be allowed to do, so nothing is installed before the owner has seen the list.
+ * wrote: SKILL.md, an optional tools.json describing web addresses the skill may call, an
+ * optional hooks.json linking an event to one of their recipes, and an optional metrics.json
+ * naming which of those same calls Branch should keep a running count of. The package also
+ * carries a manifest naming the author, the version, the fingerprint of every file, and what the
+ * package asks to be allowed to do, so nothing is installed before the owner has seen the list.
  */
 export const packageEntryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/, "Package file names are plain names such as SKILL.md");
 export const manifestEntry = "branch-package.json";
@@ -40,6 +41,15 @@ export const SkillHooksSchema = z.object({
     recipe: z.string().regex(/^[A-Za-z][A-Za-z0-9 _-]{0,63}$/),
   }).strict()).min(1).max(10),
 }).strict();
+/** Which of a package's own declared calls Branch should keep a running count of, and why. */
+export const SkillMetricsSchema = z.object({
+  metrics: z.array(z.object({
+    /** Must name one of this same package's tools.json entries; a metric can only count a call the owner already saw and approved. */
+    tool: z.string().regex(/^[a-z][a-z0-9_]{0,30}$/),
+    description: z.string().trim().min(1).max(200),
+  }).strict()).min(1).max(10),
+}).strict();
+export type SkillMetrics = z.infer<typeof SkillMetricsSchema>;
 
 export const SkillPackageManifestSchema = z.object({
   format: z.literal("branch-skill-package"),
@@ -83,6 +93,12 @@ export function requestedPermissions(files: Record<string, string>): { permissio
   return asked;
 }
 
+/** The runtime counters a package asks Branch to keep, so the owner can watch its calls work after install. */
+export function declaredMetrics(files: Record<string, string>): { tool: string; description: string }[] {
+  const metricsFile = files["metrics.json"];
+  return metricsFile ? [...SkillMetricsSchema.parse(JSON.parse(metricsFile)).metrics] : [];
+}
+
 /** The websites a package knows the quirks of, so the owner sees them before saying yes. */
 export function declaredSites(files: Record<string, string>): string[] {
   const siteFile = files[siteSkillEntry];
@@ -106,12 +122,20 @@ export function packSkill(input: { files: Record<string, string>; author: string
   for (const name of Object.keys(files)) {
     packageEntryName.parse(name);
     if (name === manifestEntry) throw new Error(`${manifestEntry} is written by the packer; remove it from the folder`);
-    if (!["SKILL.md", "tools.json", "hooks.json", siteSkillEntry].includes(name) && !name.endsWith(".md"))
-      throw new Error(`A skill package holds SKILL.md, tools.json, hooks.json, ${siteSkillEntry} and extra .md notes; ${name} is not one of them`);
+    if (!["SKILL.md", "tools.json", "hooks.json", "metrics.json", siteSkillEntry].includes(name) && !name.endsWith(".md"))
+      throw new Error(`A skill package holds SKILL.md, tools.json, hooks.json, metrics.json, ${siteSkillEntry} and extra .md notes; ${name} is not one of them`);
   }
   // A site block is checked here rather than at install time, so a skill that names a website
   // Branch never opens, or that tries to smuggle script into a selector, cannot be packed at all.
   if (files[siteSkillEntry]) SiteSkillFileSchema.parse(JSON.parse(files[siteSkillEntry]));
+  // A declared metric can only count a call the owner already read and approved in tools.json; this
+  // is checked at pack time so a package can never ask to be watched on a call it never declared.
+  if (files["metrics.json"]) {
+    const { metrics } = SkillMetricsSchema.parse(JSON.parse(files["metrics.json"]));
+    const toolNames = new Set((files["tools.json"] ? SkillToolsSchema.parse(JSON.parse(files["tools.json"])).tools : []).map((tool) => tool.name));
+    for (const metric of metrics)
+      if (!toolNames.has(metric.tool)) throw new Error(`metrics.json names "${metric.tool}", which is not one of this package's declared tools`);
+  }
   const permissions = [...new Set(requestedPermissions(files).map((entry) => entry.permission))];
   const manifest = SkillPackageManifestSchema.parse({
     format: "branch-skill-package", version: 1, name: metadata.name, packageVersion: input.packageVersion,

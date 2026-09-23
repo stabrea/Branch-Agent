@@ -790,6 +790,12 @@
             <button id="skill-package-install" type="button" hidden data-t="action.install-it-with-what-it">Install it with what it asks for</button>
             <p id="skill-package-status" role="status"></p>
           </div>
+          <div class="card" id="package-metrics-card">
+            <h2 data-t="skills.card.package-metrics">Package metrics</h2>
+            <p class="subtle" data-t="skills.package-metrics-hint">A package can name which of its own calls to keep a running count of, in a metrics.json beside its tools.json. Nothing extra is asked for; you are only shown how often a call you already approved has run.</p>
+            <div id="package-metrics-list" class="card-list"></div>
+            <p id="package-metrics-status" role="status"></p>
+          </div>
           <div class="card" id="skill-updates-card">
             <h2 data-t="skills.card.newer-versions">Newer versions</h2>
             <p class="subtle" id="skill-updates-summary">Checking the registries you follow…</p>

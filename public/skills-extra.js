@@ -86,6 +86,23 @@ async function installPackage() {
   } catch (error) { say("skill-package-status", error.message); }
 }
 
+/** FQ-automation.metrics: the running counts an installed package's own metrics.json asked to be kept. */
+async function loadPackageMetrics() {
+  try {
+    const { packages } = await api("skills/packages");
+    const withMetrics = packages.filter((entry) => entry.metrics?.length);
+    fill("package-metrics-list", withMetrics, (entry) => {
+      const row = el("div", undefined, "card");
+      row.append(el("strong", entry.name));
+      for (const point of entry.metrics) {
+        const errors = point.errorsTotal ? `, ${point.errorsTotal} failed` : "";
+        row.append(el("p", `${point.description}: ${point.callsTotal} call${point.callsTotal === 1 ? "" : "s"}${errors}${point.callsTotal ? `, ${point.avgMs}ms average` : ""}`, "meta"));
+      }
+      return row;
+    }, "No installed package declares a metrics.json yet.");
+  } catch (error) { say("package-metrics-status", error.message); }
+}
+
 async function loadUpdates() {
   try {
     const { updates } = await api("registry/updates");
@@ -160,7 +177,7 @@ $("skill-package-save")?.addEventListener("click", saveAsPackage);
 $("skill-package-open")?.addEventListener("click", () => $("skill-package-file").click());
 $("skill-package-file")?.addEventListener("change", (event) => { const file = event.target.files?.[0]; if (file) void openPackage(file); event.target.value = ""; });
 $("skill-package-install")?.addEventListener("click", installPackage);
-const refreshSkillsScreen = () => { void loadSkillChoices(); void loadUpdates(); void loadSuggestions(); void loadPlugins(); };
+const refreshSkillsScreen = () => { void loadSkillChoices(); void loadUpdates(); void loadSuggestions(); void loadPlugins(); void loadPackageMetrics(); };
 /* Skills and Plugins both live under Customize now (public/layout.js says when either opens). */
 document.addEventListener("branch-place", (event) => {
   if (["skills", "customize:skills", "customize:plugins"].includes(event.detail.view)) refreshSkillsScreen();
