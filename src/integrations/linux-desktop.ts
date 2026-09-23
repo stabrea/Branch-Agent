@@ -183,6 +183,8 @@ export class LinuxDesktopSandbox {
     try { this.store.event(id, kind, data); } catch { /* no run to attach the record to; not fatal */ }
   }
   private epoch(owner: string): number { return this.epochs.get(owner) ?? 0; }
+  /** A start is called off by a stop made since it began, or by the app closing at any point. */
+  private calledOff(owner: string, epoch: number): boolean { return this.closed || this.epoch(owner) !== epoch; }
   /**
    * Asked before everything the assistant does: while the switch is off (or Lockdown is on) the
    * desktop is taken down if it is still running, and the request is refused.
@@ -226,7 +228,7 @@ export class LinuxDesktopSandbox {
   private async launch(owner: string, settings: LinuxDesktopSettings, epoch: number): Promise<Session> {
     const check = await this.available(owner);
     if (!check.ok) throw new Error(check.reason);
-    if (this.epoch(owner) !== epoch) throw new Error(stoppedWhileStartingMessage);
+    if (this.calledOff(owner, epoch)) throw new Error(stoppedWhileStartingMessage);
     const port = await this.port();
     const password = this.password();
     let id = '';
@@ -248,9 +250,9 @@ export class LinuxDesktopSandbox {
   /** Waits for the VNC server to answer, giving up the moment a stop calls the start off. */
   private async answering(owner: string, epoch: number, port: number): Promise<void> {
     for (const until = Date.now() + this.waitMs; Date.now() < until;) {
-      if (this.epoch(owner) !== epoch) throw new Error(stoppedWhileStartingMessage);
+      if (this.calledOff(owner, epoch)) throw new Error(stoppedWhileStartingMessage);
       if (await this.probe(port)) {
-        if (this.epoch(owner) !== epoch) throw new Error(stoppedWhileStartingMessage);
+        if (this.calledOff(owner, epoch)) throw new Error(stoppedWhileStartingMessage);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, this.pauseMs));

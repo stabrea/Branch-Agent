@@ -395,6 +395,17 @@ test("the app closing while a start is under way takes that container down too",
   assert.deepEqual(ran("stop").map((call) => call.args), [["stop", "abcdef012341"]]);
 });
 
+test("a start asked for in the same moment the app closes leaves no container behind", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop, ran } = heldFixture(app);
+  const starting = desktop.start("local");
+  starting.catch(() => undefined);
+  await desktop.close();
+  await assert.rejects(starting);
+  assert.equal(desktop.controlOf("local"), "none");
+  assert.ok(ran("run").length === 0 || ran("stop").length === ran("run").length, "every container started was stopped again");
+});
+
 test("a start made while a stop is still under way ends with the Take over notice showing", async (t) => {
   const { app } = await fixture(t);
   const { desktop, hold, banner, ran } = heldFixture(app);
