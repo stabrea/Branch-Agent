@@ -678,3 +678,50 @@ test("a workflow left working when the app closed is marked and can be carried o
     "reopening the folder must not leave it stuck as working");
   assert.equal((await second.app.workflows.run("local", made.id)).status, "completed");
 });
+
+/* ---------- Q75 regression: effective grant in /api/profiles ---------- */
+
+test("Q75 regression: /api/profiles shows effective grant, not saved grant, when narrowed", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-q75-"));
+  const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json" };
+  const call = async (path, body) => {
+    const response = await fetch(server.url + path, body === undefined
+      ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  };
+  
+  // Create a person with Adult role (saved grant allows read, files, commands, browse, message)
+  const person = app.store.profiles.create({ name: "Alice", pin: "1234" });
+  app.runtime.roles.save(person.id, { role: "adult" });
+  
+  // Add a narrower that restricts to only "read" category
+  app.runtime.roles.narrowers.push((profileId, grant) => {
+    if (profileId === person.id) {
+      return { ...grant, categories: ["read"] };
+    }
+    return grant;
+  });
+  
+  // Call /api/profiles
+  const profiles = await call("/api/profiles");
+  assert.equal(profiles.status, 200);
+  
+  const personRole = profiles.body.roles.find((r) => r.profileId === person.id);
+  assert.ok(personRole, "Person should be in roles array");
+  
+  const effectiveCategories = ["read"];
+  
+  // BEFORE FIX: personRole.grant.categories would show SAVED categories (full list)
+  // AFTER FIX: personRole.grant.categories should show EFFECTIVE categories (narrowed list)
+  
+  assert.deepEqual(personRole.grant.categories, effectiveCategories, 
+    "roles array should contain effective categories, not saved categories");
+  
+  const effective = app.runtime.roles.effective(person.id);
+  assert.deepEqual(personRole.grant.categories, effective.categories,
+    "API should return categories from effective grant");
+});

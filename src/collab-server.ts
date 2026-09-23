@@ -7,7 +7,7 @@ import { ShareRequestSchema, ShareLinkSchema } from "./conversation-share.js";
 import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
-import { roleLabels } from "./profile-roles.js";
+import { roleLabels, grantedCategories } from "./profile-roles.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -149,7 +149,11 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
   if (request.method === "GET" && path === "/api/profiles")
     return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
       // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
-      roles: app.runtime.roles.all(profiles.list().map((profile) => profile.id)), roleLabels };
+      // bucket 19: show effective grant (narrowed by groups) not saved grant, like src/people/api.ts does.
+      roles: profiles.list().map((profile) => {
+        const grant = app.runtime.roles.effective(profile.id);
+        return { profileId: profile.id, grant, categories: grantedCategories(grant) };
+      }), roleLabels };
   if (request.method === "POST" && path === "/api/profiles") {
     profiles.requireOwner("Adding somebody to this computer");
     return profiles.create(await body());
