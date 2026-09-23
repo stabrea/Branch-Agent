@@ -3,6 +3,7 @@
    the memory it can draw on. No marketing copy. */
 import { api } from "/app.js";
 import { taskWhen, taskWords } from "/task-state.js"; // Q51
+import { resultRows } from "/run-result.js"; // Q52
 import { setActivityCount } from "/shell.js";
 /* Wave 7: what this conversation is allowed to do right now, with a way to take it back. */
 import { drawAllowed } from "/allowed.js";
@@ -71,6 +72,15 @@ async function drawReceipts(state) {
   const here = session();
   const mine = (state.runs ?? []).filter((run) => !here || run.sessionId === here).slice(0, 3);
   const items = [];
+  /* Q52: the last finished task says what it made and how that was checked, before the tool-by-tool receipts. */
+  const done = mine.find((run) => run.status !== "running");
+  const result = done ? await api(`runs/${done.id}/result`).catch(() => null) : null;
+  const made = resultRows(result).map((one) => {
+    const node = one.kind === "head" ? el("h3", one.title, "context-sub") : row(one.title, one.meta);
+    node.dataset.result = one.kind;
+    if (one.path) node.title = one.path;
+    return node;
+  });
   for (const run of mine) {
     const view = await api(`runs/${run.id}/receipts`).catch(() => null);
     if (!view) continue;
@@ -80,7 +90,7 @@ async function drawReceipts(state) {
       /* `run.model` is a record, not a name, so naming it directly printed "[object Object]". */
       items.push(row(view.cost.display, `${modelName(run.model)} · one task`));
   }
-  rows("context-receipts", items.slice(0, 6), here ? "No tool work in this conversation yet." : "Open a conversation to see its receipts.");
+  rows("context-receipts", [...made, ...items.slice(0, 6)], here ? "No tool work in this conversation yet." : "Open a conversation to see its receipts.");
 }
 
 /** The saved facts the assistant can draw on while it answers. */

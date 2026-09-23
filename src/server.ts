@@ -17,6 +17,7 @@ import { RunInputSchema, errorText } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity, staleAfterMs } from "./activity.js";
+import { runResult } from "./results.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import {
   PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
@@ -661,6 +662,7 @@ async function staticFile(
     "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
     "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
+    "/run-result.js": ["run-result.js", "text/javascript; charset=utf-8"], // Q52
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
@@ -1382,7 +1384,7 @@ async function api(
     return readDesktopSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/desktop/settings")
     return saveDesktopSettings(app.store, app.runtime.owner, await readBody(request));
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|result|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope())
@@ -1411,6 +1413,8 @@ async function api(
       return { ...plan, asked: asked ? { id: asked.id, status: asked.status, output: asked.output } : null };
     }
     if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
+    // Q52: what the task made and how that was checked, from its own record (src/results.ts).
+    if (request.method === "GET" && match[2] === "result") return runResult(app.store.receipts, run, app.store.events(run.id));
     if (request.method === "GET" && !match[2])
       return {
         run,
