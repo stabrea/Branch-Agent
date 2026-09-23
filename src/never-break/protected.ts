@@ -390,7 +390,8 @@ const selfService = [
   new RegExp(`(?<![^\\s'"=:;|&(/])${serviceName(launchdLabel)}(?:\\.plist)?${ends}`, "i"),
   // The systemd unit, bare (branch-agent, branch-agent.service, string:branch-agent.service) or as the unit file's own path.
   new RegExp(`(?<![^\\s'"=:;|&(])${serviceName(systemdUnitName.replace(/\.service$/, ""))}(?:\\.service)?${ends}`, "i"),
-  new RegExp(`/${serviceName(systemdUnitName)}${ends}`, "i"),
+  // ...and its drop-in folder (branch-agent.service.d), whole or any file inside it.
+  new RegExp(`/${serviceName(systemdUnitName)}(?:\\.d(?:/[^\\s'";|&)]*)?)?${ends}`, "i"),
   /\b(cli\.js|branch)\s+(daemon|update|gateway)\b/i,
   /\b(pkill|killall|taskkill(\.exe)?|Stop-Process|spps)\b.*\b(branch|cli\.js|electron|node(\.exe)?)\b/i,
   /\bkill\b.*\b(pgrep|pidof)\b.*\b(branch|cli\.js|electron|node)\b/i,

@@ -120,3 +120,11 @@ for (const [name, areas] of Object.entries(layouts)) {
       null, "a file tool's JSON is taken literally, not as a brace pattern");
   });
 }
+
+test("the systemd drop-in folder of Branch's service is refused like the unit file", () => {
+  const dropIn = "~/.config/systemd/user/branch-agent.service.d";
+  for (const line of [`rm -rf ${dropIn}`, `mkdir -p ${dropIn} && printf '[Service]\\nExecStart=\\n' > ${dropIn}/override.conf`, `mv ${dropIn}{,.off}`])
+    assert.match(sh(line) ?? "", stops, line);
+  assert.match(check("files.write", { path: "/home/o/.config/systemd/user/branch-agent.service.d/override.conf", content: "[Service]\n" }) ?? "", stops);
+  assert.equal(sh("rm -rf ~/.config/systemd/user/other.service.d"), null, "another service's drop-in is not Branch's");
+});
