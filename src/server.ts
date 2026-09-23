@@ -177,6 +177,8 @@ import { currentPerson } from "./people/context.js";
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
+// FQ-surfaces.editor-clients: the editor's own "ask your knowledge" route.
+import { editorAskKnowledge } from "./workspace-editor-knowledge.js";
 // mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
 import {
   decideListen, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal,
@@ -976,6 +978,10 @@ async function api(
       // Integration review: Branch's own program, settings and saved work stay out of reach here too.
       guard: (target, readOnly) => protectedTarget({ tool: readOnly ? "files.read" : "files.write", readOnly, args: { path: target },
         target, workspace: app.files.base }, app.runtime.protectedAreas),
+      // FQ-surfaces.editor-clients: query indexed knowledge from the editor itself, with sources it can open.
+      askKnowledge: async (input, signal) => app.runtime.hideSecrets(
+        await editorAskKnowledge(app.knowledgeBases, app.runtime.models, app.runtime.owner, input, signal),
+      ),
     }, request, path, new URL(request.url ?? "/", "http://local")).catch((error: unknown) => {
       throw error instanceof WorkspaceEditorApiError ? new HttpError(error.status, error.message) : error;
     });

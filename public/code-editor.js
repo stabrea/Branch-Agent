@@ -110,6 +110,40 @@ async function start() {
   }
 }
 
+/*
+ * FQ-surfaces.editor-clients: ask the owner's knowledge bases a question from right inside the
+ * editor, and open whichever file the answer cites — the same `open()` the file list already uses.
+ */
+const askSay = (text) => { const node = $("wsedit-ask-status"); if (node) node.textContent = text; };
+
+function sourceRow(source) {
+  const item = document.createElement("li");
+  const label = document.createElement("span");
+  label.textContent = `[${source.number}] ${source.title}`;
+  item.append(label, row(t("wsedit.ask.open"), () => open(source.path)));
+  return item;
+}
+
+async function ask(question) {
+  askSay(t("wsedit.ask.asking"));
+  $("wsedit-ask-answer").hidden = true;
+  try {
+    const answer = await call("ask", { question });
+    $("wsedit-ask-text").textContent = answer.answer;
+    $("wsedit-ask-sources").replaceChildren(...answer.sources.map(sourceRow));
+    $("wsedit-ask-answer").hidden = false;
+    askSay(answer.sources.length ? "" : t("wsedit.ask.empty"));
+  } catch (error) {
+    askSay(error.message);
+  }
+}
+
+$("wsedit-ask-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const question = $("wsedit-ask-question").value.trim();
+  if (question) void ask(question);
+});
+
 /* The switch, in Settings → Advanced. */
 async function loadSwitch() {
   try { $("wsedit-mode").value = (await call("settings")).mode; } catch { /* not signed in yet */ }
