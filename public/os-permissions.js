@@ -69,11 +69,10 @@ function modeSelect(id) {
   return [worded("label", "field.feature-switch", { htmlFor: id }), select];
 }
 
-/** A card that is only the switch, and the one button that saves it. */
+/** A card that is only the switch. DG-025: it saves the moment a choice is picked, as in the sample; no Save button. */
 function switchCard(id, home, name, save) {
-  const button = worded("button", "action.save-switch", { type: "button" });
-  const section = card(id, home, name, ...modeSelect(`${id}-mode`), button);
-  button.addEventListener("click", async () => {
+  const section = card(id, home, name, ...modeSelect(`${id}-mode`));
+  section.querySelector(`#${id}-mode`).addEventListener("change", async () => {
     try {
       await save($(`${id}-mode`).value);
       choiceSaved(`${id}-mode`);

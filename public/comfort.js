@@ -52,9 +52,10 @@ const CARDS = [
   // Redesign phase 1: three choice cards rather than a list, with the one Branch recommends marked.
   { id: "updates", card: "notify", home: "settings:about", fields: [{ name: "autoUpdate", kind: "cards", def: "off", options: ["off", "check", "install"], recommended: "install" }] },
   { id: "voice", card: "voice", home: "settings:voice", fields: [combo("pushToTalkKey", ""), { name: "maxRecordingSeconds", kind: "number", min: 5, max: 600, def: null }] },
-  { id: "browser", card: "browser", home: "settings:computer", warn: "comfort.warn.owner", fields: [
+  // DG-025: the two cards on Settings › Computer & browser save as you go, as the sample does (asYouGo).
+  { id: "browser", card: "browser", home: "settings:computer", warn: "comfort.warn.owner", asYouGo: true, fields: [
     sw("confirmSensitive", false), sw("blockUploads", false), pick("dialogs", "dismiss", ["dismiss", "accept"])] },
-  { id: "network", card: "network", home: "settings:computer", warn: "comfort.warn.owner",
+  { id: "network", card: "network", home: "settings:computer", warn: "comfort.warn.owner", asYouGo: true,
     // Integration review: what a proxy and an added certificate can see, in plain words, before anything is set.
     dangers: ["comfort.warn.proxy", "comfort.warn.certificates"], fields: [
     { name: "proxy", kind: "text", def: null }, { name: "noProxy", kind: "lines", def: [] }, { name: "caCertificates", kind: "certs", def: [] }] },
@@ -186,6 +187,7 @@ function certificates(field, id, value) {
   let list = [...(value ?? [])];
   const holder = document.createElement("div");
   holder.id = `${id}-list`;
+  const changed = () => holder.dispatchEvent(new Event("change", { bubbles: true }));
   const name = Object.assign(document.createElement("input"), { type: "text", autocomplete: "off" });
   const pem = Object.assign(document.createElement("textarea"), { rows: 4, placeholder: "-----BEGIN CERTIFICATE-----" });
   const draw = () => {
@@ -198,16 +200,26 @@ function certificates(field, id, value) {
         Object.assign(document.createElement("span"), { className: "subtle", textContent: about?.problem ?? about?.subject ?? "" }));
       const remove = keyed("button", "comfort.action.remove", "quiet-button");
       remove.type = "button";
-      remove.addEventListener("click", () => { list = list.filter((one) => one !== entry); draw(); });
+      remove.addEventListener("click", () => { list = list.filter((one) => one !== entry); draw(); changed(); });
       row.append(remove);
       holder.append(row);
     }
   };
   draw();
-  const read = () => (pem.value.trim() ? [...list, { name: name.value.trim() || t("comfort.cert.unnamed"), pem: pem.value.trim() }] : list);
+  const pending = () => ({ name: name.value.trim() || t("comfort.cert.unnamed"), pem: pem.value.trim() });
+  const read = () => (pem.value.trim() ? [...list, pending()] : list);
   const set = (v) => { list = [...v]; name.value = ""; pem.value = ""; draw(); };
+  /* DG-025: a certificate is its name and its text together, so its two boxes wait for Add, as the sample's lists do;
+     adding or removing one is then saved like any other change on the card. */
+  name.dataset.waitsForAdd = ""; pem.dataset.waitsForAdd = "";
+  const add = keyed("button", "comfort.action.add-certificate", "quiet-button");
+  add.type = "button";
+  add.addEventListener("click", () => {
+    if (!pem.value.trim()) return pem.focus();
+    list = [...list, pending()]; name.value = ""; pem.value = ""; draw(); changed();
+  });
   return { nodes: [keyed("h4", "comfort.field.caCertificates", "settings-card-subtitle"), holder,
-    ...labelled(`${id}-name`, "caName", name), ...labelled(`${id}-pem`, "caPem", pem)], read, set };
+    ...labelled(`${id}-name`, "caName", name), ...labelled(`${id}-pem`, "caPem", pem), add], read, set };
 }
 
 function actions(spec, controls, status) {
@@ -217,7 +229,10 @@ function actions(spec, controls, status) {
     try {
       view = await api("comfort", body);
       apply();
+      /* Drawing again replaces every box; the one you had moved on to keeps you. */
+      const focused = document.activeElement?.id;
       draw();
+      if (focused) $(focused)?.focus();
       // The card was drawn again with what is now in force; its fresh status line says so.
       const fresh = $(`comfort-${spec.id}-card`)?.querySelector("[role=status]") ?? status;
       fresh.textContent = t(done);
@@ -226,15 +241,16 @@ function actions(spec, controls, status) {
   };
   const save = keyed("button", "comfort.action.save");
   save.type = "button";
-  save.addEventListener("click", () => send({ card: spec.card, values: Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])) }, "comfort.saved"));
+  const saveNow = () => send({ card: spec.card, values: Object.fromEntries(controls.map(([field, c]) => [field.name, c.read()])) }, "comfort.saved");
+  save.addEventListener("click", saveNow);
   const reset = keyed("button", "comfort.action.reset", "quiet-button");
   reset.type = "button";
   reset.addEventListener("click", () => {
     for (const [field, c] of controls) c.set(field.def);
     void send({ card: spec.card, values: Object.fromEntries(spec.fields.map((field) => [field.name, field.def])) }, "comfort.reset-done");
   });
-  row.append(save, reset);
-  return row;
+  row.append(...(spec.asYouGo ? [] : [save]), reset);
+  return { row, saveNow };
 }
 function buildCard(spec) {
   const card = document.createElement("section");
@@ -253,11 +269,13 @@ function buildCard(spec) {
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
-  const row = actions(spec, controls, status);
+  const { row, saveNow } = actions(spec, controls, status);
   card.append(row, status);
   /* A card of choices saves the moment one is picked, as the sample's update cards do. */
   if (controls.some(([, c]) => c.instant))
-    card.addEventListener("change", (event) => { if (event.target.type === "radio") row.querySelector("button")?.click(); });
+    card.addEventListener("change", (event) => { if (event.target.type === "radio") void saveNow(); });
+  /* DG-025: a card that saves as you go has no Save button: a choice saves when picked, a box when you leave it. */
+  if (spec.asYouGo) card.addEventListener("change", (event) => { if (!("waitsForAdd" in event.target.dataset)) void saveNow(); });
   return card;
 }
 function tryButton() {

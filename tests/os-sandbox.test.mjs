@@ -803,7 +803,7 @@ test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and s
   await card.scrollIntoViewIfNeeded();
   assert.match(await card.textContent(), /The wall around programs/);
   assert.equal(await page.locator("#os-sandbox-mode").inputValue(), "off");
-  assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1); // "N more" can end the card (DG-199)
+  assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 0, "no Save button: it saves as you go (DG-025)");
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page scrolls sideways");
   const wide = await page.evaluate(() => [...document.querySelectorAll("#os-sandbox-card *")]
     .filter((node) => !node.closest(".sr-only") && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))
@@ -812,8 +812,9 @@ test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and s
   await page.locator("#os-sandbox-mode").selectOption("when-needed");
   await page.locator("#os-sandbox-network").selectOption("per-site");
   await page.locator("#os-sandbox-keys").fill("GITHUB_TOKEN api.github.com");
-  await card.getByRole("button", { name: "Save the wall" }).click();
+  await page.locator("#os-sandbox-keys").press("Tab");
   await page.locator("#os-sandbox-card [role=status]", { hasText: "Saved." }).waitFor();
+  for (let i = 0; i < 100 && wallSettings(app.store, app.runtime.owner).keySites.GITHUB_TOKEN === undefined; i++) await page.waitForTimeout(50);
   const saved = wallSettings(app.store, app.runtime.owner);
   assert.deepEqual([saved.mode, saved.network, saved.keySites], ["when-needed", "per-site", { GITHUB_TOKEN: "api.github.com" }]);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

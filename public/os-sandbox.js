@@ -77,6 +77,8 @@ function card() {
   section.className = "card";
   section.id = "os-sandbox-card";
   section.dataset.home = "settings:computer";
+  /* DG-025: the wall saves as you go, as in the sample: a choice when it is picked, a list when you leave its box. */
+  section.addEventListener("change", () => void send(section.querySelector("[role=status]")));
   after.after(section);
   return section;
 }
@@ -89,8 +91,6 @@ function draw(data) {
   where.className = "subtle";
   where.style.overflowWrap = "anywhere";
   where.textContent = computer.available ? t("os-sandbox.available") : computer.reason;
-  const save = worded("button", "action.save-the-wall");
-  save.type = "button";
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
@@ -102,22 +102,28 @@ function draw(data) {
     ...lines("os-sandbox-keys", "field.os-sandbox-keys", sitesText(settings.keySites)),
     worded("p", "os-sandbox.keys-note", "subtle"),
     ...lines("os-sandbox-hidden", "field.os-sandbox-hidden", settings.unreadable.join("\n")),
-    save, status);
-  save.addEventListener("click", () => void send(status));
+    status);
 }
 
+/** Saves in flight: only the last one to come back may draw the card again, so an older answer never undoes a newer choice. */
+let sending = 0;
 async function send(status) {
+  sending++;
   try {
     const data = await api({
       mode: $("os-sandbox-mode").value, network: $("os-sandbox-network").value,
       keySites: sitesFrom($("os-sandbox-keys").value),
       unreadable: $("os-sandbox-hidden").value.split("\n").map((each) => each.trim()).filter(Boolean),
     });
-    draw(data);
+    last = data;
+    /* Drawn again with what is now in force, unless you are still in the card: that would take your place away. */
+    if (sending === 1 && !$("os-sandbox-card")?.contains(document.activeElement)) draw(data);
     const fresh = $("os-sandbox-card")?.querySelector("[role=status]");
     if (fresh) fresh.textContent = t("os-sandbox.saved");
   } catch (error) {
     status.textContent = error.message;
+  } finally {
+    sending--;
   }
 }
 

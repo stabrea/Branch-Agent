@@ -66,7 +66,8 @@ const CARDS = [
     auto("maxModelRounds", 2, 60, "maxModelRounds")] },
   { id: "tools", card: "commands", home: "settings:advanced", fields: [
     auto("toolAnswerChars", 1000, 60000, "toolAnswerChars"), auto("toolTimeoutSeconds", 5, 600, "toolTimeoutSeconds")] },
-  { id: "commands", card: "commands", home: "settings:computer", warn: "knobs.warn.environment", fields: [
+  // DG-025: on Settings › Computer & browser this card saves as you go, as the sample does (asYouGo).
+  { id: "commands", card: "commands", home: "settings:computer", warn: "knobs.warn.environment", asYouGo: true, fields: [
     auto("commandTimeoutSeconds", 1, 120, null), { name: "keptOpenShell", kind: "switch", def: true },
     { name: "passEnvironment", kind: "lines", def: [] }] },
   { id: "subtasks", card: "subtasks", home: "settings:models:defaults", fields: [
@@ -211,15 +212,16 @@ function actions(spec, controls, status) {
   };
   const save = keyed("button", "knobs.action.save");
   save.type = "button";
-  save.addEventListener("click", () => send(visibleControlValues(controls), "knobs.saved"));
+  const saveNow = () => send(visibleControlValues(controls), "knobs.saved");
+  save.addEventListener("click", saveNow);
   const reset = keyed("button", "knobs.action.reset", "quiet-button");
   reset.type = "button";
   reset.addEventListener("click", () => {
     for (const [field, c] of controls) c.set(field.def);
     void send(Object.fromEntries(spec.fields.map((field) => [field.name, field.def])), "knobs.reset-done");
   });
-  row.append(save, reset);
-  return row;
+  row.append(...(spec.asYouGo ? [] : [save]), reset);
+  return { row, saveNow };
 }
 
 function buildCard(spec, view) {
@@ -236,7 +238,10 @@ function buildCard(spec, view) {
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
-  card.append(actions(spec, controls, status), status);
+  const { row, saveNow } = actions(spec, controls, status);
+  card.append(row, status);
+  /* DG-025: no Save button: a choice saves when picked, a box when you leave it. */
+  if (spec.asYouGo) card.addEventListener("change", () => void saveNow());
   return card;
 }
 

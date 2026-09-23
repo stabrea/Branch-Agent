@@ -114,11 +114,10 @@ async function machinesCard(state) {
   const { node, status } = card("reach-machines-card", "settings:computer", "reach.machines.title", "Other computers side by side",
     "reach.machines.purpose", "See and start work on your other computers running Branch from this window. They are the computers added under \"Other computers running Branch\".");
   const name = field(state.machineName);
-  const [save, saveHint] = button("reach-machine-name-save", "reach.machines.saveName", "Save the name", "reach.machines.saveNameHint", "Keeps this computer's name.",
-    attempt(status, async () => { await api("reach/machine-name", { name: name.value.trim() }); done(status); }));
+  /* DG-025: the name saves when you leave its box, as in the sample; no Save button. */
+  name.addEventListener("change", attempt(status, async () => { await api("reach/machine-name", { name: name.value.trim() }); done(status); }));
   node.append(...switchFor("machines", state.modes, status),
-    ...control("reach-machine-name", "reach.machines.name", "This computer's name", "reach.machines.nameHint", "Lower-case letters, numbers and dashes. The others write a Trunk here as @name-thisname.", name),
-    row(save, saveHint));
+    ...control("reach-machine-name", "reach.machines.name", "This computer's name", "reach.machines.nameHint", "Lower-case letters, numbers and dashes. The others write a Trunk here as @name-thisname.", name));
   if (state.modes.machines !== "off") {
     const side = columns();
     const target = field("");

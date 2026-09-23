@@ -159,8 +159,10 @@ async function nodesCard(modes) {
     const check = async () => {
       try { status.textContent = (await api("asks/nodes/check", {})).nodes.map((h) => `${h.name}: ${h.ok ? "✓" : h.reason}`).join(" · "); } catch (error) { tell(status, error); }
     };
-    node.append(...labelled("asks-nodes-list", "asks.nodes.list", "One per line: short name | name | address | saved secret with its key | labels", list),
-      row(button("asks.save", "Save", save), ...(modes.nodes !== "off" ? [button("asks.nodes.check", "Check them now", check)] : [])));
+    /* DG-025: the list saves when you leave it, as the sample's lists do; no Save button. */
+    list.addEventListener("change", () => void save());
+    node.append(...labelled("asks-nodes-list", "asks.nodes.list", "One per line: short name | name | address | saved secret with its key | labels", list));
+    if (modes.nodes !== "off") node.append(row(button("asks.nodes.check", "Check them now", check)));
   }
   node.append(status);
   return node;

@@ -127,7 +127,10 @@ test("each knob card is in its home, every control has its own sentence, and sav
 
   await openSettingFor(page, "#knobs-commands-card");
   await page.locator("#knobs-passEnvironment").fill("OPENAI_API_KEY");
-  await pressForStatus(page, "#knobs-commands-card", "Save", "never handed to commands");
+  /* DG-025: this card saves as you go; leaving the box is the save, and a refused name says why. */
+  assert.equal(await page.locator("#knobs-commands-card").getByRole("button", { name: "Save", exact: true }).count(), 0);
+  await page.locator("#knobs-passEnvironment").press("Tab");
+  await page.locator("#knobs-commands-card [role=status]").filter({ hasText: "never handed to commands" }).waitFor({ timeout: 20000 });
   assert.deepEqual(readKnobs(app.store, "local", "commands").passEnvironment, []);
 
   await openSettingFor(page, "#knobs-launch-file-card");

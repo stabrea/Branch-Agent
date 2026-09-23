@@ -123,7 +123,8 @@ test("each comfort card is in its home, says what it is for, and every control h
 
   await openSettingFor(page, "#comfort-network-card");
   await page.locator("#comfort-proxy").fill("http://sam:pw@proxy.example.com:8080");
-  await page.locator("#comfort-network-card").getByRole("button", { name: "Save", exact: true }).click();
+  /* DG-025: this card saves as you go; leaving the box is the save, and a refused proxy says why. */
+  await page.locator("#comfort-proxy").press("Tab");
   await page.locator("#comfort-network-card [role=status]").filter({ hasText: "user name or password" }).waitFor();
   assert.equal(readComfort(app.store, "local", "network").proxy, null);
   assert.deepEqual(errors, []);
