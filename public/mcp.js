@@ -103,7 +103,7 @@ async function copyText(text, button) {
 function snippet(name, entry, secret) {
   const item = el("div", undefined, "item");
   const shown = secret ? entry.configExample.split(secret).join("YOUR_SESSION_KEY") : entry.configExample;
-  item.append(el("h3", name), el("p", entry.note, "subtle"), el("pre", shown));
+  item.append(el("h5", name), el("p", entry.note, "subtle"), el("pre", shown));
   const copy = el("button", "Copy");
   copy.type = "button";
   copy.addEventListener("click", () => void copyText(entry.configExample, copy));

@@ -135,9 +135,14 @@ export const BUCKETS = {
     ["open", "bell", "Chat apps and devices", "Open the real Channels place to set them up.",
       [["settings-directory-channels-channels", R]]],
   ],
+  /* DG-195: the sample's two sections, then the plumbing at Technical. The cards live here, not in Customize. */
   connections: [
-    ["open", "swap", "Connections", "Open the real Connections place to manage them.",
-      [["settings-directory-connections-connections", R]]],
+    ["tools", "swap", "Other AI tools", "Share Branch with other AI tools, or use theirs.",
+      [["mcp-card", R], ["asks-connections-card", R], ["interop-card", A]]],
+    ["accounts", "key", "Your own accounts", "Accounts of yours Branch may use.",
+      [["personal-accounts-card", R], ["personal-x-card", A], ["personal-home-card", A]]],
+    ["under", "wrench", "Under the hood", "How long a tool server may take to start. Rarely needed.",
+      [["comfort-mcp-card", T]]],
   ],
   skills: [
     ["open", "spark", "Skills, specialists and plugins", "Open the real place for each kind of capability.",

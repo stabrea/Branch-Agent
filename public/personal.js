@@ -1,7 +1,7 @@
 /* R17-C: files, voice, devices and personal connectors, one card in each part's home, each placed by
    public/layout.js through data-home. Every part has the owner's three-way switch and starts off.
 
-   customize:connections   Your own accounts (Google, Microsoft, Spotify), searching X, Home Assistant
+   settings:connections    Your own accounts (Google, Microsoft, Spotify), searching X, Home Assistant
    customize:channels      Sending files into chats, searching the email channel's inbox
    automations:triggers    A public address for incoming webhooks only
    settings:voice          The spoken briefing, and saying yes aloud                                  */
@@ -85,17 +85,20 @@ function switchFor(part, modes, status) {
   return labelled(`personal-switch-${part}`, key, english, control);
 }
 
+const CONNECTIONS = "settings:connections";
 function card(id, home, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = home;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-008: on Settings › Connections a card's title sits under its section's heading. */
+  const heading = home === CONNECTIONS ? make("h3", "settings-card-title", titleKey, title) : make("h2", "", titleKey, title);
+  node.append(heading, make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };
 }
 
-/* ---------- customize:connections — the owner's own accounts ---------- */
+/* ---------- settings:connections — the owner's own accounts ---------- */
 const SERVICES = [
   ["google", "personal.google.name", "Google (Gmail, Calendar, Drive)", "google/events"],
   ["microsoft", "personal.microsoft.name", "Microsoft (Outlook mail, calendar, Teams)", "microsoft/events"],
@@ -105,7 +108,7 @@ const SERVICES = [
 async function serviceBlock(service, nameKey, name, tryPath, status) {
   const { settings, status: signed } = await api(`personal/signin/${service}`);
   const id = input(settings.clientId), secret = input(settings.clientSecretName);
-  const parts = [make("h3", "", nameKey, name),
+  const parts = [make("h4", "", nameKey, name),
     ...labelled(`personal-${service}-client`, "personal.signin.client", "Client id of your own app", id),
     ...labelled(`personal-${service}-secret`, "personal.signin.secret", "Saved secret holding its client secret (leave empty if it has none)", secret)];
   const extra = {};
@@ -137,7 +140,7 @@ async function serviceBlock(service, nameKey, name, tryPath, status) {
 }
 
 async function accountsCard(modes) {
-  const { node, status } = card("personal-accounts-card", "customize:connections", "personal.accounts.title", "Your own accounts",
+  const { node, status } = card("personal-accounts-card", CONNECTIONS, "personal.accounts.title", "Your own accounts",
     "personal.accounts.purpose", "Let Branch read your mail, calendar and files, and play your music, with your own sign-in. Nothing is ever sent from your mailbox.");
   for (const [service, key, name, tryPath] of SERVICES) {
     node.append(...switchFor(service, modes, status));
@@ -148,7 +151,7 @@ async function accountsCard(modes) {
 }
 
 async function xCard(modes) {
-  const { node, status } = card("personal-x-card", "customize:connections", "personal.x.title", "Searching posts on X",
+  const { node, status } = card("personal-x-card", CONNECTIONS, "personal.x.title", "Searching posts on X",
     "personal.x.purpose", "Search X through xAI's own API, with an xAI API key saved in Secrets. It costs what xAI charges.");
   node.append(...switchFor("x-search", modes, status));
   if (modes["x-search"] !== "off") {
@@ -165,7 +168,7 @@ async function xCard(modes) {
 }
 
 async function homeCard(modes) {
-  const { node, status } = card("personal-home-card", "customize:connections", "personal.home.title", "Your Home Assistant",
+  const { node, status } = card("personal-home-card", CONNECTIONS, "personal.home.title", "Your Home Assistant",
     "personal.home.purpose", "Let Branch look at your devices, and switch the kinds you list, with a long-lived access token saved in Secrets.");
   node.append(...switchFor("home-control", modes, status));
   if (modes["home-control"] !== "off") {

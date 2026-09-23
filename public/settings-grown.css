@@ -799,3 +799,9 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line .owner-status {
   display: none;
 }
+
+/* DG-195: on Connections, Your own accounts is a section and its first card's title in the same words; the heading is
+   drawn once, as in the sample. Search shows no section headings, so there the card keeps its own. */
+body:not(.lx-settings-searching) #personal-accounts-card[data-sg-bucket="connections:accounts"] > h3 {
+  display: none;
+}

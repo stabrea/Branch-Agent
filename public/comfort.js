@@ -58,7 +58,7 @@ const CARDS = [
     // Integration review: what a proxy and an added certificate can see, in plain words, before anything is set.
     dangers: ["comfort.warn.proxy", "comfort.warn.certificates"], fields: [
     { name: "proxy", kind: "text", def: null }, { name: "noProxy", kind: "lines", def: [] }, { name: "caCertificates", kind: "certs", def: [] }] },
-  { id: "mcp", card: "mcp", home: "customize:connections", fields: [{ name: "startupTimeoutSeconds", kind: "number", min: 1, max: 300, def: 10 }] },
+  { id: "mcp", card: "mcp", home: "settings:connections", fields: [{ name: "startupTimeoutSeconds", kind: "number", min: 1, max: 300, def: 10 }] },
 ];
 
 function note(id, key) {

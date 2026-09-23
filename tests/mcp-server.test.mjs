@@ -578,7 +578,8 @@ test("Settings offers sharing with a switch, a tool list and copyable settings",
   await page.goto(url);
   await page.getByLabel("Session token", { exact: true }).fill(token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await openPlace(page, 'customize:connections');
+  await openPlace(page, 'settings:connections');
+  await page.evaluate(() => globalThis.branchSettingsLevel.peekPage()); // its fine controls are Advanced (DG-195)
 
   const card = page.locator("#mcp-card");
   await card.locator("#mcp-status").filter({ hasText: "Off." }).waitFor();

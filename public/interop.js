@@ -1,6 +1,6 @@
 /* mac4/bucket-20: two cards, each placed by public/layout.js through data-home.
 
-   1. Customize → Connections: "Working with other agents and tools" — the owner's three-way switch
+   1. Settings › Connections: "Working with other agents and tools" — the owner's three-way switch
       for each part, the programs lending tools right now, and carrying a conversation on somewhere
       else (the key is shown here once and never given to the model).
    2. Customize → Specialists: "Ways of working and shared assistants" — the modes (built in, yours,
@@ -89,7 +89,7 @@ function switchRow(part, mode, status) {
 }
 
 function handoffBlock(sessions) {
-  const heading = make("h3", "", "interop.handoff.title", "Carry on a conversation on another device");
+  const heading = make("h4", "", "interop.handoff.title", "Carry on a conversation on another device");
   const sessionOptions = sessions.map((session) => [session.sessionId, "", (session.opening || session.sessionId).slice(0, 60)]);
   const pick = dropdown({
     id: "interop-handoff-session",
@@ -113,12 +113,13 @@ function handoffBlock(sessions) {
 function connectionsCard(state, sessions) {
   const card = make("section", "card");
   card.id = "interop-card";
-  card.dataset.home = "customize:connections";
+  card.dataset.home = "settings:connections";
   const status = statusLine();
-  card.append(make("h2", "", "interop.card.title", "Working with other agents and tools"),
+  /* DG-008: its title sits under its Settings section's heading. */
+  card.append(make("h3", "settings-card-title", "interop.card.title", "Working with other agents and tools"),
     make("p", "subtle", "interop.card.purpose", "Let other agents and programs work with Branch, and Branch with them. Every part starts off."));
   for (const { part, mode } of state.parts) card.append(...switchRow(part, mode, status));
-  card.append(status, make("h3", "", "interop.programs.title", "Programs lending tools now"));
+  card.append(status, make("h4", "", "interop.programs.title", "Programs lending tools now"));
   if (!state.programs.length) card.append(make("p", "subtle", "interop.programs.none", "None are connected."));
   for (const program of state.programs) card.append(plain("p", `${program.client}: ${program.tools.join(", ")}`, "field-note"));
   if (state.parts.find((p) => p.part === "handoff")?.mode !== "off") card.append(...handoffBlock(sessions));
@@ -203,7 +204,7 @@ async function specialistsCard(state) {
     make("p", "subtle", "interop.modes.purpose", "A mode is a role with its own reach; the assistant can send a piece of work to one and get the summary back."));
   const modesOn = state.parts.find((p) => p.part === "modes")?.mode !== "off";
   const marketOn = state.parts.find((p) => p.part === "agent-market")?.mode !== "off";
-  if (!modesOn && !marketOn) card.append(make("p", "field-note", "interop.modes.off", "Switch on ways of working or shared assistants in Customize → Connections."));
+  if (!modesOn && !marketOn) card.append(make("p", "field-note", "interop.modes.off", "Switch on ways of working or shared assistants in Settings › Connections."));
   if (modesOn) {
     const { modes } = await api("interop/modes");
     card.append(modeList(modes, status, drawCards), ...modeForm(status, drawCards));

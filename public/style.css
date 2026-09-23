@@ -269,7 +269,8 @@ form > button {
   padding: 20px;
   min-width: 0;
 }
-.item h3 {
+.item h3,
+.item h5 {
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 8px;

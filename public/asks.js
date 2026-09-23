@@ -12,7 +12,7 @@
 import { segmented } from "/control-makers.js";
 /*
    customize:skills             Sending requests where they belong
-   customize:connections        Steps for other apps, MCP examples, the app-server protocol */
+   settings:connections         Steps for other apps, MCP examples, the app-server protocol */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
 
@@ -311,10 +311,12 @@ async function intentsCard(modes) {
   return node;
 }
 
-/* ---------- customize:connections — app steps, MCP examples, app-server ---------- */
+/* ---------- settings:connections — app steps, MCP examples, app-server ---------- */
 async function connectionsCard(modes) {
-  const { node, status } = card("asks-connections-card", "customize:connections", "asks.connections.title", "Steps for other apps and examples",
+  const { node, status } = card("asks-connections-card", "settings:connections", "asks.connections.title", "Steps for other apps and examples",
     "asks.connections.purpose", "Ready-made steps for Slack, Notion, Google Sheets and more, examples of connecting a server, and the app-server door for editors.");
+  /* DG-008: in Settings its title sits under the section's heading, and its own parts under that. */
+  node.querySelector(":scope > h2").replaceWith(make("h3", "settings-card-title", "asks.connections.title", "Steps for other apps and examples"));
   for (const part of ["app-blocks", "app-server"]) node.append(...switchFor(part, modes, status));
   if (modes["app-server"] !== "off") node.append(make("p", "field-note", "asks.appServer.how", "An editor starts it with: branch app-server"));
   if (modes["app-blocks"] !== "off") {
@@ -328,10 +330,13 @@ async function connectionsCard(modes) {
     }
   }
   const { examples } = await api("asks/mcp-examples");
-  node.append(make("h3", "", "asks.examples.title", "Examples of connecting a server"));
+  /* DG-195: the approved sample shows only the switches at Regular; the examples wait for Advanced. */
+  const examplesBlock = [make("h4", "", "asks.examples.title", "Examples of connecting a server")];
   for (const example of examples)
-    node.append(plain("p", `${example.title} — ${example.about}`, "field-note"),
+    examplesBlock.push(plain("p", `${example.title} — ${example.about}`, "field-note"),
       row(button("asks.examples.copy", "Copy", async () => { await navigator.clipboard?.writeText(example.file); done(status); })));
+  for (const part of examplesBlock) part.dataset.level = "advanced";
+  node.append(...examplesBlock);
   node.append(status);
   return node;
 }

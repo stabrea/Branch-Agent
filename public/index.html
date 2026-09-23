@@ -1633,7 +1633,7 @@
             <p id="browser-attach-status" class="subtle" role="status"></p>
           </section>
           <section id="mcp-card" class="card">
-            <h2 data-t="settings.card.sharing-with-other-ai-tools">Sharing with other AI tools</h2>
+            <h3 class="settings-card-title" data-t="settings.card.sharing-with-other-ai-tools">Sharing with other AI tools</h3>
             <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
             <div class="check-list"><label class="check"><input type="checkbox" id="mcp-enabled" /> <span data-t="field.let-other-ai-tools-use">Let other AI tools use Branch</span></label></div>
             <p id="mcp-status" class="subtle" role="status"></p>
@@ -1642,18 +1642,19 @@
               <p class="subtle">They can always ask Branch a question in plain words. Tick a tool to let them use it directly. Tools marked <em>can change things</em> write files, run commands or change your settings, so leave those unticked unless you mean it.</p>
               <div id="mcp-tools" class="check-list"></div>
             </details>
-            <h3>How to connect</h3>
-            <p class="subtle">Copy one of these into the other tool's settings, then restart it.</p>
-            <div id="mcp-connection" class="card-list"></div>
+            <!-- DG-195: the approved sample shows only the switches here at Regular; the rest waits for Advanced. -->
+            <h4 data-level="advanced">How to connect</h4>
+            <p class="subtle" data-level="advanced">Copy one of these into the other tool's settings, then restart it.</p>
+            <div id="mcp-connection" class="card-list" data-level="advanced"></div>
             <!-- Wave 7: what is held back and why, connections to other people's servers, and a
                  bench for trying one out. Everything here lives in public/mcp-workbench.js. -->
-            <details id="mcp-offered">
+            <details id="mcp-offered" data-level="advanced">
               <summary>What another tool is offered, and what is held back</summary>
               <p class="subtle">Your approval settings are checked before anything is offered. A tool you have said no to is never offered at all. A tool you want to be asked about is still offered, but the call waits for your yes here in Branch.</p>
               <div id="mcp-preflight" class="card-list"></div>
             </details>
-            <h3>Other people's servers</h3>
-            <p class="subtle">Branch can also use somebody else's AI-tool server. Its tools are in the list either way; this only decides when the server itself is started.</p>
+            <h4 data-level="advanced">Other people's servers</h4>
+            <p class="subtle" data-level="advanced">Branch can also use somebody else's AI-tool server. Its tools are in the list either way; this only decides when the server itself is started.</p>
             <div class="field-row">
               <label for="mcp-connect-when" data-t="field.start-these-servers">Start these servers</label>
               <select id="mcp-connect-when">
@@ -1664,10 +1665,10 @@
               <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
               <label for="mcp-max-servers" data-t="field.most-servers-connected-at-once">Most servers connected at once</label>
               <input id="mcp-max-servers" type="number" min="1" max="20" step="1" />
-              <button id="mcp-connections-save" type="button" data-t="action.save">Save</button>
+              <button id="mcp-connections-save" type="button" data-t="action.save" data-level="advanced">Save</button>
             </div>
-            <div id="mcp-health" class="card-list"></div>
-            <details id="mcp-try">
+            <div id="mcp-health" class="card-list" data-level="advanced"></div>
+            <details id="mcp-try" data-level="advanced">
               <summary>Try a server</summary>
               <p class="subtle">Paste a web address, or the command that starts the server. Branch asks it what it offers, you fill in the boxes for one of its tools, and you see exactly what came back. Every try is written down in Activity.</p>
               <label for="mcp-try-url" data-t="field.address-or-command">Address or command</label>

@@ -493,7 +493,8 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
     "a chooser somebody may have open is not thrown away and made again");
   assert.equal(await f.page.evaluate(() => document.activeElement?.tagName), "SELECT", "and the keyboard is still in it");
 
-  await openPlace(f.page, "customize:connections");
+  await openPlace(f.page, "settings:connections");
+  await f.page.evaluate(() => globalThis.branchSettingsLevel.peekPage()); // an Advanced row (DG-195)
   await f.page.locator("#mcp-keep-warm").fill("17");
   await f.page.evaluate(() => globalThis.branchMcpWorkbench.render());
   assert.equal(await f.page.locator("#mcp-keep-warm").inputValue(), "17", "the minutes being typed are still theirs");

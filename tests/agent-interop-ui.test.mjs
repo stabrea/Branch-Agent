@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { openPlace } from "./places.mjs";
+import { openPlace, showEveryCard } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -28,15 +28,16 @@ test("the switches live in Customize → Connections, modes in Specialists, and 
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
 
-  await openPlace(page, "customize:connections");
-  const card = page.locator("#lx-slot-customize-connections #interop-card");
+  await openPlace(page, "settings:connections");
+  await showEveryCard(page); // its switches are Advanced rows, as in the approved sample (DG-195)
+  const card = page.locator("#lx-page-connections #interop-card");
   await card.waitFor();
-  assert.equal(await card.locator("h2").innerText(), "Working with other agents and tools");
+  assert.equal(await card.locator("h3.settings-card-title").innerText(), "Working with other agents and tools");
   assert.equal(await page.locator(`#interop-handoff-session option[value="${sessionId}"]`).innerText(), "action.save",
     "a conversation opening is literal owner text, not a locale key");
   assert.equal(await page.locator("#interop-switch-modes").inputValue(), "off");
   await page.getByLabel("Ways of working (modes)").selectOption("when-needed");
-  await page.locator("#lx-slot-customize-connections #interop-card").getByText("Saved.").waitFor().catch(() => undefined);
+  await page.locator("#lx-page-connections #interop-card").getByText("Saved.").waitFor().catch(() => undefined);
   for (let i = 0; i < 50 && app.interop.modesOf().modes !== "when-needed"; i++) await page.waitForTimeout(50);
   assert.equal(app.interop.modesOf().modes, "when-needed");
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);

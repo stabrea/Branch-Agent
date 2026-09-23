@@ -333,7 +333,6 @@ const SETTINGS_DIRECTORY = {
     ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
   ],
   channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
-  connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
   skills: [
     ["skills", "place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "customize:skills"],
     ["specialists", "place.customize.specialists", "Specialists", "settingsDirectory.specialists.line", "Create and manage Trunks with their own jobs and character.", "customize:specialists"],
@@ -358,7 +357,7 @@ const MOVES = [
   ["automations-container", "lx-slot-automations-triggers"], ["hooks-card", "lx-slot-automations-triggers"],
   ["obsidian-card", "documents"],
   ["plugins-card", "lx-slot-customize-plugins"],
-  ["mcp-card", "lx-slot-customize-connections"],
+  ["mcp-card", "lx-page-connections"],
   ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-slot-customize-channels"],
   ["deployment-card", "lx-page-general"], ["projects-form", "lx-page-general"],
   ["identity-form", "lx-page-assistant"],
@@ -576,6 +575,19 @@ function buildSettingsDirectories() {
   }
   syncDirectoryButtons();
   document.addEventListener("branch-language", syncDirectoryButtons);
+  $("lx-slot-customize-connections")?.append(connectionsPointer());
+}
+/* DG-195: Connections' controls live in Settings › Connections, as in the approved sample; its Customize tab points there. */
+function connectionsPointer() {
+  const card = make("section", "card lx-pointer-card");
+  card.id = "customize-connections-pointer";
+  const line = worded("p", "subtle", "customize.connections.moved", "Sharing Branch with other AI tools, your own accounts and tool servers are set up in Settings › Connections.");
+  line.id = `${card.id}-line`;
+  const open = button("lx-pointer-open", "customize.connections.open", "Open Settings › Connections");
+  open.setAttribute("aria-describedby", line.id);
+  open.addEventListener("click", () => displayView("settings:connections"));
+  card.append(worded("h2", "", "customize.connections.movedTitle", "Connection settings"), line, open);
+  return card;
 }
 function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) {
   const card = make("section", "card settings-directory-card");

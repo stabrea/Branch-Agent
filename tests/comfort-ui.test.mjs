@@ -92,7 +92,7 @@ for (const width of [1440, 860, 400]) {
       }
       assert.equal(await page.locator('[data-t="comfort.field.caCertificates"]').first().evaluate((node) => node.tagName), "H4",
         "certificate subsection is below its card title");
-      assert.equal(await page.locator("#comfort-mcp-card > h2").count(), 1, "non-Settings card is unchanged");
+      assert.equal(await page.locator("#comfort-mcp-card > h3.settings-card-title").count(), 1, "its Settings home titles it under its section (DG-195)");
     }
     assert.deepEqual(errors, []);
   });
@@ -108,7 +108,8 @@ test("each comfort card is in its home, says what it is for, and every control h
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
   }
   await closeSettings(page);
-  await openPlace(page, "customize:connections");
+  await openPlace(page, "settings:connections");
+  await page.evaluate(() => globalThis.branchSettingsLevel.peekPage()); // Under the hood is Technical (DG-195)
   await page.waitForFunction(() => document.getElementById("comfort-mcp-card")?.offsetParent);
   assert.deepEqual(await undescribed(page, "comfort-mcp-card"), []);
 

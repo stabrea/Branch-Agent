@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { openPlace } from "./places.mjs";
+import { openPlace, showEveryCard } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -61,7 +61,8 @@ test("the cards sit in their homes, the switches work from the window, and nothi
   await openPlace(page, "library:made");
   await page.locator("#asks-made-card").waitFor();
   assert.equal(await page.locator("#asks-switch-answer-pages").inputValue(), "off");
-  await openPlace(page, "customize:connections");
+  await openPlace(page, "settings:connections");
+  await showEveryCard(page); // the examples wait for Advanced, as in the approved sample (DG-195)
   const connections = page.locator("#asks-connections-card");
   await connections.waitFor();
   await connections.getByText("Notion (Notion's own MCP server)", { exact: false }).waitFor();

@@ -41,10 +41,11 @@ test("the personal cards sit in their homes, the switches work from the window, 
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
-  await openPlace(page, "customize:connections");
+  await openPlace(page, "settings:connections");
+  await page.evaluate(() => globalThis.branchSettingsLevel.peekPage()); // its details are Advanced and Technical (DG-195)
   const accounts = page.locator("#personal-accounts-card");
   await accounts.waitFor();
-  assert.equal(await accounts.locator("h2").innerText(), "Your own accounts");
+  assert.equal(await accounts.locator("h3.settings-card-title").textContent(), "Your own accounts");
   assert.equal(await page.locator("#personal-switch-google").inputValue(), "off");
   await page.locator("#personal-switch-google").selectOption("when-needed");
   for (let i = 0; i < 100 && app.personal.modes().google !== "when-needed"; i++) await page.waitForTimeout(50);
@@ -57,8 +58,8 @@ test("the personal cards sit in their homes, the switches work from the window, 
   assert.equal(await wide(), false, "no sideways scrolling in Connections");
 
   for (const [card, home] of [["personal-files-card", "customize:channels"], ["personal-mail-card", "customize:channels"],
-    ["personal-tunnel-card", "automations:triggers"], ["personal-voice-card", "settings:voice"], ["personal-x-card", "customize:connections"],
-    ["personal-home-card", "customize:connections"]])
+    ["personal-tunnel-card", "automations:triggers"], ["personal-voice-card", "settings:voice"], ["personal-x-card", "settings:connections"],
+    ["personal-home-card", "settings:connections"]])
     assert.equal(await page.evaluate((id) => document.getElementById(id)?.dataset.home ?? null, card), home, `${card} is not in its home`);
   await openPlace(page, "automations:triggers");
   await page.locator("#personal-tunnel-card").waitFor({ state: "visible" });

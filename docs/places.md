@@ -39,7 +39,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `customize:skills` | Installed skills, installing and sharing, suggestions, what happens when a skill looks risky |
 | `customize:specialists` | Specialists and proposing new ones |
 | `customize:plugins` | Plugins |
-| `customize:connections` | MCP in both directions: servers the assistant uses, other AI tools using Branch |
+| `customize:connections` | A way to Settings › Connections, where its controls now live (DG-195) |
 | `customize:channels` | Chat apps, the phone, pages and the browser extension that reach Branch |
 | `overview:here` | What this computer is working on, what needs attention and what finished lately |
 | `household:people` | The owner and everyone who uses Branch on this computer |
@@ -63,7 +63,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `settings:about` | Version and updates |
 | `settings:trunks` | Directory to the real Trunks, Overview and People places |
 | `settings:channels` | Directory to the real chat apps and devices controls |
-| `settings:connections` | Directory to the real tool-server and app connections controls |
+| `settings:connections` | Other AI tools (MCP both ways, app steps, other agents), your own accounts, and tool-server start-up (DG-195) |
 | `settings:skills` | Directory to the real Skills, Specialists and Plugins places |
 | `settings:memory` | Directory to the real Memory, Documents and Made for you places |
 | `settings:automations` | Directory to the real Automations and Inbox places |
@@ -129,7 +129,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
 | Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
 | Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
-| Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `customize:connections` |
+| Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `settings:connections` |
 | Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
 | A conversation handed over from another device (`#handoff=<id>`) | Opens the conversation itself; no screen of its own |
 | Building on Branch: the switch for the app-builder tools, and the clients for each language (bucket 21) | `settings:advanced` |
@@ -147,7 +147,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Bringing in new items from GitHub, mail and Telegram (`mac6/bucket-23`) | `library:documents` |
 | A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
-| Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
+| Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `settings:connections` |
 | Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `customize:channels`; the "which device" picker lives in the message box, because it changes the next message |
 | Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
 | The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
@@ -180,7 +180,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Updating by itself (R17-S-C) | `settings:about` |
 | The push-to-talk key and the longest recording (R17-S-C) | `settings:voice` |
 | How carefully the browser acts, the proxy and trusted certificates (R17-S-C) | `settings:computer` |
-| How long a tool server may take to start (R17-S-C) | `customize:connections` |
+| How long a tool server may take to start (R17-S-C) | `settings:connections` |
 | A word that starts a turn: the switch, the word, how sure it must be (`mac7/wake-pins`) | `settings:voice` |
 | Settings you have pinned, and unpinning them (`mac7/wake-pins`) | `settings:permissions` |
 
