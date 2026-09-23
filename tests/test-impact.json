@@ -98,6 +98,14 @@
     },
     {
       "paths": [
+        "public/phone-layout.css"
+      ],
+      "tests": [
+        "tests/phone-layout.test.mjs"
+      ]
+    },
+    {
+      "paths": [
         "public/overview.js"
       ],
       "tests": [
