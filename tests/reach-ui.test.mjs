@@ -46,7 +46,7 @@ test("the cards sit in their homes, every control says what it does, a note is k
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
-  await openPlace(page, "library:documents");
+  await openPlace(page, "settings:memory"); // DG-197: the card left Library › Documents for Settings › Memory & library
   const notes = page.locator("#reach-notes-card");
   await notes.waitFor();
   assert.equal(await notes.locator("h2").innerText(), "Notes");

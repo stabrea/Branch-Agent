@@ -35,7 +35,7 @@ const CARDS = {
   "flows-recipes-card": ["automations:procedures", "Checks for procedures"],
   "flows-board-card": ["automations:scheduled", "Shared board"],
   "flows-waiting-card": ["automations:scheduled", "Change the waiting line"],
-  "flows-widgets-card": ["library:made", "Widgets the assistant built"],
+  "flows-widgets-card": ["settings:memory", "Widgets the assistant built"], // DG-197: Settings › Memory & library
   "flows-focus-card": ["settings:appearance", "Focus view"],
   "flows-installs-card": ["inbox:needs", "Package and tool server requests"],
 };
@@ -93,7 +93,9 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
 
   for (const [id, [home, title]] of Object.entries(CARDS)) {
     await openPlace(page, home);
-    await page.locator(`#${id} h2`).waitFor({ state: "visible" });
+    /* The card on show; in a sample section of Memory & library its title is not a heading on show (DG-197). */
+    await page.locator(`#${id}`).waitFor({ state: "visible" });
+    await page.locator(`#${id} h2`).waitFor({ state: "attached" });
     const shape = await page.evaluate(shapeOf, id);
     assert.equal(shape.home, home, id);
     assert.equal(shape.tag, "SECTION", id);

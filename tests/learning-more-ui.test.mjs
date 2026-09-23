@@ -42,12 +42,13 @@ test("the cards sit in their homes, start off, open when switched on, and nothin
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  await openPlace(page, "memory");
+  await openPlace(page, "settings:memory"); // DG-197: the cards left Library › Memory for Settings › Memory & library
   const ids = ["lmore-blocks-card", "lmore-journey-card", "lmore-meaning-card", "lmore-lessons-card", "lmore-sessions-card", "lmore-expiry-card", "lmore-readback-card", "lmore-providers-card"];
   for (const id of ids) await page.locator(`#${id}`).waitFor();
   const shapes = await page.evaluate((list) => list.map((id) => {
     const card = document.getElementById(id);
-    const controls = [...card.querySelectorAll("input, select, textarea, button")];
+    /* The section's "N more with …" line can end a card (DG-073); it is the section's, not one of the card's controls. */
+    const controls = [...card.querySelectorAll("input, select, textarea, button")].filter((c) => !c.closest(".sg-more-line"));
     return {
       id, home: card.dataset.home, sentence: card.querySelector("h2 + p.subtle")?.textContent ?? "",
       unnamed: controls.filter((c) => c.tagName !== "BUTTON" && !c.labels?.length).map((c) => c.id),
@@ -56,7 +57,7 @@ test("the cards sit in their homes, start off, open when switched on, and nothin
     };
   }), ids);
   for (const shape of shapes) {
-    assert.equal(shape.home, "library:memory", shape.id);
+    assert.equal(shape.home, "settings:memory", shape.id);
     assert.ok(shape.sentence.length > 10, `${shape.id} says what it is for`);
     assert.deepEqual(shape.unnamed, [], `${shape.id}: every control can be named`);
     assert.deepEqual(shape.undescribed, [], `${shape.id}: every control has a description`);

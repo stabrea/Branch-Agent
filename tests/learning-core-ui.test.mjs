@@ -47,10 +47,10 @@ async function fixture(t, width = 1440) {
   return { page, errors, app, connect };
 }
 
-test("L1 the card is in Library → Memory and nowhere else, and it starts off", async (t) => {
+test("L1 the card is in Settings › Memory & library (DG-197) and nowhere else, and it starts off", async (t) => {
   const { page, errors } = await fixture(t);
   const card = page.locator("#learning-core");
-  await openPlace(page, "library:memory");
+  await openPlace(page, "settings:memory");
   await card.waitFor({ state: "visible", timeout: 10000 });
   assert.equal(await card.locator("h2").innerText(), "What Branch learns from experience");
   assert.equal(await card.locator("#learning-core-mode").inputValue(), "off");
@@ -62,7 +62,7 @@ test("L1 the card is in Library → Memory and nowhere else, and it starts off",
 
 test("L2 the switch saves as it moves, what was learned reads as sentences, and forgetting asks first", async (t) => {
   const { page, errors, app } = await fixture(t);
-  await openPlace(page, "library:memory");
+  await openPlace(page, "settings:memory");
   await page.locator("#learning-core-mode").selectOption("on");
   await page.locator("#learning-core [role=status]").filter({ hasText: "Saved" }).waitFor();
   assert.deepEqual(app.learningCore.settings(), { mode: "on" });
@@ -86,7 +86,7 @@ test("L2 the switch saves as it moves, what was learned reads as sentences, and 
 
 test("L3 at 400 px it keeps its shape and nothing scrolls sideways", async (t) => {
   const { page, errors } = await fixture(t, 400);
-  await openPlace(page, "library:memory");
+  await openPlace(page, "settings:memory");
   await page.locator("#learning-core").waitFor({ state: "visible" });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false);
@@ -127,7 +127,7 @@ test("L5 accepting a skill idea opens the skill editor on a draft, and Look insi
   const idea = page.locator("#memory-proposals .record").filter({ hasText: "could become a skill" });
   await page.reload(); // the conversation's key is kept for the tab, so this reads everything afresh
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  await openPlace(page, "library:memory");
+  await openPlace(page, "settings:memory");
   await idea.waitFor({ timeout: 15000 });
   await idea.getByRole("button", { name: "Accept", exact: true }).click();
   const editor = page.locator("#skill-document");

@@ -58,7 +58,7 @@ test("the cards sit in their homes, the switches work from the window, and nothi
   await intents.getByText("invoice → skill: bookkeeping", { exact: false }).waitFor();
   assert.equal(await wide(), false, "no sideways scrolling in Customize");
 
-  await openPlace(page, "library:made");
+  await openPlace(page, "settings:memory"); // DG-197: the card left Library › Made for you for Settings › Memory & library
   await page.locator("#asks-made-card").waitFor();
   assert.equal(await page.locator("#asks-switch-answer-pages").inputValue(), "off");
   await openPlace(page, "customize:connections");
@@ -67,6 +67,6 @@ test("the cards sit in their homes, the switches work from the window, and nothi
   await connections.getByText("Notion (Notion's own MCP server)", { exact: false }).waitFor();
   assert.equal(await wide(), false, "no sideways scrolling in Connections");
   for (const [card, home] of [["asks-board-card", "lx-page-general"], ["asks-analytics-card", "lx-page-data"], ["asks-nodes-card", "lx-page-computer"],
-    ["asks-runtimes-card", "lx-models-connection"], ["asks-sources-card", "documents"], ["asks-hindsight-card", "memory"]])
+    ["asks-runtimes-card", "lx-models-connection"], ["asks-sources-card", "lx-page-memory"], ["asks-hindsight-card", "lx-page-memory"]])
     assert.equal(await page.evaluate(([id]) => document.getElementById(id)?.parentElement?.id ?? null, [card]), home, `${card} is not in its home`);
 });

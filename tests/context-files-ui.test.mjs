@@ -47,7 +47,7 @@ async function fixture(t, seed) {
 const homes = [
   ["context-assistant", "settings:assistant"],
   ["context-project", "settings:general"],
-  ["context-memory-file", "library:memory"],
+  ["context-memory-file", "settings:memory"], // DG-197: Settings › Memory & library
   ["context-heartbeat", "automations:scheduled"],
   ["context-sop", "automations:procedures"],
   ["context-tools-file", "customize:skills"],
