@@ -86,7 +86,8 @@ async function loadPullRequests() {
     status("pull-requests-status", error.message);
   }
 }
-$("pull-requests-save")?.addEventListener("click", async () => {
+/* DG-025: one choice, saved the moment it changes, as the approved sample does; a failed save says so. */
+$("pull-requests-mode")?.addEventListener("change", async () => {
   try {
     await call("pull-requests", { mode: $("pull-requests-mode").value });
     status("pull-requests-status", t("developer.pull-requests.saved"));

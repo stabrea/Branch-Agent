@@ -1686,8 +1686,8 @@
             </details>
           </section>
           <section id="health-card" class="card">
-            <h2 data-t="settings.card.health-check">Health check</h2>
-            <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
+            <h3 class="settings-card-title" data-t="settings.card.health-check">Health check</h3>
+            <p data-t="settings.intro.health">Checks the pieces this app depends on and tells you what to do if one is not right.</p>
             <label class="check-row"><input type="checkbox" id="health-probe" /> <span data-t="field.also-send-a-tiny-test">Also send a tiny test message to the default model</span></label>
             <button id="health-run" type="button" data-t="action.check-now">Check now</button>
             <div id="health-list" class="card-list" aria-live="polite"></div>
@@ -1734,7 +1734,7 @@
             <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
           </section>
           <section id="developer-card" class="card">
-            <h2 data-t="settings.card.developer">Developer</h2>
+            <h3 class="settings-card-title" data-t="settings.card.developer">Developer</h3>
             <details id="playground">
               <summary data-t="playground.title">Try things out</summary>
               <p class="subtle" data-t="playground.intro">Run one tool on its own, or ask two models the same question. Everything here follows your usual permission settings.</p>
@@ -1744,7 +1744,7 @@
               <button id="play-run" type="button" data-t="playground.run">Run it</button>
               <p id="play-status" class="subtle" role="status"></p>
               <div id="play-result" class="play-result"></div>
-              <h3 data-t="playground.comparePrompt">Ask two models the same thing</h3>
+              <h4 data-t="playground.comparePrompt">Ask two models the same thing</h4>
               <label class="sr-only" for="play-compare-text" data-t="field.ask-two-models-the-same">Ask two models the same thing</label>
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
@@ -1752,15 +1752,15 @@
             </details>
             <!-- Wave 7: help with code. Every program named here is one you already have. -->
             <details id="code-ide">
-              <summary>Help with code</summary>
-              <p class="subtle">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
+              <summary data-t="settings.advanced.code.title">Help with code</summary>
+              <p class="subtle" data-t="settings.advanced.code.intro">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
               <label class="check-row"><input type="checkbox" id="ls-enabled" /> <span data-t="field.let-branch-use-my-language">Let Branch use my language servers</span></label>
               <label for="ls-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, anything that goes after it, and the kinds of file it handles</label>
               <textarea id="ls-list" rows="3" spellcheck="false" placeholder="typescript | C:\Users\me\AppData\Roaming\npm\node_modules\typescript-language-server\lib\cli.mjs | --stdio | TypeScript, JavaScript"></textarea>
               <label class="check-row"><input type="checkbox" id="dbg-enabled" /> <span data-t="field.let-branch-run-my-debuggers">Let Branch run my debuggers</span></label>
               <label for="dbg-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, and anything that goes after it</label>
               <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
-              <p class="subtle">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
+              <p class="subtle" data-t="settings.advanced.code.keep">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
               <label class="check-row"><input type="checkbox" id="ls-keep" /> <span data-t="field.keep-a-language-server-running">Keep a language server running between tasks</span></label>
               <label class="check-row"><input type="checkbox" id="dbg-keep" /> <span data-t="field.keep-a-program-being-debugged">Keep a program being debugged running between tasks</span></label>
               <button id="code-ide-save" type="button" data-t="action.save">Save</button>
@@ -1776,7 +1776,6 @@
                 <option value="when-needed" data-t="schedules.switch.when-needed">When needed</option>
                 <option value="on" data-t="schedules.switch.on">On</option>
               </select>
-              <button id="wsedit-mode-save" type="button" data-t="action.save">Save</button>
               <p id="wsedit-mode-status" class="subtle" aria-live="polite"></p>
             </details>
             <!-- bucket-18 (A0300): pull requests from a task's changes, off by default -->
@@ -1789,14 +1788,13 @@
                 <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
                 <option value="on" data-t="field.switch-on">On</option>
               </select>
-              <button id="pull-requests-save" type="button" data-t="action.save">Save</button>
               <p id="pull-requests-status" class="subtle" aria-live="polite"></p>
             </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
                  apart from the button that deletes what it has learned. -->
             <details id="tool-catalog">
-              <summary>How the assistant finds its tools</summary>
-              <p class="subtle">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
+              <summary data-t="settings.advanced.tools.title">How the assistant finds its tools</summary>
+              <p class="subtle" data-t="settings.advanced.tools.intro">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
               <div id="tool-catalog-summary" aria-live="polite"></div>
               <div id="tool-catalog-lists"></div>
               <div id="tool-catalog-meaning"></div>
@@ -1805,13 +1803,13 @@
             </details>
           </section>
           <section id="diagnostics-card" class="card">
-            <h2 data-t="settings.card.diagnostics">Diagnostics</h2>
-            <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
-            <p>If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
+            <h3 class="settings-card-title" data-t="settings.card.diagnostics">Diagnostics</h3>
+            <p id="diagnostics-promise"><strong data-t="settings.advanced.promise.lead">Branch sends no usage data to anyone.</strong> <span data-t="settings.advanced.promise.rest">Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</span></p>
+            <p data-t="settings.advanced.diagnostics.help">If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
             <button id="diagnostics-save" type="button" data-t="action.save-a-diagnostics-folder">Save a diagnostics folder</button>
             <p id="diagnostics-status" class="subtle" aria-live="polite"></p>
-            <h3>Trace files for a tracing viewer</h3>
-            <p>Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
+            <h4 data-t="settings.card.diagnostics.trace">Trace files for a tracing viewer</h4>
+            <p data-t="settings.advanced.trace.note">Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
             <label class="check-row"><input type="checkbox" id="trace-enabled" /> <span data-t="field.write-a-trace-file-for">Write a trace file for every finished task</span></label>
             <label for="trace-folder" data-t="field.folder-for-the-trace-files">Folder for the trace files</label>
             <input id="trace-folder" maxlength="4096" spellcheck="false" placeholder="A full path inside your own user folder or your workspace" />
@@ -1820,7 +1818,7 @@
           </section>
           <!-- mac7/diagnostics: the activity log (public/activity-log.js). Off unless the owner turns it on. -->
           <section id="activity-log-card" class="card">
-            <h2 data-t="settings.card.activity-log">Activity log</h2>
+            <h3 class="settings-card-title" data-t="settings.card.activity-log">Activity log</h3>
             <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off. When needed keeps warnings and errors only; On keeps everything.</p>
             <label for="activity-log-mode" data-t="field.activity-log-mode">Keep an activity log</label>
             <select id="activity-log-mode" aria-describedby="activity-log-intro">
@@ -1903,7 +1901,7 @@
           <!-- mac7/adapt: getting what a stopped task is missing. Its own card, because it works
                for blockers that have nothing to do with models on this computer. -->
           <section id="adapt-card" class="card">
-            <h2 data-t="settings.card.adapt">Getting what a stopped task is missing</h2>
+            <h3 class="settings-card-title" data-t="settings.card.adapt">Getting what a stopped task is missing</h3>
             <p data-t="settings.adapt.purpose">When a task cannot go on because something is missing, Branch works out what it is, tells you what would fix it and what that costs, and gets it only after you say yes. Then the task carries on from where it stopped.</p>
             <div id="adapt-body"></div>
           </section>

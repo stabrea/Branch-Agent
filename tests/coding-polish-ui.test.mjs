@@ -47,7 +47,7 @@ test("the card sits in Settings › Advanced, its switches work, and the checkli
   await openPlace(page, "settings:advanced");
   const card = page.locator("#coding-card");
   await card.waitFor();
-  assert.equal(await card.locator("h2").innerText(), "Coding polish");
+  assert.equal(await card.locator("h3.settings-card-title").innerText(), "Coding polish");
   assert.equal(await page.evaluate(() => document.getElementById("coding-card")?.parentElement?.id ?? null), "lx-page-advanced");
   assert.equal(await page.locator("#coding-switch-review-checks").inputValue(), "off");
   await page.locator("#coding-switch-format-on-edit").selectOption("when-needed");
