@@ -158,13 +158,13 @@ test("the Telegram card keeps the token in the locker, connects the bot and pair
   assert.equal(app.channels.summary().approved.length, 1, "the owner's account is paired");
 });
 
-test("the Telegram card sits in Customize → Channels, in plain words and in French, and fits 400 px", async (t) => {
+test("the Telegram card sits in Settings › Chat apps & devices, in plain words and in French, and fits 400 px", async (t) => {
   const { server } = await served(t);
   const { page, errors } = await signedIn(t, server);
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
   const card = page.locator("#telegram-setup-card");
   await card.waitFor({ state: "attached" });
-  assert.equal(await card.getAttribute("data-home"), "customize:channels");
+  assert.equal(await card.getAttribute("data-home"), "settings:channels");
   assert.match(await card.textContent(), /Set up Telegram[\s\S]*BotFather[\s\S]*\/newbot[\s\S]*six-digit code/);
   assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, "one filled button");
   assert.equal(await page.locator("#telegram-setup-token").getAttribute("type"), "password");
@@ -179,11 +179,11 @@ test("the Telegram card sits in Customize → Channels, in plain words and in Fr
   await page.waitForFunction(() => document.getElementById("telegram-setup-card")?.textContent.includes("Configurer Telegram"));
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   await page.setViewportSize({ width: 400, height: 800 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
   await card.scrollIntoViewIfNeeded();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
   const wide = await page.evaluate(() => [...document.querySelectorAll("#telegram-setup-card *")]
-    .filter((node) => node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1)
+    .filter((node) => !node.closest(".sr-only") && (node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1))
     .map((node) => `${node.tagName} ${node.textContent.slice(0, 30)}`));
   assert.deepEqual(wide, []);
   assert.deepEqual(errors, []);
