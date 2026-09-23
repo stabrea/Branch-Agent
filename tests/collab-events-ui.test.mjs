@@ -76,6 +76,12 @@ test("a note being typed survives the panel's own periodic refresh, caret and al
   await box.type("Back at six", { delay: 20 });
   // Longer than app.js's 3-second refresh (public/app.js), which rebuilds this whole panel.
   await page.waitForTimeout(3500);
+  // Checked before typing more, so this proves the refresh itself restored focus and the draft —
+  // not just that clicking or typing into the box would have refocused it anyway.
+  await page.waitForFunction(() => {
+    const active = document.activeElement;
+    return active?.tagName === "TEXTAREA" && active.value === "Back at six";
+  }, { timeout: 5000 });
   await box.type(" — took the car", { delay: 20 });
   await page.waitForFunction(() => {
     const active = document.activeElement;

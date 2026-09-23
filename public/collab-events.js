@@ -47,7 +47,10 @@ export function eventsSection(events, profile, helpers) {
   row.append(input, send);
   wrap.appendChild(row);
   // The box is rebuilt on every refresh; a person still typing keeps their place and their focus.
-  if (focused) requestAnimationFrame(() => {
+  // A microtask, not a frame: replaceChildren (public/app.js's renderCollab) finishes in the same
+  // synchronous stretch as this call, and a keystroke that lands before a whole frame would go to
+  // <body> and be lost.
+  if (focused) queueMicrotask(() => {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   });
