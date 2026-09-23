@@ -111,11 +111,17 @@ function sameSections(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((section) => b.includes(section));
 }
 
-/** An untouched pre-news wording or section list becomes today's default; anything else is kept. */
-function upgradePreviousDefaults(settings: BriefSettings): BriefSettings {
+/**
+ * An untouched pre-news wording becomes today's default. The section list is only moved on when the
+ * saved record predates news altogether (it has no newsFeeds key, which the old schema never had):
+ * an owner on this version who turned news and health off has the same five sections, and that
+ * choice is kept. Anything else the owner changed is kept too.
+ */
+function upgradePreviousDefaults(settings: BriefSettings, saved: unknown): BriefSettings {
+  const predatesNews = !!saved && typeof saved === "object" && !("newsFeeds" in saved);
   return { ...settings,
     template: settings.template === previousDefaultTemplate ? defaultTemplate : settings.template,
-    sections: sameSections(settings.sections, previousDefaultSections) ? [...briefSections] : settings.sections };
+    sections: predatesNews && sameSections(settings.sections, previousDefaultSections) ? [...briefSections] : settings.sections };
 }
 
 /** What the brief's news reader needs: the checked fetch, and the owner's policy for outside text. */
@@ -192,7 +198,7 @@ export class MorningBrief {
     return saved.success ? saved.data : BriefSettingsSchema.parse({});
   }
   configure(owner: string, input: unknown, now = new Date()): BriefSettings {
-    const merged = BriefSettingsSchema.parse({ ...upgradePreviousDefaults(this.settings(owner)), ...(input as object) });
+    const merged = BriefSettingsSchema.parse({ ...upgradePreviousDefaults(this.settings(owner), this.store.get("settings", owner, "brief")?.data), ...(input as object) });
     checkTemplate(merged.template);
     const value: BriefSettings = { ...merged,
       nextAt: merged.enabled ? nextDailyOccurrence(now, merged.dailyAt, merged.timezone).toISOString() : null };
