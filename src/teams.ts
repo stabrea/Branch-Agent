@@ -160,7 +160,7 @@ export class Teams {
     this.store.message(team.roomSessionId, { role: "user", content: prompt });
     const tasks = team.members.map((member, index) => ({ id: `m${index}`, prompt: `Your role in team "${team.name}": ${member.role}. ${member.brief}\n\nTask: ${prompt}`, dependsOn: [] as string[] }));
     const specs = new Map(team.members.map((member, index) => [`m${index}`, { ...knowledge.activeSpecialist(this.owner, member.specialistId), agent: member.specialistId }]));
-    // Written on the team's own run before any member starts, so reconcile knows members were sent even if their conversations are deleted.
+    // Written on the team's own run before any member starts, as a record of how many were sent.
     this.store.event(parent.id, membersSentKind, { members: tasks.length });
     turn.membersStarted = true;
     const outcome = await runtime.fanout(context, tasks, (taskId) => specs.get(taskId)!);
