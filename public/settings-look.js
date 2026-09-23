@@ -48,16 +48,28 @@ function mirrorFrame(mode) {
   figure.append(box, chip);
   return figure;
 }
+/** The sample's `swap` icon, as the small button beside it draws it. */
+function swapIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4");
+  svg.append(path);
+  return svg;
+}
 /** On a phone one mirror shows at a time; this shows the other. */
 function flipButton(pair) {
   const flip = document.createElement("button");
   flip.type = "button";
   flip.className = "sg-mirror-flip";
+  const words = document.createElement("span");
   const word = () => say("look.show", "Show {light}").replace("{light}", lightWord(pair.dataset.show === "light" ? "dark" : "light"));
-  flip.textContent = word();
+  words.textContent = word();
+  flip.append(swapIcon(), words);
   flip.addEventListener("click", () => {
     pair.dataset.show = pair.dataset.show === "light" ? "dark" : "light";
-    flip.textContent = word();
+    words.textContent = word();
     stale = true;
     drawMirrors();
   });
@@ -280,7 +292,7 @@ function start() {
   document.addEventListener("branch-language", () => {
     for (const chip of document.querySelectorAll(".sg-mirror-caption")) chip.textContent = lightWord(chip.parentElement.dataset.mode);
     const pair = document.querySelector(".sg-mirror-pair"), flip = document.querySelector(".sg-mirror-flip");
-    if (pair && flip) flip.textContent = say("look.show", "Show {light}").replace("{light}", lightWord(pair.dataset.show === "light" ? "dark" : "light"));
+    if (pair && flip) flip.querySelector("span").textContent = say("look.show", "Show {light}").replace("{light}", lightWord(pair.dataset.show === "light" ? "dark" : "light"));
     stale = true;
     soon();
   });

@@ -545,6 +545,8 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(24px) saturate(1.3);
   box-shadow: none;
   color: var(--text);
   text-align: left;
@@ -654,10 +656,32 @@
   font: 500 11px/1 var(--body);
   white-space: nowrap;
 }
-/* The sample's `.m-flip`: only on a phone, where one mirror shows at a time. */
+/* The sample's `.m-flip`, a `btn sm` with the swap icon: only on a phone, where one mirror shows at a time. */
 .sg-mirror-flip {
   display: none;
   justify-self: start;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 540;
+  white-space: nowrap;
+}
+.sg-mirror-flip svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 @container (max-width: 540px) {
   .sg-mirror-pair {

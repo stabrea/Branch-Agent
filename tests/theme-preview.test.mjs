@@ -82,6 +82,7 @@ test("DG-039 narrower: a strip names the theme and opens both mirrors side by si
   assert.equal(words.name, "Slate");
   assert.match(words.sub, /^Moonlight · (spring|summer|autumn|winter)$/);
   assert.equal(words.thumb, 96);
+  assert.equal(await strip.evaluate((node) => getComputedStyle(node).backdropFilter), "blur(24px) saturate(1.3)", "the strip is the sample's glass");
   await strip.click();
   assert.equal(await strip.getAttribute("aria-expanded"), "true");
   await drawn(page);
@@ -103,10 +104,18 @@ test("DG-039 on a phone one mirror shows at a time, and a button flips to the ot
   assert.deepEqual((await shown(page)).map(({ mode }) => mode), ["dark"]);
   const flip = page.locator(".sg-mirror-flip");
   assert.equal(await flip.textContent(), "Show Daylight");
+  assert.deepEqual(await flip.evaluate((node) => {
+    const style = getComputedStyle(node), icon = node.querySelector("svg");
+    return { height: node.getBoundingClientRect().height, size: style.fontSize, radius: style.borderRadius, padding: style.padding,
+      icon: icon && icon.getAttribute("aria-hidden") === "true" ? icon.getBoundingClientRect().width : null };
+  }), { height: 30, size: "12.5px", radius: "9px", padding: "0px 11px", icon: 15 }, "the sample's `btn sm` with its swap icon");
   await flip.click();
   await drawn(page);
   assert.deepEqual((await shown(page)).map(({ mode }) => mode), ["light"]);
   assert.equal(await flip.textContent(), "Show Moonlight");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.querySelector(".sg-mirror-flip span")?.textContent !== "Show Moonlight");
+  assert.equal(await flip.locator("svg").count(), 1, "a language change re-words the button and keeps its icon");
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth <= 1), "nothing scrolls sideways");
   assert.deepEqual(errors, []);
 });
