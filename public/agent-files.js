@@ -115,7 +115,7 @@ async function openEditor(area, list, slot, refresh) {
   area.hidden = false;
   const close = button("agent-files.back", "Back to all files", () => { area.hidden = true; list.hidden = false; void refresh(); });
   const head = el("div", undefined, undefined, "agent-files-head");
-  head.append(el("h3", undefined, file.name), close);
+  head.append(el("h4", undefined, file.name), close);
   area.replaceChildren(head, el("p", `settings-kit.slot.${slot}`, ABOUT[slot] ?? "", "subtle"));
   if (!file.editable) { area.append(el("p", ...(WHY[file.why] ?? ["settings-kit.why.other", "This file cannot be changed here. Open it in your own editor."]), "field-note")); return; }
   area.append(...editorParts(file, slot, () => openEditor(area, list, slot, refresh)));
@@ -176,8 +176,8 @@ export async function drawAgentFiles() {
   section.dataset.home = "settings:instructions";
   section.dataset.level = "regular";
   /* DG-182: the section head above already says "Its files", and the sample shows it once (the DG-032 way): the
-     card's own heading and purpose stay for a screen reader, and the page's heading order is not turned over (DG-008). */
-  section.append(el("h2", "agent-files.title", "Its files", "sr-only"),
+     card's own heading and purpose stay for a screen reader, at the section's level so the order is not turned over (DG-008). */
+  section.append(el("h3", "agent-files.title", "Its files", "settings-card-title sr-only"),
     el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do.", "sr-only"));
   const list = el("ul", undefined, undefined, "agent-files-list");
   const area = el("div", undefined, undefined, "agent-files-editor");

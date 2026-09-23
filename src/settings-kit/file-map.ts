@@ -36,21 +36,24 @@ export interface FileMapEntry {
   first: string;
 }
 
-function firstWords(store: Store, owner: string, workspace: string, key: SlotKey): string {
-  const found = findFile({ workspace, owner: store.folder, allows: (folder) => folderAllows(store, owner, folder) }, key);
-  const line = found?.text.split(/\r?\n/).map((each) => each.trim()).find((each) => each && !each.startsWith("#"));
+/** The first line of a file's text that is words, not a heading. */
+function firstWords(text: string | undefined): string {
+  const line = text?.split(/\r?\n/).map((each) => each.trim()).find((each) => each && !each.startsWith("#"));
   return line ? line.slice(0, 70) : "";
 }
 
 export function fileMap(store: Store, owner: string, workspace: string): FileMapEntry[] {
   const reports = contextFileStatus(store, owner, workspace);
+  const folders = { workspace, owner: store.folder, allows: (folder: string) => folderAllows(store, owner, folder) };
   return slots.map((slot) => {
     const report = reports.find((entry) => entry.key === slot.key);
+    /* A file switched off is not measured by the report, yet it is written: its name and size come from the file itself. */
+    const found = findFile(folders, slot.key);
     return {
       slot: slot.key, names: slot.names, about: slot.about, scope: slot.scope === "owner" ? "you" : "project",
-      setting: report?.setting ?? "off", outcome: report?.outcome ?? "missing", name: report?.name ?? null,
-      bytes: report?.bytes ?? 0, permissionShaped: report?.permissionShaped.length ?? 0,
-      first: firstWords(store, owner, workspace, slot.key),
+      setting: report?.setting ?? "off", outcome: report?.outcome ?? "missing", name: report?.name ?? found?.name ?? null,
+      bytes: report?.bytes || found?.bytes || 0, permissionShaped: report?.permissionShaped.length ?? 0,
+      first: firstWords(found?.text),
     };
   });
 }

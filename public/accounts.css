@@ -53,7 +53,7 @@
   align-items: center;
   justify-content: space-between;
 }
-.agent-files-head h3 {
+.agent-files-head h4 {
   margin: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
