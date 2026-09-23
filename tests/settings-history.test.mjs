@@ -388,3 +388,37 @@ test("a switch /adapt turns on after the owner's yes is recorded as that yes", a
   assert.equal(why.kind, "recorded", why.words);
   assert.deepEqual([why.record.writer, why.record.source, why.record.detail], ["owner-in-window", "card", "adapt"]);
 });
+
+test("an undo that was undone again puts its change back, so an older change it covers cannot be undone", async (t) => {
+  const { ask, values, refused } = await fixture(t);
+  const flip = async (value) => (await ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "set", key: "fly-core", field: "mode", value }, accept: ["fly-core.mode"], confirmLoosening: true })).record;
+  const undo = async (id) => (await ask("POST", "/api/settings-kit/undo", { record: id, confirmLoosening: true })).record;
+  const x = await flip("on");
+  const r1 = await flip("off");
+  await undo(await undo(r1)); // U1 undoes R1, U2 undoes U1: R1 is back in force
+  const r2 = await flip("on");
+  await undo(await undo(r2)); // V1 undoes R2, V2 undoes V1: R2 is back in force
+  // The value is what X made it, but only because R2 (redone by V2) made it so: undoing X would undo R2.
+  assert.equal((await values())["fly-core.mode"], "on");
+  await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record: x, confirmLoosening: true }),
+    refused(409, /fly-core[.]mode was changed again later/));
+  assert.equal((await values())["fly-core.mode"], "on", "a refused undo changed something");
+});
+
+test("an undo asked for while Lockdown is on is refused on the route and writes nothing", async (t) => {
+  const { app, owner, ask, values, refused } = await fixture(t);
+  const { setLockdown } = await import("../dist/lockdown.js");
+  // fly-core is not one of the settings Lockdown itself changes, so only the Lockdown check can refuse this.
+  const { record } = await ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "set", key: "fly-core", field: "mode", value: "on" }, accept: ["fly-core.mode"], confirmLoosening: true });
+  setLockdown(app.store, owner, { on: true });
+  const history = settingsHistory(app.store, owner).length;
+  await assert.rejects(() => ask("POST", "/api/settings-kit/undo", { record, confirmLoosening: true }),
+    refused(409, /^Lockdown is on, so settings cannot be changed from here[.] Turn it off first[.]$/));
+  assert.equal((await values())["fly-core.mode"], "on", "a refused undo changed something");
+  assert.equal(settingsHistory(app.store, owner).length, history, "a refused undo left a record");
+  setLockdown(app.store, owner, { on: false });
+  await ask("POST", "/api/settings-kit/undo", { record, confirmLoosening: true });
+  assert.equal((await values())["fly-core.mode"], "off", "once Lockdown is off the same undo goes through");
+});

@@ -18,6 +18,26 @@ function valueOf(store: Store, owner: string, setting: string): Value | undefine
   return spec && field ? currentValue(store, owner, spec, field) : undefined;
 }
 
+/**
+ * Q48 review: a record is cancelled only while the undo that undid it is itself still in force. An
+ * undo that was undone in turn puts the change back (a redo), so the chain is walked to its end.
+ */
+function cancelled(record: ChangeRecord, byId: ReadonlyMap<string, ChangeRecord>, seen = new Set<string>()): boolean {
+  if (!record.undoneBy || seen.has(record.id)) return false;
+  seen.add(record.id);
+  const undo = byId.get(record.undoneBy);
+  return !!undo && !cancelled(undo, byId, seen);
+}
+
+/**
+ * A later record that leaves the settings as they were: one that is cancelled, or an undo still in
+ * force whose change is in the list (the two cancel out). Everything else is a change made later.
+ */
+function neutral(record: ChangeRecord, byId: ReadonlyMap<string, ChangeRecord>): boolean {
+  if (cancelled(record, byId)) return true;
+  return !!record.undoes && byId.has(record.undoes);
+}
+
 /** Why this record cannot be undone exactly as it stands, or null. Nothing is written here. */
 function undoRefusal(store: Store, owner: string, record: ChangeRecord, records: readonly ChangeRecord[]): string | null {
   if (record.undoneBy) return "That change was already undone.";
@@ -28,9 +48,11 @@ function undoRefusal(store: Store, owner: string, record: ChangeRecord, records:
   // the value alone cannot tell: putting this one back would silently undo that later change too.
   // A later change that was itself undone cancels out with its undo (an undo is only ever made when
   // nothing touched those settings in between), so undoing newest first still works step by step.
+  // An undo that was undone again no longer cancels anything: the change it undid is back in force.
   const touched = new Set(record.changes.map((entry) => entry.setting));
+  const byId = new Map(records.map((entry) => [entry.id, entry]));
   const later = records.slice(records.indexOf(record) + 1)
-    .filter((entry) => !entry.undoneBy && !(entry.undoes && records.some((other) => other.id === entry.undoes)))
+    .filter((entry) => !neutral(entry, byId))
     .flatMap((entry) => entry.changes.filter((change) => touched.has(change.setting)).map((change) => ({ at: entry.at, setting: change.setting })));
   if (later.length) {
     const names = [...new Set(later.map((entry) => entry.setting))];
