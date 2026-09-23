@@ -128,7 +128,8 @@ export function registerUpdaterIpc(
             : `The update could not be started: ${why}.`);
         });
       } catch (error) {
-        updater.release();
+        // Q55: nothing was swapped, so the status says what is still installed instead of "Restarting…".
+        updater.failed(error instanceof Error ? error.message : String(error));
         throw error;
       }
       const status = updater.applying();

@@ -1021,9 +1021,32 @@ function showVersions(status) {
   else if (status.release.available) line.textContent = `Running ${running}, newest is ${newest}.`;
   else line.textContent = `Running ${running}, which is the newest.`;
 }
+/*
+ * Q55: the installed build (version and the commit it was built from, "not recorded" when the build
+ * carries none), what a failed update left in place, and the offered release's own notes as plain text.
+ */
+let lastUpdateStatus = null;
+function showBuild(status) {
+  lastUpdateStatus = status;
+  const installed = status?.installed;
+  $("updates-build-version").textContent = installed?.version || state.version || t("updates.build.not-recorded");
+  const commit = $("updates-build-commit");
+  commit.textContent = installed?.commit ? installed.commit.slice(0, 12) : t("updates.build.not-recorded");
+  commit.title = installed?.commit || "";
+  const outcome = $("updates-outcome");
+  outcome.hidden = !(status?.phase === "error" && status.outcome?.kept);
+  outcome.textContent = outcome.hidden ? "" : t("updates.outcome.kept", { version: status.outcome.kept });
+  const release = status?.release;
+  $("updates-notes").hidden = !release?.available;
+  if (!release?.available) return;
+  $("updates-notes-title").textContent = t("updates.notes.title", { version: release.latestVersion });
+  $("updates-notes-text").textContent = release.notes?.trim() || t("updates.notes.none");
+}
+document.addEventListener("branch-language", () => { if (window.branchDesktop && lastUpdateStatus) showBuild(lastUpdateStatus); });
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
   showVersions(status);
+  showBuild(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   if (installing) window.branchUpdateScreen?.show(status); else window.branchUpdateScreen?.hide();

@@ -1377,7 +1377,17 @@
             <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Dev builds every merged change on this computer, the moment it lands, before the full checks: it needs git and Node.js, each update takes a few minutes, and it never updates by itself. Stable remains the default. Switching back never installs an older version.</p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
+            <!-- Q55: exactly which build is installed, and what the offered release says about itself. -->
+            <dl id="updates-build" class="update-build">
+              <dt data-t="updates.build.version">Installed version</dt><dd id="updates-build-version"></dd>
+              <dt data-t="updates.build.commit">Built from commit</dt><dd id="updates-build-commit"></dd>
+            </dl>
             <p id="updates-status" role="status"></p>
+            <p id="updates-outcome" hidden></p>
+            <section id="updates-notes" class="update-notes" hidden>
+              <h3 id="updates-notes-title"></h3>
+              <p id="updates-notes-text" class="update-notes-text"></p>
+            </section>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
               <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
