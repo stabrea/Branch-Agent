@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -77,9 +77,28 @@ Promise<{ archive: string; checksumFile: string; version: string }> {
   if (head !== commit) throw new Error("The source did not arrive at the change that was looked up, so nothing was built.");
   onPhase("installing");
   await run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: sourceDir, timeoutMs: minutes(30) });
+  const committedAt = Number((await run("git", ["show", "-s", "--format=%ct", commit], { cwd: sourceDir, timeoutMs: 30_000 })).trim());
+  const version = await stampDevVersion(sourceDir, committedAt);
   onPhase("building");
   await run("npm", ["run", "package:desktop", "--", "--release"], { cwd: sourceDir, timeoutMs: minutes(30) });
-  const version = JSON.parse(await readFile(join(sourceDir, "package.json"), "utf8")).version;
-  if (typeof version !== "string") throw new Error("The built source has no version, so nothing was changed.");
   return { archive: join(sourceDir, "release", assetName), checksumFile: join(sourceDir, "release", `${assetName}.sha256`), version };
+}
+
+/**
+ * Like Beta's stamp (scripts/beta-release.mjs), only for the build: a Dev build of 0.19.2's line is
+ * 0.19.3-dev.<commit time>. So every Dev build has its own version, later changes have higher ones, the update's
+ * record can tell whether the swap landed, and Beta (0.19.3-beta.N sorts below it) never offers older code.
+ */
+export async function stampDevVersion(sourceDir: string, committedAt: number): Promise<string> {
+  const manifestPath = join(sourceDir, "package.json"), lockPath = join(sourceDir, "package-lock.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")), lock = JSON.parse(await readFile(lockPath, "utf8"));
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(manifest.version));
+  if (manifest.name !== "branch-agent" || !match || lock.version !== manifest.version || lock.packages?.[""]?.version !== manifest.version
+    || !Number.isSafeInteger(committedAt) || committedAt < 1)
+    throw new Error("The source's version could not be read, so nothing was built.");
+  const version = `${match[1]}.${match[2]}.${Number(match[3]) + 1}-dev.${committedAt}`;
+  manifest.version = lock.version = lock.packages[""].version = version;
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+  return version;
 }

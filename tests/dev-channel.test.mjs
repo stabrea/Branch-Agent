@@ -14,7 +14,7 @@ import { updatePlan, betaCheckEveryMs } from "../dist/comfort/auto-update.js";
 import { buildInfo } from "../scripts/package-desktop.mjs";
 
 const repo = "stabrea/Branch-Agent", assetName = "Branch-Agent-windows-x64.zip", exe = "Branch Agent.exe";
-const NEW = "a".repeat(40), OLD = "b".repeat(40);
+const NEW = "a".repeat(40), OLD = "b".repeat(40), COMMITTED = 1758600000, BUILT = `0.19.3-dev.${COMMITTED}`;
 
 async function folders(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-dev-channel-"));
@@ -35,10 +35,15 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
     if (failOn && line.includes(failOn)) throw new Error(`${failOn} did not finish.`);
     if (line.startsWith("git ls-remote")) return `${head}\trefs/heads/${devBranch}\n`;
     if (line.startsWith("git clone")) { await mkdir(join(where.sourceDir, ".git"), { recursive: true }); return ""; }
+    if (line.startsWith("git reset")) { // the committed tree: canonical's own version, the lockfile agreeing
+      await writeFile(join(where.sourceDir, "package.json"), JSON.stringify({ name: "branch-agent", version: "0.19.2" }));
+      await writeFile(join(where.sourceDir, "package-lock.json"), JSON.stringify({ name: "branch-agent", version: "0.19.2", packages: { "": { version: "0.19.2" } } }));
+      return "";
+    }
+    if (line.startsWith("git show")) return `${COMMITTED}\n`;
     if (line.startsWith("git rev-parse")) return `${headAfterReset}\n`;
     if (line.startsWith("npm run package:desktop")) {
       await mkdir(join(options.cwd, "release"), { recursive: true });
-      await writeFile(join(options.cwd, "package.json"), JSON.stringify({ name: "branch-agent", version: "0.19.3" }));
       const zip = join(options.cwd, "release", assetName);
       await writeFile(zip, "a built app");
       const digest = createHash("sha256").update(tamper ? "something else" : "a built app").digest("hex");
@@ -48,8 +53,9 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
   };
   return { run, calls };
 }
-/** Unpacking the built zip: the app folder with its package identity. */
-const extract = (version = "0.19.3") => async (_archive, into) => {
+/** Unpacking the built zip: the app folder with the package identity the build was stamped with. */
+const extract = (sourceDir) => async (_archive, into) => {
+  const { version } = JSON.parse(await readFile(join(sourceDir, "package.json"), "utf8"));
   const app = join(into, "Branch Agent");
   await mkdir(join(app, "resources", "app"), { recursive: true });
   await writeFile(join(app, exe), "the new app");
@@ -57,7 +63,7 @@ const extract = (version = "0.19.3") => async (_archive, into) => {
 };
 const noNetwork = async (url) => { throw new Error(`the Dev channel must not call ${url}`); };
 const updater = (where, tools, extra = {}) => new Updater({ repo, currentVersion: "0.19.3", channel: "dev", installDir: where.installDir,
-  executableName: exe, assetName, scratchDir: where.scratchDir, platform: "win32", fetch: noNetwork, extract: extract(),
+  executableName: exe, assetName, scratchDir: where.scratchDir, platform: "win32", fetch: noNetwork, extract: extract(where.sourceDir),
   devRun: tools.run, devSourceDir: where.sourceDir, currentCommit: OLD, runOnceKey: "HKCU\\Software\\BranchTest\\RunOnce", ...extra });
 
 test("Dev says plainly when git or Node is missing, and looks nothing up", async (t) => {
@@ -84,13 +90,16 @@ test("installing a Dev build clones, resets to the exact change, installs, build
   const dev = updater(where, tools, { currentVersion: "0.19.4-beta.9", canary: async (_dir, version) => { checked.push(version); } });
   await dev.check();
   const { script, stagedDir } = await dev.install();
-  assert.deepEqual(checked, ["0.19.3"], "the new version's check expects the version the source was built as, not the running one");
+  assert.deepEqual(checked, [BUILT], "the new version's check expects the version the source was built as, not the running one");
   const build = tools.calls.filter((call) => !call.endsWith("--version") && !call.startsWith("git ls-remote"));
   assert.deepEqual(build, [
     `git clone --no-tags --single-branch --branch ${devBranch} https://github.com/${repo}.git ${where.sourceDir}`,
     `git reset --hard ${NEW}`, "git clean -fdx -e node_modules", "git rev-parse HEAD",
-    "npm ci --no-audit --no-fund", "npm run package:desktop -- --release",
+    "npm ci --no-audit --no-fund", `git show -s --format=%ct ${NEW}`, "npm run package:desktop -- --release",
   ]);
+  const lock = JSON.parse(await readFile(join(where.sourceDir, "package-lock.json"), "utf8"));
+  assert.deepEqual([lock.version, lock.packages[""].version], [BUILT, BUILT], "stamped like Beta: the package and its lockfile agree");
+  assert.equal(dev.status.release.latestVersion, BUILT, "the update's record and the next start expect the built version");
   assert.match(await readFile(script, "utf8"), /robocopy/i, "the same hand-over as a downloaded release");
   assert.ok((await readdir(stagedDir)).includes(exe));
   assert.equal(await readFile(join(where.installDir, exe), "utf8"), "the installed app", "nothing is swapped until the hand-over runs");
@@ -128,4 +137,11 @@ test("every packaged build records the change it was made from", () => {
   assert.equal(buildInfo({ GITHUB_SHA: NEW }, () => "").commit, NEW);
   assert.equal(buildInfo({}, () => `${OLD}\n`).commit, OLD);
   assert.equal(buildInfo({}, () => "not a commit").commit, null);
+});
+
+test("each Dev build has its own version: later changes sort higher, and above the same line's Beta", async () => {
+  const { compareVersions } = await import("../dist/desktop/updater.js");
+  assert.equal(compareVersions(`0.19.3-dev.${COMMITTED + 60}`, BUILT), 1);
+  assert.equal(compareVersions(BUILT, "0.19.3-beta.999"), 1, "switching back to Beta never offers the same line's older builds");
+  assert.equal(compareVersions("0.19.3", BUILT), 1, "the Stable release of that line is newer than any of its Dev builds");
 });

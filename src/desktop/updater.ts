@@ -252,7 +252,12 @@ export class Updater {
       await mkdir(this.options.scratchDir, { recursive: true });
       if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
       let archive = join(this.options.scratchDir, this.options.assetName!), expectedVersion = release.latestVersion;
-      if (release.channel === "dev") ({ archive, version: expectedVersion } = await this.buildDevArchive(release));
+      if (release.channel === "dev") {
+        ({ archive, version: expectedVersion } = await this.buildDevArchive(release));
+        // From here on the Dev release is the version it was built as: the check, the record and the next start agree.
+        release = { ...release, latestVersion: expectedVersion };
+        this.status = { ...this.status, release };
+      }
       else {
         await this.download(release, archive);
         await this.verify(archive, release);
