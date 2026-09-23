@@ -171,6 +171,8 @@ const readOnlyPermissions = new Set([
   "media.read",
   // Figures held only for this task, reports already written, watches, and the brief: all look-only.
   "data.read", "research.read", "monitors.read", "brief.read",
+  // Enriching and scoring a prospect list only computes over what was handed in; nothing is saved.
+  "leads.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
   // Saying what a call would do, and how the connections to other AI tools are faring, changes
