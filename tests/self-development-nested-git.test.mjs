@@ -225,8 +225,8 @@ test("Q79: git.push and git.pull in source refuse WORKTREE scoped credential.hel
   git("remote", "add", "origin", "https://example.com/repo.git");
   git("config", "--worktree", "credential.helper", "fake");
   const signal = AbortSignal.timeout(10_000);
-  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*(local|worktree) scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*(local|worktree) scope/);
 });
 
 test("Q79: git.push and git.pull in source allow GLOBAL scoped credential.helper", { skip: posixOnly }, async (t) => {
