@@ -78,6 +78,15 @@ export class Hindsight {
   }
 }
 
+/**
+ * FQ-routing.isolated-agents: the bank is one for the whole workspace and its recall and reflect cannot
+ * be narrowed to one agent, so a Trunk or delegated specialist is not handed the owner's — the same
+ * rule memory.outside_recall already keeps (src/learning-more/providers.ts). Keeping is still allowed.
+ */
+function ownerOnly(context: { agent?: string }): void {
+  if (context.agent) throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
+}
+
 export function registerHindsight(registry: ToolRegistry, hindsight: Hindsight): void {
   registry.register({
     name: "hindsight.retain", permission: "memory.write",
@@ -87,11 +96,11 @@ export function registerHindsight(registry: ToolRegistry, hindsight: Hindsight):
   registry.register({
     name: "hindsight.recall", permission: "memory.read",
     description: "Find what the owner's Hindsight memory server keeps about something.",
-    parameters: RecallSchema, execute: async (input) => hindsight.recall(input),
+    parameters: RecallSchema, execute: async (input, context) => { ownerOnly(context); return hindsight.recall(input); },
   });
   registry.register({
     name: "hindsight.reflect", permission: "memory.read",
     description: "Ask the owner's Hindsight memory server for a reasoned answer from what it keeps.",
-    parameters: ReflectSchema, execute: async (input) => hindsight.reflect(input),
+    parameters: ReflectSchema, execute: async (input, context) => { ownerOnly(context); return hindsight.reflect(input); },
   });
 }
