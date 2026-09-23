@@ -39,8 +39,7 @@ function picker(id, labelKey, values, prefix) {
   label.htmlFor = id;
   // Detect three-way switch vs multi-option dropdown
   if (JSON.stringify(values) === JSON.stringify(["off", "when-needed", "on"])) {
-    const options = values.map((v) => [v, `${prefix}.${v}`]);
-    const control = segmented({ id, options, value: "" });
+    const control = segmented({ id, value: "" }); // the shared Off · When needed · On
     return [label, control];
   } else {
     const options = values.map((v) => [v, `${prefix}.${v}`]);
@@ -88,7 +87,7 @@ function buildCountersCard() {
   card.className = "card";
   card.id = "counters-card";
   card.dataset.home = "settings:advanced";
-  const [modeLabel, mode] = picker("counters-mode", "field.counters-mode", ["off", "when-needed", "on"], "counters.mode");
+  const [modeLabel, mode] = picker("counters-mode", "field.counters-mode", ["off", "when-needed", "on"]);
   mode.addEventListener("change", async () => {
     try { showCounters((await api("usage/counters", { mode: mode.value })).counters); sayCounters(""); }
     catch (error) { sayCounters(error.message); }
@@ -126,7 +125,7 @@ function buildCard() {
   card.className = "card";
   card.id = "usage-report-card";
   card.dataset.home = "settings:data";
-  const [modeLabel, mode] = picker("usage-report-mode", "field.usage-report-mode", ["off", "when-needed", "on"], "usage.report.mode");
+  const [modeLabel, mode] = picker("usage-report-mode", "field.usage-report-mode", ["off", "when-needed", "on"]);
   const [rangeLabel, range] = picker("usage-report-range", "field.usage-report-range", ["7d", "30d", "90d"], "usage.report.range");
   mode.addEventListener("change", () => save({ mode: mode.value }));
   range.addEventListener("change", () => save({ range: range.value }));

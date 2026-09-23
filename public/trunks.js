@@ -82,7 +82,7 @@ export function avatar(trunk, size = 28) {
 }
 
 /* ---------- the switches ---------- */
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   trunks: ["trunks.part.trunks", "Trunks"],
   rooms: ["trunks.part.rooms", "Rooms where Trunks talk together"],

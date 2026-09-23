@@ -277,10 +277,10 @@ test("U7: every word the two cards show is on file in English and in real French
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
   const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
   const keys = new Set([...script.matchAll(/["'`]((?:usage\.report\.|counters\.|action\.usage-report-|action\.counters-|field\.usage-report-|field\.counters-)[\w.-]*)["'`]/g)].map((m) => m[1]));
-  for (const mode of ["off", "when-needed", "on"]) { keys.add(`usage.report.mode.${mode}`); keys.add(`counters.mode.${mode}`); }
+  /* DG-017: both mode switches are the shared Off · When needed · On, whose words are the switch's own. */
   for (const range of ["7d", "30d", "90d"]) keys.add(`usage.report.range.${range}`);
-  for (const prefix of ["usage.report.mode", "counters.mode", "usage.report.range"]) keys.delete(prefix);
-  assert.ok(keys.size >= 20, `the script's keys were not found (${keys.size})`);
+  keys.delete("usage.report.range");
+  assert.ok(keys.size >= 18, `the script's keys were not found (${keys.size})`); // 18 since DG-017 took the six mode words
   for (const key of keys) {
     assert.ok(english[key], `${key} has no English`);
     assert.ok(french[key] && french[key] !== english[key], `${key} has no French of its own`);

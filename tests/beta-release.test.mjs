@@ -69,12 +69,13 @@ test("fast proof requires exact merged PR, independent exact-head approval and l
   let reviews = [approval], runs = [fast(8), fast(9)], behindBy = 0;
   let mergeParents = [{ sha: base }, { sha: head }];
   let mergeTree = "d".repeat(40), headTree = mergeTree;
+  let reviewedSha = head;
   let rollupRun = null;
   const gh = async (args) => {
     const path = args[3] ?? args[1];
     if (path.includes(`/commits/${sha}/pulls`)) return JSON.stringify([pull]);
     if (path === `repos/${repo}/commits/${sha}`) return JSON.stringify({ sha, parents: mergeParents, commit: { tree: { sha: mergeTree } } });
-    if (path === `repos/${repo}/commits/${head}`) return JSON.stringify({ sha: head, commit: { tree: { sha: headTree } } });
+    if (path === `repos/${repo}/commits/${head}`) return JSON.stringify({ sha: reviewedSha, commit: { tree: { sha: headTree } } });
     if (path === `repos/${repo}/compare/${base}...${head}`)
       return JSON.stringify({ behind_by: behindBy });
     if (path.includes("/reviews")) return JSON.stringify(reviews);
@@ -94,6 +95,14 @@ test("fast proof requires exact merged PR, independent exact-head approval and l
     assert.equal(await fastProof(sha, repo, gh), null, "missing or invalid reviewed tree fails closed");
   }
   headTree = mergeTree;
+  const validTree = mergeTree;
+  mergeTree = headTree = undefined;
+  assert.equal(await fastProof(sha, repo, gh), null, "two absent trees cannot establish reviewed-tree equality");
+  mergeTree = headTree = validTree;
+  reviewedSha = "f".repeat(40);
+  assert.equal(await fastProof(sha, repo, gh), null, "a response for another commit cannot lend its matching tree");
+  reviewedSha = head;
+  assert.equal((await fastProof(sha, repo, gh)).kind, "reviewed-fast", "restored valid identity still accepts");
   rollupRun = 1;
   assert.equal(await fastProof(sha, repo, gh), null, "PR check rollup must bind to this exact accepted run");
   rollupRun = null;

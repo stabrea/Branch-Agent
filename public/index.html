@@ -1097,30 +1097,30 @@
             <p data-t="settings.chat-live.intro">Choose what the chat shows and accepts while Branch works on a message; everything here starts off.</p>
             <label for="chat-live-status" data-t="field.chat-live-status">Show the work in the chat</label>
             <select id="chat-live-status" name="liveStatus">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.status-note">Typing, a reaction on your message, and one message that lists the steps. When needed: only once a task has taken a few seconds.</p>
             <label for="chat-live-commands" data-t="field.chat-live-commands">Read commands such as /stop</label>
             <select id="chat-live-commands" name="commands">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.commands-note">/stop, /status, /new, /compact, /usage and /btw. When needed: only /stop, /status and /btw, and only while a task works.</p>
             <label for="chat-live-steering" data-t="field.chat-live-steering">Pass later messages to the task</label>
             <select id="chat-live-steering" name="steering">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.steering-note">A message sent while a task works becomes a note it reads next. On also answers quick messages as one. Off: it waits its turn.</p>
             <label for="chat-live-splitting" data-t="field.chat-live-splitting">Keep code whole in long replies</label>
             <select id="chat-live-splitting" name="splitting">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.splitting-note">Long replies are split at paragraph breaks and code blocks stay code. When needed: only for replies with code.</p>
             <p id="chat-live-state" class="field-note" aria-live="polite"></p>
@@ -1781,12 +1781,12 @@
             <!-- bucket-18 (A0300): pull requests from a task's changes, off by default -->
             <details id="pull-requests">
               <summary data-t="developer.pull-requests.title">Pull requests from changes</summary>
-              <p class="subtle" data-t="developer.pull-requests.note">When this is on, a task that changed files can put them on a new branch, send it to GitHub with this computer's own Git sign-in and open a draft pull request. It never sends to a shared branch such as main, and a short-lived key can never use it. GitHub must be connected first.</p>
+              <p class="subtle" data-t="developer.pull-requests.note">When this is on, a task that changed files can put them on a new branch, send it to GitHub with this computer's own Git sign-in and open a draft pull request. It never sends to a shared branch such as main, and a short-lived key can never use it. GitHub must be connected first. When needed: only when you ask for one. On: after every task that changed files.</p>
               <label for="pull-requests-mode" data-t="developer.pull-requests.mode">Pull requests from changes</label>
               <select id="pull-requests-mode">
-                <option value="off" data-t="schedules.switch.off">Off</option>
-                <option value="when-needed" data-t="developer.pull-requests.when-needed">When asked</option>
-                <option value="on" data-t="developer.pull-requests.on">After every task that changed files</option>
+                <option value="off" data-t="field.switch-off">Off</option>
+                <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+                <option value="on" data-t="field.switch-on">On</option>
               </select>
               <button id="pull-requests-save" type="button" data-t="action.save">Save</button>
               <p id="pull-requests-status" class="subtle" aria-live="polite"></p>
@@ -1820,12 +1820,12 @@
           <!-- mac7/diagnostics: the activity log (public/activity-log.js). Off unless the owner turns it on. -->
           <section id="activity-log-card" class="card">
             <h2 data-t="settings.card.activity-log">Activity log</h2>
-            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off.</p>
+            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off. When needed keeps warnings and errors only; On keeps everything.</p>
             <label for="activity-log-mode" data-t="field.activity-log-mode">Keep an activity log</label>
             <select id="activity-log-mode" aria-describedby="activity-log-intro">
-              <option value="off" data-t="activity-log.mode.off">Off</option>
-              <option value="when-needed" data-t="activity-log.mode.when-needed">When needed: warnings and errors only</option>
-              <option value="on" data-t="activity-log.mode.on">On: everything</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <label for="activity-log-days" data-t="field.activity-log-days">Keep it for this many days</label>
             <input id="activity-log-days" type="number" min="1" max="90" aria-describedby="activity-log-intro" />

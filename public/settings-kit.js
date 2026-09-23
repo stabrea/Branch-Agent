@@ -54,7 +54,7 @@ function quiet(key, english, onClick) {
 /* ---------- words for values ---------- */
 
 const VALUE_WORDS = {
-  off: ["field.switch-off", "Off"], on: ["field.switch-on", "On"], "when-needed": ["field.switch-when-needed", "Only when it is needed"],
+  off: ["field.switch-off", "Off"], on: ["field.switch-on", "On"], "when-needed": ["field.switch-when-needed", "When needed"],
   true: ["settings-kit.value.yes", "Yes"], false: ["settings-kit.value.no", "No"],
 };
 const CHOICE_WORDS = {

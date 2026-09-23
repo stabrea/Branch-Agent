@@ -356,7 +356,7 @@ test("the command palette jumps to a section and closes on Escape", async (t) =>
 test("every appearance control applies at once and survives a reload", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance");
-  await f.page.getByRole("button", { name: "Light", exact: true }).click();
+  await f.page.getByRole("button", { name: "Daylight", exact: true }).click();
   await f.page.getByRole("button", { name: "Cherry", exact: true }).click();
   await f.page.getByRole("button", { name: "Large", exact: true }).click();
   await f.page.getByRole("button", { name: "Compact", exact: true }).click();
@@ -564,7 +564,7 @@ test("Send keeps its label on one line and the helper note sits under the compos
 test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const f = await fixture(t);
   await f.page.locator("#appearance-shortcut").click();
-  await f.page.getByRole("button", { name: "Light", exact: true }).click();
+  await f.page.getByRole("button", { name: "Daylight", exact: true }).click();
   await f.page.locator(".lx-settings-close").click();
   await f.page.locator("#prompt").fill("Say hello");
   await f.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -831,7 +831,8 @@ test("Q4 every section says what it is for, and every card carries a title", asy
     }, holder);
     assert.ok(said, `${view} never says what it is for`);
     const untitled = await f.page.evaluate((id) => [...document.getElementById(id).querySelectorAll(".card")]
-      .filter((card) => card.offsetParent !== null && !card.querySelector("h2, summary"))
+      .filter((card) => card.offsetParent !== null && !card.querySelector(
+        card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title, summary"))
       .map((card) => card.id || card.className), holder);
     assert.deepEqual(untitled, [], `${view} has a card with no title`);
   }

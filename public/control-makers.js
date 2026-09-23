@@ -37,10 +37,10 @@ const DEFAULT_POSITIONS = [
   ["on", "field.switch-on", "On"],
 ];
 
-const orderedPositions = (options) =>
-  options.length === 3 && ["off", "when-needed", "on"].every((choice) => options.some(([one]) => one === choice))
-    ? ["off", "when-needed", "on"].map((choice) => options.find(([one]) => one === choice))
-    : options;
+/* DG-017: every three-way reads Off · When needed · On in that order, whatever words its module brought,
+   as the approved sample draws each one (`invControlHTML`). The stored values are unchanged. */
+const isThreeWay = (options) =>
+  options.length === 3 && ["off", "when-needed", "on"].every((choice) => options.some(([one]) => one === choice));
 
 function optionNode(option) {
   const node = document.createElement("option");
@@ -131,7 +131,7 @@ function proxySegmentedControl(control, source, sync) {
 }
 
 export function segmented({ id, options = DEFAULT_POSITIONS, value = "off", onChange } = {}) {
-  const positions = orderedPositions(options);
+  const positions = isThreeWay(options) ? DEFAULT_POSITIONS : options;
   const control = document.createElement("div");
   control.className = `seg segmented-control${positions.length === 3 ? " tri" : ""}`;
   const source = document.createElement("select");
@@ -148,7 +148,7 @@ export function segmented({ id, options = DEFAULT_POSITIONS, value = "off", onCh
 }
 
 export function dropdown({ id, options = [], value = "", onChange } = {}) {
-  if (options.length === 3 && ["off", "when-needed", "on"].every((choice) => options.some(([one]) => one === choice)))
+  if (isThreeWay(options))
     return segmented({ id, options, value, onChange });
   const control = document.createElement("select");
   control.className = "glass";

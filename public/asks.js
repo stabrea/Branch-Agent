@@ -60,7 +60,7 @@ function row(...children) {
   return node;
 }
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   "project-board": ["asks.part.projectBoard", "Project boards"],
   "answer-engine": ["asks.part.answerEngine", "Quick answers from the web, with sources"],

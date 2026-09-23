@@ -225,15 +225,67 @@
   gap: var(--s2);
   min-width: 0;
 }
+.delight-tries span {
+  font-size: 13px;
+  color: var(--muted);
+}
+/* DG-134: the sample's "Try a celebration" row (`.ctl.stack` holding `.acts` of `btn sm`): the label, the tiers three
+   and three, and the note beside them; with less room the note, then the tiers, go under the label. */
+.delight-celebrate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  min-width: 0;
+}
+.delight-celebrate-label {
+  font-size: 14px;
+  font-weight: 520;
+}
+.delight-celebrate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 8px;
+}
+.delight-celebrate-note {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.delight-try {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  margin: 0;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 540;
+}
+/* The sample's tier dots (`.tdot`), in its own colours. */
+.delight-tier-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 50%;
+}
+.delight-tier-dot.t-bronze { background: var(--tier-dot-bronze); }
+.delight-tier-dot.t-silver { background: var(--tier-dot-silver); }
+.delight-tier-dot.t-gold { background: var(--tier-dot-gold); }
+.delight-tier-dot.t-diamond { background: var(--tier-dot-diamond); }
+.delight-tier-dot.t-godly { background: var(--tier-dot-godly); }
+.delight-tier-dot.t-sssp { background: var(--tier-dot-sssp); }
 .delight-ach-count,
 .delight-bg-name {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 13px;
-}
-.delight-tries span {
-  font-size: 13px;
-  color: var(--muted);
 }
 .delight-card .secondary,
 .ach-sheet .secondary {
@@ -336,46 +388,64 @@
   from { opacity: 0; transform: scale(0.8); }
   to { opacity: 1; transform: none; }
 }
+/* DG-077: a Gold achievement or better is the sample's party (its live `celebrate`): the card in the middle of the
+   window over a faint veil, sized to its words, with a copper edge; its tier eyebrow in copper capitals, the name
+   at 20px, the line under it at 13.5px, and "Lovely" as the sample's small quiet button. */
 .ach-party {
   position: fixed;
   inset: 0;
   z-index: 95;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--surface) 12%, transparent);
   pointer-events: none;
   overflow: hidden;
 }
 .ach-card {
-  position: absolute;
-  top: 12%;
-  left: 50%;
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 6px;
-  width: min(340px, calc(100vw - 32px));
-  padding: var(--s5) var(--s4) var(--s4);
-  border-radius: var(--r4);
-  border: 1px solid var(--line-strong);
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 24px 28px;
+  border-radius: 22px;
+  border: 1px solid var(--copper-edge);
   background: var(--surface);
   color: var(--text);
   text-align: center;
-  box-shadow: var(--shadow);
-  transform: translateX(-50%);
+  box-shadow: var(--card-shadow);
   pointer-events: auto;
+  cursor: pointer;
   animation: ach-card-in 0.35s ease-out;
 }
 .ach-card small {
-  color: var(--muted);
+  color: var(--copper-text);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .ach-card b {
-  font-size: 18px;
+  font-size: 20px;
   overflow-wrap: anywhere;
 }
 .ach-card span {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+.ach-card button {
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 540;
 }
 @keyframes ach-card-in {
-  from { opacity: 0; transform: translate(-50%, 16px) scale(0.94); }
-  to { opacity: 1; transform: translateX(-50%); }
+  from { opacity: 0; transform: translateY(16px) scale(0.94); }
+  to { opacity: 1; transform: none; }
 }
 .ach-party .bit {
   position: absolute;

@@ -27,10 +27,10 @@ export const descriptions = [
   ["#project-instructions", "describe.project-instructions", "Read at the start of every task in this project, on top of your usual instructions."],
   ["#project-preset", "describe.project-preset", "The model this project's conversations start with. Empty uses your default model."],
   // mac7/adapt: the switch on the "Getting what a stopped task is missing" card.
-  ["#adapt-mode", "describe.adapt-mode", "Whether Branch may get what a stopped task is missing. Off: it only names it. Only when it is needed: it offers a fix when something really stopped. On: it also says so before you ask. It never fetches or installs anything until you say yes."],
+  ["#adapt-mode", "describe.adapt-mode", "Whether Branch may get what a stopped task is missing. Off: it only names it. When needed: it offers a fix when something really stopped. On: it also says so before you ask. It never fetches or installs anything until you say yes."],
   ["#commands-mode", "describe.commands-mode", "Whether the / commands work here and in chat apps. Off hides them everywhere."],
   ["#asks-switch-project-board", "describe.project-board", "Keeps each project's flows and schedules on one board. Off hides the board; nothing on it is lost."],
-  ["#context-switch-agents", "describe.file-agents", "Whether AGENTS.md in the project folder is read. On: at the start of every task. Only when needed: when the work calls for it. Off: never."],
+  ["#context-switch-agents", "describe.file-agents", "Whether AGENTS.md in the project folder is read. On: at the start of every task. When needed: when the work calls for it. Off: never."],
   ["#context-switch-soul", "describe.file-soul", "Whether SOUL.md, its character, is read. When it is, it replaces the built-in character."],
   ["#context-switch-identity", "describe.file-identity", "Whether IDENTITY.md, the name and manner you gave it, is read before each task."],
   ["#context-switch-user", "describe.file-user", "Whether USER.md, what it should know about you, is read before each task."],
@@ -222,4 +222,4 @@ export const descriptions = [
 
 /** Any three-way switch without a line of its own gets this one. */
 export const switchDescription = ["describe.three-way-switch",
-  "Off: it does nothing and its tools are hidden. Only when it is needed: it is ready, and used only when a task calls for it. On: it is ready from the start of every task."];
+  "Off: it does nothing and its tools are hidden. When needed: it is ready, and used only when a task calls for it. On: it is ready from the start of every task."];

@@ -60,7 +60,7 @@ function row(...children) {
 /** A change, then the cards drawn again; an error is said in the card's status line. */
 const act = (status, work) => async () => { try { await work(); await drawCards(); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   suggestions: ["autonomy.part.suggestions", "Suggested automations"],
   orders: ["autonomy.part.orders", "Standing orders"],

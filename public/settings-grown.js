@@ -142,12 +142,20 @@ function bucketHead(page, [id, iconName, title, line]) {
   // words.append(worded("p", "sg-head-line", `${key}.line`, line));
   const more = make("button", "sg-more");
   more.type = "button";
-  more.hidden = true;
   more.addEventListener("click", () => chooseLevel(more.dataset.to));
-  head.append(words, more);
+  /* DG-073: the link is a line of its own, placed at the end of its section by countHidden (in the head only when
+     the section shows nothing). Search reads cards' own words, never this line's. */
+  const moreLine = make("p", "sg-more-line");
+  moreLine.hidden = true;
+  moreLine.dataset.noSearch = "";
+  moreLine.dataset.bucket = head.dataset.bucket;
+  moreLine.append(more);
+  moreLines.set(head, moreLine);
+  head.append(words, moreLine);
   // DG-011: Don't append the icon tile since it's not in the sample
   return head;
 }
+const moreLines = new Map();
 function otherHead(page) {
   const head = bucketHead(page, ["other", "more", "More on this page", "Settings added here by something else."]);
   head.classList.add("sg-other");
@@ -220,7 +228,9 @@ function putKeys(card) {
     keyLines.set(card.id, line);
   }
   const line = keyLines.get(card.id);
-  if (card.lastElementChild !== line) card.append(line);
+  /* It is the last line, save for "N more with Advanced" when that ends the section (DG-073). */
+  const trail = card.lastElementChild?.matches(".sg-more-line") ? card.lastElementChild : null;
+  if ((trail ? trail.previousElementSibling : card.lastElementChild) !== line) card.insertBefore(line, trail);
 }
 
 /* ---------- "N more with Advanced" ---------- */
@@ -231,10 +241,13 @@ function countHidden() {
     const above = cards.filter((card) => RANK[card.dataset.level ?? "regular"] > now);
     const shown = cards.filter((card) => !above.includes(card));
     for (const card of cards) card.classList.toggle("sg-solo", shown.length === 1 && card === shown[0]);
-    const more = head.querySelector(".sg-more");
+    const line = moreLines.get(head), more = line.querySelector(".sg-more");
     head.classList.toggle("sg-empty", cards.length === 0);
     head.classList.toggle("sg-thin", cards.length > 0 && above.length === cards.length);
-    if (more.hidden !== (above.length === 0)) more.hidden = above.length === 0;
+    if (line.hidden !== (above.length === 0)) line.hidden = above.length === 0;
+    /* DG-073: at the end of the section, after its last card on show; in the head when none is on show. */
+    const home = above.length && shown.length ? shown.at(-1) : head;
+    if (home.lastElementChild !== line) home.append(line);
     if (!above.length) continue;
     const to = above.some((card) => card.dataset.level === "advanced") ? "advanced" : "technical";
     mark(more, "to", to);
@@ -249,7 +262,7 @@ function arrangeAll() {
 }
 let arranging = 0;
 function watchPages() {
-  const again = () => { if (arranging) return; arranging = requestAnimationFrame(() => { arranging = 0; arrangeAll(); }); };
+  const again = () => { if (arranging) return; arranging = requestAnimationFrame(() => { arranging = 0; arrangeAll(); recountResults(); }); };
   for (const page of Object.keys(BUCKETS)) {
     const host = hostFor(page);
     if (!host) continue;
@@ -257,7 +270,7 @@ function watchPages() {
   }
 }
 
-/* ---------- the Settings list: groups, icons, places, the level, and a page picker for small screens ---------- */
+/* ---------- the Settings list: groups, icons, places, the level, and the pages as one strip on a phone ---------- */
 function dressNav() {
   const nav = document.querySelector(".lx-settings-nav");
   if (!nav || nav.dataset.sgDressed) return;
@@ -265,41 +278,26 @@ function dressNav() {
   for (const link of nav.querySelectorAll(".lx-settings-link")) withIcon(link, link.dataset.page);
   for (const [before, key, english] of NAV_GROUPS)
     nav.querySelector(`.lx-settings-link[data-page="${before}"]`)?.before(worded("p", "sg-nav-group", `settingsGrown.nav.${key}`, english));
-  nav.append(pagePicker(nav), levelBox());
+  nav.append(pageStrip(nav), levelBox());
   const version = $("lx-settings-version");
   if (version) nav.append(version);
 }
-/** On a phone the list of pages is one choice, not a row that scrolls sideways. */
-function pagePicker(nav) {
-  const label = make("label", "sg-picker");
-  const words = worded("span", "sr-only", "settings.pages", "Settings pages");
-  const select = make("select");
-  select.id = "sg-page-pick";
-  for (const link of nav.querySelectorAll(".lx-settings-link")) {
-    const option = make("option", "", link.textContent.trim());
-    option.value = link.dataset.page;
-    select.append(option);
-  }
-  select.addEventListener("change", () => nav.querySelector(`.lx-settings-link[data-page="${select.value}"]`)?.click());
-  label.append(words, select);
-  return label;
+/* DG-013: the pages and their group names sit in one holder. Wide, it is not a box of its own and they stay the
+   list; on a phone it is the approved sample's strip of page tabs (its `.set-pages` under 760px), which scrolls
+   sideways, never a dropdown. */
+function pageStrip(nav) {
+  const strip = make("div", "sg-pages");
+  strip.append(...nav.querySelectorAll(":scope > .lx-settings-link, :scope > .sg-nav-group"));
+  /* Every way to a page marks its tab, so the tab is followed rather than each way there. */
+  new MutationObserver(showCurrentTab).observe(strip, { subtree: true, attributes: true, attributeFilter: ["aria-current"] });
+  return strip;
 }
-function namePickerPages() {
-  for (const option of $("sg-page-pick")?.options ?? [])
-    option.textContent = document.querySelector(`.lx-settings-link[data-page="${option.value}"]`)?.textContent.trim() ?? option.textContent;
-}
-function syncPicker() {
-  const current = document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page;
-  const select = $("sg-page-pick");
-  if (!select || !current || select.value === current) return;
-  select.value = current;
-  select.dispatchEvent(new Event("branch-sync"));
-}
-function showOwnerPickerPage(owner) {
-  const option = $("sg-page-pick")?.querySelector('option[value="instructions"]');
-  if (!option) return;
-  option.hidden = !owner;
-  option.disabled = !owner;
+/** The page on show stays in sight in the strip, whichever way it was reached. */
+function showCurrentTab() {
+  const strip = document.querySelector(".sg-pages"), link = strip?.querySelector(".lx-settings-link[aria-current='true']");
+  if (!link || strip.scrollWidth <= strip.clientWidth + 1) return;
+  const box = strip.getBoundingClientRect(), tab = link.getBoundingClientRect();
+  if (tab.left < box.left || tab.right > box.right) strip.scrollLeft += tab.left - box.left - (box.width - tab.width) / 2;
 }
 
 /* ---------- Settings is a cog right after the account row (#37) ---------- */
@@ -347,15 +345,16 @@ function shownBySearch(row) {
 /** Words drawn on the page, in the language it is in (the index holds English). */
 const drawn = (node) => node?.textContent.replace(/\s+/g, " ").trim() || null;
 /**
- * A setting's name: the index's English, or in another language the words beside its control when it is drawn,
- * else (mac7/residuals) the locale files' words for that English, so a control not drawn yet is named too.
+ * A setting's name: the index's English, or in another language (DG-061) the locale files' words for that same
+ * English, as English shows it; only a name with no translation falls back to the words beside its control. The
+ * drawn words come second because some are only a control's own word ("Switch" beside each chat app).
  */
 function labelOf(row) {
-  return language() === "en" ? row[3] : drawn($(row[0])?.labels?.[0]) ?? fromEnglish(row[3]) ?? row[3];
+  return language() === "en" ? row[3] : fromEnglish(row[3]) ?? drawn($(row[0])?.labels?.[0]) ?? row[3];
 }
 function cardTitleOf(row) {
   if (language() === "en" || !row[6]) return row[6];
-  return (row[2] ? drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) : null) ?? fromEnglish(row[6]) ?? row[6];
+  return fromEnglish(row[6]) ?? (row[2] ? drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) : null) ?? row[6];
 }
 /** Settings in the index that match and are not already on show, closest first: the label itself, then its start. */
 function matches(needle) {
@@ -392,12 +391,13 @@ function whyUnseen(row) {
   return ["settingsGrown.found.gate", "Shows once the switch on its card is on."];
 }
 const FOUND_FIRST = 12;
+/** How many were found, beyond the cards on show: every one, not only the first few listed. */
 function drawFound(query) {
   $("sg-found")?.remove();
   const needle = query.trim().toLowerCase();
-  if (needle.length < 2) return;
+  if (needle.length < 2) return 0;
   const found = matches(needle);
-  if (!found.length) return;
+  if (!found.length) return 0;
   $("lx-settings-empty")?.remove();
   const box = make("section", "sg-found");
   box.id = "sg-found";
@@ -409,6 +409,37 @@ function drawFound(query) {
   box.append(title, list);
   if (found.length > FOUND_FIRST) box.append(showAll(list, found));
   $("lx-settings-body").prepend(box);
+  return found.length;
+}
+/** The Settings cards a search left on show (not the pages' own titles, jump links or group heads). */
+const cardsFound = () => [...document.querySelectorAll(".lx-page:not([hidden]) :is(.lx-subpanel > *, .lx-page > *)")]
+  .filter((card) => !card.matches(".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel, .lx-on-this-page, .sg-head, .lx-miss")
+    && card.checkVisibility());
+/**
+ * DG-061: the approved sample's head over search results (design/Branch-Grown-Up.html, `renderSettings`): how many
+ * were found, then what was searched for. It is a status, so a screen reader hears the count as it changes.
+ */
+function drawResultsHead(query, alsoFound) {
+  $("sg-results")?.remove();
+  const needle = query.trim();
+  if (!needle) return;
+  const head = make("div", "sg-results");
+  head.id = "sg-results";
+  head.setAttribute("role", "status");
+  head.dataset.alsoFound = String(alsoFound);
+  const title = make("h2", "lx-page-title", resultsWords(cardsFound().length + alsoFound));
+  head.append(title, make("p", "sg-results-for", say("settingsGrown.results.for", "for “{query}”", { query: needle })));
+  $("lx-settings-body").prepend(head);
+}
+const resultsWords = (count) => new Intl.PluralRules(language()).select(count) === "one"
+  ? say("settingsGrown.results.one", "{count} result", { count })
+  : say("settingsGrown.results.other", "{count} results", { count });
+/** A card that draws itself again during a search changes what is on show, so the count follows (written only when it changes). */
+function recountResults() {
+  const head = $("sg-results"), title = head?.querySelector("h2");
+  if (!title) return;
+  const words = resultsWords(cardsFound().length + Number(head.dataset.alsoFound || 0));
+  if (title.textContent !== words) title.textContent = words;
 }
 function showAll(list, found) {
   const all = make("button", "sg-found-all", say("settingsGrown.found.all", `Show all ${found.length}`, { count: found.length }));
@@ -426,9 +457,14 @@ function searchHeads(query) {
     head.classList.toggle("lx-miss", !hit);
   }
 }
-function onSearch(event) {
-  searchHeads(event.target.value);
-  drawFound(event.target.value);
+/**
+ * DG-061: the results head and "Also found" follow the search itself however it changed: typing, Settings opened
+ * again (which empties the box without typing), a new language (drawn again in its words), or another profile.
+ */
+function redrawSearch() {
+  const query = document.body.classList.contains("lx-settings-searching") ? $("lx-settings-search")?.value ?? "" : "";
+  searchHeads(query);
+  drawResultsHead(query, drawFound(query));
 }
 /** Opens where a setting lives, shows its card even above the level for now, and points at it. */
 function goToSetting(row) {
@@ -550,7 +586,7 @@ function watchHold() {
 }
 function afterPageChange() {
   pageNow = currentPage();
-  syncPicker();
+  showCurrentTab();
 }
 
 /* ---------- pages that only drew themselves when the old Settings button was pressed ---------- */
@@ -569,7 +605,15 @@ function start() {
   watchPages();
   watchPlace();
   watchHold();
-  $("lx-settings-search")?.addEventListener("input", onSearch);
+  $("lx-settings-search")?.addEventListener("input", redrawSearch);
+  /* Search ends without typing when Settings is opened again (layout.js empties the box and the search). */
+  let searching = false;
+  new MutationObserver(() => {
+    const now = document.body.classList.contains("lx-settings-searching");
+    if (now === searching) return;
+    searching = now;
+    if (!now) redrawSearch();
+  }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(applyLevel).observe(root, { attributes: true, attributeFilter: ["data-everything"] });
   $("appearance-everything")?.addEventListener("change", (event) => {
     const level = event.target.checked ? (levelNow() === "technical" ? "technical" : "advanced") : "regular";
@@ -578,15 +622,20 @@ function start() {
   document.addEventListener("branch-place", drawLatePages);
   document.addEventListener("branch-profile", (event) => {
     const owner = event.detail?.owner !== false;
-    $("sg-found")?.remove();
     applyLevel();
+    redrawSearch();
     /* Applying the household level can rearrange the Settings shell after layout handled the same
        event. Reapply the owner-only page guard last so Instructions cannot be exposed again. */
     globalThis.branchLayout?.showOwnerSettings(owner);
-    showOwnerPickerPage(owner);
-    queueMicrotask(syncPicker);
+    queueMicrotask(showCurrentTab);
   });
-  document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
+  document.addEventListener("branch-language", () => {
+    countHidden();
+    /* A search under way runs again in the new words, cards and all, once they are drawn; its head follows. */
+    const box = $("lx-settings-search");
+    if (document.body.classList.contains("lx-settings-searching") && box?.value) requestAnimationFrame(() => box.dispatchEvent(new Event("input")));
+    else redrawSearch();
+  });
   document.body.classList.add("sg-ready");
 }
 if (document.body.classList.contains("lx-ready")) start();
