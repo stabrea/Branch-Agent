@@ -1418,7 +1418,7 @@ async function api(
     return recordedWrite(app.store, app.runtime.owner, byCard("desktop-control"), ["desktop-control"],
       () => saveDesktopSettings(app.store, app.runtime.owner, desktop));
   }
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|result|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope())
