@@ -56,6 +56,15 @@ test("the Agent sandboxes card creates, snapshots, stops and restores a sandbox 
 
   assert.match(await page.locator("#agent-sandbox-list").textContent(), /No agent sandboxes yet/);
 
+  // Nothing runs inside a sandbox yet, so the card never promises the policy is enforced.
+  const cardText = await page.locator("#agent-sandbox-card").textContent();
+  assert.match(cardText, /Nothing runs inside these sandboxes yet/);
+  assert.match(cardText, /does not enforce them today/);
+  assert.doesNotMatch(cardText, /may be reached/);
+  assert.match(await describedWords(page, "agent-sandbox-providers"), /nothing enforces it today/);
+  assert.match(await describedWords(page, "agent-sandbox-network"), /nothing enforces it today/);
+  assert.doesNotMatch(await describedWords(page, "agent-sandbox-providers"), /may be reached/);
+
   await page.locator("#agent-sandbox-name").fill("Research box");
   await page.locator("#agent-sandbox-network").selectOption("per-site");
   await page.locator("#agent-sandbox-providers").fill("anthropic, openai");
@@ -104,4 +113,6 @@ test("the Agent sandboxes card speaks French", async (t) => {
   await page.getByRole("button", { name: "Créer le bac à sable" }).click();
   await page.locator("#agent-sandbox-list .card-row h4", { hasText: "Boîte" }).waitFor({ state: "visible" });
   assert.match(await page.locator("#agent-sandbox-list .card-row").first().textContent(), /En cours/);
+  assert.match(await page.locator("#agent-sandbox-card").textContent(), /Rien ne s'exécute encore dans ces bacs à sable/);
+  assert.match(await page.locator("#agent-sandbox-list .card-row").first().textContent(), /Accès enregistré/);
 });

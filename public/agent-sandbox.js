@@ -1,6 +1,7 @@
 // FQ-operations.sandbox-lifecycle: a folder of its own for a task you want kept apart from your
-// workspace. Its network and the model services it may call are settled the moment it is created and
-// never move afterwards — not when it is stopped, not when it is restored. Snapshot it before a risky
+// workspace. Its network and the model services it may call are recorded the moment it is created and
+// never move afterwards — not when it is stopped, not when it is restored. Nothing runs inside a
+// sandbox yet, so nothing enforces them today, and the card says so. Snapshot it before a risky
 // change, stop it when you are done with it, or restore it from an earlier snapshot. The deciding
 // happens on the server (src/agent-sandbox-lifecycle.ts); this card only shows what is there and sends
 // the owner's choices back. Every word is behind a key.
@@ -165,6 +166,7 @@ function draw(data) {
 
   section.replaceChildren(
     worded("h2", "settings.card.agent-sandbox"), worded("p", "agent-sandbox.lead", "subtle"),
+    worded("p", "agent-sandbox.not-enforced", "subtle agent-sandbox-not-enforced"),
     labelFor("agent-sandbox-name", "field.agent-sandbox-name"), nameInput,
     labelFor("agent-sandbox-network", "field.agent-sandbox-network"), networkControl,
     labelFor("agent-sandbox-providers", "field.agent-sandbox-providers"), providersInput,
