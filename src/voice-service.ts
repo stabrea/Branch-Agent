@@ -8,6 +8,7 @@ import type { Store } from "./store.js";
 import { voiceSettings, type AudioProvider, type VoiceSettings } from "./voice.js";
 import { LocalSpeechSchema, Transcription, type AudioClip, type SttRoute, type TranscriptionResult } from "./voice-stt.js";
 import { Speech, SpeakRequestSchema, type ProgramLocator, type SpeakRequest, type SpokenAudio, type TtsRoute } from "./voice-tts.js";
+import { spokenDurationSeconds } from "./voice-output-audio.js";
 
 /**
  * Voice as the rest of the app sees it: hand it a recording and get words back, hand it words and
@@ -183,7 +184,10 @@ export function registerVoice(registry: ToolRegistry, voice: VoiceService, store
         });
       return {
         spoken: input.text.slice(0, 500), voice: spoken.voice, route: spoken.route,
-        seconds: null, bytes: spoken.bytes.byteLength, mediaType: spoken.mediaType,
+        // The real length, read from the sound itself where that is possible (the computer's own
+        // voice always hands back WAV); null rather than a guess for a squeezed format such as MP3.
+        seconds: spokenDurationSeconds(spoken.bytes, spoken.mediaType),
+        bytes: spoken.bytes.byteLength, mediaType: spoken.mediaType,
         cost: spoken.cost.amount, costNote: spoken.cost.note,
       };
     },
