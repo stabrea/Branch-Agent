@@ -20,9 +20,11 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { toBase64Url } from "../dist/web-push-crypto.js";
+import { setLockdown } from "../dist/lockdown.js";
+import { saveComfort } from "../dist/comfort/settings.js";
 
 /** A server standing in for a browser's push service (Chrome's, Firefox's, …). */
-async function fakePushService(t) {
+async function fakePushService(t, status = 201) {
   const requests = [];
   let resolveNext = null;
   const server = createServer(async (request, response) => {
@@ -30,7 +32,7 @@ async function fakePushService(t) {
     for await (const chunk of request) chunks.push(chunk);
     const entry = { headers: request.headers, body: Buffer.concat(chunks) };
     requests.push(entry);
-    response.writeHead(201).end();
+    response.writeHead(status).end();
     resolveNext?.(entry);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -125,6 +127,64 @@ test("a run started on the owner's schedule (heartbeat-shaped: source \"schedule
   // tell "never arrives" from "hasn't arrived yet", and a fire-and-forget send is well inside it.
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(push.requests.length, 0, "a scheduled/internal run must never buzz the owner's phone");
+});
+
+/** Subscribes one fake push service's address with fresh receiver keys. */
+async function subscribeTo(call, push) {
+  const receiver = generateReceiverKeys();
+  const answer = await call("POST", "/api/push/subscribe", {
+    endpoint: push.url, keys: { p256dh: toBase64Url(receiver.publicKeyRaw), auth: toBase64Url(receiver.authSecret) },
+  });
+  assert.equal(answer.status, 200);
+}
+const pushRows = (app) => app.store.list("settings", app.runtime.owner).filter((row) => row.id.startsWith("push-sub:"));
+const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+test("while Lockdown is on, a finished task sends no push; once it is off, it does again", async (t) => {
+  const { app, call } = await fixture(t);
+  const push = await fakePushService(t);
+  await subscribeTo(call, push);
+
+  setLockdown(app.store, app.runtime.owner, { on: true });
+  await app.runtime.run({ prompt: "Say hello" });
+  await settle();
+  assert.equal(push.requests.length, 0, "Lockdown holds a push back exactly as it holds a webhook");
+
+  setLockdown(app.store, app.runtime.owner, { on: false });
+  await app.runtime.run({ prompt: "Say hello again" });
+  await push.nextRequest();
+  assert.equal(push.requests.length, 1, "the same device is reached once Lockdown is off");
+});
+
+test("\"This window only\" notifications skip the push; the default sends it", async (t) => {
+  const { app, call } = await fixture(t);
+  const push = await fakePushService(t);
+  await subscribeTo(call, push);
+
+  saveComfort(app.store, app.runtime.owner, "notify", { method: "window" });
+  await app.runtime.run({ prompt: "Say hello" });
+  await settle();
+  assert.equal(push.requests.length, 0, "no notification leaves this computer in window-only mode");
+
+  saveComfort(app.store, app.runtime.owner, "notify", { method: "system" });
+  await app.runtime.run({ prompt: "Say hello again" });
+  await push.nextRequest();
+  assert.equal(push.requests.length, 1);
+});
+
+test("a subscription the push service says is gone (404/410) is dropped; the others are kept", async (t) => {
+  const { app, call } = await fixture(t);
+  const gone = await fakePushService(t, 410);
+  const missing = await fakePushService(t, 404);
+  const live = await fakePushService(t, 201);
+  for (const push of [gone, missing, live]) await subscribeTo(call, push);
+  assert.equal(pushRows(app).length, 3);
+
+  await app.runtime.run({ prompt: "Say hello" });
+  await Promise.all([gone.nextRequest(), missing.nextRequest(), live.nextRequest()]);
+  const deadline = Date.now() + 3000;
+  while (pushRows(app).length !== 1 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(pushRows(app).map((row) => row.data.endpoint), [live.url]);
 });
 
 function generateReceiverKeys() {

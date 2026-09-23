@@ -111,7 +111,12 @@ export function encryptWebPush(
 }
 
 export interface PushSubscription { endpoint: string; p256dh: string; auth: string }
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: Buffer }) => Promise<{ status: number; ok: boolean }>;
+export type FetchLike = (url: string, init: {
+  method: string; headers: Record<string, string>; body: Buffer;
+  /** Always "error": a push service answers where it is asked, and a redirect's target was never checked against the owner's network settings. */
+  redirect: "error";
+  signal?: AbortSignal;
+}) => Promise<{ status: number; ok: boolean }>;
 
 /**
  * Sends one already-composed message to one subscription. Returns the push service's response so
@@ -122,7 +127,7 @@ export async function sendWebPush(
   subscription: PushSubscription,
   vapidKey: StoredEcKey,
   payload: Buffer,
-  options: { ttlSeconds?: number; subject?: string } = {},
+  options: { ttlSeconds?: number; subject?: string; signal?: AbortSignal } = {},
 ): Promise<{ status: number; ok: boolean }> {
   const audience = new URL(subscription.endpoint).origin;
   const jwt = signVapidJwt(vapidKey, audience, options.subject);
@@ -137,5 +142,7 @@ export async function sendWebPush(
       authorization: `vapid t=${jwt}, k=${toBase64Url(vapidPublicKeyRaw)}`,
     },
     body,
+    redirect: "error",
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 }

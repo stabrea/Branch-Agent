@@ -19,6 +19,8 @@ import {
 } from "./web-push-crypto.js";
 
 const VAPID_ID = "push-vapid";
+/** How many devices are sent to at once; a household has a handful, and a long list is still bounded. */
+const SEND_CONCURRENCY = 4;
 const subscriptionId = (endpoint: string) => `push-sub:${createHash("sha256").update(endpoint).digest("hex").slice(0, 32)}`;
 
 export const SubscribeSchema = z.object({
@@ -40,6 +42,8 @@ export class WebPushService {
     private readonly policy: NetworkPolicy,
     private readonly fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike,
   ) {}
+  /** The longest one device's push service is waited on before it is given up on. */
+  sendTimeoutMs = 10_000;
 
   /** Generates and saves the server's VAPID keypair the first time anything asks for it. */
   private vapidKey(): StoredEcKey {
@@ -100,19 +104,26 @@ export class WebPushService {
   }
 
   private async deliverAll(message: Record<string, unknown>): Promise<void> {
-    const subscriptions = this.subscriptions();
-    if (!subscriptions.length) return;
+    const queue = this.subscriptions();
+    if (!queue.length) return;
     const vapidKey = this.vapidKey();
     const body = Buffer.from(JSON.stringify(message));
-    for (const subscription of subscriptions) {
-      try {
-        await this.policy.assertAllowed(new URL(subscription.endpoint), "push address");
-        const response = await sendWebPush(this.fetchImpl, subscription, vapidKey, body);
-        // RFC 8030 §7: the push service says the subscription is gone; keeping it would just fail again.
-        if (response.status === 404 || response.status === 410) this.unsubscribe(subscription.endpoint);
-      } catch {
-        /* one device unreachable, or refused by the owner's network settings, never disturbs the run that finished, or the next device */
-      }
+    // A few devices at a time, each with its own time limit, so one that never answers holds up nobody.
+    const worker = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) await this.deliverOne(next, vapidKey, body);
+    };
+    await Promise.all(Array.from({ length: Math.min(SEND_CONCURRENCY, queue.length) }, worker));
+  }
+
+  private async deliverOne(subscription: PushSubscription, vapidKey: StoredEcKey, body: Buffer): Promise<void> {
+    try {
+      await this.policy.assertAllowed(new URL(subscription.endpoint), "push address");
+      const signal = AbortSignal.timeout(this.sendTimeoutMs);
+      const response = await sendWebPush(this.fetchImpl, subscription, vapidKey, body, { signal });
+      // RFC 8030 §7: the push service says the subscription is gone; keeping it would just fail again.
+      if (response.status === 404 || response.status === 410) this.unsubscribe(subscription.endpoint);
+    } catch {
+      /* one device unreachable, slow, redirecting, or refused by the owner's network settings never disturbs the run that finished, or the next device */
     }
   }
 }

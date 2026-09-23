@@ -257,7 +257,8 @@ export function settingsSummary(app: Pick<Branch, "store" | "runtime">): Record<
     const data = record.data && typeof record.data === "object" ? record.data as Record<string, unknown> : {};
     const kept: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data)) {
-      if (/(key|token|secret|password|pin)/i.test(key)) continue;
+      // "auth" covers a Web Push subscription's auth secret (src/web-push.ts), short enough to pass as one word.
+      if (/(key|token|secret|password|pin|auth)/i.test(key)) continue;
       if (typeof value === "boolean" || typeof value === "number") kept[key] = value;
       else if (typeof value === "string" && /^[\w.-]{1,32}$/.test(value)) kept[key] = value;
     }
