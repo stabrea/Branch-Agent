@@ -3,6 +3,7 @@ import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { securityShaped, secretShaped, settingsCatalogue, specFor, switchPositions, type FieldSpec, type SettingSpec } from "./catalogue.js";
 import { pinnedIds, pinnedRefusal, pinFor } from "./pins.js"; // mac7/wake-pins
+import { recordSettingsChange, type ChangeOrigin } from "./history.js"; // Q48
 
 /**
  * R17-S-A: one list of changes, whoever proposed them — putting settings back, a whole-app preset,
@@ -153,6 +154,15 @@ export interface ApplyChoice {
    * away a tool) are saved through that, keyed by setting.
    */
   writers?: Record<string, Writer> | undefined;
+  /** Q48: who made these changes and which way, for the structured change record. */
+  record: ChangeOrigin;
+}
+
+/** What the setting holds once its own save has run, which may have tidied the value it was given. */
+function valueNow(store: Store, owner: string, change: Change): Value {
+  const spec = specFor(change.key);
+  const field = spec?.fields.find((entry) => entry.field === change.field);
+  return spec && field ? currentValue(store, owner, spec, field) : change.to;
 }
 
 /**
@@ -168,7 +178,7 @@ export function applyChanges(store: Store, owner: string, changes: readonly Chan
  * them. Nothing here throws for a pin: an import of forty settings with one pinned among them makes
  * the other thirty-nine and says which one it left alone.
  */
-export function applyWithPins(store: Store, owner: string, changes: readonly Change[], choice: ApplyChoice): { applied: Change[]; skipped: { id: string; why: string }[] } {
+export function applyWithPins(store: Store, owner: string, changes: readonly Change[], choice: ApplyChoice): { applied: Change[]; skipped: { id: string; why: string }[]; record?: string } {
   const accepted = new Set(choice.accept);
   const wanted = changes.filter((change) => accepted.has(change.id));
   const skipped = choice.pinnedAllowed ? [] : wanted.filter((change) => change.pinned)
@@ -189,5 +199,11 @@ export function applyWithPins(store: Store, owner: string, changes: readonly Cha
       reason: picked.map((change) => `${change.id}: ${String(change.from)} → ${String(change.to)}`).join("; ").slice(0, 500),
       outcome: "saved",
     });
-  return { applied: picked, skipped };
+  if (!picked.length) return { applied: picked, skipped };
+  // Q48: the structured record undo and "why is this on?" read. A caller from before it existed is
+  // written down as unknown rather than guessed at.
+  const origin: ChangeOrigin = (choice as Partial<ApplyChoice>).record ?? { writer: "unknown", source: "unknown", detail: choice.why };
+  const record = recordSettingsChange(store, owner, origin,
+    picked.map((change) => ({ setting: change.id, before: change.from, after: valueNow(store, owner, change) })));
+  return { applied: picked, skipped, record };
 }

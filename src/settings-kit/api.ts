@@ -8,6 +8,8 @@ import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/
 import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
 import { perFileBytes } from "../context-files.js"; // phase2/accounts
 import { presetFor, presets } from "./presets.js";
+import { settingsHistory, type ChangeOrigin } from "./history.js";
+import { undoSettingsChange, UndoRefused, whySetting } from "./undo.js";
 import { exportSettings, maximumSettingsFileBytes, readSettingsFile } from "./transfer.js";
 
 /**
@@ -54,18 +56,20 @@ const Apply = z.object({
   confirmLoosening: z.boolean().default(false),
 }).strict();
 
-function proposalsFor(plan: z.infer<typeof Source>): { proposals: Proposal[]; why: string } {
+function proposalsFor(plan: z.infer<typeof Source>): { proposals: Proposal[]; why: string; origin: ChangeOrigin } {
+  const window = (source: ChangeOrigin["source"], detail: string): ChangeOrigin => ({ writer: "owner-in-window", source, detail });
   if (plan.source === "reset") {
     if (plan.key && !settingsCatalogue.some((spec) => spec.key === plan.key)) throw new SettingsKitError(404, "There is no such setting to put back.");
-    return { proposals: resetProposals(plan.key), why: plan.key ? `put back: ${plan.key}` : "put back: everything" };
+    return { proposals: resetProposals(plan.key), why: plan.key ? `put back: ${plan.key}` : "put back: everything", origin: window("reset", plan.key ?? "everything") };
   }
   if (plan.source === "preset") {
     const preset = presetFor(plan.preset);
     if (!preset) throw new SettingsKitError(404, "There is no preset by that name.");
-    return { proposals: preset.sets, why: `preset: ${preset.name}` };
+    return { proposals: preset.sets, why: `preset: ${preset.name}`, origin: window("preset", preset.name) };
   }
-  if (plan.source === "set") return { proposals: [{ key: plan.key, field: plan.field, value: plan.value }], why: "one switch" };
-  try { return { proposals: readSettingsFile(plan.file), why: "a settings file" }; }
+  if (plan.source === "set")
+    return { proposals: [{ key: plan.key, field: plan.field, value: plan.value }], why: "one switch", origin: window("switch", `${plan.key}.${plan.field}`) };
+  try { return { proposals: readSettingsFile(plan.file), why: "a settings file", origin: window("import", "a settings file") }; }
   catch (error) { throw new SettingsKitError(400, (error as Error).message); }
 }
 
@@ -112,20 +116,41 @@ function apply(deps: SettingsKitDeps, input: unknown) {
   // underneath it would either loosen it now or be thrown away then.
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = Apply.parse(input);
-  const { proposals, why } = proposalsFor(body.plan);
+  const { proposals, why, origin } = proposalsFor(body.plan);
   const { changes } = changesFor(deps.store, deps.owner, proposals);
-  let applied, skipped;
+  let applied, skipped, record;
   try {
     // mac7/wake-pins: one switch moved on purpose may be a pinned one; a preset, a settings file or
     // putting everything back steps over the pinned settings and makes all the rest.
-    ({ applied, skipped } = applyWithPins(deps.store, deps.owner, changes,
+    ({ applied, skipped, record } = applyWithPins(deps.store, deps.owner, changes,
       { accept: body.accept, confirmLoosening: body.confirmLoosening, why, writers: deps.writers,
-        pinnedAllowed: body.plan.source === "set" }));
+        pinnedAllowed: body.plan.source === "set", record: origin }));
   } catch (error) { throw new SettingsKitError(409, (error as Error).message); }
   if (body.plan.source === "import" && applied.length)
     audit(deps.store, deps.owner, { action: "data.imported", actor: deps.owner, subject: "settings, from one file",
       reason: `${applied.length} of ${changes.length} proposed changes were made`, outcome: "saved" });
-  return { applied, skipped, overview: overview(deps) };
+  return { applied, skipped, record: record ?? null, overview: overview(deps) };
+}
+
+/** Q48: undo one recorded change. Lockdown refuses it exactly as it refuses any other change here. */
+const UndoBody = z.object({ record: z.string().max(80), confirmLoosening: z.boolean().default(false) }).strict();
+function undo(deps: SettingsKitDeps, input: unknown) {
+  if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
+  const body = UndoBody.parse(input);
+  try {
+    const { applied, record } = undoSettingsChange(deps.store, deps.owner, body.record, { confirmLoosening: body.confirmLoosening, writers: deps.writers });
+    return { applied, record, overview: overview(deps) };
+  } catch (error) { throw error instanceof UndoRefused ? new SettingsKitError(error.status, error.message) : error; }
+}
+
+/** Q48/Q49: the newest change records first, and "why is this on?" for one setting. */
+function history(deps: SettingsKitDeps) {
+  return { records: settingsHistory(deps.store, deps.owner).slice(-50).reverse() };
+}
+function why(deps: SettingsKitDeps, setting: string) {
+  const answer = whySetting(deps.store, deps.owner, setting);
+  if (!answer) throw new SettingsKitError(404, "There is no such setting.");
+  return answer;
 }
 
 export async function settingsKitApi(deps: SettingsKitDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
@@ -133,6 +158,9 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   ownerOnly(deps, "Settings");
   if (method === "GET" && path === "/api/settings-kit") return overview(deps);
   if (method === "GET" && path === "/api/settings-kit/export") return exportSettings(deps.store, deps.owner, deps.appVersion);
+  if (method === "GET" && path === "/api/settings-kit/history") return history(deps);
+  const asked = /^\/api\/settings-kit\/why\/([A-Za-z0-9_.:-]{3,160})$/.exec(path);
+  if (method === "GET" && asked) return why(deps, asked[1]!);
   if (method === "GET" && path === "/api/settings-kit/files") return { files: fileMap(deps.store, deps.owner, deps.workspace) };
   const slot = /^\/api\/settings-kit\/files\/([a-z][a-z0-9_-]{0,20})$/.exec(path);
   if (method === "GET" && slot) {
@@ -148,6 +176,7 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   }
   if (path === "/api/settings-kit/apply") return apply(deps, await body());
   if (path === "/api/settings-kit/pins") return pin(deps, await body()); // mac7/wake-pins
+  if (path === "/api/settings-kit/undo") return undo(deps, await body()); // Q48
   if (path === "/api/settings-kit/files") {
     const input = await body();
     try { return saveFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }
