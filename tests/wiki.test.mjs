@@ -426,3 +426,50 @@ test("every wiki tool says what it touches, by page or by the whole wiki", async
   assert.deepEqual(searching, [{ kind: "read", path: "wiki", folder: true }],
     "a search reaches the whole wiki and says so, so a rule about the wiki can judge it");
 });
+
+test("wiki page targets keep policy syntax inside one page name", async (t) => {
+  const { app, wiki } = await branch(t);
+  const context = app.runtime.context({});
+  const cases = [
+    [".", "wiki/%2E"],
+    ["..", "wiki/%2E%2E"],
+    ["A/B", "wiki/a%2Fb"],
+    ["A\\B", "wiki/a%5Cb"],
+    ["*", "wiki/%2A"],
+    ["%2F", "wiki/%252f"],
+    ["Other/../Private", "wiki/other%2F..%2Fprivate"],
+  ];
+
+  const paths = cases.map(([title, expected]) => {
+    const read = app.registry.targetOf("wiki.read", { title, follow: false }, context);
+    assert.equal(read, expected, `${title} has one unambiguous read target`);
+    assert.equal(app.registry.targetOf("wiki.write", { title, body: "." }, context), expected);
+    assert.equal(app.registry.targetOf("wiki.history", { title }, context), expected);
+    assert.deepEqual(app.registry.targetsOf("wiki.read", { title, follow: false }, context),
+      [{ kind: "read", path: expected }]);
+    return read;
+  });
+  assert.equal(new Set(paths).size, cases.length, "different normalized page names have different targets");
+
+  wiki.write(owner, { title: "Index/..", body: "Read [[A/B]]." });
+  wiki.write(owner, { title: "A/B", body: "One linked page." });
+  assert.deepEqual(app.registry.targetsOf("wiki.read", { title: "Index/..", follow: true }, context), [
+    { kind: "read", path: "wiki/index%2F.." },
+    { kind: "read", path: "wiki/a%2Fb" },
+  ], "followed pages use the same opaque target representation");
+});
+
+test("one page's approval never names a different page", async (t) => {
+  const { app, wiki } = await branch(t);
+  wiki.write(owner, { title: "Private", body: "one" });
+  wiki.write(owner, { title: "Other/../Private", body: "two" });
+  const context = app.runtime.context({});
+  const args = { title: "Other/../Private", follow: false };
+  addPolicyRule(app.store, owner, { tool: "wiki.*", match: "*", decision: "deny", remember: "always" });
+  const before = app.runtime.checkPolicy("wiki.read", args, context);
+  assert.equal(before.decision, "deny", "the broad owner rule has to refuse wiki reads first");
+  addPolicyRule(app.store, owner, { tool: "wiki.*", match: "wiki/private", decision: "allow", remember: "always" });
+  assert.equal(app.runtime.checkPolicy("wiki.read", { title: "Private", follow: false }, context).decision, "allow");
+  assert.notEqual(app.runtime.checkPolicy("wiki.read", args, context).decision, "allow",
+    "an approval for Private must not authorize a distinct page");
+});

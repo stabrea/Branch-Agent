@@ -294,8 +294,16 @@ export class Wiki {
  * path — `wiki/Roof repairs` — so a rule written about `wiki/**` or about one page holds, and a
  * search says plainly that it reaches the whole wiki rather than one page.
  */
+/** A page name is one opaque path component to the policy engine, even when its words contain syntax. */
+function pagePath(title: string): string {
+  const name = sameNameAs(title);
+  // Rules treat slash and backslash as separators, dot-only names as traversal, and * as a glob.
+  // Escape % first so a literal encoded-looking title cannot collide with an escaped character.
+  const safe = name.replace(/%/g, "%25").replace(/\//g, "%2F").replace(/\\/g, "%5C").replace(/\*/g, "%2A");
+  return `wiki/${safe === "." || safe === ".." ? safe.replace(/\./g, "%2E") : safe}`;
+}
 const pageTarget = (kind: ToolTarget["kind"], title: string): ToolTarget[] =>
-  [{ kind, path: `wiki/${sameNameAs(title)}` }];
+  [{ kind, path: pagePath(title) }];
 const wholeWiki = (): ToolTarget[] => [{ kind: "read", path: "wiki", folder: true }];
 /**
  * What a read really touches. Without `follow` that is one page. With it, the answer carries a piece
@@ -311,7 +319,7 @@ function readTargets(wiki: Wiki, owner: string, title: string, follow: boolean):
   const reached = linksIn(page.body).slice(0, maximumLinksFollowed)
     .map((text) => wiki.find(owner, text))
     .filter((one): one is WikiPage => Boolean(one))
-    .map((one) => ({ kind: "read" as const, path: `wiki/${sameNameAs(one.title)}` }));
+    .map((one) => ({ kind: "read" as const, path: pagePath(one.title) }));
   return [...start, ...reached];
 }
 
@@ -382,7 +390,7 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
       /** Bring back the first paragraph of each page linked from this one. One hop, never further. */
       follow: z.boolean().default(false),
     }).strict(),
-    target: (input) => `wiki/${sameNameAs(input.title)}`,
+    target: (input) => pagePath(input.title),
     // Only the owner's own call gets the precise answer, because working it out reads their pages.
     // For anybody else the call names the page they asked for and nothing else — which is their own
     // words back — and the guard inside the tool refuses them a moment later anyway.
@@ -398,7 +406,7 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
     name: "wiki.write", group: "memory", permission: "memory.write",
     description: "Write a page of the wiki. Writing over a page that already exists needs a reason.",
     parameters: WikiWriteSchema,
-    target: (input) => `wiki/${sameNameAs(input.title)}`,
+    target: (input) => pagePath(input.title),
     targets: (input) => pageTarget("write", input.title),
     execute: async (input, context) => {
       onlyTheOwner(store, context);
@@ -420,7 +428,7 @@ export function registerWiki(registry: ToolRegistry, wiki: Wiki, owner: string, 
     name: "wiki.history", group: "memory", permission: "memory.read",
     description: "What a page of the wiki used to say, newest first.",
     parameters: z.object({ title: z.string().trim().min(1).max(200) }).strict(),
-    target: (input) => `wiki/${sameNameAs(input.title)}`,
+    target: (input) => pagePath(input.title),
     targets: (input) => pageTarget("read", input.title),
     execute: async (input, context) => {
       onlyTheOwner(store, context);
