@@ -51,11 +51,14 @@ function view(app: ModeApp, sessionId: string | null) {
      in the house, a short-lived key) the conversation follows the owner's setting instead. */
   const wanted = settings.newConversation === "follow" ? null : settings.newConversation;
   const startable = wanted !== null && choices.some((choice) => choice.mode === wanted && choice.available);
+  /* Lockdown blocking the default starts the conversation on Ask first, not on the owner's setting: the
+     conversation outlives Lockdown, and the owner's setting can be looser than the default they chose. */
+  const fallback = locked && wanted !== null && !startable && choices.some((choice) => choice.mode === "ask" && choice.available) ? "ask" : null;
   return {
     sessionId,
     mode: readConversationMode(app.store, app.runtime.owner, sessionId)?.mode ?? null,
     /* What a conversation started in the window is given; null when that would be looser than allowed here. */
-    newConversation: startable ? wanted : null,
+    newConversation: startable ? wanted : fallback,
     following: { preset: policy.preset, label },
     locked, owner, choices, settings,
     /* mac7/outside-review: where the work this conversation carries on came from, when that was outside

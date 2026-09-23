@@ -147,6 +147,22 @@ test("Lockdown on with default No approvals: a new conversation is still gated",
   assert.notEqual(decision(f, run, "shell.execute", git), "allow");
 });
 
+test("Lockdown blocking the default starts on Ask first, so the conversation is not looser once Lockdown ends", async (t) => {
+  /* NAS review of Q59: with the owner's setting at No approvals and the default Auto, a conversation started
+     under Lockdown followed the owner's setting, and once Lockdown ended it browsed without asking. */
+  const f = await realBranch(t);
+  savePolicy(f.app.store, f.app.runtime.owner, { preset: "off" });
+  await setDefault(f, "auto");
+  assert.equal((await f.call("/api/lockdown", { on: true })).status, 200);
+  const { mode, run } = await startInWindow(f, "hello");
+  assert.equal(mode, "ask", "the window starts it on Ask first");
+  assert.equal((await f.call("/api/lockdown", { on: false })).status, 200);
+  assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, run.sessionId)?.mode, "ask");
+  // Under the owner's No approvals these are allowed; on Ask first they still ask once Lockdown has ended.
+  assert.equal(decision(f, run, "browser.click", { selector: "a" }), "ask", "a click still asks after Lockdown ends");
+  assert.equal(decision(f, run, "files.write", { path: "x.txt", content: "x" }), "ask", "a write still asks after Lockdown ends");
+});
+
 test("Lockdown on: a window still showing the old default cannot start or pick No approvals or Auto", async (t) => {
   /* NAS adversarial check of DG-187: a window opened before Lockdown still offers the old default, and sends it. */
   const f = await realBranch(t);
