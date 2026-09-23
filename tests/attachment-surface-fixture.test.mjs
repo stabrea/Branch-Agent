@@ -7,6 +7,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { runCommand } from "../dist/terminal-command-table.js";
 import { readAttachment, attachedText } from "../dist/terminal-commands.js";
+import { loadWords } from "../dist/terminal-words.js";
 
 /*
  * FQ-surfaces.attachments: one fixture that attaches an image, a sound, a video and a document to
@@ -40,7 +41,7 @@ async function fixture(t) {
 function terminalContext(app, said) {
   const conversation = { sessionId: undefined, attachments: [], plan: false, verify: false, dryRun: false, temporary: false, reasoning: null };
   return {
-    runtime: app.runtime, conversation, words: { t: (_key, english) => english },
+    runtime: app.runtime, conversation, words: loadWords("en"),
     say: (kind, text) => said.push([kind, text]),
   };
 }
@@ -110,4 +111,11 @@ test("attaching a file that does not exist fails plainly, and nothing partial is
   await runCommand(context, `/attach ${join(files, "missing.pdf")}`);
   assert.equal(context.conversation.attachments.length, 0);
   assert.ok(said.some(([kind]) => kind === "bad"));
+});
+
+test("a document whose words came back blank goes by reference, never as an empty body", () => {
+  const text = attachedText([{ name: "scan.pdf", kind: "document", mediaType: "application/pdf", path: "/files/scan.pdf", text: " \n\t" }]);
+  const lines = text.trim().split("\n");
+  assert.equal(lines[0], "--- attached document: scan.pdf (application/pdf) at /files/scan.pdf ---");
+  assert.equal(lines[1], "[not read into this message; the file is at the path above]");
 });

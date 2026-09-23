@@ -163,6 +163,8 @@ async function readDocumentAttachment(path: string, name: string, mediaType: str
   const read = tryReadDocument(await readFile(path), name);
   if (!read.document) return { ...kept, limits: [read.reason] };
   const { text, limits } = read.document;
+  // A scanned page (pictures of text) reads as no words at all: it goes by reference, with the reason.
+  if (!text.trim()) return { ...kept, limits };
   if (text.length <= maxAttachedText) return { ...kept, text, limits };
   return { ...kept, text: text.slice(0, maxAttachedText),
     limits: [...limits, `Only the first ${maxAttachedText} characters are here; the rest is in the file itself.`] };
@@ -181,7 +183,7 @@ function attachedBlock(file: Attachment): string {
   if (file.kind === "text") return `--- attached file: ${file.name} ---\n${file.text ?? ""}`;
   const head = `--- attached ${file.kind}: ${file.name} (${file.mediaType ?? "unknown type"}) at ${file.path ?? "unknown place"} ---`;
   const body = file.kind === "image" ? "[sent as a picture with this message]"
-    : file.text !== undefined ? file.text
+    : file.text?.trim() ? file.text
     : `[not read into this message; the file is at the path above]`;
   const limits = (file.limits ?? []).map((limit) => `[${limit}]`);
   return [head, body, ...limits].join("\n");

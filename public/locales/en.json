@@ -4756,6 +4756,7 @@
   "telegram-setup.token-kept": "A token is saved; paste a new one only to replace it",
   "telegram-setup.token-note": "The token goes straight into Branch's locked store of secrets and is never shown on screen again.",
   "telegram-setup.token-placeholder": "Paste the token here",
+  "terminal.attach.noWords": "{name} kept as document ({type}); no words could be read from it; only its reference goes with your next message",
   "terminal.chip.plan": "Plan first",
   "terminal.chip.practice": "Practice run",
   "terminal.composer.answer": "Answer y (yes), n (no), a (yes, always) or s (yes, for this conversation)",

@@ -4,7 +4,7 @@ import type { Conversation } from "./terminal-conversation.js";
 import type { Route } from "./terminal-places.js";
 import type { Words } from "./terminal-words.js";
 import {
-  choosePreset, exportConversation, historyLines, presetLines, readAttachment,
+  choosePreset, exportConversation, historyLines, presetLines, readAttachment, type Attachment,
 } from "./terminal-commands.js";
 import type { FeatureMode } from "./feature-switches.js";
 import { aliasesOn, levelFor, lookup, type CatalogCommand } from "./commands/catalog.js";
@@ -87,11 +87,17 @@ async function attach(context: CommandContext, argument: string): Promise<void> 
   if (!argument) throw new Error("Name a file: /attach report.pdf");
   const attachment = await readAttachment(argument);
   context.conversation.attachments.push(attachment);
-  const carried = attachment.text !== undefined ? "its words and reference go" : "its reference goes";
-  const seen = attachment.kind === "image" || attachment.kind === "text"
-    ? "goes with your next message"
-    : `kept as ${attachment.kind} (${attachment.mediaType}); ${carried} with your next message`;
-  context.say("note", `[${attachment.name} ${seen}]`);
+  context.say("note", `[${attachNote(context, attachment)}]`);
+}
+/** What /attach tells the owner: whether the file goes as it is, with its words, or by reference only. */
+function attachNote(context: CommandContext, attachment: Attachment): string {
+  const { name, kind, mediaType } = attachment;
+  if (kind === "image" || kind === "text") return `${name} goes with your next message`;
+  if (attachment.text?.trim()) return `${name} kept as ${kind} (${mediaType}); its words and reference go with your next message`;
+  if (kind !== "document") return `${name} kept as ${kind} (${mediaType}); its reference goes with your next message`;
+  return context.words.t("terminal.attach.noWords",
+    "{name} kept as document ({type}); no words could be read from it; only its reference goes with your next message",
+    { name, type: mediaType ?? "unknown type" });
 }
 function toggle(name: "plan" | "verify" | "dryRun" | "temporary"): TerminalCommand["run"] {
   return (context, argument) => {

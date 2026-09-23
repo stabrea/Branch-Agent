@@ -7,6 +7,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { runCommand } from "../dist/terminal-command-table.js";
 import { Conversation } from "../dist/terminal-conversation.js";
+import { loadWords } from "../dist/terminal-words.js";
 
 /*
  * FQ-surfaces.attachments, the send itself: every file attached with /attach — a picture, a sound,
@@ -16,8 +17,8 @@ import { Conversation } from "../dist/terminal-conversation.js";
  */
 
 /** A PDF built by hand with one page that says "Hello there" (the same shape the reader tests use). */
-function helloPdf() {
-  const content = Buffer.from("BT /F1 12 Tf 72 720 Td (Hello there) Tj ET", "latin1");
+function helloPdf(page = "BT /F1 12 Tf 72 720 Td (Hello there) Tj ET") {
+  const content = Buffer.from(page, "latin1");
   const objects = [
     "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
     "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
@@ -51,7 +52,7 @@ async function setup(t) {
   for (const [name, bytes] of Object.entries(files)) await writeFile(join(folder, name), bytes);
   const conversation = new Conversation(app.runtime, () => {}, 10);
   const said = [];
-  const context = { runtime: app.runtime, conversation, words: { t: (_key, english) => english },
+  const context = { runtime: app.runtime, conversation, words: loadWords("en"),
     say: (kind, text) => said.push([kind, text]) };
   return { app, seen, folder, conversation, context, said };
 }
@@ -107,4 +108,39 @@ test("/attach says plainly that a readable document's words go with the next mes
   assert.match(note, /report\.pdf/);
   assert.match(note, /kept as document \(application\/pdf\)/);
   assert.match(note, /its words and reference go with your next message/);
+});
+
+/** The scanned page docs-memory-2 uses: a picture drawn on the page, and no words the reader can lift. */
+const scannedPdf = helloPdf("q 200 0 0 100 72 600 cm /Im1 Do Q");
+
+test("/attach of a scanned PDF says no words could be read, and the model gets its reference, not an empty body", async (t) => {
+  const { seen, folder, conversation, context, said } = await setup(t);
+  const scan = join(folder, "scan.pdf");
+  await writeFile(scan, scannedPdf);
+  await runCommand(context, `/attach ${scan}`);
+  const note = said.filter(([kind]) => kind === "note").map(([, text]) => text).join("\n");
+  assert.doesNotMatch(note, /its words and reference go/, "the owner is not told words go along when none were read");
+  assert.match(note, /scan\.pdf/);
+  assert.match(note, /kept as document \(application\/pdf\)/);
+  assert.match(note, /no words could be read from it; only its reference goes with your next message/);
+
+  await conversation.send("what does the scan say");
+  const text = String(userTurn(seen, "what does the scan say").content);
+  const block = text.slice(text.indexOf("--- attached document: scan.pdf"));
+  assert.ok(block.startsWith("--- attached document: scan.pdf (application/pdf) at " + scan), text);
+  const body = block.split("\n")[1];
+  assert.match(body, /^\[not read into this message; the file is at the path above\]$/, `no empty body: ${JSON.stringify(body)}`);
+  assert.match(block, /pictures of text/, "the reader's reason still goes with it");
+});
+
+test("/attach of a scanned PDF says so in French too", async (t) => {
+  const { folder, context, said } = await setup(t);
+  context.words = loadWords("fr");
+  const scan = join(folder, "scan.pdf");
+  await writeFile(scan, scannedPdf);
+  await runCommand(context, `/attach ${scan}`);
+  const note = said.filter(([kind]) => kind === "note").map(([, text]) => text).join("\n");
+  assert.match(note, /scan\.pdf/);
+  assert.match(note, /aucun mot n'a pu être lu/);
+  assert.match(note, /seule sa référence part avec votre prochain message/);
 });

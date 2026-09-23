@@ -4757,6 +4757,7 @@
   "telegram-setup.token-kept": "Un jeton est enregistré ; collez-en un nouveau seulement pour le remplacer",
   "telegram-setup.token-note": "Le jeton va directement dans le coffre verrouillé de Branch et n'est plus jamais affiché.",
   "telegram-setup.token-placeholder": "Collez le jeton ici",
+  "terminal.attach.noWords": "{name} conservé comme document ({type}) ; aucun mot n'a pu être lu dans ce fichier ; seule sa référence part avec votre prochain message",
   "terminal.chip.plan": "Plan d'abord",
   "terminal.chip.practice": "Essai",
   "terminal.composer.answer": "Répondez y (oui), n (non), a (oui, toujours) ou s (oui, pour cette conversation)",
