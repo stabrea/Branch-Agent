@@ -108,7 +108,8 @@ test("the installer script and the Uninstall entry say what they will do", () =>
   assert.equal(byName.DisplayVersion, "1.2.3");
   assert.equal(byName.QuietUninstallString, '"C:\\App\\Uninstall Branch Agent.cmd" /quiet');
   const script2 = uninstallScript({ installRoot: "C:\\App", executableName: "Branch Agent.exe", uninstallHive: "HKCU\\X", userDataDir: "C:\\Data", shortcuts: ["C:\\M\\Branch Agent.lnk"] });
-  assert.match(script2, /Your conversations and files stay in C:\\Data/, "saved work is kept on purpose");
+  // The path is quoted: printed bare, an `&` in it ran the rest of the path as a command (tests/uninstall-last-step.test.mjs).
+  assert.match(script2, /Your conversations and files stay in "C:\\Data"/, "saved work is kept on purpose");
   assert.match(script2, /schtasks\.exe \/Delete/, "the background task goes too");
   assert.match(script2, /reg\.exe delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"/);
   // bucket 22: the data folder goes only when --delete-data was given.
