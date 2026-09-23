@@ -5413,6 +5413,10 @@
   "linux-desktop.status.saved": "Enregistré.",
   "linux-desktop.status.taken-over": "Il est à vous. Branch l'a lâché.",
   "linux-desktop.status.handed-back": "Rendu à Branch.",
+  "action.show-viewer-password": "Afficher le mot de passe du spectateur",
+  "linux-desktop.viewer-address": "Adresse :",
+  "linux-desktop.viewer-password": "Mot de passe :",
+  "linux-desktop.status.viewer-shown": "Les informations de connexion du spectateur s'affichent ci-dessus.",
   "describe.linux-desktop-mode": "Désactivé : Branch ne peut pas démarrer de bureau Linux partagé, et celui qui tourne est arrêté aussitôt. Si nécessaire ou activé : Branch peut en démarrer un dans un conteneur et y travailler.",
   "describe.linux-desktop-image": "L'image de conteneur à partir de laquelle démarre un bureau partagé. Elle doit déjà se trouver sur cet ordinateur ; Branch ne la télécharge jamais."
 }

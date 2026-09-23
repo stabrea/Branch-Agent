@@ -1554,8 +1554,13 @@
             <p class="subtle" data-t="linux-desktop.note">Nothing is ever downloaded: the image has to be on this computer already. While the desktop runs, a notice with a Take over button sits on top of everything. Once you take over, Branch cannot act in it, stop it or start another until you hand it back here. Switching this off takes the desktop down at once.</p>
             <p id="linux-desktop-state" class="subtle" role="status"></p>
             <div id="linux-desktop-control-row" hidden>
+              <button id="linux-desktop-show-viewer" type="button" data-t="action.show-viewer-password">Show viewer password</button>
               <button id="linux-desktop-take-over" type="button" data-t="action.take-over">Take over</button>
               <button id="linux-desktop-hand-back" type="button" data-t="action.hand-back" hidden>Hand back</button>
+            </div>
+            <div id="linux-desktop-viewer-info" hidden>
+              <p class="subtle"><span data-t="linux-desktop.viewer-address">Address:</span> <code id="linux-desktop-viewer-address"></code></p>
+              <p class="subtle"><span data-t="linux-desktop.viewer-password">Password:</span> <code id="linux-desktop-viewer-password"></code></p>
             </div>
             <p id="linux-desktop-status" class="subtle" role="status"></p>
           </section>

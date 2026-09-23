@@ -128,6 +128,17 @@ test("Finding 5: docker run has --pull=never", async () => {
   assert(argv.includes("--pull=never"), "argv should include --pull=never to prevent auto-pull");
 });
 
+test("Example Dockerfile installs socat for the VNC tunnel", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const dockerfile = await readFile("./docs/examples/linux-desktop/Dockerfile", "utf8");
+  const lines = dockerfile.split("\n");
+  const aptLine = lines.find(line => line.includes("apt-get install"));
+  assert(aptLine, "Dockerfile should have an apt-get install line");
+  assert(aptLine.includes("socat"), "apt-get install line should include socat");
+  assert(aptLine.includes("x11vnc"), "apt-get install line should include x11vnc");
+  assert(aptLine.includes("xdotool"), "apt-get install line should include xdotool");
+});
+
 test("Finding 6: runProgram uses shell:false", async () => {
   const { runProgram } = await import("../dist/integrations/linux-desktop.js");
   assert(typeof runProgram === "function", "runProgram should be a function");
@@ -161,4 +172,26 @@ test("ViewerInfo route is owner-only (tested in short-lived-key-routes.mjs)", as
     event() {},
   });
   assert(typeof sandbox.viewerInfo === "function", "viewerInfo method should exist");
+});
+
+test("Mutation: image validation rejects --privileged as a separate argument", async () => {
+  const { LinuxDesktopSchema } = await import("../dist/integrations/linux-desktop.js");
+  const bad = { image: "--privileged" };
+  const result = LinuxDesktopSchema.safeParse(bad);
+  assert(!result.success, "image starting with -- should be rejected even without space");
+});
+
+test("Mutation: listener returns loopback address not 0.0.0.0", async () => {
+  const { LinuxDesktopSandbox } = await import("../dist/integrations/linux-desktop.js");
+  const store = {
+    get() { return undefined; },
+    save() {},
+    event() {},
+  };
+  const sandbox = new LinuxDesktopSandbox(store);
+  // Use real createListenerImpl by not overriding createListener
+  const listener = await sandbox.createListener("fake-container", new Set());
+  const addr = listener.address();
+  listener.close();
+  assert.strictEqual(addr.address, "127.0.0.1", "listener should bind to 127.0.0.1 only");
 });

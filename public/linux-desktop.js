@@ -65,6 +65,17 @@ $("linux-desktop-image-save").addEventListener("click", () => {
   imageTouched = false;
   void send("linux-desktop", { image: $("linux-desktop-image").value.trim() }, say("linux-desktop.status.saved", "Saved."));
 });
+$("linux-desktop-show-viewer").addEventListener("click", async () => {
+  try {
+    const info = await api("linux-desktop/viewer");
+    $("linux-desktop-viewer-address").textContent = `${info.host}:${info.port}`;
+    $("linux-desktop-viewer-password").textContent = info.password;
+    $("linux-desktop-viewer-info").hidden = false;
+    status(say("linux-desktop.status.viewer-shown", "Viewer connection info is shown above."));
+  } catch (e) {
+    status(e.message);
+  }
+});
 $("linux-desktop-take-over").addEventListener("click", () =>
   void send("linux-desktop/take-over", {}, say("linux-desktop.status.taken-over", "It is yours. Branch has let go of it.")));
 $("linux-desktop-hand-back").addEventListener("click", () =>

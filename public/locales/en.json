@@ -5412,6 +5412,10 @@
   "linux-desktop.status.saved": "Saved.",
   "linux-desktop.status.taken-over": "It is yours. Branch has let go of it.",
   "linux-desktop.status.handed-back": "Handed back to Branch.",
+  "action.show-viewer-password": "Show viewer password",
+  "linux-desktop.viewer-address": "Address:",
+  "linux-desktop.viewer-password": "Password:",
+  "linux-desktop.status.viewer-shown": "Viewer connection info is shown above.",
   "describe.linux-desktop-mode": "Off: Branch cannot start a shared Linux desktop, and one that is running is taken down at once. When needed or on: Branch may start one in a container and work in it.",
   "describe.linux-desktop-image": "The container image a shared desktop starts from. It must already be on this computer; Branch never downloads it."
 }

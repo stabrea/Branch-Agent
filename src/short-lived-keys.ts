@@ -136,6 +136,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   // which speech program is installed and whether the microphone is open this moment; starting it
   // is refused by the fail-closed rule above, which is what keeps a short-lived key out of it.
   /^\/api\/voice\/dictation(\/|$)/,
+  // FQ-execution.desktop: the VNC viewer password for the shared desktop is the owner's only; a key
+  // cannot monitor or take over what the assistant is doing on the isolated desktop.
+  /^\/api\/linux-desktop\/viewer$/,
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
   /^\/api\/vault-autofill(\/|$)/,
