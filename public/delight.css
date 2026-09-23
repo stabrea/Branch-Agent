@@ -172,26 +172,28 @@
 .delight-part[hidden] {
   display: none;
 }
+/* DG-167: the approved tile, 92 px at the least; a desktop settings page holds all eight in one row,
+   and a narrower one wraps them without spilling sideways. */
 .delight-pets {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: var(--s2);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 92px), 1fr));
+  gap: 8px;
 }
 .delight-pet-tile {
   display: grid;
   justify-items: center;
-  gap: 2px;
-  padding: var(--s2) var(--s1);
+  gap: 4px;
+  padding: 8px 4px;
   border: 1px solid var(--line);
-  border-radius: var(--r2);
+  border-radius: 12px;
   background: transparent;
   box-shadow: none;
   color: var(--muted);
   font-size: 12px;
 }
 .delight-pet-tile canvas {
-  width: 40px;
-  height: 36px;
+  width: 60px;
+  height: 54px;
   image-rendering: pixelated;
 }
 .delight-pet-tile:hover {
