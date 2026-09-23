@@ -825,6 +825,8 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 }
 .updates-brand b {
   display: block;
+  font-family: var(--display);
+  font-stretch: 78%;
   font-size: 22px;
   font-weight: 760;
   letter-spacing: -.01em;
@@ -851,4 +853,23 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
   image-rendering: pixelated;
   touch-action: none;
   cursor: grab;
+}
+/* DG-192: the sample's up-to-date line under Updates: quiet words, and a check when this is the newest. */
+#updates-newest.up-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
+}
+#updates-newest.up-line svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }

@@ -1372,7 +1372,9 @@
             <h4 class="sr-only" data-t="settings.card.updates">Updates</h4>
             <p class="subtle" data-t="updates.source">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
             <div class="updates-brand">
-              <img src="/assets/icon.svg" alt="" width="56" height="56" />
+              <!-- The sample's Branch mark: the oak leaf and acorn, the reversed one in Moonlight, the other in Daylight (style.css). -->
+              <img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" width="56" height="56" />
+              <img class="oak-normal" src="/assets/keepoak-mark.png" alt="" width="56" height="56" />
               <div><b>Branch Agent</b><span class="subtle" data-t="updates.brand.line">A personal assistant that runs on your own computer · open source</span></div>
             </div>
             <div class="updates-now">
@@ -1386,7 +1388,7 @@
             </fieldset>
             <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Stable remains the default. Switching back never installs an older version.</p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
-            <p id="updates-newest" class="subtle"></p>
+            <p id="updates-newest" class="up-line"></p>
             <p id="updates-status" role="status"></p>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">

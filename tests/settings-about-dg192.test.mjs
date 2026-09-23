@@ -106,3 +106,51 @@ test("DG-192 the page speaks French", async (t) => {
   assert.equal(await page.locator("#about-acorn").getAttribute("aria-label"), "Le gland. Faites-le glisser ou utilisez les flèches pour le tourner.");
   assert.deepEqual(errors, []);
 });
+
+/* The sample's Branch mark is the oak leaf and acorn: the reversed one on Moonlight, the other on Daylight. */
+const shownMarks = (page) => page.locator(".updates-brand img").evaluateAll((marks) => marks
+  .filter((mark) => mark.checkVisibility() && mark.complete && mark.naturalWidth > 0)
+  .map((mark) => ({ src: new URL(mark.src).pathname, width: Math.round(mark.getBoundingClientRect().width) })));
+
+for (const width of [1440, 400]) {
+  test(`DG-192 at ${width} px Updates wears the sample's Branch mark in both lights`, async (t) => {
+    const { page, errors } = await fixture(t, { width });
+    await openAbout(page);
+    await page.evaluate(() => { document.documentElement.dataset.theme = "forest"; });
+    assert.deepEqual(await shownMarks(page), [{ src: "/assets/keepoak-mark-reversed.png", width: 56 }], "Moonlight");
+    await page.evaluate(() => { document.documentElement.dataset.theme = "daylight"; });
+    assert.deepEqual(await shownMarks(page), [{ src: "/assets/keepoak-mark.png", width: 56 }], "Daylight");
+    assert.deepEqual(errors, []);
+  });
+}
+
+test("DG-192 the up-to-date line leads with a check only when this is the newest", async (t) => {
+  const { page, errors, app } = await fixture(t);
+  await page.evaluate((version) => {
+    globalThis.__release = { latestVersion: version, available: false };
+    window.branchDesktop = {
+      updateStatus: async () => ({ phase: "current", message: "", progress: null, release: globalThis.__release }),
+      checkForUpdates: async () => ({ phase: "current", message: "", progress: null, release: globalThis.__release }),
+    };
+  }, app.version);
+  await openAbout(page);
+  const line = page.locator("#updates-newest");
+  await page.locator("#updates-check").click();
+  await page.waitForFunction(() => document.querySelector("#updates-newest svg"));
+  assert.equal(await line.textContent(), `Running ${app.version}, which is the newest.`, "the words are unchanged");
+  const look = await line.evaluate((node) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--ok)";
+    document.body.append(probe);
+    const ok = getComputedStyle(probe).color;
+    probe.remove();
+    const style = getComputedStyle(node);
+    return { display: style.display, size: style.fontSize, check: getComputedStyle(node.querySelector("path")).stroke === ok };
+  });
+  assert.deepEqual(look, { display: "flex", size: "13px", check: true });
+  await page.evaluate(() => { globalThis.__release = { latestVersion: "999.0.0", available: true }; });
+  await page.locator("#updates-check").click();
+  await page.waitForFunction(() => /newest is 999/.test(document.querySelector("#updates-newest").textContent));
+  assert.equal(await line.locator("svg").count(), 0, "no check while a newer one waits");
+  assert.deepEqual(errors, []);
+});

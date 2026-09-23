@@ -1020,6 +1020,19 @@ function showVersions(status) {
   else if (!newest) line.textContent = `Running ${running}. Branch has not looked for a newer one yet.`;
   else if (status.release.available) line.textContent = `Running ${running}, newest is ${newest}.`;
   else line.textContent = `Running ${running}, which is the newest.`;
+  /* DG-192: the sample's up-to-date line leads with a check, only when this is the newest. */
+  const newestHere = Boolean(newest) && status?.phase !== "unsupported" && !status.release.available;
+  if (newestHere) line.prepend(checkMark());
+  line.classList.toggle("up-to-date", newestHere);
+}
+function checkMark() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M5 12l5 5 9-10");
+  svg.append(path);
+  return svg;
 }
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
