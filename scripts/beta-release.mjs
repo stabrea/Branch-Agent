@@ -53,9 +53,15 @@ export function latestTrustedFast(payload, sha, repo, headBranch) {
 export function approvedExactHead(reviews, pull) {
   const latest = new Map();
   for (const review of reviews) {
-    const login = review.user?.login;
+    const user = review.user;
+    const login = user?.login;
+    const trustedHuman = user?.type !== "Bot" &&
+      ["OWNER", "MEMBER", "COLLABORATOR"].includes(review.author_association);
+    // This scoped App may record a real independent review; no other NONE-associated bot qualifies.
+    const trustedApp = user?.type === "Bot" && user.login === "keepoak-branch-reviewer[bot]" &&
+      user.id === 332788682;
     if (!login || login === pull.user.login || review.commit_id !== pull.head.sha ||
-        !["OWNER", "MEMBER", "COLLABORATOR"].includes(review.author_association)) continue;
+        !(trustedHuman || trustedApp)) continue;
     if ((latest.get(login)?.id ?? 0) < review.id) latest.set(login, review);
   }
   return [...latest.values()].some((review) => review.state === "APPROVED") &&

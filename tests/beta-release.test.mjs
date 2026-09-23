@@ -27,6 +27,16 @@ const pull = { number: 42, merged_at: "2026-09-23T00:00:00Z", merge_commit_sha: 
   head: { sha: head, ref: "feature", repo: { full_name: repo } }, user: { login: "author" } };
 const approval = { id: 1, state: "APPROVED", commit_id: head, user: { login: "reviewer" },
   author_association: "COLLABORATOR" };
+const appApproval = { ...approval, user: { login: "keepoak-branch-reviewer[bot]", id: 332788682, type: "Bot" },
+  author_association: "NONE" };
+
+test("only the exact installed reviewer App bot can approve a fast beta", () => {
+  assert.equal(approvedExactHead([appApproval], pull), true);
+  assert.equal(approvedExactHead([{ ...appApproval, user: { ...appApproval.user, id: 123 } }], pull), false);
+  assert.equal(approvedExactHead([{ ...appApproval, user: { ...appApproval.user, type: "User" } }], pull), false);
+  assert.equal(approvedExactHead([{ ...appApproval, user: { ...appApproval.user, login: "other[bot]" } }], pull), false);
+  assert.equal(approvedExactHead([{ ...appApproval, commit_id: sha }], pull), false);
+});
 
 test("beta version is strictly after the current stable patch and monotonic per workflow run", () => {
   assert.deepEqual(betaPlan("0.19.1", 17), { version: "0.19.2-beta.17", tag: "v0.19.2-beta.17" });
