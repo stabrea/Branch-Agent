@@ -28,6 +28,13 @@
   text-align: center;
   overflow-wrap: anywhere;
 }
+.agent-file-first,
+.agent-file-where {
+  font-size: 12.5px;
+}
+.agent-file-mode {
+  flex-wrap: nowrap;
+}
 .agent-files-foot {
   margin: 10px 0 0;
   font-size: 12.5px;
@@ -95,11 +102,19 @@
 }
 @media (max-width: 560px) {
   .agent-file {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .agent-file-name {
+    justify-self: start;
   }
   .agent-file-body {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+  .agent-file-mode {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: start;
   }
 }
 
