@@ -165,6 +165,8 @@ function rowEvent(row: Record<string, unknown>): CollabEvent | null {
  * Publishes a patch with its repository's status as one signed event. The repository is a Branch
  * project, and it must be one this household has, so the event cannot point at a made-up one.
  * The repository id sits in the signed payload, so moving an event to another repository breaks it.
+ * The project id is the whole identity: a project removed and later made again under the same id is
+ * shown the old patches too (only the owner can remove or make projects).
  */
 export async function publishGitPatch(events: CollabEvents, owner: string, member: string, input: unknown,
   repositoryExists: (repository: string) => boolean): Promise<CollabEvent> {
