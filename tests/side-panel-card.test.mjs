@@ -136,3 +136,63 @@ test("DG-114 nothing in the card is clipped at 1440, 1280, 1180, 860 and 400 wid
   }
   assert.deepEqual(errors, []);
 });
+
+/* DG-114, the fine geometry of the sample's .pane-top, .ib, .pane-tabs and .pane-body, measured from the card's inner edge:
+   a 42px name row with the name 14px in and a 34px close button with a 10px corner 6px from the edge, a tabs row that
+   spans the card with its tabs 6px in and 47px tall, the first section 14px under the tabs, and a head that stays at the
+   top while the card scrolls. */
+async function cardGeometry(page) {
+  return page.evaluate(() => {
+    const panel = document.getElementById("context-panel"), box = panel.getBoundingClientRect(), style = getComputedStyle(panel);
+    const inner = { left: box.left + parseFloat(style.borderLeftWidth), right: box.right - parseFloat(style.borderRightWidth),
+      top: box.top + parseFloat(style.borderTopWidth) };
+    const rect = (sel) => panel.querySelector(sel).getBoundingClientRect();
+    const top = rect(".lx-pane-top"), close = rect("#lx-pane-close"), name = rect(".lx-pane-name"), tabs = rect("#lx-pane-tabs");
+    const tab = rect(".lx-pane-tab"), last = [...panel.querySelectorAll(".lx-pane-tab")].filter((t) => t.getClientRects().length).at(-1).getBoundingClientRect();
+    const first = [...panel.children].find((c) => c.getClientRects().length && !c.matches(".lx-pane-head, .lx-pane-foot")).getBoundingClientRect();
+    const r = (n) => Math.round(n * 2) / 2;
+    return { rowHeight: r(top.height), rowTop: r(top.top - inner.top), nameIn: r(name.left - inner.left), closeW: r(close.width),
+      closeH: r(close.height), closeRadius: getComputedStyle(panel.querySelector("#lx-pane-close")).borderTopLeftRadius,
+      closeIn: r(inner.right - close.right), closeTop: r(close.top - inner.top), tabsLeft: r(tabs.left - inner.left),
+      tabsRight: r(inner.right - tabs.right), tabIn: r(tab.left - inner.left), lastIn: r(inner.right - last.right),
+      tabHeight: r(tab.height), firstGap: r(first.top - tabs.bottom) };
+  });
+}
+const sampleGeometry = { rowHeight: 42, rowTop: 0, nameIn: 14, closeW: 34, closeH: 34, closeRadius: "10px", closeIn: 6, closeTop: 8,
+  tabsLeft: 0, tabsRight: 0, tabIn: 6, lastIn: 6, tabHeight: 47, firstGap: 14 };
+
+test("DG-114 the card's head, close button, tabs and first section sit where the sample puts them", async (t) => {
+  const { page, errors } = await fixture(t);
+  await openCard(page);
+  for (const [w, h] of [[1440, 950], [400, 900]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForFunction((width) => innerWidth === width
+      && new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true)))), w);
+    if (!(await shown(page))) { await page.locator("#aside-toggle").click(); await page.locator("#context-panel").waitFor({ state: "visible" }); }
+    for (const [everything, appearance] of [[false, "daylight"], [true, "forest"]]) {
+      await page.evaluate(async (look) => (await import("/appearance.js")).changeAppearance(look),
+        { showEverything: everything, followSystem: false, appearance });
+      await page.waitForFunction((on) => document.documentElement.dataset.everything === (on ? "on" : "off")
+        || (!on && document.documentElement.dataset.everything !== "on"), everything);
+      if (!(await shown(page))) { await page.locator("#aside-toggle").click(); await page.locator("#context-panel").waitFor({ state: "visible" }); }
+      assert.deepEqual(await cardGeometry(page), sampleGeometry, `${w}, Show everything ${everything ? "on" : "off"}, ${appearance}`);
+      /* Every tab keeps its name in the card at every width, as the sample's do. */
+      assert.equal(await page.locator("#context-panel .lx-pane-tab .lx-words:visible").count(), 6, `${w}: all six tabs say their names`);
+    }
+  }
+  /* A short window: the card scrolls, and its head with the close button stays at its top. */
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await page.waitForFunction(() => innerHeight === 600);
+  if (!(await shown(page))) { await page.locator("#aside-toggle").click(); await page.locator("#context-panel").waitFor({ state: "visible" }); }
+  await page.locator('#context-panel .lx-pane-tab[data-pane="plan"]').click();
+  const stuck = await page.evaluate(async () => {
+    const panel = document.getElementById("context-panel");
+    const before = panel.querySelector(".lx-pane-top").getBoundingClientRect().top;
+    panel.scrollTop = panel.scrollHeight;
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    return { scrolled: panel.scrollTop, moved: Math.round(panel.querySelector(".lx-pane-top").getBoundingClientRect().top - before) };
+  });
+  assert.ok(stuck.scrolled > 0, "the short card has something to scroll");
+  assert.equal(stuck.moved, 0, "the head stays at the top of the card while it scrolls");
+  assert.deepEqual(errors, []);
+});

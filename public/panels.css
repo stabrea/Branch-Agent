@@ -51,6 +51,9 @@ body.lx.lx-working #aside-toggle::after {
   white-space: nowrap;
 }
 .context-panel .lx-pane-tab .lx-words {
+  /* layout.css hides tab names below 860 px, from when the tabs sat in the narrow top bar; in the card they keep their
+     names at every width, as in the sample, and public/layout.js still falls back to pictures when they do not fit. */
+  display: inline;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -130,12 +133,27 @@ body.lx.lx-working #aside-toggle::after {
 .panels-rz[data-rz="aside"] {
   z-index: 61;
 }
-/* Its head: the card's name and a close button on one line, then the tabs. */
+/* Its head: the card's name and a close button on one line, then the tabs. As the sample's .pane-top and .pane-tabs, the
+   head runs to the card's edges (the card keeps its own padding for what is below), stays at the top while the card
+   scrolls, and the first section starts 14px under the tabs (the sample's .pane-body padding). */
+.context-panel > .lx-pane-head {
+  position: sticky;
+  top: calc(-1 * var(--s2));
+  z-index: 1;
+  flex: none;
+  gap: 0;
+  margin: calc(-1 * var(--s2)) calc(-1 * var(--s4)) calc(14px - var(--s4));
+  padding: 0;
+  background: var(--glass-2);
+}
+/* The name row is 42px: 8px above a 34px close button, the name 14px in and the button 6px from the edge. */
 .lx-pane-top {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  min-height: 42px; /* the same row when Help hides the close button */
+  padding: 8px 6px 0 14px;
 }
 .lx-pane-top .lx-pane-name {
   flex: 1 1 auto;
@@ -146,14 +164,22 @@ body.lx.lx-working #aside-toggle::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lx-pane-close {
+/* The sample's .ib: 34px square with a 10px corner, in the second text colour until pointed at. */
+.context-panel .lx-pane-close {
   flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--text-2);
+}
+.context-panel .lx-pane-close:hover {
+  color: var(--text);
 }
 /* Its tabs, as the sample's .pane-tabs: six equal columns, each its picture over its name, the chosen one in full colour
    and underlined in copper, with one line under the row. They replace the pill that showed only the chosen tab's name. */
 :root body.lx #context-panel #lx-pane-tabs {
   gap: 0;
-  padding: 4px 0 0;
+  padding: 4px 6px 0; /* the row spans the card, its tabs 6px in from each edge */
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -169,6 +195,7 @@ body.lx.lx-working #aside-toggle::after {
   color: var(--text-3);
   font-size: 11px;
   font-weight: 500;
+  line-height: 1.55; /* the sample's line, so each tab is its 47px */
 }
 .context-panel .lx-pane-tab[aria-pressed="true"],
 .context-panel .lx-pane-tab[aria-pressed="true"]:hover {
