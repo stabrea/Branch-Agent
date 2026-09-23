@@ -767,6 +767,9 @@ test("G1 the context pane lists a grant and the approval card says what a yes le
   const { page, errors } = await onPage(t, { provider: writesAFile("gated.txt") });
   await page.evaluate(async (token) => {
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
+    /* Q59: Ask first offers no "Yes, always", so this conversation follows the owner's setting to show all three yeses. */
+    await fetch("/api/conversation-mode/settings", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ newConversation: "follow" }) });
+    await globalThis.branchConversationMode.refresh();
   }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
   await page.locator("#prompt").fill("write it");
   await page.locator("#send").click();

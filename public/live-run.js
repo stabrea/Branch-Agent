@@ -126,6 +126,7 @@ function askCard(question) {
   if (question.onceOnly) card.append(el("p", t("live.onceOnly"), "meta"));
   for (const [label, decision, remember] of answers) {
     if (remember === "always" && question.source !== "owner") continue;
+    if (remember === "always" && question.noStanding) continue; // Q59: Ask first and Plan keep no standing yes
     if (question.onceOnly && decision === "allow" && remember !== "never") continue;
     const choice = el("div", undefined, "live-ask-choice");
     choice.append(button(label, decision === "deny" ? "danger" : "", () => answerOnce(card, async () => {

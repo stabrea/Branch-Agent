@@ -141,6 +141,9 @@ test("each place in the bar opens where the side list opens it, and says which o
 test("a question on a phone scrolls into view above the message box, and is answered with a thumb", async (t) => {
   const f = await fixture(t);
   await f.call("/api/policy", { preset: "ask-before-changes" });
+  /* Q59: Ask first offers no "Yes, always", so this conversation follows the owner's setting to show all four answers. */
+  await f.call("/api/conversation-mode/settings", { newConversation: "follow" });
+  await f.page.evaluate(() => globalThis.branchConversationMode.refresh());
   await f.page.locator("#prompt").fill("write a note for me");
   await f.page.locator("#send").click();
   const card = f.page.locator("#live-ask");
