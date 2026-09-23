@@ -187,12 +187,13 @@ function openPicker(anchor) {
   place();
   addEventListener("resize", place);
   const onDocClick = (event) => { if (!box.contains(event.target) && event.target !== anchor) closer(); };
-  /* The picker's Escape is its own: kept from bubbling to the sheet (public/topic-panes.js), which would also close
-     and move the keyboard elsewhere. Focus returns to the anchor (Add a topic button). */
+  /* The picker's Escape is its own: kept from reaching the sheet and the floating side pane, which would close
+     too, and the keyboard goes back to "Add a topic". */
   const onKey = (event) => {
     if (event.key !== "Escape") return;
     event.stopPropagation();
     closer();
+    anchor.focus();
   };
   function closer() {
     box.remove();
@@ -200,7 +201,6 @@ function openPicker(anchor) {
     document.removeEventListener("pointerdown", onDocClick, true);
     document.removeEventListener("keydown", onKey, true);
     if (pickerPop === handle) pickerPop = null;
-    anchor.focus();
   }
   const handle = { close: closer };
   setTimeout(() => document.addEventListener("pointerdown", onDocClick, true), 0);
