@@ -215,6 +215,29 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
 /** R17-S14: the whole launch settings file, so the Settings card can check a change before writing it. */
 export const LaunchFileSchema = ConfigSchema;
 
+/**
+ * What is left out of an integrations file that sits in a workspace folder the owner has not
+ * trusted. Nothing in it starts by itself as Branch starts: no AI tool servers, no hooks and no
+ * chat apps, which sign in with saved keys and let people message the assistant. And it changes
+ * none of the protections everything else runs under: without its `web` section the network rules
+ * and the injection policy keep the settings Branch already had. The owner is told once, in one
+ * line naming what was left out. What a task has to choose to call (the browser, commands, git
+ * and issue tools) is still added, under the owner's approvals and those same rules.
+ */
+function holdBackUntrusted(config: z.infer<typeof ConfigSchema>, path: string): void {
+  const left: string[] = [];
+  if (config.web) left.push('web and network settings');
+  if (config.channels.length) left.push('chat apps');
+  if (config.mcp.length) left.push('AI tool servers');
+  if (config.hooks.length) left.push('hooks');
+  if (left.length) {
+    const named = left.length > 1 ? `${left.slice(0, -1).join(', ')} or ${left.at(-1)}` : left[0];
+    console.warn(`Branch did not use the ${named} listed in ${path}: that folder is not trusted. Trust it in Settings, Permissions.`);
+  }
+  delete config.web;
+  config.channels = []; config.mcp = []; config.hooks = [];
+}
+
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
   /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
@@ -235,12 +258,9 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   const info = await stat(path);
   if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
   const config = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
-  // Wave mac2 (guards): an untrusted folder's hooks and AI tool servers are left unstarted.
-  if (channels?.configTrusted && !channels.configTrusted(path)) {
-    if (config.mcp.length || config.hooks.length)
-      console.warn(`Branch did not start the AI tool servers or hooks listed in ${path}: that folder is not trusted. Trust it in Settings, Permissions.`);
-    config.mcp = []; config.hooks = [];
-  }
+  // Wave mac2 (guards): a file in a folder the owner has not trusted starts nothing by itself and
+  // changes none of the protections the rest of Branch runs under.
+  if (channels?.configTrusted && !channels.configTrusted(path)) holdBackUntrusted(config, path);
   if (config.web) channels?.web?.configure(config.web);
   const policy = channels?.web?.policy;
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)

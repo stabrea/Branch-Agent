@@ -227,8 +227,9 @@ export function folderAllows(store: Store, owner: string, path: string, holdsSom
 }
 
 /**
- * Whether the hooks and AI tool servers named in the launch's integrations file may be started.
- * Only a file that sits inside the workspace is a folder's own; one elsewhere is the owner's.
+ * Whether the launch's integrations file may start its AI tool servers, hooks and chat apps and set
+ * the web and network settings. Only a file that sits inside the workspace is a folder's own; one
+ * elsewhere is the owner's.
  */
 export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string): boolean {
   const folder = realFolder(dirname(resolve(file)));
