@@ -14,14 +14,18 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 const HEADS = ["Keep it running by itself", "Limits and the waiting line", "A public address for webhooks", "Watch a task again"];
-/* The sample says 10, 11 and 2 more. DG-199 counts a card's rows only once they are drawn, and some are not yet:
-   the tunnel's program and path and the board's limit wait for their switch, the HEARTBEAT.md and SOP.md switches
-   are not in the row levels, and "Tasks at the same time" has no card of its own. Left for the coordinator. */
-const REGULAR = ["Keep it running by itself", "8 more with Advanced", "Limits and the waiting line", "9 more with Advanced",
-  "A public address for webhooks", "Watch a task again"];
+/* The sample says 10, 11 and 2 more. Its other two are the HEARTBEAT.md and SOP.md switches, which it draws as
+   "Set in Instructions & personality" links and so has no row level for (left for the coordinator). DG-199 counts a
+   row the card has not drawn yet (the tunnel's program and path, the board's limit wait for their switch). */
+const REGULAR = ["Keep it running by itself", "9 more with Advanced", "Limits and the waiting line", "10 more with Advanced",
+  "A public address for webhooks", "2 more with Advanced", "Watch a task again"];
+/* At Advanced the sample keeps one Technical row back in each of the first three: the timezone, tokens, the path. */
+const ADVANCED = ["Keep it running by itself", "1 more with Technical", "Limits and the waiting line", "1 more with Technical",
+  "A public address for webhooks", "1 more with Technical", "Watch a task again"];
 const FRENCH = ["Le laisser tourner tout seul", "Les limites et la file d'attente", "Une adresse publique pour les webhooks", "Revoir une tâche"];
 const SECTIONS = {
-  "automations:running": ["quiet-checkin", "autonomy-suggestions-card", "autonomy-orders-card", "context-heartbeat", "autonomy-loops-card"],
+  "automations:running": ["quiet-checkin", "autonomy-suggestions-card", "autonomy-orders-card", "context-heartbeat", "autonomy-loops-card",
+    "autonomy-queue-card"],
   "automations:limits": ["quiet-health", "flows-board-card", "flows-waiting-card", "autonomy-limits-card", "flows-travel-card",
     "flows-recipes-card", "prompts-card", "context-sop", "autonomy-procedures-card"],
   "automations:webhooks": ["personal-tunnel-card", "flows-installs-card"],
@@ -76,16 +80,18 @@ test("Automations & inbox: the sample's sections and counts, at every width, bot
     ["H3"], "a card is titled below the page title (DG-008)");
   assert.equal(await page.locator("#lx-page-automations .sg-head-title:visible", { hasText: "More on this page" }).count(), 0);
 
-  for (const width of [1440, 860, 400]) {
+  for (const colorScheme of ["light", "dark"]) for (const width of [1440, 860, 400]) {
+    await page.emulateMedia({ colorScheme });
     await page.setViewportSize({ width, height: 1000 });
     await level("regular");
-    assert.deepEqual(await settle(REGULAR), REGULAR, `Regular at ${width} px`);
+    assert.deepEqual(await settle(REGULAR), REGULAR, `Regular at ${width} px, ${colorScheme}`);
     await level("advanced");
-    const advanced = await settle(HEADS);
-    assert.deepEqual(advanced.filter((line) => !/more with/.test(line)), HEADS, `Advanced at ${width} px`);
-    assert.ok(advanced.every((line) => !/more with Advanced/.test(line)), "nothing waits for Advanced at Advanced");
+    assert.deepEqual(await settle(ADVANCED), ADVANCED, `Advanced at ${width} px, ${colorScheme}`);
+    await level("technical");
+    assert.deepEqual(await settle(HEADS), HEADS, `Technical at ${width} px, ${colorScheme}: nothing more to show`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `no sideways scroll at ${width} px`);
   }
+  await page.emulateMedia({ colorScheme: "light" });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await level("regular");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
@@ -95,5 +101,21 @@ test("Automations & inbox: the sample's sections and counts, at every width, bot
   /* The links to the Automations and Inbox places have no home in the sample: they wait at Technical. */
   assert.equal(await page.locator("#lx-page-automations .settings-directory-card:visible").count(), 0);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+
+  /* "Tasks at the same time" has a card of its own here, saved as it changes, with no Save button (DG-025). */
+  const atOnce = async () => (await (await fetch(new URL("/api/queue", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json()).settings.atOnce;
+  await level("advanced");
+  const queue = page.locator("#autonomy-queue-card"), said = queue.locator("[role=status]");
+  assert.equal(await queue.locator("button:not(.sg-more)").count(), 0, "nothing to press: it saves as it changes");
+  await page.locator("#queue-at-once").fill("5");
+  await page.locator("#queue-at-once").press("Tab");
+  await said.filter({ hasText: "Saved" }).waitFor();
+  assert.equal(await atOnce(), 5);
+  /* A number the waiting line refuses is said in the card, and what was saved stays. */
+  await page.locator("#queue-at-once").fill("9");
+  await page.locator("#queue-at-once").press("Tab");
+  await page.waitForFunction(() => { const text = document.querySelector("#autonomy-queue-card [role=status]")?.textContent ?? ""; return text && !/Saved/.test(text); });
+  assert.equal(await atOnce(), 5);
+  assert.equal(await page.locator("#collab-container input[type=number][max='8']").count(), 0, "one control for one setting");
   assert.deepEqual(errors, []);
 });
