@@ -32,12 +32,21 @@ export interface CollabSearch {
 }
 /**
  * `truncated` is true when the listing stopped at `scanLimit` stored rows while more matching rows
- * were still unread: then `events` may be missing older genuine events and `rejected` more ids.
+ * were still unread, or wanted more events while the owner has rows older than the `walkLimit`
+ * window: then `events` may be missing older genuine events and `rejected` more ids.
  */
 export interface CollabListing { events: CollabEvent[]; rejected: string[]; truncated: boolean }
 
 /** The most stored rows one listing looks at before it stops, however many of them fail to verify. */
 const scanLimit = 5000;
+/**
+ * The newest rows of the owner's partition one listing's SQL walks at all: room for `scanLimit` rows
+ * to verify and `scanLimit` rows from people outside the household. Every filter (member, kind, text,
+ * repository, what the caller may see) runs inside this window, so no request walks further.
+ */
+const walkLimit = 2 * scanLimit;
+/** Who is asking. Only `ownerView: true` is shown the kinds that belong to the owner. */
+export interface CollabViewer { ownerView: boolean }
 
 /** What a repository looked like when a patch was published: its branch, head commit and changed files. */
 export const GitStatusSchema = z.object({
@@ -53,11 +62,13 @@ export const gitPatchKind = "git.patch";
 /**
  * Kinds whose payload has a fixed shape, each with the one route that publishes it after checking
  * that shape (and anything else, like the repository being real). The general route refuses them,
- * and one received from elsewhere is kept only if its payload has that shape.
+ * and one received from elsewhere is kept only if its payload has that shape. An `ownerOnly` kind
+ * is published through a route only the owner may use, and is listed only to the owner.
  */
-export const reservedKinds: ReadonlyMap<string, { payload: z.ZodType; route: string }> = new Map([
-  [gitPatchKind, { payload: GitPatchSchema, route: "/api/collab/git-patches" }],
+export const reservedKinds: ReadonlyMap<string, { payload: z.ZodType; route: string; ownerOnly: boolean }> = new Map([
+  [gitPatchKind, { payload: GitPatchSchema, route: "/api/collab/git-patches", ownerOnly: true }],
 ]);
+const ownerOnlyKinds = [...reservedKinds].filter(([, reserved]) => reserved.ownerOnly).map(([kind]) => kind);
 
 export class CollabEvents {
   private root: Promise<Buffer> | undefined;
@@ -116,18 +127,16 @@ export class CollabEvents {
     return event;
   }
   /**
-   * Newest first. Events that no longer verify are left out and named in `rejected`. Rows whose
-   * member is not in the household are skipped in the query itself, so however many a removed member
-   * left behind they never use up the scan; their ids are still named in `rejected`.
+   * Newest first, among the newest `walkLimit` rows of the owner's partition. Events that no longer
+   * verify are left out and named in `rejected`. Rows whose member is not in the household are skipped
+   * in the query itself, so up to `scanLimit` of them (as many as are named in `rejected`) never use up
+   * the scan. Owner-only kinds are left out in the query too unless the caller is the owner: they never
+   * use up a household person's page or scan, and are not named to them in `rejected` either.
    */
-  async list(owner: string, search: CollabSearch = {}): Promise<CollabListing> {
+  async list(owner: string, search: CollabSearch = {}, viewer: CollabViewer = { ownerView: false }): Promise<CollabListing> {
     const limit = Math.min(Math.max(Math.trunc(search.limit ?? 100), 1), 500);
-    const text = search.text ? `%${search.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
-    const members = JSON.stringify(this.members()), repository = search.repository ?? null;
-    const where = `owner=? AND (? IS NULL OR kind=?) AND (? IS NULL OR payload LIKE ? ESCAPE '\\')
-      AND (? IS NULL OR (kind=? AND json_valid(payload) AND json_extract(payload, '$.repository')=?))`;
-    const params = [owner, search.kind ?? null, search.kind ?? null, text, text, repository, gitPatchKind, repository];
-    const page = this.db.prepare(`SELECT * FROM collab_events WHERE ${where}
+    const members = JSON.stringify(this.members()), { from, where, params } = listFilter(owner, search, viewer);
+    const page = this.db.prepare(`SELECT * FROM ${from} WHERE ${where}
       AND member IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id LIMIT ? OFFSET ?`);
     const listing: CollabListing = { events: [], rejected: [], truncated: false };
     // Pages are read until `limit` events verify, so rows that no longer verify never use up the page.
@@ -146,16 +155,34 @@ export class CollabEvents {
     }
     // Stopped at the cap with events still wanted: say so when a matching row was left unread.
     if (listing.events.length < limit && offset >= scanLimit) listing.truncated = page.all(...params, members, 1, offset).length > 0;
-    const strangers = this.db.prepare(`SELECT id FROM collab_events WHERE ${where}
+    const strangers = this.db.prepare(`SELECT id FROM ${from} WHERE ${where}
       AND member NOT IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id LIMIT ?`).all(...params, members, scanLimit + 1);
     if (strangers.length > scanLimit) listing.truncated = true;
     listing.rejected.push(...strangers.slice(0, scanLimit).map((row) => String(row.id)));
+    // Events still wanted and rows older than the window: those were never looked at.
+    if (listing.events.length < limit && this.db.prepare("SELECT 1 FROM collab_events WHERE owner=? LIMIT 1 OFFSET ?").get(owner, walkLimit))
+      listing.truncated = true;
     return listing;
   }
   private insert(owner: string, event: CollabEvent): void {
     this.db.prepare("INSERT INTO collab_events(id, owner, member, kind, at, payload, signature) VALUES(?,?,?,?,?,?,?)")
       .run(event.id, owner, event.member, event.kind, event.at, JSON.stringify(event.payload), event.signature);
   }
+}
+
+/**
+ * The rows one listing may look at: the owner's newest `walkLimit`, narrowed by the search, with the
+ * owner-only kinds taken out for anybody but the owner. `from` binds the owner and the window size.
+ */
+function listFilter(owner: string, search: CollabSearch, viewer: CollabViewer) {
+  const text = search.text ? `%${search.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+  const repository = search.repository ?? null, hidden = JSON.stringify(viewer.ownerView === true ? [] : ownerOnlyKinds);
+  const from = "(SELECT * FROM collab_events WHERE owner=? ORDER BY at DESC, id LIMIT ?)";
+  const where = `(? IS NULL OR kind=?) AND (? IS NULL OR payload LIKE ? ESCAPE '\\')
+    AND (? IS NULL OR (kind=? AND json_valid(payload) AND json_extract(payload, '$.repository')=?))
+    AND kind NOT IN (SELECT value FROM json_each(?))`;
+  const params = [owner, walkLimit, search.kind ?? null, search.kind ?? null, text, text, repository, gitPatchKind, repository, hidden];
+  return { from, where, params };
 }
 
 /** A stored row back as an event, or null when its payload is no longer readable. */

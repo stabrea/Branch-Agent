@@ -150,15 +150,16 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
 /**
  * Signed collaboration events. A new event is always published under whoever is using the app,
  * never under a member named in the request; a received event is kept only if its signature holds.
- * Every household member may read and publish; taking in a relay's event is the owner's alone, and
- * src/server.ts refuses it to a household profile before this runs (src/household-routes.ts).
+ * Every household member may read and publish; taking in a relay's event and publishing a git patch
+ * are the owner's alone, and src/server.ts refuses them to a household profile before this runs
+ * (src/household-routes.ts). A household profile's listing leaves the owner-only kinds out.
  */
 async function eventsApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const owner = app.runtime.owner, events = app.store.collabEvents;
   if (request.method === "GET" && path === "/api/collab/events") {
     const query = new URL(request.url ?? "/", "http://local").searchParams;
     return events.list(owner, { kind: query.get("kind") ?? undefined, text: query.get("q") ?? undefined,
-      repository: query.get("repository") ?? undefined });
+      repository: query.get("repository") ?? undefined }, { ownerView: app.store.profiles.isOwner() });
   }
   if (request.method !== "POST") return notCollab;
   if (path === "/api/collab/events") {
