@@ -55,7 +55,7 @@ export async function openPlace(page, view) {
   await ready(page);
   if (view === "chat") {
     await closeSettings(page);
-    const back = page.locator(".lx-back");
+    const back = page.locator(".lx-crumb-where");
     if (await back.isVisible()) await back.click();
     return;
   }

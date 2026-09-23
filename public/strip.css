@@ -270,10 +270,6 @@ body:has(#workspace[hidden]) .strip {
 #household > .lx-place-head {
   display: none;
 }
-body:has(#overview:not([hidden])) #lx-crumb,
-body:has(#household:not([hidden])) #lx-crumb {
-  display: none;
-}
 
 /* Integration review: the Undo inside the notice after hiding a Trunk. */
 #toast .strip-undo {
