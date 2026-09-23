@@ -61,6 +61,15 @@ if (card) {
         if (word !== node.dataset.t) node.textContent = word;
       }
   }
+  /** Written from the last state each time the language changes, so it never keeps the old words. */
+  let restorePoints = null;
+  function sayRestorePoints() {
+    if (!restorePoints) return;
+    pick("restore-points").textContent = restorePoints.length
+      ? t("settings.deployment.safety-copies-kept", { copies: restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ") })
+      : t("settings.deployment.no-safety-copy");
+  }
+  document.addEventListener("branch-language", sayRestorePoints);
   function render(state) {
     platform = state.platform ?? "";
     nameTheSystem();
@@ -71,10 +80,8 @@ if (card) {
     pick("phone-switch").checked = state.remote.enabled;
     say("phone-status", state.remote.message);
     pick("phone-invite").hidden = !state.remote.enabled;
-    const points = pick("restore-points");
-    points.textContent = state.restorePoints.length
-      ? t("settings.deployment.safety-copies-kept", { copies: state.restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ") })
-      : t("settings.deployment.no-safety-copy");
+    restorePoints = state.restorePoints;
+    sayRestorePoints();
     const unhealthy = state.firstStart && !state.firstStart.healthy && state.firstStart.previousVersion;
     pick("restore-offer").hidden = !(unhealthy && state.restorePoints.length);
     if (unhealthy && state.restorePoints.length)
