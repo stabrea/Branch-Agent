@@ -15,16 +15,6 @@ const money = (value) =>
   value > 0 && value < 0.01 ? "< $0.01"
     : "$" + value.toFixed(2);
 
-function totalCost(state, here) {
-  const mine = (state.runs ?? []).filter((run) => run.sessionId === here);
-  if (!mine.length) return null;
-  let cost = 0;
-  for (const run of mine) {
-    if (typeof run.cost?.amount !== "number" || !Number.isFinite(run.cost.amount)) return null;
-    cost += run.cost.amount;
-  }
-  return cost;
-}
 let generation = 0;
 let showing = null;
 export async function refreshCost() {
@@ -35,10 +25,10 @@ export async function refreshCost() {
   if (showing !== here) { line.textContent = ""; showing = here; }
   if (!here || $("workspace")?.hidden) { line.textContent = ""; return; }
   try {
-    const state = await api("state");
+    const cost = await api(`sessions/${encodeURIComponent(here)}/cost`);
     if (current !== generation || here !== session()) return;
-    const cost = totalCost(state, here);
-    line.textContent = cost === null ? "" : t("conversation.cost", { cost: money(cost) });
+    line.textContent = typeof cost.amount !== "number" || !Number.isFinite(cost.amount) || cost.amount < 0
+      ? "" : t("conversation.cost", { cost: money(cost.amount) });
   } catch { if (current === generation) line.textContent = ""; }
 }
 setInterval(() => void refreshCost(), 6000);

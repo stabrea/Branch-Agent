@@ -265,7 +265,7 @@ test("U3 an approval question appears in the conversation and the answer reaches
 });
 
 test("U4 the composer builds no obsolete meter and never invents an unknown price", async (t) => {
-  const { page, errors } = await fixture(t, {
+  const { app, page, errors } = await fixture(t, {
     name: "scripted",
     async complete() { return { content: "A short answer.", toolCalls: [] }; },
   });
@@ -277,16 +277,29 @@ test("U4 the composer builds no obsolete meter and never invents an unknown pric
   assert.equal(await page.locator("#meter-row, #meter-button, #meter-popover").count(), 0);
   assert.equal(await page.locator("#conversation-cost").textContent(), "", "an unknown price is not invented");
   const here = await page.locator("#conversation").getAttribute("data-session-id");
-  let prices = [0.08];
-  await page.route("**/api/state", async (route) => {
-    const response = await route.fetch();
-    const state = await response.json();
-    state.runs = prices.map((amount) => ({ sessionId: here, cost: { amount } }));
-    await route.fulfill({ response, json: state });
-  });
+  app.store.save("settings", app.runtime.owner, "pricing", { overrides: { "cost-fixture": { input: 80, output: 0 } } });
+  const priceRun = (run) => {
+    app.store.event(run.id, "model.complete", { model: "cost-fixture" });
+    app.store.addUsage(run.id, 0, 0, { input: 1000, output: 0 });
+  };
+  priceRun(app.store.runs(app.runtime.owner).find((run) => run.sessionId === here));
+  const priced = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/sessions/${id}/cost`, { headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } });
+    return { status: response.status, data: await response.json() };
+  }, here);
+  assert.equal(priced.status, 200);
+  assert.equal(priced.data.amount, 0.08);
   await page.evaluate(() => window.branchConversationCost.refresh());
   assert.equal(await page.locator("#conversation-cost").textContent(), "About $0.08 so far");
-  prices = [0.08, null];
+  priceRun(app.store.createRun(app.runtime.owner, "Second priced task", here));
+  const other = app.store.createRun(app.runtime.owner, "Unrelated task");
+  for (let n = 0; n < 98; n++) app.store.createRun(app.runtime.owner, "Unrelated task", other.sessionId);
+  await page.evaluate(() => window.branchConversationCost.refresh());
+  assert.equal(await page.locator("#conversation-cost").textContent(), "About $0.16 so far", "other conversations cannot evict any part of this total");
+  for (let n = 0; n < 100; n++) priceRun(app.store.createRun(app.runtime.owner, "Priced task", here));
+  await page.evaluate(() => window.branchConversationCost.refresh());
+  assert.equal(await page.locator("#conversation-cost").textContent(), "About $8.16 so far", "one conversation may itself have more than 100 tasks");
+  app.store.createRun(app.runtime.owner, "Unknown price", here);
   await page.evaluate(() => window.branchConversationCost.refresh());
   assert.equal(await page.locator("#conversation-cost").textContent(), "", "partial prices do not masquerade as a total");
   await page.evaluate(() => { document.getElementById("conversation").dataset.sessionId = "other-session"; });

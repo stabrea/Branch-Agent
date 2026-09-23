@@ -1789,7 +1789,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|cost))?$/.exec(path);
+  if (match && match[2] === "cost" && request.method === "GET") return conversationCost(app, match[1]!);
   // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
   if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
   if (match && match[2] === "merge-note" && request.method === "POST")
@@ -2572,6 +2573,21 @@ function fileChanges(app: Branch, runId: string) {
   return app.store.events(runId).filter((e) => e.kind === "file.changed").slice(0, 10)
     .map((e) => ({ path: e.data.path, versionId: e.data.versionId, existed: e.data.existed, added: e.data.added, removed: e.data.removed, diff: e.data.diff }));
 }
+/** Sum the whole conversation, never the owner's truncated recent-task window. */
+function conversationCost(app: Branch, sessionId: string) {
+  const owner = app.store.profiles.scope();
+  requireBoundSession(shortLivedKeyMark().sessionId, sessionId);
+  if (!app.store.ownsSession(owner, sessionId)) throw new HttpError(404, "Session not found");
+  const runs = app.store.sessionRunIds(owner, sessionId);
+  let amount = 0;
+  for (const runId of runs) {
+    const cost = runCost(app, runId).amount;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return { amount: null, currency: "USD" };
+    amount += cost;
+  }
+  return { amount: runs.length && Number.isFinite(amount) ? amount : null, currency: "USD" };
+}
+
 /** What one task probably cost: a dollar figure when the model it used has a price on file. */
 function runCost(app: Branch, runId: string) {
   const usage = app.store.usage(runId);
