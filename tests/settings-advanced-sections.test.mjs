@@ -107,3 +107,22 @@ test("DG-008: on Advanced only the page title is level two; each card's title si
     assert.equal(await page.locator(inner).count(), 1, `${inner} is level four`);
   assert.deepEqual(errors, []);
 });
+
+test("DG-025: the code editor and pull request switches save as you go, with no Save button, and say when a save fails", async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("advanced"));
+  for (const [details, select, path, status] of [["wsedit-card", "wsedit-mode", "/api/workspace-editor/settings", "wsedit-mode-status"],
+    ["pull-requests", "pull-requests-mode", "/api/developer/pull-requests", "pull-requests-status"]]) {
+    await page.locator(`#${details} > summary`).click();
+    assert.equal(await page.locator(`#${details} button`).count(), 0, `${details} has no Save button`);
+    const saved = page.waitForRequest((request) => request.url().endsWith(path) && request.method() === "POST");
+    await page.locator(`#${select}`).selectOption("when-needed");
+    assert.equal((await saved).postDataJSON().mode, "when-needed", `${select} is sent the moment it changes`);
+    await page.route(`**${path}`, (route) => route.request().method() === "POST"
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "That could not be saved." }) })
+      : route.continue());
+    await page.locator(`#${select}`).selectOption("on");
+    await page.waitForFunction((id) => /could not be saved/.test(document.getElementById(id)?.textContent ?? ""), status);
+  }
+  assert.deepEqual(errors, []);
+});
