@@ -15,7 +15,7 @@ import { wallApplies, wallNetworkFor, wallSettings, type SandboxChoice, type Wal
  */
 
 /** What only the app knows: the owner's network rules and where Branch keeps its own data. */
-export interface WallEdge { siteCheck?: (target: URL) => Promise<void>; dataDir?: string }
+export interface WallEdge { siteCheck?: (target: URL) => Promise<void>; fakeIpProxy?: () => boolean; dataDir?: string }
 const edges = new WeakMap<object, WallEdge>();
 export function setWallEdge(store: object, edge: WallEdge): void { edges.set(store, edge); }
 export function wallEdgeFor(store: object): WallEdge { return edges.get(store) ?? {}; }
@@ -84,5 +84,6 @@ export function wallContextFor(call: WallCall): { osSandbox?: WallContext } {
     readOnly: [...(call.untouchable?.noChange ?? [])],
     answer, granted, spend: (kind, target) => { approvals.revoke(sessionId, kind, target); },
     ...(edge.siteCheck ? { siteCheck: edge.siteCheck } : {}),
+    ...(edge.fakeIpProxy ? { fakeIpProxy: edge.fakeIpProxy } : {}),
   } };
 }

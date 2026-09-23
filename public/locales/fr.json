@@ -4209,6 +4209,7 @@
   "security.check.web.browser-many-sites": "Le navigateur est limité à quelques sites",
   "security.check.web.browser-plain-site": "Le navigateur n'ouvre des sites que par des connexions chiffrées",
   "security.check.web.browser-saves-programs": "Le navigateur ne garde pas les programmes qu'un site envoie",
+  "security.check.web.fake-ip-proxy": "Branch résout lui-même les noms des sites, pour qu'aucun ne mène à votre réseau local",
   "security.check.web.instructions-only-noted": "Les consignes cachées dans les pages web sont retirées, pas seulement signalées",
   "security.check.web.private-addresses": "L'assistant ne peut pas atteindre votre réseau domestique",
   "security.check.web.trace-plain-address": "Les traces ne partent que par une connexion chiffrée",

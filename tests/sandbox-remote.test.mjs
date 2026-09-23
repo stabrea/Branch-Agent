@@ -228,6 +228,17 @@ test("A1618/A1413 the firewall card says the policy in sentences, and the test b
   assert.deepEqual([partly.allowed, partly.browserWouldOpen], [true, false]);
   assert.match(partly.reason, /the browser cannot open it/);
   assert.equal((await testFirewall((url) => net.assertAllowed(url), "not an address")).allowed, false);
+
+  // A fake-IP proxy is said in a sentence of its own only when the owner switched it on, with who
+  // then does the resolving; it changes nothing about the home network sentence beside it.
+  const proxied = /fake-IP proxy/;
+  assert.ok(!view.sentences.some((s) => proxied.test(s)), "nothing is said while it is off");
+  const trusting = firewallView({ policy: NetworkPolicySchema.parse({ fakeIpProxy: true }) });
+  const said = trusting.sentences.filter((s) => proxied.test(s));
+  assert.equal(said.length, 1);
+  assert.match(said[0], /198\.18\.0\.0\/15/);
+  assert.match(said[0], /the proxy then does the resolving/);
+  assert.ok(trusting.sentences.includes("Branch cannot reach other computers on your home network, or this computer itself."));
 });
 
 test("A1413 the browser refuses an address outside its own list and outside the network rules", async (t) => {

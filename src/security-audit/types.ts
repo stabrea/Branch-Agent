@@ -148,7 +148,7 @@ export interface SecuritySnapshot {
   sessionLock: { idleMinutes: number; secretsWhileLocked: boolean };
   privacy: { outbound: string; moderation: boolean };
   /** The network policy Branch is running with right now; authoritative over integrations.web. */
-  network: { allowPrivateAddresses: boolean; allowedHosts: string[] | null; blockedHosts: number };
+  network: { allowPrivateAddresses: boolean; fakeIpProxy?: boolean; allowedHosts: string[] | null; blockedHosts: number };
   traceExport: { enabled: boolean; endpoint: string; plainHeaders: string[] };
   tokens: { name: string; scope: string; expiresAt: string; revoked: boolean }[];
   now: string;

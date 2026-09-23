@@ -874,7 +874,8 @@ function modelUsed(app: Branch, runId: string) {
 /** Tools that exist right now, grouped by permission, with what makes each group ready. */
 function toolInventory(app: Branch) {
   const readiness: Record<string, string> = {
-    "web.read": app.web.settings().allowPrivateAddresses ? "ready (private addresses allowed)" : "ready",
+    "web.read": app.web.settings().allowPrivateAddresses ? "ready (private addresses allowed)"
+      : app.web.settings().fakeIpProxy === true ? "ready (a fake-IP proxy does the resolving)" : "ready",
     "shell.execute": "ready (configured host commands)",
     "git.remote": "ready (sending to a server switched on)",
     "github.manage": "ready (GitHub token saved)",
