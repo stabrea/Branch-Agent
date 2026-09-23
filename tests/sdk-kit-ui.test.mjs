@@ -46,10 +46,17 @@ test("Building on Branch sits in Settings → Advanced, starts off, and saves it
   assert.equal(await page.locator("#sdk-kit-clients li").count(), 4, "one line per language");
   assert.match(await page.locator("#sdk-kit-tools").innerText(), /sdk\.routes/);
 
+  // DG-025: one choice, so it is saved the moment it changes, with no Save button.
+  assert.equal(await card.getByRole("button", { name: /save/i }).count(), 0, "no Save button");
   await page.locator("#sdk-kit-mode").selectOption("when-needed");
-  await card.getByRole("button", { name: "Save this choice" }).click();
   await card.locator("[role=status]").filter({ hasText: "Saved." }).waitFor();
   assert.equal(sdkKitMode(app.store, app.runtime.owner), "when-needed");
+  // A save that fails says why.
+  await page.route("**/api/sdk-kit", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "That could not be saved." }) })
+    : route.continue());
+  await page.locator("#sdk-kit-mode").selectOption("on");
+  await card.locator("[role=status]").filter({ hasText: "could not be saved" }).waitFor();
   assert.deepEqual(errors, []);
 });
 

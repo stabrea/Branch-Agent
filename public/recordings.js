@@ -233,17 +233,19 @@ function loopCard(state) {
   const reading = plain("p", state.reading ? readingWords(state.reading) : "", "subtle");
   reading.id = "event-loop-reading";
   const said = status();
-  const save = button("action.save", "Save", "", async () => {
+  /* DG-025: one choice, saved the moment it changes, as the approved sample does; a failed save says so. */
+  select.addEventListener("change", async () => {
     try { const next = await api("event-loop", { mode: select.value }); reading.textContent = next.reading ? readingWords(next.reading) : ""; said.textContent = say("recordings.saved", "Saved."); }
     catch (error) { said.textContent = error.message; }
   });
-  const check = button("event-loop.check", "Check now", "quiet-button", async () => {
+  /* With the switch saving itself, "Check now" is the card's one action, so it is the filled button. */
+  const check = button("event-loop.check", "Check now", "", async () => {
     try { const next = await api("event-loop?read=1"); reading.textContent = next.reading ? readingWords(next.reading) : say("event-loop.off", "The check is off."); }
     catch (error) { said.textContent = error.message; }
   });
   const row = document.createElement("div");
   row.className = "identity-actions";
-  row.append(save, check);
+  row.append(check);
   card.append(label, select, reading, row, said);
   return card;
 }

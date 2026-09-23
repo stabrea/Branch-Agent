@@ -111,12 +111,19 @@ test("Is Branch keeping up: lives in Settings, Advanced, and its switch is saved
   await openSettingFor(page, "#event-loop-card");
   await page.locator("#event-loop-card h3.settings-card-title").waitFor({ state: "visible" });
   assertAnatomy(await cardShape(page, "event-loop-card"), "event-loop-card", "settings:advanced");
+  // DG-025: one choice, so it is saved the moment it changes, with no Save button.
+  assert.equal(await page.locator("#event-loop-card").getByRole("button", { name: "Save", exact: true }).count(), 0, "no Save button");
   await page.locator("#event-loop-mode").selectOption("when-needed");
-  await page.locator("#event-loop-card").getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#event-loop-card [role=status]", { hasText: "Saved" }).waitFor();
   await page.locator("#event-loop-card").getByRole("button", { name: "Check now" }).click();
   await page.waitForFunction(() => /Branch is/.test(document.getElementById("event-loop-reading")?.textContent ?? ""), null, { timeout: 15000 });
   const response = await fetch(`${server.url}/api/event-loop`, { headers: { authorization: `Bearer ${server.token}` } });
   assert.equal((await response.json()).settings.mode, "when-needed");
+  // A save that fails says why.
+  await page.route("**/api/event-loop", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "That could not be saved." }) })
+    : route.continue());
+  await page.locator("#event-loop-mode").selectOption("on");
+  await page.locator("#event-loop-card [role=status]", { hasText: "could not be saved" }).waitFor();
   assert.deepEqual(errors, []);
 });

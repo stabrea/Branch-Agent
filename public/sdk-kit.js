@@ -55,15 +55,18 @@ function kitCard() {
   for (const value of ["off", "when-needed", "on"]) mode.append(worded("option", `switch.${value}`, { value }));
   const clients = el("ul", { id: "sdk-kit-clients", className: "subtle" });
   const tools = el("p", { id: "sdk-kit-tools", className: "subtle" });
-  // A choice not yet saved is kept: a redraw still on its way must not put the old value back.
-  mode.addEventListener("change", () => { mode.dataset.edited = "1"; });
-  const save = button("action.save-switch", true, async () => {
-    const saved = await api("sdk-kit", { mode: mode.value });
-    delete mode.dataset.edited;
-    drawKit(saved);
-    return t("sdk-kit.saved");
-  }, id);
-  return card(id, "settings:advanced", "sdk-kit", ...field("field.feature-switch", mode), worded("h4", "sdk-kit.clients"), clients, tools, save);
+  /* DG-025: one choice, saved the moment it changes, as the approved sample does; a failed save says so.
+     A choice not yet saved is kept: a redraw still on its way must not put the old value back. */
+  mode.addEventListener("change", async () => {
+    mode.dataset.edited = "1";
+    try {
+      const saved = await api("sdk-kit", { mode: mode.value });
+      delete mode.dataset.edited;
+      drawKit(saved);
+      status(id, t("sdk-kit.saved"));
+    } catch (error) { status(id, error.message); }
+  });
+  return card(id, "settings:advanced", "sdk-kit", ...field("field.feature-switch", mode), worded("h4", "sdk-kit.clients"), clients, tools);
 }
 function drawKit(view) {
   if (!$("sdk-kit-mode").dataset.edited) $("sdk-kit-mode").value = view.settings.mode;
