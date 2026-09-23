@@ -8075,9 +8075,11 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
 - **A2334** (artifact file operations) — verified: a kept file gets numbered versions with checksums,
   a version can be put back byte for byte or let go (`src/build-artifacts.ts`, `src/artifact-versions.ts`,
   `tests/artifact-versions.test.mjs`, `tests/code-ide.test.mjs`).
-- **A0612** (source sync with a cursor) — built: GitHub issues by update time, a mailbox by UID and a
-  Telegram bot by update id, written into `sources/` (`src/asks/source-sync.ts`, `src/channels/mail-client.ts`
-  `sinceUid`, `tests/asks-integrations.test.mjs` "A0612").
+- **A0612** (source sync with a cursor) — built: GitHub issues by update time, a mailbox by UID, a
+  Telegram bot by update id, and a CalDAV calendar's events by their last-changed time, written into
+  `sources/`, and searchable there with each hit's source and item (`src/asks/source-sync.ts`,
+  `src/channels/mail-client.ts` `sinceUid`, `tests/asks-integrations.test.mjs` "A0612",
+  `tests/asks-sources-caldav.test.mjs` "FQ-memory.connector-datasets").
 - **A2221** (Hindsight memory) — built: keep, recall and reflect against the owner's Hindsight server,
   beside Branch's own memory (`src/asks/hindsight.ts`, `tests/asks-integrations.test.mjs` "A2221").
 - **A1895** (image generation) — verified: `src/media-images.ts` makes and changes pictures through the
@@ -8157,7 +8159,7 @@ on the home network needs private addresses allowed.
 | Long articles | Library → Made | Personas, outline, cited sections, lead, tidy, into `research/` (`research.article`) |
 | Live tool pages | Library → Made | A tool asked again every so often, its page shown sealed |
 | Intents | Customize → Skills | Named kinds of request and where each goes (`intent.route`) |
-| Bringing items in | Library → Documents | GitHub, mailbox and Telegram, each with a cursor, into `sources/` (`sources.sync`) |
+| Bringing items in | Library → Documents | GitHub, mailbox, Telegram and CalDAV, each with a cursor, into `sources/`, searchable there by source (`sources.sync`, `sources.search`) |
 | Hindsight | Library → Memory | Keep, recall and reflect on your Hindsight server (`hindsight.*`) |
 | Steps for other apps | Customize → Connections | Slack, Discord, Telegram, Notion, Sheets, Airtable, Todoist, HubSpot (`blocks.run`) |
 | App-server | Customize → Connections | `branch app-server` for editors that speak Codex's protocol |
