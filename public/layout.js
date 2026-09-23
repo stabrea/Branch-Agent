@@ -654,7 +654,9 @@ function buildAppearanceBlock() {
   const head = make("div", "lx-group-head");
   const count = make("span", "lx-count");
   count.id = "lx-theme-count";
-  head.append(worded("h3", "", "look.theme", "Theme"), count);
+  /* DG-183: its section's heading, "Theme", is its title; the head keeps the count of themes. */
+  head.append(count);
+  block.setAttribute("aria-label", say("look.theme", "Theme"));
   const tools = themeTools();
   const gallery = make("div", "lx-gallery");
   gallery.id = "lx-theme-gallery";

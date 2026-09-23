@@ -1,4 +1,4 @@
-import { adoptSaved, appearanceChanges, currentAppearance, initAppearance } from "/appearance.js";
+import { adoptSaved, appearanceChanges, initAppearance } from "/appearance.js";
 // Wave 6: replies render as markdown, and any task can be opened with "Look inside".
 import { fillMarkdown, inlineNodes } from "/markdown.js";
 // A phone paired in its browser sends its own secret with every request (src/remote/gateway-auth.ts).
@@ -2137,16 +2137,8 @@ $("procedure-json").value = JSON.stringify(
   null,
   2,
 );
-initAppearance((value) => api("preferences", value));
-$("settings-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    savedAppearance = JSON.stringify(await api("preferences", currentAppearance()));
-    toast("Appearance saved.");
-  } catch (error) {
-    toast(error.message);
-  }
-});
+initAppearance((value) => api("preferences", value), (error) => toast(error.message));
+$("settings-form").addEventListener("submit", (event) => event.preventDefault());
 $("appearance-shortcut").addEventListener("click", () => {
   displayView("settings");
   if ($("workspace").hidden) toast("Connect to change settings.");

@@ -125,7 +125,8 @@ function floatGear(show) {
 }
 function openOnscreen() {
   displayView("settings:appearance");
-  requestAnimationFrame(() => $("panels-onscreen")?.scrollIntoView({ block: "start" }));
+  /* DG-183: the card is Advanced in Settings; the gear shows it at any level, since it is the way back. */
+  requestAnimationFrame(() => { const card = $("panels-onscreen"); if (!card) return; globalThis.branchSettingsLevel?.peek(card); card.scrollIntoView({ block: "start" }); });
 }
 
 /* ---------- See-through, never past what keeps text readable ---------- */

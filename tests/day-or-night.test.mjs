@@ -75,7 +75,7 @@ test("DG-160: Daylight really switches the window, keeps the theme, and is still
   await page.waitForFunction(() => document.documentElement.dataset.theme === "daylight");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), palette, "switching keeps the theme you chose");
   assert.deepEqual((await control(page)).pressed, ["☀ Daylight"]);
-  await page.getByRole("button", { name: "Save appearance", exact: true }).click();
+  await page.evaluate(() => import("/appearance.js").then((look) => look.appearanceSaved())); // DG-025: saved as you go
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await openSettings(page, "appearance");

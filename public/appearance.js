@@ -121,6 +121,7 @@ function choiceButton(key, value) {
 /* Changes are saved one after another, so the last one made is the last one kept. */
 let saving = Promise.resolve();
 let unsaved = 0;
+let report = () => {};
 /** How many changes this window has made, so a look asked for before one of them is known to be older. */
 let made = 0;
 export const appearanceChanges = () => made;
@@ -129,8 +130,11 @@ function change(patch) {
   applyAppearance({ ...current, ...patch });
   const value = { ...current };
   unsaved += 1;
-  saving = saving.then(() => persist(value)).catch(() => {}).finally(() => { unsaved -= 1; });
+  /* DG-025: saved as you go, as in the sample; a save that fails says so. */
+  saving = saving.then(() => persist(value)).catch((error) => report(error)).finally(() => { unsaved -= 1; });
 }
+/** Settles once every change made so far has been saved (or has failed). */
+export const appearanceSaved = () => saving;
 
 /**
  * The look as saved, from the window's regular refresh. While this window's own changes are still
@@ -145,8 +149,9 @@ export function adoptSaved(value, since = made) {
 }
 
 /** Called once by public/app.js with the way to save a preferences record. */
-export function initAppearance(save) {
+export function initAppearance(save, onError) {
   persist = save;
+  if (onError) report = onError;
   for (const [key, id] of Object.entries(GROUPS))
     $(id).replaceChildren(...CHOICES[key].map(([value]) => choiceButton(key, value)));
 
