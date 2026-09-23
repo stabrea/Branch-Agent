@@ -72,7 +72,10 @@ test("DG-039 wide: Moonlight above Daylight beside the choices, each a live copy
 });
 
 test("DG-039 narrower: a strip names the theme and opens both mirrors side by side", async (t) => {
-  const { page, errors } = await appearance(t, 860);
+  /* The breakpoints are the page's width, not the window's. Since DG-174 Settings keeps its 272px list down to 761px,
+     as the sample's does, so an 860px window leaves a page under 540px (one mirror, as in the sample); 1100px leaves
+     about 720px, between the phone's one mirror and the wide column. */
+  const { page, errors } = await appearance(t, 1100);
   const strip = page.locator(".sg-strip");
   assert.equal(await strip.isVisible(), true);
   assert.equal(await strip.getAttribute("aria-expanded"), "false");
