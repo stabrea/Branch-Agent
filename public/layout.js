@@ -504,7 +504,7 @@ function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) 
   const card = make("section", "card settings-directory-card");
   card.id = `settings-directory-${page}-${id}`;
   card.dataset.home = `settings:${page}`;
-  const heading = worded("h2", "settings-directory-title", titleKey, title);
+  const heading = worded("h3", "settings-directory-title", titleKey, title);
   heading.id = `${card.id}-title`;
   const description = worded("p", "settings-directory-line", lineKey, line);
   description.id = `${card.id}-description`;
@@ -519,7 +519,7 @@ function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) 
 }
 function syncDirectoryButtons() {
   for (const open of document.querySelectorAll(".settings-directory-open")) {
-    const title = open.closest(".settings-directory-card")?.querySelector("h2")?.textContent ?? "";
+    const title = open.closest(".settings-directory-card")?.querySelector(".settings-directory-title")?.textContent ?? "";
     open.setAttribute("aria-label", `${say("settingsDirectory.open", "Open")} ${title}`.trim());
   }
 }
