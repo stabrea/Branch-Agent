@@ -350,6 +350,23 @@ body.lx header {
   gap: var(--s2);
   border-bottom: 1px solid var(--line);
 }
+/* DG-176: the desktop window has no system title bar, as the sample has none. The top rows move the window,
+   everything in them that can be pressed still can, and nothing sits under the window's own controls:
+   minimise, maximise and close at the top right (Windows, Linux), the three lights at the top left (macOS). */
+body.lx-desktop-frame header,
+body.lx-desktop-frame .rail-head {
+  -webkit-app-region: drag;
+}
+body.lx-desktop-frame header :is(button, a, input, select, textarea, [role="button"], [tabindex]),
+body.lx-desktop-frame .rail-head :is(button, a, input, select, textarea, [role="button"], [tabindex]) {
+  -webkit-app-region: no-drag;
+}
+body.lx-desktop-frame:not(.lx-desktop-mac) header {
+  padding-right: max(var(--s3), calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+}
+body.lx-desktop-mac .rail {
+  padding-top: 40px;
+}
 body.lx .head-title {
   align-items: center;
   gap: var(--s2);
