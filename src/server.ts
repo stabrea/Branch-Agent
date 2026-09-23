@@ -37,6 +37,7 @@ import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
 import { testRouteFor } from "./provider-factory.js";
+import { runFixtureOn } from "./model-fixture.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
@@ -447,6 +448,8 @@ async function staticFile(
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
+    // FQ-models.hosted-local: "Run the same check" (hosted vs. this computer) in model-probe-card.
+    "/model-fixture.js": ["model-fixture.js", "text/javascript; charset=utf-8"],
     // Help in the app: the owner's handbook, opened in the pane on the right.
     "/help.js": ["help.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
@@ -752,6 +755,23 @@ async function testModel(app: Branch, body: unknown): Promise<unknown> {
 
 function providersCatalog(): unknown {
   return { presets: allPresets() };
+}
+
+const fixturePresetsInput = z.object({ presets: z.array(z.string().min(1).max(64)).min(1).max(8).optional() }).strict();
+/**
+ * FQ-models.hosted-local: the same fixture conversation, run through every configured connection
+ * (or just the ones named), so a hosted connection and a local one are checked against one another
+ * rather than two different questions that each happen to work.
+ */
+async function testModelFixture(app: Branch, body: unknown): Promise<unknown> {
+  const { presets: named } = fixturePresetsInput.parse(body);
+  const registered = [...app.runtime.models.presets.values()];
+  const chosen = named
+    ? named.map((id) => { const preset = app.runtime.models.presets.get(id); if (!preset) throw new HttpError(400, `Unknown model preset ${id}`); return preset; })
+    : registered;
+  if (!chosen.length) throw new HttpError(400, "No model connections are configured");
+  const results = await runFixtureOn(chosen, AbortSignal.timeout(60000));
+  return { results };
 }
 
 const providerTestInput = z.object({
@@ -1276,6 +1296,7 @@ async function api(
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
+  if (request.method === "POST" && path === "/api/models/fixture") return testModelFixture(app, await readBody(request));
   if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
   if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request), app.web.policy);
   if (request.method === "GET" && path === "/api/providers/local") return localProviders();
