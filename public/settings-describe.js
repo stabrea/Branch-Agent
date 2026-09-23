@@ -79,8 +79,9 @@ const isSwitch = (control) => control.tagName === "SELECT" && control.options.le
 function describeAll() {
   for (const [selector, key, english] of descriptions) {
     if (selector.includes(" ")) { attachGroup(selector, key, english); continue; }
-    const control = document.querySelector(selector);
-    if (control?.closest(CARDS)) attach(control, key, english);
+    /* A row may name several controls at once (every pasted secret of a chat app), so each match gets it. */
+    for (const control of document.querySelectorAll(selector))
+      if (control.closest(CARDS)) attach(control, key, english);
   }
   for (const control of document.querySelectorAll(`${CARDS} :is(${CONTROLS})`)) {
     if (described(control)) continue;

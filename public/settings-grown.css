@@ -199,9 +199,11 @@ body:not(.lx-settings-searching) [data-sg-bucket="notifications:attention"] > .c
   font-weight: 680;
   line-height: 1.2;
 }
-/* DG-011: Description line removed from bucket headers */
+/* DG-181: the section's line, as the sample's `.bk-p`: 13.5px, the second text colour, right under the heading. */
 .sg-head-line {
-  display: none;
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: 13.5px;
 }
 /* DG-073: the sample's link at the end of a section (design/Branch-Grown-Up.html, `.bk-lv .linkish`): 14px, the
    body's weight, copper text, underlined. Every level shows while searching, so it has nothing to offer then. */

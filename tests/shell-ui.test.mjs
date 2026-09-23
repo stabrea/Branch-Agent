@@ -828,10 +828,20 @@ test("Q4 every section says what it is for, and every card carries a title", asy
         (!node.classList.contains("view") && node.closest(".lx-place")?.querySelector(".lx-place-intro")));
     }, holder);
     assert.ok(said, `${view} never says what it is for`);
-    const untitled = await f.page.evaluate((id) => [...document.getElementById(id).querySelectorAll(".card")]
-      .filter((card) => card.offsetParent !== null && !card.querySelector(
-        card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title, summary"))
-      .map((card) => card.id || card.className), holder);
+    /* As in the sample, a Settings card may be titled by the section it sits in (the .sg-head matching its
+       data-sg-bucket, public/settings-grown.js) rather than by a heading of its own; the same rule as
+       tests/settings-descriptions.test.mjs. */
+    const untitled = await f.page.evaluate((id) => {
+      const sectionTitled = (card) => {
+        const bucket = card.dataset.sgBucket;
+        const head = bucket && [...(card.parentElement?.children ?? [])].find((node) => node.matches(".sg-head") && node.dataset.bucket === bucket);
+        return Boolean(head?.querySelector("h3.sg-head-title")?.textContent.trim());
+      };
+      return [...document.getElementById(id).querySelectorAll(".card")]
+        .filter((card) => card.offsetParent !== null && !sectionTitled(card) && !card.querySelector(
+          card.classList.contains("settings-directory-card") ? "h3.settings-directory-title" : "h2, h3.settings-card-title, summary"))
+        .map((card) => card.id || card.className);
+    }, holder);
     assert.deepEqual(untitled, [], `${view} has a card with no title`);
   }
   assert.deepEqual(f.errors, []);
