@@ -466,6 +466,7 @@ async function staticFile(
     "/danger-zone.js": ["danger-zone.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
+    "/collab-events.js": ["collab-events.js", "text/javascript; charset=utf-8"], // Notes: signed collaboration events
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
     "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
@@ -886,12 +887,12 @@ function attention(app: Branch) {
   }
   return waiting;
 }
-function state(app: Branch): unknown {
+async function state(app: Branch): Promise<unknown> {
   const owner = app.runtime.owner;
   // Wave 6: conversations and saved facts are read under whoever's profile is switched on.
   const scope = app.store.profiles.scope();
   return {
-    collab: collabState(app),
+    collab: await collabState(app),
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
@@ -1154,7 +1155,7 @@ async function api(
       state: dictationView(app.store, app.runtime.owner, app.dictation.platform, true, app.dictation.open, app.dictation.present) };
   }
   // ── end mac7/live-voice ──
-  if (request.method === "GET" && path === "/api/state") return state(app);
+  if (request.method === "GET" && path === "/api/state") return await state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
   if (collab !== notCollab) return collab;

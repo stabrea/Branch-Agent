@@ -24,14 +24,16 @@ export const notCollab = Symbol("not a collaboration route");
 const idPattern = "[a-f0-9-]{36}";
 const projectId = z.object({ project: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/) }).strict();
 
-/** Everything the Sharing, Workflows, Waiting line, Days off and People panels show. */
-export function collabState(app: Branch): unknown {
+/** Everything the Sharing, Workflows, Waiting line, Days off, People and Notes panels show. */
+export async function collabState(app: Branch): Promise<unknown> {
   const owner = app.runtime.owner, profiles = app.store.profiles, scope = profiles.scope();
   const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn() };
+  // Notes are signed under whoever is using the app, owner or not, so everybody sees the same list.
+  const events = await app.store.collabEvents.list(owner);
   // Shared copies, saved workflows, the waiting line and days off are the owner's, so a screen
   // opened under somebody else's profile shows their labels and nothing of the owner's.
   if (!profiles.isOwner())
-    return { profile: person, labels: app.store.labels.catalog(scope), shares: [], workflows: [],
+    return { profile: person, labels: app.store.labels.catalog(scope), shares: [], workflows: [], events,
       queue: { waiting: [], recent: [], settings: app.runQueue.settings(owner) },
       calendar: { settings: app.calendar.settings(owner), countries: [] } };
   return {
@@ -39,6 +41,7 @@ export function collabState(app: Branch): unknown {
     labels: app.store.labels.catalog(scope),
     shares: app.store.shares.list(owner),
     workflows: app.workflows.list(owner),
+    events,
     queue: { waiting: app.runQueue.list(owner), recent: app.runQueue.recent(owner), settings: app.runQueue.settings(owner) },
     calendar: { settings: app.calendar.settings(owner), countries: app.calendar.countries() },
   };

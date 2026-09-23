@@ -2,6 +2,7 @@
 // hours, and the people who share this computer. app.js imports this and hands over the current
 // state plus its own small helpers, so nothing here depends on globals.
 import { t } from "./i18n.js"; // relative, so a test can import this file too; the same /i18n.js in the page
+import { eventsSection } from "./collab-events.js"; // Notes: signed collaboration events
 
 /** Builds the panel shown under Schedules. `helpers` supplies el, api, toast and refresh. */
 export function showCollab(state, given) {
@@ -15,6 +16,7 @@ export function showCollab(state, given) {
     ["queue", queueSection(collab.queue ?? { waiting: [], settings: { atOnce: 3 } }, helpers)],
     ["days-off", daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers)],
     ["shares", sharesSection(collab.shares ?? [], helpers)],
+    ["events", eventsSection(collab.events ?? { events: [], rejected: [] }, helpers)],
     ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
   ];
   for (const [name, node] of parts) {
