@@ -475,13 +475,22 @@ export class Store {
     return () => { this.eventListeners.delete(listener); };
   }
   event(runId: string, kind: string, input: Record<string, unknown>): void {
+    this.eventUnannounced(runId, kind, input)();
+  }
+  /**
+   * Q61: writes the event row now and hands back the announcement to listeners, for a caller that
+   * writes it inside a transaction and must only tell anyone once that transaction has committed.
+   */
+  eventUnannounced(runId: string, kind: string, input: Record<string, unknown>): () => void {
     const data = this.guardEvent(input);
     this.db
       .prepare(
         "INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)",
       )
       .run(runId, kind, JSON.stringify(data), new Date().toISOString());
-    for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
+    return () => {
+      for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
+    };
   }
   events(runId: string): Event[] {
     return this.db

@@ -96,10 +96,13 @@ export class Teams {
     const answers = team.members.map((member, index) => ({ specialistId: member.specialistId, role: member.role, ...outcome.tasks[`m${index}`]! }));
     const result = { teamId: team.id, parentRunId: parent.id, roomSessionId: team.roomSessionId, answers };
     // The finished task and the room's answers are written together, or not at all.
+    // Listeners hear about the event only after the commit, so none can see or break a half-written task.
+    let announce = () => {};
     this.tasks.complete(claim, result, () => {
       for (const answer of answers) this.store.message(team.roomSessionId, { role: "assistant", content: `[${answer.role}] ${answer.output || `(no answer: ${answer.status})`}` });
-      this.store.event(parent.id, "team.ran", { teamId: team.id, roomSessionId: team.roomSessionId, answers: answers.map((a) => ({ role: a.role, status: a.status, runId: a.runId })) });
+      announce = this.store.eventUnannounced(parent.id, "team.ran", { teamId: team.id, roomSessionId: team.roomSessionId, answers: answers.map((a) => ({ role: a.role, status: a.status, runId: a.runId })) });
     });
+    announce();
     return { ...result, taskId: claim.taskId, requestId: this.tasks.get(claim.scope, claim.taskId)!.requestId, state: "completed" as const };
   }
 }
