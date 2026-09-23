@@ -211,7 +211,10 @@ function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: 
   else {
     const target = deps.registry.targetOf(name, args, context);
     const resource = target ? deps.registry.resourceOf(name, target, args) : null;
-    if (resource?.kind === "path") named.push(resource.value);
+    // A tool that words its own target (the pull request tool: "send changes to GitHub on ...") is
+    // not naming a file unless it works on files, as the approval policy reads it too.
+    const worded = deps.registry.declaresTarget(name).target && !/^(files|documents|media|data|code)\./.test(deps.registry.permissionOf(name));
+    if (resource?.kind === "path" && !worded) named.push(resource.value);
   }
   // A command's working folder counts too, so a command started from the workspace inside a worktree is held to it.
   const cwd = cwdOf(args).cwd;
@@ -265,6 +268,33 @@ function refuse(deps: ContractGuardDeps, context: ToolContext, name: string, wor
 const remotePermissions = new Set(["git.remote", "github.manage"]);
 
 /**
+ * The contract a changing call inside `branch-agent-source` is held to, once its worktree, tools and
+ * paths have been checked against it (a refusal throws, audited); null when the call only looks or
+ * touches nothing there.
+ */
+function heldTerms(deps: ContractGuardDeps, name: string, args: unknown, context: ToolContext): { contract: SelfDevelopmentContract; permission: string } | null {
+  if (name === prepareToolName || name === widenToolName) return null;
+  const permission = deps.registry.permissionOf(name);
+  if (isReadOnlyPermission(permission)) return null;
+  const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
+  let paths: string[];
+  try { paths = pathsOf(deps, name, args, context, scope); } catch (error) {
+    // Outside the source the approval policy already refuses a call whose targets cannot be told.
+    if (!insideSource(scope)) return null;
+    refuse(deps, context, name, worktreeOf(scope), `Branch could not tell what this call would change: ${(error as Error).message}`);
+  }
+  if (!insideSource(scope) && !paths.some(insideSource)) return null;
+  const worktree = worktreeOf(insideSource(scope) ? scope : paths.find(insideSource)!);
+  if (!worktree) refuse(deps, context, name, "", "The protected Branch Agent source checkout is never changed directly; work in a self-development worktree.");
+  let contract: SelfDevelopmentContract | null;
+  try { contract = deps.book.current(deps.owner, worktree); } catch (error) { refuse(deps, context, name, worktree, (error as Error).message); }
+  if (!contract) refuse(deps, context, name, worktree, `no contract: ${worktree} has no self-development contract, so nothing in it may be changed.`);
+  const broken = termsBroken(contract, name, paths);
+  if (broken) refuse(deps, context, name, worktree, broken);
+  return { contract, permission };
+}
+
+/**
  * The check `ToolRegistry.execute` runs before a tool does anything. Calls that only look, and calls
  * that touch nothing inside `branch-agent-source`, pass untouched. Everything else needs the
  * worktree's contract and must keep to it; a remote step also needs the contract's source commit
@@ -272,24 +302,21 @@ const remotePermissions = new Set(["git.remote", "github.manage"]);
  */
 export function contractGuard(deps: ContractGuardDeps): (name: string, args: unknown, context: ToolContext) => Promise<void> {
   return async (name, args, context) => {
-    if (name === prepareToolName || name === widenToolName) return;
-    const permission = deps.registry.permissionOf(name);
-    if (isReadOnlyPermission(permission)) return;
-    const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
-    let paths: string[];
-    try { paths = pathsOf(deps, name, args, context, scope); } catch (error) {
-      // Outside the source the approval policy already refuses a call whose targets cannot be told.
-      if (!insideSource(scope)) return;
-      refuse(deps, context, name, worktreeOf(scope), `Branch could not tell what this call would change: ${(error as Error).message}`);
-    }
-    if (!insideSource(scope) && !paths.some(insideSource)) return;
-    const worktree = worktreeOf(insideSource(scope) ? scope : paths.find(insideSource)!);
-    if (!worktree) refuse(deps, context, name, "", "The protected Branch Agent source checkout is never changed directly; work in a self-development worktree.");
-    let contract: SelfDevelopmentContract | null;
-    try { contract = deps.book.current(deps.owner, worktree); } catch (error) { refuse(deps, context, name, worktree, (error as Error).message); }
-    if (!contract) refuse(deps, context, name, worktree, `no contract: ${worktree} has no self-development contract, so nothing in it may be changed.`);
-    const broken = termsBroken(contract, name, paths)
-      ?? (remotePermissions.has(permission) ? await remoteBroken(deps, contract, context.signal) : null);
-    if (broken) refuse(deps, context, name, worktree, broken);
+    const held = heldTerms(deps, name, args, context);
+    if (!held || !remotePermissions.has(held.permission)) return;
+    const broken = await remoteBroken(deps, held.contract, context.signal);
+    if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
+  };
+}
+
+/**
+ * The same worktree, tool and path check, asked by a step that calls a second tool itself after an
+ * outside effect: `github.pull_request_from_changes` pushes and then opens the pull request with
+ * `github.open_pull_request`. Asked before the push, so a contract that does not list the second
+ * tool leaves nothing pushed. A sentence refuses (and is audited); null lets it go.
+ */
+export function contractPreflight(deps: ContractGuardDeps): (name: string, args: unknown, context: ToolContext) => string | null {
+  return (name, args, context) => {
+    try { heldTerms(deps, name, args, context); return null; } catch (error) { return (error as Error).message; }
   };
 }

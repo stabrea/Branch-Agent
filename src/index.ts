@@ -120,10 +120,10 @@ import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js"
 import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
 import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
-import { GitRunner } from "./integrations/git-run.js";
+import { GitRunner, type GitRunOptions } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { offerSelfDevelopment } from "./self-development.js";
-import { ContractBook, contractGuard } from "./self-development-contract.js"; // Q12
+import { ContractBook, contractGuard, contractPreflight } from "./self-development-contract.js"; // Q12
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
 import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
@@ -563,8 +563,10 @@ export async function createBranch(options: {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
   });
-  registry.beforeTool = contractGuard({ store, owner: options.owner ?? "local", workspace, registry, book: selfContracts,
-    git: (input, signal) => gitRunner.run(input, signal) });
+  const contractChecks = { store, owner: options.owner ?? "local", workspace, registry, book: selfContracts,
+    git: (input: GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal) };
+  registry.beforeTool = contractGuard(contractChecks);
+  const selfDevelopmentPreflight = contractPreflight(contractChecks);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // ── R17-S-C (comfort): the owner's proxy and extra certificates for every call Branch makes, and
   // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──
@@ -607,8 +609,12 @@ export async function createBranch(options: {
     // hook working by itself after a task is held to the full rules, "ask" included.
     runTool: (name, args, runId) => runtime.executeTool(name, args, { mode: runId ? "owner" : "policy" }),
     // Integration review: the same gate, asked before anything is pushed.
-    preflight: (name, args, runId) => gateRefusal(runtime, name, args, runtime.context(runId ? { runId } : {}),
-      argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy"),
+    // Q12: and, inside a self-development worktree, the contract must list the pull request step too.
+    preflight: (name, args, runId) => {
+      const context = runtime.context(runId ? { runId } : {});
+      return gateRefusal(runtime, name, args, context, argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy")
+        ?? selfDevelopmentPreflight(name, args, context);
+    },
     // Integration review: Branch's saved work and keys never leave in a pull request.
     guard: (path) => protectedTarget({ tool: "files.read", readOnly: true, args: { path }, target: path, workspace: files.base }, runtime.protectedAreas),
   };
