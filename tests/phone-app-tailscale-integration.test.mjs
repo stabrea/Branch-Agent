@@ -128,3 +128,24 @@ test("sharing asks Tailscale once for the door, so the door cannot refuse later 
   await phone.share({}).then(() => phone.stop(), (error) => assert.doesNotMatch(String(error), /Tailscale is not running/));
   assert.equal(calls, 2);
 });
+
+test("share is cancelled if stop() is called during the share awaits", async (t) => {
+  const root = await fakeApp(t);
+  // A Tailscale probe that takes 400 ms to respond, simulating a slow network or probing delay.
+  const probe = async () => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return running("100.101.102.103");
+  };
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+
+  // Start the share, then call stop() after 150 ms (before the Tailscale probe completes).
+  const sharePromise = phone.share({});
+  await new Promise(resolve => setTimeout(resolve, 150));
+  phone.stop();
+
+  // The share should be rejected because stop() was called during the awaits.
+  await assert.rejects(sharePromise, (error) => error instanceof PhoneAppRefusal && error.status === 409 && error.message === "Share was cancelled");
+
+  // The door should not be open.
+  assert.equal(phone.door.view(), null);
+});
