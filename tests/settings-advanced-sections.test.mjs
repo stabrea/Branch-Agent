@@ -91,6 +91,11 @@ test("Advanced's section headings and counts are French in French", async (t) =>
   assert.deepEqual(heads, ["Régler les problèmes", "Pour les développeurs", "Sous le capot"]);
   await page.evaluate(() => globalThis.branchSettingsLevel.set("regular"));
   await page.waitForFunction(() => /Avancé/.test(document.querySelector("#lx-page-advanced .sg-more-line:not([hidden]) .sg-more")?.textContent ?? ""));
+  /* The words the cards of this page draw themselves are French too, not only their headings. */
+  const words = await page.locator("#health-card, #diagnostics-card, #code-ide > summary, #tool-catalog > summary").evaluateAll((nodes) => nodes.map((node) => node.innerText).join(" "));
+  for (const english of ["Checks the pieces", "Branch sends no usage data", "If you need help with a problem", "Help with code", "How the assistant finds its tools"])
+    assert.ok(!words.includes(english), `${english} is still English`);
+  assert.match(words, /Branch n'envoie de données d'utilisation à personne/);
   assert.deepEqual(errors, []);
 });
 
