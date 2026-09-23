@@ -45,7 +45,7 @@ async function fixture(t) {
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   return { page, errors, app };
 }
-const homes = [["learning-look-back", "library:memory"], ["learning-new-skills", "customize:skills"]];
+const homes = [["learning-look-back", "library:memory"], ["learning-new-skills", "settings:skills"]];
 
 test("each card is on the screen that owns its subject, and both switches start off", async (t) => {
   const { page, errors } = await fixture(t);
@@ -86,7 +86,7 @@ test("looking back: save the switch, look now, and accept the batch from the car
 test("new skills: draft one from a conversation, see it tried, and keep it", async (t) => {
   const { page, errors, app } = await fixture(t);
   await app.runtime.run({ prompt: "water the plants in the kitchen" });
-  await openPlace(page, "customize:skills");
+  await openPlace(page, "settings:skills");
   const card = page.locator("#learning-new-skills");
   await card.waitFor({ state: "visible", timeout: 60000 });
   await card.locator("#new-skills-switch").selectOption("when-needed");

@@ -42,15 +42,15 @@ test("the switches live in Customize → Connections, modes in Specialists, and 
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   assert.equal(wide, false, "no sideways scrolling at 400 px");
 
-  await openPlace(page, "customize:specialists");
-  const modes = page.locator("#specialists #interop-modes-card");
+  await openPlace(page, "settings:skills");
+  const modes = page.locator("#lx-page-skills #interop-modes-card");
   await modes.waitFor();
   await modes.getByText("Architect (architect)", { exact: false }).waitFor();
   await page.locator("#interop-mode-slug").fill("reviewer");
   await page.locator("#interop-mode-name").fill("Reviewer");
   await page.locator("#interop-mode-role").fill("You review and change nothing.");
-  await page.locator("#specialists #interop-modes-card").getByRole("button", { name: "Add this mode" }).click();
-  await page.locator("#specialists #interop-modes-card").getByText("Reviewer (reviewer)", { exact: false }).waitFor();
+  await page.locator("#lx-page-skills #interop-modes-card").getByRole("button", { name: "Add this mode" }).click();
+  await page.locator("#lx-page-skills #interop-modes-card").getByText("Reviewer (reviewer)", { exact: false }).waitFor();
   assert.equal(app.interop.modes.find("reviewer").origin, "yours");
   const wideToo = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   assert.equal(wideToo, false);

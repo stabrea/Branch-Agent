@@ -197,7 +197,7 @@ function marketBlock(indexes, status) {
 async function specialistsCard(state) {
   const card = make("section", "card");
   card.id = "interop-modes-card";
-  card.dataset.home = "customize:specialists";
+  card.dataset.home = "settings:skills";
   const status = statusLine();
   card.append(make("h2", "", "interop.modes.title", "Ways of working and shared assistants"),
     make("p", "subtle", "interop.modes.purpose", "A mode is a role with its own reach; the assistant can send a piece of work to one and get the summary back."));

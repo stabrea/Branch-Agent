@@ -6,7 +6,7 @@
    automations:procedures    Procedures that start themselves
    inbox:needs               What waits for your yes
    settings:assistant        "From now on" instructions
-   customize:skills          What skills need on this computer */
+   settings:skills           What skills need on this computer */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
 import { dropdown } from "/control-makers.js";
@@ -313,9 +313,9 @@ async function instructionsCard(modes) {
   return node;
 }
 
-/* ---------- customize:skills — readiness ---------- */
+/* ---------- settings:skills — readiness ---------- */
 async function readinessCard(modes) {
-  const { node, status } = card("autonomy-readiness-card", "customize:skills", "autonomy.readiness.title", "What skills need on this computer",
+  const { node, status } = card("autonomy-readiness-card", "settings:skills", "autonomy.readiness.title", "What skills need on this computer",
     "autonomy.readiness.purpose", "Skills that say which programs and keys they need, and whether this computer has them. Nothing is installed for you.");
   node.append(...switchFor("readiness", modes, status));
   if (modes.readiness !== "off") {

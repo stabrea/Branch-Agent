@@ -271,7 +271,7 @@ async function draw() {
   $("add-ons-card")?.remove();
   const card = make("section", "card");
   card.id = "add-ons-card";
-  card.dataset.home = "customize:plugins";
+  card.dataset.home = "settings:skills";
   card.style.overflowWrap = "anywhere"; // long paths and addresses wrap at 400 px
   const on = (part) => state.settings.modes[part] !== "off";
   card.append(make("h2", "", "addons.card.title", "Add-ons other people wrote"),
@@ -299,4 +299,4 @@ function whenReady(work) {
 }
 
 whenReady(() => void draw());
-document.addEventListener("branch-place", (event) => { if (event.detail?.view === "customize:plugins") void draw(); });
+document.addEventListener("branch-place", (event) => { if (event.detail?.view === "settings:skills") void draw(); });

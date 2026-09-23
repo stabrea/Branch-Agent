@@ -77,7 +77,7 @@ const cards = [
     files: ["sop"],
   },
   {
-    id: "context-tools-file", home: "customize:skills",
+    id: "context-tools-file", home: "settings:skills",
     title: ["settings.card.your-notes-about-your-tools", "Your notes about your tools"],
     purpose: ["settings.note.tools-file",
       "What your assistant should know about the programs on this computer: which one to reach for, and the quirks it would otherwise find out the hard way."],

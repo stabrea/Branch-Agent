@@ -438,7 +438,7 @@ test("review: a record file Branch did not write cannot make it remove or overwr
 
 /* ---- The card, as a person sees it ---- */
 
-test("review: the add-ons card opens in Customize → Plugins and fits 400 px with every part on", async (t) => {
+test("review: the add-ons card opens in Settings › Skills & plugins and fits 400 px with every part on", async (t) => {
   const { app, call, server } = await fixture(t);
   await call("plugin-catalog/add-ons/settings", { modes: Object.fromEntries(["packages", "lists", "filters", "pipelines", "drafts", "search", "export"].map((part) => [part, "on"])) });
   app.security.malware.vet = async () => undefined;
@@ -449,7 +449,7 @@ test("review: the add-ons card opens in Customize → Plugins and fits 400 px wi
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  await openPlace(page, "customize:plugins");
+  await openPlace(page, "settings:skills");
   const card = page.locator("#add-ons-card");
   await card.waitFor({ state: "visible" });
   assert.equal(await card.locator("h2").innerText(), "Add-ons other people wrote");

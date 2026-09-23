@@ -246,7 +246,7 @@ function learnControls(node, sessions, status) {
   })));
 }
 function newSkillsCard(state, sessions) {
-  const node = card("learning-new-skills", "customize:skills",
+  const node = card("learning-new-skills", "settings:skills",
     ["skills.card.skills-your-assistant-wrote", "Skills your assistant wrote"],
     ["skills.note.skills-your-assistant-wrote", "Your assistant can write a new skill from something that went well. Each one arrives switched off, is tried on past tasks with and without it, and waits here for your yes."]);
   const mode = field(node, { id: "new-skills-switch", key: "field.writing-new-skills", words: "Writing new skills", control: switchControl(state.settings.newSkills) });
