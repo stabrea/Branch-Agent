@@ -45,10 +45,13 @@ test("a note sent from the panel lists as genuine; a tampered one drops out and 
   await section.getByLabel("Write a note for the household").fill("Groceries are done");
   await section.getByRole("button", { name: "Send", exact: true }).click();
   await section.getByText("Groceries are done").waitFor({ timeout: 10000 });
+  // The byline names the owner in words, not their bare member id.
+  await section.getByText("The owner ·").waitFor({ timeout: 10000 });
 
   // Published under the owner, not somebody named in the request (nobody was), and it verifies.
   const stored = app.store.sqlite.prepare("SELECT id, member, signature FROM collab_events ORDER BY at DESC LIMIT 1").get();
   assert.ok(stored, "the note was written to the database");
+  assert.equal(stored.member, "owner");
   assert.deepEqual((await app.store.collabEvents.verify({ ...(await app.store.collabEvents.list(app.runtime.owner)).events.find((e) => e.id === stored.id) })).valid, true);
 
   // Somebody edits the stored payload directly, the way a relay or a database edit would.
@@ -59,7 +62,24 @@ test("a note sent from the panel lists as genuine; a tampered one drops out and 
     () => !document.querySelector('[data-part="events"]')?.textContent.includes("Groceries are done"),
     { timeout: 10000 },
   );
-  await section.getByText(/changed after they were signed/).waitFor({ timeout: 10000 });
+  await section.getByText(/could not be checked/).waitFor({ timeout: 10000 });
   assert.equal(await section.getByText("Groceries are NOT done").count(), 0, "a changed note is never shown, tampered or original");
+  assert.deepEqual(errors, []);
+});
+
+test("a note being typed survives the panel's own periodic refresh, caret and all", async (t) => {
+  const { page, errors } = await fixture(t);
+  const section = page.locator('[data-part="events"]');
+  await section.waitFor({ state: "visible" });
+  const box = section.getByLabel("Write a note for the household");
+  await box.click();
+  await box.type("Back at six", { delay: 20 });
+  // Longer than app.js's 3-second refresh (public/app.js), which rebuilds this whole panel.
+  await page.waitForTimeout(3500);
+  await box.type(" — took the car", { delay: 20 });
+  await page.waitForFunction(() => {
+    const active = document.activeElement;
+    return active?.tagName === "TEXTAREA" && active.value === "Back at six — took the car";
+  }, { timeout: 5000 });
   assert.deepEqual(errors, []);
 });

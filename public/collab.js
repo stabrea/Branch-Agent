@@ -16,7 +16,7 @@ export function showCollab(state, given) {
     ["queue", queueSection(collab.queue ?? { waiting: [], settings: { atOnce: 3 } }, helpers)],
     ["days-off", daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers)],
     ["shares", sharesSection(collab.shares ?? [], helpers)],
-    ["events", eventsSection(collab.events ?? { events: [], rejected: [] }, helpers)],
+    ["events", eventsSection(collab.events ?? { events: [], rejected: [] }, collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
     ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
   ];
   for (const [name, node] of parts) {
