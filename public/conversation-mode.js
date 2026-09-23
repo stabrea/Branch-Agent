@@ -1,8 +1,9 @@
 /* Redesign phase 1: how much the assistant may do in this conversation, as one chip in the message
    box (the approved sample's mode picker). Ask first, Plan, Auto and Full access; a choice that cannot
    be made right now is shown greyed with the reason, never hidden. The server decides what a task may
-   really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on Ask
-   first; one that existed before keeps following the owner's setting until somebody picks here. */
+   really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on the
+   owner's default (Ask first unless they pick another); one that existed before keeps following the
+   owner's setting until somebody picks here. */
 import { api, toast } from "/app.js";
 import { t } from "/i18n.js";
 import { popover } from "/popover.js";
@@ -134,7 +135,8 @@ function paintMenu(menu = $("mode-menu")) {
   // DG-153: Add footer explaining mode choices and keyboard shortcuts
   if (!state.locked && !state.outside && mode !== null) {
     const footer = el("div", undefined, "mode-footer");
-    const line1 = el("p", `New conversations start on ${t("mode.ask")}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
+    const starts = state.settings?.newConversation === "follow" ? t("mode.setting.follow") : t(`mode.${state.settings?.newConversation ?? "ask"}`);
+    const line1 = el("p", `New conversations start on ${starts}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
     const line2 = el("p", `Number keys 1, 3, 4 in the message box switch modes. More choices (Just do it inside my workspace, Read only) are in Settings › Permissions.`, "mode-note");
     footer.append(line1, line2);
     menu.append(footer);
@@ -194,16 +196,26 @@ function repaintMenu() {
 
 /* ---------- the owner's default, under When to check with me ---------- */
 
+/** The one-line description under the switch, for the choice it shows. */
+function describeDefault(value) {
+  const note = $("mode-new-conversation-choice");
+  if (!note) return;
+  note.dataset.t = `mode.setting.${value}.note`;
+  note.textContent = t(note.dataset.t);
+}
 function paintDefault() {
   const select = $("mode-new-conversation");
   if (!select || !state) return;
   select.value = state.settings?.newConversation ?? "ask";
   select.disabled = !state.owner;
+  describeDefault(select.value);
 }
 $("mode-new-conversation")?.addEventListener("change", async (event) => {
+  const value = event.target.value;
+  describeDefault(value);
   try {
-    await api("conversation-mode/settings", { newConversation: event.target.value });
-    toast(t(event.target.value === "ask" ? "mode.setting.savedAsk" : "mode.setting.savedFollow"));
+    await api("conversation-mode/settings", { newConversation: value });
+    toast(value === "follow" ? t("mode.setting.savedFollow") : t("mode.setting.savedMode", { mode: t(`mode.${value}`) }));
     await refreshMode();
   } catch (error) { toast(error.message); }
 });
