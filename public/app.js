@@ -1281,7 +1281,6 @@ for (const operation of ["activate", "disable", "remove"]) $("skill-" + operatio
 };
 selectSkill(null);
 function renderIdentity() {
-  $("brand-name").textContent = state.identity?.name || "Branch Agent";
   document.title = `${state.identity?.name || "Branch Agent"} — Your personal assistant`;
   if (identityDirty || identityBusy || !state.identity) return;
   if (identityDraft && state.identity.revision < identityDraft.revision) return;

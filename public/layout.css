@@ -232,7 +232,7 @@ body.lx .rail {
   border-right: 1px solid var(--glass-edge);
 }
 body.lx .rail-head .app-switcher .chev {
-  display: none;
+  display: block;
 }
 .lx-places {
   margin-top: var(--s3);
@@ -1272,9 +1272,6 @@ body.lx-help .context-panel > .acorn-art {
 }
 body.lx .rail-head {
   gap: 0;
-}
-body.lx .rail-head .brand {
-  font-size: 18px;
 }
 /* how it should work, and the model for this conversation: a quiet row of chips, not two big menus */
 body.lx .model-controls {
