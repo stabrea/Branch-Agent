@@ -196,28 +196,24 @@ function repaintMenu() {
 
 /* ---------- the owner's default, under When to check with me ---------- */
 
-/** The one-line description under the switch, for the choice it shows. */
-function describeDefault(value) {
-  const note = $("mode-new-conversation-choice");
-  if (!note) return;
-  note.dataset.t = `mode.setting.${value}.note`;
-  note.textContent = t(note.dataset.t);
-}
+/* The sample's four cards (Auto, Ask first, Plan first, No approvals) plus Follow my rules. They save the owner's
+   newConversation default only; the rules preset under them is a separate control. */
+const defaultCards = () => [...document.querySelectorAll('#mode-new-conversation input[type="radio"]')];
 function paintDefault() {
-  const select = $("mode-new-conversation");
-  if (!select || !state) return;
-  select.value = state.settings?.newConversation ?? "ask";
-  select.disabled = !state.owner;
-  describeDefault(select.value);
+  if (!state) return;
+  const saved = state.settings?.newConversation ?? "ask";
+  for (const radio of defaultCards()) {
+    radio.checked = radio.value === saved;
+    radio.disabled = !state.owner;
+  }
 }
 $("mode-new-conversation")?.addEventListener("change", async (event) => {
   const value = event.target.value;
-  describeDefault(value);
   try {
     await api("conversation-mode/settings", { newConversation: value });
     toast(value === "follow" ? t("mode.setting.savedFollow") : t("mode.setting.savedMode", { mode: t(`mode.${value}`) }));
     await refreshMode();
-  } catch (error) { toast(error.message); }
+  } catch (error) { toast(error.message); paintDefault(); }
 });
 
 const menuControl = popover($("mode-chip"), $("mode-menu"), {

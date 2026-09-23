@@ -3,6 +3,7 @@
    French. Lockdown is on the page and is the rail's own switch. The limits are saved as you go. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,9 +18,21 @@ const SAMPLE = ["Permissions", "When to check with me", "Lockdown", "Settings yo
   "Keeping things safe", "11 more with Advanced"];
 const FRENCH = ["Quand me demander", "Verrouillage", "Réglages que vous avez épinglés"];
 
+/** A model that writes the file named after "write" in the newest message, then says done (as Q59's test). */
+function writerModel() {
+  return { name: "scripted", async complete(request) {
+    const last = request.messages[request.messages.length - 1];
+    const asked = String([...request.messages].reverse().find((m) => m.role === "user")?.content ?? "");
+    const file = /write (\S+)/.exec(asked)?.[1];
+    if (last?.role === "tool" || !file) return { content: "done", toolCalls: [] };
+    return { content: "", toolCalls: [{ id: `w${Math.random().toString(36).slice(2, 8)}`, name: "files.write",
+      arguments: JSON.stringify({ path: file, content: "x" }) }] };
+  } };
+}
+
 async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-permissions-"));
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: writerModel() });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   if (preferences) app.store.save("settings", app.runtime.owner, "preferences", preferences);
   const browser = await chromium.launch({ headless: true });
@@ -39,12 +52,17 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   errors.length = 0;
+  await openPermissions(page);
+  return { page, call, errors, app, token: server.token, open: () => openPermissions(page) };
+}
+
+/** Opens Settings › Permissions in a signed-in window. */
+async function openPermissions(page) {
   await page.keyboard.press("Control+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   await page.evaluate(() => globalThis.branchLayout.go("settings:permissions"));
   await page.locator("#lockdown-card:not([hidden])").waitFor({ state: "attached" });
   await page.waitForTimeout(500);
-  return { page, call, errors };
 }
 
 /** The page's title, its sections' heads and "N more" lines on show, in the order they stand (card titles inside a
@@ -142,5 +160,67 @@ test("R17-S01/S04 on Permissions: each one-card section's card has its heading, 
     assert.equal(found.tag, "P", `${id}: its heading is followed by what it is for`);
     assert.equal(found.purpose, en[key], `${id}: the sentence is the sample's`);
   }
+  assert.deepEqual(errors, []);
+});
+
+/* The sample's four cards are the new-conversation default (newConversation), not the owner's rules preset. */
+const card = (page, name) => page.locator("#mode-new-conversation").getByRole("radio", { name, exact: false });
+const savedDefault = async (call) => (await call("/api/conversation-mode")).settings.newConversation;
+const savedPreset = async (call) => (await call("/api/policy")).policy.preset;
+async function settled(app, id) {
+  for (let i = 0; i < 200; i += 1) {
+    const run = app.store.run(id);
+    if (run && !["queued", "running"].includes(run.status)) return run;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`run ${id} did not settle`);
+}
+
+test("the four cards save the new-conversation default: Plan first sticks after a reload and a new conversation refuses a write", async (t) => {
+  const { page, call, errors, app, token, open } = await fixture(t);
+  const titles = await page.locator("#mode-new-conversation .choice-card b").allTextContents();
+  assert.deepEqual(titles.map((words) => words.trim()), ["Auto", "Ask first (recommended)", "Plan first", "No approvals", "Follow my rules"]);
+  assert.match(await page.locator("#mode-new-conversation-full-note").textContent(), /^Nothing is checked with you, except commands no rule covers\.$/);
+  assert.equal(await page.locator("select#mode-new-conversation").count(), 0, "one control for the setting, not two");
+  assert.equal(await card(page, "Ask first").isChecked(), true, "Ask first is the saved default");
+  const presetBefore = await savedPreset(call);
+  await card(page, "Plan first").check();
+  for (let tries = 0; tries < 40 && (await savedDefault(call)) !== "plan"; tries++) await page.waitForTimeout(100);
+  assert.equal(await savedDefault(call), "plan");
+  assert.equal(await savedPreset(call), presetBefore, "a card does not change the rules preset");
+  await page.reload();
+  /* The window may ask for the session token again after a reload; if it does, sign in as before. */
+  const tokenBox = page.getByLabel("Session token", { exact: true });
+  await Promise.race([tokenBox.waitFor({ state: "visible" }), page.locator("#workspace").waitFor({ state: "visible" })]);
+  if (await tokenBox.isVisible()) {
+    await tokenBox.fill(token);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+  }
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("body.sg-ready").waitFor({ state: "attached" });
+  await open();
+  await page.waitForFunction(() => document.querySelector('#mode-new-conversation input[value="plan"]')?.checked);
+  assert.equal(await card(page, "Plan first").isChecked(), true, "Plan first is still chosen after a reload");
+  /* What the window does with a new conversation: read the default and send it with the first message. */
+  const mode = (await call("/api/conversation-mode")).newConversation;
+  assert.equal(mode, "plan");
+  const started = await call("/api/run", { prompt: "write plan.txt", mode });
+  const run = await settled(app, started.id);
+  assert.equal(existsSync(join(app.runtime.workspace, "plan.txt")), false, "the write was refused");
+  assert.notEqual(run.status, "needs_input", "refused, not asked about");
+  assert.deepEqual(errors, []);
+});
+
+test("the rules preset and the cards are separate: changing one leaves the other alone", async (t) => {
+  const { page, call, errors } = await fixture(t);
+  await card(page, "Auto").check();
+  for (let tries = 0; tries < 40 && (await savedDefault(call)) !== "auto"; tries++) await page.waitForTimeout(100);
+  assert.equal(await savedDefault(call), "auto");
+  const other = (await savedPreset(call)) === "read-only" ? "workspace" : "read-only";
+  await page.locator("#policy-preset").selectOption(other);
+  for (let tries = 0; tries < 40 && (await savedPreset(call)) !== other; tries++) await page.waitForTimeout(100);
+  assert.equal(await savedPreset(call), other);
+  assert.equal(await savedDefault(call), "auto", "the preset does not change the new-conversation default");
+  assert.equal(await card(page, "Auto").isChecked(), true);
   assert.deepEqual(errors, []);
 });

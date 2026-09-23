@@ -1468,20 +1468,21 @@
           <section id="policy-card" class="card">
             <h3 class="settings-card-title" data-t="settings.card.when-to-check-with-me" hidden>When to check with me</h3>
             <p data-t="settings.policy.intro">Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages.</p>
+            <!-- The sample's four cards are what a conversation begun in the window starts on (newConversation,
+                 public/conversation-mode.js); "Follow my rules" starts it on the owner's rules below instead. -->
+            <fieldset id="mode-new-conversation" class="choice-cards" role="radiogroup" aria-describedby="mode-new-conversation-note">
+              <legend data-t="mode.setting.label">New conversations start on</legend>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="auto" aria-describedby="mode-new-conversation-auto-note" /><span><b data-t="mode.setting.auto">Auto</b><small id="mode-new-conversation-auto-note" data-t="mode.setting.auto.note">Changes inside your workspace go ahead. Commands and the web ask.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="ask" aria-describedby="mode-new-conversation-ask-note" /><span><b data-t="mode.setting.ask">Ask first (recommended)</b><small id="mode-new-conversation-ask-note" data-t="mode.setting.ask.note">Asks before any change, command or web action. Reading is free.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="plan" aria-describedby="mode-new-conversation-plan-note" /><span><b data-t="mode.setting.plan">Plan first</b><small id="mode-new-conversation-plan-note" data-t="mode.setting.plan.note">Reads and proposes a plan. A change is refused, not asked about.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="full" aria-describedby="mode-new-conversation-full-note" /><span><b data-t="mode.setting.full">No approvals</b><small id="mode-new-conversation-full-note" data-t="mode.setting.full.note">Nothing is checked with you, except commands no rule covers.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="follow" aria-describedby="mode-new-conversation-follow-note" /><span><b data-t="mode.setting.follow">Follow my rules</b><small id="mode-new-conversation-follow-note" data-t="mode.setting.follow.note">Uses your rules below, the way every conversation used to.</small></span></label>
+            </fieldset>
+            <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following your rules below.</p>
+            <!-- The owner's own rules: a separate control, and choosing one never changes the cards above. -->
             <label for="policy-preset" data-t="field.how-should-branch-behave">How should Branch behave?</label>
             <select id="policy-preset"></select>
             <p id="policy-description" class="subtle"></p>
-            <!-- Redesign phase 1: what a conversation begun in the window starts on (public/conversation-mode.js). -->
-            <label for="mode-new-conversation" data-t="mode.setting.label">New conversations start on</label>
-            <select id="mode-new-conversation" aria-describedby="mode-new-conversation-note">
-              <option value="ask" data-t="mode.setting.ask">Ask first (recommended)</option>
-              <option value="plan" data-t="mode.setting.plan">Plan first</option>
-              <option value="auto" data-t="mode.setting.auto">Auto</option>
-              <option value="full" data-t="mode.setting.full">No approvals</option>
-              <option value="follow" data-t="mode.setting.follow">Follow my rules</option>
-            </select>
-            <p id="mode-new-conversation-choice" class="subtle field-note" aria-live="polite" data-t="mode.setting.ask.note">Asks before any change, command or web action. Reading is free.</p>
-            <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following the setting above.</p>
             <div class="policy-block" data-level="technical">
               <h4 data-t="settings.policy.means">What that means</h4>
               <ul id="policy-rules" class="check-list"></ul>
