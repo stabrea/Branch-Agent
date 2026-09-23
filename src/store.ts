@@ -363,6 +363,23 @@ export class Store {
       .all(owner)
       .map((row) => this.toRun(row));
   }
+  /**
+   * FQ-packages.trajectories: the owner's own runs narrowed by conversation and/or a created_at
+   * window, newest first, read straight out of the tasks table with one query — so a filtered
+   * batch export never has to pull every run into memory first just to throw most of them away.
+   */
+  runsFiltered(owner: string, filter: { sessionId?: string; since?: string; until?: string }, limit: number): Run[] {
+    const clauses = ["owner=?"];
+    const params: (string | number)[] = [owner];
+    if (filter.sessionId !== undefined) { clauses.push("session_id=?"); params.push(filter.sessionId); }
+    if (filter.since !== undefined) { clauses.push("created_at>=?"); params.push(filter.since); }
+    if (filter.until !== undefined) { clauses.push("created_at<=?"); params.push(filter.until); }
+    params.push(limit);
+    return this.db
+      .prepare(`SELECT * FROM tasks WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC, rowid DESC LIMIT ?`)
+      .all(...params)
+      .map((row) => this.toRun(row));
+  }
   /** Running or waiting work that is still the newest task in its conversation. */
   activeRuns(owner: string): Run[] {
     return this.db.prepare(`SELECT current.* FROM tasks current

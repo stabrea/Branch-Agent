@@ -113,6 +113,76 @@ test("FQ a batch over the cap is a clear 4xx before anything is read", async (t)
   assert.equal(refusedGz.status, 400);
 });
 
+test("FQ ?session= returns exactly that session's runs, newest first", async (t) => {
+  const { api } = await served(t);
+  const first = (await api("POST", "/api/run", { prompt: "one" })).body;
+  const sessionId = first.sessionId;
+  const second = (await api("POST", "/api/run", { prompt: "two", sessionId })).body;
+  await api("POST", "/api/run", { prompt: "a different conversation" });
+
+  const filtered = await api("GET", `/api/runs/trajectories/batch?session=${sessionId}`);
+  assert.equal(filtered.status, 200);
+  assert.deepEqual(filtered.body.trajectories.map((doc) => doc.run.id), [second.id, first.id],
+    "both of this session's runs, and only this session's, newest first");
+});
+
+test("FQ ?since=/?until= bound the batch by created_at", async (t) => {
+  const { app, api } = await served(t);
+  const early = (await api("POST", "/api/run", { prompt: "early" })).body;
+  const late = (await api("POST", "/api/run", { prompt: "late" })).body;
+  // Test-only: reach through the store's own db handle to push "early" well into the past, the same
+  // way tests/residuals.test.mjs backdates a run — since/until can only be proven apart this way.
+  app.store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id=?").run("2020-01-01T00:00:00.000Z", early.id);
+
+  const sinceLate = await api("GET", "/api/runs/trajectories/batch?since=2025-01-01T00:00:00.000Z");
+  assert.equal(sinceLate.status, 200);
+  assert.deepEqual(sinceLate.body.trajectories.map((doc) => doc.run.id), [late.id]);
+
+  const untilEarly = await api("GET", "/api/runs/trajectories/batch?until=2021-01-01T00:00:00.000Z");
+  assert.equal(untilEarly.status, 200);
+  assert.deepEqual(untilEarly.body.trajectories.map((doc) => doc.run.id), [early.id]);
+});
+
+test("FQ ids and a filter are mutually exclusive", async (t) => {
+  const { api } = await served(t);
+  const run = (await api("POST", "/api/run", { prompt: "x" })).body;
+  const refused = await api("GET", `/api/runs/trajectories/batch?ids=${run.id}&session=${run.sessionId}`);
+  assert.equal(refused.status, 400);
+});
+
+test("FQ a bad date is refused with a 400, not read as a filter that matches nothing", async (t) => {
+  const { api } = await served(t);
+  const refused = await api("GET", "/api/runs/trajectories/batch?since=not-a-date");
+  assert.equal(refused.status, 400);
+});
+
+test("FQ a filter matching more than the limit is refused, not silently truncated", async (t) => {
+  const { api } = await served(t);
+  const first = (await api("POST", "/api/run", { prompt: "one" })).body;
+  await api("POST", "/api/run", { prompt: "two", sessionId: first.sessionId });
+
+  const refused = await api("GET", `/api/runs/trajectories/batch?session=${first.sessionId}&limit=1`);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error ?? "", /more than 1/);
+});
+
+test("FQ the gz form with a filter gunzips to exactly the same lines as the plain form", async (t) => {
+  const { api, call, server } = await served(t);
+  const first = (await api("POST", "/api/run", { prompt: "a" })).body;
+  await api("POST", "/api/run", { prompt: "b", sessionId: first.sessionId });
+  await api("POST", "/api/run", { prompt: "elsewhere" });
+
+  const plain = await api("GET", `/api/runs/trajectories/batch?session=${first.sessionId}`);
+  assert.equal(plain.status, 200);
+  const plainLines = plain.body.trajectories.map((document) => JSON.stringify(withoutExportedAt(document)));
+
+  const gz = await call("GET", `/api/runs/trajectories/batch.jsonl.gz?session=${first.sessionId}`, server.token);
+  assert.equal(gz.status, 200);
+  const gzLines = gunzipSync(gz.bytes).toString("utf8").trim().split("\n")
+    .map((line) => JSON.stringify(withoutExportedAt(JSON.parse(line))));
+  assert.deepEqual(gzLines, plainLines);
+});
+
 test("FQ a non-owner short-lived key is refused the batch, gzipped or not", async (t) => {
   const { api, call, app, server } = await served(t);
   const runId = (await api("POST", "/api/run", { prompt: "solo" })).body.id;
