@@ -56,11 +56,8 @@ import { inspectRun } from "./inspect.js";
 import { buildTrajectory, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
-import { TryToolSchema, toolForms, tryTool } from "./playground.js";
-// mac5/manual-actions: the hand-pressed gate for "Try a tool".
-import { manualVerdict } from "./tool-gate.js";
+import { TryToolSchema, toolForms, tryToolByHand } from "./playground.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
-import { argumentFingerprint } from "./runtime.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
@@ -228,6 +225,8 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// FQ-execution.host-bridge: running a program on an explicitly chosen other computer, straight from Settings.
+import { handlesHostBridgePath, hostBridgeApi, HostBridgeApiError } from "./host-bridge-api.js";
 // Wave mac2 (move-in): bringing chats and memory over from another assistant.
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
@@ -557,6 +556,7 @@ async function staticFile(
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
+    "/host-bridge.js": ["host-bridge.js", "text/javascript; charset=utf-8"], // FQ-execution.host-bridge
     // Wave mac2: bringing your chats and memory over from another assistant.
     "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
@@ -1009,6 +1009,12 @@ async function api(
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
     });
+  // FQ-execution.host-bridge: the owner runs a program on one computer they name explicitly, and
+  // gets back which computer answered together with what it said.
+  if (handlesHostBridgePath(path))
+    return hostBridgeApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof HostBridgeApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
   if (handlesMoveInPath(path))
     return moveInApi(app, request, path, readBody, { ...defaultMoveInOptions(), contextFiles: contextFileSinkFor(app) }).catch((error: unknown) => {
@@ -1172,16 +1178,9 @@ async function api(
   // The developer playground: the form for every tool, and running one by hand through the gate.
   if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
   if (request.method === "POST" && path === "/api/tools/try") {
-    const input = TryToolSchema.parse(await readBody(request));
-    // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
-    // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
-    return app.runtime.hideSecrets(
-      await tryTool(app.registry, app.store, app.runtime.owner,
-        app.runtime.context({ signal: AbortSignal.timeout(120000) }), input,
-        (tool, permission) => app.runtime.roleRefusal(tool, permission),
-        // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept. A
-        // short-lived key meets the full rules there: only "allow" runs, and it cannot confirm (key-sweep).
-        (tool, args, context) => manualVerdict(app.runtime, tool, args, context, argumentFingerprint(JSON.stringify(args)))));
+    // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept, the
+    // two-minute ceiling and the secret scrub; shared with the host-bridge card (src/playground.ts).
+    return tryToolByHand(app, TryToolSchema.parse(await readBody(request)));
   }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
@@ -4164,7 +4163,7 @@ async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits", "/api/host-bridge/run"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
     // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
     || (request.method !== "GET" && handlesInteropPath(path))
     // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).

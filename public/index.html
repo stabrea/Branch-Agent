@@ -1610,6 +1610,19 @@
             <button id="remote-add" type="button" data-t="action.add-this-computer">Add this computer</button>
             <p id="remote-status" class="subtle" role="status"></p>
           </section>
+          <section id="host-bridge-card" class="card">
+            <h2 data-t="settings.card.host-bridge">Run something on one computer</h2>
+            <p>Pick one computer you have already added above, name a program it is allowed to run, and Branch runs it there and hands the answer straight back — with the name of the computer that answered, so it is never mixed up with any other.</p>
+            <label for="host-bridge-computer" data-t="field.which-computer">Which computer</label>
+            <select id="host-bridge-computer"></select>
+            <label for="host-bridge-program" data-t="field.program-to-run">Program to run</label>
+            <input id="host-bridge-program" type="text" maxlength="80" placeholder="make" />
+            <label for="host-bridge-args" data-t="field.arguments-separated-by-spaces">Arguments, separated by spaces</label>
+            <input id="host-bridge-args" type="text" maxlength="600" placeholder="build" />
+            <button id="host-bridge-run" type="button" data-t="action.run-it-there">Run it there</button>
+            <div id="host-bridge-result" class="card-list"></div>
+            <p id="host-bridge-status" class="subtle" role="status"></p>
+          </section>
           <section id="retention-card" class="card">
             <h2 data-t="settings.card.how-long-conversations-are-kept">How long conversations are kept</h2>
             <p>Branch keeps everything until you say otherwise. Set a rule here and Branch will offer to delete what it covers — it never deletes on its own, and it hands you a saved copy of everything before it goes.</p>
@@ -2261,6 +2274,7 @@
     <script src="/learn.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
+    <script src="/host-bridge.js" type="module"></script>
     <script src="/move-in.js" type="module"></script>
     <!-- bucket 14 (A0367): the usage report card, placed in Settings → Data -->
     <script src="/usage-report.js" type="module"></script>

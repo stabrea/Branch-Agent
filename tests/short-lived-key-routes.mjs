@@ -845,6 +845,8 @@ export const ROUTES = {
   "/api/registry/updates": "look",
   "/api/remotes": "owner POST",
   "/api/remotes/remove": "owner POST",
+  // FQ-execution.host-bridge: the owner's own button for running a program on another computer.
+  "/api/host-bridge/run": "owner POST",
   "/api/reports": "other POST",
   "/api/reports/episode/:id": "look",
   "/api/request-cache": "owner POST",

@@ -630,6 +630,8 @@ async function refresh() {
   // Batch 26 (wave 8): where scripts run, what can reach out, the ceilings, the other computers,
   // and how long conversations are kept.
   void window.branchSandboxRemote?.render();
+  // FQ-execution.host-bridge: the computer picker for running a program on one computer explicitly.
+  void window.branchHostBridge?.render();
 }
 const notifiedAttention = new Set();
 /* phase2/rooms (integration review): the Trunk that asked, named; a room member's question opens the room. */

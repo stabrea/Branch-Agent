@@ -9,7 +9,9 @@ import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import { evaluatePolicy, isReadOnlyPermission, policyTarget, readPolicy } from "./policy.js";
 import { everyTargetDecision } from "./policy-targets.js"; // mac7/multi-target
-import type { ManualVerdict } from "./tool-gate.js";
+import { manualVerdict, type ManualVerdict } from "./tool-gate.js";
+import { argumentFingerprint } from "./runtime.js";
+import type { createBranch } from "./index.js";
 
 export const TryToolSchema = z
   .object({
@@ -84,4 +86,21 @@ export async function tryTool(
   } catch (error) {
     return { status: "failed", tool: input.name, target, milliseconds: Date.now() - started, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * One tool pressed by hand, the way `/api/tools/try` runs it: the person's role, the runtime's
+ * hand-pressed gate (Lockdown, the owner's rules, the safety extras; a short-lived key meets the
+ * full rules and cannot confirm), a two-minute ceiling, and the answer scrubbed of secrets on the
+ * way out exactly as the runtime scrubs a tool result before it records one. Every door that runs a
+ * tool by hand goes through here, so none of them can skip a step the others take.
+ */
+export async function tryToolByHand(
+  app: Awaited<ReturnType<typeof createBranch>>, input: z.infer<typeof TryToolSchema>,
+): Promise<TryOutcome> {
+  return app.runtime.hideSecrets(
+    await tryTool(app.registry, app.store, app.runtime.owner,
+      app.runtime.context({ signal: AbortSignal.timeout(120000) }), input,
+      (tool, permission) => app.runtime.roleRefusal(tool, permission),
+      (tool, args, context) => manualVerdict(app.runtime, tool, args, context, argumentFingerprint(JSON.stringify(args)))));
 }
