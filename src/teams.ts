@@ -73,14 +73,14 @@ export class Teams {
     const claim = task.state === "pending" ? this.tasks.claim(scope, task.taskId) : null;
     if (!claim) return this.observed(scope, task.taskId);
     const turn: TurnProgress = { parentRunId: null, membersStarted: false, recorded: false };
-    holdDispatch(claim.taskId);
+    holdDispatch(this.store, claim.taskId);
     try {
       return await this.dispatch(runtime, knowledge, team, prompt, claim, turn);
     } catch (error) {
       this.settleThrown(claim, turn, error instanceof Error ? error.message : String(error));
       throw error;
     } finally {
-      releaseDispatch(claim.taskId);
+      releaseDispatch(this.store, claim.taskId);
     }
   }
   /** Settles a claimed task by what the record says it did, for a claimant that is gone (after a restart, say). */

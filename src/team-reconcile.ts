@@ -22,10 +22,15 @@ export interface ReconcileReport {
   taskId: string; state: TeamTaskState; parentRunId: string | null; effects: TurnEffect[]; note: string;
 }
 
-/** Team tasks this process is working on right now; reconciling leaves these alone. Shared by every Teams instance. */
-const dispatching = new Set<string>();
-export function holdDispatch(taskId: string): void { dispatching.add(taskId); }
-export function releaseDispatch(taskId: string): void { dispatching.delete(taskId); }
+/**
+ * Team tasks this process is working on right now, per open store; reconciling leaves these alone.
+ * Every Teams instance on one store shares the list, and a store opened afresh (after a restart)
+ * starts with none, because whatever was running before is gone.
+ */
+const dispatching = new WeakMap<Store, Set<string>>();
+const working = (store: Store): Set<string> => dispatching.get(store) ?? dispatching.set(store, new Set()).get(store)!;
+export function holdDispatch(store: Store, taskId: string): void { working(store).add(taskId); }
+export function releaseDispatch(store: Store, taskId: string): void { working(store).delete(taskId); }
 
 /** Run statuses that mean the run has stopped for good; any other unfinished status may still act later. */
 const stoppedStatuses: ReadonlySet<RunStatus> = new Set<RunStatus>(["failed", "cancelled", "interrupted", "budget_exceeded"]);
@@ -93,7 +98,7 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
   const report = (state: TeamTaskState, note: string): ReconcileReport =>
     ({ taskId, state, parentRunId: task.parentRunId, effects: task.parentRunId ? turnEffects(store, task.parentRunId) : [], note });
   if (task.state !== "claimed") return report(task.state, "This task is already settled.");
-  if (dispatching.has(taskId)) return report("claimed", "This task is still running here.");
+  if (working(store).has(taskId)) return report("claimed", "This task is still running here.");
   const parent = task.parentRunId ? store.run(task.parentRunId) : undefined;
   if (parent && parent.status === "running") return report("claimed", "Its run is still going.");
   const claim = tasks.standingClaim(scope, taskId);

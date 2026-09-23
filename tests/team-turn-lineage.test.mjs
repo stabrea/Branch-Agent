@@ -140,3 +140,48 @@ test("a crash before the acknowledgement is finished by reconcile from the recor
   assert.equal(app.teams.reconcile(lost.taskId).state, "completed", "reconciling again changes nothing");
   assert.equal(app.teams.room(team.id).length, roomBefore + 2);
 });
+
+test("a crash while members worked, with no result recorded, is reconciled from every member run's effects", async (t) => {
+  let written = 0;
+  const provider = scripted(undefined, [(request) => (JSON.stringify(request.messages).includes('"tool"') ? say("member done") : write(`m${written++}`, `member-${written}.txt`, "once"))]);
+  const { state, team, reopen } = await fixture(t, provider);
+  const requestId = randomUUID();
+  // The process "dies" after the members acted and before anything about their result was written.
+  const { recordOutcome, complete } = TeamTasks.prototype;
+  TeamTasks.prototype.recordOutcome = function skipped() {};
+  TeamTasks.prototype.complete = function skipped() {};
+  t.after(() => Object.assign(TeamTasks.prototype, { recordOutcome, complete }));
+  const writers = { activeSpecialist: () => ({ permissions: ["files.write"], instructions: "" }) };
+  const lost = await state.app.teams.run(state.app.runtime, writers, team.id, "file the notes", { requestId });
+  Object.assign(TeamTasks.prototype, { recordOutcome, complete });
+  assert.equal(row(state.app, requestId).state, "claimed");
+  assert.equal(row(state.app, requestId).result, null);
+  const after = scripted();
+  const app = await reopen(after);
+  const report = app.teams.reconcile(lost.taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.effects.map((e) => [e.name, e.outcome]).sort(), [["files.write", "completed"], ["files.write", "completed"]]);
+  assert.ok(report.effects.every((e) => e.runId !== lost.parentRunId), "the effects were found in the member runs under the parent");
+  const retry = counted(app.runtime);
+  assert.equal((await app.teams.run(retry, knowledge, team.id, "file the notes", { requestId })).state, "needs_reconciliation");
+  assert.equal(retry.dispatches + after.parentCalls + after.memberCalls, 0);
+});
+
+test("a crash before the team's turn did anything is reconciled as failed after a restart", async (t) => {
+  const provider = scripted();
+  const { state, team, reopen } = await fixture(t, provider);
+  const requestId = randomUUID();
+  // The parent run is created and named, then the process "dies": the run is left running and never settles.
+  const stuck = { run: (options) => { const run = state.app.store.createRun(state.app.runtime.owner, "team parent"); options.onStarted(run); return new Promise(() => {}); } };
+  void state.app.teams.run(stuck, knowledge, team.id, "clean up", { requestId });
+  await new Promise((resolve) => setImmediate(resolve));
+  const task = row(state.app, requestId);
+  assert.equal(state.app.teams.reconcile(task.task_id).state, "claimed", "a task still running in this process is left alone");
+  const after = scripted();
+  const app = await reopen(after);
+  assert.equal(app.store.run(task.parent_run_id).status, "interrupted");
+  const report = app.teams.reconcile(task.task_id);
+  assert.equal(report.state, "failed");
+  assert.deepEqual(report.effects, []);
+  assert.equal(after.parentCalls + after.memberCalls, 0);
+});
