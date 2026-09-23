@@ -213,8 +213,9 @@ export class ToolRegistry {
       throw new Error(`Permission denied: ${tool.permission}`);
     context.budget.step(context.signal);
     const parsed = tool.parameters.parse(args);
-    // Q12: a call that would change Branch's own source is held to its written contract first.
-    if (this.beforeTool) await this.beforeTool(name, parsed, context);
+    // Q12: a call that would change Branch's own source is held to its written contract first. It is
+    // judged on the arguments as sent, as the approval policy judged them, and parsed the same way.
+    if (this.beforeTool) await this.beforeTool(name, args, context);
     let result: unknown;
     try {
       // household-followups: an owner-only guard inside the tool judges by this task's person.

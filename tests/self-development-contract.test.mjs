@@ -216,3 +216,18 @@ test("allowed paths are globs inside the worktree", () => {
   assert.equal(globFits("src/ui/**", "src/uix/a.ts"), false);
   assert.equal(globFits("src/ui.ts", "src/uiXts"), false);
 });
+
+test("a command started from the workspace with its folder inside a worktree is held to that worktree's contract", async () => {
+  const db = new DatabaseSync(":memory:");
+  const book = new ContractBook(db), log = new AuditLog(db), registry = new ToolRegistry();
+  registry.pathScope = () => "";
+  registry.register({ name: "shell.execute", permission: "shell.execute", description: "double",
+    parameters: z.object({ command: z.string(), cwd: z.string().optional() }), execute: async () => ({}) });
+  const guard = contractGuard({ store: { audit: log }, owner: "local", workspace: "/w", registry, book, git: async () => answer("") });
+  await guard("shell.execute", { command: "ls" }, { runId: "r" });
+  await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: worktree }, { runId: "r" }), /no contract/);
+  book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms });
+  await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: worktree }, { runId: "r" }),
+    /shell\.execute is not one of the tools this contract allows/);
+  assert.equal(log.list("local", { action: "self_development.contract" }).length, 2);
+});

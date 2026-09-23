@@ -5,6 +5,7 @@ import { z } from "zod";
 import { audit } from "./audit.js";
 import type { ToolContext } from "./contracts.js";
 import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
+import { cwdOf } from "./never-break/protected.js";
 import { isReadOnlyPermission } from "./policy.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
@@ -162,6 +163,9 @@ function pathsOf(deps: ContractGuardDeps, name: string, args: unknown, context: 
     const resource = target ? deps.registry.resourceOf(name, target, args) : null;
     if (resource?.kind === "path") named.push(resource.value);
   }
+  // A command's working folder counts too, so a command started from the workspace inside a worktree is held to it.
+  const cwd = cwdOf(args).cwd;
+  if (cwd) named.push(cwd);
   const root = resolve(deps.workspace);
   return named.map((path) => relative(root, resolve(root, scope, path)))
     .filter((path) => !path.startsWith("..") && !isAbsolute(path)).map(tidy);
@@ -216,7 +220,12 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     const permission = deps.registry.permissionOf(name);
     if (isReadOnlyPermission(permission)) return;
     const scope = tidy(deps.registry.pathScope());
-    const paths = pathsOf(deps, name, args, context, scope);
+    let paths: string[];
+    try { paths = pathsOf(deps, name, args, context, scope); } catch (error) {
+      // Outside the source the approval policy already refuses a call whose targets cannot be told.
+      if (!insideSource(scope)) return;
+      refuse(deps, context, name, worktreeOf(scope), `Branch could not tell what this call would change: ${(error as Error).message}`);
+    }
     if (!insideSource(scope) && !paths.some(insideSource)) return;
     const worktree = worktreeOf(insideSource(scope) ? scope : paths.find(insideSource)!);
     if (!worktree) refuse(deps, context, name, "", "The protected Branch Agent source checkout is never changed directly; work in a self-development worktree.");
