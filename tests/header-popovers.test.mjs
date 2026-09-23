@@ -15,7 +15,7 @@ import { startServer } from "../dist/server.js";
 
 const quiet = { name: "scripted", async complete() { return { content: "Here is a short answer.", toolCalls: [] }; } };
 
-async function fixture(t, width) {
+async function fixture(t, width, { everything = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-popovers-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: quiet });
   const run = app.store.createRun(app.runtime.owner, "Compare the quotes");
@@ -35,8 +35,13 @@ async function fixture(t, width) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
+  if (everything) {
+    await page.evaluate(async () => (await import("/appearance.js")).changeAppearance({ showEverything: true }));
+    await page.waitForFunction(() => document.documentElement.dataset.everything === "on");
+  }
   await page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, run.sessionId);
   await page.locator(".message.assistant").first().waitFor();
+  await watchLifts(page);
   return { page, errors };
 }
 
@@ -47,8 +52,27 @@ async function openCard(page) {
 }
 
 /**
- * The open menu, measured: how much of it a click can reach, and how it and everything in it compare with the
- * same menu shown in its own place (taken out of the page's top layer for a moment, then put back).
+ * Records how a menu and everything in it look in their own place at the moment it is lifted into the top
+ * layer (when `popover` is set on it), so the open menu can be compared with exactly that.
+ */
+const watchLifts = (page) => page.evaluate(() => {
+  globalThis.__look = (menu) => [menu, ...menu.querySelectorAll("*")].filter((el) => el.getClientRects().length).map((el) => {
+    const s = getComputedStyle(el), r = el.getBoundingClientRect();
+    return [el.id || el.className || el.tagName, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height),
+      s.color, s.backgroundColor, s.fontSize, s.fontWeight, s.fontFamily, s.borderTop, s.borderRadius, s.boxShadow,
+      s.backdropFilter, s.padding].join(" | ");
+  });
+  globalThis.__home = new Map();
+  const set = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if (name === "popover") globalThis.__home.set(this, globalThis.__look(this));
+    return set.call(this, name, value);
+  };
+});
+
+/**
+ * The open menu, measured: whether it was lifted, how much of it a click can reach, and how it and everything in
+ * it compare with how they looked in their own place.
  */
 const measure = (page, selector) => page.evaluate((sel) => {
   const menu = document.querySelector(sel), box = menu.getBoundingClientRect();
@@ -58,24 +82,19 @@ const measure = (page, selector) => page.evaluate((sel) => {
   let points = 0, covered = 0;
   const under = new Set();
   for (let x = box.left + 3; x < Math.min(box.right, innerWidth) - 3; x += 12)
-    for (let y = box.top + 3; y < Math.min(box.bottom, innerHeight) - 3; y += 12) {
+    for (let y = Math.max(box.top, 0) + 3; y < Math.min(box.bottom, innerHeight) - 3; y += 12) {
       if (corner(x, y)) continue;
       points++;
       const hit = document.elementFromPoint(x, y);
       if (!menu.contains(hit)) { covered++; under.add(hit?.id || String(hit?.className) || hit?.tagName); }
     }
-  const look = () => [menu, ...menu.querySelectorAll("*")].filter((el) => el.getClientRects().length).map((el) => {
-    const s = getComputedStyle(el), r = el.getBoundingClientRect();
-    return [el.id || el.className || el.tagName, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height),
-      s.color, s.backgroundColor, s.fontSize, s.fontWeight, s.fontFamily, s.borderTop, s.borderRadius, s.boxShadow,
-      s.backdropFilter, s.padding].join(" | ");
-  });
-  const shown = look();
-  const inline = menu.style.cssText, lifted = menu.hasAttribute("popover");
-  if (lifted) { menu.removeAttribute("popover"); menu.style.cssText = ""; }
-  const home = look();
-  if (lifted) { menu.style.cssText = inline; menu.setAttribute("popover", "manual"); menu.showPopover(); }
-  return { points, covered, under: [...under].slice(0, 4), shown, home };
+  /* Its looks are compared without the keyboard in it: the focus ring comes after it opens, not from where it is. */
+  const focused = menu.contains(document.activeElement) ? document.activeElement : null;
+  focused?.blur();
+  const shown = globalThis.__look(menu);
+  focused?.focus();
+  return { lifted: menu.matches(":popover-open"), points, covered, under: [...under].slice(0, 4),
+    shown, home: globalThis.__home.get(menu) ?? null };
 }, selector);
 
 for (const width of [1440, 860, 400]) {
@@ -88,6 +107,7 @@ for (const width of [1440, 860, 400]) {
     const seen = await measure(page, "#lx-more-menu");
     assert.ok(seen.points > 20, "the menu was measured");
     assert.equal(seen.covered, 0, `nothing covers the menu (${seen.covered} of ${seen.points} points hit ${seen.under.join(", ")})`);
+    assert.equal(seen.lifted, true, "it is lifted above the card");
     assert.deepEqual(seen.shown, seen.home, "it and every row in it open where and as they always drew");
     /* Its keys still work, and a click on one of its rows still reaches it. */
     assert.equal(await page.evaluate(() => document.getElementById("lx-more-menu").contains(document.activeElement)), true, "the keyboard is in it");
@@ -178,5 +198,96 @@ test("Q34 a tracked menu that is hidden, not removed, on close is put back each 
   });
   assert.deepEqual(seen, [{ lifted: true, after: null, inline: "position: absolute;" }, { lifted: true, after: null, inline: "position: absolute;" }],
     "each close puts it back as it was, so the next open lifts it again");
+  assert.deepEqual(errors, []);
+});
+
+/* The message box sits in the scrolling conversation but is placed against `main`, so scrolling never moves it:
+   its menus are lifted too (Codex's review of a789ac29 found them still under the card). */
+for (const [width, menus] of [[1440, [["#mode-chip", "#mode-menu"]]], [400, [["#mode-chip", "#mode-menu"], ["#lx-plus", "#lx-plus-menu"]]]]) {
+  test(`Q34 at ${width} px the message box's menus open over the side-panel card, where and as they always drew`, async (t) => {
+    const { page, errors } = await fixture(t, width, { everything: true });
+    await openCard(page);
+    for (const [button, selector] of menus) {
+      await page.locator(button).click();
+      await page.locator(selector).waitFor({ state: "visible" });
+      const seen = await measure(page, selector);
+      assert.equal(seen.lifted, true, `${selector} is lifted above the card`);
+      assert.ok(seen.points > 20, `${selector} was measured`);
+      assert.equal(seen.covered, 0, `nothing covers ${selector} (${seen.covered} of ${seen.points} points hit ${seen.under.join(", ")})`);
+      assert.deepEqual(seen.shown, seen.home, `${selector} and every row in it open where and as they always drew`);
+      await page.keyboard.press("Escape");
+      await page.locator(selector).waitFor({ state: "hidden" });
+      assert.equal(await page.locator(selector).getAttribute("popover"), null, `${selector} is put back when it closes`);
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
+test("Q34 a menu centred by its own transform (the phone's meter) opens where it drew, not shifted twice", async (t) => {
+  const { page, errors } = await fixture(t, 400, { everything: true });
+  const seen = await page.evaluate(async () => {
+    const { popover } = await import("/popover.js");
+    const header = document.querySelector("body > main > header");
+    const trigger = document.createElement("button"), panel = document.createElement("div");
+    trigger.textContent = "Meter";
+    panel.hidden = true;
+    panel.textContent = "Centred by a transform";
+    Object.assign(panel.style, { position: "absolute", top: "100%", left: "50%", width: "200px", transform: "translateX(-50%)" });
+    header.append(trigger, panel);
+    const control = popover(trigger, panel);
+    control.open();
+    const result = { lifted: panel.matches(":popover-open"), shown: globalThis.__look(panel), home: globalThis.__home.get(panel) };
+    control.close();
+    result.after = panel.style.cssText;
+    trigger.remove();
+    panel.remove();
+    return result;
+  });
+  assert.equal(seen.lifted, true);
+  assert.deepEqual(seen.shown, seen.home, "the transform applies once, as in its own place");
+  assert.match(seen.after, /translateX\(-50%\)/, "and its own transform is kept");
+  assert.deepEqual(errors, []);
+});
+
+test("Q34 only a scroller that carries the menu keeps it in place: one it escapes does not", async (t) => {
+  const { page, errors } = await fixture(t, 1440);
+  const seen = await page.evaluate(async () => {
+    const { popover } = await import("/popover.js");
+    const main = document.querySelector("body > main");
+    const tryIn = (scrollerPosition) => {
+      const scroller = document.createElement("div"), trigger = document.createElement("button"), panel = document.createElement("div");
+      Object.assign(scroller.style, { overflowY: "auto", height: "80px", position: scrollerPosition });
+      trigger.textContent = "Open";
+      panel.hidden = true;
+      panel.textContent = "Menu";
+      Object.assign(panel.style, { position: "absolute", top: "40px", left: "40px" });
+      scroller.append(trigger, panel);
+      main.append(scroller);
+      const control = popover(trigger, panel);
+      control.open();
+      const lifted = panel.matches(":popover-open");
+      control.close();
+      scroller.remove();
+      return lifted;
+    };
+    /* A static scroller is not the absolutely placed menu's containing block, so scrolling it leaves the menu
+       where it is (the message box's case); a positioned scroller holds the menu and scrolls it along. */
+    return { escapes: tryIn("static"), carried: tryIn("relative") };
+  });
+  assert.deepEqual(seen, { escapes: true, carried: false });
+  assert.deepEqual(errors, []);
+});
+
+test("Q34 the phone's usage meter opens where it drew over the card", async (t) => {
+  const { page, errors } = await fixture(t, 400, { everything: true });
+  await openCard(page);
+  const button = page.locator("#meter-button");
+  if (!(await button.isVisible())) return t.skip("the meter is not shown in this window");
+  await button.click();
+  await page.locator("#meter-popover").waitFor({ state: "visible" });
+  const seen = await measure(page, "#meter-popover");
+  assert.equal(seen.lifted, true, "the meter is lifted");
+  assert.deepEqual(seen.shown, seen.home, "and opens where and as it always drew, centred once");
+  assert.equal(seen.covered, 0, `nothing covers it (${seen.covered} of ${seen.points} points hit ${seen.under.join(", ")})`);
   assert.deepEqual(errors, []);
 });

@@ -17,14 +17,35 @@ const lifted = new Map();
 /* What the browser's own popover style sets, kept as the menu had it in its place. */
 const kept = ["color", "background-color", "border-top", "border-right", "border-bottom", "border-left",
   "padding-top", "padding-right", "padding-bottom", "padding-left", "overflow-x", "overflow-y", "width"];
+/** A box that holds absolutely positioned descendants: positioned, transformed or filtered. */
+const holds = (style) => style.position !== "static" || style.transform !== "none" || style.filter !== "none";
+/**
+ * True when scrolling some part of `main` would carry this menu with it, so a pinned copy would be left behind.
+ * Only the menu's containing blocks count: the message box is placed absolutely against `main`, so the scrolling
+ * conversation it sits in never moves it, while a menu in a scrolling Settings page does move.
+ */
+function scrollsAway(panel, main) {
+  for (let node = panel; node && node !== main;) {
+    const position = getComputedStyle(node).position;
+    if (position === "fixed") return false;
+    let next = node.parentElement;
+    if (position === "absolute") while (next && next !== main && !holds(getComputedStyle(next))) next = next.parentElement;
+    if (!next || next === main) return false;
+    const style = getComputedStyle(next);
+    if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`)) return true;
+    node = next;
+  }
+  return false;
+}
 function lift(panel) {
   const main = panel.closest("body > main");
-  if (!main || lifted.has(panel) || typeof panel.showPopover !== "function") return;
-  for (let node = panel.parentElement; node && node !== main; node = node.parentElement) {
-    const style = getComputedStyle(node);
-    if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`)) return; // it would not follow a scroll
-  }
-  const box = panel.getBoundingClientRect(), style = getComputedStyle(panel);
+  if (!main || lifted.has(panel) || typeof panel.showPopover !== "function" || scrollsAway(panel, main)) return;
+  /* Measured without its own transform, which applies again once lifted (the phone meter is centred by one). */
+  const own = panel.style.cssText;
+  for (const name of ["transform", "translate", "scale", "rotate"]) panel.style.setProperty(name, "none");
+  const box = panel.getBoundingClientRect();
+  panel.style.cssText = own;
+  const style = getComputedStyle(panel);
   const values = kept.map((name) => [name, style.getPropertyValue(name)]);
   lifted.set(panel, panel.style.cssText);
   panel.setAttribute("popover", "manual");
