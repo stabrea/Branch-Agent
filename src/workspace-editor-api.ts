@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FeatureModeSchema } from "./feature-switches.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { Store } from "./store.js";
+import { mergeThreeWay } from "./workspace-editor-merge.js";
 
 /**
  * The code editor in the window (A0098): list a folder, open a text file, save it. Every path goes
@@ -12,7 +13,9 @@ import type { Store } from "./store.js";
  * assistant's own `files.write`, so the bytes before it are kept and it can be put back.
  *
  * A save names the version it was opened from (a checksum). When the file changed on disk since
- * then, the save is refused with 409 rather than quietly overwriting someone else's change.
+ * then, the two edits are merged line by line (see workspace-editor-merge.ts) if they touched
+ * different lines; only a save that truly conflicts with the newer version is refused with 409,
+ * rather than quietly overwriting someone else's change.
  *
  * The owner's three-way switch, off by default: off refuses every route but the switch itself;
  * "when needed" and "on" both let the editor work ("on" also opens the editor in the Files tab).
@@ -49,6 +52,12 @@ const SaveSchema = z.object({
   content: z.string().max(32768),
   /** The checksum the file had when it was opened; null for a file that does not exist yet. */
   opened: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  /**
+   * The file's full text when it was opened. Optional, and only used to merge a stale save with
+   * the newer version on disk instead of refusing it; a save that omits it is refused exactly as
+   * before when the checksums no longer match.
+   */
+  base: z.string().max(32768).optional(),
 }).strict();
 
 export async function workspaceEditorApi(host: EditorHost, request: IncomingMessage, path: string, url: URL): Promise<unknown> {
@@ -111,12 +120,20 @@ async function saveFile(host: EditorHost, input: z.infer<typeof SaveSchema>): Pr
   if (readOnly) throw new WorkspaceEditorApiError(403, readOnly);
   const current = await readText(host.files, input.path);
   const now = current === null ? null : checksum(current);
-  if (now !== input.opened)
-    throw new WorkspaceEditorApiError(409, current === null
-      ? "The file was removed since you opened it. Copy your text, then open it again."
-      : "The file changed since you opened it. Open it again to see the change before saving.");
-  await host.runTool("files.write", { path: input.path, content: input.content }).catch((error: unknown) => refuse(error));
-  return { path: input.path, bytes: Buffer.byteLength(input.content), opened: checksum(input.content) };
+  let content = input.content;
+  let merged = false;
+  if (now !== input.opened) {
+    const canMerge = current !== null && input.opened !== null && typeof input.base === "string" && checksum(input.base) === input.opened;
+    const mergedText = canMerge ? mergeThreeWay(input.base as string, input.content, current as string) : null;
+    if (mergedText === null)
+      throw new WorkspaceEditorApiError(409, current === null
+        ? "The file was removed since you opened it. Copy your text, then open it again."
+        : "The file changed since you opened it. Open it again to see the change before saving.");
+    content = mergedText;
+    merged = true;
+  }
+  await host.runTool("files.write", { path: input.path, content }).catch((error: unknown) => refuse(error));
+  return { path: input.path, bytes: Buffer.byteLength(content), opened: checksum(content), ...(merged ? { merged: true, content } : {}) };
 }
 
 /** The file tools' refusals, as answers with the right status and the tools' own plain words. */
