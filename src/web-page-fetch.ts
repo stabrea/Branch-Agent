@@ -7,8 +7,11 @@ import { readable } from "./integrations/web.js";
  * owner takes over.
  */
 export interface PageFetchDeps {
-  /** The shared network rules (app.web.policy); called for the first address and every redirect. */
-  policy: { assertAllowed(target: URL, what?: string): Promise<void> };
+  /**
+   * The shared network rules (app.web.policy). Every hop, the first address and each redirect, goes
+   * through its checked fetch: checked first, then connected to only at the addresses it judged.
+   */
+  policy: { guard(base: typeof fetch): typeof fetch };
   fetch: typeof fetch;
   timeoutMs: number;
   maxBytes: number;
@@ -51,10 +54,10 @@ async function readBounded(response: Response, maxBytes: number): Promise<string
  * throws. A body that is not text is not read.
  */
 export async function fetchChecked(deps: PageFetchDeps, input: string, signal: AbortSignal): Promise<RawPage> {
+  const checked = deps.policy.guard(deps.fetch);
   let url = new URL(input);
   for (let hops = 0; ; hops++) {
-    await deps.policy.assertAllowed(url);
-    const response = await deps.fetch(url, {
+    const response = await checked(url, {
       redirect: "manual", signal: AbortSignal.any([signal, AbortSignal.timeout(deps.timeoutMs)]),
       headers: { "user-agent": deps.userAgent, accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
     });

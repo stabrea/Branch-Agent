@@ -1,8 +1,13 @@
-/** Bound MCP HTTP bodies before the SDK's JSON/SSE parsers receive them. */
+import { pinnedFetch } from '../pinned-fetch.js';
+
+/**
+ * Bound MCP HTTP bodies before the SDK's JSON/SSE parsers receive them. Sent through the fetch for
+ * checked requests, so a request the network policy checked stays with the addresses it judged.
+ */
 export const boundedFetch: typeof fetch = async (input, init) => {
   const signals = [AbortSignal.timeout(30000)];
   if (init?.signal) signals.push(init.signal);
-  const response = await fetch(input, { ...init, redirect: 'error', signal: AbortSignal.any(signals) });
+  const response = await pinnedFetch(input, { ...init, redirect: 'error', signal: AbortSignal.any(signals) });
   if (!response.body) return response;
   const reader = response.body.getReader();
   let bytes = 0;

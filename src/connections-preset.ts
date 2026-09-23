@@ -11,6 +11,7 @@ import { countModels } from "./provider-probe.js";
 import { audit } from "./audit.js";
 import { migrateRecords, describeMove } from "./provider-migrations.js";
 import { type ConnectionCheck, connectionCheck } from "./local-connection-policy.js";
+import { pinnedFetch } from "./pinned-fetch.js";
 
 /**
  * Adding a model connection in plain language: pick a service, paste the key, answer whatever else
@@ -147,7 +148,7 @@ export async function restoreConnections(deps: FromPresetDeps): Promise<string[]
         : "";
       const built = buildConnection({
         provider: record.catalogId, key: held, extras: record.extras, model: record.model,
-        policy: deps.policy, fetchImpl: deps.models.health.watch(record.id, deps.fetchImpl ?? globalThis.fetch),
+        policy: deps.policy, fetchImpl: deps.models.health.watch(record.id, deps.fetchImpl ?? pinnedFetch),
       });
       deps.models.register({
         id: record.id, name: record.name, provider: built.provider, model: built.model, catalogId: record.catalogId,
@@ -204,7 +205,8 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   if (isRetired(entry)) throw new Error(entry.terms.warning ?? `${entry.name} can no longer be used.`);
   if (!entry.capabilities.includes("chat") && entry.modelsPath === null)
     throw new Error(`${entry.name} does not hold conversations and publishes no list of models, so Branch cannot check a key for it. Use it for searching your own documents instead.`);
-  const call = deps.fetchImpl ?? globalThis.fetch;
+  // Checked calls through the connection stay with the addresses their check judged (src/pinned-fetch.ts).
+  const call = deps.fetchImpl ?? pinnedFetch;
   // Named after the connection, not the service, so a second key for the same service does not
   // quietly replace the first one. Worked out before anything is built, because the health record
   // is kept under this name and a second connection must not write onto the first one's card.
