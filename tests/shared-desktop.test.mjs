@@ -501,3 +501,48 @@ test("the notice on a Mac or Linux is the app's own window, with Take over words
   t.after(async () => { await app.close(); await discardTemp(root); });
   assert.equal(app.linuxDesktop.banner.options.window, factory, "createBranch hands its notice window maker to the shared desktop");
 });
+
+// -------------------------------------------------------------- review 2 (Mac mini): each fix guarded on its own
+
+test("taking over stops a command the assistant already has running, not only the next one", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  await desktop.start("local");
+  const plain = desktop.runner;
+  // The typed text hangs until something aborts it, as a long xdotool run would.
+  desktop.runner = (file, args, timeoutMs, signal) => args.includes("type")
+    ? new Promise((resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
+    : plain(file, args, timeoutMs, signal);
+  const acting = desktop.act("local", { type: "type", text: "a long message" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await desktop.takeOver("local");
+  const settled = await Promise.race([acting.then(() => "ran", (error) => error.message), new Promise((resolve) => setTimeout(() => resolve("still running"), 2000))]);
+  assert.notEqual(settled, "still running", "the running command was stopped");
+  assert.notEqual(settled, "ran");
+});
+
+test("the programs the shared desktop starts get their arguments as they are, with no shell to read them", { skip: process.platform === "win32" && "a POSIX echo is used" }, async (t) => {
+  const { runProgram } = await import("../dist/integrations/linux-desktop.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-shared-desktop-shell-"));
+  t.after(() => discardTemp(root));
+  const marker = join(root, "made-by-a-shell");
+  const said = await runProgram("/bin/echo", [`a; touch ${marker}`], 5000);
+  assert.equal(said.trim(), `a; touch ${marker}`);
+  await assert.rejects(readFile(marker), /ENOENT/, "no shell ran the second command");
+});
+
+test("somebody switched in on this computer cannot read the viewer password", async (t) => {
+  const { app, root } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json" };
+  const call = async (path, body) => {
+    const response = await fetch(server.url + path, body === undefined ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
+    return { status: response.status, text: await response.text() };
+  };
+  const kim = app.store.profiles.create({ name: "Kim", pin: "1234" });
+  assert.equal((await call("/api/profiles/switch", { profileId: kim.id, pin: "1234" })).status, 200);
+  const answer = await call("/api/linux-desktop/viewer");
+  assert.notEqual(answer.status, 200);
+  assert.match(answer.text, /belongs to the owner/, "refused as the owner's, not only because nothing is running");
+});
