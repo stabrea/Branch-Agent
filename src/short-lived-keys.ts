@@ -150,6 +150,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // w911 (fq-packages/morning-brief): the brief's own feed addresses can carry a token in their
+  // query string, and deliverTo names the chat it is sent to; both outlive a short-lived key.
+  /^\/api\/brief$/,
 ];
 
 /**

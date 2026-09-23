@@ -4041,7 +4041,7 @@
   "schedules.brief.add": "Add",
   "schedules.brief.add-label": "Feed address (http:// or https://)",
   "schedules.brief.empty": "No feeds yet. The morning brief's \"In the news\" section stays empty until you add one.",
-  "schedules.brief.intro": "The morning brief reads your own RSS or Atom feed addresses for its \"In the news\" section. Only http:// and https:// addresses are accepted.",
+  "schedules.brief.intro": "Each morning, Branch fetches these addresses from the internet, under your network rules, and puts what it reads into the brief's \"In the news\" section. Only http:// and https:// addresses are accepted.",
   "schedules.brief.remove": "Remove",
   "schedules.brief.saved": "Feeds saved.",
   "schedules.brief.title": "Morning brief: news feeds",

@@ -78,7 +78,9 @@ export const ROUTES = {
   "/api/batch": "owner POST",
   "/api/batch-sets": "look",
   "/api/batch/run": "other POST",
-  "/api/brief": "owner POST",
+  // fq-packages/morning-brief: reading it back is the owner's alone too — a feed address can carry
+  // a token in its query string, and deliverTo names the chat the brief is sent to.
+  "/api/brief": "owner GET,POST",
   "/api/brief/send": "owner POST",
   "/api/browser": "prefix",
   "/api/browser/": "prefix",

@@ -14,14 +14,16 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { openPlace } from "./places.mjs";
-import { createBranch } from "../dist/index.js";
+import { createBranch, setLockdown } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 const quiet = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
 
-/** A local fixture RSS server on an OS-assigned port, closed automatically after the test. */
+/** A local fixture RSS server on an OS-assigned port, closed automatically after the test; counts every request it gets. */
 async function feedServer(t) {
+  let hits = 0;
   const server = createServer((_req, res) => {
+    hits += 1;
     res.writeHead(200, { "content-type": "application/rss+xml" });
     res.end(`<?xml version="1.0"?><rss version="2.0"><channel>
       <item><title>Storm warning lifted</title><link>http://127.0.0.1:${server.address().port}/weather</link></item>
@@ -29,15 +31,18 @@ async function feedServer(t) {
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
-  return `http://127.0.0.1:${server.address().port}`;
+  return { url: `http://127.0.0.1:${server.address().port}`, hits: () => hits };
 }
 
-async function served(t) {
+/**
+ * `web` defaults to `{ allowPrivateAddresses: true }`: the fixture feed above lives on 127.0.0.1, and
+ * most of these tests are about the brief actually reaching it. The one test that must NOT reach it
+ * (S3: the brief follows the app's default network policy) passes `web: {}` to get the real default,
+ * where a private address is refused (src/network-policy.ts: `allowPrivateAddresses` defaults false).
+ */
+async function served(t, web = { allowPrivateAddresses: true }) {
   const root = await mkdtemp(join(tmpdir(), "branch-brief-wiring-"));
-  // The fixture feed is on 127.0.0.1, so the app's own network rules have to allow a private address,
-  // the same way tests/web-pages.test.mjs does for the same reason.
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: quiet,
-    web: { allowPrivateAddresses: true } });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: quiet, web });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const call = async (path, body, method) => {
@@ -54,7 +59,7 @@ async function served(t) {
 
 test("the real app wires a live news fetch into the brief: saved through the settings API, read by brief.preview", async (t) => {
   const { app, call, tool } = await served(t);
-  const feedUrl = await feedServer(t);
+  const { url: feedUrl } = await feedServer(t);
 
   // A non-http(s) address is refused server-side by the schema, before it is ever saved.
   const refused = await call("/api/brief", { newsFeeds: ["ftp://example.com/feed.xml"] });
@@ -81,7 +86,7 @@ test("the real app wires a live news fetch into the brief: saved through the set
 
 test("removing every feed clears the cached news rather than showing it forever", async (t) => {
   const { call, tool } = await served(t);
-  const feedUrl = await feedServer(t);
+  const { url: feedUrl } = await feedServer(t);
   await call("/api/brief", { newsFeeds: [feedUrl] });
   const first = await tool("brief.preview", {});
   assert.match(first.markdown, /Storm warning lifted/);
@@ -89,6 +94,50 @@ test("removing every feed clears the cached news rather than showing it forever"
   await call("/api/brief", { newsFeeds: [] });
   const second = await tool("brief.preview", {});
   assert.doesNotMatch(second.markdown, /Storm warning lifted/, "stale news does not linger after every feed is removed");
+});
+
+test("Lockdown stops the brief's news fetch: preview, /api/brief/send and the scheduled tick make no request while it is on", async (t) => {
+  const { app, call, tool } = await served(t);
+  const owner = app.runtime.owner;
+  const feed = await feedServer(t);
+  await call("/api/brief", { newsFeeds: [feed.url] });
+
+  // Primed before Lockdown, so the check below proves Lockdown drops what was already fetched too,
+  // not just that it skips a fetch it would otherwise have made.
+  const primed = await tool("brief.preview", {});
+  assert.match(primed.markdown, /Storm warning lifted/);
+  assert.equal(feed.hits(), 1);
+
+  setLockdown(app.store, owner, { on: true });
+
+  const preview = await tool("brief.preview", {});
+  assert.doesNotMatch(preview.markdown, /Storm warning lifted/, "news cached before Lockdown does not linger while it is on");
+  assert.equal(feed.hits(), 1, "brief.preview makes no request to the feed while Lockdown is on");
+
+  const sent = await call("/api/brief/send", {});
+  assert.equal(sent.status, 200);
+  assert.doesNotMatch(sent.body.markdown, /Storm warning lifted/);
+  assert.equal(feed.hits(), 1, "/api/brief/send makes no request to the feed while Lockdown is on");
+
+  // Force the schedule due, so app.brief.tick(), the same call scheduler.onTick makes every beat,
+  // actually takes the send() branch rather than returning false for not being due yet.
+  app.store.save("settings", owner, "brief", { ...app.brief.settings(owner), enabled: true, nextAt: new Date(0).toISOString() });
+  const ticked = await app.brief.tick(owner, new Date());
+  assert.equal(ticked, true, "the schedule was due, so the tick actually ran send()");
+  assert.equal(feed.hits(), 1, "the scheduled tick makes no request to the feed while Lockdown is on");
+});
+
+test("the brief's news fetch follows the app's default network policy: a private feed address is never reached", async (t) => {
+  // No `allowPrivateAddresses` override here: this is the real default (network-policy.ts), which
+  // refuses 127.0.0.1. Every other test in this file opts into allowing it, to reach the fixture
+  // server at all; this is the one proving that opt-in is not silently assumed inside the brief.
+  const { app, call, tool } = await served(t, {});
+  const feed = await feedServer(t);
+  await call("/api/brief", { newsFeeds: [feed.url] });
+
+  const preview = await tool("brief.preview", {});
+  assert.doesNotMatch(preview.markdown, /Storm warning lifted/, "a private address is not fetched under the default policy");
+  assert.equal(feed.hits(), 0, "the app's network policy refused the address before any request reached the server");
 });
 
 test("headless UI: the settings window lets the owner add a feed, save it, and see it again after a reload", async (t) => {

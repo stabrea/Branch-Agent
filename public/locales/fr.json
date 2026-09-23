@@ -4042,7 +4042,7 @@
   "schedules.brief.add": "Ajouter",
   "schedules.brief.add-label": "Adresse du flux (http:// ou https://)",
   "schedules.brief.empty": "Aucun flux pour le moment. La rubrique « Actualités » du résumé du matin reste vide tant que vous n'en ajoutez pas.",
-  "schedules.brief.intro": "Le résumé du matin lit vos propres adresses de flux RSS ou Atom pour sa rubrique « Actualités ». Seules les adresses http:// et https:// sont acceptées.",
+  "schedules.brief.intro": "Chaque matin, Branch récupère ces adresses sur internet, selon vos règles réseau, et met ce qu'il y lit dans la rubrique « Actualités » du résumé. Seules les adresses http:// et https:// sont acceptées.",
   "schedules.brief.remove": "Retirer",
   "schedules.brief.saved": "Flux enregistrés.",
   "schedules.brief.title": "Résumé du matin : flux d'actualités",

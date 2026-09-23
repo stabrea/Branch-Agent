@@ -10,6 +10,7 @@ import { placeholders, substitute } from "./recipes.js";
 import { optionalFields } from "./feature-switches.js";
 import type { PageFetchDeps } from "./web-page-fetch.js";
 import { fetchNewsItems, isSafeLink, noHealthConnected, sourceLine, type BriefItem, type HealthSource } from "./brief-sources.js";
+import { lockdownActive } from "./lockdown.js";
 
 /**
  * One message first thing: what is planned today, what was left unfinished, documents that arrived,
@@ -106,8 +107,17 @@ export class MorningBrief {
   /**
    * Re-reads the owner's news feeds (and the health source, when one is wired in) right now. Cheap
    * to skip: gather() falls back to whatever was last cached, or nothing before the first refresh.
+   *
+   * mac7/lockdown-fix: reading a feed address is Branch reaching past this computer, the very thing
+   * Lockdown shuts off (see lockdown.ts), so this returns before any fetch while it is on — and drops
+   * whatever was cached from before Lockdown went on, so a stale item never keeps showing while it
+   * is on. Read fresh each call rather than cached, the same way every other Lockdown check is.
    */
   async refreshSources(owner: string): Promise<void> {
+    if (lockdownActive(this.store, owner)) {
+      this.newsCache.delete(owner);
+      return;
+    }
     const settings = this.settings(owner);
     if (this.newsFetch && settings.newsFeeds.length) {
       const items = await fetchNewsItems(this.newsFetch(), settings.newsFeeds.map((url) => ({ url })), AbortSignal.timeout(20000));
