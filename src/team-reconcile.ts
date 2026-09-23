@@ -28,10 +28,12 @@ export interface ReconcileReport {
 }
 /**
  * One member of a team turn: the run it answered in and that run's status, or "started" (its batch
- * began but the run was not recorded against it) or "not_started". A member run under the turn that
- * cannot be matched to a member is listed with no member or role.
+ * began and has a run no record names, which may be this member's) or "not_started". A member run
+ * under the turn that cannot be matched to one member is listed with no member or role. `batch` is
+ * which batch the turn started it in, counting from 1, as the turn's own "team.batch.started" records
+ * say; null when no batch named it.
  */
-export interface TeamMemberRun { member: string | null; role: string | null; runId: string | null; status: string }
+export interface TeamMemberRun { member: string | null; role: string | null; runId: string | null; status: string; batch: number | null }
 
 /**
  * Team tasks this process is working on right now, per open store; reconciling leaves these alone.
@@ -149,37 +151,73 @@ function recordsAfter(store: Store, runId: string, kind: string, afterId: number
  * The turn names its members before any starts ("team.members.planned"), notes each batch as it
  * starts ("team.batch.started"), and the runtime notes each batch's member runs when it finishes
  * ("delegation.fanout"). Only records after the plan are read, so a fan-out the team's own turn made
- * earlier is not taken for a member's. Runs started under the turn that no record names are listed too.
- * A member run is created before it does anything, so a member with no run under the turn did nothing.
+ * earlier is not taken for a member's. A run started under the turn that no record names (the process
+ * stopped before its batch's record) belongs to the batch whose start came last before it: each batch
+ * finishes before the next starts. It is given to a member only when exactly one member of that batch
+ * lacks a run and exactly one such run is in it; otherwise which run is whose cannot be told, and the
+ * runs are listed on their own under that batch. A member run is created before it does anything, so
+ * a member whose batch has no run for it did nothing.
  */
 export function memberRuns(store: Store, parentRunId: string | null): TeamMemberRun[] {
   if (!parentRunId) return [];
   const plan = recordsAfter(store, parentRunId, "team.members.planned", 0).at(-1);
   const planned = (plan?.data.members ?? []) as { member: string; role: string }[];
   const after = plan?.id ?? 0;
-  const started = new Set(recordsAfter(store, parentRunId, "team.batch.started", after).flatMap((record) => record.data.members as string[]));
+  const batches = recordsAfter(store, parentRunId, "team.batch.started", after);
+  const batchOf = new Map(batches.flatMap((record, index) => (record.data.members as string[]).map((member) => [member, index + 1] as const)));
   const ran = new Map<string, string>();
   for (const record of recordsAfter(store, parentRunId, "delegation.fanout", after))
     for (const [member, outcome] of Object.entries((record.data.tasks ?? {}) as Record<string, { runId: string }>)) ran.set(member, outcome.runId);
   // A member run carried on after a restart is reported by the run that carried it on.
   const statusOf = (runId: string) => store.run(latestCarryOn(store, runId))?.status ?? "unknown";
-  const named = new Set(ran.values());
-  const unnamed = store.sqlite.prepare("SELECT run_id FROM events WHERE kind='run.started' AND json_extract(data,'$.parentRunId')=? ORDER BY id").all(parentRunId)
-    .map((row) => String(row.run_id)).filter((runId) => !named.has(runId));
-  // A member of a batch that began, with no run named for it, may be one of the unnamed runs; with none, it never got a run.
+  const unnamed = unnamedRuns(store, parentRunId, after, new Set(ran.values()), batches.map((record) => record.id));
+  pairLoneRuns(planned, batchOf, ran, unnamed);
   const listed: TeamMemberRun[] = planned.map(({ member, role }) => {
-    const runId = ran.get(member) ?? null;
-    return { member, role, runId, status: runId ? statusOf(runId) : started.has(member) && unnamed.length ? "started" : "not_started" };
+    const runId = ran.get(member) ?? null, batch = batchOf.get(member) ?? null;
+    const status = runId ? statusOf(runId) : batch && unnamed.some((run) => run.batch === batch) ? "started" : "not_started";
+    return { member, role, runId, status, batch };
   });
-  return [...listed, ...unnamed.map((runId) => ({ member: null, role: null, runId, status: statusOf(runId) }))];
+  return [...listed, ...unnamed.map(({ runId, batch }) => ({ member: null, role: null, runId, status: statusOf(runId), batch }))];
 }
 
-/** The member listing in words, for the reason a task needs a person. */
+/** Runs started under the turn after its plan that no fan-out record names, each with the batch it started in (null before any batch). */
+function unnamedRuns(store: Store, parentRunId: string, after: number, named: Set<string>, batchStarts: number[]): { runId: string; batch: number | null }[] {
+  return store.sqlite.prepare("SELECT id, run_id FROM events WHERE kind='run.started' AND json_extract(data,'$.parentRunId')=? AND id>? ORDER BY id").all(parentRunId, after)
+    .filter((row) => !named.has(String(row.run_id)))
+    .map((row) => ({ runId: String(row.run_id), batch: batchStarts.filter((start) => start < Number(row.id)).length || null }));
+}
+
+/** Gives a batch's one unnamed run to its one member without a run, and takes it off the unnamed list. */
+function pairLoneRuns(planned: { member: string }[], batchOf: Map<string, number>, ran: Map<string, string>, unnamed: { runId: string; batch: number | null }[]): void {
+  for (const batch of new Set(batchOf.values())) {
+    const members = planned.filter(({ member }) => batchOf.get(member) === batch && !ran.has(member));
+    const runs = unnamed.filter((run) => run.batch === batch);
+    if (members.length !== 1 || runs.length !== 1) continue;
+    ran.set(members[0]!.member, runs[0]!.runId);
+    unnamed.splice(unnamed.indexOf(runs[0]!), 1);
+  }
+}
+
+/**
+ * The member listing in words, for the reason a task needs a person. Each member and each run is named
+ * once: a batch whose runs cannot be matched to its members is one entry naming both.
+ */
 export function describeMemberRuns(members: TeamMemberRun[]): string {
   if (!members.length) return "";
-  const ran = members.filter((m) => m.runId).map((m) => `${m.role ?? "an unnamed member"} (${m.status}, run ${m.runId})`);
-  const rest = members.filter((m) => !m.runId).map((m) => `${m.role} (${m.status === "started" ? "started, run not recorded" : "not started"})`);
-  return `Members that ran: ${ran.join(", ") || "none"}. Not run: ${rest.join(", ") || "none"}.`;
+  const ran = members.filter((m) => m.member && m.runId).map((m) => `${m.role} (${m.status}, run ${m.runId})`);
+  const rest = members.filter((m) => m.member && !m.runId && m.status !== "started").map((m) => `${m.role} (not started)`);
+  return [`Members that ran: ${ran.join(", ") || "none"}.`, ...unmatchedRuns(members), `Not run: ${rest.join(", ") || "none"}.`].join(" ");
+}
+
+/** One entry per batch holding runs no record ties to a member: that batch's members without a run, and those runs. */
+function unmatchedRuns(members: TeamMemberRun[]): string[] {
+  const loose = members.filter((m) => (m.member ? !m.runId && m.status === "started" : m.runId));
+  return [...new Set(loose.map((m) => m.batch))].map((batch) => {
+    const roles = loose.filter((m) => m.batch === batch && m.member).map((m) => m.role);
+    const runs = loose.filter((m) => m.batch === batch && !m.member).map((m) => `${m.runId} (${m.status})`).join(", ");
+    const where = batch === null ? "the turn" : `batch ${batch}`;
+    return roles.length ? `Members of ${where} whose runs were not recorded: ${roles.join(", ")} (runs ${runs}).` : `Runs under ${where} not matched to a member: ${runs}.`;
+  });
 }
 
 /** The steps a carry-on settled that this run has no record of: each may have been done again, so its outcome is unknown. */
