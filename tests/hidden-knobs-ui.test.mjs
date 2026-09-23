@@ -146,12 +146,13 @@ test("a stale Save button submits the visible launch-file draft after a redraw",
   await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
   const draft = "https://example.com\nhttps://docs.example.org";
   await page.locator("#knobs-launch-browserSites").fill(draft);
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/knobs/launch-file")
+    && response.request().method() === "POST", { timeout: 20000 });
   await staleSave.evaluate((button) => button.click());
-  for (let tries = 0; tries < 200; tries++) {
-    const sites = JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins;
-    if (sites.length === 2) break;
-    await page.waitForTimeout(25);
-  }
+  const response = await saved;
+  assert.equal(response.ok(), true, "the stale button's save request completed");
+  assert.deepEqual(response.request().postDataJSON().browserSites,
+    ["https://example.com", "https://docs.example.org"], "the request contains the visible draft");
   assert.deepEqual(JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins,
     ["https://example.com", "https://docs.example.org"]);
 });
@@ -163,9 +164,12 @@ test("a stale Save button submits the visible knob draft after a redraw", async 
     .getByRole("button", { name: "Save", exact: true }).elementHandle();
   await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language")));
   await page.locator("#knobs-maxSteps").fill("25");
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/knobs")
+    && response.request().method() === "POST", { timeout: 20000 });
   await staleSave.evaluate((button) => button.click());
-  for (let tries = 0; tries < 200 && readKnobs(app.store, "local", "limits").maxSteps !== 25; tries++)
-    await page.waitForTimeout(25);
+  const response = await saved;
+  assert.equal(response.ok(), true, "the stale button's save request completed");
+  assert.equal(response.request().postDataJSON().values.maxSteps, 25, "the request contains the visible draft");
   assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 25);
 });
 
