@@ -99,6 +99,47 @@ test("beta sees newest published prerelease, stable ignores it, and switching ba
   assert.equal((await finalAhead.check()).release.latestVersion, "0.19.2", "the final stable release outranks its betas");
 });
 
+/* Q37: measured on v0.19.3-beta.2, minutes after publication GitHub's release list showed no assets while the
+   release's own assets list had all nine; the installed Beta check then said the download was missing. */
+test("a newest release whose listed assets lag is read from its own assets list, or skipped", async () => {
+  const repo = "stabrea/Branch-Agent", name = "Branch-Agent-windows-x64.zip";
+  const files = (tag) => [
+    { name, browser_download_url: `https://github.com/${repo}/releases/download/${tag}/${name}`, size: 100 },
+    { name: `${name}.sha256`, browser_download_url: `https://github.com/${repo}/releases/download/${tag}/${name}.sha256`, size: 96 },
+  ];
+  const release = (id, tag, prerelease, assets) => ({ id, tag_name: tag, name: tag, body: "", published_at: "2026-09-23T09:42:16Z",
+    html_url: `https://github.com/${repo}/releases/tag/${tag}`, prerelease, draft: false, assets });
+  const asked = [];
+  const make = (channel, own, current = "0.19.2") => new Updater({ repo, currentVersion: current, channel,
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: name, scratchDir: "C:/scratch",
+    fetch: async (url) => {
+      asked.push(url.replace(`https://api.github.com/repos/${repo}/`, ""));
+      const assets = /releases\/(\d+)\/assets/.exec(url);
+      if (assets) return { ok: true, status: 200, json: async () => own[assets[1]] ?? [] };
+      if (url.endsWith("/latest")) return { ok: true, status: 200, json: async () => release(2, "v0.19.2", false, []) };
+      return { ok: true, status: 200, json: async () => [release(3, "v0.19.3-beta.2", true, []), release(2, "v0.19.2", false, files("v0.19.2"))] };
+    } });
+  /* The list lags, the release's own list is current: the Beta is found, with its own files. */
+  const found = await make("beta", { 3: files("v0.19.3-beta.2") }).check();
+  assert.equal(found.phase, "available", found.message);
+  assert.equal(found.release.latestVersion, "0.19.3-beta.2");
+  assert.equal(found.release.assetUrl, `https://github.com/${repo}/releases/download/v0.19.3-beta.2/${name}`);
+  assert.deepEqual(asked, ["releases?per_page=100", "releases/3/assets?per_page=100"]);
+  /* Still nothing there: the next valid release answers instead of an error, and says you are current. */
+  asked.length = 0;
+  const skipped = await make("beta", {}).check();
+  assert.equal(skipped.phase, "current", skipped.message);
+  assert.deepEqual(asked, ["releases?per_page=100", "releases/3/assets?per_page=100"], "the complete release needs no second look");
+  /* Stable reads its own assets list too when /latest lags. */
+  const stable = await make("stable", { 2: files("v0.19.2") }, "0.19.1").check();
+  assert.equal(stable.phase, "available", stable.message);
+  assert.equal(stable.release.latestVersion, "0.19.2");
+  /* The fresh list is held to the same rule: files from another release are still refused. */
+  const foreign = await make("beta", { 3: files("v0.19.1") }).check();
+  assert.equal(foreign.phase, "error");
+  assert.match(foreign.message, /does not belong/);
+});
+
 test("beta refuses an asset URL outside the selected repo and tag", async () => {
   const release = { tag_name: "v0.19.2-beta.1", prerelease: true, draft: false,
     html_url: "https://github.com/stabrea/Branch-Agent/releases/tag/v0.19.2-beta.1", assets: [
