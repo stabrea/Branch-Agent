@@ -101,13 +101,16 @@ export function turnEffects(store: Store, parentRunId: string): TurnEffect[] {
  * is not lost. A call that stopped to ask the owner did not go ahead: either the approval rules asked
  * first ("policy.ask", naming the call) or the tool itself asked (user.ask, say), which ends the run
  * with "attention.needed" right after the call started. A question recovery put after a restart
- * (afterRestart) says nothing about the call: its outcome stays unknown.
+ * (afterRestart) says nothing about the call: its outcome stays unknown. A step recovery settled when
+ * it carried the run on ("run.auto_resumed") may have been done again; one with no record of its own
+ * counts with its outcome unknown.
  */
 function runEffects(store: Store, runId: string): TurnEffect[] {
-  const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed') ORDER BY id").all(runId);
+  const rows = store.sqlite.prepare("SELECT kind, data FROM events WHERE run_id=? AND kind IN ('tool.started','tool.completed','tool.failed','tool.stalled','policy.ask','attention.needed','run.auto_resumed') ORDER BY id").all(runId);
   const effects: TurnEffect[] = [];
   rows.forEach((row, index) => {
-    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown };
+    const data = JSON.parse(String(row.data)) as { id?: unknown; name?: unknown; afterRestart?: unknown; steps?: unknown };
+    if (row.kind === "run.auto_resumed") { effects.push(...carriedOnSteps(runId, data.steps, effects, index)); return; }
     if (row.kind === "attention.needed") {
       const asking = data.afterRestart === true ? undefined : effects.findLast((effect) => effect.outcome === "unknown");
       if (asking) asking.outcome = "asked_owner";
@@ -119,6 +122,13 @@ function runEffects(store: Store, runId: string): TurnEffect[] {
     if (started) started.outcome = row.kind === "tool.completed" ? "completed" : row.kind === "policy.ask" ? "asked_owner" : "failed";
   });
   return effects;
+}
+
+/** The steps a carry-on settled that this run has no record of: each may have been done again, so its outcome is unknown. */
+function carriedOnSteps(runId: string, steps: unknown, known: TurnEffect[], index: number): TurnEffect[] {
+  const listed = Array.isArray(steps) ? steps as { tool?: unknown; callId?: unknown }[] : [];
+  return listed.filter((step) => step.callId == null || !known.some((effect) => effect.toolCallId === String(step.callId)))
+    .map((step, at) => ({ runId, toolCallId: step.callId == null ? `#${index}.${at}` : String(step.callId), name: String(step.tool ?? ""), outcome: "unknown" as const }));
 }
 
 /**
