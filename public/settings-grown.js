@@ -249,7 +249,7 @@ function arrangeAll() {
 }
 let arranging = 0;
 function watchPages() {
-  const again = () => { if (arranging) return; arranging = requestAnimationFrame(() => { arranging = 0; arrangeAll(); }); };
+  const again = () => { if (arranging) return; arranging = requestAnimationFrame(() => { arranging = 0; arrangeAll(); recountResults(); }); };
   for (const page of Object.keys(BUCKETS)) {
     const host = hostFor(page);
     if (!host) continue;
@@ -425,16 +425,23 @@ function drawResultsHead(query, alsoFound) {
   $("sg-results")?.remove();
   const needle = query.trim();
   if (!needle) return;
-  const count = cardsFound().length + alsoFound;
   const head = make("div", "sg-results");
   head.id = "sg-results";
   head.setAttribute("role", "status");
-  const one = new Intl.PluralRules(language()).select(count) === "one";
-  const title = make("h2", "lx-page-title", one
-    ? say("settingsGrown.results.one", "{count} result", { count })
-    : say("settingsGrown.results.other", "{count} results", { count }));
+  head.dataset.alsoFound = String(alsoFound);
+  const title = make("h2", "lx-page-title", resultsWords(cardsFound().length + alsoFound));
   head.append(title, make("p", "sg-results-for", say("settingsGrown.results.for", "for “{query}”", { query: needle })));
   $("lx-settings-body").prepend(head);
+}
+const resultsWords = (count) => new Intl.PluralRules(language()).select(count) === "one"
+  ? say("settingsGrown.results.one", "{count} result", { count })
+  : say("settingsGrown.results.other", "{count} results", { count });
+/** A card that draws itself again during a search changes what is on show, so the count follows (written only when it changes). */
+function recountResults() {
+  const head = $("sg-results"), title = head?.querySelector("h2");
+  if (!title) return;
+  const words = resultsWords(cardsFound().length + Number(head.dataset.alsoFound || 0));
+  if (title.textContent !== words) title.textContent = words;
 }
 function showAll(list, found) {
   const all = make("button", "sg-found-all", say("settingsGrown.found.all", `Show all ${found.length}`, { count: found.length }));
@@ -452,9 +459,14 @@ function searchHeads(query) {
     head.classList.toggle("lx-miss", !hit);
   }
 }
-function onSearch(event) {
-  searchHeads(event.target.value);
-  drawResultsHead(event.target.value, drawFound(event.target.value));
+/**
+ * DG-061: the results head and "Also found" follow the search itself however it changed: typing, Settings opened
+ * again (which empties the box without typing), a new language (drawn again in its words), or another profile.
+ */
+function redrawSearch() {
+  const query = document.body.classList.contains("lx-settings-searching") ? $("lx-settings-search")?.value ?? "" : "";
+  searchHeads(query);
+  drawResultsHead(query, drawFound(query));
 }
 /** Opens where a setting lives, shows its card even above the level for now, and points at it. */
 function goToSetting(row) {
@@ -595,7 +607,15 @@ function start() {
   watchPages();
   watchPlace();
   watchHold();
-  $("lx-settings-search")?.addEventListener("input", onSearch);
+  $("lx-settings-search")?.addEventListener("input", redrawSearch);
+  /* Search ends without typing when Settings is opened again (layout.js empties the box and the search). */
+  let searching = false;
+  new MutationObserver(() => {
+    const now = document.body.classList.contains("lx-settings-searching");
+    if (now === searching) return;
+    searching = now;
+    if (!now) redrawSearch();
+  }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(applyLevel).observe(root, { attributes: true, attributeFilter: ["data-everything"] });
   $("appearance-everything")?.addEventListener("change", (event) => {
     const level = event.target.checked ? (levelNow() === "technical" ? "technical" : "advanced") : "regular";
@@ -604,15 +624,22 @@ function start() {
   document.addEventListener("branch-place", drawLatePages);
   document.addEventListener("branch-profile", (event) => {
     const owner = event.detail?.owner !== false;
-    $("sg-found")?.remove();
     applyLevel();
+    redrawSearch();
     /* Applying the household level can rearrange the Settings shell after layout handled the same
        event. Reapply the owner-only page guard last so Instructions cannot be exposed again. */
     globalThis.branchLayout?.showOwnerSettings(owner);
     showOwnerPickerPage(owner);
     queueMicrotask(syncPicker);
   });
-  document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
+  document.addEventListener("branch-language", () => {
+    countHidden();
+    namePickerPages();
+    /* A search under way runs again in the new words, cards and all, once they are drawn; its head follows. */
+    const box = $("lx-settings-search");
+    if (document.body.classList.contains("lx-settings-searching") && box?.value) requestAnimationFrame(() => box.dispatchEvent(new Event("input")));
+    else redrawSearch();
+  });
   document.body.classList.add("sg-ready");
 }
 if (document.body.classList.contains("lx-ready")) start();
