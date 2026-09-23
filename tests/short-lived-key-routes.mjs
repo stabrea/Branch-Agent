@@ -1010,6 +1010,10 @@ export const ROUTES = {
   "/api/settings-kit/apply": "owner POST",
   // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
   "/api/settings-kit/pins": "owner POST",
+  // Q48/Q49: what changed and why a setting is on are reads like the settings themselves; undoing a change is the owner's.
+  "/api/settings-kit/history": "look",
+  "/api/settings-kit/why/sample": "look",
+  "/api/settings-kit/undo": "owner POST",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",
@@ -1111,6 +1115,7 @@ const PIECES = [
   [/^\(\[a-z0-9-\]\{1,40\}\)/, "default"],
   [/^\(\[\^\/\]\{1,\d+\}\)/, "sample"],
   [/^\(\[A-Z\]\[A-Z0-9_\]\{0,63\}\)/, "SAMPLE"],
+  [/^\(\[A-Za-z0-9_.:-\]\{3,160\}\)/, "sample"],
 ];
 function expand(text) {
   if (!text) return [""];
