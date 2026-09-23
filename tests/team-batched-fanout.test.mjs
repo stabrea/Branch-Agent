@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -53,7 +53,30 @@ async function fixture(t, provider, size) {
   });
   const team = state.app.teams.save({ name: "Crew", members });
   const reopen = async (next) => { await state.app.close(); state.app = await open(next); return state.app; };
-  return { state, owner, team, reopen };
+  return { state, owner, team, reopen, workspace: join(root, "workspace") };
+}
+/**
+ * A runtime whose first fan-out call is the real one and whose next "dies": `later(context, tasks)`
+ * writes what that batch got done, then the call never returns, as when the process is killed.
+ */
+function diesInBatch2(state, later) {
+  let reached;
+  const died = new Promise((resolve) => { reached = resolve; });
+  const runtime = { run: (o) => state.app.runtime.run(o), context: (o) => state.app.runtime.context(o), fanouts: 0,
+    async fanout(context, tasks, resolve) {
+      if (++runtime.fanouts === 1) return state.app.runtime.fanout(context, tasks, resolve);
+      await later(context, tasks);
+      reached();
+      return new Promise(() => {});
+    } };
+  return { runtime, died };
+}
+/** A member run started under the turn, as the runtime starts one, left with `status`. */
+function memberRun(app, owner, context, task, status, output = "") {
+  const run = app.store.createRun(owner, task.prompt);
+  app.store.event(run.id, "run.started", { parentRunId: context.runId });
+  app.store.finish(run.id, status, output);
+  return run;
 }
 /** The real runtime, counting team dispatches and fan-out calls; `onFanout(n)` may throw or hang the n-th call (from 1). */
 function counted(runtime, onFanout = () => undefined) {
@@ -188,8 +211,8 @@ test("a process that dies after batch 2 of 3 is reconciled from both finished ba
 });
 
 test("members of the first batch whose conversations are deleted after a crash are never read as 'nothing was done'", async (t) => {
-  /* Team stack review: a member deleted after a crash must not settle "failed". With batches, only the first
-     batch was sent before any record, so that batch (not the whole team) is what must still be there. */
+  /* Team stack review: a member deleted after a crash must not settle "failed". The delete marks the task
+     itself, so this holds whichever batch the member was in. */
   const provider = scripted();
   const { state, owner, team, reopen } = await fixture(t, provider, 5);
   saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
@@ -221,8 +244,9 @@ test("members of the first batch whose conversations are deleted after a crash a
   assert.equal(after.parentCalls + after.memberCalls, 0, "nothing was run again");
 });
 
-test("a crash in the first batch with nothing deleted is not read as a deleted conversation: only that batch was sent", async (t) => {
-  /* The members-sent count is the first batch's, not the team's: 2 of 5 were sent, and both runs are there. */
+test("a crash in the first batch with nothing deleted is not read as a deleted conversation, and its unrecorded runs are listed once", async (t) => {
+  /* Nothing was deleted, so the task carries no mark. The two runs no record names are both batch 1's, and which is
+     whose cannot be told, so they are listed once under that batch (Legion, Q66 finding 3), never also as "unnamed". */
   const provider = scripted();
   const { state, owner, team, reopen } = await fixture(t, provider, 5);
   saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
@@ -246,6 +270,11 @@ test("a crash in the first batch with nothing deleted is not read as a deleted c
   assert.equal(report.state, "needs_reconciliation");
   assert.doesNotMatch(row(app, requestId).error ?? "", /conversation was deleted/, "nothing was deleted");
   assert.match(row(app, requestId).error ?? "", /2 member\(s\) finished an answer/);
+  assert.match(row(app, requestId).error, /Members that ran: none\. Members of batch 1 whose runs were not recorded: r0, r1 \(runs [0-9a-f-]+ \(completed\), [0-9a-f-]+ \(completed\)\)\. Not run: r2 \(not started\), r3 \(not started\), r4 \(not started\)\./);
+  assert.doesNotMatch(row(app, requestId).error, /unnamed member|run not recorded\)|not matched/);
+  assert.deepEqual(report.members.map((m) => [m.role, m.status, m.batch, !!m.runId]),
+    [["r0", "started", 1, false], ["r1", "started", 1, false], ["r2", "not_started", null, false], ["r3", "not_started", null, false], ["r4", "not_started", null, false],
+      [null, "completed", 1, true], [null, "completed", 1, true]]);
 });
 
 test("a failed member in batch 1 keeps its real outcome and later batches still run", async (t) => {
@@ -263,4 +292,77 @@ test("a failed member in batch 1 keeps its real outcome and later batches still 
   assert.equal(room[0], "[r0] answer from r0");
   assert.match(room[1], /^\[r1\] /);
   assert.deepEqual(room.slice(2), [2, 3, 4].map((i) => `[r${i}] answer from r${i}`));
+});
+
+test("a crash between batches whose later member's conversation is then deleted is never 'nothing was done'", async (t) => {
+  /* Legion review of Q66 (finding 1): with parallelSubtasks=1, batch 1's member failed with no tool call and its
+     fan-out was recorded; batch 2's member wrote reviewer.txt and the process was killed. Deleting that member's
+     conversation then settled "failed", because the count stopped at the first batch with a fan-out record. */
+  const { state, owner, team, reopen, workspace } = await fixture(t, scripted({ fail: [0] }), 2);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 1 });
+  const requestId = randomUUID();
+  let reviewer;
+  const { runtime, died } = diesInBatch2(state, async (context, tasks) => {
+    reviewer = state.app.store.createRun(owner, tasks[0].prompt);
+    state.app.store.event(reviewer.id, "run.started", { parentRunId: context.runId });
+    state.app.store.event(reviewer.id, "tool.started", { name: "files.write", id: "w1" });
+    await writeFile(join(workspace, "reviewer.txt"), "reviewed");
+    state.app.store.event(reviewer.id, "tool.completed", { name: "files.write", id: "w1", result: {} });
+    state.app.store.finish(reviewer.id, "interrupted", "Branch is closing");
+  });
+  void state.app.teams.run(runtime, knowledge, team.id, "review it", { requestId });
+  await died;
+  const parentRunId = row(state.app, requestId).parent_run_id;
+  const fanouts = state.app.store.events(parentRunId).filter((e) => e.kind === "delegation.fanout");
+  assert.deepEqual(fanouts.map((e) => e.data.tasks.m0.status), ["failed"], "batch 1 is on record: its member failed");
+  assert.deepEqual(state.app.store.events(fanouts[0].data.tasks.m0.runId).filter((e) => e.kind === "tool.started"), [], "with no tool call");
+  const after = scripted();
+  const app = await reopen(after);
+  app.store.forgetSession(owner, reviewer.sessionId);
+  const report = app.teams.reconcile(row(app, requestId).task_id);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.doesNotMatch(row(app, requestId).error, /Nothing was done/);
+  assert.match(row(app, requestId).error, /a member's conversation was deleted, so what it did cannot be known/);
+  assert.equal(await readFile(join(workspace, "reviewer.txt"), "utf8"), "reviewed", "the reviewer's write is on disk");
+  assert.equal(after.parentCalls + after.memberCalls, 0, "nothing was run again");
+});
+
+test("a crash after the members were sent and before any member started is 'nothing was done', never a deleted conversation", async (t) => {
+  /* Legion review (finding 2): the batch count read this window as "a member's conversation was deleted". */
+  const { state, owner, team, reopen } = await fixture(t, scripted(), 5);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 2 });
+  const requestId = randomUUID();
+  let reached;
+  const sent = new Promise((resolve) => { reached = resolve; });
+  const dying = { run: (o) => state.app.runtime.run(o), context: (o) => state.app.runtime.context(o), fanout() { reached(); return new Promise(() => {}); } };
+  void state.app.teams.run(dying, knowledge, team.id, "file the notes", { requestId });
+  await sent;
+  const parentRunId = row(state.app, requestId).parent_run_id;
+  assert.deepEqual(state.app.store.events(parentRunId).filter((e) => e.kind === "team.batch.started").map((e) => e.data.members), [["m0", "m1"]]);
+  const app = await reopen(scripted());
+  const report = app.teams.reconcile(row(app, requestId).task_id);
+  assert.equal(report.state, "failed");
+  assert.match(row(app, requestId).error, /Nothing was done/);
+  assert.doesNotMatch(row(app, requestId).error, /deleted/);
+});
+
+test("a member whose run started and finished before a crash is listed once, with its run", async (t) => {
+  /* Legion review (finding 3): it was listed as "Not run: r1 (started, run not recorded)" and again as "an unnamed member". */
+  const { state, owner, team, reopen } = await fixture(t, scripted(), 2);
+  saveKnobs(state.app.store, owner, "subtasks", { parallelSubtasks: 1 });
+  const requestId = randomUUID();
+  let reviewer;
+  const { runtime, died } = diesInBatch2(state, (context, tasks) => { reviewer = memberRun(state.app, owner, context, tasks[0], "completed", "r1 wrote a file"); });
+  void state.app.teams.run(runtime, knowledge, team.id, "review it", { requestId });
+  await died;
+  const app = await reopen(scripted());
+  const report = app.teams.reconcile(row(app, requestId).task_id);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.deepEqual(report.members.map((m) => [m.role, m.status, m.batch]), [["r0", "completed", 1], ["r1", "completed", 2]]);
+  assert.equal(report.members[1].runId, reviewer.id, "batch 2 had one member and one run, so the run is that member's");
+  const error = row(app, requestId).error;
+  assert.match(error, new RegExp(`r1 \\(completed, run ${reviewer.id}\\)`));
+  assert.equal(error.split(reviewer.id).length - 1, 1, "the run is named once");
+  assert.doesNotMatch(error, /unnamed member|run not recorded|not matched/);
+  assert.match(error, /Not run: none\./);
 });

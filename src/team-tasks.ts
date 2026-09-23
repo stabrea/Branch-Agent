@@ -29,7 +29,11 @@ export interface TeamTask {
   taskId: string; owner: string; source: string; teamId: string; requestId: string; fingerprint: string;
   state: TeamTaskState; claimant: string | null; generation: number; parentRunId: string | null; parentSessionId: string | null; bootId: string | null;
   result: unknown; error: string | null; question: string | null; createdAt: string; updatedAt: string;
+  /** Which parts of the turn the owner deleted while it was open ("turn", "member", "room"), each with when it first was; null for none. */
+  deletedParts: Partial<Record<DeletedTurnPart, string>> | null;
 }
+/** A conversation holding part of a team turn: its own, a member's (or a helper's under one), or the team's room. */
+export type DeletedTurnPart = "turn" | "member" | "room";
 /** A claim the caller holds; later writes must present all of it. */
 export interface TeamTaskClaim { scope: TeamTaskScope; taskId: string; claimant: string; generation: number }
 
@@ -59,6 +63,7 @@ export class TeamTasks {
       fingerprint TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','completed','failed','needs_reconciliation','waiting_owner')),
       claimant TEXT, generation INTEGER NOT NULL DEFAULT 0, boot_id TEXT, parent_session_id TEXT, parent_run_id TEXT, result TEXT, error TEXT, question TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner, source, team_id, request_id))`);
+    ensureDeletedPartsColumn(this.store.sqlite);
   }
   /** Records the request once, or finds the one already recorded; a changed request under a reused id is refused. */
   observe(scope: TeamTaskScope, teamId: string, requestId: string, fingerprint: string): TeamTask {
@@ -202,6 +207,7 @@ function toTask(row: Record<string, unknown>): TeamTask {
     parentSessionId: row.parent_session_id == null ? null : String(row.parent_session_id), bootId: row.boot_id == null ? null : String(row.boot_id),
     result: row.result == null ? null : JSON.parse(String(row.result)), error: row.error == null ? null : String(row.error),
     question: row.question == null ? null : String(row.question),
+    deletedParts: row.deleted_parts == null ? null : JSON.parse(String(row.deleted_parts)),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
 }
@@ -222,6 +228,42 @@ export function forgetTeamResults(db: Store["sqlite"], sessionId: string): numbe
     WHERE parent_session_id=?1 OR json_extract(result,'$.roomSessionId')=?1 OR parent_run_id IN (${runsHere})
       OR EXISTS (SELECT 1 FROM json_each(team_tasks.result,'$.answers') AS a WHERE json_extract(a.value,'$.runId') IN (${runsHere}))`)
     .run(sessionId, JSON.stringify(deletedResult), new Date().toISOString()).changes);
+}
+
+/** Adds the deleted_parts column to a team_tasks table an earlier build made without it. */
+function ensureDeletedPartsColumn(db: Store["sqlite"]): void {
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('team_tasks') WHERE name='deleted_parts'").get())
+    db.exec("ALTER TABLE team_tasks ADD COLUMN deleted_parts TEXT");
+}
+
+/**
+ * Called first as a conversation is deleted (Store.purgeSession, inside its transaction and before
+ * any of its events or runs go): every open team task (claimed, or waiting on the owner) that this
+ * conversation held part of is marked, so reconcile knows for certain that part of the turn's record
+ * is gone instead of guessing it by counting. From each run in the conversation the walk goes up to
+ * the top of its turn, through the run it was started under ("run.started" parentRunId) and the run it
+ * carried on after a restart ("run.resumed" from), however deep. A task whose turn run or conversation
+ * is here is marked "turn"; one whose turn any run here sits under, "member"; one whose team's room
+ * this is, "room". The first time each part went is kept. Returns how many marks were written.
+ */
+export function markDeletedTurnParts(db: Store["sqlite"], sessionId: string): number {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_tasks'").get()) return 0;
+  ensureDeletedPartsColumn(db);
+  const up = `WITH RECURSIVE up(id) AS (SELECT id FROM tasks WHERE session_id=?1
+      UNION SELECT CASE e.kind WHEN 'run.started' THEN json_extract(e.data,'$.parentRunId') ELSE json_extract(e.data,'$.from') END
+        FROM events e JOIN up ON e.run_id=up.id WHERE e.kind IN ('run.started','run.resumed'))`;
+  // IFNULL: a task with no conversation or run named yet is simply not this conversation's, never unknown.
+  const own = "(IFNULL(parent_session_id=?1, 0) OR IFNULL(parent_run_id IN (SELECT id FROM tasks WHERE session_id=?1), 0))";
+  const where: Record<DeletedTurnPart, string> = {
+    turn: own,
+    member: `NOT ${own} AND (parent_run_id IN (SELECT id FROM up WHERE id IS NOT NULL)
+      OR parent_session_id IN (SELECT session_id FROM tasks WHERE id IN (SELECT id FROM up WHERE id IS NOT NULL)))`,
+    room: `EXISTS (SELECT 1 FROM governance g WHERE g.owner=team_tasks.owner AND g.id='team:' || team_tasks.team_id AND json_extract(g.data,'$.roomSessionId')=?1)`,
+  };
+  const now = new Date().toISOString();
+  return (Object.keys(where) as DeletedTurnPart[]).reduce((count, part) => count + Number(db.prepare(`${up}
+    UPDATE team_tasks SET deleted_parts=json_set(COALESCE(deleted_parts,'{}'),'$.${part}',COALESCE(json_extract(deleted_parts,'$.${part}'),?2))
+    WHERE state IN ('claimed','waiting_owner') AND ${where[part]}`).run(sessionId, now).changes), 0);
 }
 
 /**

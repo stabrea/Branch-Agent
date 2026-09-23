@@ -384,6 +384,16 @@ test("a call cut off by its time limit may have happened: its outcome stays unkn
   assert.deepEqual(turnEffects(state.app.store, run.id).map((e) => e.outcome), ["unknown", "completed"]);
 });
 
+test("a question naming its call marks that call, not a later one still open alongside it", async (t) => {
+  /* Legion mutation M2: matching the asking call as the latest open one, whatever its id, left every test green. */
+  const { state } = await fixture(t, scripted());
+  const run = state.app.store.createRun(state.app.runtime.owner, "two calls at once");
+  state.app.store.event(run.id, "tool.started", { name: "user.ask", id: "q1" });
+  state.app.store.event(run.id, "tool.started", { name: "files.write", id: "w1" });
+  state.app.store.event(run.id, "attention.needed", { question: "Which folder?", callId: "q1" });
+  assert.deepEqual(turnEffects(state.app.store, run.id).map((e) => [e.toolCallId, e.outcome]), [["q1", "asked_owner"], ["w1", "unknown"]]);
+});
+
 test("a parent run the runtime never announces is refused before any member starts", async (t) => {
   const provider = scripted();
   const { state, team } = await fixture(t, provider);
@@ -639,6 +649,100 @@ test("a crash mid-fanout whose interrupted members' conversations were deleted n
   assert.equal(report.state, "needs_reconciliation");
   assert.doesNotMatch(row(app, requestId).error, /Nothing was done/);
   assert.match(row(app, requestId).error, /cannot be known/);
+});
+
+/** The real parent turn, then a fanout that starts `size` members (each writes and is cut off) and never returns: the process "dies". */
+async function hungFanout(t, size) {
+  const fx = await fixture(t, scripted());
+  const { state, owner } = fx;
+  const requestId = randomUUID(), members = [];
+  let reached;
+  const sent = new Promise((resolve) => { reached = resolve; });
+  const dying = { run: (o) => state.app.runtime.run(o), context: (o) => state.app.runtime.context(o), fanout(context, tasks) {
+    for (const task of tasks.slice(0, size)) {
+      const member = state.app.store.createRun(owner, task.prompt);
+      state.app.store.event(member.id, "run.started", { parentRunId: context.runId });
+      state.app.store.event(member.id, "tool.started", { name: "files.write", id: task.id });
+      state.app.store.event(member.id, "tool.completed", { name: "files.write", id: task.id, result: {} });
+      state.app.store.finish(member.id, "interrupted", "Branch is closing");
+      members.push(member);
+    }
+    reached();
+    return new Promise(() => {});
+  } };
+  void state.app.teams.run(dying, knowledge, fx.team.id, "file the notes", { requestId });
+  await sent;
+  const task = row(state.app, requestId);
+  const app = await fx.reopen(scripted());
+  return { ...fx, app, requestId, taskId: task.task_id, parentRunId: task.parent_run_id, parentSession: task.parent_session_id, members };
+}
+const marks = (app, requestId) => JSON.parse(row(app, requestId).deleted_parts ?? "null");
+
+test("a crash after the members were sent and before any member started is 'nothing was done', never a deleted conversation", async (t) => {
+  /* Legion review of Q63: the members-sent count read this 7-22 ms window as "a member's conversation was deleted". */
+  const { app, requestId, taskId, parentRunId } = await hungFanout(t, 0);
+  assert.equal(app.store.events(parentRunId).filter((e) => e.kind === "team.members_sent").length, 1, "the members were sent");
+  assert.equal(marks(app, requestId), null, "nothing was deleted");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "failed");
+  assert.match(row(app, requestId).error, /Nothing was done/);
+  assert.doesNotMatch(row(app, requestId).error, /deleted/);
+});
+
+test("deleting a member's conversation marks the open team task in the delete itself, and reconcile reads the mark", async (t) => {
+  const { app, owner, requestId, taskId, members } = await hungFanout(t, 2);
+  assert.equal(marks(app, requestId), null);
+  app.store.forgetSession(owner, members[0].sessionId);
+  assert.deepEqual(Object.keys(marks(app, requestId)), ["member"]);
+  assert.ok(app.store.run(members[1].id), "the other member is still on record");
+  const report = app.teams.reconcile(taskId);
+  assert.equal(report.state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /a member's conversation was deleted, so what it did cannot be known/);
+});
+
+test("deleting a helper's conversation under a member carried on after a restart marks the task: the walk goes up every link", async (t) => {
+  const { app, owner, requestId, members } = await hungFanout(t, 1);
+  const carried = app.store.createRun(owner, "member", members[0].sessionId);
+  app.store.event(carried.id, "run.started", { parentRunId: null, resumedFrom: members[0].id });
+  app.store.event(carried.id, "run.resumed", { from: members[0].id, unknownToolOutcomes: 0 });
+  app.store.finish(carried.id, "completed", "member done");
+  const helper = app.store.createRun(owner, "helper");
+  app.store.event(helper.id, "run.started", { parentRunId: carried.id });
+  app.store.finish(helper.id, "completed", "helper done");
+  app.store.forgetSession(owner, helper.sessionId);
+  assert.deepEqual(Object.keys(marks(app, requestId)), ["member"]);
+});
+
+test("deleting the turn's own conversation or the team's room marks the open team task with that part", async (t) => {
+  const { app, owner, team, requestId, taskId, parentSession } = await hungFanout(t, 0);
+  app.store.forgetSession(owner, team.roomSessionId);
+  assert.deepEqual(Object.keys(marks(app, requestId)), ["room"]);
+  const roomMarked = marks(app, requestId).room;
+  app.store.forgetSession(owner, parentSession);
+  assert.deepEqual(Object.keys(marks(app, requestId)).sort(), ["room", "turn"]);
+  assert.equal(marks(app, requestId).room, roomMarked, "a part keeps the time it first went");
+  assert.equal(app.teams.reconcile(taskId).state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /record was deleted, so what it did cannot be known/);
+});
+
+test("the team's room deleted under a crashed turn that did nothing needs a person, with the room named as the reason", async (t) => {
+  const { app, owner, team, requestId, taskId } = await hungFanout(t, 0);
+  app.store.forgetSession(owner, team.roomSessionId);
+  assert.equal(app.teams.reconcile(taskId).state, "needs_reconciliation");
+  assert.match(row(app, requestId).error, /room was deleted/);
+});
+
+test("a delete that fails part-way leaves no mark: the mark is written in the delete's own transaction", async (t) => {
+  const { app, owner, requestId, members } = await hungFanout(t, 1);
+  const toolUsage = app.store.toolUsage;
+  const forget = toolUsage.forgetSession;
+  toolUsage.forgetSession = () => { throw new Error("injected: the delete failed part-way"); };
+  t.after(() => { toolUsage.forgetSession = forget; });
+  assert.throws(() => app.store.forgetSession(owner, members[0].sessionId), /failed part-way/);
+  toolUsage.forgetSession = forget;
+  assert.equal(marks(app, requestId), null, "no mark without the delete");
+  assert.ok(app.store.run(members[0].id), "the member run is still there");
+  assert.ok(app.store.events(members[0].id).some((e) => e.kind === "run.started"), "and so is its record");
 });
 
 test("the retention rule leaves out a claimed team task's member conversations, and takes them once it is settled", async (t) => {

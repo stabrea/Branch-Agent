@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import { forgetTeamResults } from "./team-tasks.js"; // Q61
+import { forgetTeamResults, markDeletedTurnParts } from "./team-tasks.js"; // Q61
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
@@ -315,6 +315,9 @@ export class Store {
   private purgeSession(sessionId: string): { discarded: boolean; messages: number } {
     this.db.exec("BEGIN");
     try {
+      // Q63: an open team task this conversation held part of is marked as such, in this transaction and
+      // before its events go (the mark follows each run's own record up to its turn).
+      markDeletedTurnParts(this.db, sessionId);
       this.db.prepare("DELETE FROM events WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       // Wave 7: what this conversation taught about which tools a request needs goes with it.
