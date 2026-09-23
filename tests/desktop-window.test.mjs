@@ -14,6 +14,7 @@ const mainWindow = (electron, run) => electron.evaluate(({ BrowserWindow }, body
 test("the desktop window has no system title bar, fills the screen first, and reopens as it was left", { timeout: 360000 }, async () => {
   const { options } = await desktopOptions();
   const electron = await _electron.launch(options);
+  let left = null; // the window's size just before it closed
   try {
     const page = await electron.firstWindow();
     await connected(page);
@@ -34,6 +35,9 @@ test("the desktop window has no system title bar, fills the screen first, and re
     await assert.rejects(page.evaluate(() => window.branchDesktop.windowLook("#ff0000")), /Light or dark only/);
     await mainWindow(electron, (win) => { win.unmaximize(); win.setBounds({ x: 60, y: 60, width: 900, height: 640 }); return true; });
     await page.waitForTimeout(800);
+    left = await mainWindow(electron, (win) => win.getNormalBounds());
+    // Linux build machines have no window manager, which may not let a window be resized; elsewhere it must have been.
+    if (process.platform !== "linux") assert.deepEqual([left.width, left.height], [900, 640], "the new size took, so reopening can prove it is kept");
   } finally {
     await electron.close();
   }
@@ -43,7 +47,7 @@ test("the desktop window has no system title bar, fills the screen first, and re
     await connected(page);
     assert.equal(await mainWindow(again, (win) => win.isMaximized()), false, "it reopens the way it was left");
     const bounds = await mainWindow(again, (win) => win.getNormalBounds());
-    assert.deepEqual([bounds.width, bounds.height], [900, 640], "a size small enough that no build machine's screen counts it as filled");
+    assert.deepEqual([bounds.width, bounds.height], [left.width, left.height], "it reopens at the size it was left at");
   } finally {
     await again.close();
   }
