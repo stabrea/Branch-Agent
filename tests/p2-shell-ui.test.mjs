@@ -165,7 +165,7 @@ test("Change look… edits a Trunk after it is made: face, emoji, colour, shape 
   assert.equal(await dialog.locator(".studio-tabs").count(), 0, "changing one has no Add tabs");
   await dialog.getByRole("button", { name: "Emoji", exact: true }).click();
   await dialog.locator('.studio-emoji-pick[data-emoji="🦉"]').click();
-  await dialog.getByRole("button", { name: "Colour 5" }).click();
+  await dialog.getByRole("button", { name: "Colour #FF6B8A" }).click();
   await dialog.getByRole("button", { name: "Hexagon" }).click();
   await dialog.getByRole("button", { name: "Breathe" }).click();
   assert.equal(await dialog.locator("#studio-preview .studio-big .fc-emoji").getAttribute("data-text"), "🦉", "the preview follows");
@@ -173,7 +173,7 @@ test("Change look… edits a Trunk after it is made: face, emoji, colour, shape 
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   const look = (await f.call(`/api/trunks/${trunk.id}`)).trunk.look;
-  assert.deepEqual([look.face, look.emoji, look.colour, look.shape, look.motion], ["emoji", "🦉", 5, "hexagon", "breathe"]);
+  assert.deepEqual([look.face, look.emoji, look.colour, look.shape, look.motion], ["emoji", "🦉", "#ff6b8a", "hexagon", "breathe"]);
   await f.page.waitForFunction((id) => document.querySelector(`#trunk-strip [data-strip-id="trunk:${id}"] .fc-emoji`)?.dataset.text === "🦉", trunk.id);
   assert.deepEqual(f.errors, []);
 });

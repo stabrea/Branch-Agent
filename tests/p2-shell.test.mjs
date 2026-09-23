@@ -52,7 +52,7 @@ test("the strip ships on and 3D faces ship off; only the owner at the window cha
   assert.deepEqual((await b.call("/api/shell-look")).body, { strip: "on", faces3d: "on" });
 });
 
-test("a Trunk keeps its look: colour tokens only, a real emoji, and it travels in its file", async (t) => {
+test("a Trunk keeps its look: a colour token or a real colour, a real emoji, and it travels in its file", async (t) => {
   const b = await branch(t, "trunk-look");
   await b.call("/api/trunks/switch", { part: "trunks", mode: "on" });
   const { trunk } = (await b.call("/api/trunks", { name: "Ledger", title: "Keeps receipts", description: "" })).body;
@@ -60,7 +60,9 @@ test("a Trunk keeps its look: colour tokens only, a real emoji, and it travels i
   const look = { face: "emoji", emoji: "📒", colour: 7, shape: "shield", motion: "pulse", depth: "3d" };
   const saved = (await b.call(`/api/trunks/${trunk.id}`, { look })).body.trunk;
   assert.deepEqual(saved.look, { ...look, letters: "", shuffle: 0 });
-  assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { colour: "#ff0000" } })).status, 400, "a colour is a token, never a value");
+  /* DG-105: the sample's colours and the picker's are kept as the colour itself, in lower case; anything else is refused. */
+  assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { colour: "#FF0000" } })).body.trunk.look.colour, "#ff0000");
+  assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { colour: "var(--copper)" } })).status, 400, "a colour, never markup or a stylesheet value");
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { face: "emoji", emoji: "<b>" } })).status, 400, "an emoji, not markup");
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { shape: "star" } })).status, 400);
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { colour: "theme", face: "letters", letters: "LG" } })).body.trunk.look.colour, "theme");

@@ -24,6 +24,11 @@ const SHAPE_WORDS = { circle: "Circle", squircle: "Soft square", leaf: "Leaf", a
 const MOTION_WORDS = { none: "None", breathe: "Breathe", sway: "Sway like a leaf", shimmer: "Shimmer", pulse: "Pulse while working", dots: "Dots while working" };
 export const TABS = [["trunk", "studio.tab.trunk", "A new Trunk"], ["computer", "studio.tab.computer", "Another computer"], ["phone", "studio.tab.phone", "Your phone"]];
 const photoLimit = 290_000;
+/* DG-105: the approved sample's colours, in its order, read from the token layer (`--trunk-colour-1` to 20 in
+   public/tokens.css), then any other colour from the picker. A chosen colour is saved as the value it is. */
+const palette = () => Array.from({ length: 20 }, (_, at) =>
+  getComputedStyle(document.documentElement).getPropertyValue(`--trunk-colour-${at + 1}`).trim()).filter(Boolean);
+const isHex = (colour) => /^#[0-9a-f]{6}$/i.test(String(colour ?? ""));
 
 /* ---------- the dialog ---------- */
 export const studio = { dialog: null, tab: "trunk", draft: null, editing: null, closing: null };
@@ -115,7 +120,7 @@ export function openAdd(tab = "trunk") {
 /* ---------- a Trunk's look: the draft ---------- */
 function newDraft() {
   return { name: "", title: "", pinned: true,
-    look: { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: 2, shape: "leaf", motion: "breathe", depth: "flat" }, photo: null, keptPhoto: null };
+    look: { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: palette()[0], shape: "leaf", motion: "breathe", depth: "flat" }, photo: null, keptPhoto: null };
 }
 function draftTrunk() {
   const d = studio.draft;
@@ -255,13 +260,32 @@ function colourSection() {
   const row = make("div", "studio-swatches");
   row.setAttribute("role", "group");
   row.setAttribute("aria-label", say("studio.colour", "Colour"));
-  for (let n = 1; n <= 8; n++) {
-    const swatch = button("studio-swatch", null, null, () => { d.look.colour = n; redraw(); });
-    swatch.style.setProperty("--c", `var(--series-${n})`);
-    swatch.setAttribute("aria-label", say("studio.colour.n", "Colour {n}", { n }));
-    swatch.setAttribute("aria-pressed", String(d.look.colour === n));
+  const chosen = String(d.look.colour).toLowerCase();
+  for (const colour of palette()) {
+    const swatch = button("studio-swatch", null, null, () => { d.look.colour = colour; redraw(); });
+    swatch.style.setProperty("--c", colour);
+    swatch.dataset.colour = colour;
+    swatch.setAttribute("aria-label", say("studio.colour.n", "Colour {n}", { n: colour }));
+    swatch.setAttribute("aria-pressed", String(chosen === colour.toLowerCase()));
     row.append(swatch);
   }
+  /* Any colour: the sample's rainbow circle with a + over the system's colour picker. */
+  const custom = make("label", "studio-swatch studio-swatch-custom");
+  const picker = document.createElement("input");
+  picker.type = "color";
+  picker.id = "studio-custom";
+  picker.value = isHex(d.look.colour) ? chosen : palette()[0].toLowerCase();
+  picker.setAttribute("aria-label", say("studio.colour.custom", "Any colour"));
+  custom.title = picker.getAttribute("aria-label");
+  picker.addEventListener("input", () => {
+    d.look.colour = picker.value;
+    for (const swatch of row.querySelectorAll(".studio-swatch[aria-pressed]")) swatch.setAttribute("aria-pressed", "false");
+    const follow = $("studio-follow");
+    if (follow) follow.checked = false;
+    drawPreview();
+  });
+  custom.append(picker, Object.assign(document.createElement("span"), { textContent: "+", ariaHidden: "true" }));
+  row.append(custom);
   /* DG-106: the sample's switch row (a `.ctl` holding `.sw`): the words, the switch beside them, the note beneath. */
   const follow = make("label", "studio-follow");
   const box = document.createElement("input");
@@ -270,7 +294,12 @@ function colourSection() {
   box.className = "sw";
   box.setAttribute("role", "switch");
   box.checked = d.look.colour === "theme";
-  box.addEventListener("change", () => { d.look.colour = box.checked ? "theme" : 1; redraw(); });
+  /* Off again, it keeps the colour it had before following, as the sample's does. */
+  box.addEventListener("change", () => {
+    if (box.checked && d.look.colour !== "theme") d.lastColour = d.look.colour;
+    d.look.colour = box.checked ? "theme" : d.lastColour ?? palette()[0];
+    redraw();
+  });
   follow.append(make("span", "studio-follow-words", "studio.follow", "Follow my theme"), box,
     make("span", "studio-follow-note", "studio.follow.note", "Takes the highlight colour of whichever theme is on."));
   part.append(row, follow);

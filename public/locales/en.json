@@ -3413,6 +3413,7 @@
   "studio.photo.large": "That picture is too large. Choose one under about 290 KB.",
   "studio.colour": "Colour",
   "studio.colour.n": "Colour {n}",
+  "studio.colour.custom": "Any colour",
   "studio.follow": "Follow my theme",
   "studio.follow.note": "Takes the highlight colour of whichever theme is on.",
   "studio.shape": "Shape",

@@ -3414,6 +3414,7 @@
   "studio.photo.large": "Cette image est trop grande. Choisissez-en une de moins de 290 Ko environ.",
   "studio.colour": "Couleur",
   "studio.colour.n": "Couleur {n}",
+  "studio.colour.custom": "N’importe quelle couleur",
   "studio.follow": "Suivre mon thème",
   "studio.follow.note": "Prend la couleur d'accent du thème en cours.",
   "studio.shape": "Forme",
