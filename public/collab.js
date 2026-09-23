@@ -3,6 +3,7 @@
 // state plus its own small helpers, so nothing here depends on globals.
 import { t } from "./i18n.js"; // relative, so a test can import this file too; the same /i18n.js in the page
 import { eventsSection } from "./collab-events.js"; // Notes: signed collaboration events
+import { gitSection } from "./collab-git.js";
 
 /** Builds the panel shown under Schedules. `helpers` supplies el, api, toast and refresh. */
 export function showCollab(state, given) {
@@ -17,6 +18,7 @@ export function showCollab(state, given) {
     ["days-off", daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers)],
     ["shares", sharesSection(collab.shares ?? [], helpers)],
     ["events", eventsSection(collab.events ?? { events: [], rejected: [] }, collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
+    ["git", gitSection(collab.projects ?? [], helpers)],
     ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
   ];
   for (const [name, node] of parts) {
@@ -36,7 +38,7 @@ function relative(helpers) {
 }
 
 /** Runs a click handler and shows whatever went wrong instead of failing silently. */
-function onClick(helpers, node, handler) {
+export function onClick(helpers, node, handler) {
   node.type = "button";
   node.addEventListener("click", async () => {
     node.disabled = true;
@@ -44,16 +46,16 @@ function onClick(helpers, node, handler) {
   });
   return node;
 }
-function smallButton(helpers, label, handler) {
+export function smallButton(helpers, label, handler) {
   return onClick(helpers, helpers.el("button", label, "collab-btn-small"), handler);
 }
-function section(helpers, title, description) {
+export function section(helpers, title, description) {
   const node = helpers.el("div", undefined, "collab-section");
   node.appendChild(helpers.el("h3", title));
   node.appendChild(helpers.el("p", description, "collab-desc"));
   return node;
 }
-function empty(helpers, wrap, text) {
+export function empty(helpers, wrap, text) {
   wrap.appendChild(helpers.el("p", text, "collab-empty"));
   return wrap;
 }
