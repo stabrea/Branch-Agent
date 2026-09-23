@@ -33,6 +33,13 @@ for (const card of Object.keys(ALWAYS)) BY_CARD.set(card, { rows: [], partial: t
 /* DG-180: rows the sample draws as a "Set in … ›" link to where they are set, which the generated levels skip. The
    sample shows each at this level and counts it in its section's "N more": AGENTS.md makes Your projects "9 more". */
 export const LINKED = { "context-switch-agents": "A" };
+/* DG-183: rows the sample draws as a pointer to a setting kept in another section ("Set in Theme ›"), at the level the
+   sample shows the pointer. They are not settings of their own, so public/settings-index.js does not list them, but
+   the sample counts them in its section's "N more with Advanced". [card, [row id, selector, level], ...]. */
+const POINTERS = [
+  ["settings-form", ["appearance-contrast-link", null, "advanced"]],
+];
+for (const [card, ...rows] of POINTERS) BY_CARD.set(card, { rows: [...rows], partial: false });
 for (const [id, , card, , , selector] of SETTINGS_INDEX) {
   if (!card) continue;
   const entry = BY_CARD.get(card) ?? { rows: [], partial: false };
@@ -48,6 +55,10 @@ const shared = (a, b) => { let node = a; while (node && !node.contains(b)) node 
 const childOf = (box, node) => { while (node && node.parentElement !== box) node = node.parentElement; return node; };
 const labelFor = (control, card) => control.labels?.[0] ?? control.closest("label")
   ?? (control.id ? card.querySelector(`[for="${CSS.escape(control.id)}"]`) : null);
+/** DG-183: the words naming a control by aria-labelledby (a group of choice buttons), never a heading. */
+const namedBy = (control, card) => (control.getAttribute("aria-labelledby") ?? "").split(/\s+/)
+  .map((id) => (id ? document.getElementById(id) : null))
+  .find((node) => node && node !== control && card.contains(node) && !node.matches("h1, h2, h3, h4, h5, h6")) ?? null;
 
 /**
  * The pieces of the row holding one control: the lowest box with the control and its words when that box holds
@@ -56,6 +67,11 @@ const labelFor = (control, card) => control.labels?.[0] ?? control.closest("labe
  */
 export function rowOf(control, card, others = []) {
   const label = labelFor(control, card);
+  const named = label ? null : namedBy(control, card);
+  /* Words named by aria-labelledby that make no clean row leave the control as its own row, as before. */
+  return rowWith(label ?? named, control, card, others) ?? (named ? rowWith(null, control, card, others) : null);
+}
+function rowWith(label, control, card, others) {
   const box = label ? shared(label, control) : control;
   if (!box || !card.contains(box)) return null;
   const clean = (node) => node !== card && !node.matches("h2, h3") && !node.querySelector("h2, h3") && !others.some((other) => node.contains(other));

@@ -97,8 +97,8 @@ slides over the page instead of taking a column, and the context pane steps asid
 
 **Settings → Appearance** (or **Change the appearance** in your own menu at the foot of the rail)
 carries the look: **Forest** or **Daylight** or follow this computer, a highlight colour, text size,
-spacing, lettering, **Keep things still**, and **Show the acorn**. Everything shows at once, and
-**Save appearance** keeps it. The language lives on the same screen; English is the original and the
+spacing, lettering, **Keep things still**, and **Show the acorn**. Everything shows at once and is
+saved as you pick it. The language lives on the same screen; English is the original and the
 other languages are machine drafts.
 
 **Settings → Assistant identity** gives your assistant a name and standing working instructions —

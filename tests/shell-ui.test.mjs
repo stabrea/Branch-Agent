@@ -379,7 +379,7 @@ test("every appearance control applies at once and survives a reload", async (t)
   };
   assert.deepEqual(await look(f.page), chosen, "every choice shows straight away");
   assert.equal(await f.page.locator(".acorn-art").isVisible(), false);
-  await f.page.getByRole("button", { name: "Save appearance", exact: true }).click();
+  await f.page.evaluate(() => import("/appearance.js").then((look) => look.appearanceSaved())); // DG-025: saved as you go
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => document.documentElement.dataset.textSize === "large");

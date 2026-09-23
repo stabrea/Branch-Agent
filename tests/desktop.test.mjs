@@ -20,9 +20,8 @@ const followSetting = (page) => page.evaluate(async () => {
 async function appearance(page, value) {
   await openSettingFor(page, "#appearance");
   await page.locator(`#lx-mode .segmented-option:has([data-t="look.${value === "daylight" ? "daylight" : "moonlight"}"])`).click();
-  await page
-    .getByRole("button", { name: "Save appearance", exact: true })
-    .click();
+  /* DG-025: Appearance saves as you go; wait until this change is saved, so a reload keeps it. */
+  await page.evaluate(() => import("/appearance.js").then((look) => look.appearanceSaved()));
   await page.waitForFunction(
     (value) => document.documentElement.dataset.theme === value,
     value,

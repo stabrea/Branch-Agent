@@ -23,11 +23,15 @@ function checkRow(id, key, english, change) {
   row.append(box, el("span", "", say(key, english)));
   return row;
 }
-function card(id, key, english, noteKey, note) {
+function card(id, key, english, noteKey, note, titled = true) {
   const box = el("section", "card delight-card");
   box.id = id;
   box.dataset.home = "settings:appearance";
-  box.append(el("h2", "", say(key, english)), el("p", "field-note", say(noteKey, note)));
+  box.setAttribute("aria-label", say(key, english));
+  /* DG-183: a card its section's heading already names keeps its title for screen readers only, as the sample
+     shows one heading there (Q4 in tests/shell-ui.test.mjs: every card carries a title). */
+  box.append(el("h2", titled ? "" : "sr-only", say(key, english)));
+  box.append(el("p", "field-note", say(noteKey, note)));
   return box;
 }
 function part(id) {
@@ -46,7 +50,8 @@ function statusLine(id) {
 /* ---------- the pet's card ---------- */
 function petCard() {
   const box = card("delight-pet-card", "delight.pet.title", "A pet", "delight.pet.note",
-    "A small forest creature that sits beside the acorn in the corner of the side list. It shows what Branch is doing and, if you let it, gives a short tip now and then. Right-click it for its own menu.");
+    "A small forest creature that sits beside the acorn in the corner of the side list. It shows what Branch is doing and, if you let it, gives a short tip now and then. Right-click it for its own menu.",
+    false); // DG-183: its section's heading, "A pet", is its title
   const more = part("delight-pet-more"), tiles = el("div", "delight-pets");
   tiles.setAttribute("role", "group");
   tiles.setAttribute("aria-label", say("delight.pet.which", "Which pet"));

@@ -36,13 +36,17 @@ export const BUCKETS = {
       [["agent-files", R], ["context-persona", R]]],
   ],
   appearance: [
-    ["theme", "leaf", "Theme and lettering", "Colours, the size of the words, and the language.",
-      [["lx-look", R], ["settings-form", R], ["shell-look-card", R]]],
+    /* DG-183: the sample's sections, in its order. Your own background has no home in the sample: it stays with
+       the theme at Advanced; Achievements waits beside the pet at Advanced until it has a page of its own (DG-164). */
+    ["theme", "leaf", "Theme", "Change how Branch Agent looks. Everything you pick shows straight away.",
+      [["lx-look", R], ["delight-bg-card", A]]],
+    ["pet", "spark", "A pet", "A small forest creature that keeps you company and shows what Branch is doing.",
+      [["delight-pet-card", R], ["delight-ach-card", A]]],
+    ["lettering", "sliders", "Theme and lettering", "Colours, size of the words, and the language.",
+      [["settings-form", R], ["shell-look-card", A]]],
+    /* What's on screen has no home in the sample: Advanced here, and its gear always brings it into view. */
     ["shows", "eye", "What a conversation shows", "How much of the working-out you see while it works.",
-      [["panels-onscreen", R], ["knobs-show-reasoning-card", A], ["comfort-display-card", A], ["savings-round-chart-card", A], ["flows-focus-card", A]]],
-    /* p2-delight's cards (integration): each is off until turned on, so showing them changes nothing. */
-    ["fun", "spark", "Just for fun", "A pet, achievements and a background of your own. Each is off until you turn it on.",
-      [["delight-pet-card", R], ["delight-ach-card", R], ["delight-bg-card", R]]],
+      [["knobs-show-reasoning-card", A], ["savings-round-chart-card", A], ["comfort-display-card", A], ["flows-focus-card", A], ["panels-onscreen", A]]],
   ],
   notifications: [
     ["attention", "bell", "When Branch gets your attention", "Sounds, banners and the times it should leave you alone.",
