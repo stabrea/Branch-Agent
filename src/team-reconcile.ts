@@ -1,6 +1,6 @@
 import type { Store } from "./store.js";
 import type { RunStatus } from "./contracts.js";
-import type { TeamTaskClaim, TeamTaskScope, TeamTaskState, TeamTasks } from "./team-tasks.js";
+import { StaleTeamTaskClaimError, type TeamTaskClaim, type TeamTaskScope, type TeamTaskState, type TeamTasks } from "./team-tasks.js";
 
 /**
  * Team turn lineage (Q63): what a team task's turn did, read back from the runtime's own record.
@@ -135,6 +135,71 @@ export function finishTeamTask(store: Store, tasks: TeamTasks, claim: TeamTaskCl
 }
 
 /**
+ * Why the answers can no longer be written, when the owner deleted where they go: the room, or the
+ * turn's own run (the finish records "team.ran" on it). Null while both are still there.
+ */
+function answersHomeDeleted(store: Store, result: TeamRunResult): string | null {
+  if (!store.sqlite.prepare("SELECT 1 FROM sessions WHERE id=?").get(result.roomSessionId))
+    return "The team's room was deleted while it worked; its answers could not be written there.";
+  if (!store.run(result.parentRunId)) return "The team's own conversation was deleted while it worked; its answers could not be written to the room.";
+  return null;
+}
+
+/**
+ * Settles a claimed task whose recorded answers could not be written to the room, so nobody meets
+ * the same failure again. If the owner deleted where they go, the answers go too; otherwise they are
+ * kept for the person who checks. A claim that moved on is its new holder's, so it is left alone.
+ */
+function settleUnwritten(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, result: TeamRunResult, error: unknown): TeamTaskState {
+  if (error instanceof StaleTeamTaskClaimError) return tasks.get(claim.scope, claim.taskId)?.state ?? "claimed";
+  const deleted = answersHomeDeleted(store, result);
+  if (deleted) tasks.markAnswersDeleted(claim, deleted);
+  else tasks.markNeedsReconciliation(claim, `The answers were recorded but could not be written to the room: ${error instanceof Error ? error.message : String(error)}`);
+  return "needs_reconciliation";
+}
+
+/**
+ * The live turn's finish; false when it could not finish. If the owner deleted the room or the
+ * turn's conversation while the members worked, the task is settled for a person there and then.
+ * Any other failure is thrown as before, and reconcile finishes the task from the record later.
+ */
+export function finishLiveTurn(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, result: TeamRunResult): boolean {
+  try {
+    finishTeamTask(store, tasks, claim, result);
+    return true;
+  } catch (error) {
+    if (!answersHomeDeleted(store, result)) throw error;
+    settleUnwritten(store, tasks, claim, result, error);
+    return false;
+  }
+}
+
+const deletedBeforeWritten = "The owner deleted a conversation this task's answers were in before they were written to the room; check the room before trying again.";
+
+/**
+ * Finishes a task from the result its turn recorded, or null when it recorded none. A result the
+ * owner's delete already cleared settles for a person: the members did answer, so it is never taken
+ * for a turn that did nothing. Answers that cannot be written settle for a person too, never thrown.
+ */
+function finishFromRecord(store: Store, tasks: TeamTasks, claim: TeamTaskClaim, recorded: (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null): { state: TeamTaskState; note: string } | null {
+  if (recorded?.deleted) {
+    tasks.markNeedsReconciliation(claim, deletedBeforeWritten);
+    return { state: "needs_reconciliation", note: deletedBeforeWritten };
+  }
+  if (!recorded || (!recorded.truncated && !Array.isArray(recorded.answers))) return null;
+  try {
+    if (recorded.truncated) finishTruncated(store, tasks, claim, recorded);
+    else finishTeamTask(store, tasks, claim, recorded);
+  } catch (error) {
+    const state = settleUnwritten(store, tasks, claim, recorded, error);
+    return { state, note: state === "needs_reconciliation" ? "The recorded answers could not be written to the room; check them before trying again. Nothing was run again." : "This task changed while it was being checked." };
+  }
+  return { state: "completed", note: recorded.truncated
+    ? "Finished from the result the turn recorded, which was too large to keep in full; the members' answers were written to the room from their own runs. Nothing was run again."
+    : "Finished from the result the turn recorded; nothing was run again." };
+}
+
+/**
  * Ends a claimed task whose turn stopped to ask the owner (a run that needs input). The question
  * comes from the runtime's own "attention.needed" record. Asked before a step ran, it is a known
  * outcome: the task waits for the owner. Asked because a restart cut a step off (afterRestart), or
@@ -235,15 +300,8 @@ export function reconcileTeamTask(store: Store, tasks: TeamTasks, scope: TeamTas
     return report("claimed", "Its run, or a member's, is still going.");
   const claim = tasks.standingClaim(scope, taskId);
   if (!claim) return report(tasks.get(scope, taskId)!.state, "This task changed while it was being checked.");
-  const recorded = task.result as (TeamRunResult & { truncated?: boolean }) | null;
-  if (recorded?.truncated) {
-    finishTruncated(store, tasks, claim, recorded);
-    return report("completed", "Finished from the result the turn recorded, which was too large to keep in full; the members' answers were written to the room from their own runs. Nothing was run again.");
-  }
-  if (recorded && Array.isArray(recorded.answers)) {
-    finishTeamTask(store, tasks, claim, recorded);
-    return report("completed", "Finished from the result the turn recorded; nothing was run again.");
-  }
+  const finished = finishFromRecord(store, tasks, claim, task.result as (TeamRunResult & { truncated?: boolean; deleted?: boolean }) | null);
+  if (finished) return report(finished.state, finished.note);
   if (parent?.status === "needs_input")
     return waitingReport(report, settleWaiting(store, tasks, claim, parent.id, parent.output, root!));
   const state = settleUnfinished(store, tasks, claim, root, "the turn stopped before its result was recorded");
