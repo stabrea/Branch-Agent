@@ -81,26 +81,37 @@ test("DG-143: the bar reads in French", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("DG-141: the title is the picked computer / the place, the first step opens its conversation, and a phone keeps only its face", async (t) => {
+/** The crumbs across the top, before the place's heading: every mark and "/" there, and which of them are on show. */
+const crumbsOnScreen = (page) => page.evaluate(() => {
+  const shown = (node) => node.checkVisibility() && node.getBoundingClientRect().width > 1;
+  const head = document.querySelector(".head-title");
+  const marks = [...head.querySelectorAll(".lx-crumbs-mark, .lx-crumb-mark, .lx-crumb-where")];
+  const slashes = [...head.children].filter((node) => node.textContent.trim() === "/");
+  return {
+    marks: marks.length, marksShown: marks.filter(shown).length, slashesShown: slashes.filter(shown).length,
+    order: [...head.children].filter(shown).map((node) => node.id || node.className).slice(0, 4),
+  };
+});
+
+test("DG-141: one crumb, the picked computer / the place, and a phone keeps only its face", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchLayout.go("memory"));
   await page.locator("#library").waitFor({ state: "visible" });
-  const crumb = await page.evaluate(() => [...document.querySelector(".head-title").children]
-    .filter((node) => getComputedStyle(node).display !== "none").map((node) => node.className || node.id));
-  assert.deepEqual(crumb.slice(0, 3), ["lx-crumb-where", "lx-crumb-sep", "page-title"], "where, a slash, then the place");
-  assert.equal(await page.locator(".lx-crumb-mid").innerText(), await page.locator("#rail-target-name").innerText(), "the side list's own name");
+  assert.deepEqual(await crumbsOnScreen(page), {
+    marks: 1, marksShown: 1, slashesShown: 1, order: ["lx-crumbs-mark", "lx-crumbs-mid", "lx-crumbs-sep", "page-title"],
+  }, "one crumb (public/topbar-crumbs.js): the face, the name, a slash, then the place");
+  assert.equal(await page.locator("#lx-crumbs-mid").innerText(), await page.locator("#rail-target-name").innerText(), "the side list's own name");
   assert.equal(await page.locator("#page-title").innerText(), "Library", "the place, not its tab");
   assert.equal(await page.locator(".lx-back").count(), 0, "no separate back button");
-  await page.locator("#lx-crumb-where").click();
-  await page.locator("#chat").waitFor({ state: "visible" });
+  assert.equal(await page.locator('.nav[data-view="chat"]').count(), 0, "and no Conversation button, as in the sample");
   await page.setViewportSize({ width: 400, height: 844 });
   await page.evaluate(() => globalThis.branchLayout.go("memory"));
-  assert.equal(await page.locator(".lx-crumb-mid").isVisible(), false, "a phone drops the name and the slash");
-  assert.equal(await page.locator(".lx-crumb-sep").isVisible(), false);
-  assert.equal(await page.locator(".lx-crumb-mark").isVisible(), true, "and keeps the face");
+  const phone = await crumbsOnScreen(page);
+  assert.deepEqual([phone.marks, phone.marksShown, phone.slashesShown], [1, 1, 0], "a phone keeps one face and drops the slash");
+  assert.equal(await page.locator("#lx-crumbs-mid").isVisible(), false, "and the name");
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   await page.waitForFunction(() => document.documentElement.lang === "fr");
-  await page.waitForFunction(() => document.querySelector(".lx-crumb-mid").textContent === document.getElementById("rail-target-name").textContent.trim());
+  await page.waitForFunction(() => document.getElementById("lx-crumbs-mid").textContent === document.getElementById("rail-target-name").textContent.trim());
   assert.deepEqual(errors, []);
 });
 

@@ -379,54 +379,6 @@ body.lx #page-title {
   letter-spacing: 0;
   white-space: nowrap;
 }
-/* DG-141: the crumb, the picked computer or Trunk / the place */
-.lx-crumb-where {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 28px;
-  padding: 0 6px 0 4px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  box-shadow: none;
-  color: var(--text-3);
-  font-size: 13.5px;
-  font-weight: 400;
-  white-space: nowrap;
-}
-.lx-crumb-where:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.lx-crumb-mark {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  overflow: hidden;
-}
-.lx-crumb-mark > * {
-  max-width: 20px;
-  max-height: 20px;
-}
-.lx-crumb-mark svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-}
-.lx-crumb-mid {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.lx-crumb-sep {
-  color: var(--text-3);
-  font-size: 13.5px;
-}
 body:not(.lx-chat) .lx-pane-tabs,
 body:not(.lx-chat) #aside-toggle,
 body:not(.lx-chat) #thread-labels {
@@ -1299,9 +1251,7 @@ body.lx-help .context-panel > .acorn-art {
   body.lx .rail {
     background: var(--glass-2);
   }
-  .lx-pane-tab .lx-words,
-  .lx-crumb-mid,
-  .lx-crumb-sep {
+  .lx-pane-tab .lx-words {
     display: none;
   }
   .lx-settings-win {
