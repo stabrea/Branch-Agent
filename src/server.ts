@@ -10,6 +10,7 @@ import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { TeamHandoffs, TeamHandoffRefusedError } from "./team-handoff.js";
 import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
@@ -945,6 +946,37 @@ function state(app: Branch): unknown {
 }
 /** mac7/diagnostics: what kind of install this engine is, and when it started, for the report. */
 const diagnosticInstall = { type: "package", startedAt: Date.now() };
+/**
+ * Who is calling a team route, from the signed-in context only (Q61): a person's key, a short-lived
+ * key, a household profile, or the owner's window. A request body can never say who it is.
+ */
+function teamCaller(app: Branch): string {
+  const person = currentPerson(), profile = app.store.profiles.active();
+  return person ? `person:${person.profileId}` : startedWithShortLivedKey() ? `key:${shortLivedKeyMark().keyId ?? `unnamed:${crypto.randomUUID()}`}`
+    : profile && !app.store.profiles.isOwner() ? `profile:${profile.id}` : "window";
+}
+
+/**
+ * Q62: a recipient lists the team-task offers waiting for it, and accepts or rejects one. The
+ * recipient is whoever is signed in (see teamCaller); the body carries at most a reason.
+ */
+async function teamHandoffApi(app: Branch, request: IncomingMessage, teamId: string, offerId?: string, answer?: string) {
+  const handoffs = new TeamHandoffs(app.store);
+  const who = { owner: app.runtime.owner, id: teamCaller(app) };
+  if (request.method === "GET" && !offerId) return { offers: handoffs.addressedTo(who).filter((offer) => offer.teamId === teamId) };
+  if (request.method !== "POST" || !offerId) throw new HttpError(405, "Use GET to list offers, or POST to accept or reject one");
+  const { reason } = z.object({ reason: z.string().max(500).optional() }).strict().parse(await readBody(request));
+  if (handoffs.get(who.owner, offerId)?.teamId !== teamId) throw new HttpError(404, "There is no such handoff offer for this team");
+  try {
+    if (answer === "reject") return handoffs.reject(who, offerId, reason ?? "");
+    const claim = handoffs.accept(who, offerId);
+    return { offerId, taskId: claim.taskId, state: "accepted" as const, generation: claim.generation };
+  } catch (error) {
+    if (error instanceof TeamHandoffRefusedError) throw new HttpError(409, error.message);
+    throw error;
+  }
+}
+
 async function api(
   app: Branch,
   request: IncomingMessage,
@@ -1467,11 +1499,10 @@ async function api(
   if (team && request.method === "POST" && team[2] === "run") {
     // Q61: owner and source come from who signed in, never the body (strict refuses such fields).
     const { prompt, requestId } = z.object({ prompt: z.string().trim().min(1).max(8000), requestId: z.string().uuid().optional() }).strict().parse(await readBody(request));
-    const person = currentPerson(), profile = app.store.profiles.active();
-    const source = person ? `person:${person.profileId}` : startedWithShortLivedKey() ? `key:${shortLivedKeyMark().keyId ?? `unnamed:${crypto.randomUUID()}`}`
-      : profile && !app.store.profiles.isOwner() ? `profile:${profile.id}` : "window";
-    return app.teams.run(app.runtime, app.knowledge, team[1]!, prompt, { requestId, source });
+    return app.teams.run(app.runtime, app.knowledge, team[1]!, prompt, { requestId, source: teamCaller(app) });
   }
+  const handoff = /^\/api\/teams\/([a-f0-9-]{36})\/handoffs(?:\/([a-f0-9-]{36})\/(accept|reject))?$/.exec(path);
+  if (handoff) return teamHandoffApi(app, request, handoff[1]!, handoff[2], handoff[3]);
   if (team && request.method === "POST" && team[2] === "remove") return app.teams.remove(team[1]!);
   if (request.method === "POST" && path === "/api/registry/browse") {
     const { url } = z.object({ url: z.string().url().max(2000) }).strict().parse(await readBody(request));
