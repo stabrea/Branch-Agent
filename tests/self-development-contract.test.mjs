@@ -23,7 +23,7 @@ import { createBranch, savePolicy } from "../dist/index.js";
 import { AuditLog } from "../dist/audit.js";
 import { exportBackup, importBackup } from "../dist/backup.js";
 import { ToolRegistry } from "../dist/registry.js";
-import { ContractBook, contractGuard, contractHold, globFits } from "../dist/self-development-contract.js";
+import { ContractBook, contractGuard, contractHold, globFits, windowsPlain, workspacePath } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 const worktree = "branch-agent-source/.branch-worktrees/self-remove-button";
@@ -297,6 +297,8 @@ test("every spelling of the source folder is held to the contract or refused, an
   const foldsCase = existsSync(join(workspace, "BRANCH-AGENT-SOURCE"));
   const shouted = write("BRANCH-AGENT-SOURCE/.Branch-Worktrees/SELF-REMOVE-BUTTON/src/ui/button.ts");
   if (foldsCase) await shouted; else await assert.rejects(shouted, /protected Branch Agent source checkout/);
+  // A whole absolute path in capitals is this workspace only where the disk ignores case.
+  if (foldsCase) await assert.rejects(write(join(workspace.toUpperCase(), "BRANCH-AGENT-SOURCE", "src", "main.ts")), /protected Branch Agent source checkout/);
   for (const [path, why] of [
     ["Branch-Agent-Source/src/main.ts", /protected Branch Agent source checkout/],
     ["BRANCH-AGENT-SOURCE/.branch-worktrees/self-remove-button/package.json", /package\.json is outside the contract's allowed paths/],
@@ -313,7 +315,7 @@ test("every spelling of the source folder is held to the contract or refused, an
   // A command's folder is read from the workspace, not the active project, exactly as the shell tool reads it.
   await assert.rejects(guard("shell.execute", { command: "npm version patch", cwd: "Branch-Agent-Source" }, { runId: "r" }),
     /Refused by the self-development contract/, "a folder named from the workspace while another project is active");
-  assert.equal(log.list("local", { action: "self_development.contract" }).length, foldsCase ? 10 : 11);
+  assert.equal(log.list("local", { action: "self_development.contract" }).length, 11);
   // Before the folder exists on disk the spelling alone must be enough (the first write can make it).
   const bare = contractGuard({ store: { audit: log }, owner: "local", workspace: join(root, "empty"), registry, book, git: async () => answer("") });
   scope = "";
@@ -370,4 +372,22 @@ test("the owner's question shows every broad glob first and says how many narrow
   }
   assert.match(contractHold("branch.prepare_source_change", { contract: { allowedPaths: ["src/ui/**"], permissions: ["files.write"] } }).reason,
     /allowed to change src\/ui\/\*\*, using files\.write\.$/, "a short list is shown whole");
+});
+
+test("Windows spellings of the source folder go through the path normaliser, on any computer", () => {
+  assert.equal(windowsPlain("\\\\?\\C:\\ws\\x"), "C:\\ws\\x");
+  assert.equal(windowsPlain("\\\\.\\C:\\ws\\x"), "C:\\ws\\x");
+  assert.equal(windowsPlain("\\\\localhost\\C$\\ws\\x"), "C:\\ws\\x");
+  assert.equal(windowsPlain("\\\\?\\UNC\\127.0.0.1\\c$\\ws\\x"), "c:\\ws\\x");
+  const ws = "C:\\Users\\o\\work";
+  for (const path of [
+    "\\\\?\\C:\\Users\\o\\work\\branch-agent-source\\src\\main.ts",
+    "\\\\localhost\\C$\\Users\\o\\work\\branch-agent-source\\src\\main.ts",
+    "\\\\?\\UNC\\localhost\\C$\\Users\\o\\work\\Branch-Agent-Source\\src\\main.ts",
+    "C:\\USERS\\O\\WORK\\BRANCH-AGENT-SOURCE\\src\\main.ts",
+    "\\\\.\\C:\\Users\\o\\work\\branch-agent-source.\\src\\main.ts",
+    "C:\\Users\\o\\work\\branch-agent-source \\src\\main.ts",
+    "Branch-Agent-Source\\src\\main.ts",
+  ]) assert.equal(workspacePath(ws, "", path, "win32"), "branch-agent-source/src/main.ts", path);
+  assert.equal(workspacePath(ws, "", "\\\\server\\share\\branch-agent-source\\x", "win32"), null, "another computer's share is not this workspace");
 });

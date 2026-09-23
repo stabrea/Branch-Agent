@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, join, posix, resolve, win32 } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { audit, auditOrigins, type AuditOrigin } from "./audit.js";
@@ -201,12 +201,27 @@ function sourceSpelling(path: string): string {
   if ((parts[0] ?? "").replace(/[. ]+$/, "").toLowerCase() !== sourceFolder) return path;
   return [sourceFolder, ...parts.slice(1)].join("/");
 }
+/**
+ * A Windows path without its device or network prefix: `\\?\C:\x` and `\\.\C:\x` are `C:\x`, and
+ * `\\?\UNC\localhost\C$\x` or `\\localhost\C$\x` (this computer's own admin share) are `C:\x`
+ * too, so each names the same place the plain spelling does.
+ */
+export function windowsPlain(path: string): string {
+  const device = path.replace(/^[\\/]{2}[?.][\\/](?!UNC[\\/])/i, "");
+  const share = /^(?:[\\/]{2}[?.][\\/]UNC[\\/]|[\\/]{2})(?:localhost|127\.0\.0\.1|\.)[\\/]([A-Za-z])\$(?=[\\/]|$)/i.exec(device);
+  return share ? `${share[1]}:${device.slice(share[0].length) || "\\"}` : device;
+}
+
 /** Where a path named from `scope` really is, from the workspace, or null when it is outside it. */
-export function workspacePath(workspace: string, scope: string, path: string): string | null {
-  const root = onDisk(resolve(workspace));
-  const full = onDisk(resolve(workspace, scope, path));
-  const inside = relative(root, full);
-  if (inside.startsWith("..") || isAbsolute(inside)) return null;
+export function workspacePath(workspace: string, scope: string, path: string, platform: NodeJS.Platform = process.platform): string | null {
+  const paths = platform === "win32" ? win32 : posix;
+  // The disk is asked only on the computer it belongs to; on Windows a path is compared without its prefix.
+  const real = platform === process.platform ? onDisk : (value: string) => value;
+  const plain = platform === "win32" ? windowsPlain : (value: string) => value;
+  const root = real(paths.resolve(plain(workspace)));
+  const full = real(paths.resolve(plain(workspace), plain(scope), plain(path)));
+  const inside = paths.relative(root, full);
+  if (inside.startsWith("..") || paths.isAbsolute(inside)) return null;
   return sourceSpelling(tidy(inside));
 }
 const insideSource = (path: string): boolean => path === sourceFolder || path.startsWith(`${sourceFolder}/`);
