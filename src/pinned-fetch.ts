@@ -20,7 +20,7 @@ import * as zlib from "node:zlib";
  * its options on (the size-limited fetch, a model connection's health record) delivers them here.
  * A request without them goes to the platform's fetch unchanged. Each request that arrives here with
  * them is noted, so the network policy can tell when a checked request's fetch did not keep to the
- * checked addresses, and say so.
+ * checked addresses, and refuse it.
  */
 export const pinnedTo: unique symbol = Symbol("branch.pinnedTo");
 
