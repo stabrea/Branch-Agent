@@ -89,13 +89,6 @@ export function withoutControlCharacters(text: string): string {
 }
 
 /**
- * The last update's own steps, the end only, cleaned like every report item.
- *
- * The folder is an argument so a test can drive this without writing into the machine's own temporary
- * folder and putting the owner's real log back afterwards. `createBranch` and the routes call it with
- * no argument and get the real one.
- */
-/**
  * The last line of a log that is longer than the room it has, kept from both ends.
  *
  * Its beginning says which step it was — `[step 599] …` — and its end is where the update actually
@@ -130,6 +123,13 @@ export function readableUpdateLog(log: string): string {
   return redactForLog(cut.join("\n"));
 }
 
+/**
+ * The last update's own steps, the end only, cleaned like every report item.
+ *
+ * The folder is an argument so a test can drive this without writing into the machine's own temporary
+ * folder and putting the owner's real log back afterwards. `createBranch` and the routes call it with
+ * no argument and get the real one.
+ */
 export async function updateLogItem(scratchDir: string = updateScratchDir()): Promise<ReportItem> {
   const text = await tailOf(join(scratchDir, "apply-update.log")).then(
     readableUpdateLog,
