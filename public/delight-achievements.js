@@ -70,8 +70,14 @@ export function note(item, words, done = () => undefined) {
   const finish = () => { box.remove(); done(); };
   box.addEventListener("click", finish);
   document.body.append(box);
+  underTopBar(box);
   setTimeout(() => box.classList.add("out"), 6600);
   setTimeout(() => { if (box.isConnected) finish(); }, 7200);
+}
+/** Just under the conversation's top bar, so none of its buttons is covered. */
+function underTopBar(box) {
+  const bar = document.querySelector("main > header")?.getBoundingClientRect();
+  if (bar && bar.height && bar.bottom > 0) box.style.setProperty("top", `${Math.round(bar.bottom + 8)}px`);
 }
 /* ---------- the card and its party, for Gold and above ---------- */
 const LEVEL = { Gold: 1, Diamond: 2, Godly: 3, "SSS+": 4 };
@@ -105,15 +111,21 @@ export function party(item, done = () => undefined) {
   placeCard(card);
   setTimeout(finish, 9000);
 }
-/** Over the conversation, never over the message box: above it when there is room, else under it. */
+/**
+ * Over the conversation, never over the message box: above it when there is room, else under it. The card starts
+ * where the sample's does, in the middle of the window (DG-077), and is only nudged from there, by its own layout
+ * box, so the arrival animation's scale cannot skew the sums.
+ */
 function placeCard(card) {
   const main = document.querySelector("main")?.getBoundingClientRect(), box = $("chat-form")?.getBoundingClientRect();
-  if (main && main.width) card.style.setProperty("left", `${Math.round(main.left + main.width / 2)}px`);
-  if (!box || !box.height) return;
-  const height = card.offsetHeight, top = card.getBoundingClientRect().top;
-  if (top + height + 12 <= box.top) return;
-  const above = box.top - height - 12;
-  card.style.setProperty("top", `${Math.round(above >= 8 ? above : box.bottom + 12)}px`);
+  const left = card.offsetLeft, top = card.offsetTop, width = card.offsetWidth, height = card.offsetHeight;
+  const dx = main && main.width ? Math.round(main.left + main.width / 2 - (left + width / 2)) : 0;
+  let dy = 0;
+  if (box && box.height && top + height + 12 > box.top) {
+    const above = box.top - height - 12;
+    dy = Math.round((above >= 8 ? above : box.bottom + 12) - top);
+  }
+  if (dx || dy) card.style.setProperty("translate", `${dx}px ${dy}px`);
 }
 /** "Try a celebration" in Settings: exactly what a real one looks like, and nothing is earned. */
 export function preview(tier) {

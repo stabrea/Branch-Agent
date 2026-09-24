@@ -92,6 +92,30 @@ test("the Capacitor sync runs through Node instead of a platform-specific bin sh
   assert.deepEqual(sync.args, [join(MOBILE, "node_modules", "@capacitor", "cli", "bin", "capacitor"), "sync"]);
 });
 
+test("npm run sync includes icons and runs native-files twice", async () => {
+  // The package.json sync script should call all the same steps as prepare()
+  const pkg = JSON.parse(await readFile(join(MOBILE, "package.json"), "utf8"));
+  assert.ok(pkg.scripts.sync.includes("build-web.mjs"), "sync must call build-web");
+  assert.ok(pkg.scripts.sync.includes("icons.mjs"), "sync must call icons (gap A fix)");
+  assert.ok(pkg.scripts.sync.includes("cap sync"), "sync must call capacitor");
+  const native = pkg.scripts.sync.split("&&").map((s) => s.trim()).filter((s) => s.includes("native-files.mjs"));
+  assert.equal(native.length, 2, "sync must call native-files twice: before cap sync and after (gap B fix)");
+});
+
+test("the workflow paths include all files copied by buildWeb()", async () => {
+  const { REUSED } = await import("../apps/mobile/scripts/build-web.mjs");
+  const workflows = await readFile(join(process.cwd(), ".github", "workflows", "mobile.yml"), "utf8");
+  for (const [from] of REUSED) {
+    const fullPath = `public/${from}`;
+    const withWildcard = `public/${from}/**`;
+    const found = workflows.includes(fullPath) || workflows.includes(withWildcard);
+    assert.ok(found, `${fullPath} is copied by buildWeb() but not in workflow paths`);
+  }
+  /* Server routes the phone uses are covered by the main suite (tests/mobile-contract.test.mjs runs there);
+     building the phone apps on every server change would spend hosted macOS time on nearly every pull request. */
+  assert.equal(/^\s+- 'src\//m.test(workflows), false, "the phone build does not run for server-only changes");
+});
+
 const sdk = await androidSdk();
 test("the Android app builds", {
   skip: !sdk ? "no Android SDK on this machine" : process.env.BRANCH_MOBILE_BUILD !== "1" ? "set BRANCH_MOBILE_BUILD=1 to build" : false,

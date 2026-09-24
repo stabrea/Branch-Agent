@@ -136,5 +136,7 @@ export interface WallContext {
   spend(kind: WallQuestion, target: string): void;
   /** The owner's network rules (blocked sites, private addresses), asked before any site is reached. */
   siteCheck?: ((target: URL) => Promise<void>) | undefined;
+  /** The owner's fake-IP proxy setting (web section), which the door reads for every site. */
+  fakeIpProxy?: (() => boolean) | undefined;
 }
 export type WallQuestion = "network.site" | "sandbox.write";

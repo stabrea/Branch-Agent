@@ -7,7 +7,9 @@ import { estimateCost, formatCost, pricingSettings } from "../pricing.js";
  * Branch. It reuses the figures a task already writes before each round (the `context.budget`
  * event: instructions, the list of tools, the conversation, the room kept for the answer), so it
  * reports what Branch really measured rather than a second guess. A conversation with no task yet
- * is measured from its stored messages.
+ * is measured from its stored messages, and so is one folded since that measure (the measure was
+ * taken before the fold). Otherwise the larger of the two counts: the stored messages also hold the
+ * answer written after the last measure.
  */
 export interface TokenReport {
   instructions: number;
@@ -26,28 +28,33 @@ export interface TokenReport {
 type Budget = { limit?: number; system?: number; catalog?: number; messages?: number; reserve?: number };
 const n = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
-function lastBudget(runtime: Runtime, sessionId: string): Budget | null {
-  const runs = runtime.store.runs(runtime.owner).filter((run) => run.sessionId === sessionId);
+/** The last measure taken for this conversation, and whether it was folded after that measure. */
+function lastBudget(runtime: Runtime, sessionId: string, owner: string): { budget: Budget; folded: boolean } | null {
+  const runs = runtime.store.runs(owner).filter((run) => run.sessionId === sessionId);
   for (const run of runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
-    const found = runtime.store.events(run.id).filter((event) => event.kind === "context.budget").at(-1);
-    if (found) return found.data as Budget;
+    const events = runtime.store.events(run.id).filter((event) => event.kind === "context.budget" || event.kind === "context.compacted");
+    const found = events.filter((event) => event.kind === "context.budget").at(-1);
+    if (found) return { budget: found.data as Budget, folded: events.at(-1)?.kind === "context.compacted" };
   }
   return null;
 }
 
-export function tokenReport(runtime: Runtime, sessionId: string): TokenReport {
+/** `owner` is whoever the conversation is filed under: the owner, or a household profile. */
+export function tokenReport(runtime: Runtime, sessionId: string, owner = runtime.owner): TokenReport {
   const { summary, rows } = runtime.store.workingMessages(sessionId);
   const stored = estimateTokens(rows.map((row) => textOnly(row.message)));
-  const budget = lastBudget(runtime, sessionId);
-  const choice = runtime.models.plan(runtime.owner, sessionId).choice;
-  const conversation = budget ? n(budget.messages) - n(budget.system) : stored;
+  const last = lastBudget(runtime, sessionId, owner);
+  const budget = last?.budget ?? null;
+  // The conversation's own model and prices: a household profile's choices, not the owner's.
+  const choice = runtime.models.plan(owner, sessionId).choice;
+  const conversation = !last || last.folded ? stored : Math.max(n(budget!.messages) - n(budget!.system), stored);
   const instructions = n(budget?.system), tools = n(budget?.catalog), limit = n(budget?.limit) || 20000;
   const input = instructions + tools + Math.max(0, conversation);
-  const { overrides } = pricingSettings(runtime.store, runtime.owner);
+  const { overrides } = pricingSettings(runtime.store, owner);
   return {
     instructions, tools, conversation: Math.max(0, conversation), answerRoom: n(budget?.reserve), limit,
     left: limit - input, summary: summary ? estimateTokens(summary) : 0, messages: rows.length,
-    measured: budget ? "last task" : "stored messages", model: choice.model,
+    measured: last && !last.folded ? "last task" : "stored messages", model: choice.model,
     cost: formatCost(estimateCost(choice.model, { input, output: 0 }, overrides)),
   };
 }

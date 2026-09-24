@@ -4,6 +4,7 @@ import type { Words } from "../terminal-words.js";
 import { readComfort, saveComfort, statusItems, type ComfortCard, type StatusItem } from "./settings.js";
 import { defaultRoom, statusLineText, type StatusFacts } from "./status-line.js";
 import { validateNetwork } from "./network.js";
+import { inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * R17-S21: the comfort settings as real controls in the terminal view. Each row on a Settings page
@@ -88,7 +89,9 @@ export function switchComfort(store: Store, owner: string, name: string, word: s
     next = control.choices[(at + 1) % control.choices.length] ?? null;
   }
   if (control.card === "network") validateNetwork({ ...readComfort(store, owner, "network"), [control.field]: next } as never);
-  saveComfort(store, owner, control.card, { [control.field]: next });
+  // Q48: a switch typed in the terminal is written down like one moved in the window.
+  recordedWrite(store, owner, { writer: "owner-by-command", source: "command", detail: `/switch ${control.name}` },
+    inCatalogue(`comfort-${control.card}`), () => saveComfort(store, owner, control.card, { [control.field]: next }));
   applied?.(control.card);
   return `${say.t(control.key, control.english)}: ${words(valueOf(store, owner, control), say)}`;
 }

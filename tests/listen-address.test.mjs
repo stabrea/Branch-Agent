@@ -17,8 +17,9 @@ import { createBranch } from "../dist/index.js";
 import { startServer, hostAllowed, offLimitsToShortLivedKeys } from "../dist/server.js";
 import {
   decideListen, fromThisComputer, listenAsked, listenChangeRefusal, listenEnvName, listenKey,
-  listenSettings, saveListenSettings,
+  listenSettings, ownAddresses, saveListenSettings,
 } from "../dist/listen-address.js";
+import { isTailnetAddress } from "../dist/remote/tailscale.js";
 import { setLockdown } from "../dist/lockdown.js";
 import { underShortLivedKey } from "../dist/key-context.js";
 import { asPerson } from "../dist/people/context.js";
@@ -28,12 +29,21 @@ import { ROUTES } from "./short-lived-key-routes.mjs";
 const key = "a".repeat(64);
 const privateHome = [{ address: "127.0.0.1", internal: true }, { address: "192.168.1.40", internal: false }];
 
+/**
+ * Tailscale as it would answer on this computer, without running it: this computer's own 100.64
+ * address, when it has one. These tests are about the door, so they keep what it meant before.
+ */
+async function tailscaleHere() {
+  const address = ownAddresses().find((entry) => !entry.internal && isTailnetAddress(entry.address))?.address ?? null;
+  return { present: true, running: address !== null, address, hostname: null, message: "" };
+}
+
 async function fixture(t, { where, lockdown } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-bind-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   if (where) saveListenSettings(app.store, app.runtime.owner, { where });
   if (lockdown) setLockdown(app.store, app.runtime.owner, { on: true });
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, tailscale: tailscaleHere });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   return { app, server, root };
 }
@@ -90,10 +100,11 @@ test("B2 Lockdown, a public address and a missing key each keep the door on this
   assert.equal(decideListen({ ...wide, addresses: [{ address: "not-an-address", internal: false }] }).beyond, false);
 });
 
-test("B2 a Tailscale address is private here, as it already is for the phone door", () => {
+test("B2 the address Tailscale reports as this computer's counts as private for this door", () => {
   const onTailnet = decideListen({
     where: "private-network", lockdown: false, token: key,
     addresses: [{ address: "127.0.0.1", internal: true }, { address: "100.101.102.103", internal: false }],
+    tailnet: ["100.101.102.103"],
   });
   assert.equal(onTailnet.address, "0.0.0.0");
   assert.equal(onTailnet.refusal, null);

@@ -482,6 +482,10 @@ export interface OpenedWall {
 interface WallPlan {
   wall: WallContext; network: WallNetwork; workspace: string; temp: string; hidden: string[]; readOnly: string[];
   extraWrites: string[]; keys: EdgeKey[]; deps: WallDeps;
+  /** Q12: the program's only temporary folder is `temp` (a private one), not the system's shared ones. */
+  onlyTemp: boolean;
+  /** Q12: a command held to one folder by a self-development contract (no `.git` may be made in it). */
+  held: boolean;
   /** Linux only: a private folder for the filter and the door, made when the wall is built. */
   staging?: string;
   /** A program left running: no door is ever opened for it. */
@@ -518,10 +522,10 @@ function edgeKeys(wall: WallContext, secrets: Readonly<Record<string, string>>):
 }
 
 async function planWall(
-  wall: WallContext, options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean }, deps: WallDeps,
+  wall: WallContext, options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean; temp?: string; held?: boolean }, deps: WallDeps,
 ): Promise<WallPlan> {
   const real = deps.realpath ?? realpath;
-  const workspace = await real(options.workspace), temp = await real(tmpdir());
+  const workspace = await real(options.workspace), temp = await real(options.temp ?? tmpdir());
   const home = homedir();
   const named = [...secretHomePlaces.map((place) => join(home, place)), ...wall.unreadable, ...(deps.dataDir ? [deps.dataDir] : [])];
   // Each hidden place both as written and as the system names it, so a `/var` or a link cannot slip past.
@@ -536,13 +540,13 @@ async function planWall(
   const keys = edgeKeys(wall, options.secrets ?? {});
   // A program left running cannot keep a door open after the call, so it gets no network instead.
   const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
-  return { wall, network, workspace, temp, hidden, readOnly, extraWrites, keys, deps, doorless: options.proxy === false };
+  return { wall, network, workspace, temp, hidden, readOnly, extraWrites, keys, deps, doorless: options.proxy === false, onlyTemp: !!options.temp, held: options.held === true };
 }
 
 function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
   const { network, keys, wall } = plan;
   if (plan.doorless || network === "none" || (network === "open" && !keys.length)) return null;
-  return new SandboxProxy({ network, keys, check: wall.siteCheck, upstream: plan.deps.upstream,
+  return new SandboxProxy({ network, keys, check: wall.siteCheck, fakeIpProxy: wall.fakeIpProxy, upstream: plan.deps.upstream,
     ...(plan.deps.resolve ? { resolve: plan.deps.resolve } : {}), ...(paths ? { paths } : {}),
     decide: (host) => wall.answer("network.site", host) ?? (network === "open" ? "allow" : "ask") });
 }
@@ -557,7 +561,7 @@ async function macWall(plan: WallPlan, start: SandboxStart): Promise<{ start: Sa
   const ports = address ? [address.httpPort!, address.socksPort!] : undefined;
   // The hidden places go in as the system names them (`/private/var`, not `/var`), or macOS would not match them.
   const args = seatbeltArgs({ workspace: plan.workspace, network: plan.network, proxyPorts: ports, extraWrites: plan.extraWrites,
-    unreadable: plan.hidden, readOnly: plan.readOnly, temp: [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
+    unreadable: plan.hidden, readOnly: plan.readOnly, temp: plan.onlyTemp ? [plan.temp] : [plan.temp, "/private/tmp", "/private/var/tmp"], held: plan.held }, start);
   const env = { ...start.env, ...keyEnv(plan.keys), ...(address && door ? proxyEnvironment({ httpPort: address.httpPort!, socksPort: address.socksPort! }, door.secret) : {}) };
   return { door, start: { executable: sandboxExecPath, args, cwd: start.cwd, env } };
 }
@@ -598,7 +602,11 @@ async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: 
  */
 export async function openWall(
   wall: WallContext, start: SandboxStart,
-  options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean }, deps: WallDeps = {},
+  options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean;
+    /** Q12: a private temporary folder, the only one the program may write to besides the workspace. */
+    temp?: string;
+    /** Q12: a command held to one folder by a self-development contract. */
+    held?: boolean }, deps: WallDeps = {},
 ): Promise<OpenedWall> {
   const platform = deps.platform ?? process.platform;
   if (platform === "win32") return passThrough(start);

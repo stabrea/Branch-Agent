@@ -127,6 +127,45 @@ function footOf(tab) {
   nodes.push(link);
   return nodes;
 }
+/* DG-117: "Open a terminal for me", as the sample's. A page cannot start a terminal on the computer, and Branch adds no
+   new way to run commands, so it gives the one safe way that already exists: `branch chat --attach` joins this same
+   conversation from a terminal, through the same key and the same rules as this window (src/cli-attach.ts). */
+let attachShown = false;
+function worded(tag, className, key, english) {
+  const node = make(tag, className, say(key, english));
+  node.dataset.t = key;
+  return node;
+}
+function terminalAttach() {
+  const row = make("div", "panels-acts");
+  const open = worded("button", "panels-act", "panels.terminal.open", "Open a terminal for me");
+  open.type = "button";
+  open.id = "panels-terminal-open";
+  open.setAttribute("aria-expanded", String(attachShown));
+  open.setAttribute("aria-controls", "panels-terminal-attach");
+  row.append(open);
+  const box = make("div", "panels-attach");
+  box.id = "panels-terminal-attach";
+  box.hidden = !attachShown;
+  const command = `branch chat --attach --session ${sessionNow()}`;
+  const line = make("div", "panels-attach-line");
+  const copy = worded("button", "panels-act panels-act-quiet", "panels.terminal.copy", "Copy");
+  copy.type = "button";
+  copy.addEventListener("click", () => {
+    navigator.clipboard?.writeText(command).then(() => {
+      copy.textContent = say("panels.terminal.copied", "Copied");
+    }, () => undefined);
+  });
+  line.append(make("code", "panels-what", command), copy);
+  box.append(worded("p", "panels-attach-note", "panels.terminal.attach",
+    "Run this in a terminal on this computer to carry on this conversation there. It goes through the same rules as this window."), line);
+  open.addEventListener("click", () => {
+    attachShown = !attachShown;
+    box.hidden = !attachShown;
+    open.setAttribute("aria-expanded", String(attachShown));
+  });
+  return [row, box];
+}
 function statusLine(tab, work, entries) {
   const live = entries.some((entry) => entry.state === "running");
   const words = live
@@ -154,6 +193,7 @@ async function draw(tab, work) {
     if (tab === "browser") { const shot = await pictureNode(work.browser.picture); if (shot) nodes.push(shot); }
     if (entries.length) nodes.push(...[...entries].reverse().map((entry) => entryRow(tab, entry)));
     else nodes.push(make("p", "context-empty", say(TABS[tab].empty[0], TABS[tab].empty[1])));
+    if (tab === "terminal") nodes.push(...terminalAttach());
   }
   block.replaceChildren(...nodes, ...footOf(tab));
   markLive(work);
@@ -190,7 +230,7 @@ function watchTabs() {
 /* ---------- panes you can resize ---------- */
 const WIDTHS = "branch-pane-widths";
 const RZ = {
-  rail: { v: "--rail-w", min: 200, max: 440, snap: 150, label: ["panels.rz.rail", "Side list width"], toggle: "rail-toggle", fold: "no-rail", wide: 861 },
+  rail: { v: "--rail-w", min: 200, max: 440, snap: 150, label: ["panels.rz.rail", "Side list width"], toggle: "rail-toggle", fold: "no-rail", wide: 761 },
   aside: { v: "--aside-w", min: 260, max: 640, snap: 200, label: ["panels.rz.aside", "Side panel width"], toggle: "aside-toggle", wide: 1181 },
 };
 /* Kept per workspace and per person at this window: a household person's widths are their own. */
@@ -224,11 +264,12 @@ function resetWidth(k) {
   applyWidths();
 }
 const paneEl = (k) => (k === "rail" ? $("conversation-rail") : $("context-panel"));
-/** Open as a column (not folded, not floating over the conversation, not the calm window's hidden pane). */
+/** Open on a window wide enough to resize it (not folded, not the calm window's hidden pane). DG-114: the side panel
+    is a fixed card now, and a fixed element's offsetParent is always null, so whether it shows is read from its boxes. */
 function columnOpen(k) {
   if (innerWidth < RZ[k].wide) return false;
   const pane = paneEl(k);
-  if (!pane || pane.offsetParent === null || !pane.getBoundingClientRect().width) return false;
+  if (!pane || !pane.getClientRects().length || !pane.getBoundingClientRect().width) return false;
   return k === "rail" ? !document.body.classList.contains("no-rail") : document.body.classList.contains("lx-aside");
 }
 const handles = {};

@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { chmod, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
+import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
+import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -16,6 +18,8 @@ import { checksumAssetName } from "./release-assets.js";
 export interface UpdaterOptions {
   repo: string;
   currentVersion: string;
+  /** Stable stays on GitHub's latest final release; beta also considers published prereleases. */
+  channel?: UpdateChannel;
   /** Folder that holds the running executable, or null when not running from an installed copy. */
   installDir: string | null;
   /** Windows and Linux: the program file. macOS: the `.app` bundle's folder name. */
@@ -34,10 +38,11 @@ export interface UpdaterOptions {
    * fails the update stops, because an update without something to go back to is not worth the risk.
    */
   backup?: () => Promise<void>;
+  /** Re-check all tasks at the last safe point, before a background engine can be stopped. */
+  beforeStop?: () => Promise<void>;
   /**
-   * Closes the engine that keeps working with the window closed, so the old program files are not
-   * held open while they are replaced. Answers with the process id that was closed, or null when
-   * nothing was working in the background.
+   * Politely closes the engine that keeps working with the window closed. A refusal defers the
+   * update; it must not be swallowed and followed by a hand-over that forcibly ends the engine.
    */
   stopDaemon?: () => Promise<number | null>;
   /**
@@ -49,7 +54,13 @@ export interface UpdaterOptions {
   stallMs?: number;
   /** Windows: the registry key the update's recovery script is registered under (HKCU RunOnce); tests hand in their own. */
   runOnceKey?: string;
+  /** Dev channel: the commit this copy was built from (dist/build-info.json), or null when it is not known. */
+  currentCommit?: string | null;
+  /** Dev channel: runs git and npm; tests hand in their own. */
+  devRun?: Run;
 }
+export type UpdateChannel = "stable" | "beta" | "dev";
+export class UpdateDeferredError extends Error {}
 export interface ReleaseInfo {
   currentVersion: string;
   latestVersion: string;
@@ -62,34 +73,82 @@ export interface ReleaseInfo {
   checksumUrl: string;
   assetBytes: number;
   pageUrl: string;
+  channel: UpdateChannel;
+  /** Dev: the commit that would be built. */
+  commit?: string;
 }
 export type UpdatePhase =
   | "idle" | "checking" | "current" | "available" | "downloading" | "verifying"
   | "unpacking" | "ready" | "applying" | "error" | "unsupported";
+/** Q55: the build that is installed now: its version, and the commit it was built from (null when not recorded). */
+export interface InstalledBuild { version: string; commit: string | null }
+/**
+ * Q55: after a failed update, what the owner still has. "kept": nothing was swapped, the installed
+ * version still runs. "backgroundStopped": the engine working with the window closed was closed for
+ * the update and stays closed until it is started again.
+ */
+export type UpdateOutcome = { kept: string; backgroundStopped: boolean } | null;
 export interface UpdateStatus {
   phase: UpdatePhase;
   message: string;
+  installed: InstalledBuild;
+  /** Set only by a failed install, and cleared by whatever the updater does next. */
+  outcome: UpdateOutcome;
   progress: number | null;
   release: ReleaseInfo | null;
   /** Download size so far and in total, while downloading. */
   bytes: { received: number; total: number } | null;
   updatedAt: string;
+  /** What the build provenance check found for the download being installed, once it has run. */
+  provenance?: { outcome: ProvenanceOutcome; message: string };
 }
+export type ProvenanceOutcome = "checked" | "not-checked" | "none";
+/**
+ * The words for each provenance outcome. They are fixed sentences (no names filled in) so the
+ * window can show them in the chosen language: the same words sit in public/locales under
+ * `updates.provenance.*`. "checked" says what was checked and that the certificate chain was not.
+ */
+export const PROVENANCE_WORDS: Record<ProvenanceOutcome, string> = {
+  checked: "A build provenance record was found for this download. It names this exact file and Branch's release workflow run for a version tag, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
+  "not-checked": "The build provenance record for this download was not checked: GitHub could not be reached, did not answer in time, or sent a record that could not be read. The update relies on the published checksum alone, which it passed.",
+  none: "No build provenance record is published for this download. The update relies on the published checksum alone, which it passed.",
+};
+// Beta version of the "checked" message
+export const PROVENANCE_WORDS_BETA_CHECKED = "A build provenance record was found for this download. It names this exact file and Branch's beta workflow run on the mac/cross-platform branch, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.";
+const assetSchema = z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() });
 const releaseSchema = z.object({
+  id: z.number().int().positive().optional(),
   tag_name: z.string().min(1),
+  draft: z.boolean().optional(),
+  prerelease: z.boolean().optional(),
   name: z.string().nullable().optional(),
   body: z.string().nullable().optional(),
   published_at: z.string().nullable().optional(),
   html_url: z.string().url(),
-  assets: z.array(z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() })),
+  assets: z.array(assetSchema),
 });
 
 export function compareVersions(a: string, b: string): number {
-  const parts = (value: string) => value.replace(/^v/i, "").replace(/\+.*/, "").split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const left = parts(a), right = parts(b);
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+  const parse = (value: string) => {
+    const match = /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
+    if (!match) throw new Error(`Invalid Branch version: ${value}`);
+    return { numbers: [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)],
+      pre: match[4]?.split(".") ?? [] };
+  };
+  const left = parse(a), right = parse(b);
+  for (let index = 0; index < 3; index++) {
+    const difference = left.numbers[index]! - right.numbers[index]!;
     if (difference) return Math.sign(difference);
+  }
+  if (!left.pre.length || !right.pre.length) return Number(right.pre.length > 0) - Number(left.pre.length > 0);
+  for (let index = 0; index < Math.max(left.pre.length, right.pre.length); index++) {
+    const one = left.pre[index], two = right.pre[index];
+    if (one === undefined || two === undefined) return one === undefined ? -1 : 1;
+    if (one === two) continue;
+    const numericOne = /^\d+$/.test(one), numericTwo = /^\d+$/.test(two);
+    if (numericOne && numericTwo) return Math.sign(Number(one) - Number(two));
+    if (numericOne !== numericTwo) return numericOne ? -1 : 1;
+    return one < two ? -1 : 1;
   }
   return 0;
 }
@@ -101,63 +160,177 @@ export function finalReleaseVersion(tag: string): string {
   return `${match[1]}.${match[2]}.${match[3]}${match[4] ?? ""}`;
 }
 
+/** Rolling beta artifacts have one next-patch line and a monotonically increasing run number. */
+export function betaReleaseVersion(tag: string): string {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.([1-9]\d*)$/.exec(tag);
+  if (!match) throw new Error("The beta release tag is not a Branch beta version.");
+  return tag.slice(1);
+}
+
+/** Every published Beta or Stable release, newest first. */
+function betaCandidates(raw: unknown): z.infer<typeof releaseSchema>[] {
+  const releases = z.array(releaseSchema).parse(raw);
+  const accepted = releases.filter((entry) => {
+    if (entry.draft) return false;
+    try {
+      if (entry.prerelease) betaReleaseVersion(entry.tag_name);
+      else finalReleaseVersion(entry.tag_name);
+      return true;
+    } catch { return false; }
+  });
+  accepted.sort((one, two) => compareVersions(two.tag_name, one.tag_name));
+  if (!accepted[0]) throw new Error("No published Branch beta or stable release is available yet.");
+  return accepted;
+}
+
+function betaAssetMatches(release: z.infer<typeof releaseSchema>, repo: string,
+  asset: { name: string; browser_download_url: string }): boolean {
+  const url = new URL(asset.browser_download_url);
+  return url.protocol === "https:" && url.hostname === "github.com" && !url.search && !url.hash &&
+    url.pathname === `/${repo}/releases/download/${release.tag_name}/${asset.name}`;
+}
+
 export class Updater {
-  status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+  status: UpdateStatus;
   private busy = false;
+  private provenance: UpdateStatus["provenance"] | null = null;
+  private channel: UpdateChannel;
+  private generation = 0;
   /** True while a download, check, unpack or hand-over is under way. */
   get inProgress(): boolean { return this.busy; }
   private readonly fetch: typeof fetch;
   private readonly extract: (archive: string, into: string) => Promise<void>;
   private readonly platform: NodeJS.Platform;
+  private readonly installed: InstalledBuild;
+  /** Q55: this install closed the background engine (a stop that found nothing running does not count). */
+  private stoppedBackground = false;
   constructor(private readonly options: UpdaterOptions) {
+    this.installed = { version: options.currentVersion, commit: options.currentCommit ?? null };
+    this.status = this.fresh("idle", "Updates have not been checked yet.");
+    this.channel = options.channel ?? "stable";
     this.fetch = options.fetch ?? globalThis.fetch;
     this.platform = options.platform ?? process.platform;
     const platform = this.platform;
     this.extract = options.extract ?? ((archive, into) => expandArchive(archive, into, platform));
     const reason = unsupportedReason(options, platform);
     if (reason)
-      this.status = { phase: "unsupported", message: reason, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+      this.status = this.fresh("unsupported", reason);
+  }
+  get selectedChannel(): UpdateChannel { return this.channel; }
+  setChannel(channel: UpdateChannel): UpdateStatus {
+    if (this.busy) throw new Error("Wait for the current update before changing channels.");
+    if (channel === this.channel) return this.status;
+    this.channel = channel;
+    this.generation++;
+    this.provenance = null;
+    return this.set("idle", `Checking ${channel} updates has not started yet.`, null, null);
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
+    this.provenance = null;
+    return this.lookUp();
+  }
+  /** The look-up itself. An install that has already claimed the updater uses this, not `check`. */
+  private async lookUp(): Promise<UpdateStatus> {
+    const generation = ++this.generation;
     this.set("checking", "Checking GitHub for a newer version…");
     try {
       const release = await this.latestRelease();
+      if (generation !== this.generation) return this.status;
+      if (release.channel === "dev") {
+        const change = release.commit?.slice(0, 7);
+        return release.available
+          ? this.set("available", `A newer Dev build (change ${change}) can be built and installed.`, null, release)
+          : this.set("current", `You have the newest Dev build (change ${change}).`, null, release);
+      }
       if (!release.available) return this.set("current", `You have the newest version (${release.currentVersion}).`, null, release);
       return this.set("available", `Version ${release.latestVersion} is ready to install.`, null, release);
     } catch (error) {
+      if (generation !== this.generation) return this.status;
       return this.set("error", error instanceof Error ? error.message : String(error));
     }
   }
-  /** Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch. */
-  async install(): Promise<{ script: string; stagedDir: string }> {
+  /**
+   * Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch.
+   * CBQ-001: with `hold`, the claim is kept once this returns, because the caller still has the hand-over
+   * to start - three scheduler calls of up to 15 s each - and a second request in that time would empty
+   * the scratch folder the first hand-over is about to use and start a second one. `applying()` keeps
+   * the claim from there; `release()` gives it back if the hand-over could not be started.
+   */
+  async install(options: { hold?: boolean } = {}): Promise<{ script: string; stagedDir: string }> {
     const reason = unsupportedReason(this.options, this.platform);
     if (reason) throw new Error(reason);
     if (this.busy) throw new Error("An update is already in progress.");
-    const release = this.status.release?.available ? this.status.release : (await this.check()).release;
-    if (!release?.available) throw new Error("There is no newer version to install.");
+    // CBQ-001: claimed here, before anything is awaited. Looking the release up is a network round
+    // trip, and `busy` used to be set only after it, so two requests arriving during that trip both
+    // read `busy` as false and both went on. That is not two downloads of one file; the second one
+    // empties the scratch folder the first is downloading into, and the first fails on its own
+    // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    this.stoppedBackground = false;
+    this.provenance = null;
+    let release: ReleaseInfo | null | undefined;
+    try {
+      // Beta or Stable (#215): a release chosen for the other channel is looked up again.
+      const selected = this.status.release;
+      release = selected?.available && selected.channel === this.channel ? selected : (await this.lookUp()).release;
+      if (!release?.available) throw new Error("There is no newer version to install.");
+    } catch (error) {
+      // Nothing has been touched yet, so the claim is simply given back: no status change and no
+      // files removed, exactly as when these two refusals happened before the claim existed.
+      this.busy = false;
+      throw error;
+    }
+    let held = false;
     try {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
       if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
-      const archive = join(this.options.scratchDir, this.options.assetName!);
-      await this.download(release, archive);
-      await this.verify(archive, release);
+      let archive = join(this.options.scratchDir, this.options.assetName!), expectedVersion = release.latestVersion;
+      if (release.channel === "dev") {
+        ({ archive, version: expectedVersion } = await this.buildDevArchive(release));
+        // From here on the Dev release is the version it was built as: the check, the record and the next start agree.
+        release = { ...release, latestVersion: expectedVersion };
+        this.status = { ...this.status, release };
+      }
+      else {
+        await this.download(release, archive);
+        await this.verify(archive, release);
+      }
       const stagedDir = await this.unpack(archive);
-      await validateStagedPackage(stagedDir, release.latestVersion, this.platform);
-      await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
+      await validateStagedPackage(stagedDir, expectedVersion, this.platform);
+      await this.tryCanary(stagedDir, expectedVersion); // mac3/never-break; a Dev build reports the version it was built as
       await this.safetyCopy();
+      await this.options.beforeStop?.();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
+      held = options.hold === true;
       return { script, stagedDir };
     } catch (error) {
-      this.set("error", error instanceof Error ? error.message : String(error), null, release);
+      if (error instanceof UpdateDeferredError) this.set("available", error.message, null, release);
+      else this.keptAfter(error instanceof Error ? error.message : String(error), release);
       // mac7/real-update: a download that went wrong is 130 MB or more of nothing; it is not kept.
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
       await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
       throw error;
-    } finally { this.busy = false; }
+    } finally { if (!held) this.busy = false; }
+  }
+  /** Gives back a claim `install({ hold: true })` kept, when the hand-over it was kept for did not start. */
+  release(): void { this.busy = false; }
+  /** Q55: whether the install under way closed the background engine, so a failure can say so. */
+  get backgroundStopped(): boolean { return this.stoppedBackground; }
+  /**
+   * Q55: an update that stopped before the hand-over swapped any file. The installed version is
+   * what still runs, and the status says so; the claim is given back.
+   */
+  failed(message: string): UpdateStatus {
+    this.busy = false;
+    return this.keptAfter(message, this.status.release);
+  }
+  private keptAfter(message: string, release: ReleaseInfo | null | undefined): UpdateStatus {
+    this.status = { ...this.set("error", message, null, release ?? null),
+      outcome: { kept: this.installed.version, backgroundStopped: this.stoppedBackground } };
+    return this.status;
   }
   /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
   private async tryCanary(stagedDir: string, version: string): Promise<void> {
@@ -182,33 +355,114 @@ export class Updater {
   }
   /**
    * Closes the engine working in the background before the files are swapped, and answers with its
-   * process id so the hand-over waits for it as well. A refusal never stops the update: the hand-over
-   * script ends that process itself if it has to.
+   * process id so the hand-over waits for it as well. A refusal stops this attempt.
    */
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    try { return await this.options.stopDaemon(); } catch { return null; }
+    const pid = await this.options.stopDaemon();
+    // A null answer means nothing was working in the background, so nothing was closed.
+    this.stoppedBackground = pid !== null;
+    return pid;
   }
   private async latestRelease(): Promise<ReleaseInfo> {
-    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/latest`, {
+    if (this.channel === "dev") return this.newestDevBuild();
+    const path = this.channel === "stable" ? "releases/latest" : "releases?per_page=100";
+    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/${path}`, {
       headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
       signal: AbortSignal.timeout(15000),
     });
     if (response.status === 404) throw new Error("No release has been published yet.");
     if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
-    const data = releaseSchema.parse(await response.json());
-    const asset = data.assets.find((entry) => entry.name === this.options.assetName);
-    const checksum = data.assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
-    if (!asset || !checksum) throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
-    const latestVersion = finalReleaseVersion(data.tag_name);
+    const raw = await response.json();
+    const candidates = this.channel === "stable" ? [releaseSchema.parse(raw)] : betaCandidates(raw);
+    for (const data of candidates) {
+      if (data.draft || (this.channel === "stable" && data.prerelease))
+        throw new Error("The newest stable release is not a published final release.");
+      const assets = await this.releaseAssets(data);
+      const asset = assets.find((entry) => entry.name === this.options.assetName);
+      const checksum = assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
+      if (!asset || !checksum) {
+        /* Q37: a Beta still missing its download after a fresh look is skipped for the next valid release. */
+        if (data !== candidates.at(-1)) continue;
+        throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
+      }
+      if (this.channel === "beta" &&
+        (!betaAssetMatches(data, this.options.repo, asset) || !betaAssetMatches(data, this.options.repo, checksum)))
+        throw new Error("The beta download does not belong to the selected Branch release.");
+      const latestVersion = data.prerelease ? betaReleaseVersion(data.tag_name) : finalReleaseVersion(data.tag_name);
+      return {
+        currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
+        available: compareVersions(latestVersion, this.options.currentVersion) > 0,
+        title: data.name || data.tag_name, notes: data.body ?? "", publishedAt: data.published_at ?? null,
+        assetUrl: asset.browser_download_url, checksumUrl: checksum.browser_download_url, assetBytes: asset.size,
+        pageUrl: data.html_url,
+        channel: this.channel,
+      };
+    }
+    throw new Error("No published Branch release is available yet.");
+  }
+  /** Dev: the newest merged change on Branch's main line, offered when it is not the one this copy was built from. */
+  private async newestDevBuild(): Promise<ReleaseInfo> {
+    const run = this.options.devRun ?? realRun(this.platform);
+    const missing = await devToolsMissing(run);
+    if (missing) throw new Error(missing);
+    const commit = await remoteHead(run, this.options.repo);
+    const short = commit.slice(0, 7);
     return {
-      currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
-      available: compareVersions(latestVersion, this.options.currentVersion) > 0,
-      title: data.name || data.tag_name, notes: data.body ?? "", publishedAt: data.published_at ?? null,
-      assetUrl: asset.browser_download_url, checksumUrl: checksum.browser_download_url, assetBytes: asset.size,
-      pageUrl: data.html_url,
+      currentVersion: this.options.currentVersion, latestVersion: this.options.currentVersion, tag: `dev-${short}`,
+      available: commit !== this.options.currentCommit,
+      title: `Dev build of change ${short}`, notes: "", publishedAt: null,
+      assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.options.repo}/commit/${commit}`,
+      channel: "dev", commit,
     };
+  }
+  /** Dev: builds the download from source on this computer; the steps after it are the same as for a release. */
+  private async buildDevArchive(release: ReleaseInfo): Promise<{ archive: string; version: string }> {
+    if (!release.commit || !/^[0-9a-f]{40}$/.test(release.commit))
+      throw new Error("The Dev build is not set up on this computer, so nothing was changed.");
+    const words: Record<DevPhase, string> = {
+      fetching: "Getting the newest change from GitHub…",
+      installing: "Installing what Branch needs to build (a few minutes)…",
+      building: "Building Branch on this computer (a few minutes)…",
+    };
+    // In the updater's own folder, which the assistant may never change and which this install has just emptied.
+    const sourceDir = join(this.options.scratchDir, "dev-source");
+    const built = await buildDev(this.options.devRun ?? realRun(this.platform), {
+      repo: this.options.repo, sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
+      onPhase: (phase) => this.set("downloading", words[phase], null, release),
+    });
+    // Without the change the running version was built from, its version is the only way to see going back.
+    if (!this.options.currentCommit && compareVersions(built.version, this.options.currentVersion) < 0)
+      throw new Error(`The newest Dev build (${built.version}) is older than the version running now (${this.options.currentVersion}), so nothing was changed. It is offered again once it catches up.`);
+    this.set("verifying", "Checking the build is whole…", null, release);
+    const expected = /^([a-f0-9]{64})\b/i.exec((await readFile(built.checksumFile, "utf8")).trim())?.[1]?.toLowerCase();
+    const hash = createHash("sha256");
+    const { createReadStream } = await import("node:fs");
+    for await (const chunk of createReadStream(built.archive)) hash.update(chunk as Buffer);
+    // This only proves the file was written whole; the trust in its contents comes from git over https.
+    if (!expected || hash.digest("hex") !== expected) throw new Error("The Dev build came out incomplete, so nothing was changed. Try the update again.");
+    // The download goes where a downloaded release would be, and the source (hundreds of megabytes) goes.
+    const archive = join(this.options.scratchDir, this.options.assetName!);
+    await rename(built.archive, archive);
+    await rm(sourceDir, { recursive: true, force: true });
+    return { archive, version: built.version };
+  }
+  /**
+   * Q37: for minutes after a release is published, GitHub's release list (and its tag look-up) can still show no
+   * assets while the release's own assets list already has them all (measured on v0.19.3-beta.2). When the listed
+   * assets lack this computer's download or checksum, ask that list, which is current.
+   */
+  private async releaseAssets(release: z.infer<typeof releaseSchema>): Promise<z.infer<typeof assetSchema>[]> {
+    const names = new Set(release.assets.map((entry) => entry.name));
+    if (!release.id || (names.has(this.options.assetName ?? "") && names.has(checksumAssetName(this.options.assetName ?? ""))))
+      return release.assets;
+    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/${release.id}/assets?per_page=100`, {
+      headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return release.assets;
+    return z.array(assetSchema).parse(await response.json());
   }
   private async download(release: ReleaseInfo, target: string): Promise<void> {
     this.set("downloading", "Downloading the new version…", 0, release);
@@ -258,7 +512,48 @@ export class Updater {
     const hash = createHash("sha256");
     const { createReadStream } = await import("node:fs");
     for await (const chunk of createReadStream(archive)) hash.update(chunk as Buffer);
-    if (hash.digest("hex") !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
+    const digestHex = hash.digest("hex");
+    if (digestHex !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
+    await this.verifyProvenance(release, digestHex);
+  }
+  /**
+   * A second check on top of the checksum above: whether GitHub has published a signed build
+   * provenance record for this exact file, naming this repository's release workflow. No release
+   * does yet (that needs a workflow change outside this update), so having none is not a failure and
+   * the update goes on with only the checksum behind it, as before. Other kinds of record GitHub
+   * publishes for the file (its own release attestation) are not build provenance and count as none.
+   * When GitHub cannot be asked (a rate limit, a timeout) or a record cannot be read, the outcome is
+   * "not checked", said as such, and the checksum alone stands. A build-provenance record that fails
+   * the checks — a different file, some other workflow, a signature that does not verify — stops the
+   * update the same way a bad checksum does, because a provenance record that lies is worse than no
+   * provenance record at all.
+   */
+  private async verifyProvenance(release: ReleaseInfo, digestHex: string): Promise<void> {
+    this.set("verifying", "Checking for a build provenance record…", null, release);
+    let lookup: AttestationLookup | null;
+    try {
+      lookup = await fetchAttestationBundles({
+        fetch: this.fetch, repo: this.options.repo, digestHex,
+        userAgent: `BranchAgent/${this.options.currentVersion}`,
+      });
+    } catch { return this.provenanceFound("not-checked", release); }
+    const failures: string[] = [];
+    for (const bundle of (lookup?.bundles ?? []).filter(isBuildProvenance)) {
+      try {
+        verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex, version: release.latestVersion });
+        return this.provenanceFound("checked", release);
+      } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    }
+    if (failures.length)
+      throw new Error(`The download's build provenance record did not check out (${failures[0]}), so Branch did not install it. Branch is still on the version it had, and nothing was changed.`);
+    this.provenanceFound(lookup && lookup.unreadable > 0 ? "not-checked" : "none", release);
+  }
+  private provenanceFound(outcome: ProvenanceOutcome, release: ReleaseInfo): void {
+    // Use the Beta-specific message when a Beta version is checked.
+    const isBeta = outcome === "checked" && /^\d+\.\d+\.\d+-beta\.\d+$/.test(release.latestVersion);
+    const message = isBeta ? PROVENANCE_WORDS_BETA_CHECKED : PROVENANCE_WORDS[outcome];
+    this.provenance = { outcome, message };
+    this.set("verifying", message, null, release);
   }
   private async unpack(archive: string): Promise<string> {
     this.set("unpacking", "Unpacking…", null, this.status.release);
@@ -319,8 +614,12 @@ export class Updater {
     return script;
   }
   private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release, bytes: UpdateStatus["bytes"] = null): UpdateStatus {
-    this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString() };
+    this.status = { ...this.fresh(phase, message), progress, release, bytes,
+      ...(this.provenance ? { provenance: this.provenance } : {}) };
     return this.status;
+  }
+  private fresh(phase: UpdatePhase, message: string): UpdateStatus {
+    return { phase, message, installed: this.installed, outcome: null, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   }
   /** Marks the hand-over as running once the script has been launched; the app is about to close. */
   applying(): UpdateStatus {

@@ -1,6 +1,6 @@
 {
   "name": "branch-agent-mobile",
-  "version": "0.19.0",
+  "version": "0.19.3",
   "private": true,
   "description": "Branch Agent on iPhone and Android: a native shell around the owner's own Branch window",
   "type": "module",
@@ -11,7 +11,7 @@
   "scripts": {
     "web": "node scripts/build-web.mjs",
     "native": "node scripts/native-files.mjs",
-    "sync": "node scripts/build-web.mjs && node scripts/native-files.mjs && cap sync"
+    "sync": "node scripts/build-web.mjs && node scripts/native-files.mjs && node scripts/icons.mjs && cap sync && node scripts/native-files.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",

@@ -35,6 +35,17 @@ export interface PendingApproval {
    */
   onceOnly?: boolean;
   /**
+   * Q59: asked in an Ask first or Plan conversation. Those drop every yes the owner's rules hold, so
+   * a "Yes, always" would write a rule they never read: only "just now" and "for this conversation"
+   * are offered, and `approve` refuses "always" for it.
+   */
+  noStanding?: boolean;
+  /**
+   * FQ-execution.browser: the call names nothing a standing rule could be kept for (a `browser.flow` on
+   * no website), so "Yes, always" is not offered; it would be a rule on every call of the tool.
+   */
+  noAlways?: boolean;
+  /**
    * mac7/coding-next: a question with answers of its own. "project-tests" is "Let Branch run this
    * project's tests?", answered Always for this folder / Once / No (src/coding/project-tests.ts).
    */
@@ -111,7 +122,7 @@ export class ApprovalRequiredError extends Error {
      */
     readonly fingerprint?: string,
     /** mac7/coding-next: the question in words of its own, and which kind of question it is. */
-    readonly asked: { question?: string; kind?: "project-tests" } = {},
+    readonly asked: { question?: string; kind?: "project-tests"; onceOnly?: boolean } = {},
   ) {
     super(asked.question ?? approvalQuestion(label, target));
   }
@@ -311,6 +322,10 @@ export class ApprovalGate {
   /** Uses up the owner's one-time overrule for this request, if there is one. */
   takeOverrule(sessionId: string, fingerprint: string | undefined): boolean {
     return fingerprint !== undefined && this.overrules.delete(`${sessionId}\u0000${fingerprint}`);
+  }
+  /** Checks whether the owner's one-time overrule for this request exists, without consuming it. */
+  hasOverrule(sessionId: string, fingerprint: string | undefined): boolean {
+    return fingerprint !== undefined && this.overrules.has(`${sessionId}\u0000${fingerprint}`);
   }
 }
 

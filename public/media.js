@@ -77,6 +77,9 @@ const asBase64 = (file) =>
 /** A sound file becomes words: it is written out now and the words go into the message. */
 async function addSound(file) {
   if (file.size > limits.soundBytes) throw new Error(`${file.name} is larger than 25 MB, so it was skipped.`);
+  // FQ-surfaces.playback: the file itself is kept for inline playback (public/playback.js), on its
+  // own track from the words it is turned into below; one can fail without the other.
+  globalThis.branchPlaybackAttach?.(file);
   say(`Listening to ${file.name}…`);
   const response = await fetch("/api/voice/transcribe", {
     method: "POST",
@@ -97,6 +100,9 @@ async function addSound(file) {
  */
 async function addVideo(file) {
   if (file.size > limits.videoBytes) throw new Error(`${file.name} is larger than 32 MB, so it was skipped.`);
+  // FQ-surfaces.playback: kept for inline playback too (public/playback.js), regardless of whether
+  // watching it for stills and a transcript below succeeds.
+  globalThis.branchPlaybackAttach?.(file);
   say(`Watching ${file.name}…`);
   const response = await fetch("/api/media/understand", {
     method: "POST",

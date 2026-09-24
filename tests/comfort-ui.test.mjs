@@ -65,13 +65,66 @@ const undescribed = (page, id) => page.evaluate((cardId) => {
   }).map((control) => control.id);
 }, id);
 
+/* DG-184 (Notifications' one section) and DG-186 (Voice) draw these cards as rows under their section's heading, as the
+   sample does, with no title of their own on screen; that section heading is the card's level three in the outline. */
+const foldedIntoSection = (card) => card.evaluate((node) =>
+  node.matches('#lx-page-voice > .card, [data-sg-bucket="notifications:attention"]'));
+async function assertSectionHeading(page, id, home) {
+  const section = page.locator(`${home} > .sg-head[data-cards~="${id}"] h3.sg-head-title`);
+  assert.equal(await section.count(), 1, `${id} has its section heading`);
+  assert.equal(await section.isVisible(), true, `${id}'s section heading is drawn`);
+  const name = (await section.textContent()).trim();
+  assert.ok(name && !name.startsWith("settingsGrown."), `${id}'s section heading is translated`);
+  assert.equal(await page.locator(home).getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+  assert.ok(await section.evaluate((node, cardId) =>
+    Boolean(node.compareDocumentPosition(document.getElementById(cardId)) & Node.DOCUMENT_POSITION_FOLLOWING), id),
+  `${id} comes after its section heading`);
+}
+
+for (const width of [1440, 860, 400]) {
+  test(`DG-008 comfort Settings headings remain native and described at ${width}px`, async (t) => {
+    const { page, errors } = await openApp(t, width);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const language of ["en", "fr"]) {
+      await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
+      await refresh(page); // Rebuilt cards must retain their native hierarchy and scope order.
+      for (const [id, home] of Object.entries(homes)) {
+        await openSettingFor(page, `#${id}`);
+        const card = page.locator(`#${id}`);
+        const heading = card.locator(":scope > [data-t]").first();
+        assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
+        const name = (await heading.textContent()).trim();
+        assert.ok(name, `${id} has a translated title`);
+        assert.equal(await page.locator(`${home} > h2.lx-page-title`).count(), 1, "page title stays level two");
+        assert.equal(await card.locator(":scope > h3 + p.subtle + .kit-scope.sr-only").count(), 1,
+          "scope remains after the heading and purpose, not before the title");
+        assert.deepEqual(await undescribed(page, id), []);
+        if (await foldedIntoSection(card)) {
+          await assertSectionHeading(page, id, home);
+          continue;
+        }
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        const style = await heading.evaluate((node) => {
+          const css = getComputedStyle(node);
+          return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
+        });
+        assert.deepEqual(style, ["16px", "640", "20.8px", "normal", "0px 0px 6px"]);
+      }
+      assert.equal(await page.locator('[data-t="comfort.field.caCertificates"]').first().evaluate((node) => node.tagName), "H4",
+        "certificate subsection is below its card title");
+      assert.equal(await page.locator("#comfort-mcp-card > h2").count(), 1, "non-Settings card is unchanged");
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
 test("each comfort card is in its home, says what it is for, and every control has its own sentence", async (t) => {
   const { app, page, errors } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
     await openSettingFor(page, `#${id}`);
     assert.ok(await page.locator(`#${id}`).isVisible(), `${id} can be seen on its page`);
-    assert.equal(await page.locator(`#${id} > h2 + p.subtle`).count(), 1, `${id} says what it is for`);
+    assert.equal(await page.locator(`#${id} > h3.settings-card-title + p.subtle`).count(), 1, `${id} says what it is for`);
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
   }
   await closeSettings(page);
@@ -199,7 +252,16 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   saveComfort(app.store, "local", "notify", { autoUpdate: "check" });
   await refresh(page);
   await page.waitForFunction(() => globalThis.__desktop.includes("check"));
-  await page.evaluate(() => { globalThis.__desktop = []; return globalThis.branchComfort.autoUpdate(); });
+  /* The automatic look is still finishing after its check starts, and a second look never overlaps
+     one in flight, so wait until a look of our own is actually made before asserting what it did. */
+  await page.evaluate(async () => {
+    for (let tries = 0; tries < 200; tries++) {
+      globalThis.__desktop = [];
+      await globalThis.branchComfort.autoUpdate();
+      if (globalThis.__desktop.length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  });
   assert.deepEqual(await page.evaluate(() => globalThis.__desktop), ["status"], "looked for less than a day ago");
   saveComfort(app.store, "local", "notify", { autoUpdate: "install" });
   await page.evaluate(() => { globalThis.__desktop = []; globalThis.__phase = "available"; });
@@ -207,6 +269,46 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   await page.waitForFunction(() => globalThis.__desktop.includes("install"));
   assert.deepEqual(await page.evaluate(() => globalThis.__desktop.filter((step) => step !== "status")), ["install"]);
   await page.evaluate(() => { globalThis.__desktop = []; globalThis.__phase = undefined; window.branchDesktop = undefined; });
+});
+
+test("the owner can choose beta in Updates and return to stable", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  await page.evaluate(() => {
+    globalThis.__channelChecks = 0;
+    window.branchDesktop = {
+      updateStatus: async () => ({ phase: "idle", message: "Not checked", progress: null }),
+      checkForUpdates: async () => { globalThis.__channelChecks++; return { phase: "current", message: "Current", progress: null }; },
+    };
+  });
+  await openSettingFor(page, "#updates-card");
+  await page.locator('#updates-channel input[value="beta"]').check();
+  await page.waitForFunction(() => globalThis.__channelChecks === 1);
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "beta");
+  await page.locator('#updates-channel input[value="stable"]').check();
+  await page.waitForFunction(() => globalThis.__channelChecks === 2);
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "stable");
+  assert.deepEqual(errors, []);
+});
+
+test("automatic checks schedule after settling and install retries stay brief", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  await page.evaluate(() => {
+    const schedule = window.setTimeout.bind(window);
+    globalThis.__updateIntervals = [];
+    window.setTimeout = (fn, ms, ...args) => {
+      if ([300_000, 3_600_000, 30_000].includes(ms)) globalThis.__updateIntervals.push(ms);
+      return schedule(fn, ms, ...args);
+    };
+    window.branchDesktop = { updateStatus: async () => ({ phase: "current" }), checkForUpdates: async () => ({ phase: "current" }) };
+  });
+  for (const [releaseChannel, autoUpdate, interval] of [["beta", "check", 300_000], ["stable", "check", 3_600_000], ["beta", "install", 30_000]]) {
+    saveComfort(app.store, "local", "notify", { releaseChannel, autoUpdate });
+    await page.evaluate(() => { globalThis.__updateIntervals = []; });
+    await refresh(page);
+    await page.waitForFunction(() => globalThis.__updateIntervals.length > 0);
+    assert.equal(await page.evaluate(() => globalThis.__updateIntervals.at(-1)), interval);
+  }
+  assert.deepEqual(errors, []);
 });
 
 test("at 400 px the comfort cards fit without sideways scrolling", async (t) => {

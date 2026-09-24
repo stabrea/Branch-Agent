@@ -75,8 +75,8 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   return { page, call, errors, refused, app, url: server.url, headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } };
 }
-/** The cog after the account row: the calm window's, or the full window's. */
-const cog = (page) => page.locator(".sg-foot-line > .sg-gear:visible");
+/** The cog at the right end of the icon line over the account row (DG-094): the calm window's, or the full window's. */
+const cog = (page) => page.locator(".lx-foot-line > .sg-gear:visible");
 async function openSettings(page, name) {
   if (!(await page.locator("#settings-window").isVisible())) {
     /* On a phone the rail, with the account row and the cog at its foot, opens from the title bar. */
@@ -84,10 +84,8 @@ async function openSettings(page, name) {
     await cog(page).click();
   }
   if (!name) return;
-  const link = page.locator(`.lx-settings-link[data-page="${name}"]`);
-  /* On a phone the pages are one choice under the search box. */
-  if (await link.isVisible()) await link.click();
-  else await page.locator("#sg-page-pick").selectOption(name);
+  /* DG-013: on a phone the pages are a strip of tabs; a click scrolls the tab into view first. */
+  await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
 }
 /** Every place, every Settings page and every Models tab, so every module has drawn its cards. */
 async function visitEverything(page) {
@@ -96,7 +94,7 @@ async function visitEverything(page) {
     for (const home of globalThis.branchLayout.homes()) if (!home.startsWith("settings")) { globalThis.branchLayout.go(home); await wait(150); }
   });
   await openSettings(page);
-  const pages = await page.evaluate(() => [...document.querySelectorAll("#sg-page-pick option")].map((option) => option.value));
+  const pages = await page.evaluate(() => [...document.querySelectorAll(".lx-settings-link")].map((link) => link.dataset.page));
   for (const name of [...pages, "models"]) { await openSettings(page, name); await page.waitForTimeout(150); }
   for (const tab of await page.locator("#lx-page-models .lx-subtab").all()) { await tab.click(); await page.waitForTimeout(150); }
 }
@@ -257,8 +255,10 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   await openSettings(f.page, "general");
   assert.equal(await f.page.locator("#deployment-card").isVisible(), true, "a Regular card shows");
   assert.equal(await f.page.locator("#never-break-card").isVisible(), false, "an Advanced card waits for Advanced");
-  const more = f.page.locator('.sg-head[data-bucket="general:start"] .sg-more');
-  assert.match(await more.textContent(), /1 more with Advanced/);
+  /* DG-073: the link ends its section, wherever that section's last card on show is. */
+  const more = f.page.locator('.sg-more-line[data-bucket="general:start"] .sg-more');
+  /* DG-199: it counts the section's settings kept out of sight, row by row, as the sample does. */
+  assert.match(await more.textContent(), /^\d+ more with Advanced$/);
   await more.click();
   await f.page.waitForFunction(() => document.documentElement.dataset.settingsLevel === "advanced");
   assert.equal(await f.page.locator("#never-break-card").isVisible(), true);
@@ -268,10 +268,11 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   assert.equal(saved.settingsLevel, "advanced");
   assert.equal(saved.showEverything, true);
   /* Technical shows the plumbing and where each card is saved. */
+  /* Under the hood waits for Technical (the sample's rule, DG-199). */
   await openSettings(f.page, "advanced");
-  assert.equal(await f.page.locator("#developer-card").isVisible(), false);
+  assert.equal(await f.page.locator("#counters-card").isVisible(), false);
   await f.page.locator('.sg-level [data-level-pick="technical"]').click();
-  await f.page.locator("#developer-card").waitFor({ state: "visible" });
+  await f.page.locator("#counters-card").waitFor({ state: "visible" });
   await openSettings(f.page, "general");
   assert.equal(await f.page.locator("#never-break-card .sg-keys").isVisible(), true);
   assert.match(await f.page.locator("#never-break-card .sg-keys-names").textContent(), /never-break\.mode/);
@@ -323,10 +324,10 @@ test("S8 somebody else's profile sees Regular, cannot change the level, and sear
   assert.deepEqual(f.errors, []);
 });
 
-test("a household profile redirected from Instructions keeps the phone page picker in sync", async (t) => {
+test("a household profile redirected from Instructions keeps the phone page strip in sync", async (t) => {
   const f = await fixture(t, { width: 390, height: 844 });
   await openSettings(f.page, "instructions");
-  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "instructions");
+  assert.equal(await f.page.locator('.sg-pages .lx-settings-link[aria-current="true"]').getAttribute("data-page"), "instructions");
   const sam = await fetch(new URL("/api/profiles", f.url), {
     method: "POST", headers: f.headers, body: JSON.stringify({ name: "Sam", pin: "2468" }),
   }).then((response) => response.json());
@@ -336,7 +337,13 @@ test("a household profile redirected from Instructions keeps the phone page pick
   assert.equal(switched.status, 200);
   await f.page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 15000 });
   await f.page.waitForFunction(() => document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page === "general");
-  assert.equal(await f.page.locator("#sg-page-pick").inputValue(), "general");
+  /* General is the tab on show, in sight in the strip, and Instructions has left it. */
+  assert.deepEqual(await f.page.evaluate(() => {
+    const strip = document.querySelector(".sg-pages").getBoundingClientRect();
+    const tab = document.querySelector('.sg-pages .lx-settings-link[data-page="general"]').getBoundingClientRect();
+    return { inSight: tab.left >= strip.left - 0.5 && tab.right <= strip.right + 0.5,
+      instructions: document.querySelector('.lx-settings-link[data-page="instructions"]').checkVisibility() };
+  }), { inSight: true, instructions: false });
   assert.deepEqual(f.errors, []);
 });
 
@@ -355,13 +362,21 @@ test("S9 every page is grouped, and a card no group names still shows under More
   assert.ok(order.slice(firstHead + 1, projects).every((item) => item === "general:start"), "a card stands under the wrong heading");
   /* Settled, the groups do not keep writing to the page (a write that sets off another write loops forever). */
   const churn = await f.page.evaluate(() => new Promise((done) => {
-    const count = [];
-    const watch = new MutationObserver((records) => { for (const r of records) if (r.target.closest?.(".sg-head") || r.target.parentElement?.closest(".sg-head")) count.push(`${r.type} ${r.attributeName ?? ""} on ${r.target.className || r.target.nodeName}`); });
+    const count = new Map();
+    const watch = new MutationObserver((records) => {
+      for (const record of records) {
+        const head = record.target.closest?.(".sg-head") ?? record.target.parentElement?.closest(".sg-head");
+        if (!head) continue;
+        const key = `${head.dataset.bucket}:${record.type}:${record.attributeName ?? ""}:${record.target.className || record.target.nodeName}`;
+        count.set(key, (count.get(key) ?? 0) + 1);
+      }
+    });
     watch.observe(document.getElementById("settings-window"), { subtree: true, childList: true, attributes: true, characterData: true });
-    setTimeout(() => { watch.disconnect(); done(count); }, 1500);
+    setTimeout(() => { watch.disconnect(); done([...count]); }, 1500);
   }));
-  /* A card arriving late may rightly change a heading once or twice; a loop rewrites it every frame. */
-  assert.ok(churn.length < 10, `the group headings keep rewriting themselves: ${churn.slice(0, 5).join("; ")}`);
+  /* Separate cards may arrive late together on a slow runner. A loop repeats the same write every frame. */
+  const repeating = churn.filter(([, writes]) => writes >= 4);
+  assert.deepEqual(repeating, [], `the same group-heading write keeps repeating: ${JSON.stringify(repeating.slice(0, 5))}`);
   await f.page.evaluate(() => {
     const card = document.createElement("section");
     card.className = "card";
@@ -381,9 +396,8 @@ test("S9 every page is grouped, and a card no group names still shows under More
   assert.deepEqual(f.errors, []);
 });
 
+/* DG-193 and DG-194: Trunks & people and Chat apps & devices draw their real settings on the page, so neither is a directory. */
 const SETTINGS_DIRECTORIES = {
-  trunks: [["trunks", "customize", "specialists"], ["overview", "overview", "here"], ["people", "household", "people"]],
-  channels: [["channels", "customize", "channels"]],
   connections: [["connections", "customize", "connections"]],
   skills: [["skills", "customize", "skills"], ["specialists", "customize", "specialists"], ["plugins", "customize", "plugins"]],
   memory: [["memory", "library", "memory"], ["documents", "library", "documents"], ["made", "library", "made"]],
@@ -414,13 +428,14 @@ for (const [width, height] of [[1440, 950], [390, 844]]) {
   });
 }
 
-test("S10 Settings is a cog right after the account row, in the calm and the full window, and draws every card", async (t) => {
+test("S10 Settings is a cog at the right end of the icon line over the account row, in the calm and the full window, and draws every card", async (t) => {
   const f = await fixture(t);
   const after = () => f.page.evaluate(() => {
-    const cog = [...document.querySelectorAll(".sg-foot-line > .sg-gear")].find((node) => node.checkVisibility());
+    const cog = [...document.querySelectorAll(".lx-foot-line > .sg-gear")].find((node) => node.checkVisibility());
     const owner = document.getElementById("owner-menu-button");
     const a = owner.getBoundingClientRect(), b = cog?.getBoundingClientRect();
-    return { owner: owner.checkVisibility(), cog: Boolean(cog), right: b ? b.left >= a.right - 1 : false, row: b ? Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 6 : false };
+    /* DG-094: the cog ends the icon line, above the account row, at its right edge */
+    return { owner: owner.checkVisibility(), cog: Boolean(cog), right: b ? Math.abs(b.right - a.right) < 2 : false, row: b ? b.bottom <= a.top + 1 : false };
   });
   assert.deepEqual(await after(), { owner: true, cog: true, right: true, row: true }, "calm window");
   await cog(f.page).click();
@@ -481,7 +496,7 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
     await visitEverything(f.page);
     await switchEverythingOn(f.page);
     await openSettings(f.page, "general");
-    const pages = await f.page.evaluate(() => [...document.querySelectorAll("#sg-page-pick option")].map((option) => option.value));
+    const pages = await f.page.evaluate(() => [...document.querySelectorAll(".lx-settings-link")].map((link) => link.dataset.page));
     const problems = [];
     for (const name of pages) {
       await f.page.evaluate((page) => document.querySelector(`.lx-settings-link[data-page="${page}"]`).click(), name);
@@ -519,7 +534,7 @@ function sweep() {
   return out;
 }
 
-test("S13 Appearance: two live mirrors of your own window, dark and light, that follow the tile you point at", async (t) => {
+test("S13 Appearance: two live mirrors of your own window, Moonlight and Daylight, that follow the tile you point at", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "appearance");
   const mirrors = () => f.page.evaluate(() => [...document.querySelectorAll(".sg-mirror")].map((figure) => {
@@ -533,19 +548,20 @@ test("S13 Appearance: two live mirrors of your own window, dark and light, that 
   for (const mirror of drawn) {
     assert.ok(mirror.panes >= 2, "the mirror holds the rail and the conversation");
     assert.ok(mirror.prompt, "the mirror is a copy of this window, message box included");
-    assert.match(mirror.caption, /^Slate · (Dark|Light)$/);
   }
+  /* DG-039: the sample's chips name the light, not the theme. */
+  assert.deepEqual(drawn.map(({ caption }) => caption), ["Moonlight", "Daylight"]);
   assert.equal(await f.page.locator("#prompt").count(), 1, "the copy never adds a second message box to the window itself");
-  /* Side by side, and small beside the themes. */
+  /* DG-039: stacked in the sample's preview column beside the themes, Moonlight above Daylight. */
   const boxes = await f.page.locator(".sg-mirror").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
-  assert.ok(Math.abs(boxes[0].top - boxes[1].top) < 2 && boxes[1].left > boxes[0].right - 1, "the two mirrors sit side by side");
-  assert.ok(boxes[0].width < 400, "each mirror is small");
+  assert.ok(boxes[1].top >= boxes[0].bottom - 1 && Math.abs(boxes[0].left - boxes[1].left) < 2, "the two mirrors are stacked");
+  assert.ok(boxes[0].left > (await f.page.locator("#lx-theme-gallery").boundingBox()).x + 200, "beside the themes");
   await f.page.locator('#lx-theme-gallery .lx-tile[data-family="cherry"]').hover();
-  await f.page.waitForFunction(() => document.querySelector(".sg-mirror figcaption").textContent.startsWith("Cherry"));
+  await f.page.waitForFunction(() => document.querySelector(".sg-mirror iframe").contentDocument.documentElement.dataset.palette === "cherry");
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "slate", "pointing at a theme does not choose it");
-  /* Plain words on a few tiles instead of numbers. */
-  assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .sg-tile-tag').textContent(), /Easiest to read/);
-  /* The eye beside Light and dark clears the view. */
+  /* The sample's words on a few tiles instead of numbers (DG-037). */
+  assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .lx-tile-badge').textContent(), /High contrast/);
+  /* The eye beside Day or night clears the view. */
   await f.page.locator("#sg-clear-view").click();
   await f.page.waitForFunction(() => document.documentElement.dataset.quiet === "1");
   assert.equal(await f.page.locator("#settings-window").isVisible(), false);
@@ -715,38 +731,43 @@ test("S17 the second-opinion limits load when Settings opens from the cog, and s
   assert.deepEqual(f.errors, []);
 });
 
-/* ---------- S18: the mirrors stay in sight while the themes scroll (#25) ---------- */
+/* ---------- S18: the preview stays in sight while the themes scroll (#25) ---------- */
+/* DG-039: wide, the two mirrors ride beside the themes; narrower, the sample's strip rides at the top and names the
+   theme you point at, and opening it shows both mirrors. */
 for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
-  test(`S18 at ${width}×${height} the mirrors stay in sight while you scroll down the themes and point at one`, async (t) => {
+  test(`S18 at ${width}×${height} the preview stays in sight while you scroll down the themes and point at one`, async (t) => {
     const f = await fixture(t, { width, height });
     await openSettings(f.page, "appearance");
-    await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
+    const wide = await f.page.evaluate(() => getComputedStyle(document.querySelector(".sg-strip")).display === "none");
+    assert.equal(wide, width >= 1440, "the strip shows only where the page is narrower than the sample's 980px");
+    if (wide) await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
     const last = f.page.locator("#lx-theme-gallery .lx-tile").last();
     await last.scrollIntoViewIfNeeded();
-    const inSight = await f.page.evaluate(() => {
+    const inSight = await f.page.evaluate((isWide) => {
       const body = document.getElementById("lx-settings-body").getBoundingClientRect();
-      const mirrors = document.querySelector(".sg-mirror-pair").getBoundingClientRect();
-      return mirrors.top >= body.top - 2 && mirrors.bottom <= body.bottom + 2;
-    });
-    assert.equal(inSight, true, "scrolling down the themes took the mirrors out of sight");
-    if (width < 1200) {
+      const shown = document.querySelector(isWide ? ".sg-mirror-pair" : ".sg-strip").getBoundingClientRect();
+      return shown.height > 0 && shown.top >= body.top - 2 && shown.bottom <= body.bottom + 2;
+    }, wide);
+    assert.equal(inSight, true, "scrolling down the themes took the preview out of sight");
+    if (!wide) {
       /* Riding along, the strip sits right at the top: no half row of tiles shows above it. */
       const above = await f.page.evaluate(() => document.querySelector(".sg-mirrors").getBoundingClientRect().top - document.getElementById("lx-settings-body").getBoundingClientRect().top);
       assert.ok(Math.abs(above) <= 2, `the strip rides ${above}px below the top of the page`);
     }
-    /* The plain-word tags are whole, never cut short. */
-    const cut = await f.page.evaluate(() => [...document.querySelectorAll(".sg-tile-tag")].filter((tag) => tag.scrollWidth > tag.clientWidth + 1 || tag.getBoundingClientRect().right > tag.closest(".lx-tile").getBoundingClientRect().right + 1).map((tag) => tag.textContent));
+    /* The words on the tiles are whole, never cut short. */
+    const cut = await f.page.evaluate(() => [...document.querySelectorAll(".lx-tile-badge")].filter((tag) => tag.scrollWidth > tag.clientWidth + 1 || tag.getBoundingClientRect().right > tag.closest(".lx-tile").getBoundingClientRect().right + 1).map((tag) => tag.textContent));
     assert.deepEqual(cut, [], "a tile's tag is cut short");
-    /* The tile you point at is not under the mirrors riding along above it, and they follow it. */
+    /* The tile you point at is not under the preview riding along above it, and the preview follows it. */
     const covered = await last.evaluate((tile) => {
       const box = tile.getBoundingClientRect(), top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
       return !tile.contains(top);
     });
-    assert.equal(covered, false, "the mirrors cover the tile being pointed at");
+    assert.equal(covered, false, "the preview covers the tile being pointed at");
     await last.hover();
     const family = await last.getAttribute("data-family");
     const name = await f.page.evaluate(async (id) => (await import("/theme-bridge.js")).themeById(id)[1], family);
-    await f.page.waitForFunction((words) => document.querySelector(".sg-mirror figcaption").textContent.startsWith(`${words} ·`), name);
+    if (wide) await f.page.waitForFunction((id) => document.querySelector(".sg-mirror iframe").contentDocument.documentElement.dataset.palette === id, family);
+    else await f.page.waitForFunction((words) => document.querySelector(".sg-strip b").textContent === `${words} (preview)`, name);
     assert.deepEqual(f.errors, []);
   });
 }

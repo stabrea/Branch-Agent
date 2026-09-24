@@ -8,6 +8,7 @@ import {
 } from "./speech-engines.js";
 import { runProgram, type AudioClip, type TranscriptionResult } from "./voice-stt.js";
 import type { SpokenAudio } from "./voice-tts.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Bucket 17: the speech plug-ins as the rest of the app sees them, for one owner at a time. The
@@ -31,6 +32,7 @@ const keepHereRefusal = (label: string) =>
 
 export class SpeechEngineService {
   constructor(private readonly deps: SpeechEngineDeps) {}
+  get store(): Store { return this.deps.store; }
   settings(owner: string): SpeechEngineSettings { return speechEngineSettings(this.deps.store, owner); }
   /** Saves the owner's choices, refusing an engine that does not exist or cannot do the job. */
   save(owner: string, input: unknown): SpeechEngineSettings {
@@ -91,7 +93,10 @@ export async function speechEnginesApi(
   service: SpeechEngineService, owner: string, method: string, path: string, body: () => Promise<unknown>,
 ): Promise<unknown> {
   if (path === "/api/voice/engines" && method === "GET") return service.view(owner);
-  if (path === "/api/voice/engines" && method === "POST") return { ...service.view(owner), settings: service.save(owner, await body()) };
+  if (path === "/api/voice/engines" && method === "POST") {
+    const input = await body();
+    return { ...service.view(owner), settings: recordedWrite(service.store, owner, byCard("speech-engines"), ["speech-engines"], () => service.save(owner, input)) };
+  }
   if (path === "/api/voice/command" && method === "POST") return { command: service.command(owner, commandBody.parse(await body()).text) };
   throw new Error("That is not something Branch can do with speech engines");
 }

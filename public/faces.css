@@ -21,7 +21,7 @@
   place-items: center;
   overflow: hidden;
   background: var(--c);
-  color: var(--ground);
+  color: var(--ink, var(--ground));
 }
 /* With a status ring the face sits inside a thin gap of the ground it is drawn on. */
 .face.ringed .fc {
@@ -63,11 +63,11 @@
 .fc-drawn {
   width: 100%;
   height: 100%;
-  fill: var(--ground);
+  fill: var(--ink, var(--ground));
 }
 .fc-drawn .fc-mouth {
   fill: none;
-  stroke: var(--ground);
+  stroke: var(--ink, var(--ground));
   stroke-width: 1.8;
   stroke-linecap: round;
 }
@@ -75,7 +75,7 @@
   width: 54%;
   height: 54%;
   fill: none;
-  stroke: var(--ground);
+  stroke: var(--ink, var(--ground));
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;

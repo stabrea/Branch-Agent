@@ -84,8 +84,14 @@ input[type="checkbox"][role="switch"]:disabled {
   color: var(--text-2);
   font: inherit;
   font-size: 12.5px;
+  box-shadow: none;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* The sample's options keep their look under the pointer: the page's own button hover must not reach them. */
+.segmented-option:hover {
+  background: none;
 }
 
 .segmented-option[aria-pressed="true"] {
@@ -105,11 +111,44 @@ input[type="checkbox"][role="switch"]:disabled {
   opacity: 0.45;
 }
 
-.segmented-control[data-disabled] .segmented-option {
+.segmented-control[data-disabled] .segmented-option,
+.segmented-control:has(> .segmented-source:disabled) .segmented-option {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
 input[type="range"] {
   accent-color: var(--copper);
+}
+
+/* Grown-Up's small own-background choose button; leave other file controls alone. */
+#delight-bg-choose {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 540;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+#delight-bg-choose:hover {
+  background: var(--hover);
+}
+
+#delight-bg-choose svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }

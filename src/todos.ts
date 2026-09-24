@@ -95,25 +95,42 @@ export function remindAbout(scheduler: Scheduler, context: ToolContext, todo: To
   return { scheduleId: saved.id };
 }
 
+/**
+ * FQ-routing.isolated-agents: the to-do list is the owner's one list, with no scope of its own, so a
+ * Trunk or delegated specialist (any turn with an agent) is refused before it reads or changes it.
+ */
+const ownersListOnly = "The to-do list belongs to the owner, so only the owner's own tasks can read or change it. Keep your own notes with memory.put instead.";
+function ownerOnly(context: ToolContext): void {
+  if (context.agent) throw new Error(ownersListOnly);
+}
+
 export function registerTodos(registry: ToolRegistry, todos: Todos, owner: string): void {
   registry.register({
     name: "todos.list", permission: "memory.read",
     description: "The things still to be done, with the day each is wanted by.",
     parameters: z.object({ includeDone: z.boolean().default(false) }).strict(),
-    execute: async (input) => ({ todos: todos.list(owner, { includeDone: input.includeDone }) }),
+    execute: async (input, context: ToolContext) => {
+      ownerOnly(context);
+      return { todos: todos.list(owner, { includeDone: input.includeDone }) };
+    },
   });
   registry.register({
     name: "todos.add", permission: "memory.write",
     description: "Write one thing on the to-do list, so a plan stays where the owner can see it.",
     parameters: TodoSchema,
-    execute: async (input, context: ToolContext) =>
-      todos.add(owner, { ...input, ...(context.runId ? { runId: context.runId } : {}) }, "assistant"),
+    execute: async (input, context: ToolContext) => {
+      ownerOnly(context);
+      return todos.add(owner, { ...input, ...(context.runId ? { runId: context.runId } : {}) }, "assistant");
+    },
   });
   registry.register({
     name: "todos.done", permission: "memory.write",
     description: "Tick one thing off the to-do list, or put it back on.",
     parameters: z.object({ id: z.string().uuid(), done: z.boolean().default(true) }).strict(),
-    execute: async (input) => todos.done(owner, input.id, input.done),
+    execute: async (input, context: ToolContext) => {
+      ownerOnly(context);
+      return todos.done(owner, input.id, input.done);
+    },
   });
 }
 

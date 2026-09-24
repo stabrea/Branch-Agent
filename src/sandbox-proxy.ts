@@ -5,7 +5,7 @@ import { request as httpsRequest } from "node:https";
 import { connect, createServer as createNetServer, isIP, type Socket } from "node:net";
 import { redactLeaks } from "./leak-guard.js";
 import { scrubSecrets } from "./locker.js";
-import { isPrivateAddress } from "./network-policy.js";
+import { isPrivateAddress, refusedAnswers } from "./network-policy.js";
 import type { WallNetwork } from "./sandbox.js";
 
 /**
@@ -51,6 +51,12 @@ export interface ProxyOptions {
   upstream?: ((target: Route) => { host: string; port: number; secure: boolean }) | undefined;
   /** How a site name becomes addresses. Replaced in tests. */
   resolve?: ((host: string) => Promise<string[]>) | undefined;
+  /**
+   * The owner's fake-IP proxy setting, read for every site: when it says yes, a looked-up answer wholly
+   * in 198.18.0.0/15 is the proxy's stand-in for the real site. An answer that mixes the range with
+   * anything else, and an address written out, are never let in.
+   */
+  fakeIpProxy?: (() => boolean) | undefined;
   /** Listen on a local socket file instead of a port (Linux, where the program has its own network). */
   paths?: { http: string; socks: string };
 }
@@ -64,6 +70,15 @@ const maxBuffered = 16 * 1024 * 1024;
 const maxAsked = 16;
 const connectTimeoutMs = 30_000;
 const siteName = /^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?)*\.?$/;
+/**
+ * Whether a site name is really an address written out: plain, or spelled so a web address would
+ * read it as one ("3323068421", "198.18.0.5."). A name that cannot be read counts as written out, so
+ * it never earns the fake-IP proxy's allowance.
+ */
+function writtenOut(name: string): boolean {
+  if (isIP(name)) return true;
+  try { return isIP(new URL(`http://${name}/`).hostname) !== 0; } catch { return true; }
+}
 const defaultResolve = async (host: string): Promise<string[]> =>
   (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
 
@@ -120,11 +135,16 @@ export class SandboxProxy {
     catch (error) { return { reason: error instanceof Error ? error.message : String(error) }; }
     return this.pinned(name);
   }
-  /** The one address the connection will use, looked up once; never this computer or a private network. */
+  /**
+   * The one address the connection will use, looked up once; never this computer or a private network.
+   * An address written out, however it is spelled (one number, a trailing dot), is judged as itself.
+   */
   private async pinned(name: string): Promise<{ address: string } | { reason: string }> {
+    const literal = writtenOut(name);
     const addresses = isIP(name) ? [name] : await (this.options.resolve ?? defaultResolve)(name).catch(() => []);
     if (!addresses.length) return { reason: `${name} could not be found.` };
-    if (addresses.some(isPrivateAddress))
+    // A looked-up answer that mixes 198.18.0.0/15 with anything else is refused whole, so no part of it is dialled.
+    if (literal ? addresses.some(isPrivateAddress) : refusedAnswers(addresses, this.options.fakeIpProxy?.() === true).length > 0)
       return { reason: `${name} points at this computer or a private network, which programs behind the wall may never reach.` };
     return { address: addresses[0]! };
   }

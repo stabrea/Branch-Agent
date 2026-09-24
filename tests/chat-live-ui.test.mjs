@@ -34,7 +34,8 @@ async function fixture(t, viewport) {
 
 test("the chat-app card is under Customize, Chat apps, starts off, and saves a change", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#chat-live-form");
   await card.waitFor({ state: "visible" });
   const steering = page.getByLabel("Pass later messages to the task", { exact: true });
@@ -49,7 +50,8 @@ test("the chat-app card is under Customize, Chat apps, starts off, and saves a c
 
 test("the chat-app card fits a 400-pixel window without sideways scrolling", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 900 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#chat-live-form");
   await card.waitFor({ state: "visible" });
   // Measured inside the page in one step: the card redraws itself, and a box asked for in two

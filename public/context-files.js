@@ -84,8 +84,8 @@ const cards = [
 
 const positions = [
   ["off", "field.switch-off", "Off"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "field.switch-on", "On"],
-  ["when-needed", "field.switch-when-needed", "Only when it is needed"],
 ];
 const fileNames = {
   soul: ["field.file-soul", "Its character — SOUL.md"],

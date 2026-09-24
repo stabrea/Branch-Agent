@@ -5,8 +5,9 @@ import type { Reach } from "./index.js";
 import { machineViews } from "./machines.js";
 import { platformSettings, saveOwnerAccounts, sendToChat, setPaused } from "./platform.js";
 import { relaySettings, saveRelaySettings } from "./relay.js";
-import { ReachModeSchema, ReachOffError, ReachPartSchema, reachLabels, reachParts, requireReach } from "./settings.js";
+import { ReachModeSchema, ReachOffError, ReachPartSchema, reachKey, reachLabels, reachParts, requireReach } from "./settings.js";
 import { saveVideoSettings, videoSettings } from "./video.js";
+import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * The web side of R17-I: the routes under /api/reach/. The server checks the owner's own profile
@@ -73,7 +74,13 @@ const changes: Record<string, Handler> = {
   "/api/reach/machines/all": async (d) => d.reach.machines.lookAll((await body(d, z.object({ view: z.enum(["health", "working", "conversations"]).default("health") }).strict())).view),
   "/api/reach/trunks/remote": async ({ reach }) => ({ computers: await reach.remoteTrunks.roster() }),
   "/api/reach/usb/devices": async ({ reach }) => ({ devices: await reach.usb.devices() }),
-  "/api/reach/switch": async (d) => { const { part, mode } = await body(d, z.object({ part: ReachPartSchema, mode: ReachModeSchema }).strict()); return { part, mode: await d.reach.setMode(part, { mode }) }; },
+  "/api/reach/switch": async (d) => {
+    const { part, mode } = await body(d, z.object({ part: ReachPartSchema, mode: ReachModeSchema }).strict());
+    // Q48: setMode saves the switch before its first wait, so the record is written with it; the relay follows after.
+    let saving: Promise<unknown> = Promise.resolve();
+    recordedWrite(d.reach.store, d.reach.owner, byCard(reachKey(part)), inCatalogue(reachKey(part)), () => { saving = d.reach.setMode(part, { mode }); });
+    return { part, mode: await saving };
+  },
   "/api/reach/machine-name": async (d) => ({ name: d.reach.saveMachineName(await d.readBody()) }),
   "/api/reach/machines/look": async (d) => d.reach.machines.look(await body(d, z.object({ machine: z.string(), view: z.enum(machineViews), id: z.string().uuid().optional() }).strict())),
   "/api/reach/machines/start": async (d) => d.reach.machines.start(await d.readBody()),

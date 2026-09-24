@@ -36,6 +36,9 @@ export const auditActions = [
   "history.pruned",
   // Wave mac2 (move-in): chats, memory, skills or settings were brought in from another assistant.
   "data.imported",
+  // Q12: Branch changing its own source stepped outside its written contract and was refused, or
+  // the owner widened that contract (src/self-development-contract.ts).
+  "self_development.contract",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -109,6 +112,7 @@ const actionLabels: Record<AuditAction, string> = {
   "limit.reached": "Something reached the limit you set for a minute or an hour",
   "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
   "data.imported": "Chats, memory or settings were brought in from another assistant",
+  "self_development.contract": "Branch changing its own source was held to its contract, or the contract was widened",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 
@@ -127,6 +131,9 @@ export class AuditLog {
     // change that can be made, because the two rules above refuse any edit to a row that exists —
     // so an older row's origin is read back as its source, which is what it always meant.
     this.addOriginColumn();
+    // FQ-collaboration.unified-search: the same lower-casing the search's words get in JS, so a
+    // match in SQL is exactly a match in JS (SQLite's own lower() only folds ASCII).
+    this.db.function("audit_fold", { deterministic: true }, (value) => String(value ?? "").toLowerCase());
   }
   private addOriginColumn(): void {
     const has = this.db.prepare("PRAGMA table_info(audit)").all()
@@ -168,12 +175,39 @@ export class AuditLog {
     return this.db.prepare(`SELECT * FROM audit WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
       .all(...values, query.limit).map(toEntry);
   }
+  /**
+   * FQ-collaboration.unified-search: the newest entries whose actor, subject, reason or plain label
+   * hold every one of `words` (already lower-cased), searched across the whole record rather than a
+   * recent window, so an older match is still found.
+   */
+  search(owner: string, words: readonly string[], limit: number): AuditEntry[] {
+    words = searchWords(words);
+    if (!words.length) return [];
+    const where = ["owner=?"];
+    const values: string[] = [owner];
+    for (const word of words) {
+      const labelled = auditActions.filter((action) => auditLabel(action).toLowerCase().includes(word));
+      const byLabel = labelled.length ? ` OR action IN (${labelled.map(() => "?").join(",")})` : "";
+      where.push(`(instr(audit_fold(actor),?)>0 OR instr(audit_fold(subject),?)>0 OR instr(audit_fold(reason),?)>0${byLabel})`);
+      values.push(word, word, word, ...labelled);
+    }
+    return this.db.prepare(`SELECT * FROM audit WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
+      .all(...values, limit).map(toEntry);
+  }
   /** How many of each kind there are, for the plain-language summary. */
   counts(owner: string): { action: AuditAction; label: string; count: number }[] {
     const rows = this.db.prepare("SELECT action, COUNT(*) AS n FROM audit WHERE owner=? GROUP BY action").all(owner);
     const found = new Map(rows.map((row) => [String(row.action), Number(row.n)]));
     return auditActions.map((action) => ({ action, label: auditLabel(action), count: found.get(action) ?? 0 }));
   }
+}
+/**
+ * The words worth matching: each word is checked on every entry, so repeats and words already inside a
+ * longer one add cost and change nothing, and at most eight are kept (longest first, as they narrow most).
+ */
+function searchWords(words: readonly string[]): string[] {
+  const unique = [...new Set(words.filter(Boolean))].sort((a, b) => b.length - a.length);
+  return unique.filter((word, index) => !unique.slice(0, index).some((longer) => longer.includes(word))).slice(0, 8);
 }
 function toEntry(row: Record<string, unknown>): AuditEntry {
   const source = String(row.source) as AuditSource;

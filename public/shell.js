@@ -1,11 +1,15 @@
 /* The app shell: one rail (brand, quiet actions, sections, projects, conversations,
    the owner at the foot), one reading column, one context pane, and Ctrl+K to reach
    anything. No section hides behind a drop-down. */
-import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
+import { api, displayView, openConversation, openSavedConversations, ownerAtWindow, titles } from "/app.js";
 import { t } from "/i18n.js";
 import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
+import { face } from "/faces.js";
+// FQ-collaboration.unified-search: conversation, workflow and audit results the palette's own local
+// entries() below cannot see, fetched from the owner-only GET /api/search route.
+import { unifiedSearchEntries } from "/unified-search.js";
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -98,6 +102,9 @@ let railView = localStorage.getItem(RAIL_VIEW_KEY) === "trunks" ? "trunks" : "co
 let railCanManageTrunks = false;
 let railProfileOwner = null;
 let railProfileGeneration = Number(document.documentElement.dataset.profileGeneration || 0);
+let localMachineName = "";
+let selectedRailTarget = "here";
+const defaultRailMark = $("rail-target-mark").firstElementChild.cloneNode(true);
 function syncRailView() {
   const trunks = railView === "trunks" && railCanManageTrunks, group = $("trunks-rail");
   $("rail-scroll").dataset.railView = trunks ? "trunks" : "conversations";
@@ -137,17 +144,20 @@ document.addEventListener("branch-strip", (event) => {
   if (generation !== railProfileGeneration) return;
   const profiles = event.detail?.profiles;
   const confirmedOwner = event.detail?.profiles?.isOwner === true;
+  const newlyConfirmedOwner = confirmedOwner && railProfileOwner !== true;
   if (profiles) railProfileOwner = confirmedOwner;
   railCanManageTrunks = railProfileOwner === true && ownerAtWindow() && confirmedOwner;
   syncRailView();
   if (railCanManageTrunks) document.dispatchEvent(new CustomEvent("branch-strip-reselect"));
+  if (newlyConfirmedOwner) void loadMachineName();
 });
 document.addEventListener("branch-profile", (event) => {
   const generation = Number(event.detail?.profileGeneration);
   railProfileGeneration = Number.isSafeInteger(generation) ? generation : railProfileGeneration + 1;
   railProfileOwner = event.detail?.owner !== false;
   railCanManageTrunks = false;
-  if (railProfileOwner) return syncRailView();
+  if (railProfileOwner) { syncRailView(); void loadMachineName(); return; }
+  localMachineName = "";
   setRailTargetFallback();
   syncRailView();
 });
@@ -166,11 +176,24 @@ function setRailTargetFallback() {
     node.dataset.t = key;
     node.textContent = t(key);
   }
+  selectedRailTarget = "here";
+  $("rail-target-mark").classList.remove("has-face");
+  $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
+  if (ownerAtWindow() && railProfileOwner === true && localMachineName)
+    setRailTargetText("rail-target-name", localMachineName);
 }
 document.addEventListener("branch-strip-selection", (event) => {
   if (railProfileOwner !== true || !railCanManageTrunks || !ownerAtWindow()) return setRailTargetFallback();
-  const { name, kind, status } = event.detail;
-  setRailTargetText("rail-target-name", name);
+  const { id, name, kind, status, spec } = event.detail;
+  selectedRailTarget = id;
+  if (spec) {
+    $("rail-target-mark").classList.add("has-face");
+    $("rail-target-mark").replaceChildren(face(spec, 32, { ground: "rail" }));
+  } else {
+    $("rail-target-mark").classList.remove("has-face");
+    $("rail-target-mark").replaceChildren(defaultRailMark.cloneNode(true));
+  }
+  setRailTargetText("rail-target-name", id === "here" ? localMachineName || name : name);
   setRailTargetText("rail-target-kind", kind);
   setRailTargetText("rail-target-status", status);
 });
@@ -451,6 +474,18 @@ export async function loadRail() {
   } catch {
     /* the owner row keeps its resting labels */
   }
+  await loadMachineName();
+}
+async function loadMachineName() {
+  if (!ownerAtWindow() || railProfileOwner !== true) return;
+  const generation = railProfileGeneration;
+  const reach = await api("reach").catch(() => null);
+  if (!ownerAtWindow() || railProfileOwner !== true || generation !== railProfileGeneration) return;
+  localMachineName = typeof reach?.machineName === "string" ? reach.machineName.trim() : "";
+  if (selectedRailTarget === "here") {
+    if (localMachineName) setRailTargetText("rail-target-name", localMachineName);
+    else { $("rail-target-name").dataset.t = "strip.here"; $("rail-target-name").textContent = t("strip.here"); }
+  }
 }
 $("rail-new").addEventListener("click", () => {
   displayView("chat");
@@ -458,12 +493,83 @@ $("rail-new").addEventListener("click", () => {
   closeRailOverlay();
   setTimeout(loadRail, 400);
 });
+/* DG-093: beside New conversation, a chevron to start with a chosen Trunk, as in the approved sample. One click on
+   New conversation still starts with your own assistant; the chevron lists the real Trunks and is shown only when
+   there is one to choose and this is the owner. */
+function buildNewWith() {
+  const start = $("rail-new");
+  const line = Object.assign(document.createElement("div"), { className: "rail-new-line" });
+  start.before(line);
+  line.append(start);
+  const more = Object.assign(document.createElement("button"), { type: "button", id: "rail-new-more", className: "rail-new-more", hidden: true });
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("data-t-label", "rail.newWith");
+  more.setAttribute("aria-label", t("rail.newWith"));
+  more.title = t("rail.newWith");
+  more.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>';
+  const panel = Object.assign(document.createElement("div"), { id: "rail-new-menu", className: "menu rail-new-menu", hidden: true });
+  panel.setAttribute("role", "menu");
+  line.append(more, panel);
+  menu("rail-new-more", "rail-new-menu", (box) => void fillNewWith(box));
+  return more;
+}
+async function fillNewWith(box) {
+  const [{ visibleTrunks }, { avatar }] = await Promise.all([import("/strip.js"), import("/trunks.js")]);
+  const note = Object.assign(document.createElement("p"), { className: "menu-note", textContent: t("rail.newWith.head") });
+  note.dataset.t = "rail.newWith.head";
+  const rows = visibleTrunks().map((trunk) => {
+    const row = Object.assign(document.createElement("button"), { type: "button" });
+    row.setAttribute("role", "menuitem");
+    row.dataset.trunk = trunk.id;
+    const words = document.createElement("span");
+    words.append(Object.assign(document.createElement("b"), { textContent: trunk.name }),
+      Object.assign(document.createElement("small"), { textContent: `@${trunk.handle}` }));
+    row.append(avatar(trunk, 24), words);
+    row.addEventListener("click", () => void startWithTrunk(trunk));
+    return row;
+  });
+  const after = Object.assign(document.createElement("p"), { className: "rail-new-note", textContent: t("rail.newWith.note") });
+  after.dataset.t = "rail.newWith.note";
+  box.replaceChildren(note, ...rows, document.createElement("hr"), after);
+}
+/** A new conversation that this Trunk answers in, the same way @naming a Trunk in an empty conversation begins one. */
+async function startWithTrunk(trunk) {
+  try {
+    const { sessionId } = await api("trunks/conversations", { trunkId: trunk.id });
+    displayView("chat");
+    await openConversation(sessionId);
+    closeRailOverlay();
+    setTimeout(loadRail, 400);
+  } catch (error) {
+    globalThis.toast?.(error.message ?? String(error));
+  }
+}
+const newWith = buildNewWith();
+/** Shown for the owner when Trunks, and choosing one to answer a conversation, are on and one is there to choose. */
+async function syncNewWith() {
+  const { visibleTrunks, isOwner, shell } = await import("/strip.js");
+  newWith.hidden = !(isOwner() && visibleTrunks().length > 0 && shell.roster?.modes?.conversations !== "off");
+}
+for (const name of ["branch-strip", "branch-profile"]) document.addEventListener(name, () => void syncNewWith());
+setTimeout(() => void syncNewWith(), 0);
+document.addEventListener("branch-language", () => { newWith.title = t("rail.newWith"); });
 /* The label picker for whatever conversation is open. */
 $("thread-labels")?.addEventListener("click", (event) => {
   event.stopPropagation();
   void openLabelPicker($("thread-labels"), $("conversation").dataset.sessionId || null, loadRail);
 });
 $("rail-find").addEventListener("click", () => openPalette());
+/* DG-097: the top-bar search box opens the same finder as Ctrl K, and shows the keys that really open it. */
+$("head-search").addEventListener("click", () => openPalette());
+function drawSearchKeys() {
+  const keys = hintFor("palette", "Ctrl K");
+  const hint = $("head-search-keys");
+  hint.textContent = keys;
+  hint.hidden = !keys;
+  const button = $("head-search");
+  if (keys) button.setAttribute("aria-keyshortcuts", keys.replace(/\bCtrl\b/g, "Control").replaceAll(" ", "+"));
+  else button.removeAttribute("aria-keyshortcuts");
+}
 $("cmd-open").addEventListener("click", () => openPalette());
 
 /* ---------- the command palette ---------- */
@@ -476,8 +582,10 @@ function entries() {
     hint: "Section",
     run: () => displayView(view),
   }));
+  const historyTitle = t("history.title");
   found.push(
     { label: "New conversation", hint: hintFor("newConversation", "Ctrl N"), run: () => $("rail-new").click() }, // R17-S15
+    { label: historyTitle === "history.title" ? "Conversation history" : historyTitle, hint: "Action", run: openSavedConversations },
     { label: "Appearance settings", hint: hintFor("appearance", "Ctrl ,"), run: () => $("appearance-shortcut").click() },
     { label: "Check for updates", hint: "Action", run: () => { displayView("settings"); $("updates-check")?.click(); } },
   );
@@ -493,14 +601,12 @@ function entries() {
     found.push({
       label: titleOf(entry),
       hint: "Conversation",
+      sessionId: entry.sessionId,
       run: () => { displayView("chat"); void openConversation(entry.sessionId); },
     });
   return found;
 }
-function drawPalette(query) {
-  const needle = query.trim().toLowerCase();
-  matches = entries().filter((item) => item.label.toLowerCase().includes(needle)).slice(0, 40);
-  chosen = 0;
+function renderMatches() {
   const list = palette.querySelector(".cmd-list");
   list.replaceChildren();
   if (!matches.length) {
@@ -523,6 +629,37 @@ function drawPalette(query) {
     button.addEventListener("click", () => choose(index));
     list.append(button);
   });
+}
+/* FQ-collaboration.unified-search: each keystroke bumps this, so a slow /api/search reply for an
+   earlier query never lands after a newer one, or after the palette has been closed. */
+let searchToken = 0;
+let searchTimer = null;
+function drawPalette(query) {
+  const needle = query.trim().toLowerCase();
+  matches = entries().filter((item) => item.label.toLowerCase().includes(needle)).slice(0, 40);
+  chosen = 0;
+  renderMatches();
+  clearTimeout(searchTimer);
+  const token = ++searchToken;
+  searchTimer = setTimeout(() => {
+    void unifiedSearchEntries(query).then((remote) => {
+      if (token !== searchToken || palette?.hidden !== false) return;
+      const knownLabels = new Set(matches.map((item) => item.label));
+      // A conversation whose own title already matched is offered above by that title; the same
+      // conversation's generic row from /api/search would only repeat it. Only the ones that matched:
+      // a recent conversation whose words match but whose title does not is what this search is for.
+      // Each conversation is offered once, even if /api/search ever returns two rows for it.
+      const knownSessions = new Set(matches.map((item) => item.sessionId).filter(Boolean));
+      matches = matches.concat(remote.filter((item) => {
+        if (knownLabels.has(item.label)) return false;
+        if (!item.sessionId) return true;
+        if (knownSessions.has(item.sessionId)) return false;
+        knownSessions.add(item.sessionId);
+        return true;
+      }));
+      renderMatches();
+    });
+  }, 150);
 }
 function highlight(step) {
   if (!matches.length) return;
@@ -600,6 +737,9 @@ function closePalette() {
 /* R17-S15: the owner's own keys for these four (public/comfort.js); without it, the keys they have always been. */
 const pressed = (event, action, always) => globalThis.branchComfort?.pressed(event, action) ?? always;
 const hintFor = (action, always) => globalThis.branchComfort?.hint(action) ?? always;
+/* Drawn here rather than beside the button: `hintFor` has to exist before the keys can be shown. */
+drawSearchKeys();
+document.addEventListener("branch-comfort", drawSearchKeys);
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   /* Ctrl+Shift+K folds the context pane away and back, where there is room for it. */

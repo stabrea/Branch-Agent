@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
 import type { LearningLoop } from "./loop.js";
+import { byCard, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * The window's side of the learning loop, under /api/reflection. Answers `undefined` for a path it
@@ -16,7 +17,10 @@ export async function reflectionApi(loop: LearningLoop, store: Store, method: st
   if (!path.startsWith("/api/reflection")) return undefined;
   if (method === "GET" && path === "/api/reflection") return overview(loop);
   if (method !== "POST") return undefined;
-  if (path === "/api/reflection/settings") return loop.configure(await body());
+  if (path === "/api/reflection/settings") {
+    const input = await body();
+    return recordedWrite(store, loop.owner, byCard("reflection"), ["reflection"], () => loop.configure(input));
+  }
   if (path === "/api/reflection/look-back") return { batch: await loop.lookBackNow(LookBody.parse(await body()).sessionId) };
   if (path === "/api/reflection/learn") { const input = LearnBody.parse(await body()); return loop.learn({ sessionId: input.sessionId, notes: input.notes ?? "" }); }
   if (path === "/api/reflection/retire") { Empty.parse(await body()); return loop.offerRetirements(); }

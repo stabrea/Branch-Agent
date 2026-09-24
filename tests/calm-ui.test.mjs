@@ -18,7 +18,7 @@ const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
   "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
-  "#saved-conversations", "#rail-find", "#cmd-open", "#context-panel",
+  "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn",
 ];
 /* What the calm window always shows. phase2/settings: the account row now shows too, with the Settings cog after it (#37).
@@ -112,12 +112,36 @@ test("the calm window is the default: one box, Send, New conversation, Recents, 
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.everything), "off");
   const hidden = await shown(f.page, HIDDEN_WHEN_CALM);
   assert.deepEqual(Object.entries(hidden).filter(([, on]) => on).map(([selector]) => selector), [], "these still show in the calm window");
+  assert.equal(await f.page.locator("#saved-conversations").count(), 0, "conversation history is not built in the thread");
   for (const selector of HIDDEN_WHEN_CALM.filter((s) => s.startsWith("#")))
     assert.equal(await f.page.locator(selector).count(), 1, `${selector} is hidden, not removed`);
   const always = await shown(f.page, ALWAYS);
   assert.deepEqual(Object.entries(always).filter(([, on]) => !on).map(([selector]) => selector), [], "these must always show");
   assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), true, "recent conversations stay in the rail");
   assert.equal(await f.page.locator("#greeting").innerText(), "What do you want done?");
+  assert.deepEqual(f.errors, []);
+});
+
+test("conversation history is built only when requested and closes with Escape", async (t) => {
+  const f = await fixture(t, { onboarded: true, width: 390, height: 844 });
+  assert.equal(await f.page.locator("#saved-conversations").count(), 0);
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").fill("Conversation history");
+  await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
+  const dialog = f.page.getByRole("dialog", { name: "Conversation history" });
+  await dialog.waitFor({ state: "visible" });
+  assert.equal(await f.page.locator("#conversation #saved-conversations").count(), 0);
+  assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await f.page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").fill("Conversation history");
+  await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
+  await dialog.waitFor({ state: "visible" });
+  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } })));
+  await dialog.waitFor({ state: "hidden" });
+  assert.equal(await f.page.locator("#saved-list").evaluate((list) => list.childElementCount), 0,
+    "a profile switch clears the prior person's history even if its search is still loading");
   assert.deepEqual(f.errors, []);
 });
 
@@ -148,9 +172,20 @@ test("Show everything brings the full window back, and is remembered for this pe
   await openSettingFor(f.page, "#appearance-everything");
   await f.page.locator("#appearance-everything").check();
   await closeSettings(f.page);
-  const back = await shown(f.page, ["#lx-pane-tabs", "#lx-shield", "#aside-toggle", "#composer-attach", "#temporary-toggle",
-    "#ask-first-toggle", "#composer-specialist", "#new-session", "#context-panel", "#rail-find", "#owner-menu-button", ".lx-gear"]);
+  const back = await shown(f.page, ["#lx-shield", "#aside-toggle", "#rail-find", "#owner-menu-button", ".lx-gear"]);
   assert.deepEqual(Object.entries(back).filter(([, on]) => !on).map(([selector]) => selector), [], "these did not come back");
+  /* DG-175: the message box stays the sample's slim bar; what the full window used to lay out beside it is in "+". */
+  const inline = await shown(f.page, ["#composer-attach", "#temporary-toggle", "#ask-first-toggle", "#composer-specialist", "#new-session"]);
+  assert.deepEqual(Object.entries(inline).filter(([, on]) => on).map(([selector]) => selector), [], "nothing extra beside the box");
+  await f.page.locator("#lx-plus").click();
+  const plus = await f.page.locator("#lx-plus-menu").innerText();
+  for (const words of ["Attach a document", "Add a picture or a sound", "Ask me questions first", "Temporary"]) assert.match(plus, new RegExp(words));
+  await f.page.keyboard.press("Escape");
+  /* DG-114: the side panel is a card over the conversation, closed until asked for, in the full window too. */
+  assert.equal(await visible(f.page, "#context-panel"), false, "the side panel waits to be asked for");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("#context-panel").waitFor({ state: "visible" });
+  assert.equal(await visible(f.page, "#lx-pane-tabs"), true, "and it brings its tabs");
   assert.equal(await visible(f.page, "#lx-more"), false, "the full window is the old one, without More");
   /* Kept with the person's own preferences, not only in this browser. */
   /* The window saves the change a moment after it shows it; on a loaded machine that moment is longer. */
@@ -163,6 +198,8 @@ test("Show everything brings the full window back, and is remembered for this pe
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
   await f.page.waitForFunction(() => document.documentElement.dataset.everything === "on");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("#context-panel").waitFor({ state: "visible" });
   assert.equal(await visible(f.page, "#lx-pane-tabs"), true);
   assert.deepEqual(f.errors, []);
 });

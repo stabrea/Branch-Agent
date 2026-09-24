@@ -250,7 +250,10 @@ test("the panel is the Usage screen's, not the meter's: the two measure differen
   assert.match(configuration, /This service does not say what it allows/);
   assert.match(configuration, /meter under the message box measures how much of \*this\ns?conversation's\* room/);
   const screen = await readFile(join(import.meta.dirname, "..", "public", "usage.js"), "utf8");
-  assert.match(screen, /renderLimits\(view\);/, "the panel is drawn on the Usage screen");
+  /* DG-081: drawn by the Usage screen into a card of its own, which lives on Data & usage. */
+  assert.match(screen, /renderLimits\(left\);/, "the panel is drawn by the Usage screen");
+  assert.match(screen, /left = host\("usage-left-card"\)/);
+  assert.match(screen, /card\.dataset\.home = "settings:data";/, "and its card lives on Data & usage");
   const popover = await readFile(join(import.meta.dirname, "..", "public", "model-savings.js"), "utf8");
   assert.ok(!/usage\/limits/.test(popover), "and never in the meter popover, which is a context-window figure");
 });

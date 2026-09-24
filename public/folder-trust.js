@@ -103,7 +103,8 @@ function buttons(folder, filled = true) {
     });
     row.append(button);
   }
-  return [row, status];
+  // Q89: trusting a folder does not reach a repository cloned inside it.
+  return [row, worded("p", "folder-trust.nested-repo-note", "subtle"), status];
 }
 
 /** The question on the chat screen, shown only while a folder with something in it is undecided. */
@@ -147,7 +148,7 @@ function settingsHome(id, afterId) {
 function settingsCard(mode, folders) {
   const card = settingsHome("folder-trust-card", "firewall-card");
   if (!card) return;
-  card.replaceChildren(worded("h2", "settings.card.trusted-folders"), worded("p", "folder-trust.lead", "subtle"),
+  card.replaceChildren(worded("h3", "settings.card.trusted-folders", "settings-card-title"), worded("p", "folder-trust.lead", "subtle"),
     ...switchRow("folder-trust-mode", "field.folder-trust-mode", mode, async (next) => { await api({ mode: next }); await refresh(); }),
     worded("p", `folder-trust.mode.${mode}`, "subtle"));
   if (mode === "off") return;
@@ -166,7 +167,7 @@ function settingsCard(mode, folders) {
 function loopCard(mode) {
   const card = settingsHome("loop-guard-card", "folder-trust-card");
   if (!card) return;
-  card.replaceChildren(worded("h2", "settings.card.stopping-repeated-steps"), worded("p", "loop-guard.lead", "subtle"),
+  card.replaceChildren(worded("h3", "settings.card.stopping-repeated-steps", "settings-card-title"), worded("p", "loop-guard.lead", "subtle"),
     ...switchRow("loop-guard-mode", "field.loop-guard-mode", mode, (next) => api({ mode: next }, "loop-guard")),
     worded("p", "loop-guard.modes", "subtle"));
 }

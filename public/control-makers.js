@@ -37,10 +37,10 @@ const DEFAULT_POSITIONS = [
   ["on", "field.switch-on", "On"],
 ];
 
-const orderedPositions = (options) =>
-  options.length === 3 && ["off", "when-needed", "on"].every((choice) => options.some(([one]) => one === choice))
-    ? ["off", "when-needed", "on"].map((choice) => options.find(([one]) => one === choice))
-    : options;
+/* DG-017: every three-way reads Off · When needed · On in that order, whatever words its module brought,
+   as the approved sample draws each one (`invControlHTML`). The stored values are unchanged. */
+const isThreeWay = (options) =>
+  options.length === 3 && ["off", "when-needed", "on"].every((choice) => options.some(([one]) => one === choice));
 
 function optionNode(option) {
   const node = document.createElement("option");
@@ -131,7 +131,7 @@ function proxySegmentedControl(control, source, sync) {
 }
 
 export function segmented({ id, options = DEFAULT_POSITIONS, value = "off", onChange } = {}) {
-  const positions = orderedPositions(options);
+  const positions = isThreeWay(options) ? DEFAULT_POSITIONS : options;
   const control = document.createElement("div");
   control.className = `seg segmented-control${positions.length === 3 ? " tri" : ""}`;
   const source = document.createElement("select");
@@ -148,7 +148,7 @@ export function segmented({ id, options = DEFAULT_POSITIONS, value = "off", onCh
 }
 
 export function dropdown({ id, options = [], value = "", onChange } = {}) {
-  if (options.length === 3 && ["off", "when-needed", "on"].every((choice) => options.some(([one]) => one === choice)))
+  if (isThreeWay(options))
     return segmented({ id, options, value, onChange });
   const control = document.createElement("select");
   control.className = "glass";
@@ -171,6 +171,36 @@ export function dropdown({ id, options = [], value = "", onChange } = {}) {
   return control;
 }
 
+/* DG-169: a three-way a module still builds as a plain select becomes the same segmented control, as the
+   approved sample draws every one. The select stays: it is moved into the control and becomes its source, so the
+   module's own value, change and disabled handling work as before. */
+function dressThreeWay(select) {
+  if (select.multiple || select.size > 1 || select.matches(".segmented-source")) return;
+  if (!isThreeWay([...select.options].map((option) => [option.value]))) return;
+  const wrapper = select.parentElement;
+  const control = document.createElement("div");
+  control.className = "seg segmented-control tri";
+  control.dataset.dressed = "";
+  /* A module that swapped its select for a new one inside a control drawn earlier: that control goes. */
+  if (wrapper?.matches(".segmented-control[data-dressed]")) wrapper.replaceWith(control);
+  else select.before(control);
+  const chosen = select.value;
+  for (const [value] of DEFAULT_POSITIONS) select.append(select.querySelector(`option[value="${value}"]`));
+  select.classList.remove("glass");
+  select.classList.add("segmented-source");
+  select.removeAttribute("aria-haspopup");
+  select.removeAttribute("aria-expanded");
+  select.dataset.native = "keep";
+  control.append(select);
+  const sync = bindSegmentedSource(select, segmentNodes(control, DEFAULT_POSITIONS));
+  select.value = chosen;
+  sync();
+}
+export function dressThreeWays(root = document) {
+  const selects = root instanceof HTMLSelectElement ? [root] : [...root.querySelectorAll?.("select:not(.segmented-source)") ?? []];
+  for (const select of selects) dressThreeWay(select);
+}
+
 export function dressSwitches(root = document) {
   const candidates = [];
   if (root instanceof Element) {
@@ -185,9 +215,10 @@ export function dressSwitches(root = document) {
   }
 }
 dressSwitches();
+dressThreeWays();
 new MutationObserver((changes) => {
   for (const change of changes) for (const node of change.addedNodes)
-    if (node.nodeType === Node.ELEMENT_NODE) dressSwitches(node);
+    if (node.nodeType === Node.ELEMENT_NODE) { dressSwitches(node); dressThreeWays(node); }
 }).observe(document.body, { childList: true, subtree: true });
 
-globalThis.branchControlMakers = { switchControl, segmented, dropdown, dressSwitches };
+globalThis.branchControlMakers = { switchControl, segmented, dropdown, dressSwitches, dressThreeWays };

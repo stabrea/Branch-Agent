@@ -40,18 +40,18 @@ body.no-aside .context-panel {
 }
 .rail-head {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--s1);
-  padding: var(--s3) var(--s3) var(--s2);
+  padding: 14px 10px 8px 12px;
 }
 .app-switcher {
   display: flex;
   align-items: center;
-  gap: var(--s2);
-  flex: 1;
+  gap: 10px;
   min-width: 0;
-  padding: var(--s1) var(--s2);
+  padding: 2px;
   border: 0;
   border-radius: var(--r1);
   background: transparent;
@@ -62,28 +62,27 @@ body.no-aside .context-panel {
 .app-switcher:hover {
   background: var(--rail-hover);
 }
-.brand {
-  min-width: 0;
-  font-family: var(--display);
-  font-stretch: 78%;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.brand-icon {
+.rail-target-mark {
   display: inline-grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   flex: none;
+  border-radius: 10px;
+  background: var(--copper);
+  color: var(--on-copper);
 }
-.brand-icon img {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
+.rail-target-mark svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail-target-mark.has-face {
+  background: transparent;
 }
 .chev {
   width: 15px;
@@ -236,6 +235,76 @@ body.no-aside .context-panel {
   color: var(--faint);
   font-size: 13px;
 }
+/* DG-093: New conversation, and beside it a chevron to start with a chosen Trunk (it takes the plus's place) */
+.rail-new-line {
+  position: relative;
+}
+.rail-new-line:has(#rail-new-more:not([hidden])) .rail-plus {
+  visibility: hidden;
+}
+.rail-new-more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-3);
+}
+.rail-new-more:hover,
+.rail-new-more[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.rail-new-more svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail-new-more[hidden],
+#rail-new[hidden] ~ .rail-new-more,
+html:root[data-hide~="new"] body.lx .rail-new-more {
+  display: none;
+}
+.rail-new-menu {
+  top: calc(100% + 2px);
+  right: 0;
+  left: 0;
+}
+.rail-new-menu button > span {
+  display: grid;
+  min-width: 0;
+}
+.rail-new-menu b {
+  color: var(--text);
+  font-weight: 550;
+}
+.rail-new-menu small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.rail-new-menu hr {
+  margin: var(--s1) var(--s2);
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.rail-new-note {
+  margin: var(--s1) var(--s3) var(--s2);
+  color: var(--faint);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
 .rail-find {
   color: var(--faint);
 }
@@ -251,10 +320,10 @@ body.no-aside .context-panel {
 .rail-target {
   display: grid;
   gap: 2px;
-  margin: var(--s2) var(--s2) var(--s1);
-  padding: 0 var(--s1);
+  min-width: 0;
 }
 .rail-target strong {
+  display: block;
   overflow: hidden;
   font-size: 13.5px;
   font-weight: 620;
@@ -262,6 +331,7 @@ body.no-aside .context-panel {
   white-space: nowrap;
 }
 .rail-target small {
+  display: block;
   overflow: hidden;
   color: var(--faint);
   font-size: 11.5px;
@@ -505,19 +575,75 @@ body.no-aside .context-panel {
   display: grid;
   min-width: 0;
 }
+/* DG-095: the owner's line is shown whole, never cut short; a long one wraps. */
 .owner-name {
   font-size: 12.5px;
   font-weight: 550;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .owner-status {
   font-size: 10.5px;
   color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+/* DG-094: one line of icons above the account row (public/rail-foot.js): the theme and the pet on the left,
+   then day/night, clear the view and the Settings cog on the right. */
+.lx-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0 0 2px;
+}
+.lx-foot-line .lx-foot-icon,
+.lx-foot-line .sg-gear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.lx-foot-line .lx-foot-icon:hover,
+.lx-foot-line .sg-gear:hover,
+.lx-foot-line .sg-gear[aria-expanded="true"] {
+  background: var(--rail-hover);
+  color: var(--text);
+}
+.lx-foot-line .lx-foot-icon svg,
+.lx-foot-line .sg-gear svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lx-foot-line #lx-foot-mode {
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+}
+.lx-foot-line .lx-foot-icon[hidden] {
+  display: none;
+}
+/* DG-159: day/night lives only here now, so the old half-moon beside the computer's name goes. */
+#appearance-shortcut {
+  display: none !important;
+}
+/* DG-161: as in the sample, the pet's switch is not in the folded sidebar nor on a phone. */
+@media (max-width: 960px) {
+  .lx-foot-line #lx-foot-pet {
+    display: none;
+  }
 }
 .dot {
   display: inline-block;
@@ -559,7 +685,55 @@ header {
   padding: 0 var(--s4);
   border-bottom: 1px solid var(--line);
   background: var(--head-bg);
+  /* DG-097: the search box folds to an icon by the top bar's own width, as the sample does. */
+  container-type: inline-size;
 }
+/* DG-097: the approved sample's top-bar search box, in this app's own tokens. */
+.head-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: none;
+  color: var(--text-3);
+  font-size: 13px;
+  /* The window's buttons are bold by default; the sample's search box is not. */
+  font-weight: 400;
+  cursor: pointer;
+}
+.head-search:hover {
+  border-color: var(--line-2);
+  color: var(--text-2);
+}
+.head-search svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.head-search kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--text-3);
+  background: none;
+}
+/* The sample also folds by the window's width (760px). Here that rule could never be the one doing it:
+   even with the sidebar folded away, a 760px window leaves the top bar 714px wide, already under 720. */
+@container (max-width: 720px) {
+  .head-search span,
+  .head-search kbd { display: none; }
+  .head-search { width: 34px; padding: 0; justify-content: center; border: 0; }
+}
+
 .head-title {
   display: flex;
   align-items: baseline;
@@ -926,6 +1100,13 @@ details.tool-step > summary:hover {
   font-weight: 600;
   color: var(--faint);
 }
+/* Q52: "What it made" / "How it was checked" inside Receipts. */
+.context-sub {
+  margin: var(--s1) 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
 .context-rows {
   display: grid;
   gap: var(--s1);
@@ -1288,7 +1469,7 @@ details.tool-step > summary:hover {
     display: none;
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   /* the rail slides over the page instead of taking a column */
   body,
   body.no-aside,

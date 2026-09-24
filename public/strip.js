@@ -29,7 +29,8 @@ export function make(tag, className, key, english, values) {
 const ICONS = {
   users: "M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 11a3 3 0 100-6M21 20a6 6 0 00-4-5.6",
   plus: "M12 5v14M5 12h14", dots: "M5 12h.01M12 12h.01M19 12h.01", close: "M6 6l12 12M18 6 6 18",
-  back: "M15 6l-6 6 6 6", check: "M5 12l5 5 9-10", copy: "M8 8h11v11H8zM5 16V5h11",
+  back: "M15 6l-6 6 6 6", pen: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4", check: "M5 12l5 5 9-10", copy: "M8 8h11v11H8zM5 16V5h11",
+  leaf: "M5 19C5 10 11 5 19 5c0 8-5 14-14 14zM5 19l8-8",
 };
 export function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -117,7 +118,7 @@ function markSelected() {
   const selectedTrunk = picked.startsWith("trunk:") ? findTrunk(picked.slice("trunk:".length)) : null;
   const item = items.find((entry) => entry.id === picked) ?? (selectedTrunk ? trunkItem(selectedTrunk) : computers[0]);
   if (item) document.dispatchEvent(new CustomEvent("branch-strip-selection", {
-    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item) },
+    detail: { id: item.id, name: item.name, kind: kindWords(item), status: statusWords(item), spec: item.spec },
   }));
 }
 
@@ -143,7 +144,7 @@ function stripFace(item, owner) {
     more.type = "button";
     more.setAttribute("aria-label", say("strip.change", "Change {name}", { name: item.name }));
     more.setAttribute("aria-haspopup", "menu");
-    more.append(icon("dots"));
+    more.append(icon("pen"));
     more.addEventListener("click", (event) => { event.stopPropagation(); openMenu(more, item); });
     wrap.append(more);
     if (item.kind === "trunk") wrap.draggable = true;
@@ -356,25 +357,42 @@ function trunkSettings(id) {
 }
 
 /* ---------- right-click, long press, the menu key and dragging ---------- */
+/* DG-112: every picture of a Trunk opens the same menu: its face in the strip and its row in the
+   sidebar's Trunks list, by right-click, a long press, the menu key or Shift+F10. */
+const MENU_PLACES = "#trunk-strip .strip-face, #trunks-rail [data-trunk]";
 function itemFor(node) {
-  const id = node?.closest?.("[data-strip-id]")?.dataset.stripId;
+  const row = node?.closest?.("#trunks-rail [data-trunk]");
+  if (row) { const trunk = findTrunk(row.dataset.trunk); return trunk && !trunk.hidden ? trunkItem(trunk) : null; }
+  const id = node?.closest?.("#trunk-strip [data-strip-id]")?.dataset.stripId;
   if (!id) return null;
   const { computers, trunks } = stripItems();
   return [...computers, ...trunks].find((item) => item.id === id) ?? null;
 }
+/** The control the menu sits beside: the face in the strip, or the row in the sidebar. */
+const anchorFor = (node) => node.closest("#trunks-rail [data-trunk]") ?? node.closest(".strip-item")?.querySelector(".strip-face") ?? null;
+function menuFrom(node) {
+  const item = itemFor(node), anchor = node && anchorFor(node);
+  if (!item || !anchor || !isOwner()) return false;
+  openMenu(anchor, item);
+  return true;
+}
 function wireGestures() {
   document.addEventListener("contextmenu", (event) => {
-    const item = itemFor(event.target);
-    if (!item || !isOwner() || !event.target.closest("#trunk-strip")) return;
+    if (!event.target.closest?.("#trunk-strip, #trunks-rail [data-trunk]")) return;
+    if (!menuFrom(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
-    openMenu(event.target.closest(".strip-item").querySelector(".strip-face"), item);
   }, true);
+  document.addEventListener("keydown", (event) => {
+    const menuKey = event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+    if (!menuKey || !event.target.closest?.(MENU_PLACES)) return;
+    if (menuFrom(event.target)) event.preventDefault();
+  });
   let press = null;
   document.addEventListener("pointerdown", (event) => {
-    if (event.pointerType === "mouse" || !event.target.closest?.("#trunk-strip .strip-face")) return;
+    if (event.pointerType === "mouse" || !event.target.closest?.(MENU_PLACES)) return;
     const target = event.target;
-    press = setTimeout(() => { press = null; const item = itemFor(target); if (item && isOwner()) openMenu(target.closest(".strip-face"), item); }, 550);
+    press = setTimeout(() => { press = null; menuFrom(target); }, 550);
   });
   for (const name of ["pointerup", "pointercancel"]) document.addEventListener(name, () => { clearTimeout(press); press = null; });
   wireDragging();

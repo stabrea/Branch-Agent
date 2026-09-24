@@ -616,6 +616,7 @@ export class McpServer {
       runId: asking.id, sessionId: verdict.approvalKey, tool: name, target: verdict.target,
       label: verdict.label, question, source: 'mcp', remember: 'session',
       askedAt: new Date().toISOString(), bytes: verdict.bytes, fingerprint: verdict.fingerprint,
+      ...(this.registry.noStandingTarget(name, verdict.target ?? '') ? { noAlways: true } : {}),
     });
     this.store.event(asking.id, 'policy.ask', { name, label: verdict.label, target: verdict.target,
       remember: 'session', question, bytes: verdict.bytes, fingerprint: verdict.fingerprint, source: 'mcp' });

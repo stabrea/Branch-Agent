@@ -206,7 +206,7 @@ function certificates(field, id, value) {
   draw();
   const read = () => (pem.value.trim() ? [...list, { name: name.value.trim() || t("comfort.cert.unnamed"), pem: pem.value.trim() }] : list);
   const set = (v) => { list = [...v]; name.value = ""; pem.value = ""; draw(); };
-  return { nodes: [keyed("h3", "comfort.field.caCertificates"), holder,
+  return { nodes: [keyed("h4", "comfort.field.caCertificates", "settings-card-subtitle"), holder,
     ...labelled(`${id}-name`, "caName", name), ...labelled(`${id}-pem`, "caPem", pem)], read, set };
 }
 
@@ -241,7 +241,9 @@ function buildCard(spec) {
   card.className = "card";
   card.id = `comfort-${spec.id}-card`;
   card.dataset.home = spec.home;
-  card.append(keyed("h2", `comfort.${spec.id}.title`), keyed("p", `comfort.${spec.id}.lead`, "subtle"));
+  const settings = spec.home.startsWith("settings:");
+  card.append(keyed(settings ? "h3" : "h2", `comfort.${spec.id}.title`, settings ? "settings-card-title" : ""),
+    keyed("p", `comfort.${spec.id}.lead`, "subtle"));
   if (spec.warn) card.append(keyed("p", spec.warn, "field-note"));
   for (const danger of spec.dangers ?? []) card.append(keyed("p", danger, "field-note local-warning"));
   if (spec.id === "network" && view.network.proxy === "needs a newer Node") card.append(keyed("p", "comfort.network.old-node", "field-note"));
@@ -256,6 +258,12 @@ function buildCard(spec) {
   /* A card of choices saves the moment one is picked, as the sample's update cards do. */
   if (controls.some(([, c]) => c.instant))
     card.addEventListener("change", (event) => { if (event.target.type === "radio") row.querySelector("button")?.click(); });
+  /* DG-184: the sample saves how Branch gets your attention as you choose (DG-025), so that card has no Save. */
+  if (spec.id === "notify") {
+    const save = row.querySelector("button");
+    save.remove(); // still pressed below, out of sight
+    card.addEventListener("change", (event) => { if (event.target.matches("select")) save.click(); });
+  }
   return card;
 }
 function tryButton() {
@@ -466,11 +474,22 @@ function attention(item) {
 }
 
 let updateTimer = null;
+let updateAttempt = false;
+function scheduleUpdate() {
+  clearTimeout(updateTimer);
+  const notify = view?.values.notify;
+  if (!notify || notify.autoUpdate === "off" || !window.branchDesktop) return;
+  const interval = notify.autoUpdate === "install" ? 30_000
+    : notify.releaseChannel !== "stable" ? 5 * 60 * 1000 : 60 * 60 * 1000;
+  updateTimer = setTimeout(() => void autoUpdate(), interval);
+}
 async function autoUpdate() {
   const desktop = window.branchDesktop;
   /* Until the owner's choice has been read, treat it as off: never go looking for an update
      before we know it was wanted. */
-  if (!desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  if (updateAttempt || !desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
+  clearTimeout(updateTimer);
+  updateAttempt = true;
   try {
     let status = await desktop.updateStatus();
     let plan = await api("comfort/update-plan", { updaterPhase: status?.phase });
@@ -480,8 +499,15 @@ async function autoUpdate() {
     }
     // The same path as the Update button: checksum, a try on a copy of your work, a safety copy.
     if (plan.step === "install") await desktop.installUpdate();
-    else if (status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
+    else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
+  finally {
+    updateAttempt = false;
+    // The server records completion, so start the next delay after that response, not on a
+    // fixed tick that can arrive just before the check is due. Read the latest owner choice:
+    // a refresh while this attempt was pending must not revive an old channel or an off timer.
+    scheduleUpdate();
+  }
 }
 
 /* ---------- R17-S18: push-to-talk and the longest recording ---------- */
@@ -506,14 +532,15 @@ const maxRecordingSeconds = () => view?.values.voice.maxRecordingSeconds ?? null
 
 /* ---------- putting it to work ---------- */
 function apply() {
+  /* DG-097: anything that shows the owner's keys (the top-bar search box) redraws from `hint`. */
+  document.dispatchEvent(new Event("branch-comfort"));
   const box = $("prompt");
   if (box) vimIndicator(box);
   if (!view?.values.keys.vim) vim.mode = "insert";
   void refreshStatus();
-  clearInterval(updateTimer);
+  clearTimeout(updateTimer);
   if (view?.values.notify.autoUpdate !== "off" && window.branchDesktop) {
     void autoUpdate();
-    updateTimer = setInterval(() => void autoUpdate(), 60 * 60 * 1000);
   }
 }
 async function refresh() {

@@ -83,7 +83,7 @@ function buildCard() {
   status.className = "subtle";
   status.id = "approval-reviewer-status";
   status.setAttribute("role", "status");
-  card.append(worded("h2", "settings.card.second-look"), worded("p", "reviewer.lead"),
+  card.append(worded("h3", "settings.card.second-look", "settings-card-title"), worded("p", "reviewer.lead"),
     ...labelled("approval-reviewer-mode", "field.reviewer-mode", mode), worded("p", "reviewer.modes", "field-note"),
     ...labelled("approval-reviewer-connection", "field.reviewer-connection", connection),
 

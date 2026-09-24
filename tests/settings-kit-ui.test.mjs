@@ -99,15 +99,15 @@ test("R17-S05: which file does what, and changing one without leaving the window
   await card.scrollIntoViewIfNeeded();
   assert.equal(await card.locator(".agent-file").count(), 8);
   const soul = card.locator(".agent-file", { hasText: "SOUL.md" });
-  assert.match(await soul.textContent(), /Its character/);
+  assert.match(await soul.textContent(), /Who your assistant is: personality, tone and boundaries/);
   assert.match(await soul.textContent(), /Not written yet/);
-  await soul.getByRole("button", { name: "Change SOUL.md here" }).click();
+  await soul.getByRole("button", { name: "Edit SOUL.md" }).click();
   await card.getByLabel("What the file says").fill("Speak plainly and briefly.");
   await card.getByRole("button", { name: "Save this file" }).click();
   await card.locator("[role=status]", { hasText: "Saved" }).waitFor();
   assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "Speak plainly and briefly.\n");
   await card.getByRole("button", { name: "Back to all files" }).click();
-  await card.locator(".agent-file", { hasText: "SOUL.md" }).locator("text=Not read: switched off").waitFor();
+  await card.locator(".agent-file", { hasText: "SOUL.md" }).locator(".agent-file-where", { hasText: "Not read: switched off" }).waitFor({ state: "attached" }); // DG-182: shown at Technical
   assert.ok(await noSidewaysScroll(page));
 });
 
@@ -139,4 +139,24 @@ test("every word the new cards show is on file in English", async (t) => {
   )].map((node) => node.dataset.t));
   assert.ok(keys.length > 20);
   assert.deepEqual([...new Set(keys.filter((key) => !(key in en)))], []);
+});
+
+test("Q83: putting back a record that held something closed asks the same less-careful yes, and the tick is right there", async (t) => {
+  const { app, page, errors } = await fixture(t);
+  const owner = app.runtime.owner;
+  const garbled = { systemVoice: "on", keepAudioOnThisComputer: "yes" };
+  app.store.save("settings", owner, "voice", garbled);
+  await openSettings(page, "general");
+  await page.evaluate(async () => { await (await import("/settings-kit.js")).drawKit(); }); // the card reads the record as it is now
+  const reset = page.locator("#settings-kit-reset");
+  const putBack = reset.getByRole("button", { name: /Put voice settings back as shipped/i });
+  await putBack.waitFor({ timeout: 30000 });
+  await putBack.click();
+  await reset.locator("[role=status]", { hasText: "less careful" }).waitFor();
+  assert.deepEqual(app.store.get("settings", owner, "voice").data, garbled, "nothing put back without the yes");
+  await reset.getByLabel("Yes, make it less careful").last().check();
+  await putBack.click();
+  await reset.locator("[role=status]", { hasText: "Put back as shipped" }).waitFor();
+  assert.notDeepEqual(app.store.get("settings", owner, "voice").data, garbled);
+  assert.deepEqual(errors, []);
 });

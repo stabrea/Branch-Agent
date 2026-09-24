@@ -1,9 +1,11 @@
 import { realpathSync } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
-import { explainGit, type GitOutcome, type GitRunner } from "./git-run.js";
+import { randomUUID } from "node:crypto";
+import { branchRef, explainGit, inBranchSource, type GitOutcome, type GitRunner } from "./git-run.js";
 
 /**
  * Everyday version control for the owner: see what changed, look back through saved versions, work
@@ -12,6 +14,8 @@ import { explainGit, type GitOutcome, type GitRunner } from "./git-run.js";
  * rewrites a saved version. Sending work to a server lives in the separate remote tools.
  */
 export const WORKTREE_HOME = ".branch-worktrees";
+/** Q101: the remote a new address is checked under before publishing touches the folder's own remote. */
+const publishCheckRemote = "branch-publish-check";
 
 /** The real, long-form spelling of a path when it exists; otherwise the resolved path as given. */
 function canonical(path: string): string {
@@ -19,8 +23,27 @@ function canonical(path: string): string {
 }
 export interface GitChange { path: string; state: string }
 
+/**
+ * Q100: where a new parallel copy called `name` goes, in the repository's copies folder (made when missing).
+ * Git writes the copy through every folder on the way, so the copies folder must be a real folder in the
+ * repository, and nothing may be at the copy's own place yet: a link the repository carries at either would
+ * put Branch's copy somewhere else, outside the folder it was asked about (and out of reach of its trust).
+ */
+async function copyPlace(cwd: string, name: string): Promise<string> {
+  const home = join(cwd, WORKTREE_HOME);
+  await mkdir(home, { recursive: true });
+  if (!(await lstat(home)).isDirectory() || canonical(home) !== join(canonical(cwd), WORKTREE_HOME))
+    throw new Error(`${WORKTREE_HOME} in this folder is a link, so no parallel copy is made here: it would land outside the folder.`);
+  const target = join(home, name);
+  if (await lstat(target).then(() => true, (error: NodeJS.ErrnoException) => error.code !== "ENOENT"))
+    throw new Error(`Something is already at ${WORKTREE_HOME}/${name} in this folder, so no parallel copy is made there.`);
+  return target;
+}
+
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
+  /** Q100: told of every parallel copy made or removed here (`source` is the repository folder), for folder trust. */
+  onCopy: (event: { source: string; copy: string; made: boolean }) => void = () => {};
 
   /** Resolves a workspace folder and refuses anything outside it, hidden, or not a folder. */
   private async folder(path: string): Promise<string> {
@@ -68,10 +91,10 @@ export class GitTools {
   async diff(input: { folder: string; range?: string | undefined; staged?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const scope = [...(input.staged ? ["--cached"] : []), ...(input.range ? [input.range] : [])];
-    const names = (await this.run(cwd, ["diff", ...scope, "--name-only"], signal)).stdout.split("\n");
+    const names = (await this.run(cwd, ["diff", ...noPrograms, ...scope, "--name-only"], signal)).stdout.split("\n");
     const files = await this.visible(cwd, names.filter(Boolean));
     if (!files.length) return { folder: input.folder, files: [], text: "", truncated: false };
-    const outcome = await this.run(cwd, ["diff", "--no-color", ...scope, "--", ...files], signal, { maxOutputBytes: 65536 });
+    const outcome = await this.run(cwd, ["diff", ...noPrograms, "--no-color", ...scope, "--", ...files], signal, { maxOutputBytes: 65536 });
     const text = outcome.stdout.slice(0, 24000);
     return { folder: input.folder, files, text, truncated: outcome.truncated || outcome.stdout.length > text.length };
   }
@@ -79,7 +102,7 @@ export class GitTools {
   async log(input: { folder: string; limit: number; path?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const target = input.path ? ["--", input.path] : [];
-    const args = ["log", `--max-count=${input.limit}`, "--no-color", "--pretty=format:%H%x1f%an%x1f%aI%x1f%s", ...target];
+    const args = ["log", ...noPrograms, `--max-count=${input.limit}`, "--no-color", "--pretty=format:%H%x1f%an%x1f%aI%x1f%s", ...target];
     const stdout = (await this.run(cwd, args, signal)).stdout;
     const versions = stdout.split("\n").filter(Boolean).map((line) => line.split("\x1f"))
       .map(([commit, author, at, subject]) => ({ commit: (commit ?? "").slice(0, 12), author, at, summary: (subject ?? "").slice(0, 200) }));
@@ -105,7 +128,7 @@ export class GitTools {
     const allowed = await this.visible(cwd, candidates);
     if (!allowed.length) throw new Error("There is nothing to save: no files have changed since the last saved version.");
     await this.run(cwd, ["add", "--", ...allowed], signal);
-    const staged = (await this.run(cwd, ["diff", "--cached", "--name-only"], signal)).stdout.split("\n").filter(Boolean);
+    const staged = (await this.run(cwd, ["diff", ...noPrograms, "--cached", "--name-only"], signal)).stdout.split("\n").filter(Boolean);
     if (!staged.length) throw new Error("There is nothing to save: no files have changed since the last saved version.");
     await this.run(cwd, ["commit", "--message", input.message], signal);
     const commit = (await this.run(cwd, ["rev-parse", "HEAD"], signal)).stdout.trim().slice(0, 12);
@@ -128,11 +151,13 @@ export class GitTools {
     const target = join(home, input.name);
     if (input.action === "remove") {
       await this.run(cwd, ["worktree", "remove", "--force", target], signal, { timeoutMs: 60000 });
+      this.onCopy({ source: cwd, copy: target, made: false });
       return { folder: input.folder, name: input.name, removed: true };
     }
-    await mkdir(home, { recursive: true });
+    await copyPlace(cwd, input.name);
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
     await this.run(cwd, ["worktree", "add", ...create, target], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: target, made: true });
     return { folder: input.folder, name: input.name, path: `${WORKTREE_HOME}/${input.name}`, branch: input.branch ?? null };
   }
 
@@ -145,10 +170,10 @@ export class GitTools {
   async planStart(input: { folder: string; name: string; from?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
-    const home = join(cwd, WORKTREE_HOME);
-    await mkdir(home, { recursive: true });
+    const target = await copyPlace(cwd, input.name);
     const from = input.from ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    await this.run(cwd, ["worktree", "add", "-b", branch, join(home, input.name), from], signal, { timeoutMs: 60000 });
+    await this.run(cwd, ["worktree", "add", "-b", branch, target, from], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: target, made: true });
     return { folder: input.folder, name: input.name, branch, from, path: `${WORKTREE_HOME}/${input.name}`,
       note: "Work in that folder. Ask for the difference when you are done, and merge it back only when it looks right." };
   }
@@ -157,11 +182,11 @@ export class GitTools {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
     const against = input.against ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    const names = (await this.run(cwd, ["diff", "--name-only", `${against}...${branch}`], signal)).stdout.split("\n");
+    const names = (await this.run(cwd, ["diff", ...noPrograms, "--name-only", `${against}...${branch}`], signal)).stdout.split("\n");
     const files = await this.visible(cwd, names.filter(Boolean));
     if (!files.length) return { folder: input.folder, name: input.name, branch, against, files: [], text: "", truncated: false,
       note: "The plan changed nothing that is saved on its branch yet." };
-    const outcome = await this.run(cwd, ["diff", "--no-color", `${against}...${branch}`, "--", ...files], signal, { maxOutputBytes: 65536 });
+    const outcome = await this.run(cwd, ["diff", ...noPrograms, "--no-color", `${against}...${branch}`, "--", ...files], signal, { maxOutputBytes: 65536 });
     const text = outcome.stdout.slice(0, 24000);
     return { folder: input.folder, name: input.name, branch, against, files, text, truncated: outcome.truncated || outcome.stdout.length > text.length };
   }
@@ -171,8 +196,11 @@ export class GitTools {
     const branch = planBranch(input.name);
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
-    if (input.remove)
-      await this.run(cwd, ["worktree", "remove", "--force", join(cwd, WORKTREE_HOME, input.name)], signal, { timeoutMs: 60000 }).catch(() => undefined);
+    if (input.remove) {
+      const copy = join(cwd, WORKTREE_HOME, input.name);
+      await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
+      this.onCopy({ source: cwd, copy, made: false });
+    }
     return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
   }
 
@@ -187,23 +215,158 @@ export class GitTools {
     if (address.protocol !== "https:" || address.username || address.password)
       throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
+    // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
+    // worktree the remotes are the source checkout's).
+    if (inBranchSource(cwd)) {
+      // Settings for the pushed name kept outside the repository (the computer's own Git settings) would still
+      // apply after the name is re-pointed, so they are refused before the folder's own remote is touched.
+      const pattern = `^remote\\.${input.remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`;
+      const elsewhere = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      // Exit 1 is "no such settings"; anything else that did not complete (stopped, too slow, too much) is not a no.
+      if (elsewhere.status !== "completed" && !(elsewhere.status === "failed" && elsewhere.exitCode === 1))
+        throw new Error(`Could not read the Git settings for "${input.remote}", so nothing was sent.`);
+      const lines = elsewhere.status === "completed" ? elsewhere.stdout.split("\n").filter(Boolean) : [];
+      if (lines.some((line) => !/^local\s/.test(line)) || (lines.length && await this.unremovable(cwd, input.remote, pattern, signal)))
+        throw new Error(`Git settings for "${input.remote}" that publishing cannot replace (kept outside the repository's own settings, or written so Git cannot remove them) say where it sends, so nothing was sent.`);
+      // A name of its own for each publish: worktrees of one source share its remotes, so a fixed name could
+      // be re-pointed by another publish while this one is being checked.
+      const check = `${publishCheckRemote}-${randomUUID()}`;
+      // Taken away even when the run is being stopped, the add included, so the unchecked address never stays behind.
+      const refused = await (async () => {
+        await this.run(cwd, ["remote", "add", check, address.href], signal);
+        return this.validateRemoteURL(cwd, check, true, signal);
+      })().finally(() => this.run(cwd, ["remote", "remove", check], AbortSignal.timeout(10_000)).catch(() => undefined));
+      if (refused) throw new Error(refused);
+    }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branch], signal, { timeoutMs: 180000 });
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
+  }
+
+  /**
+   * Q101: whether `git remote remove` would leave some of the named remote's settings behind (a section spelt
+   * `[Remote "origin"]`, which Git cannot remove), tried on a copy of the repository's settings.
+   */
+  private async unremovable(cwd: string, name: string, pattern: string, signal: AbortSignal): Promise<boolean> {
+    const settings = resolve(cwd, (await this.run(cwd, ["rev-parse", "--git-path", "config"], signal)).stdout.trim());
+    const scratch = await mkdtemp(join(tmpdir(), "branch-publish-"));
+    try {
+      const copy = join(scratch, "config");
+      await copyFile(settings, copy);
+      const removed = await this.runner.run({ cwd, args: ["config", "--file", copy, "--remove-section", `remote.${name}`], timeoutMs: 10_000 }, signal);
+      const left = await this.runner.run({ cwd, args: ["config", "--file", copy, "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      // Only Git's own "no such settings" (exit 1) means nothing is left; a read that did not finish is not a no.
+      return removed.status !== "completed" || !(left.status === "failed" && left.exitCode === 1);
+    } finally { await rm(scratch, { recursive: true, force: true }); }
+  }
+
+  /**
+   * Q79, A1: when Git run inside Branch's source, refuse LOCAL or WORKTREE scoped
+   * settings that could run a program during sign-in, key management, or includes.
+   */
+  private async checkScopeKeys(cwd: string, signal: AbortSignal): Promise<string | void> {
+    const checks: { pattern: string; desc: string }[] = [
+      { pattern: "^credential\\..*helper$", desc: "credential helper" },
+      { pattern: "^core\\.askPass$", desc: "password prompt command" },
+      { pattern: "^core\\.sshCommand$", desc: "SSH command" },
+      { pattern: "^include\\.path$", desc: "included config file" },
+      { pattern: "^includeIf\\..*\\.path$", desc: "conditional included config file" },
+    ];
+    for (const check of checks) {
+      const result = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", check.pattern], timeoutMs: 10_000 }, signal);
+      if (result.status === "completed" && result.exitCode === 1) continue; // Exit 1 means no match
+      if (result.status !== "completed") {
+        if (result.stderr || result.exitCode !== 1) return `Could not read Git config, so nothing was sent.`;
+        continue;
+      }
+      for (const line of result.stdout.split("\n")) {
+        const match = /^(local|worktree)\s+/.exec(line);
+        if (match) return `Git config "${check.desc}" is set at ${match[1]} scope, which could run a program or load untrusted settings.`;
+      }
+    }
+  }
+
+  /**
+   * Q82: refuse an ssh:// or scp-like remote whose user or host starts with `-`: ssh is handed
+   * `user@host` as one argument, so a leading dash in either could be read as an option.
+   */
+  private checkHostDash(url: string): string | void {
+    const at = /^ssh:\/\/([^/]+)/.exec(url)?.[1] ?? /^([^/:]+):/.exec(url)?.[1];
+    if (at && (at.startsWith("-") || at.split("@").at(-1)?.startsWith("-")))
+      return `Remote "${url}" starts its user or host with "-", which ssh could read as an option, so nothing was sent.`;
+  }
+
+  /**
+   * Q82, B: refuse a remote whose URL has been rewritten by url.<x>.insteadOf or
+   * url.<x>.pushInsteadOf config, which could change what repository Git sends to.
+   */
+  private async checkInsteadOf(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
+    const raw = await this.runner.run({ cwd, args: ["config", "--get-all", `remote.${remote}.url`], timeoutMs: 10_000 }, signal);
+    // Q96: a remote Git still reads from a .git/remotes or .git/branches file has nothing here to compare
+    // its rewritten address with, so it is refused rather than let through.
+    if (raw.status !== "completed")
+      return `Remote "${remote}" is not set in Git's settings (it may come from an old .git/remotes or .git/branches file), so nothing was sent.`;
+    const configured = raw.stdout.trim().split("\n").filter(Boolean);
+    const getUrlArgs = isPush ? ["remote", "get-url", "--push", "--all", remote] : ["remote", "get-url", "--all", remote];
+    const read = await this.runner.run({ cwd, args: getUrlArgs, timeoutMs: 10_000 }, signal);
+    if (read.status !== "completed") return;
+    const resolved = read.stdout.trim().split("\n").filter(Boolean);
+    if (configured.length !== resolved.length)
+      return `Remote URL was changed by url.<x>.insteadOf or url.<x>.pushInsteadOf config, which can redirect to an unexpected repository.`;
+    for (let i = 0; i < configured.length; i++) {
+      if (configured[i] !== resolved[i])
+        return `Remote URL was changed by url.<x>.insteadOf or url.<x>.pushInsteadOf config, which can redirect to an unexpected repository.`;
+    }
+  }
+
+  /**
+   * C: validates remote URLs (for push or fetch) against safe format and insteadOf rewrites.
+   */
+  private async validateURLs(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
+    const getUrlArgs = isPush ? ["remote", "get-url", "--push", "--all", remote] : ["remote", "get-url", "--all", remote];
+    const read = await this.runner.run({ cwd, args: getUrlArgs, timeoutMs: 10_000 }, signal);
+    if (read.status !== "completed") return `Remote "${remote}" is not configured in this repository, so nothing was sent.`;
+    const urls = read.stdout.trim().split("\n").filter(Boolean);
+    if (!urls.length) return `Remote "${remote}" has no address, so nothing was sent.`;
+    for (const url of urls) {
+      if (!(/^https:\/\//.test(url) || /^ssh:\/\//.test(url) || /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:[a-zA-Z0-9._\/-]+$/.test(url)))
+        return `Remote URL must use https://, ssh://, or scp-like format (user@host:path), but got: ${url}`;
+      const dashError = this.checkHostDash(url);
+      if (dashError) return dashError;
+    }
+    const insteadOfError = await this.checkInsteadOf(cwd, remote, isPush, signal);
+    if (insteadOfError) return insteadOfError;
+  }
+
+  /**
+   * Q12, C: when Git run inside Branch's source, validate that a remote is configured
+   * and uses only https:// or ssh:// (including scp-like user@host:path).
+   * Refuses file://, plain paths, ext::, and other transports that could execute code.
+   */
+  private async validateRemoteURL(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
+    if (!inBranchSource(cwd)) return;
+    const scopeError = await this.checkScopeKeys(cwd, signal);
+    if (scopeError) return scopeError;
+    return this.validateURLs(cwd, remote, isPush, signal);
   }
 
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
   async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
+    const urlError = await this.validateRemoteURL(cwd, input.remote, true, signal);
+    if (urlError) throw new Error(urlError);
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     if (/^(main|master)$/i.test(branch) && !input.confirmed)
       throw new NeedsInputError(`This would send your work straight to "${branch}" on ${input.remote}, the copy everyone shares. Shall I go ahead?`);
-    const outcome = await this.run(cwd, ["push", input.remote, branch], signal, { timeoutMs: 120000 });
+    const outcome = await this.run(cwd, ["push", input.remote, branchRef(branch)], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, sent: true, notes: notes(outcome) };
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
+    const urlError = await this.validateRemoteURL(cwd, input.remote, false, signal);
+    if (urlError) throw new Error(urlError);
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     const outcome = await this.run(cwd, ["pull", "--ff-only", input.remote, branch], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, notes: notes(outcome) };
@@ -211,6 +374,12 @@ export class GitTools {
 }
 
 const notes = (outcome: GitOutcome): string => `${outcome.stdout}\n${outcome.stderr}`.trim().slice(0, 2000);
+
+/**
+ * Q12: a diff or log never hands a file to a program a repository names (an external diff tool or a
+ * textconv filter); the change is shown as Git itself reads it. See pinnedGitConfig in git-run.ts.
+ */
+const noPrograms = ["--no-ext-diff", "--no-textconv"] as const;
 
 /** Every plan branch is named the same way, so one can never be mistaken for the owner's own. */
 export const planBranch = (name: string): string => `plan/${name}`;

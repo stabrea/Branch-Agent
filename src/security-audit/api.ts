@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { auditText } from "./audit.js";
 import type { SecurityService } from "./service.js";
+import { byCard } from "../settings-kit/recorded-write.js"; // Q48
 
 /** The web routes behind the Settings card, and `branch security audit` on the command line. */
 
@@ -23,7 +24,7 @@ export async function securityCheckApi(
     const { ids } = FixRequestSchema.parse((await body()) ?? {});
     return security.fix(ids, remoteEnabled);
   }
-  if (path === "/api/security-check/settings") return security.configure(await body());
+  if (path === "/api/security-check/settings") return security.configure(await body(), byCard("security-check"));
   return undefined;
 }
 

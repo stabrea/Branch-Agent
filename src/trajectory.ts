@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { inspectRun, type PriceRound } from "./inspect.js";
 import { classifyToolEvent } from "./receipts.js";
+import { canAccessSession } from "./history.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { renderTrajectory, type TrajectoryDocument } from "./trajectory-report.js";
@@ -109,6 +110,8 @@ export function registerRunExport(registry: ToolRegistry, store: Store, version:
       const runId = input.runId ?? context.runId;
       const run = store.run(runId);
       if (!run || run.owner !== context.owner) throw new Error("There is no task of yours with that number");
+      if (context.agent && !canAccessSession(store.sqlite, run.sessionId, context.agent))
+        throw new Error("There is no task of yours with that number");
       const document = buildTrajectory(store, runId, {
         receipts: await receiptOutcomes(store, runId),
         timeline: store.usageStore().getRunTimeline(runId),

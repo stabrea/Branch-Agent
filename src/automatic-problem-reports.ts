@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import { redactForLog, type LogLine } from "./diagnostic-log.js";
 import { reportItemIds, type ReportItem } from "./diagnostic-report.js";
 import type { Store } from "./store.js";
@@ -44,9 +45,7 @@ export function saveAutomaticProblemReportSettings(
   owner: string,
   input: unknown,
 ): AutomaticProblemReportSettings {
-  const parsed = AutomaticProblemReportSettingsSchema.partial().parse(input ?? {});
-  const sent = input && typeof input === "object" ? Object.keys(input) : [];
-  const changed = Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.includes(key)));
+  const changed = optionalFields(AutomaticProblemReportSettingsSchema).parse(input ?? {}); // Q65: only what was sent
   const next = AutomaticProblemReportSettingsSchema.parse({ ...automaticProblemReportSettings(store, owner), ...changed });
   store.save("settings", owner, settingsKey, next);
   return next;

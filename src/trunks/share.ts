@@ -14,12 +14,13 @@ export const trunkFileFormat = "branch-trunk/1";
 export const TrunkFileSchema = z.object({
   format: z.literal(trunkFileFormat),
   exportedAt: z.string().max(40),
-  trunk: TrunkSchema.omit({ keys: true, reach: true, hidden: true, section: true, pinned: true, order: true }),
+  // Q44: where it starts names one of this owner's computers, which means nothing anywhere else.
+  trunk: TrunkSchema.omit({ keys: true, reach: true, hidden: true, section: true, pinned: true, order: true, startsIn: true }),
 }).strict();
 export type TrunkFile = z.infer<typeof TrunkFileSchema>;
 
 export function exportTrunk(trunk: Trunk): TrunkFile {
-  const { keys: _keys, reach: _reach, hidden: _hidden, section: _section, pinned: _pinned, order: _order, ...shared } = pick(trunk);
+  const { keys: _keys, reach: _reach, hidden: _hidden, section: _section, pinned: _pinned, order: _order, startsIn: _startsIn, ...shared } = pick(trunk);
   return { format: trunkFileFormat, exportedAt: new Date().toISOString(), trunk: shared };
 }
 

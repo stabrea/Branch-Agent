@@ -850,22 +850,25 @@
       "family": "execution",
       "name": "Browser automation screenshots and persistent sessions",
       "acceptance_criterion": "Complete a multi-page browser fixture with screenshots and preserve the authorized browser session between steps.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/integrations/browser.ts",
           "src/integrations/browser-profiles.ts",
           "tests/browser.test.mjs",
-          "tests/browser-more.test.mjs"
+          "tests/browser-more.test.mjs",
+          "tests/browser-session.test.mjs"
         ],
         "tests": [
           "isolated browser completes form workflow and refuses destinations outside configured origins",
           "a screenshot is kept as a signed run artifact and shown to a model that can look at pictures",
-          "a saved sign-in keeps a cookie across two tasks and holds nothing readable on disk"
+          "a saved sign-in keeps a cookie across two tasks and holds nothing readable on disk",
+          "one signed-in session carries across two pages, and the picture of the page is a real picture",
+          "a picture of each page, taken while the same signed-in session carries across them"
         ],
-        "detail": "Screenshots, a form flow and a saved sign-in are each tested, but not as one multi-page run."
+        "detail": "One run signs in once and walks to two further pages by following the site's own links, and the site's own record shows one session made and both inner pages fetched under that same session id, with the attempt before signing in fetched under none. A picture is taken of each page and each is opened as a real PNG at page size, the two are asserted to differ, and the last is listed among what the run kept."
       },
-      "remaining": "One multi-page fixture that screenshots each step while the same signed-in session carries across pages."
+      "remaining": ""
     },
     {
       "id": "execution.desktop",
@@ -3020,7 +3023,7 @@
       "family": "operations",
       "name": "Background gateway and foreground modes",
       "acceptance_criterion": "Start the background service, close the launcher and verify continued task handling before a controlled stop.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/cli.ts",
@@ -3029,16 +3032,17 @@
           "tests/deployment.test.mjs",
           "tests/mac-followups.test.mjs",
           "tests/daemon-update.test.mjs",
-          "tests/service-update.test.mjs"
+          "tests/service-update.test.mjs",
+          "tests/daemon-outlives-launcher.test.mjs"
         ],
         "tests": [
+          "the background engine keeps handling tasks after the launcher that started it has gone",
           "the background engine is a sign-in task that opens no window, and is never registered here",
           "only this computer, with the master key, can close the engine, and only the background one",
           "the background engine is asked to close, forced if it will not, and the note is cleared"
         ],
-        "detail": "The background engine installs as a sign-in task or service and stops through a controlled close route; no test starts it, closes the launcher and checks that tasks keep being handled."
-      },
-      "remaining": "A test that starts the background engine, closes the launcher and proves tasks keep being handled."
+        "detail": "The background engine installs as a sign-in task or service and stops through a controlled close route. A test now starts it through a launcher of its own, waits for that launcher to exit, and asks the engine itself for two tasks over its own port before stopping it and checking the process is gone."
+      }
     },
     {
       "id": "operations.portable",

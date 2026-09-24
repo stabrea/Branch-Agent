@@ -184,7 +184,7 @@ function efforts(field, id, value, view) {
   });
   const read = () => Object.fromEntries(rows.filter((row) => row.control.value).map((row) => [row.one.id, row.control.value]));
   const set = (v) => { for (const row of rows) row.control.value = v[row.one.id] ?? ""; };
-  return { nodes: [keyed("h3", `knobs.field.${field.name}`), ...rows.flatMap((row) => row.nodes), note(id, `knobs.note.${field.name}`)], read, set };
+  return { nodes: [keyed("h4", `knobs.field.${field.name}`, "settings-card-subtitle"), ...rows.flatMap((row) => row.nodes), note(id, `knobs.note.${field.name}`)], read, set };
 }
 
 const valueOf = (view, spec, field) => (field.outside ? view[field.name] : view.values[spec.card][field.name]);
@@ -227,7 +227,9 @@ function buildCard(spec, view) {
   card.className = "card";
   card.id = `knobs-${spec.id}-card`;
   card.dataset.home = spec.home;
-  card.append(keyed("h2", `knobs.${spec.id}.title`), keyed("p", `knobs.${spec.id}.lead`, "subtle"));
+  const settings = spec.home.startsWith("settings:");
+  card.append(keyed(settings ? "h3" : "h2", `knobs.${spec.id}.title`, settings ? "settings-card-title" : ""),
+    keyed("p", `knobs.${spec.id}.lead`, "subtle"));
   if (spec.warn) card.append(keyed("p", spec.warn, "field-note knobs-warning"));
   const controls = spec.fields.map((field) => [field, control(field, valueOf(view, spec, field), view)]);
   for (const [, c] of controls) card.append(...c.nodes);
@@ -250,11 +252,12 @@ function launchFacts(file) {
   if (!file.path) return [keyed("p", "knobs.launch.none", "subtle")];
   if (file.problem) return [keyed("p", "knobs.launch.problem", "subtle", { problem: file.problem })];
   const facts = file.facts;
-  const lines = [
-    keyed("p", "knobs.launch.where", "subtle", { path: file.path }),
-    keyed("p", "knobs.launch.counts", "subtle", { servers: formatNumber(facts.servers), hooks: formatNumber(facts.hooks),
-      chats: facts.chatApps.join(", ") || "—", programs: facts.programs.join(", ") || "—" }),
-  ];
+  const lines = [keyed("p", "knobs.launch.where", "subtle", { path: file.path })];
+  // What this start left out, because the file's folder is not trusted; none of it is counted below.
+  if (facts.leftOut?.length) lines.push(keyed("p", "knobs.launch.left-out", "field-note knobs-warning",
+    { sections: facts.leftOut.map((section) => t(`knobs.launch.section.${section}`)).join(", ") }));
+  lines.push(keyed("p", "knobs.launch.counts", "subtle", { servers: formatNumber(facts.servers), hooks: formatNumber(facts.hooks),
+    chats: facts.chatApps.join(", ") || "—", programs: facts.programs.join(", ") || "—" }));
   if (facts.keyLikeValues.length) lines.push(keyed("p", "knobs.launch.keys", "field-note", { where: facts.keyLikeValues.join(", ") }));
   for (const line of lines) line.style.overflowWrap = "anywhere";
   return lines;
@@ -274,7 +277,7 @@ function launchCard(file) {
   card.className = "card";
   card.id = "knobs-launch-file-card";
   card.dataset.home = "settings:computer";
-  card.append(keyed("h2", "knobs.launch-file.title"), keyed("p", "knobs.launch-file.lead", "subtle"), ...launchFacts(file));
+  card.append(keyed("h3", "knobs.launch-file.title", "settings-card-title"), keyed("p", "knobs.launch-file.lead", "subtle"), ...launchFacts(file));
   const controls = launchControls(file);
   if (!controls.length) return card;
   card.append(keyed("p", "knobs.warn.launch-file", "field-note knobs-warning"));

@@ -4,7 +4,7 @@ import type { Message, Provider, Run, ToolContext } from "../contracts.js";
 import type { Embedder } from "../document-embeddings.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { MemoryMirror } from "../memory-mirror.js";
-import { memoryScope, visibleTo, type MemoryRecord } from "../memory.js";
+import { memoryScope, visibleTo, writableTo, type MemoryRecord } from "../memory.js";
 import { startedFromChat } from "../key-context.js";
 import type { PlaceInput } from "../migrate/detect.js";
 import type { ModelRouter } from "../models.js";
@@ -118,7 +118,8 @@ export class LearningMore {
 function registerLearningTools(registry: ToolRegistry, more: LearningMore): void {
   const tool = <T>(part: LearningPart, name: string, permission: string, description: string, parameters: z.ZodType<T>,
     run: (value: T, context: ToolContext) => Promise<unknown> | unknown) =>
-    registry.register({ name, permission, description, parameters,
+    // Q59: the outside memory services are reached over the network (src/tool-reach.ts).
+    registry.register({ name, permission, description, parameters, ...(part === "providers" ? { reach: "outbound" as const } : {}),
       execute: async (value: T, context: ToolContext) => { more.require(part); return run(value, context); } });
   tool("blocks", "memory.block_view", "memory.read", "Read your memory blocks (or one, by label), with how much of each block's size budget is used.",
     ViewBlockSchema, (value, context) => ({ blocks: more.blocks.view(more.who(context), value.label) }));
@@ -151,7 +152,9 @@ function registerLearningTools(registry: ToolRegistry, more: LearningMore): void
     LabelSchema, (value, context) => {
       const scope = memoryScope(more.deps.store, context);
       const record = more.deps.store.get("memory", scope, value.id);
-      if (!record || !visibleTo(record, context.agent)) throw new Error("That fact is no longer saved.");
+      // FQ-routing.isolated-agents: labelling changes the fact, so it follows the write rule memory.update
+      // keeps (`writableTo`), not the wider read rule: a Trunk may read a shared fact but never relabel it.
+      if (!record || !writableTo(record, context.agent)) throw new Error("That fact is no longer saved.");
       // An expiry makes a fact go away later, so it waits for the owner when they approve memory changes.
       if ((value.expiresAt !== undefined || value.expiresInDays !== undefined) && more.deps.store.review.settings(scope).requireApproval)
         throw new Error("The owner approves memory changes, so only they can set when a fact expires. Suggest it to them instead.");

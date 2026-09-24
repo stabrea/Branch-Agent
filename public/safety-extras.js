@@ -61,13 +61,14 @@ function card(id, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = HOME;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-008: a card inside a section of Settings has a title one level under the page's. */
+  node.append(make("h3", "settings-card-title", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };
 }
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "Only when it is needed"], ["on", "field.switch-on", "On"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["when-needed", "field.switch-when-needed", "When needed"], ["on", "field.switch-on", "On"]];
 const PARTS = {
   "tool-scripts": ["safety.part.toolScripts", "Scripts that call several tools at once",
     "safety.hint.toolScripts", "A script runs walled off with no internet; every tool it calls is checked like a direct call."],

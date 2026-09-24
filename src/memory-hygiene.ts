@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { cosine } from "./document-embeddings.js";
-import type { MemoryRecord } from "./memory.js";
+import { visibleTo, writableTo, type MemoryRecord } from "./memory.js";
 import type { MemoryRetrieval } from "./memory-retrieval.js";
 import { importanceOf } from "./memory-retrieval.js";
 import type { Proposal } from "./memory-review.js";
@@ -71,9 +71,16 @@ export class MemoryHygiene {
   constructor(private readonly store: Store, private readonly retrieval?: MemoryRetrieval) {}
   private facts(owner: string): MemoryRecord[] { return this.store.list("memory", owner) as MemoryRecord[]; }
 
-  /** What looks wrong right now. Reading only: nothing is changed and nothing is staged. */
-  review(owner: string): HygieneReview {
-    const records = this.facts(owner), capacity = this.store.memoryCapacity(owner);
+  /**
+   * What looks wrong right now. Reading only: nothing is changed and nothing is staged.
+   * FQ-routing.isolated-agents: with `agent` set (a Trunk or delegated specialist) it looks only at
+   * the facts that agent may read, exactly as memory.search does; the owner's own turn sees them all.
+   */
+  review(owner: string, agent?: string): HygieneReview {
+    return this.reviewOf(owner, this.facts(owner).filter((record) => visibleTo(record, agent)));
+  }
+  private reviewOf(owner: string, records: MemoryRecord[]): HygieneReview {
+    const capacity = this.store.memoryCapacity(owner);
     const nearlyFull = capacity.count >= Math.floor(capacity.maxFacts * nearlyFullAt);
     return {
       duplicates: this.duplicates(owner, records), contradictions: this.contradictions(records),
@@ -139,8 +146,9 @@ export class MemoryHygiene {
   }
 
   /** Writes what it found into the review queue. Facts are only ever changed once the owner accepts. */
-  suggest(owner: string): { staged: Proposal[]; review: HygieneReview } {
-    const review = this.review(owner), staged: Proposal[] = [];
+  /** With `agent` set, only facts that agent may change are suggested (`writableTo`, like memory.update). */
+  suggest(owner: string, agent?: string): { staged: Proposal[]; review: HygieneReview } {
+    const review = this.reviewOf(owner, this.facts(owner).filter((record) => writableTo(record, agent))), staged: Proposal[] = [];
     const pending = this.store.review.proposals(owner, "pending");
     const covered = new Set(pending.flatMap((p) => [p.memoryId, ...p.memoryIds].filter(Boolean) as string[]));
     for (const group of review.duplicates) {

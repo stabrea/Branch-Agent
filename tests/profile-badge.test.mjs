@@ -87,23 +87,23 @@ test("on somebody else's profile the window stops asking for the owner's chat ap
   const said = [];
   f.page.on("console", (message) => { if (message.type() === "error") said.push(message.text()); });
   /* The owner opens the chat apps, so their cards and the Telegram panel are on the page. */
-  await openPlace(f.page, "customize:channels");
-  await f.page.locator("#channel-setup-card h2").waitFor({ state: "visible", timeout: 15000 });
+  await openPlace(f.page, "settings:channels");
+  await f.page.locator("#channel-setup-card .settings-card-title").waitFor({ state: "visible", timeout: 15000 });
   await closeSettings(f.page);
 
   await f.call("/api/profiles/switch", { profileId: f.sam.id, pin: "2468" });
   await f.page.locator("#profile-badge").waitFor({ state: "visible", timeout: 15000 });
   asked.length = 0;
   /* Settings opened again, and two of the window's own three-second refreshes. */
-  await openPlace(f.page, "customize:channels");
+  await openPlace(f.page, "settings:channels");
   await f.page.waitForTimeout(7000);
   assert.deepEqual(asked, [], "the window kept asking for the owner's chat apps and locker");
-  assert.equal(await f.page.locator("#channel-setup-card h2").count(), 0, "the owner's chat-app setup stayed on the page");
+  assert.equal(await f.page.locator("#channel-setup-card .settings-card-title").count(), 0, "the owner's chat-app setup stayed on the page");
   await closeSettings(f.page);
 
   await f.page.locator("#profile-badge").getByRole("button", { name: "Switch back" }).click();
   await f.page.locator("#profile-badge").waitFor({ state: "hidden", timeout: 15000 });
-  await f.page.waitForFunction(() => document.querySelector("#channel-setup-card h2"), null, { timeout: 15000 });
+  await f.page.waitForFunction(() => document.querySelector("#channel-setup-card .settings-card-title"), null, { timeout: 15000 });
   assert.ok(asked.some((path) => path.startsWith("/api/channel-setup")), "the chat-app setup was not loaded again");
   assert.deepEqual(f.errors, [], "an expected refusal surfaced as a page error");
   assert.deepEqual(said.filter((line) => /belongs to the owner/.test(line)), []);

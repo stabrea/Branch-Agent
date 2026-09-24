@@ -68,7 +68,8 @@ test("review: with confirming on, a yes can only be for this once, and no earlie
   runtime.approvals.ask({ runId: context.runId, sessionId: context.runId, tool: "browser.click", target: "", label: "Click Buy",
     question: "Click Buy?", source: "owner", remember: "never", askedAt: new Date().toISOString(), fingerprint: "fp-1" });
   assert.throws(() => runtime.approve(context.runId, "allow", "session", "fp-1"), /just now/i, "no yes for the whole conversation");
-  assert.throws(() => runtime.approve(context.runId, "allow", "always", "fp-1"), /just now/i, "no standing yes either");
+  // Refused either as once-only or because the click names no target a standing yes could be kept for (Q76).
+  assert.throws(() => runtime.approve(context.runId, "allow", "always", "fp-1"), /just now|does not say what it is targeting/i, "no standing yes either");
   runtime.approve(context.runId, "allow", "never", "fp-1");
 });
 

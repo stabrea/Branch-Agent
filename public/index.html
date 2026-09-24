@@ -30,6 +30,7 @@
     <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
     <link rel="stylesheet" href="/control-styles.css" /><!-- batch1/controls: switch, segmented, glass dropdown styling -->
     <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
+    <link rel="stylesheet" href="/topic-panes.css" /><!-- FQ-surfaces.panes: compare topics side by side -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -38,13 +39,16 @@
     <!-- Wave 9 redesign: the pixel oak behind the glass (public/grove.js). -->
     <canvas id="wall" class="lx-wall" aria-hidden="true"></canvas>
     <canvas id="wall-fx" class="lx-wall" aria-hidden="true"></canvas>
-    <!-- The rail: brand and app switcher, quiet actions, the sections, projects,
+    <!-- The rail: this computer and project switcher, quiet actions, the sections, projects,
          conversations by day, and the owner at the foot. public/shell.js fills it. -->
     <aside class="rail" id="conversation-rail" aria-label="Sidebar">
       <div class="rail-head">
-        <button id="app-switcher" class="app-switcher" type="button" aria-haspopup="true" aria-expanded="false">
-          <span class="brand-icon"><img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" /><img class="oak-normal" src="/assets/keepoak-mark.png" alt="" /></span>
-          <span class="brand"><span id="brand-name">Branch Agent</span></span>
+        <button id="app-switcher" class="app-switcher" type="button" aria-describedby="rail-target-name" aria-haspopup="true" aria-expanded="false">
+          <span id="rail-target-mark" class="rail-target-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="12" rx="2" /><path d="M2 20h20" /></svg></span>
+          <span id="rail-target" class="rail-target" aria-live="polite">
+            <strong id="rail-target-name" data-t="strip.here">This computer</strong>
+            <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
+          </span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
         </button>
         <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything" data-t-label="rail.search">
@@ -65,10 +69,6 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
           <span data-t="rail.find">Find anything</span> <kbd>Ctrl K</kbd>
         </button>
-        <div id="rail-target" class="rail-target" aria-live="polite">
-          <strong id="rail-target-name" data-t="strip.here">This computer</strong>
-          <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
-        </div>
         <div id="rail-view-tabs" class="rail-view-tabs" role="tablist" aria-label="Sidebar view" data-t-label="rail.view">
           <button id="rail-view-conversations" class="rail-view-tab" type="button" role="tab" data-rail-view="conversations"
             aria-selected="true" data-t="rail.conversations">Conversations</button>
@@ -157,6 +157,12 @@
         <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details" data-t-label="rail.details">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
         </button>
+        <!-- DG-097: the finder, where the approved sample has it. Its key hint is the owner's own binding (public/shell.js). -->
+        <button id="head-search" class="head-search" type="button" aria-label="Search" data-t-label="head.search" aria-keyshortcuts="Control+K">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
+          <span data-t="head.search">Search</span>
+          <kbd id="head-search-keys">Ctrl K</kbd>
+        </button>
       </header>
       <section id="login" class="card login">
         <span class="eyebrow">Welcome to Branch Agent</span>
@@ -207,20 +213,26 @@
             <p id="practice-state" class="subtle" role="status"></p>
             <button id="practice-toggle" type="button" data-t="action.try-the-practice-workspace">Try the practice workspace</button>
           </section>
-          <details id="saved-conversations" class="card saved-conversations">
-            <summary>Saved conversations</summary>
-            <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
-            <form id="saved-search-form" class="saved-search">
-              <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
-              <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
-              <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
-            </form>
-            <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
-            <input id="conversation-import" type="file" accept="application/json,.json" hidden />
-            <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
-            <div id="saved-list" class="card-list" aria-live="polite"></div>
-            <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
-          </details>
+          <template id="saved-history-template">
+            <section id="saved-conversations" class="saved-conversations">
+              <div class="saved-history-head">
+                <h2 id="saved-history-title" data-t="history.title">Conversation history</h2>
+                <button id="saved-history-close" type="button" class="quiet-button" aria-label="Close conversation history" data-t-label="history.close" data-t="history.closeButton">Close</button>
+              </div>
+              <p id="saved-history-status" role="status" aria-live="polite"></p>
+              <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
+              <form id="saved-search-form" class="saved-search">
+                <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
+                <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
+                <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
+              </form>
+              <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
+              <input id="conversation-import" type="file" accept="application/json,.json" hidden />
+              <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
+              <div id="saved-list" class="card-list" aria-live="polite"></div>
+              <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
+            </section>
+          </template>
           <div id="demo-notice" class="notice" hidden>
             <strong data-t="practice.title">Practice mode</strong
             ><span data-t="practice.body">Branch can't do real work yet. Choose how it thinks in Settings, then ask for anything.</span
@@ -299,6 +311,8 @@
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
+            <!-- FQ-surfaces.playback: the sound or video file just picked, playable right here before it is sent (public/playback.js). -->
+            <div id="composer-clips" class="attachments" hidden></div>
             <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
@@ -978,13 +992,14 @@
             <button id="phone-invite" type="button" class="quiet-button" hidden data-t="action.show-the-square-code-for">Show the square code for my phone</button>
             <canvas id="phone-qr" width="240" height="240" aria-label="Square code to scan with your phone" hidden></canvas>
             <p id="phone-code" role="status" class="meta"></p>
-            <h3>Safety copies</h3>
+            <p id="listen-door-status" role="status" class="meta" hidden></p>
+            <h3 data-t="settings.deployment.safety-copies">Safety copies</h3>
             <p id="restore-points" class="meta"></p>
             <div id="restore-offer" hidden>
               <p id="restore-offer-note" role="status"></p>
               <button id="restore-previous" type="button" class="quiet-button" data-t="action.put-back-the-previous-version">Put back the previous version's saved work</button>
             </div>
-            <h3>Check this computer is ready</h3>
+            <h3 data-t="settings.deployment.check-ready">Check this computer is ready</h3>
             <button id="run-doctor" type="button" class="quiet-button" data-t="action.check-and-repair-what-i">Check and repair what I can</button>
             <pre id="doctor-report" class="meta"></pre>
           </section>
@@ -1071,8 +1086,8 @@
             <button data-t="appearance.save">Save appearance</button>
           </form>
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
-          <!-- Wave mac3 (channels-parity): its home is Customize, Chat apps (docs/places.md). -->
-          <form id="channels-more-form" class="card" data-home="customize:channels">
+          <!-- Wave mac3 (channels-parity): its home is Settings, Chat apps & devices (DG-194). -->
+          <form id="channels-more-form" class="card" data-home="settings:channels">
             <h2 data-t="channels-more.title">More chat apps</h2>
             <p data-t="channels-more.intro">IRC, Mastodon, Bluesky, iMessage and more, each with its own switch. All of them start off: nothing connects until you switch it on and add it to the connections file.</p>
             <p class="field-note" data-t="channels-more.switch-note">Off never connects. When needed connects only when there is something to send, and lets go after fifteen quiet minutes. On stays connected.</p>
@@ -1080,36 +1095,36 @@
             <p id="channels-more-state" class="field-note" aria-live="polite"></p>
             <button data-t="action.save-channels-more">Save the chat app switches</button>
           </form>
-          <!-- Wave mac2 (chat-live): its home is Customize, Chat apps (docs/places.md). -->
-          <form id="chat-live-form" class="card" data-home="customize:channels">
+          <!-- Wave mac2 (chat-live): its home is Settings, Chat apps & devices (DG-194). -->
+          <form id="chat-live-form" class="card" data-home="settings:channels">
             <h2 data-t="settings.card.chat-live">While a task works in a chat app</h2>
             <p data-t="settings.chat-live.intro">Choose what the chat shows and accepts while Branch works on a message; everything here starts off.</p>
             <label for="chat-live-status" data-t="field.chat-live-status">Show the work in the chat</label>
             <select id="chat-live-status" name="liveStatus">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.status-note">Typing, a reaction on your message, and one message that lists the steps. When needed: only once a task has taken a few seconds.</p>
             <label for="chat-live-commands" data-t="field.chat-live-commands">Read commands such as /stop</label>
             <select id="chat-live-commands" name="commands">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.commands-note">/stop, /status, /new, /compact, /usage and /btw. When needed: only /stop, /status and /btw, and only while a task works.</p>
             <label for="chat-live-steering" data-t="field.chat-live-steering">Pass later messages to the task</label>
             <select id="chat-live-steering" name="steering">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.steering-note">A message sent while a task works becomes a note it reads next. On also answers quick messages as one. Off: it waits its turn.</p>
             <label for="chat-live-splitting" data-t="field.chat-live-splitting">Keep code whole in long replies</label>
             <select id="chat-live-splitting" name="splitting">
-              <option value="off" data-t="settings.chat-live.off">Off</option>
-              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
-              <option value="on" data-t="settings.chat-live.on">On</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <p class="field-note" data-t="settings.chat-live.splitting-note">Long replies are split at paragraph breaks and code blocks stay code. When needed: only for replies with code.</p>
             <p id="chat-live-state" class="field-note" aria-live="polite"></p>
@@ -1117,6 +1132,11 @@
           </form>
           <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
           <!-- mac7/wake-pins: a word that starts a turn, and the settings the owner has pinned. -->
+          <!-- DG-047: what is listening this moment, read from the listeners themselves (public/voice-listening.js). -->
+          <section id="voice-listening-card" class="card" data-home="settings:voice">
+            <h2 data-t="settings.voice-listening.title">Listening right now</h2>
+            <p id="voice-listening-now" aria-live="polite"></p>
+          </section>
           <form id="wake-word-form" class="card" data-home="settings:voice">
             <h2 data-t="settings.card.wake-word">A word that starts a turn</h2>
             <p data-t="settings.wake-word.intro">Say your own word and Branch starts a turn, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, no file is written, and nothing is recorded or kept before your word has been heard — one window of sound is held, asked about, and dropped. Not every computer can listen: the line below says what this one really does, and whether it is listening this moment. While the switch is off, nothing listens at all and the microphone is let go of. Holding Talk stays the ordinary way in, and the word gives nothing away — the turn it starts is asked about exactly as the same words typed into the box would be, with the same questions. It carries only the one window your word was in, a second or two: nothing said after that window is heard, because no further sound is recorded. On Windows the engine listens for that one phrase alone, so there the turn carries just your word and nothing else.</p>
@@ -1137,7 +1157,6 @@
             <p id="wake-word-how" class="field-note" aria-live="polite"></p>
             <p id="wake-word-refusal" class="field-note" aria-live="polite"></p>
             <p id="wake-word-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.save-wake-word">Save the wake word</button>
           </form>
           <form id="dictation-form" class="card" data-home="settings:voice">
             <h2 data-t="settings.card.dictation">Speak and see the words</h2>
@@ -1159,11 +1178,10 @@
             <p id="dictation-how" class="field-note" aria-live="polite"></p>
             <p id="dictation-refusal" class="field-note" aria-live="polite"></p>
             <p id="dictation-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.save-dictation">Save dictation</button>
           </form>
           <form id="pins-form" class="card" data-home="settings:permissions">
-            <h2 data-t="settings.card.pins">Settings you have pinned</h2>
-            <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it, but every way of changing it is refused in the same words: this window, the API, the terminal, a settings file, a whole-app preset and a tool the assistant calls. Pinning and unpinning are yours alone. A preset or a settings file steps over a pinned setting and makes all the rest, rather than failing.</p>
+            <h3 class="settings-card-title" data-t="settings.card.pins" hidden>Settings you have pinned</h3>
+            <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it.</p>
             <div id="pins-list" class="card-list" aria-live="polite"></div>
             <div id="pins-picker" hidden>
               <label for="pins-setting" data-t="field.pins-setting">Which setting to pin</label>
@@ -1171,9 +1189,9 @@
               <p id="pins-setting-note" class="field-note" data-t="settings.pins.setting-note">It is pinned at whatever it is set to now, so set it the way you want it first. You can still change it yourself, one switch at a time, while it is pinned.</p>
             </div>
             <p id="pins-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.pin-setting">Pin this setting</button>
+            <button data-t="action.pin-setting" data-level="advanced">Pin this setting</button>
           </form>
-          <form id="chat-permissions-form" class="card" data-home="customize:channels">
+          <form id="chat-permissions-form" class="card" data-home="settings:channels">
             <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
             <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, read a skill you installed, and look something up on the web. Everything else is refused until you allow it here.</p>
             <label class="check-row" for="chat-permissions-extras">
@@ -1239,7 +1257,7 @@
             <label class="check-row">
               <input id="use-provider-voice" type="checkbox" /> Use higher-quality voice from my provider
             </label>
-            <p class="subtle">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
+            <p class="subtle" data-level="advanced">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
             <!-- Wave 7: which service writes speech out, which reads it aloud, and the one switch
                  that keeps every recording on this computer. Wired in public/voice-talk.js. -->
             <label class="check-row">
@@ -1280,8 +1298,8 @@
             <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
-            <p class="field-note">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" />
+            <p class="field-note" data-level="technical">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <label for="voice-local-model" data-t="field.its-model-file-or-model">Its model file or model name</label>
             <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" />
             <label class="check-row">
@@ -1354,18 +1372,46 @@
             <p class="subtle terms-line" id="chatgpt-terms"><strong data-t="terms.label">Terms:</strong> <span data-t="terms.chatgpt.route">ChatGPT plan sign-in. Unofficial: OpenAI documents this sign-in only for its own apps and has given no written permission for other apps, so it may stop working at any time. It stays off until you sign in, and an API key is the officially supported way.</span> <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noopener noreferrer" data-t="terms.chatgpt.sign-in-page">OpenAI's sign-in documentation ↗</a> · <a href="https://openai.com/policies/row-terms-of-use/" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
             <p class="subtle" data-t="terms.chatgpt.honest">Branch identifies itself as Branch Agent and never pretends to be another app.</p>
           </section>
-          <section id="updates-card" class="card" hidden>
-            <h2 data-t="settings.card.updates">Updates</h2>
-            <p id="updates-version" class="subtle"></p>
+          <!-- DG-192: the sample's Updates. Its section's heading names it, so the card's own title is read aloud, not
+               drawn; then where updates come from, Branch Agent and its version with Check for updates, and the channel.
+               A browser shows the version only: checking and installing are the desktop app's (public/app.js). -->
+          <section id="updates-card" class="card">
+            <h4 class="sr-only" data-t="settings.card.updates">Updates</h4>
+            <p class="subtle" data-t="updates.source">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
+            <div class="updates-brand">
+              <img src="/assets/icon.svg" alt="" width="56" height="56" />
+              <div><b>Branch Agent</b><span class="subtle" data-t="updates.brand.line">A personal assistant that runs on your own computer · open source</span></div>
+            </div>
+            <div class="updates-now">
+              <p id="updates-version"></p>
+              <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
+            </div>
+            <fieldset id="updates-channel" class="update-channel-choices" aria-describedby="updates-channel-note">
+              <legend data-t="updates.channel.label">Update channel</legend>
+              <label><input type="radio" name="release-channel" value="stable" checked> <span data-t="updates.channel.stable">Stable</span></label>
+              <label><input type="radio" name="release-channel" value="beta"> <span data-t="updates.channel.beta">Beta</span></label>
+              <label><input type="radio" name="release-channel" value="dev"> <span data-t="updates.channel.dev">Dev</span></label>
+            </fieldset>
+            <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Dev builds every merged change on this computer, the moment it lands, before the full checks: it needs git and Node.js, each update takes a few minutes, and it never updates by itself. Stable remains the default. Switching back never installs an older version.</p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
+            <!-- Q55: exactly which build is installed, and what the offered release says about itself. -->
+            <dl id="updates-build" class="update-build">
+              <dt data-t="updates.build.version">Installed version</dt><dd id="updates-build-version"></dd>
+              <dt data-t="updates.build.commit">Built from commit</dt><dd id="updates-build-commit"></dd>
+            </dl>
             <p id="updates-status" role="status"></p>
+            <p id="updates-provenance" hidden role="status"></p>
+            <p id="updates-outcome" hidden></p>
+            <p id="updates-restored" hidden></p>
+            <section id="updates-notes" class="update-notes" hidden>
+              <h3 id="updates-notes-title"></h3>
+              <p id="updates-notes-text" class="update-notes-text"></p>
+            </section>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
-              <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
               <button id="updates-install" type="button" hidden data-t="action.update-and-restart">Update and restart</button>
             </div>
-            <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
           <form id="projects-form" class="card">
             <h2 data-t="settings.card.projects">Projects</h2>
@@ -1390,9 +1436,8 @@
             </div>
             <p id="project-status" role="status"></p>
           </form>
-          <form id="secrets-form" class="card">
-            <h2 data-t="settings.card.secrets">Secrets</h2>
-            <p>Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
+          <form id="secrets-form" class="card" aria-labelledby="sg-bucket-secrets-commands">
+            <p data-t="settings.secrets.intro">Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
             <label for="secret-project" data-t="field.project">Project</label>
             <select id="secret-project"></select>
             <label for="secret-name" data-t="field.name-as-an-environment-variable">The name your commands use for it (capital letters, like DEPLOY_TOKEN)</label>
@@ -1446,30 +1491,41 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
+          <!-- DG-187: its section's head shows the title, as the sample's (the card's own is kept for search and
+               screen-reader order, not drawn); the blocks under the choice keep the sample's levels. -->
           <section id="policy-card" class="card">
-            <h2 data-t="settings.card.when-to-check-with-me">When to check with me</h2>
-            <p>Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages. Whatever you pick, it never applies to the tools you run yourself from this app.</p>
+            <h3 class="settings-card-title" data-t="settings.card.when-to-check-with-me" hidden>When to check with me</h3>
+            <p data-t="settings.policy.intro">Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages.</p>
+            <!-- The sample's four cards are what a conversation begun in the window starts on (newConversation,
+                 public/conversation-mode.js); "Follow my rules" starts it on the owner's rules below instead. -->
+            <fieldset id="mode-new-conversation" class="choice-cards" role="radiogroup" aria-describedby="mode-new-conversation-note">
+              <legend data-t="mode.setting.label">New conversations start on</legend>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="auto" aria-describedby="mode-new-conversation-auto-note" /><span><b data-t="mode.setting.auto">Auto</b><small id="mode-new-conversation-auto-note" data-t="mode.setting.auto.note">Changes inside your workspace go ahead. Commands and the web ask.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="ask" aria-describedby="mode-new-conversation-ask-note" /><span><b data-t="mode.setting.ask">Ask first (recommended)</b><small id="mode-new-conversation-ask-note" data-t="mode.setting.ask.note">Asks before any change, command or web action. Reading is free.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="plan" aria-describedby="mode-new-conversation-plan-note" /><span><b data-t="mode.setting.plan">Plan first</b><small id="mode-new-conversation-plan-note" data-t="mode.setting.plan.note">Reads and proposes a plan. A change is refused, not asked about; the web asks.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="full" aria-describedby="mode-new-conversation-full-note" /><span><b data-t="mode.setting.full">No approvals</b><small id="mode-new-conversation-full-note" data-t="mode.setting.full.note">Nothing is checked with you, except commands no rule covers.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="follow" aria-describedby="mode-new-conversation-follow-note" /><span><b data-t="mode.setting.follow">Follow my rules</b><small id="mode-new-conversation-follow-note" data-t="mode.setting.follow.note">Uses your rules below, the way every conversation used to.</small></span></label>
+            </fieldset>
+            <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following your rules below.</p>
+            <!-- The owner's own rules: a separate control, and choosing one never changes the cards above. -->
             <label for="policy-preset" data-t="field.how-should-branch-behave">How should Branch behave?</label>
             <select id="policy-preset"></select>
             <p id="policy-description" class="subtle"></p>
-            <!-- Redesign phase 1: what a conversation begun in the window starts on (public/conversation-mode.js). -->
-            <label for="mode-new-conversation" data-t="mode.setting.label">New conversations start on</label>
-            <select id="mode-new-conversation" aria-describedby="mode-new-conversation-note">
-              <option value="ask" data-t="mode.setting.ask">Ask first (recommended)</option>
-              <option value="follow" data-t="mode.setting.follow">The setting above</option>
-            </select>
-            <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following the setting above.</p>
-            <h3>What that means</h3>
-            <ul id="policy-rules" class="check-list"></ul>
-            <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
-            <h3>How fast one conversation may work</h3>
+            <div class="policy-block" data-level="technical">
+              <h4 data-t="settings.policy.means">What that means</h4>
+              <ul id="policy-rules" class="check-list"></ul>
+              <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
+            </div>
+            <div class="policy-block" data-level="advanced">
+            <h4 data-t="settings.policy.fast">How fast one conversation may work</h4>
             <p class="subtle">If a conversation goes past one of these, it waits a moment and then carries on. Leave a box at 0 for no limit.</p>
             <label for="policy-tool-limit" data-t="field.most-tools-used-in-a">Most tools used in a minute</label>
             <input id="policy-tool-limit" type="number" min="0" max="1000" step="1" value="0" />
             <label for="policy-round-limit" data-t="field.most-times-it-goes-back">Most times it goes back to the model in a minute</label>
             <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
-            <button id="policy-limits-save" type="button" data-t="action.save-these-limits">Save these limits</button>
-            <h3>Rules about one particular thing</h3>
+            </div>
+            <div class="policy-block" data-level="technical">
+            <h4 data-t="settings.policy.rules">Rules about one particular thing</h4>
             <p class="subtle">A rule can be about one folder, one website, one messaging account or one command, rather than everything at once. Rules like these are looked at before the broader ones above.</p>
             <ul id="rules-list" class="check-list"></ul>
             <p id="rules-empty" class="subtle" hidden>You have not set any rules of your own yet.</p>
@@ -1492,7 +1548,7 @@
               <option value="allow">Always allow it</option>
             </select>
             <button id="rules-add" type="button" data-t="action.add-this-rule">Add this rule</button>
-            <h3>Try a decision out</h3>
+            <h4 data-t="settings.policy.try">Try a decision out</h4>
             <p class="subtle">See what would happen before anything really does. Nothing is saved or run.</p>
             <label for="rules-test-tool" data-t="field.tool">Tool</label>
             <input id="rules-test-tool" maxlength="100" placeholder="e.g. files.write" />
@@ -1501,10 +1557,22 @@
             <button id="rules-test-run" type="button" data-t="action.what-would-happen">What would happen?</button>
             <p id="rules-test-answer" class="subtle" role="status"></p>
             <p id="rules-status" class="subtle" role="status"></p>
-            <h3>Or decide a whole kind of thing at once</h3>
-            <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
-            <div id="approval-categories" class="card-list"></div>
+            </div>
+            <div class="policy-block" data-level="advanced">
+              <h4 data-t="settings.policy.kinds">Or decide a whole kind of thing at once</h4>
+              <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
+              <div id="approval-categories" class="card-list"></div>
+            </div>
             <p id="policy-status" class="subtle" role="status"></p>
+          </section>
+          <section id="lockdown-card" class="card" data-home="settings:permissions" hidden>
+            <h3 class="settings-card-title" data-t="lockdown.label" hidden>Lockdown</h3>
+            <p data-t="settings.lockdown.intro">The one switch that refuses commands and makes everything else wait for your yes.</p>
+            <label class="check-row" for="lockdown-switch">
+              <input type="checkbox" id="lockdown-switch" role="switch" aria-describedby="lockdown-switch-note" />
+              <span data-t="lockdown.label">Lockdown</span>
+            </label>
+            <p id="lockdown-switch-note" class="field-note" data-t="settings.lockdown.note">Refuses, without asking, running a command or a script, using your screen and keyboard, borrowing your browser and your other devices. Every other tool waits for your yes. Turning it off puts back exactly the settings that were there before.</p>
           </section>
           <section id="desktop-card" class="card">
             <h2 data-t="settings.card.using-your-screen-and-keyboard">Using your screen and keyboard</h2>
@@ -1515,9 +1583,35 @@
             <div id="desktop-cap-row" hidden>
               <label for="desktop-cap" data-t="field.most-screen-actions-in-one">Most screen actions in one task</label>
               <input id="desktop-cap" type="number" min="1" max="200" step="1" value="40" />
-              <button id="desktop-cap-save" type="button" data-t="action.save-this-limit">Save this limit</button>
             </div>
             <p id="desktop-status" class="subtle" role="status"></p>
+          </section>
+          <!-- FQ-execution.desktop: the shared Linux desktop. The Grown-Up sample has no place for it, so it sits
+               with the other desktop control, straight after "Using your screen and keyboard". -->
+          <section id="linux-desktop-card" class="card">
+            <h2 data-t="settings.card.shared-linux-desktop">Shared Linux desktop</h2>
+            <p data-t="linux-desktop.purpose">A throwaway Linux desktop in a container, which Branch can work in while you watch or take it over. It never touches this computer's own screen, and it is off until you switch it on.</p>
+            <label for="linux-desktop-mode" data-t="field.shared-linux-desktop">Shared Linux desktop</label>
+            <select id="linux-desktop-mode">
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
+            </select>
+            <label for="linux-desktop-image" data-t="field.linux-desktop-image">Desktop container image</label>
+            <input id="linux-desktop-image" type="text" maxlength="200" placeholder="branch-linux-desktop:latest" />
+            <button id="linux-desktop-image-save" type="button" data-t="action.save-desktop-image">Save this image</button>
+            <p class="subtle" data-t="linux-desktop.note">Nothing is ever downloaded: the image has to be on this computer already. While the desktop runs, a notice with a Take over button sits on top of everything. Once you take over, Branch cannot act in it, stop it or start another until you hand it back here. Switching this off takes the desktop down at once.</p>
+            <p id="linux-desktop-state" class="subtle" role="status"></p>
+            <div id="linux-desktop-control-row" hidden>
+              <button id="linux-desktop-show-viewer" type="button" data-t="action.show-viewer-password">Show viewer password</button>
+              <button id="linux-desktop-take-over" type="button" data-t="action.take-over">Take over</button>
+              <button id="linux-desktop-hand-back" type="button" data-t="action.hand-back" hidden>Hand back</button>
+            </div>
+            <div id="linux-desktop-viewer-info" hidden>
+              <p class="subtle"><span data-t="linux-desktop.viewer-address">Address:</span> <code id="linux-desktop-viewer-address"></code></p>
+              <p class="subtle"><span data-t="linux-desktop.viewer-password">Password:</span> <code id="linux-desktop-viewer-password"></code></p>
+            </div>
+            <p id="linux-desktop-status" class="subtle" role="status"></p>
           </section>
           <section id="sandbox-card" class="card">
             <h2 data-t="settings.card.where-scripts-run">Where scripts run</h2>
@@ -1529,7 +1623,6 @@
             <input id="sandbox-distro" type="text" maxlength="100" />
             <label class="check-row"><input type="checkbox" id="sandbox-windows" /> <span data-t="field.allow-windows-throwaway-desktop">Let Branch use Windows' throwaway desktop</span></label>
             <p class="subtle">The throwaway desktop opens a window on your screen, so Branch never chooses it for you.</p>
-            <button id="sandbox-save" type="button" data-t="action.save-where-scripts-run">Save where scripts run</button>
             <p id="sandbox-status" class="subtle" role="status"></p>
           </section>
           <section id="firewall-card" class="card">
@@ -1543,7 +1636,7 @@
             <p id="firewall-status" class="subtle" role="status"></p>
           </section>
           <section id="limits-card" class="card">
-            <h2 data-t="settings.card.ceilings">How much one person may ask for</h2>
+            <h3 class="settings-card-title" data-t="settings.card.ceilings">How much one person may ask for</h3>
             <p>Your own task waits for its minute to free up and then carries on. Somebody messaging you from a chat app is told in one sentence and their message is let go, because a stranger waiting silently looks exactly like Branch being broken. Leave a number at 0 for no limit.</p>
             <label for="limit-requests" data-t="field.questions-a-minute">Questions a minute, one conversation</label>
             <input id="limit-requests" type="number" min="0" max="1000" step="1" value="0" />
@@ -1553,7 +1646,6 @@
             <input id="limit-sender-requests" type="number" min="0" max="1000" step="1" value="0" />
             <label for="limit-sender-tokens" data-t="field.thinking-an-hour-from-outside">Thinking an hour, one person messaging you</label>
             <input id="limit-sender-tokens" type="number" min="0" max="50000000" step="1000" value="0" />
-            <button id="limit-save" type="button" data-t="action.save-these-ceilings">Save these ceilings</button>
             <p id="limit-status" class="subtle" role="status"></p>
           </section>
           <section id="remote-card" class="card">
@@ -1570,6 +1662,19 @@
             <input id="remote-programs" type="text" maxlength="600" />
             <button id="remote-add" type="button" data-t="action.add-this-computer">Add this computer</button>
             <p id="remote-status" class="subtle" role="status"></p>
+          </section>
+          <section id="host-bridge-card" class="card">
+            <h2 data-t="settings.card.host-bridge">Run something on one computer</h2>
+            <p>Pick one computer you have already added above, name a program it is allowed to run, and Branch runs it there and hands the answer straight back — with the name of the computer that answered, so it is never mixed up with any other.</p>
+            <label for="host-bridge-computer" data-t="field.which-computer">Which computer</label>
+            <select id="host-bridge-computer"></select>
+            <label for="host-bridge-program" data-t="field.program-to-run">Program to run</label>
+            <input id="host-bridge-program" type="text" maxlength="80" placeholder="make" />
+            <label for="host-bridge-args" data-t="field.arguments-separated-by-spaces">Arguments, separated by spaces</label>
+            <input id="host-bridge-args" type="text" maxlength="600" placeholder="build" />
+            <button id="host-bridge-run" type="button" data-t="action.run-it-there">Run it there</button>
+            <div id="host-bridge-result" class="card-list"></div>
+            <p id="host-bridge-status" class="subtle" role="status"></p>
           </section>
           <section id="retention-card" class="card">
             <h2 data-t="settings.card.how-long-conversations-are-kept">How long conversations are kept</h2>
@@ -1667,8 +1772,8 @@
             </details>
           </section>
           <section id="health-card" class="card">
-            <h2 data-t="settings.card.health-check">Health check</h2>
-            <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
+            <h3 class="settings-card-title" data-t="settings.card.health-check">Health check</h3>
+            <p data-t="settings.intro.health">Checks the pieces this app depends on and tells you what to do if one is not right.</p>
             <label class="check-row"><input type="checkbox" id="health-probe" /> <span data-t="field.also-send-a-tiny-test">Also send a tiny test message to the default model</span></label>
             <button id="health-run" type="button" data-t="action.check-now">Check now</button>
             <div id="health-list" class="card-list" aria-live="polite"></div>
@@ -1706,8 +1811,8 @@
             <label><input id="embed-extension" type="checkbox" />
               <span data-t="field.let-the-browser-extension-send">Let the browser extension send me pages</span></label>
             <label for="embed-sites" data-t="field.pages-that-may-carry-the-box">Pages that may carry the box, one address a line</label>
-            <textarea id="embed-sites" rows="3" spellcheck="false" placeholder="https://notes.example.com"></textarea>
-            <p class="subtle" data-t="embeds.sitesNote">
+            <textarea id="embed-sites" rows="3" spellcheck="false" placeholder="https://notes.example.com" aria-describedby="embed-sites-note"></textarea>
+            <p class="subtle" id="embed-sites-note" data-t="embeds.sitesNote">
               Your browser asks Branch for permission before a page of yours may send anything to it,
               and only a page listed here is allowed. Leave it empty and no page may ask.
             </p>
@@ -1715,7 +1820,7 @@
             <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
           </section>
           <section id="developer-card" class="card">
-            <h2 data-t="settings.card.developer">Developer</h2>
+            <h3 class="settings-card-title" data-t="settings.card.developer">Developer</h3>
             <details id="playground">
               <summary data-t="playground.title">Try things out</summary>
               <p class="subtle" data-t="playground.intro">Run one tool on its own, or ask two models the same question. Everything here follows your usual permission settings.</p>
@@ -1725,7 +1830,7 @@
               <button id="play-run" type="button" data-t="playground.run">Run it</button>
               <p id="play-status" class="subtle" role="status"></p>
               <div id="play-result" class="play-result"></div>
-              <h3 data-t="playground.comparePrompt">Ask two models the same thing</h3>
+              <h4 data-t="playground.comparePrompt">Ask two models the same thing</h4>
               <label class="sr-only" for="play-compare-text" data-t="field.ask-two-models-the-same">Ask two models the same thing</label>
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
@@ -1733,15 +1838,15 @@
             </details>
             <!-- Wave 7: help with code. Every program named here is one you already have. -->
             <details id="code-ide">
-              <summary>Help with code</summary>
-              <p class="subtle">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
+              <summary data-t="settings.advanced.code.title">Help with code</summary>
+              <p class="subtle" data-t="settings.advanced.code.intro">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
               <label class="check-row"><input type="checkbox" id="ls-enabled" /> <span data-t="field.let-branch-use-my-language">Let Branch use my language servers</span></label>
               <label for="ls-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, anything that goes after it, and the kinds of file it handles</label>
               <textarea id="ls-list" rows="3" spellcheck="false" placeholder="typescript | C:\Users\me\AppData\Roaming\npm\node_modules\typescript-language-server\lib\cli.mjs | --stdio | TypeScript, JavaScript"></textarea>
               <label class="check-row"><input type="checkbox" id="dbg-enabled" /> <span data-t="field.let-branch-run-my-debuggers">Let Branch run my debuggers</span></label>
               <label for="dbg-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, and anything that goes after it</label>
               <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
-              <p class="subtle">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
+              <p class="subtle" data-t="settings.advanced.code.keep">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
               <label class="check-row"><input type="checkbox" id="ls-keep" /> <span data-t="field.keep-a-language-server-running">Keep a language server running between tasks</span></label>
               <label class="check-row"><input type="checkbox" id="dbg-keep" /> <span data-t="field.keep-a-program-being-debugged">Keep a program being debugged running between tasks</span></label>
               <button id="code-ide-save" type="button" data-t="action.save">Save</button>
@@ -1757,27 +1862,25 @@
                 <option value="when-needed" data-t="schedules.switch.when-needed">When needed</option>
                 <option value="on" data-t="schedules.switch.on">On</option>
               </select>
-              <button id="wsedit-mode-save" type="button" data-t="action.save">Save</button>
               <p id="wsedit-mode-status" class="subtle" aria-live="polite"></p>
             </details>
             <!-- bucket-18 (A0300): pull requests from a task's changes, off by default -->
             <details id="pull-requests">
               <summary data-t="developer.pull-requests.title">Pull requests from changes</summary>
-              <p class="subtle" data-t="developer.pull-requests.note">When this is on, a task that changed files can put them on a new branch, send it to GitHub with this computer's own Git sign-in and open a draft pull request. It never sends to a shared branch such as main, and a short-lived key can never use it. GitHub must be connected first.</p>
+              <p class="subtle" data-t="developer.pull-requests.note">When this is on, a task that changed files can put them on a new branch, send it to GitHub with this computer's own Git sign-in and open a draft pull request. It never sends to a shared branch such as main, and a short-lived key can never use it. GitHub must be connected first. When needed: only when you ask for one. On: after every task that changed files.</p>
               <label for="pull-requests-mode" data-t="developer.pull-requests.mode">Pull requests from changes</label>
               <select id="pull-requests-mode">
-                <option value="off" data-t="schedules.switch.off">Off</option>
-                <option value="when-needed" data-t="developer.pull-requests.when-needed">When asked</option>
-                <option value="on" data-t="developer.pull-requests.on">After every task that changed files</option>
+                <option value="off" data-t="field.switch-off">Off</option>
+                <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+                <option value="on" data-t="field.switch-on">On</option>
               </select>
-              <button id="pull-requests-save" type="button" data-t="action.save">Save</button>
               <p id="pull-requests-status" class="subtle" aria-live="polite"></p>
             </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
                  apart from the button that deletes what it has learned. -->
             <details id="tool-catalog">
-              <summary>How the assistant finds its tools</summary>
-              <p class="subtle">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
+              <summary data-t="settings.advanced.tools.title">How the assistant finds its tools</summary>
+              <p class="subtle" data-t="settings.advanced.tools.intro">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
               <div id="tool-catalog-summary" aria-live="polite"></div>
               <div id="tool-catalog-lists"></div>
               <div id="tool-catalog-meaning"></div>
@@ -1786,13 +1889,13 @@
             </details>
           </section>
           <section id="diagnostics-card" class="card">
-            <h2 data-t="settings.card.diagnostics">Diagnostics</h2>
-            <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
-            <p>If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
+            <h3 class="settings-card-title" data-t="settings.card.diagnostics">Diagnostics</h3>
+            <p id="diagnostics-promise"><strong data-t="settings.advanced.promise.lead">Branch sends no usage data to anyone.</strong> <span data-t="settings.advanced.promise.rest">Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</span></p>
+            <p data-t="settings.advanced.diagnostics.help">If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
             <button id="diagnostics-save" type="button" data-t="action.save-a-diagnostics-folder">Save a diagnostics folder</button>
             <p id="diagnostics-status" class="subtle" aria-live="polite"></p>
-            <h3>Trace files for a tracing viewer</h3>
-            <p>Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
+            <h4 data-t="settings.card.diagnostics.trace">Trace files for a tracing viewer</h4>
+            <p data-t="settings.advanced.trace.note">Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
             <label class="check-row"><input type="checkbox" id="trace-enabled" /> <span data-t="field.write-a-trace-file-for">Write a trace file for every finished task</span></label>
             <label for="trace-folder" data-t="field.folder-for-the-trace-files">Folder for the trace files</label>
             <input id="trace-folder" maxlength="4096" spellcheck="false" placeholder="A full path inside your own user folder or your workspace" />
@@ -1801,13 +1904,13 @@
           </section>
           <!-- mac7/diagnostics: the activity log (public/activity-log.js). Off unless the owner turns it on. -->
           <section id="activity-log-card" class="card">
-            <h2 data-t="settings.card.activity-log">Activity log</h2>
-            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off.</p>
+            <h3 class="settings-card-title" data-t="settings.card.activity-log">Activity log</h3>
+            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off. When needed keeps warnings and errors only; On keeps everything.</p>
             <label for="activity-log-mode" data-t="field.activity-log-mode">Keep an activity log</label>
             <select id="activity-log-mode" aria-describedby="activity-log-intro">
-              <option value="off" data-t="activity-log.mode.off">Off</option>
-              <option value="when-needed" data-t="activity-log.mode.when-needed">When needed: warnings and errors only</option>
-              <option value="on" data-t="activity-log.mode.on">On: everything</option>
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
             </select>
             <label for="activity-log-days" data-t="field.activity-log-days">Keep it for this many days</label>
             <input id="activity-log-days" type="number" min="1" max="90" aria-describedby="activity-log-intro" />
@@ -1884,7 +1987,7 @@
           <!-- mac7/adapt: getting what a stopped task is missing. Its own card, because it works
                for blockers that have nothing to do with models on this computer. -->
           <section id="adapt-card" class="card">
-            <h2 data-t="settings.card.adapt">Getting what a stopped task is missing</h2>
+            <h3 class="settings-card-title" data-t="settings.card.adapt">Getting what a stopped task is missing</h3>
             <p data-t="settings.adapt.purpose">When a task cannot go on because something is missing, Branch works out what it is, tells you what would fix it and what that costs, and gets it only after you say yes. Then the task carries on from where it stopped.</p>
             <div id="adapt-body"></div>
           </section>
@@ -1924,8 +2027,13 @@
                in other products. It shows what would go before anything goes. -->
           <!-- mac7/diagnostics: manual reports are never sent; automatic reports are a separate,
                off-by-default opt-in limited to an already linked owner destination. -->
+          <!-- DG-192: the sample's The keeper, the acorn in a card of its own. Drag it, or use the arrow keys, to turn it (public/acorn.js). -->
+          <section id="about-keeper" class="card about-keeper" data-home="settings:about">
+            <canvas id="about-acorn" width="64" height="64" role="img" tabindex="0" title="Drag to turn" data-t-title="acorn.tip"
+              aria-label="The acorn. Drag or use the arrow keys to turn it." data-t-label="about.keeper.acorn"></canvas>
+          </section>
           <section id="problem-report-card" class="card">
-            <h2 data-t="settings.card.report">Report a problem</h2>
+            <h4 data-t="settings.card.report">Report a problem</h4>
             <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. This manual report is not sent automatically: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
             <label for="problem-report-summary" data-t="field.report-summary">What went wrong (optional)</label>
             <input id="problem-report-summary" maxlength="500" aria-describedby="problem-report-intro" />
@@ -1937,7 +2045,7 @@
               <button id="problem-report-issue" type="button" data-t="action.report-issue">Open a GitHub issue form</button>
             </div>
             <hr />
-            <h3 data-t="automatic-report.title">Send future problems automatically</h3>
+            <h5 data-t="automatic-report.title">Send future problems automatically</h5>
             <p id="automatic-problem-help" class="subtle" data-t="automatic-report.help">Off unless you turn it on. Branch sends only the report parts you choose, through an owner chat or GitHub account already linked here. You can preview the exact words first, and every attempt is written in Allowed &amp; audit.</p>
             <label for="automatic-problem-mode" data-t="automatic-report.field.mode">Automatic reports</label>
             <select id="automatic-problem-mode" aria-describedby="automatic-problem-help">
@@ -2021,7 +2129,7 @@
             <pre id="automatic-problem-preview" hidden></pre>
           </section>
           <section id="danger-zone" class="card danger-zone" data-home="settings:about">
-            <h2 data-t="danger.card.title">Danger zone</h2>
+            <h4 data-t="danger.card.title">Remove Branch from this computer</h4>
             <p class="subtle" data-t="danger.intro">Removing Branch closes it, takes away the app, the programs it downloaded to run models, the models themselves, and the entry that starts it when you sign in. Nothing here can be undone.</p>
             <p id="danger-status" role="status"></p>
             <div id="danger-list" class="card-list"></div>
@@ -2108,6 +2216,18 @@
               </div>
               <button id="wsedit-save" type="button" data-t="action.save">Save</button>
             </div>
+            <!-- FQ-collaboration: a video opened from the Files tab, with the comments pinned to it. -->
+            <div id="wsedit-media" class="wsedit-media" hidden>
+              <p class="meta" id="wsedit-media-path"></p>
+              <video id="wsedit-media-video" class="wsedit-media-video" controls preload="metadata" data-t-label="wsedit.media.video-label" aria-label="The video"></video>
+              <div id="wsedit-media-comments" class="wsedit-media-comments"></div>
+              <form id="wsedit-media-comment-form" class="wsedit-media-comment-form">
+                <label class="sr-only" for="wsedit-media-comment-text" data-t="wsedit.media.comment.label">A comment at this moment</label>
+                <input id="wsedit-media-comment-text" type="text" maxlength="2000" required
+                  data-t-placeholder="wsedit.media.comment.placeholder" placeholder="Comment at the current moment">
+                <button type="submit" data-t="wsedit.media.comment.add">Add comment here</button>
+              </form>
+            </div>
           </div>
           <p id="wsedit-status" class="context-empty" role="status" aria-live="polite"></p>
         </details>
@@ -2173,12 +2293,15 @@
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
+    <script src="/playback.js" type="module"></script><!-- FQ-surfaces.playback: plays an attached sound or video file inline -->
+
     <script src="/mcp.js" type="module"></script>
     <script src="/mcp-workbench.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>
     <script src="/desktop.js" type="module"></script>
+    <script src="/linux-desktop.js" type="module"></script>
     <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <!-- phase2/delight: the pet, achievements and your own background, all off until switched on. -->
@@ -2202,6 +2325,7 @@
     <script src="/chat-permissions.js" type="module"></script>
     <script src="/wake-word.js" type="module"></script>
     <script src="/dictation.js" type="module"></script>
+    <script src="/voice-listening.js" type="module"></script>
     <script src="/pins.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
     <!-- Bucket 17: watching videos and speech plug-ins. -->
@@ -2217,7 +2341,9 @@
     <script src="/docs-3.js" type="module"></script>
     <script src="/learn.js" type="module"></script>
     <script src="/other.js" type="module"></script>
+    <script src="/lockdown-card.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
+    <script src="/host-bridge.js" type="module"></script>
     <script src="/move-in.js" type="module"></script>
     <!-- bucket 14 (A0367): the usage report card, placed in Settings → Data -->
     <script src="/usage-report.js" type="module"></script>
@@ -2265,13 +2391,18 @@
     <script src="/phone-app.js" type="module"></script>
     <script src="/autonomy.js" type="module"></script>
     <script src="/trunks.js" type="module"></script>
+    <!-- DG-193: Settings › Trunks & people holds the Trunks, Edit Trunk and a person's card settings. -->
+    <script src="/settings-trunks.js" type="module"></script>
     <!-- phase2/rooms: who answers in a conversation, rooms as conversations, @mentions. -->
     <script src="/rooms.js" type="module"></script>
+    <!-- Q64: a team's recent tasks above its room: state, members, handoff, blocker and answers. -->
+    <script src="/team-tasks.js" type="module"></script>
     <!-- phase2/rooms: dictation surfaced as a bar, and Talk live in its own view (off at first). -->
     <script src="/voice-bar.js" type="module"></script>
     <script src="/voice-view.js" type="module"></script>
     <!-- phase2/shell: the Trunks strip, the Overview and People (studio.js and pairing.js load when opened). -->
     <script src="/strip.js" type="module"></script>
+    <script src="/topbar-crumbs.js" type="module"></script><!-- DG-099 -->
     <script src="/overview.js" type="module"></script>
     <script src="/people-place.js" type="module"></script>
     <script src="/coding.js" type="module"></script>
@@ -2294,9 +2425,12 @@
     <script src="/dashboard-card.js" type="module"></script>
     <script src="/layout.js" type="module"></script>
     <script src="/settings-grown.js" type="module"></script><!-- phase2/settings -->
+    <script src="/rail-foot.js" type="module"></script><!-- DG-094 -->
     <script src="/settings-look.js" type="module"></script><!-- phase2/settings -->
     <!-- phase2/panels: Browser and Terminal, resizable panes, See-through and What's on screen (after layout.js). -->
     <script src="/panels.js" type="module"></script>
     <script src="/panels-hide.js" type="module"></script>
+    <!-- FQ-surfaces.panes: compare topics side by side, opened from More → Go to (after layout.js). -->
+    <script src="/topic-panes.js" type="module"></script>
   </body>
 </html>

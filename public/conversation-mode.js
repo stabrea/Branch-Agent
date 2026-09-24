@@ -1,8 +1,9 @@
 /* Redesign phase 1: how much the assistant may do in this conversation, as one chip in the message
    box (the approved sample's mode picker). Ask first, Plan, Auto and Full access; a choice that cannot
    be made right now is shown greyed with the reason, never hidden. The server decides what a task may
-   really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on Ask
-   first; one that existed before keeps following the owner's setting until somebody picks here. */
+   really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on the
+   owner's default (Ask first unless they pick another); one that existed before keeps following the
+   owner's setting until somebody picks here. */
 import { api, toast } from "/app.js";
 import { t } from "/i18n.js";
 import { popover } from "/popover.js";
@@ -83,15 +84,10 @@ function choiceItem(choice, mode) {
   const words = el("span", undefined, "mode-words");
   words.append(el("b", t(`mode.${choice.mode}`)), el("small", choice.available ? t(`mode.${choice.mode}.note`) : choice.why));
 
-  // DG-152: Add number key indicators for keyboard shortcuts
-  const keyChips = el("span", undefined, "mode-keys");
-  const keyMap = { "ask": "1", "plan": "3", "full": "4" };
-  if (keyMap[choice.mode]) {
-    keyChips.textContent = keyMap[choice.mode];
-    keyChips.setAttribute("aria-label", `keyboard shortcut ${keyMap[choice.mode]}`);
-  }
-
-  item.append(icon(choice.mode), words, keyChips, mode === choice.mode ? icon("check") : el("span"));
+  /* The number key a choice answers to stands where the tick goes; the chosen one shows the tick. */
+  const keyMap = { ask: "1", plan: "3", full: "4" };
+  const key = keyMap[choice.mode] ? el("kbd", keyMap[choice.mode], "mode-keys") : el("span");
+  item.append(icon(choice.mode), words, mode === choice.mode ? icon("check") : key);
   if (!choice.available) {
     item.setAttribute("aria-disabled", "true");
     item.title = choice.why;
@@ -123,26 +119,56 @@ function confirmFull(menu) {
   menu.replaceChildren(el("p", t("mode.full"), "mode-heading"), box);
   yes.focus();
 }
+/** The owner's one Lockdown switch, as the menu's last row: the same state the Lockdown panel shows. */
+function lockdownItem() {
+  const item = el("button", undefined, "mode-item mode-lock");
+  item.type = "button";
+  item.setAttribute("role", "menuitemcheckbox");
+  item.setAttribute("aria-checked", String(state.locked));
+  const words = el("span", undefined, "mode-words");
+  words.append(el("b", t("mode.lockdown")), el("small", t(state.owner ? "mode.lockdown.note" : "mode.lockdown.ownerOnly")));
+  item.append(icon("ask"), words, state.locked ? icon("check") : el("span"));
+  if (!state.owner) item.setAttribute("aria-disabled", "true");
+  else item.addEventListener("click", () => void toggleLockdown());
+  return item;
+}
+async function toggleLockdown() {
+  const on = !state.locked;
+  try { await api("lockdown", { on }); }
+  catch (error) { toast(error.message); return; }
+  toast(t(on ? "mode.lockdownOn" : "mode.lockdownOff"));
+  await globalThis.branchOther?.render?.();
+  await refreshMode();
+}
+/** The two lines under the menu: where new conversations start, and where the other choices are. */
+function footNotes() {
+  const setting = PRESET_AS_MODE[state.following.preset] ? t(`mode.${PRESET_AS_MODE[state.following.preset]}`) : state.following.label;
+  const start = state.settings?.newConversation === "follow" ? setting : t("mode.ask");
+  return [el("p", t("mode.note.line1", { start, setting }), "mode-note"), el("p", t("mode.note.line2"), "mode-note")];
+}
 function paintMenu(menu = $("mode-menu")) {
   if (!state) return;
   if (confirming) return confirmFull(menu);
   const mode = chosen();
   menu.replaceChildren(el("p", t("mode.question"), "mode-heading"));
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
-  menu.append(el("hr"), followItem(mode));
+  menu.append(followItem(mode), el("hr"), lockdownItem());
 
   // DG-153: Add footer explaining mode choices and keyboard shortcuts
   if (!state.locked && !state.outside && mode !== null) {
     const footer = el("div", undefined, "mode-footer");
-    const line1 = el("p", `New conversations start on ${t("mode.ask")}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
+    // What a new conversation from this window really starts on (the view's own answer), not the owner's saved choice:
+    // somebody else in the house, or a default the picker cannot offer here, follows the owner's rules instead.
+    const starts = state.newConversation ? t(`mode.${state.newConversation}`) : t("mode.setting.follow");
+    const line1 = el("p", `New conversations start on ${starts}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
     const line2 = el("p", `Number keys 1, 3, 4 in the message box switch modes. More choices (Just do it inside my workspace, Read only) are in Settings › Permissions.`, "mode-note");
     footer.append(line1, line2);
     menu.append(footer);
   }
-
   if (state.locked) menu.append(el("p", t("mode.lockedNote"), "mode-note"));
   else if (state.outside) menu.append(el("p", outsideNote(), "mode-note mode-outside"));
   else if (mode === null) menu.append(el("p", t("mode.followingNote", { setting: state.following.label }), "mode-note"));
+  menu.append(...footNotes());
 }
 /** Arrows move between the choices that can be made; Home and End go to either end. */
 function keys(event) {
@@ -156,19 +182,20 @@ function keys(event) {
 
 /* ---------- choosing ---------- */
 
-async function pick(mode, sure = false) {
+/** Picks a mode; `said` replaces the usual line the toast says. */
+async function pick(mode, sure = false, said) {
   if (mode === "full" && !sure) { confirming = true; paintMenu(); return; }
   menuControl.close();
   if (!session()) {
     pending = mode;
     paintChip();
-    toast(mode ? t("mode.pickedNew", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label }));
+    toast(said ?? (mode ? t("mode.pickedNew", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label })));
     return;
   }
   try {
     state = await api("conversation-mode", { sessionId: session(), mode });
     paintChip();
-    toast(mode ? t("mode.picked", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label }));
+    toast(said ?? (mode ? t("mode.picked", { mode: t(`mode.${mode}`) }) : t("mode.followingNow", { setting: state.following.label })));
   } catch (error) { toast(error.message); }
 }
 const ready = () => $("workspace")?.hidden === false && Boolean(sessionStorage.getItem("branch-token"));
@@ -194,18 +221,24 @@ function repaintMenu() {
 
 /* ---------- the owner's default, under When to check with me ---------- */
 
+/* The sample's four cards (Auto, Ask first, Plan first, No approvals) plus Follow my rules. They save the owner's
+   newConversation default only; the rules preset under them is a separate control. */
+const defaultCards = () => [...document.querySelectorAll('#mode-new-conversation input[type="radio"]')];
 function paintDefault() {
-  const select = $("mode-new-conversation");
-  if (!select || !state) return;
-  select.value = state.settings?.newConversation ?? "ask";
-  select.disabled = !state.owner;
+  if (!state) return;
+  const saved = state.settings?.newConversation ?? "ask";
+  for (const radio of defaultCards()) {
+    radio.checked = radio.value === saved;
+    radio.disabled = !state.owner;
+  }
 }
 $("mode-new-conversation")?.addEventListener("change", async (event) => {
+  const value = event.target.value;
   try {
-    await api("conversation-mode/settings", { newConversation: event.target.value });
-    toast(t(event.target.value === "ask" ? "mode.setting.savedAsk" : "mode.setting.savedFollow"));
+    await api("conversation-mode/settings", { newConversation: value });
+    toast(value === "follow" ? t("mode.setting.savedFollow") : t("mode.setting.savedMode", { mode: t(`mode.${value}`) }));
     await refreshMode();
-  } catch (error) { toast(error.message); }
+  } catch (error) { toast(error.message); paintDefault(); }
 });
 
 const menuControl = popover($("mode-chip"), $("mode-menu"), {
@@ -214,6 +247,23 @@ const menuControl = popover($("mode-chip"), $("mode-menu"), {
   onClose: () => { confirming = false; },
 });
 $("mode-menu").addEventListener("keydown", keys);
+/* Shift+Tab in the message box moves to the next mode that can be picked now; No approvals is only in the
+   menu, where it asks first. */
+async function cycleMode() {
+  if (!state) return;
+  const order = ORDER.filter((id) => id !== "full" && state.choices.find((choice) => choice.mode === id)?.available);
+  if (!order.length) return;
+  const now = chosen() ?? PRESET_AS_MODE[state.following.preset] ?? "";
+  const next = order[(order.indexOf(now) + 1) % order.length];
+  await pick(next, false, t("mode.cycled", { mode: t(`mode.${next}`) }));
+}
+$("prompt")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  /* The slash-command list takes Tab for itself while it is open. */
+  if (event.defaultPrevented || document.getElementById("slash-menu")) return;
+  event.preventDefault();
+  void cycleMode();
+});
 new MutationObserver(() => { if (!session()) pending = undefined; void refreshMode(); })
   .observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
 document.addEventListener("branch-profile", () => void refreshMode());

@@ -46,24 +46,93 @@ export function readStatus(json: string): TailnetAddress {
 }
 const absent = (message: string): TailnetAddress =>
   ({ present: false, running: false, address: null, hostname: null, message });
+const notInstalled = "Tailscale is not installed on this computer. Install it on this computer and on your phone, sign both in, then switch this on again.";
+const noAnswer = "Tailscale did not answer in time. Open Tailscale and check that it is connected, then try again.";
 
-const run = (file: string, args: string[]): Promise<string> =>
-  new Promise((resolve, reject) =>
-    execFile(file, args, { windowsHide: true, timeout: 10000, maxBuffer: 1048576 }, (error, stdout) =>
-      error ? reject(error) : resolve(stdout)));
+/**
+ * How long Branch waits for Tailscale in all, across every place its program is looked for.
+ * `tailscale status` answers from the Tailscale service on this computer in well under a second, so
+ * three seconds leaves a busy computer room to spare while never holding up for long what waits on
+ * the answer, such as Branch's own start before its door listens. No answer in time confirms nothing.
+ */
+export const tailscaleBudgetMs = 3000;
 
-const candidates = [
-  "tailscale",
-  "C:\\Program Files\\Tailscale\\tailscale.exe",
-  "C:\\Program Files (x86)\\Tailscale IPN\\tailscale.exe",
-];
+/**
+ * Where Tailscale's program is looked for, in order: the places Tailscale installs it on this system
+ * first, and the bare name, which is searched for on PATH, last. On a Mac the app's own program comes
+ * first; with only the app installed it is the one there is.
+ */
+export function tailscaleCandidates(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
+  if (platform === "darwin")
+    return [
+      "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
+      "tailscale",
+    ];
+  if (platform === "win32")
+    return [
+      `${programFiles(env["ProgramFiles"], "C:\\Program Files")}\\Tailscale\\tailscale.exe`,
+      `${programFiles(env["ProgramFiles(x86)"], "C:\\Program Files (x86)")}\\Tailscale IPN\\tailscale.exe`,
+      "tailscale",
+    ];
+  return ["/usr/bin/tailscale", "/usr/local/bin/tailscale", "/usr/sbin/tailscale", "tailscale"];
+}
 
-/** Asks Tailscale where this computer sits on the private network. */
-export const probeTailscale: ProbeTailscale = async () => {
-  for (const file of candidates) {
+/** A Program Files folder this computer names, when that is a whole path on a drive; the usual one otherwise. */
+const programFiles = (named: string | undefined, usual: string): string =>
+  named && /^[a-z]:\\/i.test(named) ? named.replace(/\\+$/, "") : usual;
+
+/**
+ * Runs one program and gives back what it printed. When `stop` fires, the program is killed outright
+ * with SIGKILL, which it cannot ignore, and its output is let go of, so nothing it left running can
+ * keep that output open. (`execFile` does not use its `killSignal` for an abort signal, so the kill
+ * is done here; `killSignal` covers `execFile`'s own kill, when the output grows past its limit.)
+ */
+function run(file: string, args: string[], stop: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(file, args, { windowsHide: true, maxBuffer: 1048576, killSignal: "SIGKILL" },
+      (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    stop.addEventListener("abort", () => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.kill("SIGKILL");
+    }, { once: true });
+  });
+}
+
+/** The answer of the first program found; once `stop` has fired, no further place is tried. */
+async function firstAnswer(places: readonly string[], stop: AbortSignal): Promise<TailnetAddress> {
+  for (const file of places) {
+    if (stop.aborted) break;
     try {
-      return readStatus(await run(file, ["status", "--json"]));
+      return readStatus(await run(file, ["status", "--json"], stop));
     } catch { continue; }
   }
-  return absent("Tailscale is not installed on this computer. Install it on this computer and on your phone, sign both in, then switch this on again.");
-};
+  return absent(notInstalled);
+}
+
+/**
+ * A way to ask Tailscale where this computer sits on the private network: the places in `candidates`
+ * are tried in order until a program there answers, all within `budgetMs`. When that time is up, the
+ * program still running is killed, nothing further is tried, and the answer is that nothing was
+ * confirmed. Anything arriving after that changes nothing, as the answer has already been given.
+ */
+export function makeProbeTailscale(
+  options: { candidates?: readonly string[]; budgetMs?: number } = {},
+): ProbeTailscale {
+  return () => new Promise<TailnetAddress>((resolve) => {
+    const stop = new AbortController();
+    const deadline = setTimeout(() => {
+      resolve(absent(noAnswer));
+      stop.abort();
+    }, options.budgetMs ?? tailscaleBudgetMs);
+    const answered = (answer: TailnetAddress): void => {
+      clearTimeout(deadline);
+      resolve(answer);
+    };
+    const places = options.candidates ?? tailscaleCandidates(process.platform, process.env);
+    firstAnswer(places, stop.signal).then(answered, () => answered(absent(notInstalled)));
+  });
+}
+
+/** Asks Tailscale where this computer sits on the private network. */
+export const probeTailscale: ProbeTailscale = makeProbeTailscale();

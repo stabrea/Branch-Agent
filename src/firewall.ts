@@ -45,6 +45,9 @@ export function firewallView(input: FirewallInput): FirewallView {
   sentences.push(policy.allowPrivateAddresses
     ? "Branch may reach other computers on your home network, and this computer itself."
     : "Branch cannot reach other computers on your home network, or this computer itself.");
+  if (policy.fakeIpProxy === true)
+    sentences.push("Branch trusts a fake-IP proxy: a site whose name looks up to an address in 198.18.0.0/15 is let through, " +
+      "and the proxy then does the resolving, so Branch cannot see where that site really is.");
   const origins = [...(input.browserOrigins ?? [])];
   sentences.push(origins.length
     ? `The browser may visit ${list(origins)}. Any other address is refused before the page opens.`

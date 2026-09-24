@@ -104,14 +104,18 @@ function achievementsCard() {
   all.type = "button";
   all.addEventListener("click", () => void openSheet());
   line.append(Object.assign(el("span", "delight-ach-count"), { id: "delight-ach-count" }), all);
-  const tries = el("div", "delight-tries");
-  tries.append(el("span", "", say("delight.ach.try", "Try a celebration:")));
+  /* DG-134: the sample's "Try a celebration" row: its label, the six tiers as small buttons with a tier dot, three
+     and three, and what each one does beside them. */
+  const tries = el("div", "delight-celebrate"), buttons = el("div", "delight-celebrate-grid");
   for (const tier of TIERS) {
-    const b = el("button", "secondary", say(`delight.ach.tier.t-${tier.replace("+", "p").toLowerCase()}`, tier));
+    const key = `t-${tier.replace("+", "p").toLowerCase()}`, b = el("button", "delight-try");
     b.type = "button";
+    b.append(el("span", `delight-tier-dot ${key}`), el("span", "", say(`delight.ach.tier.${key}`, tier)));
     b.addEventListener("click", () => preview(tier));
-    tries.append(b);
+    buttons.append(b);
   }
+  tries.append(el("span", "delight-celebrate-label", say("delight.ach.try", "Try a celebration")), buttons,
+    el("p", "delight-celebrate-note", say("delight.ach.tryNote", "Bronze and Silver appear small at the top right for a few seconds. Gold and above get a card and a party that grows with the rank. Keep things still shows a still card.")));
   more.append(line,
     checkRow("delight-ach-quiet", "delight.ach.quiet", "Quiet: earn them without any pop-up", (v) => saveDelight({ achievements: { quiet: v } })), tries);
   box.append(checkRow("delight-ach-on", "delight.ach.on", "Show achievements", (v) => saveDelight({ achievements: { on: v } })), more);
@@ -131,18 +135,36 @@ document.addEventListener("branch-achievements", () => paintAchievementsCard());
 function backgroundCard() {
   const box = card("delight-bg-card", "delight.bg.title", "Your own background", "delight.bg.note",
     "A picture, a video or an animation behind the glass instead of the oak. It stays in this window on this computer and is never sent anywhere. Switching it off keeps the file for next time; Remove picture throws it away.");
-  const more = part("delight-bg-more"), pick = el("label", "delight-field delight-file"), file = el("input");
-  file.type = "file";
-  file.id = "delight-bg-file";
-  file.accept = "image/png,image/jpeg,image/webp,image/gif,image/apng,image/avif,video/mp4,video/webm,.glb,model/gltf-binary";
-  file.addEventListener("change", () => void pickFile(file));
-  pick.append(el("span", "", say("delight.bg.choose", "Choose a file")), file);
+  const more = part("delight-bg-more");
   const limits = el("p", "field-note", say("delight.bg.limits3d", "Pictures and animations up to {picture} MB, videos up to {video} MB, 3D models (.glb) up to {model} MB.", { picture: LIMITS.picture, video: LIMITS.video, model: LIMITS["3d"] }));
-  more.append(pick, limits, builtIns(), scrimRow(), fitRow(), statusLine("delight-bg-said"));
+  limits.id = "delight-bg-limits";
+  more.append(backgroundPicker(), limits, builtIns(), scrimRow(), fitRow(), statusLine("delight-bg-said"));
   // mac7/residuals: the kept file and "Remove picture" show whether it is switched on or off.
   box.append(checkRow("delight-bg-on", "delight.bg.on", "Use my own background", (v) => saveDelight({ background: { on: v } }).then(paintBackgroundCard)),
     keptLine(), more);
   return box;
+}
+/** The sample's small choose button, with native keyboard activation and a real file input. */
+function backgroundPicker() {
+  const row = el("div", "delight-file"), file = el("input"), choose = el("button");
+  const label = `${say("delight.bg.choose", "Choose a file")}…`;
+  Object.assign(file, { type: "file", id: "delight-bg-file", hidden: true });
+  file.accept = "image/png,image/jpeg,image/webp,image/gif,image/apng,image/avif,video/mp4,video/webm,.glb,model/gltf-binary";
+  file.setAttribute("aria-label", label);
+  file.addEventListener("change", () => void pickFile(file));
+  Object.assign(choose, { type: "button", id: "delight-bg-choose" });
+  choose.setAttribute("aria-controls", file.id);
+  choose.setAttribute("aria-describedby", "delight-bg-name delight-bg-limits delight-bg-said");
+  choose.addEventListener("click", () => file.click());
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9h.01");
+  svg.append(path);
+  choose.append(svg, el("span", "", label));
+  row.append(choose, file);
+  return row;
 }
 /** The file kept in this window, and the one button that throws it away (after a yes). */
 function keptLine() {
@@ -254,7 +276,8 @@ function applyStyle() {
   canvas.setAttribute("aria-label", say("delight.look.acorn", "The acorn, in 3D. Drag to turn it."));
   canvas.title = say("acorn.tip", "Drag to turn");
   art.prepend(canvas);
-  acorn3d = view3d(canvas, acornModel(), { distance: 2.7, still: acornStill });
+  // DG-138: the sample's camera for the corner acorn: 35° lens, 3.2 away, a little above; a slow turn.
+  acorn3d = view3d(canvas, acornModel(), { distance: 3.2, fov: 0.61, pitch: 0.062, spin: 0.0003, still: acornStill });
   if (!acorn3d) { canvas.remove(); return; }
   root.dataset.delightStyle = "3d";
 }

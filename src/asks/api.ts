@@ -4,6 +4,7 @@ import type { Runtime } from "../runtime.js";
 import type { Asks } from "./index.js";
 import { exampleFile, mcpExamples } from "./mcp-examples.js";
 import { AskOffError, AskPartSchema, askLabels, askParts, requireAsk, type AskPart } from "./settings.js";
+import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * The web side of bucket 23: the owner's routes under /api/asks/. They sit behind the same key and
@@ -107,7 +108,8 @@ async function route(deps: AsksHttpDeps, path: string): Promise<unknown> {
   if (path === "/api/asks") return { modes: asks.modes(), labels: askLabels, parts: askParts };
   if (path === "/api/asks/switch" && post) {
     const { part, mode } = SwitchSchema.parse(await deps.readBody());
-    return { part, mode: asks.setMode(part, { mode }) };
+    return { part, mode: recordedWrite(deps.runtime.store, deps.runtime.owner, byCard(`asks-${part}`), inCatalogue(`asks-${part}`),
+      () => asks.setMode(part, { mode })) };
   }
   if (path === "/api/asks/projects/board") return asks.boards.board(deps.query.get("project") ?? undefined);
   if (path === "/api/asks/projects/assign" && post) return asks.boards.assign(await deps.readBody());

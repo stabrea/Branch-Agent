@@ -1,6 +1,6 @@
 {
   "name": "branch-agent",
-  "version": "0.19.0",
+  "version": "0.19.3",
   "private": true,
   "description": "A local, inspectable personal assistant runtime",
   "type": "module",
@@ -17,7 +17,15 @@
   "files": [
     "dist",
     "public",
-    "data",
+    "data/holidays.json",
+    "data/providers.json",
+    "data/memory-retrieval.json",
+    "data/channels.json",
+    "data/local-models.json",
+    "data/channel-setup.json",
+    "data/add-ons",
+    "data/evaluation",
+    "data/tool-evaluations",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"

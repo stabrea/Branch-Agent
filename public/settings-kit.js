@@ -5,6 +5,7 @@
  *   Put settings back         (settings:general)  one setting or all of them, with the same view
  *   Your settings in one file (settings:data)     save a copy, or bring one in and see what it changes
  *   Which file does what      (settings:general)  the files you write, what each is for, and editing them
+ *   Recent changes            (settings:general)  what changed, undo one change, and why a setting is as it is (Q48/Q49)
  *
  * The three that change settings share one view: every change on its own line with a tick box,
  * changes that make Branch less careful marked and left unticked, and a separate "Yes, make it
@@ -54,7 +55,7 @@ function quiet(key, english, onClick) {
 /* ---------- words for values ---------- */
 
 const VALUE_WORDS = {
-  off: ["field.switch-off", "Off"], on: ["field.switch-on", "On"], "when-needed": ["field.switch-when-needed", "Only when it is needed"],
+  off: ["field.switch-off", "Off"], on: ["field.switch-on", "On"], "when-needed": ["field.switch-when-needed", "When needed"],
   true: ["settings-kit.value.yes", "Yes"], false: ["settings-kit.value.no", "No"],
 };
 const CHOICE_WORDS = {
@@ -95,6 +96,9 @@ async function showPlan(holder, plan, status) {
   try { preview = await api("settings-kit/preview", plan); } catch (error) { status.textContent = error.message; return; }
   if (!preview.changes.length) {
     holder.append(el("p", "settings-kit.nothing", "Nothing would change: your settings already match.", "subtle"));
+    // Q65 review: a setting that cannot be changed from here says why, even when nothing else would change.
+    if (preview.refused.length)
+      holder.append(el("p", undefined, `${say("settings-kit.refused", "Left out, because they cannot be changed from here:")} ${preview.refused.join("; ")}`, "subtle"));
     return;
   }
   const list = el("div", undefined, undefined, "kit-changes");
@@ -117,12 +121,12 @@ async function showPlan(holder, plan, status) {
   holder.append(go);
 }
 
-function confirmRow(confirm) {
+function confirmRow(confirm, words = ["settings-kit.confirm-note",
+  "The lines marked above let Branch do more without asking, or take a protection away. They are only changed if this is ticked as well."]) {
   const row = el("label", undefined, undefined, "kit-confirm");
   confirm.id = `kit-confirm-${Math.random().toString(36).slice(2, 8)}`;
   row.append(confirm, el("span", "settings-kit.confirm", "Yes, make it less careful"));
-  const note = el("p", "settings-kit.confirm-note",
-    "The lines marked above let Branch do more without asking, or take a protection away. They are only changed if this is ticked as well.", "field-note");
+  const note = el("p", ...words, "field-note");
   note.id = `${confirm.id}-note`;
   confirm.setAttribute("aria-describedby", note.id);
   return [row, note];
@@ -191,7 +195,34 @@ function resetCard(overview) {
   section.append(...field("kit-reset-what", select, ["settings-kit.field.reset", "What to put back"],
     ["describe.kit-reset", "Choosing changes nothing yet. Press the button below to see each value before and after."]),
   quiet("settings-kit.show", "Show what would change", () => showPlan(holder, plan(), status)), holder, status);
+  section.append(...putBackRows(overview, status));
   return section;
+}
+
+/**
+ * Q65 review: a setting whose saved record cannot be read (voice) cannot be changed from here or from its own
+ * card, so it is offered back as Branch ships it, the whole record at once, with the reason beside it.
+ */
+function putBackRows(overview, status) {
+  return overview.settings.filter((spec) => spec.refused && spec.canPutBack).flatMap((spec) => {
+    const why = el("p", undefined, spec.refused, "field-note");
+    // Q83: what is shipped may be less careful than what the unreadable record held, and then this asks too.
+    const confirm = document.createElement("input");
+    confirm.type = "checkbox";
+    const asks = confirmRow(confirm);
+    const button = quiet(`settings-kit.put-back.${spec.key}`, `Put ${spec.name.toLowerCase()} settings back as shipped`, async () => {
+      button.disabled = true;
+      try {
+        await api("settings-kit/put-back", { key: spec.key, confirmLoosening: confirm.checked });
+        why.remove();
+        for (const node of asks) node.remove();
+        button.remove();
+        status.textContent = say("settings-kit.put-back-done", "Put back as shipped.");
+        globalThis.branchVoiceReady?.();
+      } catch (error) { status.textContent = error.message; button.disabled = false; }
+    });
+    return [why, ...asks, button];
+  });
 }
 
 function fileCard() {
@@ -223,6 +254,105 @@ function fileCard() {
   return section;
 }
 
+/* ---------- Q48/Q49: recent changes, undo, and why a setting is as it is ---------- */
+
+const HOW_WORDS = {
+  switch: ["settings-kit.how.switch", "you, moving the switch in Settings"],
+  preset: ["settings-kit.how.preset", "a preset"],
+  reset: ["settings-kit.how.reset", "putting settings back to how they started"],
+  import: ["settings-kit.how.import", "a settings file you brought in"],
+  talk: ["settings-kit.how.talk", "a conversation, when you asked for it"],
+  undo: ["settings-kit.how.undo", "undoing an earlier change"],
+  card: ["settings-kit.how.card", "you, on its own card in Settings"],
+  command: ["settings-kit.how.command", "a command you typed"],
+  lockdown: ["settings-kit.how.lockdown", "Lockdown"],
+  unknown: ["settings-kit.how.unknown", "a change whose source was not recorded"],
+};
+/* A preset's record keeps its English name; it is shown in the window's language, like on the preset card. */
+function detailWords(record, presets) {
+  if (record.source === "command") return record.detail;
+  if (record.source !== "preset") return "";
+  const preset = presets.find((entry) => entry.name === record.detail || entry.id === record.detail);
+  return preset ? say(preset.t, preset.name) : record.detail;
+}
+const howWords = (record, presets) => {
+  const pair = Object.hasOwn(HOW_WORDS, record.source) ? HOW_WORDS[record.source] : HOW_WORDS.unknown;
+  const detail = detailWords(record, presets);
+  return `${say(...pair)}${detail ? ` (${detail})` : ""}`;
+};
+const when = (iso) => new Date(iso).toLocaleString();
+
+function fieldsOf(overview) {
+  const map = new Map();
+  for (const spec of overview.settings)
+    for (const one of spec.fields) map.set(`${spec.key}.${one.field}`, { key: spec.key, field: one.field, words: `${say(spec.t, spec.name)} · ${say(one.t, one.label)}` });
+  return map;
+}
+
+function whyWords(answer, presets) {
+  const value = valueWords(answer, answer.value);
+  if (answer.kind === "starting-value") return say("settings-kit.why.starting", "It is {value}, how it starts. No change to it was recorded.", { value });
+  if (answer.kind === "not-recorded") return say("settings-kit.why.not-recorded", "It is {value}. Nothing was recorded about who or what set it.", { value });
+  const how = howWords(answer.record, presets), at = when(answer.record.at);
+  if (answer.kind === "changed-since")
+    return say("settings-kit.why.changed-since", "It is {value}. The last recorded change set it to {after} ({how}, {when}), but it was changed again since by something that keeps no record.",
+      { value, after: valueWords(answer, answer.record.after), how, when: at });
+  return say("settings-kit.why.recorded", "It is {value}, set by {how} on {when}.", { value, how, when: at });
+}
+
+function recordRow(record, fields, presets, confirm, status, redraw) {
+  const row = el("li", undefined, undefined, "kit-record");
+  const lines = record.changes.map((entry) => {
+    const known = fields.get(entry.setting) ?? { key: "", field: "", words: entry.setting };
+    return `${known.words}: ${valueWords(known, entry.before)} → ${valueWords(known, entry.after)}`;
+  });
+  row.append(el("p", undefined, `${when(record.at)} · ${howWords(record, presets)}`, "meta"), el("p", undefined, lines.join("; ")));
+  // Lockdown puts back what it changed when it is turned off, so its own changes have no undo here.
+  if (record.source === "lockdown") { row.append(el("p", "settings-kit.history.lockdown", "Turning Lockdown off or on is how this is changed.", "subtle")); return row; }
+  if (record.undoneBy) { row.append(el("p", "settings-kit.history.undone", "Undone.", "subtle")); return row; }
+  row.append(quiet("settings-kit.history.undo", "Undo this change", async () => {
+    try {
+      const result = await api("settings-kit/undo", { record: record.id, confirmLoosening: confirm.checked });
+      status.textContent = say("settings-kit.done", "{count} changed. A card you already had open may show its old value until the window is reloaded.", { count: result.applied.length });
+      document.dispatchEvent(new CustomEvent("branch-settings-changed", { detail: { applied: result.applied } }));
+      await redraw();
+    } catch (error) { status.textContent = error.message; }
+  }));
+  return row;
+}
+
+async function drawRecords(list, fields, presets, confirm, status) {
+  let history;
+  try { history = await api("settings-kit/history"); } catch (error) { status.textContent = error.message; return; }
+  const redraw = () => drawRecords(list, fields, presets, confirm, status);
+  list.replaceChildren(...history.records.slice(0, 10).map((record) => recordRow(record, fields, presets, confirm, status, redraw)));
+  if (!history.records.length) list.append(el("li", "settings-kit.history.none", "No changes have been recorded yet.", "subtle"));
+}
+
+function historyCard(overview) {
+  const section = card("settings-kit-history", "settings:general",
+    ["settings-kit.card.history", "Recent changes"],
+    ["settings-kit.card.history-purpose", "Changes made on these cards or in a conversation are written down. Undo one to put back exactly what it changed, or ask why a setting is set the way it is."]);
+  const fields = fieldsOf(overview);
+  const { holder, status } = planArea();
+  const select = dropdown({ id: "kit-why", options: [...fields].map(([id, known]) => [id, known.words]), value: [...fields.keys()][0] ?? "" });
+  const answer = el("p", undefined, undefined, "subtle");
+  answer.setAttribute("role", "status");
+  const ask = quiet("settings-kit.why.ask", "Why is it set like this?", async () => {
+    try { answer.textContent = whyWords({ ...fields.get(select.value), ...(await api(`settings-kit/why/${encodeURIComponent(select.value)}`)) }, overview.presets); }
+    catch (error) { answer.textContent = error.message; }
+  });
+  const list = el("ul", undefined, undefined, "kit-records");
+  const confirm = document.createElement("input");
+  confirm.type = "checkbox";
+  holder.append(list, ...confirmRow(confirm, ["settings-kit.history.confirm-note",
+    "An undo that puts back a value letting Branch do more without asking, or taking a protection away, is only made if this is ticked as well."]));
+  section.append(...field("kit-why", select, ["settings-kit.field.why", "Setting"],
+    ["describe.kit-why", "Says who or what last set it, from what was written down. Nothing is changed."]), ask, answer, holder, status);
+  drawRecords(list, fields, overview.presets, confirm, status).catch(() => {});
+  return section;
+}
+
 /* ---------- which file does what: public/agent-files.js (phase2/accounts) draws it now ---------- */
 
 /* The look of the changes, files and editor lives in public/settings-kit.css (the page's Content Security Policy refuses an inline <style>). */
@@ -230,7 +360,7 @@ function fileCard() {
 export async function drawKit() {
   let overview;
   try { overview = await api("settings-kit"); } catch { return; }
-  document.body.append(presetCard(overview), resetCard(overview), fileCard());
+  document.body.append(presetCard(overview), resetCard(overview), fileCard(), historyCard(overview));
   await globalThis.branchAgentFiles?.draw(); // phase2/accounts: the assistant's files, with an editor and undo
   globalThis.branchDescribeSettings?.();
 }

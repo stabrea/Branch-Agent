@@ -49,7 +49,7 @@ import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
 import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
-import { integrationsFileTrusted } from "./folder-trust.js";
+import { integrationsFileTrusted, recordWorktreeCopy } from "./folder-trust.js";
 import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
@@ -112,14 +112,18 @@ import { builtInSpeech } from "./speech-engines.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { liveRefusal } from "./live-refusal.js"; // phase2/rooms
 import { registerModelSwitch } from "./model-switch.js";
+import { registerSettingsTools } from "./settings-kit/tools.js";
+import { registerHelpSearch } from "./help-search.js";
+import { settingsKitWriters } from "./settings-kit/writers.js";
 import { GitTools } from "./integrations/git.js";
 import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
 import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
 import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
-import { GitRunner } from "./integrations/git-run.js";
+import { GitRunner, type GitRunOptions } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { offerSelfDevelopment } from "./self-development.js";
+import { ContractBook, contractGuard, contractPreflight } from "./self-development-contract.js"; // Q12
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
 import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
@@ -135,6 +139,9 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
+import { LinuxDesktopSandbox } from "./integrations/linux-desktop.js";
+import { TakeOverBanner } from "./integrations/linux-desktop-banner.js";
+import { registerLinuxDesktop } from "./integrations/linux-desktop-tools.js";
 import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
 import { migrateFeatureSwitches } from "./feature-switch-migration.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
@@ -215,6 +222,7 @@ import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
+import { computerPlatforms } from "./trunks/starts-in.js"; // Q44
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
@@ -415,6 +423,7 @@ export async function createBranch(options: {
   // Version control on this computer only; sending work to a server is switched on separately.
   const gitRunner = new GitRunner();
   const git = new GitTools(files, gitRunner);
+  git.onCopy = ({ source, copy, made }) => recordWorktreeCopy(store, options.owner ?? "local", source, copy, made);
   registerGit(registry, git);
   // Batch 26 (wave 8): a way back to before a set of changes was written, a project that carries
   // its own line of work, and folders on other computers reached with the OpenSSH client Windows
@@ -449,6 +458,14 @@ export async function createBranch(options: {
   const osPermissions = new OsPermissions(probeReader(() => desktop.probe()));
   desktop.permissions = osPermissions;
   registerDesktop(registry, desktop);
+  // FQ-execution.desktop: a throwaway Linux desktop of its own, drawn by Xvfb and served over VNC,
+  // which the owner may watch or take over — separate from this computer's own screen above.
+  // On a Mac or Linux its "Take over" notice is the desktop app's own window, the same maker the
+  // Stop notice above uses, handed the notice's own words.
+  const linuxDesktop = new LinuxDesktopSandbox(store, {
+    banner: new TakeOverBanner(undefined, options.bannerWindow ? { window: options.bannerWindow } : {}),
+  });
+  registerLinuxDesktop(registry, linuxDesktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.
   const computer: ComputerLayers = { window: desktop };
@@ -467,6 +484,10 @@ export async function createBranch(options: {
   const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
   registerJevDecisions(registry, decisions);
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
+  // FQ-execution.browser: a tool's own steps (a browser.flow click) are judged as the tool they stand for.
+  registry.judgeStep = (tool, args, context, target, index) => runtime.judgeStep(tool, args, context, target, index);
+  // FQ-execution.browser: consume the one-time yeses after all flow steps pass judgment.
+  registry.takeStepYeses = (fingerprints, context) => runtime.consumeStepYeses(fingerprints, context);
   // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
   files.walkRules = (outside) => {
     const runId = currentTaskRun(), tool = currentTool();
@@ -553,10 +574,16 @@ export async function createBranch(options: {
   registerOrchestrationModes(registry, runtime, knowledge);
   registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
+  // Q12: Branch changing its own source is held to a contract written before anything changes.
+  const selfContracts = new ContractBook(store.sqlite);
   offerSelfDevelopment({
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
-    git: (input, signal) => gitRunner.run(input, signal),
+    git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
   });
+  const contractChecks = { store, owner: options.owner ?? "local", workspace, registry, book: selfContracts,
+    git: (input: GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal) };
+  registry.beforeTool = contractGuard(contractChecks);
+  const selfDevelopmentPreflight = contractPreflight(contractChecks);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // ── R17-S-C (comfort): the owner's proxy and extra certificates for every call Branch makes, and
   // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──
@@ -566,7 +593,8 @@ export async function createBranch(options: {
   // ── end R17-S-C ──
   // ---- wave mac3 (os-sandbox): the wall's door asks the same network rules as the web, and never
   // lets a program behind the wall read Branch's own data folder.
-  setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target), dataDir });
+  setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target),
+    fakeIpProxy: () => web.policy.settings().fakeIpProxy === true, dataDir });
   // ---- end wave mac3 (os-sandbox)
   // A paid search service's key comes out of the locker for the one request and is written down
   // nowhere else: the settings file only ever holds the name of the secret, never its value.
@@ -599,8 +627,12 @@ export async function createBranch(options: {
     // hook working by itself after a task is held to the full rules, "ask" included.
     runTool: (name, args, runId) => runtime.executeTool(name, args, { mode: runId ? "owner" : "policy" }),
     // Integration review: the same gate, asked before anything is pushed.
-    preflight: (name, args, runId) => gateRefusal(runtime, name, args, runtime.context(runId ? { runId } : {}),
-      argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy"),
+    // Q12: and, inside a self-development worktree, the contract must list the pull request step too.
+    preflight: (name, args, runId) => {
+      const context = runtime.context(runId ? { runId } : {});
+      return gateRefusal(runtime, name, args, context, argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy")
+        ?? selfDevelopmentPreflight(name, args, context);
+    },
     // Integration review: Branch's saved work and keys never leave in a pull request.
     guard: (path) => protectedTarget({ tool: "files.read", readOnly: true, args: { path }, target: path, workspace: files.base }, runtime.protectedAreas),
   };
@@ -1081,6 +1113,9 @@ export async function createBranch(options: {
     choose: (sessionId: string, pool: string, account: string | null) => saveSessionChoice(store, runtime.owner, sessionId, pool, account),
   };
   const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows, accounts: trunkAccounts,
+    // Q44: the paired computers a Trunk may start in; a phone is a device but never a computer.
+    computers: () => devices.book.devices().filter((device) => computerPlatforms.includes(device.platform))
+      .map((device) => ({ id: device.id, name: device.name })),
     picture: async (prompt) => {
       const made = await runtime.executeTool("media.image", { prompt, size: "256x256" }, { mode: "owner" }) as { path?: string; mediaType?: string };
       if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");
@@ -1220,9 +1255,12 @@ export async function createBranch(options: {
   // household-followups: with the owner's PIN set, the window comes back on the profile it was left
   // on, once everything above has started as the owner.
   store.profiles.resumeWhereLeft();
-  return {
+  /** Wave mac2 (guards): the sections of the integrations file this start left out, which the launch-file card names. */
+  const launchFile = { leftOut: [] as readonly string[] };
+  const branch = {
     store,
     registry,
+    launchFile,
     /** R17-S-C: the proxy and certificates in force (src/comfort/network.ts). */
     comfort: { outbound },
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
@@ -1341,6 +1379,8 @@ export async function createBranch(options: {
     artifacts,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
+    /** FQ-execution.desktop: the shared Linux desktop the owner may watch or take over. */
+    linuxDesktop,
     /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
     osPermissions,
     /** Folders on the owner's other computers, reached with the OpenSSH client Windows already has. */
@@ -1470,9 +1510,11 @@ export async function createBranch(options: {
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
       slackEvents: (channelId: string, event: unknown, bot: string | null) => void slackAutomations.handle(channelId, event, bot), // mac6/bucket-16
-      // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
-      // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
+      // Wave mac2 (guards): an integrations file inside the workspace is only used when the owner
+      // trusts its folder (src/folder-trust.ts), and what was left out is kept for the launch-file
+      // card. A file elsewhere is theirs.
       configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
+      leftOut: (sections: readonly string[]) => { launchFile.leftOut = [...sections]; },
       // Whether another person's server is started as Branch starts or only when a task really
       // needs it, and what it last said its tools are, so they can be listed either way.
       mcp: {
@@ -1531,6 +1573,7 @@ export async function createBranch(options: {
       await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
       await reachParts.close(); // r17-i: the relay stops asking
       safetyExtras.close(); // mac7/r17-g
+      await linuxDesktop.close().catch(() => undefined); // FQ-execution.desktop: no shared desktop outlives the app
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
@@ -1547,6 +1590,10 @@ export async function createBranch(options: {
       }
     })()),
   };
+  // Changing Branch's own settings by asking, saved through the same writers as the window's (src/settings-kit/tools.ts).
+  registerSettingsTools(registry, store, () => settingsKitWriters(branch));
+  registerHelpSearch(registry); // what Branch knows about itself, from its own handbook
+  return branch;
 }
 /** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */
 async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Runtime, recipe: string, runId: string): Promise<void> {
@@ -1629,6 +1676,7 @@ async function closeBranch(
 }
 export * from "./contracts.js";
 export * from "./store.js";
+export * from "./collab-events.js";
 export * from "./registry.js";
 export * from "./catalog.js";
 // Wave 7 (tool loading): the tiers, the searchable index, and what past tasks taught.

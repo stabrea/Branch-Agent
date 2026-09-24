@@ -97,7 +97,7 @@
     bottom: var(--ew-bar-h);
   }
   /* the veil behind the box stays close to it, so a question above it reads in full */
-  :root:not([data-everything="on"]) body.lx .composer-dock::before {
+  :root body.lx .composer-dock::before {
     inset: -36px -24px -90px;
   }
 }
@@ -138,8 +138,15 @@
   }
 }
 
+/* Keep the closed rail out of a phone's sign-in screen even if the shared shell sheet is unavailable. */
+@media (max-width: 699px) {
+  body.lx:not(.rail-open) > .rail {
+    display: none;
+  }
+}
+
 /* ---------- a tablet held upright: the side list stays a column, as on the computer ---------- */
-@media (min-width: 700px) and (max-width: 860px) {
+@media (min-width: 700px) and (max-width: 760px) {
   body.lx,
   body.lx.lx-aside {
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
@@ -188,7 +195,7 @@ body.lx {
     bottom: calc(max(var(--pane-gap), env(safe-area-inset-bottom, 0px)) + 8px);
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx {
     padding: max(6px, env(safe-area-inset-top, 0px)) max(6px, env(safe-area-inset-right, 0px))
       max(6px, env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
@@ -240,4 +247,18 @@ body.lx {
     bottom: auto;
     border-radius: 0 0 3px 3px;
   }
+}
+
+/* ---------- DG-145: a phone's usage ring in the title bar, a ring alone (public/phone-layout.js moves it) ---------- */
+.status-bar.ew-ring-top {
+  flex: none;
+  min-height: 0;
+  margin-top: 0;
+}
+.status-bar.ew-ring-top .usage-ring {
+  height: 32px;
+  padding: 0 6px;
+}
+.status-bar.ew-ring-top .glance-words {
+  display: none;
 }

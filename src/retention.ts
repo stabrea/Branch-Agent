@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
 import type { Store } from "./store.js";
+import { teamWorkSessions } from "./team-tasks.js";
 
 /**
  * Batch 26 (wave 8): letting old conversations go. Until this existed nothing was ever deleted
@@ -83,7 +84,10 @@ export class ConversationRetention {
     if (!settings.enabled || (settings.keepDays === 0 && settings.megabytes === 0))
       return { settings, sentence, conversations: [], bytes: this.store.prunableSessions(this.owner, 0, 0, this.now()).bytes };
     const found = this.store.prunableSessions(this.owner, settings.keepDays, settings.megabytes, this.now());
-    return { settings, sentence, conversations: found.conversations.filter((entry) => !this.keeps(entry.sessionId)), bytes: found.bytes };
+    // Q61: a team turn still running needs its room and its own conversation to write its answers to.
+    const teamWork = teamWorkSessions(this.store.sqlite, this.owner);
+    const kept = (sessionId: string) => this.keeps(sessionId) || teamWork.has(sessionId);
+    return { settings, sentence, conversations: found.conversations.filter((entry) => !kept(entry.sessionId)), bytes: found.bytes };
   }
 
   /**

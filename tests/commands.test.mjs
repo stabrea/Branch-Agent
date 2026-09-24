@@ -159,7 +159,7 @@ test("each surface's list is the table filtered for it, and the old lists are wh
   assert.deepEqual(terminalCommands("when-needed").map((c) => c.name), TERMINAL_COMMANDS.map((c) => c.name), "when needed lists the everyday ones");
   assert.equal(terminalCommands("when-needed", true).length, terminalCommands("on").length);
   const words = { t: (_key, english) => english };
-  assert.equal(helpLines(words).length, 1 + TERMINAL_COMMANDS.length);
+  assert.equal(helpLines(words).length, 2 + TERMINAL_COMMANDS.length);
   assert.match(helpLines(words, "when-needed").at(-1), /\/help all/);
   const app = await readFile(join(PUBLIC, "app.js"), "utf8");
   assert.match(app, /export const SLASH_COMMANDS = \[\];/, "the window's list starts empty and is read from the table");

@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
@@ -111,7 +111,13 @@ export class CodeRunner {
     if (input.language === "python" && !settings.python && backend.name !== "docker" && backend.name !== "wsl")
       throw new Error("No Python is set up on this computer. The owner points at theirs in Settings, or ask for JavaScript instead.");
     const folder = context.sandboxPaths?.[0] ?? ".";
-    const root = await new WorkspaceFiles(this.workspace).checked(".", true);
+    // FQ-routing.isolated-agents: a Trunk's own turn works inside its own folder (context.workspace,
+    // src/trunks/file-root.ts), the same folder files.read/files.write already resolve from — not the
+    // shared workspace this runner was built with. That folder may not exist yet if this is the first
+    // tool call of the turn (files.checked only creates it when a scope is active and something is
+    // written through it), so it is made here rather than left to a later, unrelated write.
+    await mkdir(context.workspace, { recursive: true });
+    const root = await new WorkspaceFiles(context.workspace).checked(".", true);
     const handle = await backend.prepare(await sliceFor(root, context.sandboxPaths ?? []));
     const limits = { timeoutMs: settings.timeoutMs, maxMemoryMb: settings.maxMemoryMb,
       maxCpuSeconds: settings.maxCpuSeconds, maxOutputBytes: settings.maxOutputBytes,

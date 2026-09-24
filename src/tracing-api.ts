@@ -7,6 +7,7 @@ import { resourceOf } from "./policy-resources.js";
 import { pricingSettings } from "./pricing.js";
 import { saveTraceExportSettings, traceExportSettings } from "./tracing-export.js";
 import type { createBranch } from "./index.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * The routes for this batch: the spans of a task, sending traces somewhere, the counters page, the
@@ -125,15 +126,16 @@ async function rules(
   if (path === "/api/rules/add" && request.method === "POST") {
     const rule = PolicyRuleSchema.parse(await readBody(request));
     const current = readPolicy(app.store, owner);
-    const policy = savePolicy(app.store, owner, { rules: [rule, ...current.rules] }, "A rule was added in the approval settings");
+    const policy = recordedWrite(app.store, owner, byCard("policy"), ["policy"],
+      () => savePolicy(app.store, owner, { rules: [rule, ...current.rules] }, "A rule was added in the approval settings"));
     return { rules: policy.rules.map((each, index) => ({ index, rule: each, sentence: ruleSentence(each) })) };
   }
   if (path === "/api/rules/remove" && request.method === "POST") {
     const { index } = z.object({ index: z.number().int().min(0) }).strict().parse(await readBody(request));
     const current = readPolicy(app.store, owner);
     if (index >= current.rules.length) throw new TracingApiError(404, "There is no rule at that position");
-    const policy = savePolicy(app.store, owner, { rules: current.rules.filter((_rule, at) => at !== index) },
-      "A rule was removed in the approval settings");
+    const policy = recordedWrite(app.store, owner, byCard("policy"), ["policy"], () => savePolicy(app.store, owner,
+      { rules: current.rules.filter((_rule, at) => at !== index) }, "A rule was removed in the approval settings"));
     return { rules: policy.rules.map((each, at) => ({ index: at, rule: each, sentence: ruleSentence(each) })) };
   }
   if (path === "/api/rules/test" && request.method === "POST") {

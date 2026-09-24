@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadWeights, parseFilesFrom, parseShard, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
+import { loadWeights, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
 test("npm test isolates browser and desktop files while keeping ordinary tests together", () => {
   const listing = {
@@ -18,7 +20,7 @@ test("npm test isolates browser and desktop files while keeping ordinary tests t
   // The real folders: the four desktop files, and none of them among the rest.
   const real = testGroups();
   assert.deepEqual(real.desktop.map((file) => file.replace(/\\/g, "/")),
-    ["tests/desktop-export.test.mjs", "tests/desktop-identity.test.mjs", "tests/desktop-settings.test.mjs", "tests/desktop.test.mjs"]);
+    ["tests/desktop-export.test.mjs", "tests/desktop-identity.test.mjs", "tests/desktop-settings.test.mjs", "tests/desktop-window.test.mjs", "tests/desktop.test.mjs"]);
   assert.equal(real.shared.some((file) => /^tests[\\/]desktop/.test(file)), false);
   assert.ok(real.browser.includes(join("tests", "glass-select.test.mjs")));
   assert.ok(real.browser.includes(join("tests", "settings-grown.test.mjs")));
@@ -27,17 +29,29 @@ test("npm test isolates browser and desktop files while keeping ordinary tests t
 });
 
 test("the shares the build machines run cover every test file exactly once, for any number of shares", () => {
-  const { shared, browser, desktop } = testGroups();
+  const groups = testGroups(), { shared, browser, desktop } = groups;
   const all = [...shared, ...browser, ...desktop];
   for (const platform of ["win32", "darwin", "linux", "unmeasured"]) {
     for (const total of [1, 2, 3, 4, 5, 6, 8]) {
-      const shares = shards(all, total, loadWeights(platform));
+      const shares = Array.from({ length: total }, (_, index) => shareFiles(groups, index, total, loadWeights(platform)));
       assert.equal(shares.length, total);
       const seen = shares.flat();
       assert.equal(seen.length, all.length, `${platform} ${total}: a file ran twice or not at all`);
       assert.deepEqual([...seen].sort(), [...all].sort());
     }
   }
+});
+
+test("every share gets an even part of the one-at-a-time files, not whatever the three-at-a-time ones leave (Q38)", () => {
+  const file = (name) => join("tests", `${name}.test.mjs`);
+  // One long three-at-a-time file fills one share, so packed together both browser files land on the other.
+  const groups = { shared: ["heavy", "s2", "s3", "s4"].map(file), browser: ["b1", "b2"].map(file), desktop: [] };
+  const weight = { heavy: 300, s2: 100, s3: 100, s4: 100, b1: 100, b2: 100 };
+  const weights = Object.fromEntries(Object.entries(weight).map(([name, seconds]) => [`tests/${name}.test.mjs`, seconds]));
+  const browsersIn = (share) => share.filter((f) => groups.browser.includes(f)).length;
+  assert.deepEqual([0, 1].map((index) => browsersIn(shareFiles(groups, index, 2, weights))), [1, 1]);
+  // The control: packed together, one share draws both, and their minutes run end to end.
+  assert.deepEqual(shards([...groups.shared, ...groups.browser], 2, weights).map(browsersIn).sort(), [0, 2]);
 });
 
 test("shares are packed by measured time, not by counting files", () => {
@@ -79,17 +93,39 @@ test("a renamed or new file still runs, and a weight for a file that is gone cha
   }
 });
 
+/** The shares the pick job lays out when the owner's computers have so many idle runners, from its own script. */
+function sharesFor(workflow, legion, macmini) {
+  const script = workflow.jobs.pick.steps[0].run;
+  const body = /node -e '([\s\S]*?)\n\s*' "/.exec(script)[1];
+  const keepOff = /'(\^tests\/[^']*)'\s*$/.exec(script.trim())[1];
+  const output = join(mkdtempSync(join(tmpdir(), "branch-pick-")), "out");
+  const run = spawnSync(process.execPath, ["-e", body, String(legion), String(macmini), keepOff], { env: { ...process.env, GITHUB_OUTPUT: output }, encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  return { keepOff, rows: JSON.parse(readFileSync(output, "utf8").replace(/^matrix=/, "")).include };
+}
+
 test("the build machines run every share, 1 to N, on every system, so no share of the suite is dropped", () => {
   const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
-  const bySystem = new Map();
-  for (const { os, shard, total } of workflow.jobs.test.strategy.matrix.include) {
-    bySystem.set(os, [...(bySystem.get(os) ?? []), { shard, total }]);
-  }
-  assert.deepEqual([...bySystem.keys()].sort(), ["macos-latest", "ubuntu-latest", "windows-latest"]);
-  for (const [os, shares] of bySystem) {
-    const total = shares[0].total;
-    assert.ok(shares.every((share) => share.total === total), `${os}: every share names the same total`);
-    assert.deepEqual(shares.map((share) => share.shard).sort((a, b) => a - b), Array.from({ length: total }, (_, i) => i + 1), `${os}: shares 1..${total}`);
+  for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2], [3, 2], [1, 1]]) {
+    const { keepOff, rows } = sharesFor(workflow, legion, macmini);
+    assert.deepEqual([...new Set(rows.map((row) => row.os))].sort(), ["linux", "macos", "windows"], `${legion}/${macmini}: every system`);
+    // Shares that split the suite between them: grouped by the machines they run on; each group covers 1..N.
+    const groups = new Map();
+    for (const row of rows.filter((row) => !row.only)) {
+      const key = `${row.os} ${JSON.stringify(row.labels)}`;
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    }
+    for (const [key, shares] of groups) {
+      const total = shares[0].total;
+      assert.ok(shares.every((share) => share.total === total), `${key}: every share names the same total`);
+      assert.deepEqual(shares.map((share) => share.shard).sort((x, y) => x - y), Array.from({ length: total }, (_, i) => i + 1), `${key}: shares 1..${total}`);
+    }
+    // What an owner's computer leaves out, a hosted share of the same system runs, so nothing is dropped.
+    for (const own of rows.filter((row) => row.own)) {
+      assert.equal(own.exclude, keepOff, `${own.os}: the owner's computer leaves out exactly the desktop and uninstall tests`);
+      assert.ok(rows.some((row) => row.os === own.os && row.only === keepOff && !row.own), `${own.os}: a hosted share runs what it leaves out`);
+    }
+    assert.equal(rows.filter((row) => row.own).length, legion + macmini, `${legion}/${macmini}: one share per idle runner`);
   }
   assert.deepEqual(workflow.jobs.verify.needs, ["test", "package"], "verify waits for every share and every package");
 });

@@ -31,7 +31,8 @@ function worded(tag, key, props = {}) {
 const field = (key, control) => [worded("label", key, { htmlFor: control.id }), control];
 function card(id, home, name, ...controls) {
   const section = el("section", { id, className: "card" },
-    worded("h2", `settings.card.${name}`), worded("p", `settings.intro.${name}`, { className: "subtle" }), ...controls,
+    /* DG-008: a Settings card's title sits under its section's; elsewhere it is the place's own. */
+    worded(home.startsWith("settings:") ? "h3" : "h2", `settings.card.${name}`, home.startsWith("settings:") ? { className: "settings-card-title" } : {}), worded("p", `settings.intro.${name}`, { className: "subtle" }), ...controls,
     el("p", { id: `${id}-status`, className: "subtle", role: "status" }));
   section.dataset.home = home;
   return section;
@@ -62,7 +63,7 @@ function kitCard() {
     drawKit(saved);
     return t("sdk-kit.saved");
   }, id);
-  return card(id, "settings:advanced", "sdk-kit", ...field("field.feature-switch", mode), worded("h3", "sdk-kit.clients"), clients, tools, save);
+  return card(id, "settings:advanced", "sdk-kit", ...field("field.feature-switch", mode), worded("h4", "sdk-kit.clients"), clients, tools, save);
 }
 function drawKit(view) {
   if (!$("sdk-kit-mode").dataset.edited) $("sdk-kit-mode").value = view.settings.mode;

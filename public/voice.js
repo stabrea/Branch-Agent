@@ -109,20 +109,21 @@ async function transcribeAudio(blob) {
 }
 
 /**
- * Play text as speech using browser's speechSynthesis or the provider's TTS.
+ * Play text as speech using browser's speechSynthesis or the provider's TTS. `voice` is a Trunk's own
+ * voice; empty reads in the owner's (Settings › Voice).
  */
-async function speakText(text, useProvider = false) {
+async function speakText(text, useProvider = false, voice = "") {
   if (useProvider) {
-    await speakWithProvider(text);
+    await speakWithProvider(text, voice);
   } else {
-    speakWithBrowserSynthesis(text);
+    speakWithBrowserSynthesis(text, voice);
   }
 }
 
 /**
  * Speak using the browser's built-in Web Speech API (speechSynthesis).
  */
-function speakWithBrowserSynthesis(text) {
+function speakWithBrowserSynthesis(text, voice = "") {
   if (!('speechSynthesis' in window)) {
     console.warn("Speech synthesis not supported");
     return;
@@ -132,13 +133,14 @@ function speakWithBrowserSynthesis(text) {
 
   const utterance = new SpeechSynthesisUtterance(text);
 
-  // Get voice settings from the UI or use defaults
+  // A Trunk's own voice when this window has it; otherwise the owner's choice, exactly as before.
+  const voices = speechSynthesis.getVoices();
+  const own = voice ? voices.find((v) => v.name === voice) : undefined;
   const voiceIdEl = $("voice-select");
-  if (voiceIdEl) {
-    const voiceId = voiceIdEl.value;
-    const voices = speechSynthesis.getVoices();
-    const voice = voices.find((v) => v.name === voiceId) || voices[0];
-    if (voice) utterance.voice = voice;
+  if (own) utterance.voice = own;
+  else if (voiceIdEl) {
+    const chosen = voices.find((v) => v.name === voiceIdEl.value) || voices[0];
+    if (chosen) utterance.voice = chosen;
   }
 
   const rateEl = $("speech-rate");
@@ -150,9 +152,9 @@ function speakWithBrowserSynthesis(text) {
 }
 
 /**
- * Speak using the configured provider's TTS endpoint.
+ * Speak using the configured provider's TTS endpoint; with no voice given, the owner's is used there.
  */
-async function speakWithProvider(text) {
+async function speakWithProvider(text, voice = "") {
   try {
     const response = await fetch("/api/voice/speak", {
       method: "POST",
@@ -160,7 +162,7 @@ async function speakWithProvider(text) {
         authorization: "Bearer " + voiceToken(),
         "content-type": "application/json",
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
     });
 
     if (!response.ok) {

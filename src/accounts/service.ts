@@ -7,6 +7,7 @@ import { savedConnections } from "../connections-preset.js";
 import type { Completion, Provider } from "../contracts.js";
 import type { ModelPreset, ModelRouter } from "../models.js";
 import type { NetworkPolicy } from "../network-policy.js";
+import { pinnedFetch } from "../pinned-fetch.js";
 import { estimateCost, pricingSettings } from "../pricing.js";
 import { catalogEntry, resolveBaseUrl } from "../provider-catalog.js";
 import { buildConnection } from "../provider-factory.js";
@@ -162,11 +163,12 @@ export class AccountsService {
       throw new Error(`The key "${this.pool(pool)?.accounts.find((entry) => entry.id === account)?.label ?? account}" was added for a different address than this connection now uses, so Branch did not send it. Remove it and add it again in Settings › Accounts.`);
     const name = keyName(account), project = keyProject(pool);
     const key = (await this.deps.store.locker.resolve(this.deps.owner, project, [name]))[name]!;
-    // Every request still goes through the owner's network rules and is watched like the first key.
+    // Every request still goes through the owner's network rules and is watched like the first key,
+    // and stays with the addresses its check judged (src/pinned-fetch.ts).
     return buildConnection({
       provider: record.catalogId, key, extras: record.extras, model: preset.model,
       ...(this.deps.policy ? { policy: this.deps.policy } : {}),
-      fetchImpl: this.deps.models.health.watch(preset.id, this.deps.fetchImpl ?? globalThis.fetch),
+      fetchImpl: this.deps.models.health.watch(preset.id, this.deps.fetchImpl ?? pinnedFetch),
     }).provider;
   }
   private chatgptConnection(pool: string, preset: ModelPreset, account: string): Provider {

@@ -30,6 +30,8 @@ export interface WalledPluginOptions {
   /** More places the program may not read (the owner's wall settings, Branch's data folder). */
   unreadable(): readonly string[];
   siteCheck?: (target: URL) => Promise<void>;
+  /** The owner's fake-IP proxy setting, read by the door for every site, as for any program behind the wall. */
+  fakeIpProxy?: () => boolean;
   spawn?: SandboxSpawn;
   wallDeps?: WallDeps;
   timeoutMs?: number;
@@ -67,8 +69,12 @@ const DescribeShape = z.object({
 }).strip();
 const Answer = z.object({ ok: z.boolean(), error: z.string().max(1000).optional(), result: z.unknown().optional(), plugin: z.unknown().optional() }).strip();
 
+/** What the app knows about the network: the owner's rules and the owner's fake-IP proxy setting. */
+export interface PluginWallEdge { siteCheck?: ((target: URL) => Promise<void>) | undefined; fakeIpProxy?: (() => boolean) | undefined }
+
 /** The wall one plugin run goes behind: its scratch folder, and only the addresses it was allowed. */
-export function pluginWall(hosts: readonly string[], unreadable: readonly string[], siteCheck?: (target: URL) => Promise<void>): WallContext {
+export function pluginWall(hosts: readonly string[], unreadable: readonly string[], edge: PluginWallEdge = {}): WallContext {
+  const { siteCheck, fakeIpProxy } = edge;
   const allowed = new Set(hosts.map((host) => host.toLowerCase()));
   return {
     network: allowed.size ? "per-site" : "none",
@@ -78,6 +84,7 @@ export function pluginWall(hosts: readonly string[], unreadable: readonly string
     granted: () => [],
     spend: () => undefined,
     ...(siteCheck ? { siteCheck } : {}),
+    ...(fakeIpProxy ? { fakeIpProxy } : {}),
   };
 }
 
@@ -97,6 +104,11 @@ export class WalledPlugins implements PluginIsolation {
   constructor(private readonly options: WalledPluginOptions) {}
 
   holds(id: string): boolean { return this.options.policy(id)?.walled === true; }
+
+  /** The wall a run that may reach these addresses goes behind, with the app's network rules and settings. */
+  wallFor(hosts: readonly string[]): WallContext {
+    return pluginWall(hosts, this.options.unreadable(), { siteCheck: this.options.siteCheck, fakeIpProxy: this.options.fakeIpProxy });
+  }
 
   /** Asks the program once what it brings, and hands back a plugin whose every part calls it again. */
   async load(id: string, file: string): Promise<BranchPlugin> {
@@ -174,7 +186,7 @@ export class WalledPlugins implements PluginIsolation {
       await writeFile(join(staging, "plugin.mjs"), code, { mode: 0o600 });
       await writeFile(join(staging, "host.mjs"), hostSource, { mode: 0o600 });
       await writeFile(join(staging, "request.json"), body, { mode: 0o600 });
-      const wall = pluginWall(hosts, this.options.unreadable(), this.options.siteCheck);
+      const wall = this.wallFor(hosts);
       const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: staging, TMPDIR: staging, NODE_USE_ENV_PROXY: "1",
         ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) };
       const opened = await openWall(wall, { executable: process.execPath, args: ["--no-warnings", join(staging, "host.mjs")], cwd: staging, env },
