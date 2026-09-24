@@ -85,10 +85,23 @@ function toolOutcome(app) {
   return { kind: event?.kind, error: String(event?.data?.error ?? "") };
 }
 
-test("the short list a chat always has only looks at things", () => {
-  assert.deepEqual([...chatSafePermissions], ["user.ask", "files.read", "memory.read", "skills.read", "web.read"]);
+test("the chat defaults allow only reading and review-only source proposals", () => {
+  assert.deepEqual([...chatSafePermissions], ["user.ask", "files.read", "memory.read", "skills.read", "web.read", "branch.propose_source_change"]);
   for (const permission of chatSafePermissions)
-    assert.equal(isReadOnlyPermission(permission), true, `${permission} is on the short list but can change something`);
+    assert.equal(isReadOnlyPermission(permission), true, `${permission} should not execute Git or other changes`);
+  assert.equal(grantableToChat("git.remote"), false);
+  assert.equal(chatPermissionsOf(["branch.propose_source_change", "git.remote", "git.push"])[0], "branch.propose_source_change");
+});
+
+test("a Telegram-style chat can file a source proposal without Git privilege", async (t) => {
+  const input = { name: "telegram-request", goal: "Let Branch improve its own source safely", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
+  const { app } = await fixture(t, (turn, request) => request.messages.at(-1)?.role === "tool"
+    ? { content: "Requested.", toolCalls: [] }
+    : { content: "", toolCalls: [{ id: `proposal${turn}`, name: "branch.propose_source_change", arguments: JSON.stringify(input) }] });
+  assert.equal(await app.channels.handle(message("prepare an isolated source change")), "replied");
+  assert.equal(startedWith(app).includes("git.remote"), false);
+  assert.equal(toolOutcome(app).kind, "tool.completed");
+  assert.equal(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM branch_source_requests WHERE status='pending'").get().n, 1);
 });
 
 test("a chat sender's task is never handed running code, the screen or stopping programs", async (t) => {
@@ -159,7 +172,7 @@ test("the owner's own paired account is a chat like any other, and can still ans
     rules: [{ tool: "files.read", match: "*", applies: "any", decision: "ask", remember: "session" }] });
   const from = { senderId: "owner", senderName: "Sam" };
   assert.equal(await app.channels.handle(message("read README.md for me", from)), "replied");
-  assert.deepEqual(startedWith(app).sort(), ["files.read", "memory.read", "skills.read", "user.ask", "web.read"],
+  assert.deepEqual(startedWith(app).sort(), ["branch.propose_source_change", "files.read", "memory.read", "skills.read", "user.ask", "web.read"],
     "the owner's own paired account gets the same short list as anybody else");
   assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "a chat's task waits for a yes");
   assert.equal(await app.channels.handle(message("y", from)), "replied");
@@ -228,7 +241,7 @@ test("the things a chat's task is not given by default, before any line of the o
   for (const absent of ["memory.write", "workflows.manage", "schedules.manage", "automations.propose",
     "skills.write", "git.remote", "github.manage", "specialists.manage", "procedures.use"])
     assert.equal(given.includes(absent), false, `${absent} is handed to a chat's task by default`);
-  assert.deepEqual(given.sort(), ["files.read", "memory.read", "skills.read", "user.ask", "web.read"]);
+  assert.deepEqual(given.sort(), ["branch.propose_source_change", "files.read", "memory.read", "skills.read", "user.ask", "web.read"]);
 });
 
 test("a chat sender cannot answer their own task's question about what a line granted", async (t) => {
