@@ -188,7 +188,11 @@ export function proxyCarries(target: URL): boolean {
   const proxy = (target.protocol === "https:" ? (env.https_proxy ?? env.HTTPS_PROXY) : "") || plain;
   if (!proxy) return false;
   const host = target.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  return !(env.no_proxy || env.NO_PROXY || "").split(/[,\s]+/).some((entry) => leftAlone(host, entry));
+  // On Windows, env.no_proxy might be undefined while env.NO_PROXY is set (or vice versa).
+  // Use nullish coalescing to handle both cases properly, trim whitespace, and filter empty entries.
+  const noProxyStr = (env.no_proxy ?? env.NO_PROXY ?? "").trim();
+  const entries = noProxyStr.split(/[,\s]+/).filter(Boolean);
+  return !(entries.some((entry) => leftAlone(host, entry)));
 }
 
 /**
