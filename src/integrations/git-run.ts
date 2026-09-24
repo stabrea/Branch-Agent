@@ -53,22 +53,24 @@ export const pinnedGitConfig: readonly string[] = [
 /**
  * Q12: more pins, only for Git run inside Branch's own source (`branch-agent-source`), where the
  * owner's preferences matter less than what a self-development task could have left behind:
- * signing programs, submodules and a bare repository found by walking up. The commit-graph file is
- * explained with `pinnedEnvironmentInSource` below.
+ * signing programs, submodules and a bare repository found by walking up. Replacement objects and
+ * the commit-graph file are explained with `pinnedEnvironmentInSource` below.
  */
 export const pinnedInSource: readonly string[] = [
   "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
-  "core.gitProxy=", "safe.bareRepository=explicit", "protocol.file.allow=never", "core.commitGraph=false",
+  "core.gitProxy=", "safe.bareRepository=explicit", "protocol.file.allow=never",
+  "core.useReplaceRefs=false", "core.commitGraph=false",
 ];
 
 /**
  * Inside Branch's own source, Git reads every commit as it is stored, which is what a push sends.
  * Replacement objects (`refs/replace/`) and grafts (`info/grafts`) can each make Git show a commit
- * with other parents or another tree, so neither is used there. Any value of GIT_NO_REPLACE_OBJECTS
- * turns replacements off, whatever a repository's settings say. Grafts have no setting, so they are
- * read from a file that is not there. Git skips its commit-graph file (a saved copy of each commit's
- * parents and tree) while replacements or grafts are in use, so with both off it would read that file
- * again; `core.commitGraph=false` in `pinnedInSource` keeps it unread.
+ * with other parents or another tree, so neither is used there. Replacements are turned off both by
+ * GIT_NO_REPLACE_OBJECTS and by `core.useReplaceRefs=false` in `pinnedInSource`, so a repository's
+ * own `core.useReplaceRefs` cannot turn them back on. Grafts have no setting, so they are read from a
+ * file that is not there. Git skips its commit-graph file (a saved copy of each commit's parents and
+ * tree) while replacements or grafts are in use, so with both off it would read that file again;
+ * `core.commitGraph=false` in `pinnedInSource` keeps it unread.
  */
 const pinnedEnvironmentInSource: Readonly<Record<string, string>> = { GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: NO_GRAFTS };
 export const inBranchSource = (cwd: string): boolean => {

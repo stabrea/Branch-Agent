@@ -417,6 +417,39 @@ test("from Branch's own source, the new commit is checked as Git stores it, what
     }
   });
 
+/**
+ * A repository's own settings can ask Git to use replacement objects. In Branch's own source the check
+ * still reads the new commit as it is stored.
+ */
+test("from Branch's own source, the new commit is checked as Git stores it even when the repository's own settings ask for replacements, and nothing is sent",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked } = await sourceWorktree(t);
+    plain(worktree, "config", "core.useReplaceRefs", "true");
+    let held = "";
+    const d = hookDeps(app, owner, { before: async (args) => {
+      if (held || !readsBranch(args, "branch/pinned")) return;
+      // Another commit on the checked one that also changes a file the pull request does not name,
+      // which Git is then told to show as the commit made.
+      const made = plain(worktree, "rev-parse", "refs/heads/branch/pinned");
+      await mkdir(join(worktree, ".github", "workflows"), { recursive: true });
+      await writeFile(join(worktree, ".github", "workflows", "extra.yml"), "more\n");
+      plain(worktree, "add", "--", ".github/workflows/extra.yml");
+      plain(worktree, "commit", "-q", "--amend", "--no-edit");
+      held = plain(worktree, "rev-parse", "HEAD");
+      plain(worktree, "update-ref", "refs/heads/branch/pinned", held);
+      plain(worktree, "replace", held, made);
+    } });
+    await assert.rejects(pullRequestFromChanges(d.value, ask("pinned")),
+      /"branch\/pinned" is not just one new commit on the checked work .*so nothing was sent/);
+    assert.ok(held, "the branch held the other commit when it was read");
+    const files = async (read) => (await read("diff-tree", "-r", "--no-commit-id", "--name-only", walked, held)).split("\n");
+    assert.deepEqual(await files((...args) => plain(worktree, ...args)), ["src/ui/new.ts"], "Git's ordinary reads show the commit made");
+    assert.deepEqual(await files((...args) => branchSees(worktree, ...args)), [".github/workflows/extra.yml", "src/ui/new.ts"],
+      "Branch's own reads show it as stored");
+    assert.deepEqual(d.pushed, [], "nothing was sent");
+    assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
+
 test("from Branch's own source, the new commit is checked with the parents Git stores for it, whatever grafts Git keeps, and nothing is sent",
   { skip: posixOnly }, async (t) => {
     const { app, owner, worktree, walked, other } = await sourceWorktree(t);
@@ -477,6 +510,7 @@ test("Git run in Branch's own source reads commits as stored, with no replacemen
     };
     const inSource = await given(join(root, "workspace", "branch-agent-source", ".branch-worktrees", "self-x"));
     assert.ok(inSource.includes("replace=1"), "no replacement objects");
+    assert.ok(inSource.includes("core.useReplaceRefs=false"), "no replacement objects, whatever the repository's own settings say");
     const grafts = inSource.find((line) => line.startsWith("grafts="))?.slice("grafts=".length) ?? "";
     assert.ok(isAbsolute(grafts) && !existsSync(grafts), `grafts are read from a file that is not there (${grafts})`);
     assert.ok(inSource.includes("core.commitGraph=false"), "no commit-graph file");
@@ -484,6 +518,7 @@ test("Git run in Branch's own source reads commits as stored, with no replacemen
     assert.deepEqual(elsewhere.filter((line) => /^(replace|grafts)=/.test(line)), ["replace=unset", "grafts=unset"],
       "the owner's own repositories are unchanged");
     assert.equal(elsewhere.includes("core.commitGraph=false"), false);
+    assert.equal(elsewhere.includes("core.useReplaceRefs=false"), false);
   });
 
 /**
