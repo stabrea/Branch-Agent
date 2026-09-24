@@ -550,3 +550,40 @@ test("Q100: a copy of a copy, both made by the tool, takes the first repository'
   await app.git.worktree({ folder: "work/proj/.branch-worktrees/exp", action: "add", name: "deeper" }, signal());
   assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "exp", ".branch-worktrees", "deeper")), "trusted");
 });
+
+test("Q100: a decision on a folder inside the source holds in the copy, and a decision in the copy itself wins",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = join(workspace, "work", "proj");
+  await mkdir(join(proj, "sub"), { recursive: true });
+  await writeFile(join(proj, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await writeFile(join(proj, "sub", "AGENTS.md"), "planted");
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "first");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/sub", decision: "distrust" });
+  await app.git.planStart({ folder: "work/proj", name: "idea" }, signal());
+  const copy = join(proj, ".branch-worktrees", "idea");
+  assert.equal(folderTrust(app.store, owner, join(copy, "sub")), "untrusted", "the source's don't-trust on sub holds in the copy");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(copy, "sub", "integrations.json")), false);
+  assert.equal(folderTrust(app.store, owner, copy), "trusted", "the rest of the copy is the source's trusted root");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/.branch-worktrees/idea/sub", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(copy, "sub")), "trusted", "a decision made in the copy wins");
+});
+
+test("Q100: a copies folder that is a link into another repository's copies is not the source's",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  const other = join(workspace, "work", "other");
+  await mkdir(join(other, ".branch-worktrees"), { recursive: true });
+  gitIn(other, "init", "-q", "-b", "main");
+  gitIn(other, "commit", "-q", "--allow-empty", "-m", "first");
+  await symlink(join(other, ".branch-worktrees"), join(proj, ".branch-worktrees"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "exp")), "unknown", "it really lives in another repository's copies");
+});

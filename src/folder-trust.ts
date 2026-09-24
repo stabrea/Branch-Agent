@@ -163,6 +163,15 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
   }
   if (!best) return "unknown";
 
+  // Q100: inside a copy Branch made, what was not decided in the copy itself is judged where it came from:
+  // the same place in the source, so every decision there (a "don't trust" on a subfolder too) holds in the copy.
+  if (platform === process.platform) {
+    const path = platform === "win32" ? win32 : posix;
+    for (let current = inner; current !== best.path && current !== path.dirname(current); current = path.dirname(current))
+      if (branchCopy(store, owner, current, path))
+        return folderTrust(store, owner, path.join(path.dirname(path.dirname(current)), path.relative(current, inner)), platform);
+  }
+
   // Inheritance stops at a nested repository (a folder containing .git, dir or file).
   // Walk from inner up to (but not including) best.path, using resolved paths so symlinks
   // cannot skip the check. A symlink to a repo elsewhere is still subject to the check
@@ -172,8 +181,7 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
     const path = platform === "win32" ? win32 : posix;
     let current = inner;
     while (current !== best.path && current !== path.dirname(current)) {
-      // Q100: a copy Branch made of a repository takes that repository's decision, judged as the walk goes on.
-      if (existsSync(join(current, ".git")) && !branchCopy(store, owner, current, path)) return "unknown";
+      if (existsSync(join(current, ".git"))) return "unknown";
       current = path.dirname(current);
     }
   }
