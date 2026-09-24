@@ -283,3 +283,23 @@ test("Q123: a Trunk's workflow step cannot export the owner's task or branch the
   assert.equal((await app.workflows.run(owner, owners.id)).status, "completed");
   assert.equal(branches(), 1);
 });
+
+test("a Trunk's flow run keeps to what that Trunk may use now, when the owner carries it on after narrowing it", async (t) => {
+  const { app, ada, owner, use } = await setup(t, ["files.write", "memory.read", "memory.write", "workflows.manage", "workflows.read"]);
+  await use(ada, "memory.put", { text: "zebra Ada ADAOWN5150", source: "me" });
+  const graph = app.flows.saveGraph({ name: "Later", input: {}, state: { found: "text" }, entry: "write",
+    nodes: [
+      { id: "write", name: "Write", kind: "tool", tool: "files.write", args: { path: "graph.md", content: "g" }, output: {} },
+      { id: "look", name: "Look", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { found: "text" } },
+    ], edges: [{ from: "write", to: "look" }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  // Set going by Ada's own work, held as a schedule so its write stops to ask the owner.
+  const { runId } = await withAccountCall({ owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}, undefined, "schedule"));
+  assert.ok((await app.flows.settled(runId)).question, "it stopped to ask");
+  app.trunks.edit(ada.id, { permissions: ["files.write", "workflows.manage", "workflows.read"] }); // the owner takes memory.read away
+  app.flows.resumeGraph(graph.id, { runId, approve: true }); // then says yes on their own screen
+  const done = await app.flows.settled(runId);
+  assert.doesNotMatch(JSON.stringify(done), /ADAOWN5150/, "the search does not run with the tool Ada no longer holds");
+  assert.equal(done.status, "failed", JSON.stringify(done).slice(0, 300));
+});
