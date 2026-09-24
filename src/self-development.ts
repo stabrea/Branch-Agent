@@ -29,7 +29,8 @@ export interface SelfDevelopmentDeps {
   store?: Store;
 }
 
-const requestSchema = z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict();
+const sourceSchema = z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict();
+const requestSchema = sourceSchema.extend({ goal: z.string().trim().min(10).max(1000) });
 const requestTtl = 24 * 60 * 60 * 1000;
 
 function requests(deps: SelfDevelopmentDeps): Store {
@@ -40,7 +41,7 @@ function requests(deps: SelfDevelopmentDeps): Store {
   return deps.store;
 }
 
-export function pendingBranchSourceChanges(deps: SelfDevelopmentDeps): Array<{ id: string; runId: string; name: string; repository: string; base: string; expiresAt: string }> {
+export function pendingBranchSourceChanges(deps: SelfDevelopmentDeps): Array<{ id: string; runId: string; name: string; goal: string; repository: string; base: string; expiresAt: string }> {
   const store = requests(deps);
   const rows = store.sqlite.prepare("SELECT id, run_id, input, expires_at FROM branch_source_requests WHERE owner = ? AND status = 'pending' AND expires_at > ? ORDER BY expires_at ASC LIMIT 100")
     .all(deps.owner, Date.now()) as Array<{ id: string; run_id: string; input: string; expires_at: number }>;
@@ -76,7 +77,7 @@ export async function decideBranchSourceChange(deps: SelfDevelopmentDeps, id: st
   if (!origin || origin.source !== "channel" || origin.shortLivedKey) throw new Error("Source-change provenance is no longer valid.");
   const input = requestSchema.parse(JSON.parse(row.input));
   repositoryAddress(input.repository);
-  return { id, status, result: await prepareBranchSourceChange(deps, input, signal) };
+  return { id, status, goal: input.goal, result: await prepareBranchSourceChange(deps, input, signal) };
 }
 
 const present = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
@@ -165,7 +166,7 @@ function registerSelfDevelopment(deps: SelfDevelopmentDeps): void {
     name: toolName,
     permission: "git.remote",
     description: "Prepare a protected, isolated source worktree for changing Branch Agent itself. Use this before requests such as removing a Branch button. It can use the official repository or the owner's GitHub fork, never edits the installed app, and does not open or merge a pull request.",
-    parameters: requestSchema,
+    parameters: sourceSchema,
     target: (args) => sourceChangeFolder(deps.workspace, String(args.name)),
     execute: (input, context: ToolContext) => {
       if (startedWithShortLivedKey() || (context.source && context.source !== "owner") ||

@@ -398,6 +398,7 @@ async function sourceRequestsCard() {
   const list = document.createElement("ul");
   for (const item of requests) {
     const line = plain("li", `${item.name} · ${item.repository} · ${item.base} · expires ${shortDate(item.expiresAt)}`);
+    line.append(plain("p", item.goal));
     const decide = (decision) => act(status, async () => {
       await api("branch/source-change", { id: item.id, decision });
       await drawCards();
