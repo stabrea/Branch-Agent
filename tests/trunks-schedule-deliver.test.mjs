@@ -100,7 +100,8 @@ test("a Trunk cannot point the owner's morning brief at a chat, whatever it may 
   const { app, ada, chat } = await setup(t, ["brief.manage", "channels.send"]);
   const before = JSON.stringify(app.store.get("settings", app.runtime.owner, "brief")?.data ?? null);
   const run = await app.trunks.say(ada.id, "brief to stranger");
-  assert.match(run.output ?? "", /owner's to choose/);
+  // With Q134 a Trunk is refused every brief tool before Q137's own check is reached; either answer refuses.
+  assert.match(run.output ?? "", /owner's to choose|only the owner's own tasks/);
   assert.equal(JSON.stringify(app.store.get("settings", app.runtime.owner, "brief")?.data ?? null), before, "the brief's settings are as they were");
   await app.trunks.say(ada.id, "send brief");
   assert.deepEqual(chat.sent.filter((one) => one.chatId === "stranger-9"), [], "the owner's brief reached no chat of Ada's choosing");
@@ -114,12 +115,11 @@ test("a Trunk cannot point the owner's morning brief at a chat, whatever it may 
 test("a Trunk that may not send to chats cannot send the owner's brief to the chat the owner chose", async (t) => {
   const { app, ada, chat } = await setup(t, ["brief.manage"]);
   await app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "friend-1" } }, app.runtime.context({ source: "owner" }));
-  assert.match((await app.trunks.say(ada.id, "send brief")).output ?? "", /Permission denied: channels\.send/);
+  assert.match((await app.trunks.say(ada.id, "send brief")).output ?? "", /Permission denied: channels\.send|only the owner's own tasks/);
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(chat.sent, [], "nothing reached the chat");
-  // The control: once the owner lets her send, the brief goes to the chat the owner chose.
-  app.trunks.edit(ada.id, { permissions: ["brief.manage", "channels.send"] });
-  await app.trunks.say(ada.id, "send brief");
+  // The control: the owner sends it, and it goes to the chat the owner chose. (With Q134 a Trunk never sends the brief.)
+  await app.registry.execute("brief.send", {}, app.runtime.context({ source: "owner" }));
   for (let i = 0; i < 50 && !chat.sent.length; i++) await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(chat.sent.map((one) => one.chatId), ["friend-1"]);
 });
