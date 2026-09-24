@@ -11,6 +11,7 @@
 import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
+import { changeAppearance, currentAppearance } from "/appearance.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
 import { DEFAULT_THEME, solid, surfaceOf, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
@@ -97,8 +98,10 @@ const look = {
   season: store.get("branch-season") || "",
   contrast: store.get("branch-contrast") === "more" ? "more" : "standard",
 };
-const SEASONS = [["", "look.season.today", "Today"], ["spring", "look.season.spring", "Spring"],
+const SEASONS = [["", "look.season.auto", "Auto"], ["spring", "look.season.spring", "Spring"],
   ["summer", "look.season.summer", "Summer"], ["autumn", "look.season.autumn", "Autumn"], ["winter", "look.season.winter", "Winter"]];
+const CONTRASTS = [["standard", "look.contrast.standard", "Standard"], ["more", "look.contrast.more", "High contrast"]];
+const WIDTHS = [["comfortable", "onscreen.width.comfortable", "Comfortable"], ["wide", "onscreen.width.wide", "Wide"], ["full", "onscreen.width.full", "Full width"]];
 const QUICK = ["slate", "forest", "nocturne", "cherry", "ocean", "lavender", "sepia", "mono"];
 const modeNow = () => (root.dataset.theme === "daylight" ? "light" : "dark");
 function applyLook() {
@@ -206,6 +209,7 @@ function segmented(labelId, options, isOn, onPick) {
   group.setAttribute("aria-labelledby", labelId);
   for (const [value, key, english, sign] of options) {
     const choice = sign ? signedChoice(sign, key, english) : button("segmented-option", key, english);
+    choice.dataset.value = value;
     choice.setAttribute("aria-pressed", String(isOn(value)));
     choice.addEventListener("click", () => onPick(value));
     group.append(choice);
@@ -270,10 +274,20 @@ function drawLookControls() {
     (value) => (follow ? value === "" : !follow && value === modeNow()), chooseMode));
   const seasonHost = $("lx-season");
   if (seasonHost) seasonHost.replaceChildren(segmented("lx-season-label", SEASONS, (value) => value === look.season, (value) => setLook({ season: value })));
-  const contrast = $("lx-contrast");
-  if (contrast) contrast.checked = look.contrast === "more";
+  const contrastHost = $("lx-contrast");
+  if (contrastHost) contrastHost.replaceChildren(segmented("lx-contrast-label", CONTRASTS,
+    (value) => value === (look.contrast === "more" ? "more" : "standard"), (value) => setLook({ contrast: value })));
+  drawWidth();
+  sayLookNotes();
   drawQuickThemes();
 }
+/** How wide the conversation grows: the one control for it, kept with the window's saved preferences. */
+function drawWidth() {
+  const host = $("lx-width");
+  if (host) host.replaceChildren(segmented("lx-width-label", WIDTHS,
+    (value) => value === (currentAppearance().conversationWidth ?? "wide"), (value) => changeAppearance({ conversationWidth: value })));
+}
+document.addEventListener("branch-appearance", drawWidth);
 function drawQuickThemes() {
   const host = $("lx-quick-themes");
   if (!host) return;
@@ -679,14 +693,19 @@ function buildAppearanceBlock() {
   gallery.id = "lx-theme-gallery";
   const modeRow = lookRow("look.dayOrNight", "Day or night", "lx-mode");
   modeRow.append(worded("p", "lx-look-note", "look.dayOrNight.note", "Every theme has both. Switching keeps the theme you chose."));
-  const seasonRow = lookRow("look.season", "The oak's season", "lx-season");
-  const contrastRow = make("label", "check-row lx-contrast-row");
-  const contrast = make("input");
-  contrast.type = "checkbox";
-  contrast.id = "lx-contrast";
-  contrast.addEventListener("change", () => setLook({ contrast: contrast.checked ? "more" : "standard" }));
-  contrastRow.append(contrast, worded("span", "", "look.contrast", "More contrast between text and background"));
-  block.append(head, tools, gallery, modeRow, seasonRow, contrastRow);
+  /* DG-166: the sample's Season and Contrast rows, each with its note across beneath. */
+  const seasonRow = lookRow("look.seasonRow", "Season", "lx-season");
+  const seasonNote = make("p", "lx-look-note");
+  seasonNote.id = "lx-season-note";
+  seasonRow.append(seasonNote);
+  const contrastRow = lookRow("look.contrastRow", "Contrast", "lx-contrast");
+  contrastRow.append(worded("p", "lx-look-note", "look.contrast.note", "High contrast makes panels solid and text stronger."));
+  const widthRow = lookRow("look.widthRow", "Conversation width", "lx-width");
+  widthRow.append(worded("p", "lx-look-note", "look.width.note", "Wide uses most of the window; Full width uses all of it on a big screen."));
+  /* DG-040: the sample's order: Day or night first, then the themes, then Season, Contrast, width and stillness. */
+  block.append(head, modeRow, tools, gallery, seasonRow, contrastRow, widthRow);
+  const still = stillRow();
+  if (still) block.append(still);
   $("lx-page-appearance").append(block);
 }
 /** The sample's `.theme-tools`: a search over the themes' names and one row of filter chips. */
@@ -726,14 +745,33 @@ function themeTools() {
   tools.append(field, chips, results);
   return tools;
 }
+/** Notes whose words carry a value the language file cannot fill: the season Auto means today. */
+function sayLookNotes() {
+  const note = $("lx-season-note");
+  if (note) note.textContent = say("look.season.note", "Auto follows today's date, which means {season} right now. The oak behind the window changes with it.")
+    .replace("{season}", say(`look.season.${seasonToday()}`, seasonToday()).toLowerCase());
+}
 /* The placeholder carries the count, which the language file's plain placeholder swap cannot fill. */
 document.addEventListener("branch-language", () => {
+  sayLookNotes();
   const input = $("lx-theme-search");
   if (!input) return;
   input.placeholder = say("look.search", "Search {count} themes").replace("{count}", String(THEMES.length));
   input.setAttribute("aria-label", say("look.search.label", "Search themes"));
   drawThemeTiles();
 });
+/** The sample's last Theme row, Keep things still: the page's own switch, moved here, not a second one. */
+function stillRow() {
+  const motion = $("appearance-motion");
+  if (!motion) return null;
+  const old = motion.closest("label.check-row");
+  const row = make("div", "lx-look-row lx-still-row");
+  const label = worded("label", "lx-look-label", "appearance.reduceMotion", "Keep things still (no sliding or spinning)");
+  label.htmlFor = "appearance-motion";
+  row.append(label, motion);
+  old?.remove();
+  return row;
+}
 function lookRow(key, english, hostId) {
   const row = make("div", "lx-look-row");
   const host = make("div");

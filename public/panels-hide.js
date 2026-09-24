@@ -247,19 +247,6 @@ function neverRow([key, english, whyKey, whyEnglish]) {
   row.append(make("span", "panels-row-name", say(key, english)), make("span", "panels-why", say(whyKey, whyEnglish)));
   return row;
 }
-function widthRow() {
-  const row = make("div", "panels-width-row");
-  row.setAttribute("role", "group");
-  row.setAttribute("aria-labelledby", "panels-width-label");
-  for (const [value, key, english] of [["comfortable", "onscreen.width.comfortable", "Comfortable"], ["wide", "onscreen.width.wide", "Wide"], ["full", "onscreen.width.full", "Full width"]]) {
-    const choice = make("button", "choice", say(key, english));
-    choice.type = "button";
-    choice.value = value;
-    choice.addEventListener("click", () => changeAppearance({ conversationWidth: value }));
-    row.append(choice);
-  }
-  return row;
-}
 function seeRow() {
   const row = make("div", "panels-see");
   row.id = "panels-see";
@@ -301,21 +288,17 @@ function buildCard() {
   everything.type = "button";
   everything.id = "panels-show-all";
   everything.addEventListener("click", () => { changeAppearance({ hidden: [] }); globalThis.toast?.(say("onscreen.allBack", "Everything is back.")); });
-  const widthLabel = heading("span", "onscreen.width", "How wide the conversation grows on a wide screen");
-  widthLabel.id = "panels-width-label";
   const rows = GROUPS.flatMap(([group, key, english]) => [heading("h3", key, english, "panels-group"),
     ...HIDE.filter((row) => row[4] === group).map(([id, rowKey, rowEnglish]) => switchRow(id, rowKey, rowEnglish))]);
   card.append(heading("h2", "onscreen.title", "What's on screen"),
     heading("p", "onscreen.intro", "Hide any part of the window you don't use, and choose how the conversation looks. The things that keep you safe always stay.", "subtle"),
-    widthLabel, widthRow(), seeRow(), ...rightClickRow(), everything, showNote(), ...rows,
+    seeRow(), ...rightClickRow(), everything, showNote(), ...rows,
     heading("h3", "onscreen.group.never", "Always shown", "panels-group"), ...NEVER.map(neverRow));
   return card;
 }
 function syncCard() {
   const look = currentAppearance(), hidden = hiddenNow();
   for (const [id] of HIDE) { const box = $(`panels-show-${id}`); if (box) box.checked = !hidden.has(id); }
-  for (const choice of document.querySelectorAll(".panels-width-row .choice"))
-    choice.setAttribute("aria-pressed", String(choice.value === (look.conversationWidth ?? "wide")));
   const range = $("panels-see-range");
   if (range && document.activeElement !== range) range.value = String(look.seeThrough ?? 30);
   const right = $("panels-right-click");
