@@ -102,7 +102,16 @@ export class FlowGraphRunner {
   /** Works through the boxes from wherever the checkpoint says, as the Trunk whose run it is (Q114), if any. */
   async work(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
     const trunk = this.heldTrunk(runId);
-    return trunk ? this.runtime.asTrunkWork(trunk, () => this.boxes(runId, compiled, options)) : this.boxes(runId, compiled, options);
+    if (!trunk) return this.boxes(runId, compiled, options);
+    // NAS d2cd104: a run started from a mark that outlived its Trunk ends saying why, not left looking as if it works.
+    const refused = this.runtime.trunkWorkRefusal(trunk);
+    if (refused && !this.runtime.trunkKeysFor(trunk)) this.endGone(runId, refused);
+    return this.runtime.asTrunkWork(trunk, () => this.boxes(runId, compiled, options));
+  }
+  /** Q122: a run whose Trunk is gone can never carry on, so it and its task end as failed, with the reason. */
+  private endGone(runId: string, reason: string): void {
+    this.save(runId, { status: "failed", error: reason, question: null });
+    this.store.finish(runId, "failed", reason);
   }
   /** Q114: a copy of a run (time-travel's fork) is the same Trunk's work as the run it was copied from. */
   carryTrunk(from: string, to: string): void {
@@ -445,10 +454,7 @@ export class FlowGraphRunner {
     // so it ends, saying why; one that another Trunk is asking about is left exactly as it stopped.
     const refused = this.whyNot(runId);
     if (refused) {
-      if (!this.runtime.trunkKeysFor(this.trunkOf(runId)!)) {
-        this.save(runId, { status: "failed", error: refused, question: null });
-        this.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
-      }
+      if (!this.runtime.trunkKeysFor(this.trunkOf(runId)!)) this.endGone(runId, refused); // NAS e1e9dd2: the task says why
       throw new Error(refused);
     }
     const graph = compileGraph(flow);
