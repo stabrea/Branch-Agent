@@ -93,6 +93,9 @@ export function flowTargets(input: z.infer<typeof FlowSchema>, current: string):
   });
 }
 
+/** A one-time yes for a step was taken by another run of the same flow judged at the same moment. */
+export const stepYesUsedRefusal = "A yes given just once for a step here was already used by another run of this flow, so nothing was done. Ask again.";
+
 /**
  * What a question about the flow as a whole, and a standing yes to it, is kept for: the websites it
  * declares (`flowTargets`), each once, in the order it reaches them — one host alone, or "2 websites:
@@ -113,18 +116,24 @@ export function flowTarget(sent: unknown, current: string): string {
  * Every step judged before the first one runs, each as the single-step tool it stands for — the
  * same rules, the same questions, the same network policy as `browser.navigate`, `browser.click`,
  * `browser.fill` and `browser.wait` — so a refusal or a question stops the flow before anything is
- * done, and a yes followed by trying again never does an earlier step twice.
+ * done. Returns the fingerprints of once-only overrules used by steps, so they can be consumed
+ * (taken) only after all steps pass judgment and before any step runs. A yes followed by trying
+ * again never does an earlier step twice.
  */
 async function judgeFlow(registry: ToolRegistry, host: FlowHost, input: z.infer<typeof FlowSchema>,
-  context: ToolContext): Promise<void> {
+  context: ToolContext): Promise<string[]> {
   const hosts = stepHosts(input.steps, host.hostFor(context));
+  const usedOverrules: string[] = [];
   for (const [index, step] of input.steps.entries()) {
     const { tool, args } = toolCall(step);
     const moved = step.action === 'click' || step.action === 'fill';
-    registry.judgeStep?.(tool, args, context, moved ? hosts[index] : undefined);
+    const fingerprint = registry.judgeStep?.(tool, args, context, moved ? hosts[index] : undefined, index);
+    if (fingerprint) usedOverrules.push(fingerprint);
     if (step.action === 'navigate') await host.checkAddress(step.url, context);
   }
-  registry.judgeStep?.('browser.screenshot', { fullPage: input.fullPage }, context);
+  const screenshotFp = registry.judgeStep?.('browser.screenshot', { fullPage: input.fullPage }, context);
+  if (screenshotFp) usedOverrules.push(screenshotFp);
+  return usedOverrules;
 }
 
 /** Runs one step; the picture that follows it, in `runFlow`, is what reads the page it landed on. */
@@ -152,7 +161,13 @@ function pageEvents(...seen: PageEvents[]): PageEvents {
  */
 export async function runFlow(registry: ToolRegistry, host: FlowHost, input: z.infer<typeof FlowSchema>,
   context: ToolContext): Promise<{ steps: FlowStepReport[]; pages: number }> {
-  await judgeFlow(registry, host, input, context);
+  const usedOverrules = await judgeFlow(registry, host, input, context);
+  // The one-time yeses the steps were judged on are used now, before any step runs. One already
+  // used by a run judged alongside this one means this run has no yes of its own: nothing runs.
+  if (usedOverrules.length > 0) {
+    if (!registry.takeStepYeses) throw new Error(stepYesUsedRefusal);
+    if (!registry.takeStepYeses(usedOverrules, context)) throw new Error(stepYesUsedRefusal);
+  }
   const steps: FlowStepReport[] = [];
   const seen = new Set<string>();
   for (const [index, step] of input.steps.entries()) {

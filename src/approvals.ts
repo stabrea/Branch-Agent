@@ -122,7 +122,7 @@ export class ApprovalRequiredError extends Error {
      */
     readonly fingerprint?: string,
     /** mac7/coding-next: the question in words of its own, and which kind of question it is. */
-    readonly asked: { question?: string; kind?: "project-tests" } = {},
+    readonly asked: { question?: string; kind?: "project-tests"; onceOnly?: boolean } = {},
   ) {
     super(asked.question ?? approvalQuestion(label, target));
   }
@@ -322,6 +322,10 @@ export class ApprovalGate {
   /** Uses up the owner's one-time overrule for this request, if there is one. */
   takeOverrule(sessionId: string, fingerprint: string | undefined): boolean {
     return fingerprint !== undefined && this.overrules.delete(`${sessionId}\u0000${fingerprint}`);
+  }
+  /** Checks whether the owner's one-time overrule for this request exists, without consuming it. */
+  hasOverrule(sessionId: string, fingerprint: string | undefined): boolean {
+    return fingerprint !== undefined && this.overrules.has(`${sessionId}\u0000${fingerprint}`);
   }
 }
 

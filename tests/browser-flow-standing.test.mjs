@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir, mkdtemp, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {createBranch} from '../dist/index.js';
+import {createBranch, saveComfort} from '../dist/index.js';
 import {BranchBrowser, registerBrowser} from '../dist/integrations/browser.js';
 import {addPolicyRule, readPolicy, savePolicy} from '../dist/policy.js';
 
@@ -55,9 +55,12 @@ async function boot(root, model, did) {
 
 async function harness(t, label) {
   const root = await scratch(label);
-  const model = scriptedModel(), did = [];
-  const state = {app: await boot(root, model, did), model, did, root};
-  state.reopen = async () => { await state.app.close(); state.app = await boot(root, model, did); };
+  const did = [];
+  const state = {model: scriptedModel(), did, root};
+  // The app asks whichever model the test has put in `state.model`, so a test may swap it for its own.
+  const current = {name: 'scripted', complete: (...args) => state.model.complete(...args)};
+  state.app = await boot(root, current, did);
+  state.reopen = async () => { await state.app.close(); state.app = await boot(root, current, did); };
   t.after(async () => { await state.app.close(); await rm(root, {recursive: true, force: true}); });
   return state;
 }
@@ -70,6 +73,8 @@ async function turn(state, args, sessionId) {
 }
 const waitingIn = (state, run) => state.app.runtime.approvals.questionFor(run.sessionId);
 const flowRules = (state) => readPolicy(state.app.store, state.app.runtime.owner).rules.filter(rule => rule.tool === 'browser.flow');
+// Through the real setting, which fills in the card's other fields; a bare record would not parse and read as off.
+const saveBrowser = (app, values) => saveComfort(app.store, app.runtime.owner, 'browser', values);
 
 /**
  * The owner lets every single click and page through, and wants to be asked about browser.flow:
@@ -206,4 +211,203 @@ test('an owner rule allowing flows on *.example.com does not let a click on anot
     {action: 'navigate', url: 'https://evil.example.org/'}, {action: 'click', role: 'button', name: 'Buy'},
     {action: 'navigate', url: 'https://docs.example.com/'},
   ]}, context).decision, 'ask', 'each website is weighed on its own: the click on evil.example.org is asked about');
+});
+
+// ------------------------------------------------------------------ FQ-execution.browser: once-only overrule
+
+/**
+ * A model that calls browser.flow with state.model.args, and when asked again, also calls
+ * single-step browser.click with state.model.click arguments.
+ */
+function dualModel() {
+  const model = {name: 'dual', args: null, click: null, calls: 0, async complete() {
+    return model.calls++ % 2 === 0
+      ? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.flow', arguments: JSON.stringify(model.args)}]}
+      : {content: 'done', toolCalls: model.click ? [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify(model.click)}] : []};
+  }};
+  return model;
+}
+
+test('(d) with confirmSensitive on, "Yes, just now" runs the flow; a retry asks again because the yes is consumed', async (t) => {
+  const state = await harness(t, 'flow-once-only');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+
+  // First call asks about the flow step (the click, now marked as once-only by confirmSensitive).
+  const first = await turn(state, docs);
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.tool, 'browser.click', 'the once-only question is for the step, not the flow');
+  assert.equal(asked.target, 'docs.example.com');
+  assert.equal(asked.remember, 'never', 'confirmSensitive makes it once-only (remember: never)');
+
+  // User says "Yes, just now" — it should be a once-only overrule for that exact step.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: the flow should run to completion, consuming the once-only overrule.
+  state.did.length = 0;
+  const second = await turn(state, docs, first.sessionId);
+  assert.equal(second.status, 'completed', 'the flow ran to completion after "Yes, just now"');
+  assert.deepEqual(state.did, ['navigate https://docs.example.com/guide', 'click Next on docs.example.com'],
+    'the flow step executed successfully');
+
+  // Third call: run the same flow again. The yes should have been consumed, so it should ask again.
+  state.did.length = 0;
+  const third = await turn(state, docs, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'the same flow asks again after the yes was consumed');
+  const askedAgain = waitingIn(state, third);
+  assert.equal(askedAgain.tool, 'browser.click');
+  assert.equal(askedAgain.target, 'docs.example.com');
+  assert.deepEqual(state.did, [], 'nothing ran before the question');
+});
+
+test('(d2) a yes for a step on one website does not cover the same step on another, and the question carries the step\'s own fingerprint', async (t) => {
+  const state = await harness(t, 'flow-different-host');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+  const first = await turn(state, shop);
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.target, 'shop.example.com');
+  const {argumentFingerprint} = await import('../dist/runtime.js');
+  assert.notEqual(asked.fingerprint, argumentFingerprint(JSON.stringify({role: 'button', name: 'Place order'})),
+    'bound to the step, not only to the words of the click');
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+  // While that yes is still unused, the same click on another website asks again and nothing runs.
+  state.did.length = 0;
+  const elsewhere = {steps: [{action: 'navigate', url: 'https://shop.example.com:8443/cart'}, {action: 'click', role: 'button', name: 'Place order'}]};
+  const other = await turn(state, elsewhere, first.sessionId);
+  assert.equal(other.status, 'needs_input', 'the yes for shop.example.com does not cover :8443');
+  assert.equal(waitingIn(state, other).target, 'shop.example.com:8443');
+  assert.deepEqual(state.did, [], 'nothing ran on the other website');
+  // The yes it was given is still there for its own website.
+  const back = await turn(state, shop, first.sessionId);
+  assert.equal(back.status, 'completed');
+  assert.deepEqual(state.did, ['navigate https://shop.example.com/cart', 'click Place order on shop.example.com']);
+});
+
+test('after a yes for step 1, step 2 of the same flow asks again', async (t) => {
+  const state = await harness(t, 'flow-two-clicks');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+
+  // Flow with two clicks on the same host
+  const twoClicks = {steps: [{action: 'navigate', url: 'https://shop.example.com/items'}, {action: 'click', role: 'button', name: 'Select'}, {action: 'click', role: 'button', name: 'Select'}]};
+
+  // First call asks about the flow's first click step.
+  const first = await turn(state, twoClicks);
+  assert.equal(first.status, 'needs_input');
+  const askedAboutFirst = waitingIn(state, first);
+  assert.equal(askedAboutFirst.tool, 'browser.click', 'question is about a step');
+
+  // User says "Yes, just now" to the first click.
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', askedAboutFirst.fingerprint);
+
+  // Retry: flow runs.
+  state.did.length = 0;
+  const second = await turn(state, twoClicks, first.sessionId);
+  assert.equal(second.status, 'needs_input', 'the flow asks about the second click after the first yes is consumed');
+  const askedAboutSecond = waitingIn(state, second);
+  assert.equal(askedAboutSecond.tool, 'browser.click');
+  // The second click should have a different fingerprint from the first because the index differs
+  assert.notEqual(askedAboutSecond.fingerprint, askedAboutFirst.fingerprint, 'the second step has a different fingerprint');
+});
+
+test('the runtime uses a step\'s one-time yes once: taken the first time, gone the second', async (t) => {
+  const state = await harness(t, 'flow-consume-once');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+  const first = await turn(state, shop);
+  const asked = waitingIn(state, first);
+  runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+  const context = {runId: 'consume-check', owner: runtime.owner, approvalKey: first.sessionId};
+  assert.equal(runtime.consumeStepYeses([asked.fingerprint], context), true, 'the first use takes it');
+  assert.equal(runtime.consumeStepYeses([asked.fingerprint], context), false, 'a second use finds it gone');
+});
+
+test('when takeStepYeses is not wired, runFlow refuses instead of going ahead', async () => {
+  const {runFlow, stepYesUsedRefusal} = await import('../dist/integrations/browser-flow.js');
+  const {ToolRegistry} = await import('../dist/registry.js');
+
+  const registry = new ToolRegistry();
+  const ran = [];
+
+  // Registry with judgeStep that returns a fingerprint but no takeStepYeses wired
+  registry.judgeStep = () => 'step-fingerprint';
+  // takeStepYeses is not defined
+
+  const host = {
+    hostFor: () => 'shop.example.com', checkAddress: async () => {},
+    navigate: async (url) => { ran.push(`navigate ${url}`); return {url, title: ''}; },
+    click: async () => { ran.push('click'); return {}; }, fill: async () => { ran.push('fill'); return {}; },
+    wait: async () => ({}), screenshot: async () => ({}),
+  };
+
+  await assert.rejects(
+    runFlow(registry, host, {steps: [{action: 'click', role: 'button', name: 'Place order'}]}, {runId: 'r', owner: 'local'}),
+    (error) => error.message === stepYesUsedRefusal
+  );
+  assert.deepEqual(ran, [], 'nothing ran when takeStepYeses is not wired');
+});
+
+test('(control) a single-step browser.click with confirmSensitive still works normally', async (t) => {
+  const state = await harness(t, 'single-click');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  saveBrowser(state.app, {confirmSensitive: true});
+
+  // Model that calls single-step browser.click directly (not a flow).
+  const model = {name: 'single', calls: 0, async complete() {
+    return model.calls++ % 2 === 0
+      ? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify({role: 'button', name: 'Buy'})}]}
+      : {content: 'done', toolCalls: []};
+  }};
+  state.model = model;
+
+  // First call asks about the click.
+  const first = await turn(state, {});
+  assert.equal(first.status, 'needs_input');
+  const asked = waitingIn(state, first);
+  assert.equal(asked.tool, 'browser.click');
+
+  // User says "Yes, just now".
+  state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+
+  // Retry: should run.
+  const second = await turn(state, {}, first.sessionId);
+  assert.equal(second.status, 'completed');
+
+  // Second call of the same click: because it's single-step, the yes should also be consumed, so it should ask again.
+  const third = await turn(state, {}, first.sessionId);
+  assert.equal(third.status, 'needs_input', 'single-step click also consumes the yes');
+});
+
+test('(d3) a one-time yes another run of the same flow already used lets nothing run', async () => {
+  const {runFlow, stepYesUsedRefusal} = await import('../dist/integrations/browser-flow.js');
+  const {ToolRegistry} = await import('../dist/registry.js');
+  const registry = new ToolRegistry();
+  const ran = [];
+  registry.judgeStep = () => 'step-fingerprint';
+  registry.takeStepYeses = () => false; // the other run took it first
+  const host = {
+    hostFor: () => 'shop.example.com', checkAddress: async () => {},
+    navigate: async (url) => { ran.push(`navigate ${url}`); return {url, title: ''}; },
+    click: async () => { ran.push('click'); return {}; }, fill: async () => { ran.push('fill'); return {}; },
+    wait: async () => ({}), screenshot: async () => ({}),
+  };
+  await assert.rejects(runFlow(registry, host, {steps: [{action: 'click', role: 'button', name: 'Place order'}]}, {runId: 'r', owner: 'local'}),
+    (error) => error.message === stepYesUsedRefusal);
+  assert.deepEqual(ran, [], 'nothing ran');
 });

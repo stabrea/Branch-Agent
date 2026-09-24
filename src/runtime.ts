@@ -173,6 +173,8 @@ export interface PolicyCheck {
   reason?: string;
   /** mac7/r17-g: a yes to this needs a code from the owner's authenticator app, which a hand-pressed tool cannot ask for. */
   needsCode?: boolean;
+  /** FQ-execution.browser: a yes to this is once-only and cannot be remembered as a standing rule. */
+  onceOnly?: boolean;
 }
 /** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
 interface GateOutcome {
@@ -754,23 +756,64 @@ export class Runtime {
   /**
    * FQ-execution.browser (`ToolRegistry.judgeStep`): one step a tool takes on its own, judged exactly
    * as the model calling `tool` would be — the same rules, the same kept yeses, bound to the step's
-   * own bytes — at `target` when the step says where it will be. A refusal or a question is thrown.
+   * own bytes — at `target` when the step says where it will be. Always runs the full policy;
+   * a once-only yes defers consumption until after all steps in the flow pass. Returns the
+   * fingerprint of the overrule used (if any), or throws `ApprovalRequiredError` or `PolicyRefusedError`.
    */
-  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string): void {
+  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string, index?: number): string | undefined {
+    const argumentBytes = JSON.stringify(args ?? {});
+    // FQ-execution.browser: when a step has an index, use a step-specific fingerprint bound to the
+    // tool, index, target/host, and canonical arguments, so a "Yes, just now" cannot cover another
+    // step or a later single-step call. Otherwise use the argument fingerprint (single-step case).
+    const fingerprint = index !== undefined
+      ? stepFingerprint(tool, index, target, argumentBytes)
+      : argumentFingerprint(argumentBytes);
     const at = target === undefined ? undefined : { target };
     const host = { store: this.store, owner: this.owner, guards: this.guards,
       checkPolicy: (name: string, sent: unknown, c: ToolContext, fingerprint?: string) => this.checkPolicy(name, sent, c, fingerprint, at),
       permissionOf: (name: string) => this.permissionOf(name),
       wallFor: (name: string, sent: unknown, c: ToolContext, choice: PolicyCheck["sandbox"]) => this.wallFor(name, sent, c, choice) };
     try {
-      gateToolUse(host, tool, args, context, argumentFingerprint(JSON.stringify(args ?? {})));
+      gateToolUse(host, tool, args, context, fingerprint);
+      // Step passed without needing a question.
+      return undefined;
     } catch (error) {
-      const kind = error instanceof ApprovalRequiredError ? "policy.ask" : "policy.denied";
-      // Written on the task's record; a call run with no task behind it has no record to write on.
+      // Only ApprovalRequiredError can be answered by an overrule; all other errors rethrow.
+      if (!(error instanceof ApprovalRequiredError)) {
+        const kind = "policy.denied";
+        if (this.store.run(context.runId))
+          this.store.event(context.runId, kind, { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
+        throw error;
+      }
+      // A once-only question: check if the owner already gave a yes to this exact step.
+      // The yes is not consumed yet; it will be consumed only after all steps pass judgment.
+      const session = context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+      if (fingerprint && this.approvals.hasOverrule(session, fingerprint)) {
+        // The overrule exists; return it so judgeFlow can consume it later.
+        if (this.store.run(context.runId))
+          this.store.event(context.runId, "policy.ask", { name: tool, step: true, ...(target ? { target } : {}), skipped: true });
+        return fingerprint;
+      }
+      // No overrule; the question must go to the owner.
       if (this.store.run(context.runId))
-        this.store.event(context.runId, kind, { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
+        this.store.event(context.runId, "policy.ask", { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
       throw error;
     }
+  }
+  /**
+   * Consumes once-only overrules for a browser.flow's steps, after all steps pass judgment and before
+   * any step runs. False when one was already gone: two runs of the same flow judged side by side both
+   * saw it, and only the first may use it.
+   */
+  consumeStepYeses(fingerprints: string[], context: ToolContext): boolean {
+    const session = context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+    let all = true;
+    for (const fingerprint of fingerprints) {
+      if (!this.approvals.takeOverrule(session, fingerprint)) { all = false; continue; }
+      if (this.store.run(context.runId))
+        this.store.event(context.runId, "policy.overruled", { name: "browser.flow", label: "step", id: fingerprint });
+    }
+    return all;
   }
   async delegate(
     prompt: string,
@@ -2591,7 +2634,7 @@ ${run.output.slice(0, 6000)}`;
     const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact || this.registry.noStandingTarget(tool, target) ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
-      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
+      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}), ...(hold?.onceOnly ? { onceOnly: true } : {}) };
   }
   /**
    * mac7/walk-rules: what a tool that walks a folder may list or read, entry by entry (src/walk-rules.ts):
@@ -3376,4 +3419,14 @@ export function ignoredNote(keys: readonly string[]): string {
 
 export function argumentFingerprint(argumentBytes: string): string {
   return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
+}
+
+/**
+ * FQ-execution.browser: a fingerprint for a browser.flow step that includes the tool, index,
+ * target/host, and canonical arguments, so a "Yes, just now" is bound to that exact step and
+ * cannot cover another step or a later single-step call.
+ */
+function stepFingerprint(tool: string, index: number, target: string | undefined, argumentBytes: string): string {
+  const parts = ["browser.flow step", index, tool, target ?? "", canonicalArguments(argumentBytes)];
+  return createHash("sha256").update(parts.join("\u0000"), "utf8").digest("hex").slice(0, 32);
 }
