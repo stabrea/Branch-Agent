@@ -145,19 +145,19 @@ test("the pick step is a shell script bash can read: nothing inside its quoted n
   assert.equal(check.status, 0, check.stderr);
 });
 
-test("a train's Windows shares leave the browser files to Linux and macOS, and need no browser for it", () => {
+test("a train's Windows shares leave the browser files to Linux and macOS, and every share still gets a browser", () => {
   const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
   for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2]]) {
     const { rows } = sharesFor(workflow, legion, macmini, "off");
     for (const row of rows) {
-      if (row.os === "windows") assert.deepEqual([row.groups, row.screens], ["shared,desktop", false], `${legion}/${macmini}: ${JSON.stringify(row)}`);
+      if (row.os === "windows") assert.equal(row.groups, "shared,desktop", `${legion}/${macmini}: ${JSON.stringify(row)}`);
       else assert.equal(row.groups, undefined, `${row.os} still runs every group`);
     }
     assert.ok(rows.some((row) => row.os === "linux") && rows.some((row) => row.os === "macos"), "the browser files still run on two systems");
     assert.ok(sharesFor(workflow, legion, macmini, "on").rows.every((row) => row.groups === undefined), "with screens on, Windows runs every group");
   }
   const steps = workflow.jobs.test.steps;
-  assert.match(steps.find((step) => /playwright install/.test(step.run ?? "")).if, /matrix\.screens != false/);
+  assert.equal(steps.find((step) => /playwright install/.test(step.run ?? "")).if, undefined, "no share goes without a browser");
   assert.match(workflow.jobs.pick.steps[0].run, /refs\/heads\/main\|refs\/heads\/mac\/cross-platform\) echo on/, "the trunks keep the screens on Windows");
 });
 

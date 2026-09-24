@@ -81,7 +81,7 @@ jobs:
           }
           node -e '
             const [legion, macmini, wsl] = process.argv.slice(1, 4).map(Number), screens = process.argv[4], keepOff = process.argv[5], rows = [];
-            const windows = screens === "off" ? { groups: "shared,desktop", screens: false } : {};
+            const windows = screens === "off" ? { groups: "shared,desktop" } : {};
             const add = (os, labels, total, extra = {}) => { for (let shard = 1; shard <= total; shard++) rows.push({ os, labels, shard, total, ...extra }); };
             // One of the owner computers: never the desktop or uninstall tests, which take one hosted share of their own.
             const own = (os, label, idle, hosted, spare, extra = {}) => {
@@ -133,9 +133,9 @@ jobs:
       - id: playwright
         shell: bash
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      # A share without the browser files needs no browser: the desktop files start Electron through Playwright's
-      # own package, not its downloaded Chromium.
-      - if: ${{ !matrix.own && matrix.screens != false }}
+      # Every share gets the browser, even one without the browser files: some ordinary files drive a real browser
+      # through Branch's own browser tool (tests/comfort.test.mjs), which the file grouping cannot see.
+      - if: ${{ !matrix.own }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -144,8 +144,7 @@ jobs:
             ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
       # The owner's computers already have the browser's system libraries, and their runner users have no sudo.
-      - if: ${{ matrix.screens != false }}
-        run: npx playwright install ${{ !matrix.own && '--with-deps' || '' }} chromium --only-shell
+      - run: npx playwright install ${{ !matrix.own && '--with-deps' || '' }} chromium --only-shell
       # Ubuntu 24.04 turns off unprivileged user namespaces, which is what Electron's own sandbox is
       # built on, so every desktop test died with "Process failed to launch!" before reaching a
       # single assertion. This relaxes it on the build machine only. The app is not changed: the
