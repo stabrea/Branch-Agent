@@ -159,6 +159,12 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     parameters: optionalFields(BriefSettingsSchema),
     execute: async (input, context) => {
       if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Changing the morning brief");
+      // The chat the brief goes to is the owner's to choose, as sending to it now is (channels.broadcast).
+      if ((input as { deliverTo?: unknown }).deliverTo) {
+        brief.store.profiles.requireOwner("Sending messages to your chats");
+        if (context.trunk || context.agent?.startsWith("trunk:")) throw new Error("The chat the morning brief goes to is the owner's to choose.");
+        if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+      }
       return brief.configure(context.owner, input);
     },
   });

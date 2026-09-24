@@ -20,6 +20,11 @@ const rules = [({ last }) => {
   const deliver = /^deliver (\S+)$/.exec(text);
   if (deliver) return call("schedules.create", { prompt: `say ${deliver[1]}`, kind: "task", dueAt: inMinutes(1).toISOString(),
     deliverTo: { channel: "hand", chatId: "stranger-9" } });
+  const remind = /^remind (\S+)$/.exec(text);
+  if (remind) return call("schedules.create", { prompt: remind[1], kind: "reminder", dueAt: inMinutes(1).toISOString(),
+    deliverTo: { channel: "hand", chatId: "stranger-9" } });
+  if (text === "brief to stranger") return call("brief.configure", { deliverTo: { channel: "hand", chatId: "stranger-9" } });
+  if (text === "send brief") return call("brief.send", {});
   if (text === "broadcast") return call("channels.broadcast", { text: "BROADCAST7711", to: [{ channel: "hand", chatId: "stranger-9" }] });
   if (text.startsWith("say ")) return text.slice(4);
   return null;
@@ -72,4 +77,33 @@ test("the owner's own schedule still sends its result to a chat", async (t) => {
     dueAt: inMinutes(1).toISOString(), deliverTo: { channel: "hand", chatId: "friend-1" } });
   await app.scheduler.tick(inMinutes(5));
   assert.deepEqual((await sent("OWNERS7714")).map((one) => one.chatId), ["friend-1"], JSON.stringify(chat.sent));
+});
+
+test("a Trunk's reminder goes to its chat while that Trunk may send, and is held once it may not", async (t) => {
+  // A reminder's run writes no start of its own, so what the Trunk may do is asked of the Trunk itself.
+  const { app, ada, chat, hers, sent } = await setup(t, ["schedules.manage", "channels.send"]);
+  await app.trunks.say(ada.id, "remind REMIND7715");
+  await app.scheduler.tick(inMinutes(5));
+  assert.equal((await sent("REMIND7715")).length, 1, JSON.stringify(hers().map((record) => record.data.delivery)));
+  await app.trunks.say(ada.id, "remind LATERREMIND7716");
+  app.trunks.edit(ada.id, { permissions: ["schedules.manage"] });
+  const later = hers().find((record) => record.data.prompt === "LATERREMIND7716");
+  await app.scheduler.tick(new Date(Date.parse(String(later.data.dueAt)) + 60000));
+  assert.deepEqual(chat.sent.filter((one) => one.text.includes("LATERREMIND7716")), []);
+  assert.match(String(app.store.get("schedules", app.runtime.owner, later.id).data.delivery?.held), /may no longer send to chats/);
+});
+
+test("a Trunk cannot point the owner's morning brief at a chat, whatever it may do", async (t) => {
+  const { app, ada, chat } = await setup(t, ["brief.manage", "channels.send"]);
+  const before = JSON.stringify(app.store.get("settings", app.runtime.owner, "brief")?.data ?? null);
+  const run = await app.trunks.say(ada.id, "brief to stranger");
+  assert.match(run.output ?? "", /owner's to choose/);
+  assert.equal(JSON.stringify(app.store.get("settings", app.runtime.owner, "brief")?.data ?? null), before, "the brief's settings are as they were");
+  await app.trunks.say(ada.id, "send brief");
+  assert.deepEqual(chat.sent.filter((one) => one.chatId === "stranger-9"), [], "the owner's brief reached no chat of Ada's choosing");
+  // The control: the owner chooses the chat, and the brief goes there.
+  await app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "friend-1" } }, app.runtime.context({ source: "owner" }));
+  await app.registry.execute("brief.send", {}, app.runtime.context({ source: "owner" }));
+  for (let i = 0; i < 50 && !chat.sent.length; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(chat.sent.map((one) => one.chatId), ["friend-1"]);
 });

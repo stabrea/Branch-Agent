@@ -414,10 +414,10 @@ export class Scheduler {
     const { run } = await this.evaluations.runScheduled(String(record.data.suite), preset);
     return run;
   }
-  /** The permissions a task started with, as its first event wrote them down. */
-  private startedWith(runId: string): string[] {
-    const started = this.store.events(runId).find((event) => event.kind === "run.started")?.data.permissions;
-    return Array.isArray(started) ? started.map(String) : [];
+  /** Whether the Trunk that made a schedule may send to chats now, within what the schedule was given. */
+  private trunkMaySend(trunkId: string, data: Record<string, unknown>): boolean {
+    const given = Array.isArray(data.permissions) ? data.permissions.map(String) : undefined;
+    return this.runtime.trunkShape({ prompt: "", trunkId, ...(given ? { permissions: given } : {}) })?.permissions.includes("channels.send") ?? false;
   }
   private promptFor(data: Record<string, unknown>, payload: unknown): string {
     let prompt = String(data.prompt);
@@ -433,8 +433,9 @@ export class Scheduler {
     if (!target) return undefined;
     const at = new Date().toISOString();
     if (!this.deliver) return { ...target, at, error: "No channel delivery is available in this launch" };
-    // A Trunk's schedule sends only while that Trunk may still send to chats: its run was given what it may use now.
-    const held = madeBy && !this.startedWith(run.id).includes("channels.send") ? trunkMayNotSend
+    // A Trunk's schedule sends only while that Trunk may still send to chats: what it may use now, never more than
+    // the schedule was given. Asked of the Trunk, not the run, since a reminder's or a suite's run writes no start.
+    const held = madeBy && !this.trunkMaySend(madeBy, data) ? trunkMayNotSend
       : heldBack(data, run, this.switches().notifyGate);
     if (held) {
       this.store.event(run.id, "delivery.held", { ...target, reason: held });
