@@ -178,8 +178,9 @@ import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 // mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
 import {
-  decideListenHere, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal,
-  listenReadRefusal, listenView, type OwnAddress, saveListenSettings, thisComputerAddress,
+  addressCheckMs, decideListenHere, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal,
+  listenKeyRefusal, listenNowHereReason, listenReadRefusal, type ListenState, listenView, type OwnAddress,
+  ownAddresses, saveListenSettings, thisComputerAddress, watchAddresses,
 } from "./listen-address.js";
 import type { ProbeTailscale } from "./remote/tailscale.js";
 import { lockdownActive, onLockdownChange } from "./lockdown.js";
@@ -951,8 +952,8 @@ async function api(
   request: IncomingMessage,
   path: string,
   dataDir: string,
-  /** mac7/bind: where this door ended up listening, and why, for `/api/listen` to show. */
-  listen: ListenDecision,
+  /** mac7/bind: where this door is listening now, and why, for `/api/listen` to show. */
+  listen: ListenState,
 ): Promise<unknown> {
   // Batch 19 (wave 6): the record of what it was allowed to do, approval kinds, ask-first,
   // the practice workspace, how passages are ordered, plugin model connections, issue context.
@@ -3037,6 +3038,13 @@ export async function startServer(
     quit?: () => void;
     /** mac7/bind: this computer's addresses for the door's decision; read from the system when left out. */
     listenAddresses?: readonly OwnAddress[];
+    /**
+     * mac7/bind: how the door reads this computer's addresses again while it is open wider than this
+     * computer. `listenAddresses` when those are given, which never change, and the system otherwise.
+     */
+    readListenAddresses?: () => readonly OwnAddress[];
+    /** mac7/bind: how often it reads them again; `addressCheckMs` when left out. */
+    listenCheckMs?: number;
     /** mac7/bind: how the door asks Tailscale for this computer's address; tests hand in their own. */
     tailscale?: ProbeTailscale;
   },
@@ -3057,11 +3065,16 @@ export async function startServer(
   // mac7/bind: where this door listens. 127.0.0.1 unless the owner said otherwise and every
   // protection the wider door needs is really on; see src/listen-address.ts for what is refused.
   // An address in Tailscale's range counts only when Tailscale itself reports it, so it is asked here.
-  const listen = await decideListenHere({
+  // The same decision is made again while Branch runs when this computer's addresses change.
+  const fixedAddresses = options.listenAddresses;
+  const readAddresses = options.readListenAddresses ?? (fixedAddresses ? () => fixedAddresses : ownAddresses);
+  const startAddresses = fixedAddresses ?? readAddresses();
+  const decideHere = (addresses: readonly OwnAddress[]): Promise<ListenDecision> => decideListenHere({
     where: listenAsked(app.store, app.runtime.owner),
     lockdown: lockdownActive(app.store, app.runtime.owner),
-    token, addresses: options.listenAddresses, tailscale: options.tailscale,
+    token, addresses, tailscale: options.tailscale,
   });
+  const listen: ListenState = { ...await decideHere(startAddresses), closedWhileRunning: false, restartOpens: false };
   /** Every name a request may say it was sent to: the paired address, and the wider door's own. */
   const allowedHosts = (): string[] => [...remote.allowedHosts(), ...listen.extraHosts];
   // Batch 20 (wave 8): what a phone must satisfy on the extra door, as a chain of named steps.
@@ -3580,40 +3593,76 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       : "Branch Agent is listening on every address this computer answers on, not only this computer.")
       + " Anyone who can reach it still needs the local session token.");
   // mac7/bind (integration review): switching Lockdown on while the wide door is already open has
-  // to TAKE THE DOOR AWAY, not merely refuse what arrives at it. `decideListen` is asked once, at
-  // the start, so without this the socket stays open on every address until the next restart —
-  // which is the one thing Lockdown is for. The listening socket is closed, everything already
-  // connected from beyond this computer is dropped, and the door comes back on 127.0.0.1 alone.
+  // to TAKE THE DOOR AWAY, not merely refuse what arrives at it. Without this the socket stays open on
+  // every address until the next restart — which is the one thing Lockdown is for. The listening
+  // socket is closed, everything already connected from beyond this computer is dropped, and the door
+  // comes back on 127.0.0.1 alone.
   const boundPort = address.port;
+  let closing = false;
+  /** The door coming back on 127.0.0.1, which closing Branch waits for so no socket outlives it. */
+  let narrowing: Promise<void> = Promise.resolve();
   const stopWatchingLockdown = onLockdownChange((_store, _owner, on) => {
     // mac7/phone-qr: Lockdown also ends a phone download link that is showing.
     if (on) phoneApp.stop();
-    if (on) void narrowToThisComputer().catch((error: unknown) => {
-      // The wide socket is already given up by the time anything here can fail, so Lockdown has had
-      // the effect that matters. What can still go wrong is coming back on 127.0.0.1 — say so
-      // plainly rather than leaving a promise nobody caught, because a door nobody can open is a
-      // different problem from a door open too wide, and the owner has to be told which one it is.
-      console.log("Branch Agent: Lockdown closed the wider door, but Branch could not start"
-        + ` listening on this computer again (${errorText(error)}). Restart Branch.`);
-    });
+    if (on) narrowToThisComputer("Lockdown is on, so Branch is listening on this computer only.", "Lockdown");
   });
-  async function narrowToThisComputer(): Promise<void> {
-    if (listen.address === thisComputerAddress) return;
+  /**
+   * Takes the wider door away, keeps 127.0.0.1 answering, and says `why` once. Lockdown and a change
+   * of this computer's addresses both close the door here. What the door answers to narrows with the
+   * socket, before it is back on 127.0.0.1, so no name, webhook or card treats Branch as reachable
+   * from beyond this computer in between.
+   */
+  function narrowToThisComputer(why: string, closedBy: string): void {
+    if (closing || listen.address === thisComputerAddress) return;
     // `close` gives the listening handle up at once; its callback waits for every open connection
     // to end, which is why it is not awaited — the wide ones are dropped by hand just below.
     server.close();
     for (const socket of liveConnections)
       if (!fromThisComputer(socket.remoteAddress)) socket.destroy();
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(boundPort, thisComputerAddress, () => { server.off("error", reject); resolve(); });
-    });
     listen.address = thisComputerAddress;
     listen.beyond = false;
     listen.extraHosts = [];
     listen.ipv4Only = null;
-    listen.refusal = "Lockdown is on, so Branch is listening on this computer only.";
-    console.log(`Branch Agent: ${listen.refusal}`);
+    listen.refusal = why;
+    listen.closedWhileRunning = true;
+    console.log(`Branch Agent: ${why}`);
+    narrowing = new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(boundPort, thisComputerAddress, () => { server.off("error", reject); resolve(); });
+    }).catch((error: unknown) => {
+      // The wide socket is already given up by the time anything here can fail, so the door is
+      // closed. What can still go wrong is coming back on 127.0.0.1 — say so plainly rather than
+      // leaving a promise nobody caught, because a door nobody can open is a different problem from
+      // a door open too wide, and the owner has to be told which one it is.
+      console.log(`Branch Agent: ${closedBy} closed the wider door, but Branch could not start`
+        + ` listening on this computer again (${errorText(error)}). Restart Branch.`);
+    });
+  }
+  // mac7/bind: the door was decided on the addresses this computer had at the start. While it is
+  // open wider than this computer they are read again, and when they change the same decision is
+  // made again. Reading goes on after the door has closed, so the card can say when a start would
+  // open it again; nothing here ever opens it.
+  const stopWatchingAddresses = listen.beyond
+    ? watchAddresses({
+      read: readAddresses, everyMs: options.listenCheckMs ?? addressCheckMs, first: startAddresses,
+      changed: async (addresses) => { follow(await decideHere(addresses)); },
+    })
+    : () => undefined;
+  /** What a decision made again does to the door as it stands now: it can narrow it, and never widen it. */
+  function follow(next: ListenDecision): void {
+    if (closing) return;
+    if (!listen.beyond) {
+      // Closed while Branch runs: only a start opens it again, so the card is told when a start would.
+      listen.restartOpens = next.beyond;
+      return;
+    }
+    if (!next.beyond) {
+      narrowToThisComputer(next.refusal ?? listenNowHereReason, "A change in this computer's addresses");
+      return;
+    }
+    // Still the same wide socket: the names it answers to can shrink with the addresses, never grow.
+    listen.extraHosts = listen.extraHosts.filter((name) => next.extraHosts.includes(name));
+    listen.ipv4Only = next.ipv4Only;
   }
   app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
@@ -3636,12 +3685,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
      * send anything — can be tested without a Tailscale address and a real network.
      */
     remoteHandler,
-    /** mac7/bind: the address the door is really on now, which Lockdown can narrow while it runs. */
+    /**
+     * mac7/bind: the address the door is really on now, which Lockdown or a change of this
+     * computer's addresses can narrow while it runs.
+     */
     listeningOn: (): string => listen.address,
     close: async () => {
+      closing = true;
+      stopWatchingAddresses(); // mac7/bind
       stopDiagnosticLog(); // mac7/diagnostics
       stopWatchingLockdown();
       phoneApp.stop();
+      await narrowing; // mac7/bind: a door coming back on 127.0.0.1 is back before the server stops
       await remote.disable().catch(() => undefined);
       if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
       await stopServer(app, server);

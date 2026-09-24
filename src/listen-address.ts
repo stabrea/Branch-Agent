@@ -362,16 +362,90 @@ async function reportedTailnet(probe: ProbeTailscale): Promise<string[]> {
   }
 }
 
+/* ---------- while Branch runs ---------- */
+
+/**
+ * How often the wider door looks at this computer's addresses again. The door is decided on the
+ * addresses this computer has when Branch starts, and a computer can gain one later: a public
+ * address, or a 100.64 one Tailscale does not report. Either would have kept the door on this
+ * computer at the start, so while the door is open wider it looks again, and decides again when the
+ * addresses have changed.
+ */
+export const addressCheckMs = 15_000;
+
+/** The door as it stands while Branch runs: the decision it was opened on, and what happened since. */
+export interface ListenState extends ListenDecision {
+  /** The wider door was open, and was closed while Branch ran: by Lockdown, or by a change of address. */
+  closedWhileRunning: boolean;
+  /**
+   * The door was closed while Branch ran, and this computer's addresses would let it open again. Only
+   * starting Branch again opens it: nothing opens the door while Branch runs.
+   */
+  restartOpens: boolean;
+}
+
+/**
+ * Why the wider door closed when a decision made again finds it is no longer asked for: the setting
+ * was changed to this computer only, or Lockdown reads it that way.
+ */
+export const listenNowHereReason = "Branch is no longer asked to listen beyond this computer, so it is"
+  + " listening on this computer only.";
+
+/** A reading's outward addresses as one string, so two readings can be compared as `decideListen` sees them. */
+export function outwardAddressKey(addresses: readonly OwnAddress[]): string {
+  return addresses.filter((entry) => !entry.internal)
+    .map((entry) => entry.address.replace(/%.*$/, "").toLowerCase()).sort().join(" ");
+}
+
+/**
+ * Reads this computer's addresses every `everyMs` and hands a reading to `changed` when its outward
+ * addresses differ from the last reading acted on. One reading is acted on at a time: a tick while
+ * `changed` is still deciding passes by. A reading that throws changes nothing, and a `changed` that
+ * fails is tried again at the next tick. The timer never keeps Branch running by itself. Returns
+ * what stops it.
+ */
+export function watchAddresses(input: {
+  read: () => readonly OwnAddress[];
+  everyMs: number;
+  /** The reading the door was decided on. */
+  first: readonly OwnAddress[];
+  changed: (addresses: readonly OwnAddress[]) => Promise<void>;
+}): () => void {
+  let seen = outwardAddressKey(input.first);
+  let busy = false;
+  const timer = setInterval(() => {
+    if (busy) return;
+    let now: readonly OwnAddress[];
+    let key: string;
+    try {
+      now = input.read();
+      key = outwardAddressKey(now);
+    } catch {
+      return;
+    }
+    if (key === seen) return;
+    busy = true;
+    Promise.resolve().then(() => input.changed(now))
+      .then(() => { seen = key; }, () => undefined)
+      .finally(() => { busy = false; });
+  }, input.everyMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 /** What the owner's screen and `GET /api/listen` are told. */
-export function listenView(store: Pick<Store, "get">, owner: string, decision: ListenDecision): Record<string, unknown> {
+export function listenView(store: Pick<Store, "get">, owner: string, state: ListenState): Record<string, unknown> {
   return {
     where: listenAsked(store, owner),
     saved: ListenSettingsSchema.safeParse(store.get("settings", owner, listenKey)?.data ?? {}).data?.where ?? "this-computer",
     places: listenPlaces,
     lockdown: lockdownActive(store, owner),
-    listeningOn: decision.address,
-    beyondThisComputer: decision.beyond,
-    refusal: decision.refusal,
-    ipv4Only: decision.ipv4Only,
+    listeningOn: state.address,
+    beyondThisComputer: state.beyond,
+    refusal: state.refusal,
+    ipv4Only: state.ipv4Only,
+    closedWhileRunning: state.closedWhileRunning,
+    // Lockdown keeps the door on this computer at a start too, so while it is on nothing says otherwise.
+    restartOpens: state.restartOpens && !lockdownActive(store, owner),
   };
 }
