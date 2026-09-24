@@ -220,3 +220,20 @@ test("from Branch's own source, a change outside the contract is still refused b
     assert.deepEqual(d.calls.filter((args) => ["switch", "push"].includes(args[0]) || committed(args)), []);
     assert.deepEqual(d.opened, []);
   });
+
+test("from Branch's own source, the commit walked is the one HEAD was read as, even when HEAD moves to clean work before the walk",
+  { skip: posixOnly }, async (t) => {
+    // HEAD is read on work outside the contract, then moved to clean work before the walk. A walk that read
+    // HEAD again would find nothing wrong and send the commit read first, with the other work under it.
+    const { app, owner, worktree, walked, other, change } = await sourceWorktree(t);
+    plain(worktree, "reset", "-q", "--hard", other);
+    await change();
+    let moved = false;
+    const d = hookDeps(app, owner, { after: (args) => {
+      if (!moved && args.join(" ") === "rev-parse --verify --quiet HEAD^{commit}") { moved = true; plain(worktree, "reset", "-q", "--hard", walked); }
+    } });
+    await assert.rejects(pullRequestFromChanges(d.value, ask("pinned")), /changed files are outside the contract's allowed paths: \.github\/workflows\/extra\.yml/);
+    assert.equal(moved, true, "HEAD was moved between the read and the walk");
+    assert.deepEqual(d.pushed, [], "nothing was sent");
+    assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
