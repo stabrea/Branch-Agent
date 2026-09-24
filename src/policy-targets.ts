@@ -97,17 +97,55 @@ export const unknownTargetsRefusal = (problem: string): string =>
   `Branch could not tell every file this would touch, so it was not done: ${problem}`;
 
 /**
+ * Q138: what else a call does that another tool does, so the rules weigh it as that tool as well. A
+ * schedule that sends its result to a chat sends a message there when it runs, so it is also judged as
+ * sending one to that chat (`channels.broadcast`): "Message people" counts for it as well as "Change
+ * settings". Every other call, and a schedule with no chat, does nothing else.
+ */
+export function alsoJudgedAs(tool: string, args: unknown): { tool: string; args: { text: string; to: unknown[] } } | null {
+  const to = tool === "schedules.create" && args && typeof args === "object" ? (args as { deliverTo?: unknown }).deliverTo : undefined;
+  // The result does not exist yet; no rule reads the text, and the broadcast's own schema needs one.
+  return to ? { tool: "channels.broadcast", args: { text: "The schedule's result", to: [to] } } : null;
+}
+
+/**
+ * The rules' answer for what a call also does (`alsoJudgedAs`), exactly as they answer that tool: the
+ * call as a whole and each chat it reaches, the strictest winning. Null when it does nothing else. It
+ * only ever makes an answer stricter, so the question put to the owner stays the call's own. What it
+ * would reach cannot be told only for arguments the tool itself refuses, and that is refused here too.
+ */
+export function alsoDecision(
+  registry: Pick<ToolRegistry, "targetOf" | "targetsOf" | "resourceOf" | "permissionOf">, policy: Policy,
+  tool: string, args: unknown, context: ToolContext,
+): PolicyDecision | null {
+  const also = alsoJudgedAs(tool, args);
+  if (!also) return null;
+  const target = registry.targetOf(also.tool, also.args, context);
+  // Sending a message always changes something.
+  const whole = evaluatePolicy(policy,
+    { tool: also.tool, target, readOnly: false, resource: registry.resourceOf(also.tool, target, also.args) }).decision;
+  let targets: ToolTarget[] | null;
+  try { targets = registry.targetsOf(also.tool, also.args, context); } catch { return "deny"; }
+  if (!targets) return whole;
+  const spread = judgeTargets(policy, { tool: also.tool, permission: registry.permissionOf(also.tool), callTarget: target,
+    args: also.args, resourceOf: (text) => registry.resourceOf(also.tool, text, also.args) }, targets).decision;
+  return stricterThan(spread, whole) ? spread : whole;
+}
+
+/**
  * For the places that weigh only the rules (another AI tool's dry run, "Try a tool" without the
- * runtime's gate): the whole call's answer made stricter by every thing it touches. A call whose
- * targets cannot be told is refused, as it would be when run.
+ * runtime's gate): the whole call's answer made stricter by every thing it touches, and by what else
+ * it does (`alsoDecision`). A call whose targets cannot be told is refused, as it would be when run.
  */
 export function everyTargetDecision(
-  registry: Pick<ToolRegistry, "targetsOf" | "resourceOf">, policy: Policy, call: Omit<TargetsCall, "resourceOf">, context: ToolContext,
-  whole: PolicyDecision,
+  registry: Pick<ToolRegistry, "targetOf" | "targetsOf" | "resourceOf" | "permissionOf">, policy: Policy,
+  call: Omit<TargetsCall, "resourceOf">, context: ToolContext, whole: PolicyDecision,
 ): { decision: PolicyDecision; targets: ToolTarget[] } {
+  const also = alsoDecision(registry, policy, call.tool, call.args, context);
+  const ruled = also && stricterThan(also, whole) ? also : whole;
   let targets: ToolTarget[] | null;
   try { targets = registry.targetsOf(call.tool, call.args, context); } catch { return { decision: "deny", targets: [] }; }
-  if (!targets) return { decision: whole, targets: [] };
+  if (!targets) return { decision: ruled, targets: [] };
   const spread = judgeTargets(policy, { ...call, resourceOf: (text) => registry.resourceOf(call.tool, text, call.args) }, targets).decision;
-  return { decision: stricterThan(spread, whole) ? spread : whole, targets };
+  return { decision: stricterThan(spread, ruled) ? spread : ruled, targets };
 }

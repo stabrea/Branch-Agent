@@ -90,7 +90,7 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
-import { judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
+import { alsoDecision, judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
 import { ProfileRoles, grantRefusal } from "./profile-roles.js";
 import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
@@ -2645,7 +2645,11 @@ ${run.output.slice(0, 6000)}`;
       { tool, permission, callTarget: target, args, resourceOf: (text) => this.registry.resourceOf(tool, text, args) }, every);
     if (spread?.decision === "deny" && spread.target)
       return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: targetRefusal(label, spread.target) };
-    const tightened = spread && stricterThan(spread.decision, whole.decision) ? { ...whole, decision: spread.decision, rule: spread.rule } : whole;
+    const targeted = spread && stricterThan(spread.decision, whole.decision) ? { ...whole, decision: spread.decision, rule: spread.rule } : whole;
+    // Q138: and what else it does, weighed as that tool (a schedule that sends to a chat also messages
+    // people). Only the answer can get stricter: the question, its kept answer and its rule stay this call's.
+    const also = alsoDecision(this.registry, policy, tool, args, context);
+    const tightened = also && stricterThan(also, targeted.decision) ? { ...targeted, decision: also } : targeted;
     const { rule, leak } = tightened;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
