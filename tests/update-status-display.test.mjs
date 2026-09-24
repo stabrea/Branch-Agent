@@ -67,7 +67,7 @@ test("Q73: the provenance sentence persists in the update card while unpacking",
 
   // Wait for status text to show and provenance to be visible.
   await page.waitForFunction(() =>
-    document.getElementById("updates-status")?.textContent.includes("Make") ||
+    document.getElementById("updates-status")?.textContent.includes("Making sure") ||
     document.getElementById("updates-status")?.textContent.includes("Unpacking")
   );
 
@@ -138,14 +138,10 @@ test("Q73: provenance displays correctly in French", async (t) => {
     globalThis.__updatePhase = "verifying";
   }, { message: PROVENANCE_NONE });
 
-  // Switch language to French through the appearance API (how the app actually does it).
+  // Switch language to French the way the app does it (via i18n.js).
   await page.evaluate(async () => {
-    const response = await fetch("/api/preferences", {
-      method: "POST",
-      headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" },
-      body: JSON.stringify({ language: "fr" }),
-    });
-    if (!response.ok) throw new Error("language preference was refused");
+    const { setLanguage } = await import("/i18n.js");
+    await setLanguage("fr");
   });
 
   // Navigate to updates card in the new language.
