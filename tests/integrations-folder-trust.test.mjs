@@ -606,3 +606,47 @@ test("Q100: the source's list must name this copy, not just any copy",
   assert.equal(folderTrust(app.store, owner, exp), "unknown", "the list names keep, not what is at exp now");
   assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "keep")), "trusted", "the copy still listed keeps its trust");
 });
+
+test("Q100: a repository inside a copy is not covered by the source's trust, as it would not be in the source",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  const evil = join(proj, ".branch-worktrees", "exp", "vendor", "evil");
+  await mkdir(evil, { recursive: true });
+  gitIn(evil, "init", "-q");
+  await writeFile(join(evil, "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  assert.equal(folderTrust(app.store, owner, evil), "unknown");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(evil, "integrations.json")), false);
+});
+
+test("Q100: a decision between the source and its copy is closer, so it wins",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/.branch-worktrees", decision: "distrust" });
+  const exp = join(proj, ".branch-worktrees", "exp");
+  await mkdir(join(exp, "sub"), { recursive: true });
+  await writeFile(join(exp, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  assert.equal(folderTrust(app.store, owner, exp), "untrusted");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(exp, "sub", "integrations.json")), false);
+});
+
+test("Q100: links between a copy and its source cannot send the check round for ever",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  const inCopy = join(proj, ".branch-worktrees", "exp", "Y");
+  await mkdir(inCopy, { recursive: true });
+  await symlink(inCopy, join(proj, "Y"), "dir");
+  assert.equal(folderTrust(app.store, owner, inCopy), "unknown", "an answer, not a stack overflow");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(inCopy, "integrations.json")), false);
+});
