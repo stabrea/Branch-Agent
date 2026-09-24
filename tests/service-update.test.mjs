@@ -332,7 +332,7 @@ test("a Mac update fetches the Mac download, finds the app bundle and writes the
       await writeFile(join(into, "Branch Agent.app", "Contents", "MacOS", "Branch Agent"), "new");
       await writeFile(join(into, "Branch Agent.app", "Contents", "Resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
     },
-    stopDaemon: async () => 5150,
+    stopDaemon: async () => ({ pid: 5150, stopped: true }),
   });
   const { script, stagedDir } = await updater.install();
   assert.ok(asked.includes("https://example.invalid/Branch-Agent-macos-arm64.zip"), "the Mac download, not the Windows one");

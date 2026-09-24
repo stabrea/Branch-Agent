@@ -300,6 +300,25 @@ export async function recoverAfterRestart(input: RecoveryInput): Promise<Recover
   return report;
 }
 
+/** Interrupted tasks an update cut off (the drain marked them), whatever the switch says. */
+export function cutByUpdate(store: Store): Set<string> {
+  const rows = store.sqlite.prepare(`SELECT DISTINCT t.id FROM tasks t JOIN events e ON e.run_id=t.id
+    WHERE t.status='interrupted' AND e.kind='run.cut-by-update'`).all();
+  return new Set(rows.map((row) => String(row.id)));
+}
+
+/**
+ * With the switch off, only what an update cut off is picked up, and only by offering it to the owner
+ * (never carried on by itself); cut-off repeating jobs go back on the list. Anything else interrupted
+ * stays as it was, which is how Branch behaves with the switch off.
+ */
+async function recoverUpdateCut(input: RecoveryInput & { nextTurn: (data: Record<string, unknown>, now: Date) => string }): Promise<RecoveredRun[]> {
+  const only = cutByUpdate(input.store);
+  if (!only.size) return [];
+  releaseInterruptedSchedules(input.store, input.nextTurn, new Date(), only);
+  return recoverAfterRestart({ ...input, mode: "when-needed", askOnly: true, only });
+}
+
 /** A sentence for a scheduled job that runs later than it was due, or null when it is on time. */
 export function lateNote(dueAt: unknown, now: Date, graceMs = 120_000): string | null {
   const due = typeof dueAt === "string" ? Date.parse(dueAt) : Number.NaN;
@@ -313,13 +332,17 @@ export function lateNote(dueAt: unknown, now: Date, graceMs = 120_000): string |
  * A repeating job whose turn was cut off by the restart goes back on the list for its next turn,
  * instead of staying stuck as "interrupted" for ever. The cut-off turn itself is settled with its task.
  */
-export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Record<string, unknown>, now: Date) => string, now = new Date()): number {
+export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Record<string, unknown>, now: Date) => string, now = new Date(),
+  only?: ReadonlySet<string>): number {
   const rows = store.sqlite.prepare("SELECT id, owner, data FROM schedules WHERE json_extract(data,'$.status')='interrupted'").all();
   let released = 0;
   for (const row of rows) {
     const data = JSON.parse(String(row.data)) as Record<string, unknown>;
     if (typeof data.intervalMs !== "number" && typeof data.dailyAt !== "string" && typeof data.cron !== "string") continue;
-    store.save("schedules", String(row.owner), String(row.id), { ...data, status: "pending", dueAt: nextTurn(data, now),
+    // With `only`, a job goes back only when the task its turn had started is one of those.
+    if (only && !(typeof data.activeRunId === "string" && only.has(data.activeRunId))) continue;
+    const { activeRunId: _released, ...rest } = data;
+    store.save("schedules", String(row.owner), String(row.id), { ...rest, status: "pending", dueAt: nextTurn(data, now),
       lastInterruption: { at: now.toISOString(), note: "Branch was restarted during this job's turn. That turn is settled with its task; the job carries on at its next turn." } });
     released++;
   }
@@ -332,7 +355,7 @@ export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Recor
  * With the switch off it does nothing, which is how Branch behaved before.
  */
 export async function recoverOnStart(input: RecoveryInput & { nextTurn: (data: Record<string, unknown>, now: Date) => string }): Promise<RecoveredRun[]> {
-  if (input.mode === "off") return [];
+  if (input.mode === "off") return recoverUpdateCut(input);
   const released = releaseInterruptedSchedules(input.store, input.nextTurn);
   const report = await recoverAfterRestart({ ...input, askOnly: input.askOnly || process.env.BRANCH_RESUME === "ask" });
   const counts = report.reduce<Record<string, number>>((all, run) => ({ ...all, [run.outcome]: (all[run.outcome] ?? 0) + 1 }), {});

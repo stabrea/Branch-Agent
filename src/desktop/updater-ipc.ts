@@ -2,7 +2,7 @@ import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from
 import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
 import { join } from "node:path";
-import { Updater, UpdateDeferredError, type UpdateChannel } from "./updater.js";
+import { Updater, UpdateDeferredError, type UpdateChannel, type EngineStop } from "./updater.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
 import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
@@ -38,7 +38,13 @@ export interface UpdateHooks {
   /** Authenticated current channel and full task count from the local or joined engine. */
   readiness?: () => Promise<{ channel: UpdateChannel; busyTasks: number }>;
   backup: () => Promise<void>;
-  stopDaemon?: () => Promise<number | null>;
+  stopDaemon?: () => Promise<EngineStop>;
+  /** Lets the engine finish what it is doing before it is closed for the swap (src/runtime.ts `drain`). */
+  drain?: () => Promise<unknown>;
+  /** Takes the drain back when the update stops before the hand-over is running. */
+  undrain?: () => Promise<void>;
+  /** Starts the background engine again when it was closed and the update then stopped. */
+  revive?: () => Promise<void>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
   canary?: (stagedDir: string, version: string) => Promise<void>;
   /**

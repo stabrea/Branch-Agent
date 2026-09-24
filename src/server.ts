@@ -218,7 +218,7 @@ import { remoteChannel } from "./remote/gateway-auth.js";
 import { socketPath as deviceSocketPath } from "./devices/protocol.js";
 // ---- end mac7/nodes ----
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
-import { quitRequest } from "./install/quit.js"; // bucket 22
+import { drainPath, localWithMasterKey, quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
@@ -3667,6 +3667,21 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         }
         // ---- end mac7/learn ----
         if (await rawApi(app, request, response, path)) return;
+        // Before an update: no new work, a short wait for what is running, then the update closes Branch.
+        if (path === drainPath) {
+          if (request.method !== "POST") throw new HttpError(405, "Ask with POST.");
+          if (!(await localWithMasterKey(request, { dataDir: options.dataDir, viaRemote })))
+            throw new HttpError(403, "Only a program on this computer holding Branch's own key can prepare it for an update.");
+          const { budgetMs, undo } = z.object({ budgetMs: z.number().int().min(0).max(120000).default(30000), undo: z.literal(true).optional() }).strict().parse(await readBody(request));
+          // An update that stopped before closing Branch takes its drain back at once.
+          if (undo) { if (app.runtime.draining) { app.runtime.undrain(); app.scheduler.start(); } send(response, 200, { undone: true }); return; }
+          await app.scheduler.stop();
+          const report = await app.runtime.drain(budgetMs);
+          // An update that stops before Branch closes must never leave it refusing work.
+          setTimeout(() => { if (app.runtime.draining) { app.runtime.undrain(); app.scheduler.start(); } }, 120000).unref();
+          send(response, 200, report);
+          return;
+        }
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
           if (path === "/api/deployment/quit") {
@@ -4305,7 +4320,7 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac6/accounts: adding, removing and switching accounts is the owner's alone.
   if (handlesAccountsPath(path))
     return "A short-lived key cannot add, remove or switch accounts. Do that in the app window.";
-  if (path === "/api/deployment/close" || path === "/api/deployment/quit") // quit: bucket 22
+  if (path === "/api/deployment/close" || path === "/api/deployment/quit" || path === "/api/never-break/drain") // quit: bucket 22
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
   // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
   if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))

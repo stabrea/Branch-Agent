@@ -365,6 +365,8 @@ export class Runtime {
   /** Questions already put once in a conversation, so nothing is stopped twice on the same thing. */
   private readonly askedAside = new Set<string>();
   private accepting = true;
+  /** Set while an update is closing Branch, so the tasks it cuts off can be picked up again. */
+  private closingFor: "update" | null = null;
   readonly retryPolicy: RetryPolicy;
   readonly reliability: ReliabilityOptions;
   /** The person's document library, when one is open: passages go in front of their own tasks. */
@@ -681,6 +683,32 @@ export class Runtime {
       if (settled.status !== "completed") throw new Error(settled.output);
       return value as T;
     });
+  }
+  /**
+   * Before an update: take no new tasks, give the running ones up to `budgetMs` to finish, and mark
+   * each one still running as cut off by the update (`run.cut-by-update`). The version that comes up
+   * next offers those back, with the never-break switch off too, instead of throwing them away.
+   * `undrain` takes it back, for an update that stopped before Branch closed.
+   */
+  async drain(budgetMs: number): Promise<{ finished: number; stillRunning: number }> {
+    this.accepting = false;
+    this.closingFor = "update";
+    const before = this.controllers.size;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled([...this.pending]),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, Math.max(0, budgetMs)); }),
+    ]);
+    clearTimeout(timer);
+    for (const runId of this.controllers.keys()) this.store.event(runId, "run.cut-by-update", { waitedMs: budgetMs });
+    return { finished: Math.max(0, before - this.controllers.size), stillRunning: this.controllers.size };
+  }
+  undrain(): void {
+    this.accepting = true;
+    this.closingFor = null;
+  }
+  get draining(): boolean {
+    return this.closingFor === "update";
   }
   async shutdown(): Promise<void> {
     this.accepting = false;
@@ -1239,7 +1267,8 @@ ${run.output.slice(0, 6000)}`;
   private failureStatus(context: ToolContext, error: unknown): Run["status"] {
     return context.signal.aborted
       // mac3/never-break: a task cut off because Branch is closing is interrupted, so it can be picked up again.
-      ? (this.accepting || neverBreakModeSync(this.store.folder) === "off" ? "cancelled" : "interrupted")
+      // An update's close keeps them resumable whatever the switch says: the owner asked for no update, not no work.
+      ? (this.accepting || (neverBreakModeSync(this.store.folder) === "off" && this.closingFor !== "update") ? "cancelled" : "interrupted")
       : error instanceof NeedsInputError
         ? "needs_input"
         : error instanceof BudgetError

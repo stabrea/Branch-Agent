@@ -16,6 +16,10 @@ import { primaryRepo, fallbackRepo, isTrustedRepo } from "./repo-pair.js";
  * against the published SHA-256, unpacks it beside the install, then hands over to a small script
  * that waits for the app to exit, mirrors the new files into place and starts the new version.
  */
+/** How closing the background engine went: its process id, and whether it was proved closed. */
+export interface EngineStop { pid: number | null; stopped: boolean }
+const noEngine: EngineStop = { pid: null, stopped: false };
+
 export interface UpdaterOptions {
   repo: string;
   currentVersion: string;
@@ -42,10 +46,25 @@ export interface UpdaterOptions {
   /** Re-check all tasks at the last safe point, before a background engine can be stopped. */
   beforeStop?: () => Promise<void>;
   /**
-   * Politely closes the engine that keeps working with the window closed. A refusal defers the
-   * update; it must not be swallowed and followed by a hand-over that forcibly ends the engine.
+   * Closes the engine that keeps working with the window closed, so the old program files are not
+   * held open while they are replaced. Answers with its process id (null when nothing was working in
+   * the background) and whether it was proved closed: one still alive after the wait keeps its id, so
+   * the hand-over waits for it, but it was only drained, and a stopped update gives it its work back.
+   * A refusal stops the update rather than proceeding without proof the engine is closed.
    */
-  stopDaemon?: () => Promise<number | null>;
+  stopDaemon?: () => Promise<EngineStop>;
+  /**
+   * Asks the running Branch to finish what it is doing before it is closed for the swap (no new work,
+   * a short wait, the rest marked so the next version offers it back). Never stops the update.
+   */
+  drain?: () => Promise<unknown>;
+  /** Takes the drain back when the update stops after it and before Branch is closed. */
+  undrain?: () => Promise<void>;
+  /**
+   * Starts again what `stopDaemon` closed, when the update stops after that and before the hand-over
+   * is running: a closed engine cannot take a drain back, so it is brought back instead.
+   */
+  revive?: () => Promise<void>;
   /**
    * mac3/never-break: tries the unpacked version on a copy of the owner's data before anything is
    * swapped. Throws a plain sentence when the new version did not pass; the update then stops.
@@ -305,7 +324,18 @@ export class Updater {
       await this.tryCanary(stagedDir, expectedVersion); // mac3/never-break; a Dev build reports the version it was built as
       await this.safetyCopy();
       await this.options.beforeStop?.();
-      const script = await this.writeScript(stagedDir, await this.stopBackground());
+      this.stoppedEngine = null;
+      if (this.options.drain) {
+        this.set("unpacking", "Letting Branch finish what it is doing before the update…", null, release);
+        // A drain that cannot be proved stops the update here, before anything is closed or swapped.
+        // It may still have happened (an answer lost on the way back), so it is taken back either way.
+        try { await this.options.drain(); } catch (error) { await this.undrain(); throw error; }
+      }
+      let script: string;
+      try {
+        this.stoppedEngine = await this.stopBackground();
+        script = await this.writeScript(stagedDir, this.stoppedEngine.pid);
+      } catch (error) { await this.giveBack(); throw error; }
       this.set("ready", "Restarting to finish the update…", 1, release);
       held = options.hold === true;
       return { script, stagedDir };
@@ -356,17 +386,43 @@ export class Updater {
       throw new Error(`The safety copy could not be made, so the update was stopped: ${why} Free some space on this drive, or move Branch's data folder somewhere it can write, then try the update again.`);
     }
   }
+  /** Gives Branch its work back after a drain the update did not follow through (never throws). */
+  async undrain(): Promise<void> {
+    await this.options.undrain?.().catch(() => undefined);
+  }
+  /** What this install did to the background engine, once it has tried to close it. */
+  private stoppedEngine: EngineStop | null = null;
+  /**
+   * An update that stops before its hand-over is running leaves Branch as it found it: an engine
+   * proved closed is started again; one still alive (or never asked) was only drained, so it is given
+   * its work back (never throws).
+   */
+  async giveBack(): Promise<void> {
+    const closed = this.stoppedEngine?.stopped === true;
+    this.stoppedEngine = null;
+    if (closed) await this.options.revive?.().catch(() => undefined);
+    else await this.undrain();
+  }
   /**
    * Closes the engine working in the background before the files are swapped, and answers with its
-   * process id so the hand-over waits for it as well. A refusal stops this attempt.
+   * process id (and whether it was proved closed) so the hand-over waits for it as well. A close that fails
+   * outright stops the update: with no answer there is neither proof the engine is gone nor a process id
+   * for the hand-over to wait for, and on Windows it may still hold the files being replaced. The engine is
+   * then treated as still alive, so `giveBack` takes its drain back.
    */
-  private async stopBackground(): Promise<number | null> {
-    if (!this.options.stopDaemon) return null;
+  private async stopBackground(): Promise<EngineStop> {
+    if (!this.options.stopDaemon) return noEngine;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    const pid = await this.options.stopDaemon();
-    // A null answer means nothing was working in the background, so nothing was closed.
-    this.stoppedBackground = pid !== null;
-    return pid;
+    try {
+      const result = await this.options.stopDaemon();
+      // A null pid means nothing was working in the background, so nothing was closed.
+      this.stoppedBackground = result.pid !== null;
+      return result;
+    }
+    catch (error) {
+      const why = (error instanceof Error ? error.message : String(error)).replace(/\.?$/, ".");
+      throw new Error(`The part of Branch that works in the background could not be closed, so the update was stopped and nothing was changed: ${why}`);
+    }
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     if (this.channel === "dev") return this.newestDevBuild();

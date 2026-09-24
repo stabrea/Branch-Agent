@@ -280,7 +280,9 @@ export class Scheduler {
     return run;
   }
   private async execute(record: SavedRecord, now: Date, trigger: string, payload: unknown, advance: boolean, found: unknown = null): Promise<Run | undefined> {
-    const startedAt = now.toISOString(), data = record.data;
+    // A turn names only its own task: an earlier turn's `activeRunId` never carries into this one.
+    const { activeRunId: _earlier, ...data } = record.data;
+    const startedAt = now.toISOString();
     const history = (Array.isArray(data.history) ? data.history as HistoryEntry[] : []).slice(-(historyLimit - 1));
     const entry: HistoryEntry = { runId: null, status: "running", startedAt, trigger };
     // mac3/never-break: a turn missed while Branch was not running runs once, and says so.
@@ -302,7 +304,12 @@ export class Scheduler {
         // A schedule a Trunk made is built as that Trunk's task, as its routines are: its instructions and
         // memory scope, and its permissions as they are now, never more than the schedule was given.
         ...(madeBy ? { trunkId: madeBy } : {}),
-        onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
+        onStarted: (started) => {
+          entry.runId = started.id;
+          // Written down at once, so a restart that cuts this turn off knows which task it was.
+          this.store.save("schedules", record.owner, record.id, { ...data, status: "running", activeRunId: started.id, history: [...history, entry] });
+          if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late });
+        },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       // Q118: a schedule a Trunk made (not one of its routines, which run as it already) runs as that Trunk,
