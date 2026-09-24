@@ -108,6 +108,23 @@ function commandResource(fromTarget: string, whole: string | null): PolicyResour
   return { kind: "command", value: value.slice(0, longestCommand), ...(cut ? { cut } : {}) };
 }
 
+/** Whether an argument is words to read: text, a number, or a list of those (addresses, say). An object is not. */
+const inWords = (value: unknown): boolean =>
+  typeof value !== "object" || (Array.isArray(value) && value.length > 0 && value.every((one) => typeof one !== "object"));
+/**
+ * The messaging account a call is about, or the address for mail. An argument that names it in words
+ * is read as it always was, and with none the target is. A message to several chats names them as a
+ * list of chats instead, which is never read as text: each chat is judged on its own
+ * (src/policy-targets.ts), as "<account>:<chat id>". An account's id never holds a colon (a chat's
+ * may), so the account is everything before the first one.
+ */
+function accountOf(a: Record<string, unknown>, target: string): string {
+  const named = a.channel ?? a.to ?? a.chat ?? target;
+  if (inWords(named)) return String(named);
+  const colon = target.indexOf(":");
+  return colon < 0 ? target : target.slice(0, colon);
+}
+
 /**
  * Which kind of thing a call is about. The tool's own name decides first, because a browser click
  * is about a website whatever its arguments look like; the arguments decide after that.
@@ -128,8 +145,9 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   // which is cut at 300 characters and could hide `; rm -rf ~` after a harmless start.
   if (tool === "remote.run") return commandResource(target.split(": ").slice(1).join(": ") || target, fullCommand(tool, a));
   if (isCommandTool(tool)) return commandResource(target, fullCommand(tool, a));
+  // A rule about a messaging account holds for every chat on it, one chat of a message at a time.
   if (/^(channels|email)\./.test(tool) || /^(channels|email)\./.test(permission))
-    return { kind: "channel", value: String(a.channel ?? a.to ?? a.chat ?? target) };
+    return { kind: "channel", value: accountOf(a, target) };
   // Otherwise the target itself says what kind of thing it is. Going by the target rather than the
   // arguments means a tool that reports what it touches through its own `target()` — which is how a
   // tool with no top-level `path` is meant to do it — is covered by a folder rule like any other.
