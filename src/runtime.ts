@@ -477,7 +477,8 @@ export class Runtime {
   ): ToolContext {
     // FQ-routing.isolated-agents: work a Trunk set going (a workflow or flow step, a procedure it replays)
     // remembers as that Trunk, never with the owner's whole memory (see memoryAgent).
-    const trunkWork = currentAccountCall()?.trunk?.id;
+    const mark = currentAccountCall()?.trunk;
+    const trunkWork = mark?.id;
     return {
       owner: this.owner,
       workspace: this.workspace,
@@ -495,6 +496,9 @@ export class Runtime {
       ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
       ...(options.agent ? { agent: options.agent } : {}),
       ...(trunkWork ? { trunk: trunkWork } : {}),
+      // Q123 (NAS 24f2b9c): and with that Trunk's keys, so every guard that knows a Trunk by them (a saved sign-in
+      // filled, Branch removed, a program installed, a sign-in connection) knows its work too, not only its turn.
+      ...(mark?.keys ? { trunkKeys: mark.keys } : {}),
     };
   }
   cancel(id: string): boolean {

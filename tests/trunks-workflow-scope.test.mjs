@@ -234,3 +234,52 @@ test("Q123: a Trunk's workflow tool step looks through history and lists as that
   assert.equal(listed.status, "failed", "the owner's to-do list is refused to Ada's step");
   assert.doesNotMatch(JSON.stringify(listed.state), /OWNERTODO5521/);
 });
+
+test("Q123: a Trunk's workflow step is known as that Trunk by every guard that knows a Trunk by its keys", async (t) => {
+  // NAS 24f2b9c: a step's context carried `trunk` but not `trunkKeys`, so the saved sign-in guard let Ada's own
+  // workflow have the owner's password filled. The guards that remove Branch or install a program read the same.
+  const { z } = await import("zod");
+  const { autofillGuard, autofillTrunkRefusal, saveVaultAutofillSettings } = await import("../dist/vault-autofill.js");
+  const { removalGuard, removeTrunkRefusal } = await import("../dist/remove-branch.js");
+  const { callerGuard, installTrunkRefusal } = await import("../dist/local-one-button.js");
+  const { app, ada, owner, use, saved } = await setup(t);
+  const seen = [];
+  app.registry.register({ name: "probe.context", permission: "probe.read", description: "Hands back nothing; keeps who asked.",
+    parameters: z.object({}).strict(), execute: async (_input, context) => { seen.push(context); return { ok: true }; } });
+  app.trunks.edit(ada.id, { permissions: ["workflows.manage", "workflows.read", "probe.read"] });
+  saveVaultAutofillSettings(app.store, owner, { mode: "on" }); // so the autofill guard gets as far as asking who
+  const step = [{ name: "who", kind: "tool", tool: "probe.context", args: {} }];
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps: step }, app.runtime.context());
+  await app.workflows.run(owner, owners.id);
+  const ownerStep = seen.pop();
+  assert.notEqual(autofillGuard(app.store, owner, ownerStep), autofillTrunkRefusal, "the control: the owner's own step is the owner's");
+  await use(ada, "workflows.create", { name: "adas", steps: step });
+  await use(ada, "workflows.run", { id: saved("adas").id });
+  const adaStep = seen.pop();
+  assert.ok(adaStep, "Ada's step ran");
+  assert.equal(autofillGuard(app.store, owner, adaStep), autofillTrunkRefusal, "no saved sign-in is filled for Ada's step");
+  assert.equal(removalGuard(app.store, adaStep), removeTrunkRefusal, "nor may it remove Branch");
+  assert.equal(callerGuard(app.store, adaStep), installTrunkRefusal, "nor install a program");
+});
+
+test("Q123: a Trunk's workflow step cannot export the owner's task or branch the owner's conversation", async (t) => {
+  const { app, ada, owner, use, saved } = await setup(t, ["history.read", "sessions.branch", "workflows.manage", "workflows.read"]);
+  const run = await app.runtime.run({ prompt: "OWNERTASK6611 the owner's own", onTextDelta: () => undefined });
+  const sessionId = app.store.run(run.id).sessionId;
+  const messageId = Number(app.store.sqlite.prepare("SELECT source_id FROM messages WHERE session_id=? ORDER BY id LIMIT 1").get(sessionId).source_id);
+  const steps = [{ name: "export", kind: "tool", tool: "runs.export", args: { runId: run.id } },
+    { name: "branch", kind: "tool", tool: "sessions.branch", args: { sessionId, messageId } }];
+  const branches = () => Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM session_branches WHERE parent_session_id=?").get(sessionId).n);
+  for (const [index, one] of steps.entries()) {
+    await use(ada, "workflows.create", { name: `adas ${index}`, steps: [one] });
+    await use(ada, "workflows.run", { id: saved(`adas ${index}`).id });
+    const view = app.workflows.view(owner, saved(`adas ${index}`).id);
+    assert.equal(view.status, "failed", `${one.tool} is refused to Ada's step`);
+    assert.doesNotMatch(JSON.stringify(view.state), /OWNERTASK6611/);
+  }
+  assert.equal(branches(), 0, "no branch was made");
+  // The control: the owner's own workflow does both.
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps }, app.runtime.context());
+  assert.equal((await app.workflows.run(owner, owners.id)).status, "completed");
+  assert.equal(branches(), 1);
+});
