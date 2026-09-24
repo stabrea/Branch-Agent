@@ -18,7 +18,9 @@ import * as zlib from "node:zlib";
  *
  * The judged addresses ride along in the request's options under `pinnedTo`, so a wrapper that hands
  * its options on (the size-limited fetch, a model connection's health record) delivers them here.
- * A request without them goes to the platform's fetch unchanged.
+ * A request without them goes to the platform's fetch unchanged. Each request that arrives here with
+ * them is noted, so the network policy can tell when a checked request's fetch did not keep to the
+ * checked addresses, and say so.
  */
 export const pinnedTo: unique symbol = Symbol("branch.pinnedTo");
 
@@ -47,7 +49,14 @@ const bodilessStatuses = new Set([204, 205, 304]);
 const connectionHeaders = new Set(["connection", "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade", "host", "content-length"]);
 const fetchFailed = (cause: unknown): TypeError => new TypeError("fetch failed", { cause });
 
+/** The pins whose request reached this sender. Only `sendPinned` adds one, before it does anything else. */
+const taken = new WeakSet<Pin>();
+
+/** Whether the request carrying this pin reached this sender, which holds it to the judged addresses. */
+export const pinTaken = (pin: Pin): boolean => taken.has(pin);
+
 async function sendPinned(input: string | URL | Request, init: RequestInit, pin: Pin): Promise<Response> {
+  taken.add(pin);
   // Method, headers, body and signal, read exactly the way the platform's fetch reads them.
   const request = new Request(input, init);
   const url = new URL(request.url);

@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import { z } from "zod";
-import { pinnedFetch, pinnedTo, platformFetch, proxyCarries, type PinnedInit } from "./pinned-fetch.js";
+import { pinTaken, pinnedFetch, pinnedTo, platformFetch, proxyCarries, type Pin, type PinnedInit } from "./pinned-fetch.js";
 
 /**
  * One network policy for everything the assistant reaches over HTTP: web reading, the browser and
@@ -165,6 +165,8 @@ export class NetworkPolicy {
   /** Replaced by the app so every connection leaves a span and a line in the record. */
   watchSockets: SocketWatcher = () => undefined;
   private readonly sockets = new Set<{ socket: WebSocket; runId: string | null }>();
+  /** The fetches already reported for a checked request they did not keep to its checked addresses. */
+  private readonly unheldFetches = new WeakSet<typeof fetch>();
   constructor(
     input: unknown = {},
     private readonly resolve: (host: string) => Promise<string[]> = defaultResolve,
@@ -213,7 +215,9 @@ export class NetworkPolicy {
    * check and the Host line (src/pinned-fetch.ts). A request a proxy carries (the owner's, or one Node
    * was started with) goes to the proxy by name after the same check, since the proxy does its own
    * lookup. A redirect is never followed by itself: the caller asks again, and the new address is
-   * checked and held the same way.
+   * checked and held the same way. A fetch given here that does not hand a checked request's
+   * addresses on to the sender that holds it to them is reported, once for that fetch; the request
+   * is not refused, and its answer or its failure is passed on as it came.
    */
   guard(base: typeof fetch): typeof fetch {
     const policy = this;
@@ -224,9 +228,26 @@ export class NetworkPolicy {
       const judged = await policy.judge(url, "address");
       const next: RequestInit = { ...init, redirect: init?.redirect ?? "error" };
       if (!judged || proxyCarries(url)) return base(input, next);
-      const held: PinnedInit = { ...next, [pinnedTo]: { host: url.hostname, addresses: judged, dial: policy.dial } };
-      return (base === platformFetch ? pinnedFetch : base)(input, held);
+      const pin: Pin = { host: url.hostname, addresses: judged, dial: policy.dial };
+      const held: PinnedInit = { ...next, [pinnedTo]: pin };
+      try {
+        return await (base === platformFetch ? pinnedFetch : base)(input, held);
+      } finally {
+        if (!pinTaken(pin)) policy.reportUnheld(base, url.host);
+      }
     } as typeof fetch;
+  }
+  /**
+   * Says, once for each fetch, that a checked request it was given did not reach the sender that
+   * holds it to the checked addresses. Only the site is named, never the path or the query, where a
+   * key can travel. A warning that cannot be written changes nothing about the request.
+   */
+  private reportUnheld(base: typeof fetch, host: string): void {
+    if (this.unheldFetches.has(base)) return;
+    this.unheldFetches.add(base);
+    try {
+      console.warn(`Branch Agent: the fetch behind a checked request to ${host} did not keep to the checked addresses, so the request was not held to them. This is said once for each such fetch.`);
+    } catch { /* the request's own answer or failure stands */ }
   }
   /**
    * Opens a connection that stays open, under the same rules as every other address. The check
