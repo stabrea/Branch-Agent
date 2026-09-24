@@ -28,6 +28,24 @@ test("every tool description the model sees is free of the NUL escape", () => {
   assert.ok(!JSON.stringify(tool.parameters).includes("\\\\0"), JSON.stringify(tool.parameters));
 });
 
+/** Every pattern the model could be shown that holds a lookahead or lookbehind, with where it sits. */
+function lookarounds(registry) {
+  const offenders = [];
+  const walk = (node, where) => {
+    if (Array.isArray(node)) return node.forEach((item, at) => walk(item, `${where}[${at}]`));
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "pattern" && typeof value === "string" && /\((\?=|\?!|\?<=|\?<!)/.test(value))
+        offenders.push(`${where}: ${value}`);
+      else walk(value, `${where}.${key}`);
+    }
+  };
+  // Without the diet: it only ever drops patterns, so this is every pattern that could be sent.
+  for (const tool of registry.descriptions(new Set(registry.permissions?.() ?? []), { diet: false }))
+    walk(tool.parameters, tool.name);
+  return offenders;
+}
+
 /**
  * The same endpoint checks every `pattern` against the RE2 subset, which has no lookahead or
  * lookbehind. One of them anywhere refuses the whole request, with no tokens used, and takes every
@@ -46,20 +64,49 @@ test("no tool the model is shown uses a lookahead or lookbehind in a pattern", a
     provider: { name: "scripted", async complete() { return { content: "done", toolCalls: [] }; } },
   });
   try {
-    const offenders = [];
-    const walk = (node, where) => {
-      if (Array.isArray(node)) return node.forEach((item, at) => walk(item, `${where}[${at}]`));
-      if (!node || typeof node !== "object") return;
-      for (const [key, value] of Object.entries(node)) {
-        if (key === "pattern" && typeof value === "string" && /\((\?=|\?!|\?<=|\?<!)/.test(value))
-          offenders.push(`${where}: ${value}`);
-        else walk(value, `${where}.${key}`);
-      }
-    };
-    for (const tool of app.registry.descriptions(new Set(app.registry.permissions?.() ?? []), { diet: false }))
-      walk(tool.parameters, tool.name);
-    assert.deepEqual(offenders, [], "these patterns would refuse the whole request on the ChatGPT endpoint");
+    assert.deepEqual(lookarounds(app.registry), [], "these patterns would refuse the whole request on the ChatGPT endpoint");
   } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The scan above sees only what a fresh Branch offers. Setting up an integration brings more tools:
+ * GitHub (and with it `github.pull_request_from_changes`), GitLab, the issue trackers, sending work
+ * with git, commands and the browser. A pattern among those would refuse every request for each
+ * owner who has that integration set up. They are set up here from an integrations file, the way
+ * the owner sets them up. Nothing is contacted: no tool is called, so no token is read, no command
+ * runs and no browser starts (the browser starts on a task's first page).
+ */
+test("no tool that comes with an integration uses a lookahead or lookbehind in a pattern", async () => {
+  const { createBranch } = await import("../dist/index.js");
+  const { loadIntegrations } = await import("../dist/integrations/bootstrap.js");
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "branch-re2-integrations-"));
+  const app = await createBranch({
+    workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "done", toolCalls: [] }; } },
+  });
+  let loaded;
+  try {
+    const launch = join(root, "integrations.json");
+    await writeFile(launch, JSON.stringify({
+      git: { remote: true, github: {}, gitlab: {} },
+      issues: { github: true, gitlab: true, linear: {}, jira: { site: "acme" } },
+      shell: { executables: { node: { path: process.execPath } } },
+      browser: { allowedOrigins: ["https://example.com"] },
+    }));
+    loaded = await loadIntegrations(app.registry, launch, {}, app.secretsFor, app.channelHost);
+    const names = app.registry.names();
+    const arrived = ["github.open_pull_request", "github.pull_request_from_changes", "gitlab.issues", "issues.get",
+      "git.push", "shell.execute", "browser.navigate"];
+    assert.deepEqual(arrived.filter((name) => !names.includes(name)), [], "these were not set up, so this test would prove little");
+    assert.deepEqual(lookarounds(app.registry), [], "with these set up, the ChatGPT endpoint would refuse every request");
+  } finally {
+    await loaded?.close();
     await app.close();
     await rm(root, { recursive: true, force: true });
   }
