@@ -39,6 +39,9 @@ async function harness(t, label) {
   return state;
 }
 
+/** The owner's own rule to be asked before git.log, so its question is what these tests read. */
+const askForGitLog = (state) => addPolicyRule(state.app.store, state.app.runtime.owner, {tool: 'git.log', match: '*', decision: 'ask'});
+
 const waitingIn = (state, run) => state.app.runtime.approvals.questionFor(run.sessionId);
 
 test('research.run with empty sources: target="" and noAlways=true, refuse "always"', async (t) => {
@@ -64,8 +67,9 @@ test('research.run with empty sources: target="" and noAlways=true, refuse "alwa
 
 test('git.log with no path: target="" and noAlways=true, refuse "always"', async (t) => {
   const state = await harness(t, 'q76-git-log-no-path');
+  askForGitLog(state); // git.log reads without asking under this preset, so the owner asks for it here
   
-  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '/tmp/repo'})});
+  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '.'})});
   const run = await state.app.runtime.run({prompt: 'run'});
   const asked = waitingIn(state, run);
   
@@ -80,8 +84,9 @@ test('git.log with no path: target="" and noAlways=true, refuse "always"', async
 
 test('git.log with path: target non-empty, noAlways unset, "always" allowed', async (t) => {
   const state = await harness(t, 'q76-git-log-with-path');
+  askForGitLog(state); // git.log reads without asking under this preset, so the owner asks for it here
   
-  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '/tmp/repo', path: 'src/main.ts'})});
+  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '.', path: 'src/main.ts'})});
   const run = await state.app.runtime.run({prompt: 'run'});
   const asked = waitingIn(state, run);
   
@@ -90,7 +95,7 @@ test('git.log with path: target non-empty, noAlways unset, "always" allowed', as
   assert.equal(asked.noAlways, undefined, 'noAlways unset for non-empty target');
   
   state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint);
-  const rules = readPolicy(state.app.store, state.app.runtime.owner).rules.filter(r => r.tool === 'git.log');
+  const rules = readPolicy(state.app.store, state.app.runtime.owner).rules.filter(r => r.tool === 'git.log' && r.decision === 'allow');
   assert.equal(rules.length, 1);
   assert.equal(rules[0].match, 'src/main.ts', 'rule on specific path');
 });
@@ -147,24 +152,26 @@ test('a tool whose path was left out gets no standing yes, though it declares no
 test('a path of only spaces or invisible characters names nothing, so it gets no standing yes', async (t) => {
   for (const path of [' ', '\t', '​', ' ', '‍ ­']) {
     const state = await harness(t, 'q76-blank-path');
-    state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '/tmp/repo', path})});
+    askForGitLog(state); // git.log reads without asking under this preset, so the owner asks for it here
+    state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '.', path})});
     const run = await state.app.runtime.run({prompt: 'run'});
     const asked = waitingIn(state, run);
     assert(asked, `should ask for ${JSON.stringify(path)}`);
     assert.equal(asked.noAlways, true, JSON.stringify(path));
     assert.throws(() => state.app.runtime.approve(run.sessionId, 'allow', 'always', asked.fingerprint), /does not say/, JSON.stringify(path));
-    assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'git.log').length, 0);
+    assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'git.log' && r.decision === 'allow').length, 0);
   }
 });
 
 test('branch approve on the command line writes no "*" rule for a call that left its target out', async (t) => {
   const {answerFromCommand} = await import('../dist/cli-run.js');
   const state = await harness(t, 'q76-cli-empty');
-  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '/tmp/repo'})});
+  askForGitLog(state); // git.log reads without asking under this preset, so the owner asks for it here
+  state.calls.push({id: 'c1', name: 'git.log', arguments: JSON.stringify({folder: '.'})});
   const run = await state.app.runtime.run({prompt: 'run'});
   assert(waitingIn(state, run), 'should ask');
   assert.throws(() => answerFromCommand(state.app.runtime, run.id, 'yes'), /does not say/);
-  assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'git.log').length, 0);
+  assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'git.log' && r.decision === 'allow').length, 0);
 });
 
 test('branch approve on the command line keeps a standing yes for a tool that can name nothing', async (t) => {
