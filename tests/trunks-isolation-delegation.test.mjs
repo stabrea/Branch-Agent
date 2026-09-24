@@ -659,3 +659,32 @@ test("Q121: a Trunk removed while its flow run works stops it before the next bo
   assert.equal(app.store.list("memory", app.runtime.owner).some((record) => String(record.data.text).includes("KEPT9032")), false,
     "the box after Ada was removed never ran");
 });
+
+test("Q121: flows left working still carry on at launch when the window was left on another person's profile", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { createBranch } = await import("../dist/index.js");
+  const { brain } = await import("./trunks-helpers.mjs");
+  const root = await mkdtemp(join(tmpdir(), "branch-q121-profile-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
+  const first = await open();
+  const graph = first.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = first.flows.startGraph(graph.id, {});
+  await first.flows.settled(runId);
+  first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b' WHERE run_id=?").run(runId); // as a close leaves it
+  // The owner's PIN is set and the window was left on Kid's profile, so it comes back on Kid's.
+  first.store.profiles.setOwnerPin({ pin: "1234" });
+  const kid = first.store.profiles.create({ name: "Kid", pin: "2468" });
+  first.store.profiles.switch({ profileId: kid.id, pin: "2468" });
+  await first.close();
+  const second = await open();
+  t.after(() => second.close());
+  assert.equal(second.store.profiles.active()?.id, kid.id, "the window is back on Kid's profile");
+  const view = await second.flows.settled(runId);
+  assert.equal(view.status, "completed", `the owner's flow carried on all the same: ${JSON.stringify(view).slice(0, 200)}`);
+});

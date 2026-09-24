@@ -1216,9 +1216,6 @@ export async function createBranch(options: {
   };
   // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
-  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
-  // on, once everything above has started as the owner.
-  store.profiles.resumeWhereLeft();
   const branch = {
     store,
     registry,
@@ -1555,6 +1552,10 @@ export async function createBranch(options: {
   // a Trunk's run carries on as that Trunk only once every hook it reaches is wired, its own folder
   // (`runtime.coding`) included, rather than in the owner's project.
   try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
+  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
+  // on, once everything above has started as the owner: the launch carry-on of interrupted flows
+  // included (NAS 52f87df), which is the owner's and must not meet another person's window.
+  store.profiles.resumeWhereLeft();
   return branch;
 }
 /** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */
