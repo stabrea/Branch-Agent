@@ -377,3 +377,20 @@ test("C: git.pull in source refuses when fetch URL rewritten to dash-leading hos
   // Pull should refuse because fetch URL is rewritten to git@-h:, which has a dash-leading host
   await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /user or host with "-"/);
 });
+
+test("Q96: a remote Git reads from an old .git/remotes or .git/branches file is refused in source, even rewritten", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], { cwd, encoding: "utf8" }).trim();
+  await mkdir(join(gitDir, "remotes"), { recursive: true });
+  await mkdir(join(gitDir, "branches"), { recursive: true });
+  await writeFile(join(gitDir, "remotes", "legacy"), "URL: https://example.com/repo.git\n");
+  await writeFile(join(gitDir, "branches", "older"), "https://example.com/other.git\n");
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  assert.equal(execFileSync("git", ["remote", "get-url", "legacy"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(),
+    "https://evil.com/repo.git", "Git itself sends to the rewritten address");
+  for (const remote of ["legacy", "older"]) {
+    await assert.rejects(app.git.push({ folder, remote, branch: "feature" }, signal), /not set in Git's settings/, remote);
+    await assert.rejects(app.git.pull({ folder, remote, branch: "feature" }, signal), /not set in Git's settings/, remote);
+  }
+});

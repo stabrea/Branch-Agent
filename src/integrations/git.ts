@@ -235,7 +235,10 @@ export class GitTools {
    */
   private async checkInsteadOf(cwd: string, remote: string, isPush: boolean, signal: AbortSignal): Promise<string | void> {
     const raw = await this.runner.run({ cwd, args: ["config", "--get-all", `remote.${remote}.url`], timeoutMs: 10_000 }, signal);
-    if (raw.status !== "completed") return;
+    // Q96: a remote Git still reads from a .git/remotes or .git/branches file has nothing here to compare
+    // its rewritten address with, so it is refused rather than let through.
+    if (raw.status !== "completed")
+      return `Remote "${remote}" is not set in Git's settings (it may come from an old .git/remotes or .git/branches file), so nothing was sent.`;
     const configured = raw.stdout.trim().split("\n").filter(Boolean);
     const getUrlArgs = isPush ? ["remote", "get-url", "--push", "--all", remote] : ["remote", "get-url", "--all", remote];
     const read = await this.runner.run({ cwd, args: getUrlArgs, timeoutMs: 10_000 }, signal);
