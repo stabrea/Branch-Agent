@@ -397,7 +397,10 @@ test("the Update button holds the claim through the hand-over and gives it back 
   assert.match(handler, /updater\.install\(\{ hold: true \}\)/, "the handler asks for the claim to be held");
   const failure = handler.slice(handler.indexOf("} catch (error) {"));
   // Q55: `failed` gives the claim back and says what is still installed (tests/update-outcome.test.mjs).
-  assert.match(failure, /^\} catch \(error\) \{\s*(?:\/\/[^\n]*\n\s*)*updater\.failed\([^;]*\);\s*throw error;/, "a hand-over that fails gives it back");
+  // Before that, Branch gets back the work it was asked to finish, and an engine the update closed is
+  // started again (`giveBack`, tests/update-drain.test.mjs), while the claim still keeps a second try out.
+  assert.match(failure, /^\} catch \(error\) \{\s*(?:\/\/[^\n]*\n\s*)*await updater\.giveBack\(\);\s*(?:\/\/[^\n]*\n\s*)*updater\.failed\([^;]*\);\s*throw error;/,
+    "a hand-over that fails gives Branch its work back, then the claim");
   assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.failed("), "the release is on the hand-over's failure path");
   assert.equal((handler.match(/updater\.(?:release|failed)\(/g) ?? []).length, 1, "and nowhere else");
   // Q55: the words say the background engine was stopped only when this install really closed it.

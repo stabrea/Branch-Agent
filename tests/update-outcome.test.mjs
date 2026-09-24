@@ -92,7 +92,7 @@ async function reachesTheEngine(t, stopDaemon) {
 
 test("a failure after the background engine was closed says the engine was stopped, not that nothing changed", async (t) => {
   // The engine closes, then the hand-over script cannot be written (a folder is where its file goes).
-  const updater = await reachesTheEngine(t, async (scratchDir) => { await mkdir(join(scratchDir, "recover-update.cmd")); return 4321; });
+  const updater = await reachesTheEngine(t, async (scratchDir) => { await mkdir(join(scratchDir, "recover-update.cmd")); return { pid: 4321, stopped: true }; });
   await assert.rejects(updater.install());
   assert.equal(updater.status.phase, "error");
   assert.deepEqual(updater.status.outcome, { kept: "1.0.0", backgroundStopped: true });
@@ -100,7 +100,7 @@ test("a failure after the background engine was closed says the engine was stopp
 });
 
 test("a hand-over that could not start after the engine was closed says the engine was stopped", async (t) => {
-  const updater = await reachesTheEngine(t, async () => 4321);
+  const updater = await reachesTheEngine(t, async () => ({ pid: 4321, stopped: true }));
   await updater.install({ hold: true });
   assert.equal(updater.backgroundStopped, true, "the window's message is chosen from this");
   assert.deepEqual(updater.failed("The update could not be started: no shell.").outcome, { kept: "1.0.0", backgroundStopped: true });
@@ -108,7 +108,7 @@ test("a hand-over that could not start after the engine was closed says the engi
 });
 
 test("an engine stop that found nothing running is not called a stop", async (t) => {
-  const updater = await reachesTheEngine(t, async () => null);
+  const updater = await reachesTheEngine(t, async () => ({ pid: null, stopped: false }));
   await updater.install({ hold: true });
   assert.equal(updater.backgroundStopped, false);
   assert.deepEqual(updater.failed("The update could not be started: no shell.").outcome, { kept: "1.0.0", backgroundStopped: false });

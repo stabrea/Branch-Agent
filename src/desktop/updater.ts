@@ -50,12 +50,14 @@ export interface UpdaterOptions {
    * held open while they are replaced. Answers with its process id (null when nothing was working in
    * the background) and whether it was proved closed: one still alive after the wait keeps its id, so
    * the hand-over waits for it, but it was only drained, and a stopped update gives it its work back.
-   * A refusal stops the update rather than proceeding without proof the engine is closed.
+   * A refusal stops the update rather than proceeding without proof the engine is closed; an
+   * `UpdateDeferredError` (the engine is still at work) makes it wait instead, to be offered again.
    */
   stopDaemon?: () => Promise<EngineStop>;
   /**
    * Asks the running Branch to finish what it is doing before it is closed for the swap (no new work,
-   * a short wait, the rest marked so the next version offers it back). Never stops the update.
+   * a short wait, the rest marked so the next version offers it back). When it throws, the update stops
+   * before anything is closed or swapped, and the drain is taken back.
    */
   drain?: () => Promise<unknown>;
   /** Takes the drain back when the update stops after it and before Branch is closed. */
@@ -420,6 +422,8 @@ export class Updater {
       return result;
     }
     catch (error) {
+      // An engine still at work defers the update rather than failing it: it is offered again once work is idle.
+      if (error instanceof UpdateDeferredError) throw error;
       const why = (error instanceof Error ? error.message : String(error)).replace(/\.?$/, ".");
       throw new Error(`The part of Branch that works in the background could not be closed, so the update was stopped and nothing was changed: ${why}`);
     }

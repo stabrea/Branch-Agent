@@ -77,6 +77,9 @@ export function registerUpdaterIpc(
     currentCommit: builtFrom(app.getAppPath(), app.isPackaged),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
+    ...(hooks?.drain ? { drain: hooks.drain } : {}),
+    ...(hooks?.undrain ? { undrain: hooks.undrain } : {}),
+    ...(hooks?.revive ? { revive: hooks.revive } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
     beforeStop: ensureIdle,
   });
@@ -129,6 +132,9 @@ export function registerUpdaterIpc(
             : `The update could not be started: ${why}.`);
         });
       } catch (error) {
+        // Nothing was swapped: work drained for the update is given back, and an engine it closed is
+        // started again, while the claim still keeps a second try out.
+        await updater.giveBack();
         // Q55: nothing was swapped, so the status says what is still installed instead of "Restarting…".
         updater.failed(error instanceof Error ? error.message : String(error));
         throw error;

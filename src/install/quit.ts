@@ -35,9 +35,10 @@ export async function localWithMasterKey(request: IncomingMessage, input: { data
 
 /**
  * Before an update: asks the running Branch to take no new work and give what it is doing up to
- * `budgetMs` to finish (src/runtime.ts `drain`). Answers how that went, or null when there was no
- * Branch to ask or it could not be asked; an update goes ahead either way, and what it cuts off is
- * offered back by the version that comes up next.
+ * `budgetMs` to finish (src/runtime.ts `drain`). Answers how that went, or null when no Branch is
+ * running. A Branch that is running but cannot be asked, or does not answer, throws, and the update
+ * stops before anything is closed. What the update then cuts off is offered back by the version
+ * that comes up next.
  */
 export const drainPath = "/api/never-break/drain";
 export interface DrainReport { finished: number; stillRunning: number }

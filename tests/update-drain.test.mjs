@@ -16,7 +16,7 @@ import { startServer } from "../dist/server.js";
 import { cutByUpdate } from "../dist/never-break/resume.js";
 import { drainPath, drainRunning, undrainRunning } from "../dist/install/quit.js";
 import { writeRunning } from "../dist/install/running.js";
-import { Updater } from "../dist/desktop/updater.js";
+import { Updater, UpdateDeferredError } from "../dist/desktop/updater.js";
 
 /** A model that answers `quick` at once and otherwise waits until the task is stopped. */
 const provider = () => ({
@@ -204,7 +204,13 @@ async function stopsAfterClosing(t, stopDaemon) {
   const updater = new Updater({
     repo: "x/y", currentVersion: "1.0.0", installDir, executableName: "Branch Agent.exe", assetName: "app.zip",
     scratchDir, fetch: fakeRelease(), platform: "win32", packaged: true,
-    extract: async (_archive, into) => { await mkdir(join(into, "app"), { recursive: true }); await writeFile(join(into, "app", "Branch Agent.exe"), "new"); },
+    // The download names itself as Branch at the version asked for: one that does not is refused
+    // before anything is drained or closed, and this is about what happens after the close.
+    extract: async (_archive, into) => {
+      await mkdir(join(into, "app", "resources", "app"), { recursive: true });
+      await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+      await writeFile(join(into, "app", "resources", "app", "package.json"), JSON.stringify({ name: "branch-agent", version: "2.0.0" }));
+    },
     drain: async () => undefined,
     undrain: async () => { calls.undrained++; },
     revive: async () => { calls.revived++; },
@@ -224,4 +230,25 @@ test("a stopped update gives a still-running engine its work back, and starts ag
     { undrained: 0, revived: 1, phase: "error", script: false }, "proved closed: started again, not sent an undo it cannot hear");
   assert.deepEqual(await stopsAfterClosing(t, async () => { throw new Error("no answer"); }),
     { undrained: 1, revived: 0, phase: "error", script: false }, "a close that failed outright stops the update: nothing proves the engine gone");
+});
+
+test("an engine still at work when the update would close it makes the update wait, and gets its work back", async (t) => {
+  const busy = async () => { throw new UpdateDeferredError("The background engine is still working; the update will wait rather than stop it."); };
+  assert.deepEqual(await stopsAfterClosing(t, busy), { undrained: 1, revived: 0, phase: "available", script: false },
+    "the update waits to be offered again once work is idle, not failed, and nothing is closed or swapped");
+});
+
+/**
+ * The Update button's handler imports Electron, so it cannot be run here; like the other checks of
+ * that file (tests/updater.test.mjs), this reads it. The window's drain, its undo and the engine's
+ * return have to reach the updater, or an update from the window closes Branch without letting its
+ * work finish first.
+ */
+test("the Update button hands the updater the drain, the drain's undo and the engine's return", async () => {
+  const ipc = await readFile(new URL("../src/desktop/updater-ipc.ts", import.meta.url), "utf8");
+  const start = ipc.indexOf("const updater = new Updater({");
+  const options = ipc.slice(start, ipc.indexOf("});", start));
+  assert.ok(start >= 0 && options.includes("stopDaemon: hooks.stopDaemon"), "the updater's options are where they were");
+  for (const hook of ["drain", "undrain", "revive"])
+    assert.match(options, new RegExp(`\\b${hook}: hooks\\.${hook}\\b`), `the window's ${hook} reaches the updater`);
 });

@@ -221,7 +221,7 @@ test("the hand-over waits for the engine as well, and is unchanged when there is
 
   const stopped = [];
   const joined = await updaterFor(root, "scratch-joined", {
-    stopDaemon: async () => { stopped.push("asked"); return 4321; },
+    stopDaemon: async () => { stopped.push("asked"); return { pid: 4321, stopped: true }; },
   });
   const text = await readFile((await joined.install()).script, "utf8");
   assert.deepEqual(stopped, ["asked"], "the engine is closed before the hand-over script is written");
@@ -241,7 +241,7 @@ test("cmd runs the two-wait script through to the copy", { skip: process.platfor
   await writeFile(join(installDir, "Branch Agent.exe"), "old");
   // Neither process id exists, so both waits fall straight through; "stay" stops before anything starts.
   // Its own RunOnce key, so a run never registers anything for the next real sign-in.
-  const updater = await updaterFor(root, "scratch-run", { stopDaemon: async () => 999998, runOnceKey: "HKCU\\Software\\BranchAgentTest\\RunOnce" });
+  const updater = await updaterFor(root, "scratch-run", { stopDaemon: async () => ({ pid: 999998, stopped: true }), runOnceKey: "HKCU\\Software\\BranchAgentTest\\RunOnce" });
   t.after(() => new Promise((resolve) => spawn("reg.exe", ["delete", "HKCU\\Software\\BranchAgentTest", "/f"], { stdio: "ignore", windowsHide: true }).on("close", resolve).on("error", resolve)));
   const { script } = await updater.install();
   await new Promise((resolve) => {
