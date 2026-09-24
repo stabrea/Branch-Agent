@@ -394,7 +394,7 @@ async function installsCard(modes) {
 async function sourceRequestsCard() {
   const { node, status } = card("branch-source-requests-card", "inbox:needs", "branch.source.title", "Branch source-change requests",
     "branch.source.purpose", "Review requests from chat. Approval prepares an isolated worktree; it never pushes or opens a pull request.");
-  const { requests } = await api("branch/source-change");
+  const { requests, reviews = [] } = await api("branch/source-change");
   const list = document.createElement("ul");
   for (const item of requests) {
     const line = plain("li", `${item.name} · ${item.repository} · ${item.base} · expires ${shortDate(item.expiresAt)}`);
@@ -408,6 +408,22 @@ async function sourceRequestsCard() {
   }
   node.append(list);
   if (!requests.length) node.append(make("p", "field-note", "branch.source.none", "No pending requests."));
+  if (reviews.length) node.append(plain("h3", "Coding task review"));
+  for (const item of reviews) {
+    const line = plain("li", `${item.name} · ${item.status} · ${item.folder || "worktree not prepared"}`);
+    line.append(plain("p", item.goal));
+    if (item.taskRunId) line.append(plain("p", `Run: ${item.taskRunId}`));
+    if (item.summary) line.append(plain("pre", item.summary));
+    if (item.folder && (item.status === "review" || item.status === "failed")) {
+      const diff = plain("pre", "");
+      line.append(button("branch.source.diff", "View read-only diff", () => act(status, async () => {
+        const result = await api(`branch/source-change/diff?id=${encodeURIComponent(item.id)}`);
+        diff.textContent = `Changed files (including untracked; untracked contents are not shown):\n${result.files}${result.filesTruncated ? "\n[List truncated]" : ""}\nTracked diff:\n${result.diff}${result.truncated ? "\n[Diff truncated]" : ""}`;
+      })));
+      line.append(diff);
+    }
+    list.append(line);
+  }
   node.append(row(button("branch.source.refresh", "Refresh", act(status, drawCards)), status));
   return node;
 }

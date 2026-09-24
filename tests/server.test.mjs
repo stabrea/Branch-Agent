@@ -34,7 +34,9 @@ test("source-change inbox and decisions require owner HTTP authentication", asyn
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const inbox = await fetch(path, { headers });
   assert.equal(inbox.status, 200);
-  assert.deepEqual(await inbox.json(), { requests: [] });
+  assert.deepEqual(await inbox.json(), { requests: [], reviews: [] });
+  assert.equal((await fetch(path + "/diff?id=00000000-0000-4000-8000-000000000000")).status, 401);
+  assert.equal((await fetch(path + "/diff?id=00000000-0000-4000-8000-000000000000", { headers })).status, 400);
   assert.equal((await fetch(path, { method: "POST", headers, body: JSON.stringify({ id: "bad", decision: "deny" }) })).status, 400);
   assert.equal(app.store.profiles.isOwner(), true);
 });

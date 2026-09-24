@@ -1,6 +1,6 @@
-import { stat } from "node:fs/promises";
+import { stat, realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, relative, isAbsolute } from "node:path";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import { githubRepositoryOf } from "./pr-hook.js";
@@ -43,7 +43,43 @@ function requests(deps: SelfDevelopmentDeps): Store {
   deps.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS branch_source_requests (
     id TEXT PRIMARY KEY, owner TEXT NOT NULL, run_id TEXT NOT NULL,
     input TEXT NOT NULL, expires_at INTEGER NOT NULL, status TEXT NOT NULL)`);
+  const columns = deps.store.sqlite.prepare("PRAGMA table_info(branch_source_requests)").all() as Array<{ name: string }>;
+  for (const name of ["task_run_id", "worktree_folder", "result_summary"])
+    if (!columns.some((column) => column.name === name)) deps.store.sqlite.exec(`ALTER TABLE branch_source_requests ADD COLUMN ${name} TEXT`);
   return deps.store;
+}
+
+export function reviewedBranchSourceChanges(deps: SelfDevelopmentDeps) {
+  const store = requests(deps);
+  const rows = store.sqlite.prepare("SELECT id, input, status, task_run_id, worktree_folder, result_summary FROM branch_source_requests WHERE owner = ? AND status IN ('approved', 'review', 'failed') ORDER BY rowid DESC LIMIT 30")
+    .all(deps.owner) as Array<{ id: string; input: string; status: string; task_run_id: string | null; worktree_folder: string | null; result_summary: string | null }>;
+  return rows.map((row) => ({ id: row.id, ...requestSchema.parse(JSON.parse(row.input)), status: row.status,
+    taskRunId: row.task_run_id, folder: row.worktree_folder, summary: row.result_summary }));
+}
+
+export async function branchSourceDiff(deps: SelfDevelopmentDeps, id: string, signal: AbortSignal) {
+  const store = requests(deps);
+  const row = store.sqlite.prepare("SELECT input, status, worktree_folder FROM branch_source_requests WHERE id = ? AND owner = ?")
+    .get(id, deps.owner) as { input: string; status: string; worktree_folder: string | null } | undefined;
+  if (!row || !["review", "failed"].includes(row.status) || !row.worktree_folder) throw new Error("No completed source-change worktree is available.");
+  const input = requestSchema.parse(JSON.parse(row.input));
+  const expected = `${sourceFolder}/.branch-worktrees/self-${input.name}`;
+  if (row.worktree_folder !== expected) throw new Error("Source-change worktree is invalid.");
+  const cwd = sourceChangeFolder(deps.workspace, input.name);
+  if (!(await (deps.exists ?? present)(cwd))) throw new Error("Source-change worktree is missing.");
+  if (!deps.exists) {
+    const root = await realpath(join(deps.workspace, sourceFolder));
+    const actual = await realpath(cwd);
+    const inside = relative(root, actual);
+    if (inside.startsWith("..") || isAbsolute(inside)) throw new Error("Source-change worktree escapes the source checkout.");
+  }
+  // Read-only Git with bounded output; never execute scripts or follow a stored arbitrary path.
+  const outcome = await deps.git({ cwd, args: ["diff", "--no-ext-diff", "--no-textconv", "--", "."], timeoutMs: 10_000 }, signal);
+  if (outcome.status !== "completed") throw new Error(explainGit(outcome));
+  const status = await deps.git({ cwd, args: ["status", "--short", "--untracked-files=normal", "--", "."], timeoutMs: 10_000 }, signal);
+  if (status.status !== "completed") throw new Error(explainGit(status));
+  return { id, diff: outcome.stdout.slice(0, 65536), truncated: outcome.stdout.length > 65536,
+    files: status.stdout.slice(0, 8192), filesTruncated: status.stdout.length > 8192 };
 }
 
 export function pendingBranchSourceChanges(deps: SelfDevelopmentDeps): Array<{ id: string; runId: string; name: string; goal: string; repository: string; base: string; expiresAt: string }> {
@@ -83,6 +119,8 @@ export async function decideBranchSourceChange(deps: SelfDevelopmentDeps, id: st
   const input = requestSchema.parse(JSON.parse(row.input));
   repositoryAddress(input.repository);
   const result = await prepareBranchSourceChange(deps, input, signal);
+  store.sqlite.prepare("UPDATE branch_source_requests SET worktree_folder = ? WHERE id = ? AND owner = ?")
+    .run(String(result.folder), id, deps.owner);
   if (!deps.runtime) return { id, status, goal: input.goal, result };
   const folder = String(result.folder);
   // An approved chat goal remains untrusted input. Only purpose-built, scoped file
@@ -95,10 +133,12 @@ export async function decideBranchSourceChange(deps: SelfDevelopmentDeps, id: st
       sourceWorktree: { scope: folder, workspace: join(deps.workspace, folder) },
     });
     const taskStatus = task.status === "completed" ? "review" : "failed";
-    store.sqlite.prepare("UPDATE branch_source_requests SET status = ? WHERE id = ? AND status = 'approved'").run(taskStatus, id);
+    store.sqlite.prepare("UPDATE branch_source_requests SET status = ?, task_run_id = ?, result_summary = ? WHERE id = ? AND owner = ? AND status = 'approved'")
+      .run(taskStatus, task.id, JSON.stringify(task).slice(0, 8192), id, deps.owner);
     return { id, status: taskStatus, goal: input.goal, result, taskRunId: task.id, taskStatus: task.status };
   } catch (error) {
-    store.sqlite.prepare("UPDATE branch_source_requests SET status = ? WHERE id = ? AND status = 'approved'").run("failed", id);
+    store.sqlite.prepare("UPDATE branch_source_requests SET status = ?, result_summary = ? WHERE id = ? AND owner = ? AND status = 'approved'")
+      .run("failed", String(error).slice(0, 2048), id, deps.owner);
     throw error;
   }
 }
