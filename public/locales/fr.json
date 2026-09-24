@@ -266,6 +266,7 @@
   "updates.busy.waiting-unknown": "Impossible de savoir encore si une tâche est en cours. Nouvelle vérification dans quelques secondes.",
   "updates.failed.to": "La mise à jour vers {to} n'a pas abouti. Branch est resté en {version}, et rien n'a été perdu.",
   "updates.failed.now": "La mise à jour n'a pas abouti. Branch est resté en {version}, et rien n'a été perdu.",
+  "updates.failed.why": "Ce qui l'a arrêtée : {why}",
   "updates.failed.download": "Télécharger ce qui s'est passé",
   "updates.failed.send": "Envoyez-nous le fichier vous-même, sur Discord par exemple. Rien n'est envoyé tout seul.",
   "updates.failed.saved": "Enregistré sous {name}. Envoyez-le-nous vous-même, sur Discord par exemple. Rien n'a été envoyé.",
