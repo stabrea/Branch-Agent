@@ -315,10 +315,11 @@ test("Q82: outside Branch's source, an scp-like remote with dash host is not ref
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial"], { cwd });
   execFileSync("git", ["remote", "add", "attack", "git@-h:repo.git"], { cwd });
   const signal = AbortSignal.timeout(10_000);
-  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "custom" }, signal));
   // Verify the rejection is not from the Q82 dash check (which should only run in Branch's source)
-  const error = await assert.rejects(app.git.push({ folder, remote: "attack", branch: "custom" }, signal));
-  assert.ok(!String(error).match(/user or host with "-"/), "Q82 dash check should not run outside Branch's source");
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "custom" }, signal), (e) => {
+    assert.doesNotMatch(String(e), /user or host with "-"/, "Q82 dash check should not run outside Branch's source");
+    return true;
+  });
 });
 
 test("A1: git.push and git.pull in source refuse LOCAL scoped include.path", { skip: posixOnly }, async (t) => {
@@ -327,4 +328,59 @@ test("A1: git.push and git.pull in source refuse LOCAL scoped include.path", { s
   execFileSync("git", ["config", "--local", "include.path", "/tmp/evil"], { cwd });
   await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /included config file.*local scope/);
   await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /included config file.*local scope/);
+});
+
+test("A1: git.push and git.pull in source refuse URL-scoped credential.helper (LOCAL scope)", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "credential.https://example.com.helper", "fake"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+});
+
+test("A1: git.push and git.pull in source allow credential.username (not matched by helper pattern)", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "credential.username", "fake"], { cwd });
+  // Should not refuse for credential.username; will fail for unconfigured remote or network reasons
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /not configured/, "credential.username does not trigger the helper refusal");
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /not configured/, "credential.username does not trigger the helper refusal");
+});
+
+test("B: git.push in source refuses when push URLs count differs from configured URL count", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["remote", "set-url", "--add", "--push", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["remote", "set-url", "--add", "--push", "origin", "https://evil.com/repo.git"], { cwd });
+  // Now there are 2 push URLs but only 1 base URL; this should be refused
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("C: git.pull in source detects fetch URL rewritten by url.insteadOf (checkInsteadOf uses correct URL list)", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  // url.insteadOf rewrites all URLs matching the pattern
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  // Pull should refuse because the URL is rewritten by insteadOf
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("C: git.pull in source refuses URL rewritten by url.<X>.insteadOf", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  // url.insteadOf rewrites both fetch and push URLs
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("C: git.pull in source refuses when fetch URL rewritten to dash-leading host", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["config", "--local", "url.git@-h:.insteadOf", "https://example.com/"], { cwd });
+  // Pull should refuse because fetch URL is rewritten to git@-h:, which has a dash-leading host
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /user or host with "-"/);
 });
