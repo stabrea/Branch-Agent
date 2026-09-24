@@ -629,3 +629,30 @@ test("Q126: a yes to a workflow whose Trunk is gone is refused before it is writ
     assert.equal(view.state.some((step) => step.status === "approved"), false, "no step recorded as approved");
   }
 });
+
+test("Q126: a yes to a guarded step of a workflow whose Trunk is gone grants nothing: the step's question stays pending", async (t) => {
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "files.read", "files.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await madeBy(app, ada, { name: "write", steps: [
+    { name: "write", kind: "tool", tool: "files.write", args: { path: "q126.md", content: "x" } },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    () => app.workflows.run(app.runtime.owner, workflow.id, "schedule"));
+  const pending = () => app.store.get("workflows", app.runtime.owner, workflow.id)?.data?.pendingApproval ?? null;
+  const asked = pending(), question = app.workflows.view(app.runtime.owner, workflow.id).question;
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
+  assert.equal(asked?.tool, "files.write", "the write stopped to ask");
+  app.trunks.remove(ada.id);
+  for (const time of ["first", "second"]) {
+    await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id), /no longer here/, `the ${time} yes`);
+    const view = app.workflows.view(app.runtime.owner, workflow.id);
+    assert.equal(view.status, "waiting_approval", `still waiting after the ${time} yes`);
+    assert.deepEqual(pending(), asked, "the write's question is still pending, so no yes was granted");
+    assert.equal(view.question, question);
+    assert.equal(view.state.some((step) => step.status === "approved" || step.status === "done"), false, "nothing approved or run");
+  }
+});
