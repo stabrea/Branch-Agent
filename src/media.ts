@@ -26,6 +26,7 @@ import {
   type SourcePicture,
 } from "./media-images.js";
 import { mediaInfo, videoLimits } from "./media-video.js";
+import { decodePng, pngSignature } from "./media-decode.js";
 import { estimateImageCost, mediaSettings } from "./media-settings.js";
 
 /** The most any one file the media tools read may weigh: enough for a long recording, not a disk. */
@@ -270,9 +271,21 @@ export class MediaTools {
     return { ...(kept as Artifact), seconds: Number(cut.seconds.toFixed(3)), of: Number(cut.of.toFixed(3)),
       ...(saved ? { savedAs: saved.path } : {}) };
   }
-  /** What a video or sound file's own headers say, without decoding any of its content. */
+  /**
+   * What a video, sound or picture file says about itself. An MP4 or a WAV is read from its own
+   * headers, without decoding its content. A PNG picture is decoded fully: its compressed pixel data
+   * is inflated and unfiltered, so a file that only starts with the right bytes is refused by name.
+   */
   async info(input: { path: string }): Promise<Record<string, unknown>> {
-    return { path: input.path, ...mediaInfo(await this.bytesOf(input.path)) };
+    const bytes = await this.bytesOf(input.path);
+    if (!bytes.subarray(0, pngSignature.length).equals(pngSignature))
+      return { path: input.path, ...mediaInfo(bytes) };
+    const picture = decodePng(bytes);
+    return {
+      path: input.path, format: "png", bytes: bytes.length,
+      width: picture.width, height: picture.height, channels: picture.channels, decoded: true,
+      note: "Decoded from the picture's own compressed pixel data, checked chunk by chunk.",
+    };
   }
 }
 
@@ -332,7 +345,7 @@ function registerSound(registry: ToolRegistry, media: MediaTools): void {
   });
   registry.register({
     name: "media.info", permission: "media.read",
-    description: `How long an MP4 video or a WAV sound file runs, and what it carries, read from the file's own headers. ${videoLimits}`,
+    description: `How long an MP4 video or a WAV sound file runs, and what it carries, read from the file's own headers. A PNG picture is decoded fully, its size read back from its own pixel data. ${videoLimits}`,
     parameters: z.object({ path: pathSchema }).strict(),
     execute: (input) => media.info(input),
   });
