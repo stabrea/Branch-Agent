@@ -17,7 +17,7 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
-  "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
+  "#ask-first-toggle", "#composer-specialist", "#new-session", "#session-label",
   "#saved-conversations", "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn",
 ];

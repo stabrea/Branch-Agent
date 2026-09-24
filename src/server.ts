@@ -1929,7 +1929,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(?:export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context|cost))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context|cost))?$/.exec(path);
   if (match && match[2] === "cost" && request.method === "GET") return conversationCost(app, match[1]!);
   // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
   if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
