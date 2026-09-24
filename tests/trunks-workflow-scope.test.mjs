@@ -210,3 +210,25 @@ test("a Trunk's workflow step and flow box are asked as that Trunk, with none of
   assert.ok(box, "Ada's flow box asked the model");
   assert.doesNotMatch(box, /OWNERDOC4242/, "nor is Ada's flow box");
 });
+
+test("what the owner teaches a Trunk is that Trunk's workflow: it reaches it, and another Trunk does not", async (t) => {
+  const { app } = await fixture(t, [({ last }) => (/write the report/.test(String(last?.content ?? ""))
+    ? call("files.write", { path: "report.md", content: "# Report" }) : last?.role === "tool" ? "Written." : null)]);
+  on(app);
+  const gu = app.trunks.create({ name: "Gu" }), bo = app.trunks.create({ name: "Bo" });
+  for (const trunk of [gu, bo]) app.trunks.edit(trunk.id, { permissions: ["workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  app.trunks.setMode("teach", { mode: "on" });
+  app.trunks.teaching.watch(gu.id);
+  assert.equal((await app.runtime.run({ prompt: "write the report" })).status, "completed");
+  const { workflow } = app.trunks.teaching.save(gu.id, { name: "Weekly report" });
+  assert.equal(app.store.get("workflows", app.runtime.owner, workflow.id).data.startedBy, gu.id, "the owner handed it to Gu");
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const as = (trunk, name, args) => withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: trunk.keys, id: trunk.id } },
+    async () => app.registry.execute(name, args, app.runtime.context()));
+  const listed = async (trunk) => (await as(trunk, "workflows.list", {})).workflows.map((flow) => flow.id);
+  assert.ok((await listed(gu)).includes(workflow.id), "Gu's own list shows what it was taught");
+  assert.equal((await as(gu, "workflows.run", { id: workflow.id })).id, workflow.id, "so Gu's routine can set it going");
+  assert.ok(!(await listed(bo)).includes(workflow.id), "Bo's list does not");
+  await assert.rejects(as(bo, "workflows.run", { id: workflow.id }), /Workflow not found/);
+});
