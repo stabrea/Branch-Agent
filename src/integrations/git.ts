@@ -189,6 +189,12 @@ export class GitTools {
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
+    // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
+    const refused = await this.validateRemoteURL(cwd, input.remote, true, signal);
+    if (refused) {
+      await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
+      throw new Error(refused);
+    }
     const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branch], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }

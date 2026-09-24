@@ -394,3 +394,15 @@ test("Q96: a remote Git reads from an old .git/remotes or .git/branches file is 
     await assert.rejects(app.git.pull({ folder, remote, branch: "feature" }, signal), /not set in Git's settings/, remote);
   }
 });
+
+test("Q98: publishing from Branch's source gets the push checks: a rewritten address or a local helper is refused, and no remote is left", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://github.com/"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "the refused address is not left behind");
+  execFileSync("git", ["config", "--local", "--unset", "url.https://evil.com/.insteadOf"], { cwd });
+  execFileSync("git", ["config", "--local", "credential.https://github.com.helper", "!echo planted"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /credential helper/);
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "");
+});
