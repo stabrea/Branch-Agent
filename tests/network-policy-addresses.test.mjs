@@ -8,6 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { NetworkPolicy, isPrivateAddress } from "../dist/network-policy.js";
+import { pinnedFetch, pinnedTo } from "../dist/pinned-fetch.js";
 import { fetchChecked } from "../dist/web-page-fetch.js";
 
 const refusedHosts = [
@@ -124,16 +125,36 @@ test("with fakeIpProxy on, a name that resolves into 198.18.0.0/15 is let throug
   await assert.rejects(listed.assertAllowed(new URL("https://fake.test/")), /not on the allowed list/);
 });
 
-test("with fakeIpProxy on, a redirect to a literal 198.18 address is refused before anything is sent to it", async () => {
-  const policy = new NetworkPolicy({ fakeIpProxy: true }, fakeResolve);
+test("with fakeIpProxy on, a redirect to a literal 198.18 address is refused before anything is sent to it", async (t) => {
+  // The named site is a local server that sends the reader on to an address written out in the range.
+  const reached = [];
+  const server = createServer((request, response) => {
+    reached.push(request.url);
+    response.writeHead(302, { location: "http://198.18.0.9/inside" }).end();
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => new Promise((done) => { server.closeAllConnections(); server.close(done); }));
+  const site = `fake.test:${server.address().port}`;
+  // The policy's dialling seam sends the address the check judged for the name to that server.
+  const dialled = [];
+  const policy = new NetworkPolicy({ fakeIpProxy: true }, fakeResolve, (address) => {
+    dialled.push(address);
+    if (address !== "198.18.0.5") throw new Error(`${address} is not the local site, the only place this test reaches`);
+    return "127.0.0.1";
+  });
+  // The reader's fetch notes each request and hands it on to Branch's checked sender. A request that
+  // was not held to an address its check judged is stopped here, so nothing leaves this computer.
   const sent = [];
-  const fakeFetch = async (url) => {
-    sent.push(String(url));
-    return new Response("", { status: 302, headers: { location: "http://198.18.0.9/inside" } });
+  const handsOn = async (input, init) => {
+    sent.push(String(input));
+    if (!init?.[pinnedTo]) throw new Error(`${input} was not held to a judged address, and this test sends nothing else`);
+    return pinnedFetch(input, init);
   };
-  const deps = { policy, fetch: fakeFetch, timeoutMs: 5000, maxBytes: 100000, userAgent: "BranchAgent" };
-  await assert.rejects(fetchChecked(deps, "https://fake.test/start", new AbortController().signal), /private or local address/);
-  assert.deepEqual(sent, ["https://fake.test/start"], "the named site was asked, the literal hop never was");
+  const deps = { policy, fetch: handsOn, timeoutMs: 5000, maxBytes: 100000, userAgent: "BranchAgent" };
+  await assert.rejects(fetchChecked(deps, `http://${site}/start`, new AbortController().signal), /private or local address/);
+  assert.deepEqual(sent, [`http://${site}/start`], "the named site was asked, the literal hop never was");
+  assert.deepEqual(reached, ["/start"]);
+  assert.deepEqual(dialled, ["198.18.0.5"], "the named site was reached at the address its check judged");
 });
 
 test("with fakeIpProxy on, only an answer wholly inside 198.18.0.0/15 is let through; a mix with a public address is refused", async () => {

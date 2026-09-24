@@ -14,7 +14,11 @@ export function fakeStore() {
 }
 export const on = (store, part, mode = "when-needed") => store.save("settings", "local", `personal-${part}`, { mode });
 
-/** A fetch that answers from a list of [pattern, reply] pairs and remembers every request. */
+/**
+ * A fetch that answers from a list of [pattern, reply] pairs and remembers every request. The owner's
+ * network rules (a real NetworkPolicy, with `resolve` as its name lookup) decide each address first;
+ * the services' own https addresses are never dialled, so an allowed request is answered from the list.
+ */
 export function fakeWeb(routes, resolve = async () => ["93.184.216.34"]) {
   const seen = [];
   const base = async (input, init = {}) => {
@@ -29,5 +33,9 @@ export function fakeWeb(routes, resolve = async () => ["93.184.216.34"]) {
     return new Response(typeof answer === "string" ? answer : JSON.stringify(answer), { status: 200 });
   };
   const policy = new NetworkPolicy({}, resolve);
-  return { fetch: policy.guard(base), seen, policy };
+  const checked = async (input, init) => {
+    await policy.assertAllowed(new URL(input instanceof URL ? input.href : String(input)));
+    return base(input, init);
+  };
+  return { fetch: checked, seen, policy };
 }
