@@ -256,6 +256,7 @@ export class TelegramAdapter implements ChannelAdapter {
         sourceId: media.file_unique_id ?? media.file_id,
         mediaType: message.document?.mime_type ?? message.video?.mime_type ?? "image/jpeg",
         kind: message.document ? "document" as const : message.video ? "video" as const : "picture" as const,
+        ...(media.file_size !== undefined ? { size: media.file_size } : {}),
         bytes: () => this.downloadAttachment(media.file_id, media.file_size),
       }] } : {}),
       ...(spoken ? { voice: {
@@ -267,30 +268,30 @@ export class TelegramAdapter implements ChannelAdapter {
   }
   /** Fetches a voice note's bytes, and only once the message has earned an answer. */
   private async download(fileId: string, declaredSize: number): Promise<Uint8Array> {
-    const limit = 20 * 1024 * 1024;
-    if (declaredSize > limit) throw new Error("That voice note is larger than 20 MB, so it was not downloaded");
+    const limit = 8 * 1024 * 1024;
+    if (declaredSize > limit) throw new Error("That voice note is larger than 8 MB, so it was not downloaded");
     const info = z.object({ file_path: z.string().min(1).max(400) }).passthrough().parse(await this.call("getFile", { file_id: fileId }));
     const response = await this.fetch(`${this.base.replace("/bot", "/file/bot")}/${info.file_path}`, {
       redirect: "error", signal: AbortSignal.timeout(60000),
     });
     if (!response.ok) throw new Error(`Telegram would not hand over that voice note (${response.status})`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > limit) throw new Error("That voice note is larger than 20 MB, so it was not used");
+    if (bytes.byteLength > limit) throw new Error("That voice note is larger than 8 MB, so it was not used");
     return bytes;
   }
   /** Fetch only after the router accepts the sender, enforcing the intake ceiling on both sides. */
   private async downloadAttachment(fileId: string, declaredSize?: number): Promise<Uint8Array> {
-    const limit = 20 * 1024 * 1024; // Telegram Bot API getFile download ceiling
-    if (declaredSize !== undefined && declaredSize > limit) throw new Error("Telegram attachment exceeds 20 MB");
+    const limit = 8 * 1024 * 1024; // artifact storage ceiling
+    if (declaredSize !== undefined && declaredSize > limit) throw new Error("Telegram attachment exceeds 8 MB");
     const info = z.object({ file_path: z.string().min(1).max(400), file_size: z.number().optional() })
       .passthrough().parse(await this.call("getFile", { file_id: fileId }));
-    if (info.file_size !== undefined && info.file_size > limit) throw new Error("Telegram attachment exceeds 20 MB");
+    if (info.file_size !== undefined && info.file_size > limit) throw new Error("Telegram attachment exceeds 8 MB");
     const response = await this.fetch(`${this.base.replace("/bot", "/file/bot")}/${info.file_path}`, {
       redirect: "error", signal: AbortSignal.timeout(60000),
     });
     if (!response.ok) throw new Error(`Telegram attachment download failed (${response.status})`);
     const length = Number(response.headers.get("content-length"));
-    if (Number.isFinite(length) && length > limit) { await response.body?.cancel(); throw new Error("Telegram attachment exceeds 20 MB"); }
+    if (Number.isFinite(length) && length > limit) { await response.body?.cancel(); throw new Error("Telegram attachment exceeds 8 MB"); }
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Telegram attachment has no bytes");
     const chunks: Uint8Array[] = []; let size = 0;
@@ -299,7 +300,7 @@ export class TelegramAdapter implements ChannelAdapter {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > limit) throw new Error("Telegram attachment exceeds 20 MB");
+        if (size > limit) throw new Error("Telegram attachment exceeds 8 MB");
         chunks.push(value);
       }
     } catch (error) { await reader.cancel().catch(() => undefined); throw error; }
