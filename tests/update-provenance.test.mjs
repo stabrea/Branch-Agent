@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { discardTemp } from "./temp-dir.mjs";
 import { makeWorkflowCertificate } from "./helpers-provenance-cert.mjs";
 import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle } from "../dist/desktop/provenance.js";
-import { PROVENANCE_WORDS, Updater } from "../dist/desktop/updater.js";
+import { PROVENANCE_WORDS, PROVENANCE_WORDS_BETA_CHECKED, Updater } from "../dist/desktop/updater.js";
 
 const run = promisify(execFile);
 const windows = process.platform === "win32";
@@ -681,4 +681,61 @@ test("a retried install clears the previous attempt's provenance outcome", { ski
   await assert.rejects(updater1.install(), /did not match the published checksum/);
   // The provenance from attempt 1 should not appear in attempt 2's status.
   assert.equal(updater1.status.provenance, undefined, "attempt 2 clears the old provenance");
+});
+
+// Mac mini review 2 (sprint rule 1): the Beta ruling and the Q74 wiring, each through something that
+// goes red when it is undone.
+const betaWorkflow = `https://github.com/${repo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`;
+
+test("a Beta version refuses package.yml even at a real final tag, and every look-alike of the Beta workflow", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  for (const uri of [
+    `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.19.3`,
+    `https://github.com/someone/Branch-Agent/.github/workflows/beta.yml@refs/heads/mac/cross-platform`,
+    `https://github.com/${repo}-fork/.github/workflows/beta.yml@refs/heads/mac/cross-platform`,
+    `https://github.com/${repo}/.github/workflows/beta.yml@refs/tags/mac/cross-platform`,
+    `https://evil.example/URI:https://github.com/${repo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`,
+  ]) assert.throws(() => verifyAttestationBundle(makeBundle(digestHex, { uri }), { repo, digestHex, version: "0.19.4-beta.5" }),
+    /does not name this repository's release workflow/, uri);
+});
+
+/** A Beta install through the real Updater on the beta channel, served from `fixture`, stopped at the unpack step. */
+async function betaOutcome(fixture) {
+  const tag = "v0.3.1-beta.2";
+  const download = `https://github.com/${repo}/releases/download/${tag}/`;
+  const bytes = await readFile(join(fixture.root, "Branch-Agent-windows-x64.zip"));
+  const fetch = (url, init) => {
+    if (url.startsWith(`https://api.github.com/repos/${repo}/releases?`))
+      return Promise.resolve(new Response(JSON.stringify([{
+        tag_name: tag, name: tag, prerelease: true, draft: false, body: "", published_at: "2026-09-20T00:00:00Z",
+        html_url: `https://github.com/${repo}/releases/tag/${tag}`,
+        assets: [
+          { name: "Branch-Agent-windows-x64.zip", browser_download_url: `${download}Branch-Agent-windows-x64.zip`, size: bytes.length },
+          { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: `${download}Branch-Agent-windows-x64.zip.sha256`, size: 96 },
+        ],
+      }]), { status: 200, headers: { "content-type": "application/json" } }));
+    if (url === `${download}Branch-Agent-windows-x64.zip`) return fixture.fetchViaFixture("https://api.github.com/download/app.zip", init);
+    if (url === `${download}Branch-Agent-windows-x64.zip.sha256`) return fixture.fetchViaFixture("https://api.github.com/download/app.sha256", init);
+    return fixture.fetchViaFixture(url, init);
+  };
+  const updater = new Updater({
+    repo, currentVersion: "0.2.0", installDir: fixture.installDir, platform: "win32", channel: "beta",
+    executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: join(fixture.root, "scratch"), fetch, extract: async () => { throw new Error(reachedUnpack); },
+  });
+  const done = updater.install();
+  return { done, updater };
+}
+
+test("a Beta install checks the beta workflow's record against the Beta version and says the Beta sentence", async (t) => {
+  const fixture = await installFixture(t, { realArchive: false, attestationFor: (digestHex) => makeBundle(digestHex, { uri: betaWorkflow }) });
+  const { done, updater } = await betaOutcome(fixture);
+  await assert.rejects(done, new RegExp(reachedUnpack), "the beta workflow's record lets a Beta through");
+  assert.deepEqual(updater.status.provenance, { outcome: "checked", message: PROVENANCE_WORDS_BETA_CHECKED });
+});
+
+test("a Beta install refuses a record from the final release workflow", async (t) => {
+  const fixture = await installFixture(t, { realArchive: false, attestationFor: (digestHex) => makeBundle(digestHex) });
+  const { done } = await betaOutcome(fixture);
+  await assert.rejects(done, /provenance record did not check out/);
 });

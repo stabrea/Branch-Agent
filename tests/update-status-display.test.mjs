@@ -158,3 +158,19 @@ test("Q73: provenance displays correctly in French", async (t) => {
   await closeSettings(page);
   assert.deepEqual(errors, []);
 });
+
+test("Q73: a retried download without a record hides the previous attempt's provenance sentence", async (t) => {
+  const { page, errors } = await openApp(t);
+  await page.evaluate(({ PROVENANCE_CHECKED }) => {
+    globalThis.__provenanceStatus = { outcome: "checked", message: PROVENANCE_CHECKED };
+    globalThis.__updatePhase = "verifying";
+  }, { PROVENANCE_CHECKED });
+  await openSettingFor(page, "#updates-card");
+  await page.waitForFunction(() => document.getElementById("updates-provenance") && !document.getElementById("updates-provenance").hidden);
+  // A retry starts downloading again with no record yet: not "checking", so only the plain else hides it.
+  await page.evaluate(() => { globalThis.__updatePhase = "downloading"; globalThis.__provenanceStatus = null; });
+  await page.waitForFunction(() => document.getElementById("updates-provenance")?.hidden, null, { timeout: 10000 });
+  assert.ok(await page.locator("#updates-provenance").isHidden(), "the old sentence is gone while the retry downloads");
+  await closeSettings(page);
+  assert.deepEqual(errors, []);
+});
