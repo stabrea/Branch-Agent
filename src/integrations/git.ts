@@ -233,7 +233,8 @@ export class GitTools {
       await copyFile(settings, copy);
       const removed = await this.runner.run({ cwd, args: ["config", "--file", copy, "--remove-section", `remote.${name}`], timeoutMs: 10_000 }, signal);
       const left = await this.runner.run({ cwd, args: ["config", "--file", copy, "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
-      return removed.status !== "completed" || left.status === "completed";
+      // Only Git's own "no such settings" (exit 1) means nothing is left; a read that did not finish is not a no.
+      return removed.status !== "completed" || !(left.status === "failed" && left.exitCode === 1);
     } finally { await rm(scratch, { recursive: true, force: true }); }
   }
 
