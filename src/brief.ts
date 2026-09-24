@@ -160,6 +160,12 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     execute: async (input, context) => {
       briefOwnerOnly(context);
       if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Changing the morning brief");
+      // The chat the brief goes to is the owner's to choose, as sending to it now is (channels.broadcast).
+      if ((input as { deliverTo?: unknown }).deliverTo) {
+        brief.store.profiles.requireOwner("Sending messages to your chats");
+        if (context.trunk || context.agent?.startsWith("trunk:")) throw new Error("The chat the morning brief goes to is the owner's to choose.");
+        if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+      }
       return brief.configure(context.owner, input);
     },
   });
@@ -170,6 +176,11 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     execute: async (_input, context) => {
       briefOwnerOnly(context);
       if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Sending the morning brief to a chat");
+      // With a chat chosen, sending the brief is sending to that chat, which asks what sending asks.
+      if (brief.settings(context.owner).deliverTo) {
+        brief.store.profiles.requireOwner("Sending messages to your chats");
+        if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+      }
       return brief.send(context.owner);
     },
   });
