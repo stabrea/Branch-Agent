@@ -38,19 +38,22 @@ const gitlabIssue = /^https:\/\/([A-Za-z0-9.-]{1,253}(?::\d{1,5})?)\/([A-Za-z0-9
 const jiraIssue = /^https:\/\/([A-Za-z0-9.-]{1,253})\/browse\/([A-Z][A-Z0-9_]{1,9}-\d{1,7})(?:[/?#].*)?$/;
 const shorthand = /^([A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100})#(\d{1,9})$/;
 
+/** Q112: a path part that is "." or "..", which the URL parser would resolve away (`x/..` is no repository). */
+const dotPart = (path: string): boolean => path.split("/").some((part) => part === "." || part === "..");
+
 /** The issue an address points at, or null when it is not an issue address at all. */
 export function parseIssueLink(value: string): IssueLink | null {
   const text = value.trim();
   const github = githubIssue.exec(text);
-  if (github) return { tracker: "github", repo: `${github[1]}/${github[2]}`, number: Number(github[3]) };
+  if (github) return dotPart(`${github[1]}/${github[2]}`) ? null : { tracker: "github", repo: `${github[1]}/${github[2]}`, number: Number(github[3]) };
   const linear = linearIssue.exec(text);
   if (linear) return { tracker: "linear", key: linear[1]!.toUpperCase() };
   const gitlab = gitlabIssue.exec(text);
-  if (gitlab) return { tracker: "gitlab", host: gitlab[1]!.toLowerCase(), project: gitlab[2]!, number: Number(gitlab[3]) };
+  if (gitlab) return dotPart(gitlab[2]!) ? null : { tracker: "gitlab", host: gitlab[1]!.toLowerCase(), project: gitlab[2]!, number: Number(gitlab[3]) };
   const jira = jiraIssue.exec(text);
   if (jira) return { tracker: "jira", site: jira[1]!.toLowerCase(), key: jira[2]! };
   const short = shorthand.exec(text);
-  if (short) return { tracker: "github", repo: short[1]!, number: Number(short[2]) };
+  if (short) return dotPart(short[1]!) ? null : { tracker: "github", repo: short[1]!, number: Number(short[2]) };
   return null;
 }
 /** One name per issue, for telling repeats apart. */

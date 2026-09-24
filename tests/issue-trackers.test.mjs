@@ -88,3 +88,11 @@ test("A0174 both trackers stay off until named in the settings", () => {
   assert.throws(() => IssuesConfigSchema.parse({ jira: { site: "acme", token: "inline-secret" } }), "a key cannot be written into the settings");
   assert.equal(plainText({ type: "doc", content: [{ type: "heading", content: [{ type: "text", text: "A" }] }, { type: "paragraph", content: [{ type: "text", text: "b" }] }] }), "A\nb\n");
 });
+
+test("Q112: an issue address whose owner, repository or project part is \".\" or \"..\" is no issue address", () => {
+  for (const address of ["x/..#1", "../x#1", "./x#1", "https://github.com/x/../issues/1", "https://github.com/../x/pull/2",
+    "https://gitlab.com/group/../-/issues/3", "https://gitlab.com/group/./app/-/issues/4"])
+    assert.equal(parseIssueLink(address), null, address);
+  assert.deepEqual(parseIssueLink("x/.github#5"), { tracker: "github", repo: "x/.github", number: 5 }, "a name that only starts with a dot is still one");
+  assert.deepEqual(parseIssueLink("a.b/c..d#6"), { tracker: "github", repo: "a.b/c..d", number: 6 });
+});
