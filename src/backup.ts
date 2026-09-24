@@ -68,7 +68,21 @@ export function parseBackupArchive(input: unknown): BackupArchive {
  * waiting, which steps a phone must pass, and the paired devices' secret fingerprints.
  */
 export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth", "remote-devices"];
-const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && signInSettings.includes(String(row.id));
+/**
+ * What else is about this computer and whom it trusts, not about the owner's work (Q168 A), so it stays here
+ * too: which workspaces' integration files are trusted to load, the outside assistants this Branch sends
+ * tasks to (with their keys), the SSH computers and the programs Branch may run on them, the commands that
+ * fetch secrets, and this computer's paired devices. From a file, each one could point Branch at a program,
+ * a machine or a person the owner never chose here.
+ */
+export const thisComputerSettings: readonly string[] = [
+  "folder_trust", "folder_trust_mode", "folder-trust-real", "remote-agent-pairing", "remote-computers", "secret-commands", "devices-book",
+];
+const thisComputerPrefixes: readonly string[] = ["remote-agent:"];
+/** Whether a settings row stays on this computer: never in a backup, never taken from one, and kept by a replacing restore. */
+export const staysOnThisComputer = (id: string): boolean =>
+  signInSettings.includes(id) || thisComputerSettings.includes(id) || thisComputerPrefixes.some((start) => id.startsWith(start));
+const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));
 
 /**
  * A restored schedule keeps its job but not its standing yes (Q168 C). Its check script waits for the
@@ -130,7 +144,10 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
-          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`).run(...signInSettings);
+          if (table === "settings") {
+            const kept = (db.prepare("SELECT DISTINCT id FROM settings").all() as { id: string }[]).map((row) => row.id).filter(staysOnThisComputer);
+            db.prepare(`DELETE FROM settings WHERE id NOT IN (${kept.map(() => "?").join(",")})`).run(...kept);
+          }
           else db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
     if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
