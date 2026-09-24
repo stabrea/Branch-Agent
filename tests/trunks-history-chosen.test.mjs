@@ -2,8 +2,8 @@
  * A conversation the owner hands to a Trunk is that Trunk's to look back on only while it is the one
  * chosen to answer there, and a Trunk's side of a room only while it still sits in that room. Every
  * look into the past keeps the same rule: a search, a read by id, the conversation's shape, a copy of
- * it, cards written up from it, and a task's record. Real Trunk turns, a scripted model and the real
- * tools throughout.
+ * it, cards written up from it, and a task's record. A Trunk taken out of a room stays out of its side
+ * after the room is deleted too. Real Trunk turns, a scripted model and the real tools throughout.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -169,4 +169,62 @@ test("a Trunk taken out of a room no longer reads its side of the room, nor anyt
   // Seated again, her side is hers again.
   app.trunks.rooms.edit(room.id, { members: [ada.id, bo.id, cy.id] });
   assert.match(await use(ada, "search ROOMBEFORE7741", "history.search"), /ROOMBEFORE7741/);
+});
+
+test("a Trunk taken out of a room stays out of its side once the owner deletes the room; a Trunk still seated keeps its own", async (t) => {
+  const { app, ada, bo, use, asked, said } = await setup(t);
+  on(app, "rooms");
+  const cy = app.trunks.create({ name: "Cy" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Bench", members: [ada.id, bo.id, cy.id] });
+  app.trunks.rooms.send(room.id, { text: "ROOMBEFORE7741 heronsgate plan" });
+  await app.trunks.rooms.settled(room.id);
+  const { [ada.id]: side, [bo.id]: boSide } = app.trunks.rooms.get(room.id).memberSessions;
+  // While Ada sits in the room, her side is hers to read, by its id too.
+  asked.read = { sessionId: side, messageId: said(side, "ROOMBEFORE7741") };
+  assert.match(await use(ada, "read it", "history.read"), /ROOMBEFORE7741/);
+  app.trunks.rooms.edit(room.id, { members: [bo.id, cy.id] }); // the owner takes Ada out
+  app.trunks.rooms.send(room.id, { text: "ROOMAFTER7742 heronsgate, after Ada left" });
+  await app.trunks.rooms.settled(room.id);
+  app.trunks.rooms.remove(room.id); // and later deletes the room
+  const search = await use(ada, "search heronsgate", "history.search");
+  assert.match(search, /^\{"results"/);
+  assert.doesNotMatch(search, /ROOM(BEFORE7741|AFTER7742)/, "nothing of her old side, by search");
+  assert.match(await use(ada, "read it", "history.read"), /REFUSED .*not found/, "nor by its id");
+  asked.tree = side;
+  assert.match(await use(ada, "tree it", "sessions.tree"), /REFUSED .*not found/, "nor its shape");
+  assert.match(await as(app, { agent: trunkAgent(ada.id) }, "runs.export", { runId: lastRun(app, side) }), /^REFUSED There is no task of yours/,
+    "nor the record of her own turn there");
+  // Bo sat in the room when it was deleted: his side stays his own.
+  const bos = await use(bo, "search heronsgate", "history.search");
+  assert.match(bos, /ROOMAFTER7742/);
+  assert.match(bos, new RegExp(boSide), "on his own side");
+  // The owner reads all of it.
+  const owners = await app.registry.execute("history.search", { query: "ROOMBEFORE7741" }, app.runtime.context());
+  assert.equal(owners.results.some((row) => row.sessionId === side), true);
+  // Handed to Bo afterwards, Ada's old side is his to read once he answers there: only Ada is kept out of it.
+  app.trunks.conversations.choose(side, { trunkId: bo.id });
+  await app.runtime.run({ prompt: "BOSIDE7743 heronsgate, for Bo now", sessionId: side, onTextDelta: () => undefined });
+  assert.match(await use(bo, "search ROOMBEFORE7741", "history.search"), new RegExp(side), "Bo, who answers there now, reads it");
+});
+
+test("a Trunk seated again before its room is deleted keeps its side of the room afterwards", async (t) => {
+  const { app, ada, bo, use, asked, said } = await setup(t);
+  on(app, "rooms");
+  const cy = app.trunks.create({ name: "Cy" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Loft", members: [ada.id, bo.id, cy.id] });
+  app.trunks.rooms.send(room.id, { text: "ROOMSEAT7751 wrenfield plan" });
+  await app.trunks.rooms.settled(room.id);
+  const side = app.trunks.rooms.get(room.id).memberSessions[ada.id];
+  app.trunks.rooms.edit(room.id, { members: [bo.id, cy.id] }); // the owner takes Ada out,
+  app.trunks.rooms.edit(room.id, { members: [ada.id, bo.id, cy.id] }); // seats her again,
+  app.trunks.rooms.remove(room.id); // and then deletes the room
+  const found = await use(ada, "search wrenfield", "history.search");
+  assert.match(found, /ROOMSEAT7751/);
+  assert.match(found, new RegExp(side), "on her own side");
+  asked.read = { sessionId: side, messageId: said(side, "ROOMSEAT7751") };
+  assert.match(await use(ada, "read it", "history.read"), /ROOMSEAT7751/, "by its id too");
+  asked.tree = side;
+  assert.doesNotMatch(await use(ada, "tree it", "sessions.tree"), /REFUSED/, "and its shape");
 });
