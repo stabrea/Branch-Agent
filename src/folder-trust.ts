@@ -123,7 +123,8 @@ function branchCopy(store: Pick<Store, "get">, owner: string, folder: string, pa
   // The source must be a repository itself (then the walk judges it, not a folder inside one) whose own list
   // of worktrees still names this copy: a record the copy outlived grants nothing.
   if (!listedBy(source, folder)) return false;
-  return copies(store, owner).some((one) => one.copy === folder);
+  // The copy's own record must name this source: another checkout of the same repository lists it too.
+  return copies(store, owner).some((one) => one.copy === folder && one.source === source);
 }
 /** Where a repository keeps its worktrees' entries: its own `.git/worktrees`, or, for a copy, the one it shares. */
 function worktreeEntries(source: string): string | null {
@@ -177,7 +178,7 @@ function trustAt(store: Store, owner: string, folder: string, platform: NodeJS.P
     for (let current = inner; current !== best.path && current !== path.dirname(current); current = path.dirname(current)) {
       const source = path.dirname(path.dirname(current));
       if (branchCopy(store, owner, current, path) && folderContains(best.path, source, platform)) {
-        if (mapped.has(current)) return "unknown";
+        if (mapped.has(current)) return best.decision === "distrust" ? "untrusted" : "unknown";
         mapped.add(current);
         const there = trustAt(store, owner, path.join(source, path.relative(current, inner)), platform, mapped);
         return nested && there === "trusted" ? "unknown" : there;

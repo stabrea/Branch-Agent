@@ -650,3 +650,37 @@ test("Q100: links between a copy and its source cannot send the check round for 
   assert.equal(folderTrust(app.store, owner, inCopy), "unknown", "an answer, not a stack overflow");
   assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(inCopy, "integrations.json")), false);
 });
+
+test("Q100: a copy made through another checkout of the same repository is not judged as that checkout's copy",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const main = join(workspace, "work", "main"), pr = join(workspace, "work", "pr");
+  await mkdir(main, { recursive: true });
+  gitIn(main, "init", "-q", "-b", "main");
+  gitIn(main, "commit", "-q", "--allow-empty", "-m", "first");
+  gitIn(main, "worktree", "add", "-q", "-b", "prb", pr);
+  await mkdir(join(main, ".branch-worktrees"), { recursive: true });
+  await symlink(join(main, ".branch-worktrees"), join(pr, ".branch-worktrees"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "work/main", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/pr", decision: "distrust" });
+  await app.git.worktree({ folder: "work/pr", action: "add", name: "exp" }, signal());
+  const exp = join(main, ".branch-worktrees", "exp");
+  await mkdir(join(exp, "sub"), { recursive: true });
+  await writeFile(join(exp, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  assert.notEqual(folderTrust(app.store, owner, exp), "trusted", "made from the distrusted pr, not from main");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(exp, "sub", "integrations.json")), false);
+});
+
+test("Q100: a loop between a copy and its source under a don't-trust stays untrusted",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  const inCopy = join(proj, ".branch-worktrees", "exp", "Y");
+  await mkdir(inCopy, { recursive: true });
+  await symlink(inCopy, join(proj, "Y"), "dir");
+  assert.equal(folderTrust(app.store, owner, inCopy), "untrusted");
+});
