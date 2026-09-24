@@ -154,6 +154,7 @@ import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory bloc
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
 import { underTask } from "./task-scope.js"; // mac7/walk-rules
 import { posix, resolve as resolvePath } from "node:path"; // mac7/walk-rules
+import { finishSetupOnFirstAnswer } from "./onboarding.js"; // dogfood B7
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -348,6 +349,8 @@ export class Runtime {
   readonly backgroundResults: BackgroundResult[] = [];
   /** Per session: write tool calls whose outcome is unknown after an interruption, until a read has checked the state. */
   private readonly unreconciled = new Map<string, { name: string; arguments: string }[]>();
+  /** Dogfood B7: set once a real model has answered and the first-run card is done with. */
+  private setupFinished = false;
   private readonly activeSessions = new Set<string>();
   /** Notes the owner sent to a task that is still working, waiting for its next round. */
   private readonly steers = new Map<string, { note: string; from: string | undefined }[]>();
@@ -2410,6 +2413,8 @@ ${run.output.slice(0, 6000)}`;
         provider: preset.provider.name,
         model: preset.model,
       });
+      // Dogfood B7: a real model has answered, so the first-run card is done with (src/onboarding.ts).
+      if (!this.setupFinished) this.setupFinished = finishSetupOnFirstAnswer(this.store, this.owner, preset.provider.name);
       span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
       // Only a plain answer is kept; one that asks for a tool would replay whatever that tool does.
       this.requestCache.keep(cacheKey, completion);
