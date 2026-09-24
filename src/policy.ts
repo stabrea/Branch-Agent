@@ -191,6 +191,8 @@ const readOnlyPermissions = new Set([
   "personal.read",
   // r17-h: the shared board's cards, the widgets' list and the install requests only look (src/flows-boards/).
   "boards.read", "widgets.read", "installs.read",
+  // This capability only records a pending request. Git remains owner-only and is not called here.
+  "branch.propose_source_change",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

@@ -391,6 +391,26 @@ async function installsCard(modes) {
   return node;
 }
 
+async function sourceRequestsCard() {
+  const { node, status } = card("branch-source-requests-card", "inbox:needs", "branch.source.title", "Branch source-change requests",
+    "branch.source.purpose", "Review requests from chat. Approval prepares an isolated worktree; it never pushes or opens a pull request.");
+  const { requests } = await api("branch/source-change");
+  const list = document.createElement("ul");
+  for (const item of requests) {
+    const line = plain("li", `${item.name} · ${item.repository} · ${item.base} · expires ${shortDate(item.expiresAt)}`);
+    const decide = (decision) => act(status, async () => {
+      await api("branch/source-change", { id: item.id, decision });
+      await drawCards();
+    });
+    line.append(row(button("branch.source.approve", "Approve", decide("approve")), button("branch.source.deny", "Deny", decide("deny"))));
+    list.append(line);
+  }
+  node.append(list);
+  if (!requests.length) node.append(make("p", "field-note", "branch.source.none", "No pending requests."));
+  node.append(row(button("branch.source.refresh", "Refresh", act(status, drawCards)), status));
+  return node;
+}
+
 /* ---------- typing while it works ---------- */
 let busyMode = "queue", waitingAllowed = false;
 /** The message box asks this first; null means "wait its turn", the way it always did. */
@@ -403,7 +423,7 @@ globalThis.branchBusySend = async (sessionId, prompt) => {
 const BUILDERS = [
   ["flows-travel-card", timeTravelCard], ["flows-recipes-card", recipeCard], ["flows-board-card", boardCard],
   ["flows-waiting-card", waitingCard], ["flows-widgets-card", widgetsCard], ["flows-focus-card", focusCard],
-  ["flows-installs-card", installsCard],
+  ["flows-installs-card", installsCard], ["branch-source-requests-card", sourceRequestsCard],
 ];
 
 async function drawCards() {
