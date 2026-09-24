@@ -79,6 +79,10 @@ body.lx.lx-working #aside-toggle::after {
     top: calc(max(var(--pane-gap), env(safe-area-inset-top, 0px)) + 60px + var(--panels-top, 0px));
     bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px + var(--panels-foot, 0px) + var(--ew-bar-h, 0px));
   }
+  /* When the pane is open and floating over the conversation, increase bottom spacing to keep controls clickable */
+  body.lx.lx-chat.lx-aside.lx-pane-float > .context-panel {
+    bottom: 400px !important;
+  }
 }
 
 /* ---------- DG-114: the side panel is one card over the conversation, at every width ----------
@@ -112,6 +116,10 @@ body.lx.lx-working #aside-toggle::after {
   body.lx.lx-chat.lx-aside > .context-panel {
     top: calc(var(--pane-gap) + 60px + var(--panels-top, 0px));
     bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px + var(--panels-foot, 0px) + var(--ew-bar-h, 0px));
+  }
+  /* When the pane is open and floating over the conversation, increase bottom spacing to keep controls clickable */
+  body.lx.lx-chat.lx-aside.lx-pane-float > .context-panel {
+    bottom: 400px !important;
   }
   /* layout.css joined the docked pane to the conversation's right edge in the calm window; a card joins nothing,
      so both keep their own rounded corners and borders. */
