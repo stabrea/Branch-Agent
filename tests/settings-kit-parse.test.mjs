@@ -414,3 +414,18 @@ test("put-back: a guarding field whose saved value cannot be read counts as less
   assert.deepEqual(store.get("settings", owner, "voice").data, garbled, "nothing was put back");
   assert.equal((await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true })).status, 200);
 });
+
+test("put-back: a record that is not an object at all hides every field, so it asks; false, 0 and an empty string do not", async (t) => {
+  const { store, owner, call } = await served(t);
+  for (const record of [JSON.stringify({ systemVoice: "on", keepAudioOnThisComputer: true }), [{ keepAudioOnThisComputer: true }], 1, true]) {
+    store.save("settings", owner, "voice", record);
+    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.equal(refused.status, 409, `${JSON.stringify(record)}: ${JSON.stringify(refused.body)}`);
+    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
+  }
+  for (const record of [false, 0, ""]) {
+    store.save("settings", owner, "voice", record);
+    const back = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.notEqual(back.status, 409, `${JSON.stringify(record)} is read as shipped: ${JSON.stringify(back.body)}`);
+  }
+});

@@ -159,15 +159,20 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
   // Q83: check if putting back to shipped values is loosening by comparing actual saved record values
   // to the shipped defaults. Use raw saved values, not the app's parsed reading.
-  const raw = (deps.store.get("settings", deps.owner, spec.key)?.data ?? {}) as Record<string, unknown>;
+  const stored = deps.store.get("settings", deps.owner, spec.key)?.data;
+  // A record that is not an object at all (a string holding the old record, a list, a number) hides every
+  // field in it, so each counts as unreadable. `false`, `0` and "" are read as shipped already.
+  const whole = typeof stored === "object" && stored !== null && !Array.isArray(stored);
+  const hidden = !whole && Boolean(stored);
+  const raw = (whole ? stored : {}) as Record<string, unknown>;
   const loosenings: string[] = [];
   for (const field of spec.fields) {
     const rawValue = readPathRaw(raw, field.field);
-    const acceptedValue = acceptValue(field, rawValue);
+    const acceptedValue = hidden ? undefined : acceptValue(field, rawValue);
     const shipped = field.initial as Value;
     // A saved value the field cannot read held the setting closed: putting back asks unless the shipped
     // value is already the most careful one the field can hold.
-    const unreadable = rawValue !== undefined && acceptedValue === undefined
+    const unreadable = (hidden || (rawValue !== undefined && acceptedValue === undefined))
       && holdable(field).some((value) => loosens(field, value, shipped, spec));
     if (unreadable || (acceptedValue !== undefined && acceptedValue !== shipped && loosens(field, acceptedValue, shipped, spec)))
       loosenings.push(field.label);
