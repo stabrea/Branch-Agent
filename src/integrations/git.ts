@@ -40,6 +40,19 @@ async function copyPlace(cwd: string, name: string): Promise<string> {
   return target;
 }
 
+/**
+ * Q107: the parallel copy called `name`, checked before it is removed. `git worktree remove --force` follows a
+ * link at the copies folder or at the copy itself to whatever worktree it leads to, so the copy must be a real
+ * folder at its own place in this repository; otherwise nothing is removed. A copy already gone is fine.
+ */
+async function copyToRemove(cwd: string, name: string): Promise<string> {
+  const target = join(cwd, WORKTREE_HOME, name);
+  const found = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+  if (found && (!found.isDirectory() || canonical(target) !== join(canonical(cwd), WORKTREE_HOME, name)))
+    throw new Error(`${WORKTREE_HOME}/${name} here is not a parallel copy Branch made in this folder (it is a link, or leads elsewhere), so nothing is removed.`);
+  return target;
+}
+
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
   /** Q100: told of every parallel copy made or removed here (`source` is the repository folder), for folder trust. */
@@ -150,6 +163,7 @@ export class GitTools {
     if (!input.name) throw new Error("Tell me what to call this parallel copy.");
     const target = join(home, input.name);
     if (input.action === "remove") {
+      await copyToRemove(cwd, input.name);
       await this.run(cwd, ["worktree", "remove", "--force", target], signal, { timeoutMs: 60000 });
       this.onCopy({ source: cwd, copy: target, made: false });
       return { folder: input.folder, name: input.name, removed: true };
@@ -194,10 +208,11 @@ export class GitTools {
   async planMerge(input: { folder: string; name: string; message?: string | undefined; remove: boolean }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
+    // Checked before the merge, so a copy that is not Branch's own leaves everything as it was.
+    const copy = input.remove ? await copyToRemove(cwd, input.name) : "";
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
     if (input.remove) {
-      const copy = join(cwd, WORKTREE_HOME, input.name);
       await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
       this.onCopy({ source: cwd, copy, made: false });
     }
