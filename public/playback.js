@@ -4,6 +4,7 @@
  * turning). This file adds the other half: a small player, first on the message box while the
  * file is still attached, then again inside the message once it is sent.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 function el(tag, className) {
   const node = document.createElement(tag);
@@ -40,7 +41,7 @@ function renderComposerClips() {
     const remove = el("button");
     remove.type = "button";
     remove.textContent = "×";
-    remove.title = `Take ${clip.name} off this message`;
+    remove.title = t("playback.remove-clip", { name: clip.name });
     remove.addEventListener("click", () => {
       pending = pending.filter((other) => other !== clip);
       URL.revokeObjectURL(clip.url);
