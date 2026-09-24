@@ -126,6 +126,16 @@ body.lx.lx-working #aside-toggle::after {
     border-bottom-left-radius: 16px;
   }
 }
+/* DG-116: At ≥901px, when the pane is open, push the conversation right so the pane doesn't cover the controls. */
+@media (min-width: 901px) {
+  /* Inside the conversation, not around it: the card still floats over a conversation of the same width (DG-114). */
+  body.lx #chat {
+    transition: padding-right 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  body.lx.lx-aside #chat {
+    padding-right: calc(var(--aside-w) + 16px);
+  }
+}
 /* The handle that resizes it sits on the card's own edge, so it has to be above the card. */
 .panels-rz[data-rz="aside"] {
   z-index: 61;

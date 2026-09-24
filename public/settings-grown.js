@@ -315,6 +315,8 @@ function watchPages() {
     if (!host) continue;
     new MutationObserver((records) => { levelChanged(page, host, records); again(); })
       .observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+    /* A search shows and hides cards by their class alone, so the count follows that too. */
+    new MutationObserver(() => recountResults()).observe(host, { subtree: true, attributes: true, attributeFilter: ["class"] });
   }
 }
 

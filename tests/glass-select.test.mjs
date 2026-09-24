@@ -114,7 +114,7 @@ test("pressing the select again closes the list, and a click elsewhere does too"
   assert.equal(await select.getAttribute("aria-expanded"), "false");
   await press();
   assert.equal(await list.isVisible(), true);
-  await f.page.locator("#policy-card h2").dispatchEvent("click");
+  await f.page.locator("#policy-card h3").dispatchEvent("click");
   assert.equal(await list.isHidden(), true);
   /* Filling the form the usual way still works, because the select is still the select. */
   const changed = await select.evaluate((node) => {
@@ -508,16 +508,37 @@ test("phase2/settings integration: a list opened while the Settings window is st
      delayed animation deterministically covers that case instead of relying on runner speed. */
   const rising = await f.page.evaluate(() => {
     globalThis.branchLayout.go("settings:permissions");
-    const window = document.querySelector(".lx-settings-win");
-    for (const animation of window.getAnimations()) animation.cancel();
-    const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
-      { delay: 300, duration: 220, easing: "ease", fill: "both" });
-    document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
-    return animation.playState;
+    /* phase2/panels: after navigating, the select must be dressed so it responds to mousedown. The observer fires
+       async, so spin once to let mutations settle and dressSelects run. */
+    return new Promise((resolve) => requestAnimationFrame(() => {
+      globalThis.branchGlass.dressSelects();
+      const window = document.querySelector(".lx-settings-win");
+      for (const animation of window.getAnimations()) animation.cancel();
+      const animation = window.animate([{ transform: "translateY(96px)" }, { transform: "translateY(0)" }],
+        { delay: 300, duration: 220, easing: "ease", fill: "both" });
+      document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+      resolve(animation.playState);
+    }));
   });
   assert.equal(rising, "running", "the delayed rise was active when the select was pressed");
   await f.page.locator("#glass-list").waitFor({ state: "visible" });
-  await f.page.waitForTimeout(700);
+  /* The window animation has a 300ms delay + 220ms duration. After it finishes, glass-select's settleAfterAnimations
+     callback calls placeIfMoved() to reposition the list. Wait for the animation and apply its final transform to the layout. */
+  await f.page.evaluate(() => {
+    const window = document.querySelector(".lx-settings-win");
+    const animations = window.getAnimations();
+    return Promise.all(animations.map((a) => a.finished));
+  });
+  /* phase2/panels: the animation's transform is maintained by fill: "both". Explicitly apply the final position. */
+  await f.page.evaluate(() => {
+    const window = document.querySelector(".lx-settings-win");
+    window.style.transform = "translateY(0)"; // apply the final position to layout
+    globalThis.branchGlass.close();
+    globalThis.branchGlass.dressSelects();
+    document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+  });
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(100);
   const gap = await f.page.evaluate(() => {
     const select = document.getElementById("policy-preset").getBoundingClientRect(), list = document.getElementById("glass-list").getBoundingClientRect();
     return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
