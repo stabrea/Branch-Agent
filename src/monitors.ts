@@ -114,8 +114,12 @@ export class Monitors {
   }
   /** `context` is the tool call behind it, if any: a Trunk lists only the watches it made (A2). */
   list(owner: string, context?: ToolContext): MonitorRecord[] {
-    return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner)
-      .filter((row) => watchVisibleTo(context, this.trunks, row.made_by)).map(toRecord);
+    // A Trunk's own are picked before the limit, so the owner's newer watches never push its older ones off (NAS e666bad).
+    const asking = context ? watchMadeBy(context, this.trunks) : null;
+    const rows = asking
+      ? this.db.prepare("SELECT * FROM monitors WHERE owner=? AND made_by=? ORDER BY created_at DESC LIMIT 200").all(owner, asking)
+      : this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner);
+    return rows.map(toRecord);
   }
   remove(owner: string, id: string, context?: ToolContext): { removed: string } {
     const row = this.db.prepare("SELECT made_by FROM monitors WHERE owner=? AND id=?").get(owner, id);

@@ -206,3 +206,22 @@ test("A2: a Trunk cannot look at the owner's screen watch, nor another Trunk's p
   assert.match(await said(`check ${bos}`), /There is no watch with that number/);
   assert.doesNotMatch(await said("list watches"), new RegExp(bos));
 });
+
+test("A2 (NAS e666bad): another's watch is refused before it is looked at, and a Trunk's older watches stay in its list", async (t) => {
+  const { app, page, owner, said } = await setup(t, ["monitors.manage", "monitors.read"]);
+  const theirs = await app.monitors.create(owner, { url: "https://example.test/owner-private", every: 5 });
+  const screenWatch = await app.screenWatches.create(owner, { label: "The owner's build light", region });
+  // Every look is counted: a refused check must not fetch the page or take the picture, nor take longer for it.
+  let fetched = 0, captured = 0;
+  const fetchPage = app.monitors.web.fetchPage, capture = app.screenWatches.capture;
+  app.monitors.web.fetchPage = async (...args) => { fetched += 1; return fetchPage(...args); };
+  app.screenWatches.capture = async (...args) => { captured += 1; return capture(...args); };
+  assert.match(await said(`check ${theirs.id}`), /There is no watch with that number/);
+  assert.match(await said(`look ${screenWatch.id}`), /There is no screen watch with that number/);
+  assert.deepEqual({ fetched, captured }, { fetched: 0, captured: 0 }, "nothing was looked at for Ada");
+  // Ada's watch, then 200 newer ones of the owner's: hers is still in her list.
+  const hers = idOf(await said("watch here"));
+  for (let i = 0; i < 200; i++) await app.monitors.create(owner, { url: `https://example.test/newer-${i}`, every: 5 });
+  assert.match(await said("list watches"), new RegExp(hers), "her older watch is not pushed off her list");
+  void page;
+});
