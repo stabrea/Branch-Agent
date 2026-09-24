@@ -1422,7 +1422,12 @@ function message(role, content, source) {
   if (role === "assistant" && source?.author) by.classList.add("message-specialist");
   node.append(by);
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
-  if (role === "user") node.append(document.createTextNode(content));
+  if (role === "user") {
+    node.append(document.createTextNode(content));
+    // FQ-surfaces.playback: a sound or video file attached to this message plays inline, right here,
+    // both the moment it is sent and every time the conversation is redrawn afterwards.
+    globalThis.branchPlaybackRender?.(node, sessionId, source);
+  }
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
      through the voice service so the free Windows voice works with no key and no internet. */
@@ -1917,8 +1922,11 @@ $("chat-form").addEventListener("submit", async (event) => {
   const answering = chosenSpecialist();
   const prompt = answering ? `Delegate to specialist ${answering.id}: ${asked}` : asked;
   setConversationBusy(true);
-  if (!sessionId) $("conversation").replaceChildren();
-  message("user", asked);
+  const startsConversation = !sessionId;
+  if (startsConversation) $("conversation").replaceChildren();
+  // FQ-surfaces.playback: the sound/video file just attached, handed to this one message's bubble.
+  const clips = globalThis.branchPlaybackAttachments?.() ?? [];
+  message("user", asked, clips.length ? { clips } : undefined);
   $("prompt").value = "";
   const stopActivity = watchActivity(prompt);
   // Wave 6: the live row you can step into while it works.
@@ -1939,6 +1947,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
+    // FQ-surfaces.playback: the redraw below matches these clips to the message the server saved.
+    globalThis.branchPlaybackExpect?.(sessionId, clips, startsConversation);
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     /* Wave 8: an artifact in this reply is kept beside the task it came out of, so the task's
@@ -1970,6 +1980,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   } catch (e) {
     message("assistant", e.message);
   } finally {
+    globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);
     globalThis.branchTokenMeter?.refresh();

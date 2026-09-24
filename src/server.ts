@@ -454,6 +454,8 @@ async function staticFile(
     "/media-comments.js": ["media-comments.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
+    // FQ-surfaces.playback: an inline player for a sound or video file attached to a message.
+    "/playback.js": ["playback.js", "text/javascript; charset=utf-8"],
     // Bucket 17: the video programs card and the speech plug-ins card.
     "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
     // Bucket 21: the "Building on Branch" and "Flows as files" cards.
