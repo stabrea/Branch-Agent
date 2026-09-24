@@ -210,7 +210,7 @@ test("DG-199 pressing the emergency stop stays within reach at Regular, though i
   await open(page, "permissions");
   await page.locator("#safety-stop-card").waitFor({ state: "attached" });
   const seen = await page.evaluate(() => ({ card: document.getElementById("safety-stop-card").dataset.level,
-    press: document.querySelector("#safety-stop-card button:not(.kit-info)")?.checkVisibility() ?? false }));
+    press: document.querySelector("#safety-stop-card button")?.checkVisibility() ?? false }));
   assert.deepEqual(seen, { card: "regular", press: true });
   assert.deepEqual(errors, []);
 });

@@ -42,7 +42,7 @@ function cardShape(page, id) {
     return {
       home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2, h3.settings-card-title").length,
       sentence: card.querySelector(":is(h2, h3.settings-card-title) + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
-      keyless: [...card.querySelectorAll("h2, h3.settings-card-title, label, button, summary")].filter((n) => !n.dataset.t && n.textContent.trim()).length,
+      keyless: [...card.querySelectorAll("h2, h3.settings-card-title, label, button, summary")].filter((n) => !n.dataset.t).length,
     };
   }, id);
 }

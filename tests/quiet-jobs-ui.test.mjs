@@ -42,7 +42,7 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
       const unnamed = [...card.querySelectorAll("input, select, textarea")].filter((c) => !c.labels?.length);
       return { home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2, h3").length,
         sentence: card.querySelector(":is(h2, h3) + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
-        keyless: [...card.querySelectorAll("h2, h3, label, button")].filter((n) => !n.dataset.t && n.textContent.trim()).length };
+        keyless: [...card.querySelectorAll("h2, h3, label, button")].filter((n) => !n.dataset.t).length };
     }, id);
     assert.equal(shape.home, home, id);
     assert.equal(shape.tag, "SECTION");

@@ -710,8 +710,6 @@ async function staticFile(
     "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
     "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
-    // The Settings "i" names each setting's fresh-install value (tests/settings-grown.test.mjs S3 proves them).
-    "/settings-defaults.json": ["settings-defaults.json", "application/json; charset=utf-8"],
     "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
     "/service-worker.js": ["service-worker.js", "text/javascript; charset=utf-8"],
     "/assets/icon-192.png": ["assets/icon-192.png", "image/png"],

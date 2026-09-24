@@ -53,7 +53,7 @@ function shapeOf(cardId) {
     unnamed: controls.filter((c) => !c.labels?.length).map((c) => c.id),
     undescribed: controls.filter((c) => !(c.getAttribute("aria-describedby") || "").split(/\s+/)
       .some((id) => document.getElementById(id)?.textContent.trim())).map((c) => c.id),
-    keyless: [...card.querySelectorAll("h2, label, button, summary")].filter((n) => !n.dataset.t && n.textContent.trim()).map((n) => n.textContent),
+    keyless: [...card.querySelectorAll("h2, label, button, summary")].filter((n) => !n.dataset.t).map((n) => n.textContent),
   };
 }
 
