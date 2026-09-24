@@ -281,7 +281,7 @@ test("the outside service's key comes from the locker at each request, in the ow
   assert.match(stored, /MEMORY_KEY/);
   assert.doesNotMatch(JSON.stringify(app.memory.backend.view("local")), /mem-key-4d2c9a7e1f/);
 
-  await assert.rejects(async () => app.memory.backend.configure("local", { secret: "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" }), /locker/);
+  await assert.rejects(async () => app.memory.backend.configure("local", { secret: "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" }), /locker/); // not-a-real-secret
   await assert.rejects(async () => app.memory.backend.configure("local", { secret: "my key" }), /locker/);
   await assert.rejects(async () => app.memory.backend.configure("local", { header: "Host" }), /header/i);
   await assert.rejects(async () => app.memory.backend.configure("local", { header: "X-Key: injected" }), /header/i);
@@ -418,7 +418,7 @@ test("a fact with sensitive text is processed through redactLeaksIn before sendi
 
   // Save a fact that includes sensitive data in the text field
   const saved = await app.registry.execute("memory.put", {
-    text: "My API key is sk-proj-1234567890abcdefghijklmnopqrstuvwxyz",
+    text: "My API key is sk-proj-1234567890abcdefghijklmnopqrstuvwxyz", // not-a-real-secret
     source: "owner",
   }, context);
 
