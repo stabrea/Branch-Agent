@@ -565,6 +565,52 @@ test("a Trunk's flow run that was working when the app closed carries on as that
   assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "as Ada, not as the owner");
 });
 
+test("LAUNCH-ORDER: a Trunk's flow run carried on at launch reads and writes in that Trunk's own folder, not the owner's", async (t) => {
+  // The launch carry-on once ran before the folder rules were wired, so the carried-on box worked in the
+  // owner's own folder: it read the owner's notes and wrote beside them.
+  const { mkdtemp, rm, mkdir, writeFile } = await import("node:fs/promises");
+  const { existsSync: exists } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { createBranch } = await import("../dist/index.js");
+  const { brain } = await import("./trunks-helpers.mjs");
+  const root = await mkdtemp(join(tmpdir(), "branch-launch-order-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = join(root, "workspace");
+  const open = () => createBranch({ workspace, dataDir: join(root, "data"), provider: brain([]) });
+  const first = await open();
+  on(first);
+  const ada = first.trunks.create({ name: "Ada" });
+  first.trunks.edit(ada.id, { permissions: ["files.read", "files.write", "memory.read"] });
+  await first.trunks.introduced();
+  const adaHome = join(workspace, ".branch-agents", ada.id);
+  await mkdir(adaHome, { recursive: true });
+  await writeFile(join(workspace, "notes.md"), "OWNERNOTE7601");
+  await writeFile(join(adaHome, "notes.md"), "ADANOTE7601");
+  const graph = first.flows.saveGraph({ name: "Read then write", input: {}, state: { first: "text", notes: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Read", kind: "tool", tool: "files.read", args: { path: "notes.md" }, output: { notes: "text" } },
+      { id: "c", name: "Write", kind: "tool", tool: "files.write", args: { path: "launch.md", content: "l" }, output: {} },
+    ], edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }] });
+  // Started as Ada's own work is, in her folder, so the first pass is hers too.
+  const { runId } = await first.runtime.asTrunkWork(ada.id, async () => first.flows.startGraph(graph.id, {}));
+  const before = await first.flows.settled(runId);
+  assert.equal(before.status, "completed", JSON.stringify(before).slice(0, 300));
+  assert.doesNotMatch(JSON.stringify(before), /OWNERNOTE7601/, "before the close, too, Ada read only her own notes");
+  await rm(join(adaHome, "launch.md"), { force: true }); // so only the carried-on box can put it back
+  first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b' WHERE run_id=?").run(runId); // as a close leaves it
+  await first.close();
+  const second = await open();
+  t.after(() => second.close());
+  const view = await second.flows.settled(runId);
+  const text = JSON.stringify(view);
+  assert.equal(view.status, "completed", text.slice(0, 300));
+  assert.doesNotMatch(text, /OWNERNOTE7601/, "the owner's own notes are not read into Ada's run");
+  assert.match(text, /ADANOTE7601/, "Ada's box read her own notes");
+  assert.ok(exists(join(adaHome, "launch.md")), "written in Ada's own folder");
+  assert.equal(exists(join(workspace, "launch.md")), false, "nothing written in the owner's folder");
+});
+
 test("Q122: a flow run of a Trunk that is gone is never copied, and at launch it ends saying why, not left working", async (t) => {
   const { withAccountCall } = await import("../dist/accounts/context.js");
   const { mkdtemp, rm } = await import("node:fs/promises");

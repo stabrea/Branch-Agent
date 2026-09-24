@@ -1086,11 +1086,6 @@ export async function createBranch(options: {
       return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
     } });
   retention.keeps = (sessionId) => trunks.keeps(sessionId);
-  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
-  // that finished, with the state exactly as that box left it. Nothing is started again from the
-  // top, and a launch with no interrupted flow does nothing at all. After the Trunks are wired
-  // (Q114), so a Trunk's interrupted run carries on as that Trunk rather than being refused.
-  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   // phase2/rooms (integration review): a Trunk's side of a room stays out of Recents (the room is what is
   // opened), and Talk live is refused where it would step round a Trunk, Lockdown or an outside hold.
   store.hiddenSessions = () => [...trunks.rooms.memberConversations().keys()];
@@ -1221,6 +1216,12 @@ export async function createBranch(options: {
   };
   // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
+  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
+  // that finished, with the state exactly as that box left it. Nothing is started again from the
+  // top, and a launch with no interrupted flow does nothing at all. After every part is wired: the
+  // Trunks (Q114), so a Trunk's interrupted run carries on as that Trunk rather than being refused,
+  // and the folder rules (LAUNCH-ORDER), so it carries on in that Trunk's own folder, not the owner's.
+  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   // household-followups: with the owner's PIN set, the window comes back on the profile it was left
   // on, once everything above has started as the owner.
   store.profiles.resumeWhereLeft();
