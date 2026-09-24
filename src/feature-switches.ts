@@ -74,6 +74,8 @@ export function optionalFields<T extends z.ZodRawShape>(schema: z.ZodObject<T>) 
 /** The screen and keyboard tools (src/integrations/desktop-tools.ts). */
 export const screenTools = ["desktop.screenshot", "desktop.windows", "desktop.read", "desktop.click",
   "desktop.type", "desktop.key", "desktop.open", "desktop.clipboard"] as const;
+/** The shared Linux desktop tools (src/integrations/linux-desktop-tools.ts). */
+export const sharedDesktopTools = ["desktop.shared.start", "desktop.shared.open", "desktop.shared.type", "desktop.shared.key", "desktop.shared.stop"] as const;
 /** Reading aloud with the computer's own voice (src/voice-service.ts). */
 export const systemVoiceTools = ["voice.say"] as const;
 /** mac7/vault-autofill (R17-068): typing a saved sign-in into a page (src/vault-autofill.ts). */
@@ -110,6 +112,7 @@ const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "s
  */
 const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boolean; mode: (store: Reader, owner: string) => FeatureMode }[] = [
   { reason: "your screen and keyboard are switched on", tools: screenTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "desktop-control") },
+  { reason: "a shared Linux desktop is switched on", tools: sharedDesktopTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "linux-desktop") },
   { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
   // Bucket 17 hook.
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },

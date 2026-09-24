@@ -354,6 +354,8 @@ export const SETTINGS_INDEX = [
   ["security-malware-mode","settings:permissions","security-check","Check add-ons for malware","security-check.malware",null,"Security check",true],
   ["desktop-enabled","settings:computer","desktop-card","Allow the assistant to use my screen and keyboard","desktop-control.enabled",null,"Using your screen and keyboard",true],
   ["desktop-cap","settings:computer","desktop-card","Most screen actions in one task","desktop-control.maxActionsPerRun",null,"Using your screen and keyboard",true],
+  ["linux-desktop-mode","settings:computer","linux-desktop-card","Shared Linux desktop","linux-desktop.mode",null,"Shared Linux desktop",true],
+  ["linux-desktop-image","settings:computer","linux-desktop-card","Desktop container image","linux-desktop.image",null,"Shared Linux desktop",true],
   ["sandbox-image","settings:computer","sandbox-card","Container image","sandbox-backends.image",null,"Where scripts run",true],
   ["sandbox-distro","settings:computer","sandbox-card","Which Linux, by name","sandbox-backends.distro",null,"Where scripts run",true],
   ["sandbox-windows","settings:computer","sandbox-card","Let Branch use Windows' throwaway desktop","sandbox-backends.windowsSandbox",null,"Where scripts run",true],

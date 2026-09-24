@@ -373,7 +373,7 @@ const MOVES = [
   ["model-profiles-card", "lx-models-defaults"], ["local-models-card", "lx-models-local"],
   ["second-opinion-form", "lx-models-second"], ["media-form", "lx-models-media"],
   ["policy-card", "lx-page-permissions"], ["limits-card", "lx-page-permissions"],
-  ["desktop-card", "lx-page-computer"], ["sandbox-card", "lx-page-computer"], ["firewall-card", "lx-page-computer"],
+  ["desktop-card", "lx-page-computer"], ["linux-desktop-card", "lx-page-computer"], ["sandbox-card", "lx-page-computer"], ["firewall-card", "lx-page-computer"],
   ["browser-card", "lx-page-computer"], ["remote-card", "lx-page-computer"],
   ["secrets-form", "lx-page-secrets"],
   ["usage", "lx-page-data"], ["retention-card", "lx-page-data"], ["backup-card", "lx-page-data"], ["snapshots-card", "lx-page-data"],

@@ -621,6 +621,7 @@ async function refresh() {
   void window.branchMcpWorkbench?.render();
   void window.branchApprovals?.render();
   void window.branchScreenControl?.render();
+  void window.branchLinuxDesktop?.render(); // FQ-execution.desktop: the shared Linux desktop card
   // Batch 19 (wave 7): the rules read as sentences, under the same settings card.
   void window.branchRules?.render();
   void window.branchMisc?.render();

@@ -140,6 +140,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/voice\/dictation(\/|$)/,
   // FQ-collaboration: the comments on the owner's videos, read by the owner-only code editor's player.
   /^\/api\/media-comments(\/.*)?$/,
+  // FQ-execution.desktop: the VNC viewer password for the shared desktop is the owner's only; a key
+  // cannot monitor or take over what the assistant is doing on the isolated desktop.
+  /^\/api\/linux-desktop\/viewer$/,
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
   /^\/api\/vault-autofill(\/|$)/,

@@ -594,6 +594,12 @@ export const ROUTES = {
   "/api/learning-core/forget": "owner POST",
   "/api/learning-core/settings": "owner POST",
   "/api/limits": "owner POST",
+  // FQ-execution.desktop: the shared Linux desktop's card is a look (no VNC password in it); the
+  // switch, taking the desktop over and handing it back are the owner's. Viewer password is owner-only.
+  "/api/linux-desktop": "owner POST",
+  "/api/linux-desktop/hand-back": "owner POST",
+  "/api/linux-desktop/take-over": "owner POST",
+  "/api/linux-desktop/viewer": "owner GET",
   "/api/local-models": "look",
   "/api/local-models/": "prefix",
   "/api/local-models/delete": "owner POST",

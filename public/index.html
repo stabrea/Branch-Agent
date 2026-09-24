@@ -1585,6 +1585,33 @@
             </div>
             <p id="desktop-status" class="subtle" role="status"></p>
           </section>
+          <!-- FQ-execution.desktop: the shared Linux desktop. The Grown-Up sample has no place for it, so it sits
+               with the other desktop control, straight after "Using your screen and keyboard". -->
+          <section id="linux-desktop-card" class="card">
+            <h2 data-t="settings.card.shared-linux-desktop">Shared Linux desktop</h2>
+            <p data-t="linux-desktop.purpose">A throwaway Linux desktop in a container, which Branch can work in while you watch or take it over. It never touches this computer's own screen, and it is off until you switch it on.</p>
+            <label for="linux-desktop-mode" data-t="field.shared-linux-desktop">Shared Linux desktop</label>
+            <select id="linux-desktop-mode">
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
+            </select>
+            <label for="linux-desktop-image" data-t="field.linux-desktop-image">Desktop container image</label>
+            <input id="linux-desktop-image" type="text" maxlength="200" placeholder="branch-linux-desktop:latest" />
+            <button id="linux-desktop-image-save" type="button" data-t="action.save-desktop-image">Save this image</button>
+            <p class="subtle" data-t="linux-desktop.note">Nothing is ever downloaded: the image has to be on this computer already. While the desktop runs, a notice with a Take over button sits on top of everything. Once you take over, Branch cannot act in it, stop it or start another until you hand it back here. Switching this off takes the desktop down at once.</p>
+            <p id="linux-desktop-state" class="subtle" role="status"></p>
+            <div id="linux-desktop-control-row" hidden>
+              <button id="linux-desktop-show-viewer" type="button" data-t="action.show-viewer-password">Show viewer password</button>
+              <button id="linux-desktop-take-over" type="button" data-t="action.take-over">Take over</button>
+              <button id="linux-desktop-hand-back" type="button" data-t="action.hand-back" hidden>Hand back</button>
+            </div>
+            <div id="linux-desktop-viewer-info" hidden>
+              <p class="subtle"><span data-t="linux-desktop.viewer-address">Address:</span> <code id="linux-desktop-viewer-address"></code></p>
+              <p class="subtle"><span data-t="linux-desktop.viewer-password">Password:</span> <code id="linux-desktop-viewer-password"></code></p>
+            </div>
+            <p id="linux-desktop-status" class="subtle" role="status"></p>
+          </section>
           <section id="sandbox-card" class="card">
             <h2 data-t="settings.card.where-scripts-run">Where scripts run</h2>
             <p>A script Branch runs can be held on this computer, inside a container, on the Linux side, or in Windows' own throwaway desktop. Nothing here is ever installed: each one is offered only if it is already on this computer, and one that is missing says what you would have to install.</p>
@@ -2273,6 +2300,7 @@
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>
     <script src="/desktop.js" type="module"></script>
+    <script src="/linux-desktop.js" type="module"></script>
     <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <!-- phase2/delight: the pet, achievements and your own background, all off until switched on. -->
