@@ -230,3 +230,94 @@ test("on Windows, letter case does not matter when the file's folder is judged",
   folders("C:\\USERS\\OWNER\\WORK\\CLONED", "trust");
   assert.equal(trusted("c:\\users\\owner\\work\\cloned\\integrations.json"), true);
 });
+
+test("Q89.1: an untrusted folder nested inside a trusted one does not inherit trust — specific decision wins",
+  async (t) => {
+    const { app, workspace, owner } = await fixture(t);
+    // Setup: workspace root is trusted
+    decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+    // Setup: work/cloned-evil is explicitly untrusted
+    decideFolder(app.store, owner, workspace, { folder: "work/cloned-evil", decision: "distrust" });
+
+    const trustedFile = await place(join(workspace, "work", "integrations.json"), { git: { remote: true } });
+    const untrustedFile = await place(join(workspace, "work", "cloned-evil", "integrations.json"), { git: { remote: true } });
+
+    // A file in the trusted work folder should be trusted
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, trustedFile), true,
+      "file in trusted parent folder is trusted");
+
+    // A file in the nested untrusted cloned-evil folder should NOT be trusted (specific wins)
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, untrustedFile), false,
+      "file in untrusted nested folder is NOT trusted even though parent is trusted");
+
+    const beforeTools = app.registry.names();
+    const { loaded: loadedTrusted, trustNotes: notesTrusted } = await load(t, app, trustedFile);
+    const afterTrusted = app.registry.names();
+
+    assert.equal(notesTrusted.length, 0, "trusted parent file is loaded without warnings");
+    assert.deepEqual(added(app, ["git.push"]), ["git.push"], "git.push tool added from trusted file");
+
+    const { loaded: loadedUntrusted, trustNotes: notesUntrusted } = await load(t, app, untrustedFile);
+
+    assert.equal(notesUntrusted.length, 1, "untrusted nested file generates one warning");
+    assert.match(notesUntrusted[0], /not trusted/);
+  });
+
+test("Q89.2: a trusted folder nested inside an untrusted workspace — specific decision wins",
+  async (t) => {
+    const { app, workspace, owner } = await fixture(t);
+    // Setup: workspace root is untrusted
+    decideFolder(app.store, owner, workspace, { folder: "", decision: "distrust" });
+    // Setup: scratch/proj is explicitly trusted
+    decideFolder(app.store, owner, workspace, { folder: "scratch/proj", decision: "trust" });
+
+    const untrustedFile = await place(join(workspace, "scratch", "integrations.json"), { git: { remote: true } });
+    const trustedFile = await place(join(workspace, "scratch", "proj", "integrations.json"), { git: { remote: true } });
+
+    // A file in the untrusted workspace root should not be trusted
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, untrustedFile), false,
+      "file in untrusted parent workspace is not trusted");
+
+    // A file in the nested trusted proj folder SHOULD be trusted (specific wins)
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, trustedFile), true,
+      "file in trusted nested folder IS trusted even though parent is untrusted");
+
+    const { loaded: loadedUntrusted, trustNotes: notesUntrusted } = await load(t, app, untrustedFile);
+
+    assert.equal(notesUntrusted.length, 1, "untrusted file generates warning");
+    assert.deepEqual(added(app, ["git.push"]), [], "git.push not added from untrusted file");
+
+    const { loaded: loadedTrusted, trustNotes: notesTrusted } = await load(t, app, trustedFile);
+
+    assert.equal(notesTrusted.length, 0, "trusted nested file is loaded without warnings");
+    assert.deepEqual(added(app, ["git.push"]), ["git.push"], "git.push added from trusted nested file");
+  });
+
+test("Q89.3: workspace root vs subfolder integrations files — both locations can be read if trusted",
+  async (t) => {
+    const { app, workspace, owner } = await fixture(t, "on");
+    // No folders decided yet, so both are unknown
+    const rootFile = join(workspace, "integrations.json");
+    const subFile = join(workspace, "config", "integrations.json");
+
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, rootFile), false,
+      "workspace root file is unknown (not trusted) when folder trust is on");
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, subFile), false,
+      "subfolder file is unknown (not trusted) when folder trust is on");
+
+    // Now trust the workspace root
+    decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, rootFile), true,
+      "workspace root file is now trusted");
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, subFile), true,
+      "subfolder file inherits trust from root");
+
+    // Now distrust the config subfolder specifically
+    decideFolder(app.store, owner, workspace, { folder: "config", decision: "distrust" });
+
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, rootFile), true,
+      "workspace root file still trusted");
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, subFile), false,
+      "subfolder file is NOT trusted (specific distrust wins)");
+  });
