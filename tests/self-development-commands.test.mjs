@@ -154,16 +154,28 @@ test("the shell still refuses a cwd with .. or a full path, as before the shared
   assert.equal(existsSync(join(branch.workspace, "notes", "made.txt")), false);
 });
 
+/**
+ * Q155: the Git that really runs. /usr/bin/git on macOS is a shim that starts xcodebuild first, which took 2-3 s here
+ * and, on a loaded runner, past the command's 10 s: the shell was cut off before its ordinary writes.
+ */
+function realGit() {
+  try { return execFileSync("/usr/bin/xcrun", ["--find", "git"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || "/usr/bin/git"; }
+  catch { return "/usr/bin/git"; }
+}
+
 test("a held command cannot make a .git anywhere in its folder: the real sandbox refuses it", { skip: process.platform !== "darwin" || !(await wallReport()).available }, async (t) => {
   const branch = await withSource(t, { project: "worktree", permissions: ["shell.execute"] });
   const { failed, result } = await branch.command({ executable: "sh", cwd: `${worktree}/src/ui`,
     // The shell starts with no PATH of its own, so the programs are named in full.
-    args: ["-c", "/bin/mkdir -p x/.git; echo '[core] fsmonitor = /tmp/evil' > x/.git/config; /bin/mkdir -p y && /usr/bin/git init -q y; /bin/mkdir -p w/.GIT v/.Git; echo ok > fine.txt; /bin/mkdir -p z && echo ok > z/also.txt"] });
+    // The ordinary writes come first, so the controls below never depend on how long the refused steps take.
+    args: ["-c", `echo ok > fine.txt; /bin/mkdir -p z && echo ok > z/also.txt; /bin/mkdir -p x/.git; echo '[core] fsmonitor = /tmp/evil' > x/.git/config; /bin/mkdir -p y && ${realGit()} init -q y; /bin/mkdir -p w/.GIT v/.Git; echo ran-to-the-end`] });
   assert.equal(failed, null, failed);
+  assert.notEqual(result?.status, "timed_out", `the command was cut off after ${result?.durationMs} ms, before its checks could mean anything`);
+  assert.match(String(result?.stdout ?? ""), /ran-to-the-end/, "the whole command ran (the programs really ran)");
   assert.doesNotMatch(result.stderr, /Branch removed the \.git/, "the sandbox refused it: nothing was left for the sweep");
   const ui = join(branch.workspace, worktree, "src", "ui");
   assert.equal(existsSync(join(ui, "fine.txt")), true, "an ordinary write in the folder works");
-  assert.equal(existsSync(join(ui, "z", "also.txt")), true, "and so does an ordinary new folder (the programs really ran)");
+  assert.equal(existsSync(join(ui, "z", "also.txt")), true, "and so does an ordinary new folder");
   for (const planted of ["x/.git/config", "x/.git", "y/.git", "w/.GIT", "v/.Git"]) assert.equal(existsSync(join(ui, planted)), false, planted);
 });
 
