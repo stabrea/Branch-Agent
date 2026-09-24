@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
+import { takeBackFact, visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
 import { FactKindSchema } from "./memory-layers.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
@@ -167,8 +167,9 @@ export class MemoryReview {
       if (!outside) return this.memories.save(owner, randomUUID(), data);
       // As memory.put: a save reported as failed is never read back, even if the service applies it late.
       const id = randomUUID();
+      const service = outside.serviceFor?.(owner);
       return outside.write(owner, id, data).catch(async (error: unknown) => {
-        await outside.forget(owner, id).catch(() => false);
+        await takeBackFact(outside, owner, id, service);
         throw error;
       });
     }

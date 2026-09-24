@@ -416,6 +416,17 @@ export interface OutsideMemoryProvider extends MemoryBackend {
   isOutside(owner: string): boolean;
   withFactLock?<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T>;
   forgetSettled?(owner: string, sessionId: string): Promise<void>;
+  serviceFor?(owner: string): MemoryBackend | undefined;
+  takeBack?(owner: string, id: string, service: MemoryBackend): Promise<boolean>;
+}
+/**
+ * Takes back a fact just written for `owner`: from the service it was written to when that is known
+ * (NAS 4654193: the owner may have switched since), otherwise through the provider. True only when the
+ * service said it deleted it; a fact it did not have yet may still arrive, and is hidden here either way.
+ */
+export function takeBackFact(provider: OutsideMemoryProvider, owner: string, id: string, service: MemoryBackend | undefined): Promise<boolean> {
+  const taking = service && provider.takeBack ? provider.takeBack(owner, id, service) : provider.forget(owner, id);
+  return taking.then((deleted) => deleted === true, () => false);
 }
 
 export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch, provider?: OutsideMemoryProvider): void {
@@ -435,10 +446,11 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const data = { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId };
       if (!provider?.isOutside(owner)) return store.save("memory", owner, randomUUID(), data);
       const id = randomUUID();
+      const service = provider.serviceFor?.(owner); // taken with the write, so a switch since cannot redirect the takeback
       const saved = await provider.write(owner, id, data).catch(async (error: unknown) => {
         // A save Branch reports as failed is never read back: the service may still apply one it was too slow
         // to answer, after a Forget has already looked. This id is new, so nothing of the owner's is hidden.
-        await provider.forget(owner, id).catch(() => false);
+        await takeBackFact(provider, owner, id, service);
         throw error;
       });
       // "Forget this conversation" may have run while the service was still saving this fact, and it could not see
@@ -446,7 +458,7 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       // back (and never read back) and refused the same way if the conversation was forgotten.
       if (sessionId) await provider.forgetSettled?.(owner, sessionId);
       if (sessionId && store.memorySuppressed(owner, sessionId)) {
-        const deleted = await provider.forget(owner, id).then(() => true, () => false);
+        const deleted = await takeBackFact(provider, owner, id, service);
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view."
           + (deleted ? "" : " The outside memory service would not delete what it had just saved, so it may still keep it; Branch will not read it back."));
       }

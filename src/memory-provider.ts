@@ -345,8 +345,22 @@ export class MemoryProvider implements MemoryBackend {
     return this.remembered(owner, await this.current(owner).list(owner));
   }
   write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> {
-    if (!this.isOutside(owner)) return this.builtIn.write(owner, id, data);
-    return this.inOrder(owner, id, () => this.current(owner).write(owner, id, data));
+    const service = this.serviceFor(owner);
+    if (!service) return this.builtIn.write(owner, id, data);
+    // The service is taken when the write is asked for, so a switch while it waits its turn changes nothing.
+    return this.inOrder(owner, id, () => service.write(owner, id, data));
+  }
+  /** The outside service facts go to now, or undefined while they are kept on this computer. */
+  serviceFor(owner: string): MemoryBackend | undefined {
+    return this.isOutside(owner) ? this.current(owner) : undefined;
+  }
+  /**
+   * Takes back a fact just written to `service`: it is never read back here, and it is deleted from the
+   * service it went to, whatever the owner has switched to since. True only when that service said it deleted it.
+   */
+  async takeBack(owner: string, id: string, service: MemoryBackend): Promise<boolean> {
+    this.markForgotten(owner, id);
+    return this.forgetInTurn(owner, id, service);
   }
   async search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> {
     if (!this.isOutside(owner)) return this.builtIn.search(owner, query, agent);
