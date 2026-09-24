@@ -216,3 +216,38 @@ test("the owner's newer fact about the same thing never sets a Trunk's older fac
   for (const proposal of app.store.review.proposals("local", "pending")) await app.store.review.decide("local", proposal.id, true);
   assert.equal(app.store.get("memory", "local", "ada-gate")?.data.text, "Garden gate code: 1111", "Ada keeps her fact");
 });
+
+test("a merge suggested before tidying knew whose facts are whose is refused when the owner accepts it, and changes nothing", async (t) => {
+  const { app, ada } = await seeded(t);
+  const scope = `agent:trunk:${ada.id}`;
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed" });
+  app.store.save("memory", "local", "ada-wifi", { text: "The wifi password is hunter2", source: "seed", scope });
+  // As the old tidy, the nightly pass or the look back could have left it waiting.
+  const stale = app.store.review.propose("local", { kind: "merge", memoryId: "ada-wifi", memoryIds: ["ada-wifi", "owner-wifi"],
+    text: "The wifi password is hunter2 pin 4417", source: "Suggested while tidying memory" });
+  await assert.rejects(() => app.store.review.decide("local", stale.id, true), /different people/);
+  assert.equal(app.store.get("memory", "local", "ada-wifi")?.data.text, "The wifi password is hunter2", "Ada's fact keeps her own words");
+  assert.equal(app.store.get("memory", "local", "owner-wifi")?.data.text, "The wifi password is hunter2 pin 4417", "the owner's is not set aside");
+  const run = await app.trunks.say(ada.id, "tidy");
+  assert.doesNotMatch(JSON.stringify(toolOutcome(app, run.runId, "memory.tidy").result), /4417/);
+  // A merge within one person's facts still goes through.
+  const own = app.store.review.propose("local", { kind: "merge", memoryId: "Ada-dup-1", memoryIds: ["Ada-dup-1", "Ada-dup-2"],
+    text: "Ada's secret plan is to ship the rocket on Friday!", source: "Suggested while tidying memory" });
+  await app.store.review.decide("local", own.id, true);
+  assert.equal(app.store.get("memory", "local", "Ada-dup-2"), undefined, "her own duplicate is set aside");
+});
+
+test("facts found alike by meaning are grouped within one person's facts, never across", async (t) => {
+  const { app, ada } = await seeded(t);
+  const { MemoryHygiene } = await import("../dist/memory-hygiene.js");
+  const scope = `agent:trunk:${ada.id}`;
+  app.store.save("memory", "local", "owner-bank", { text: "My bank PIN is 7731", source: "seed" });
+  app.store.save("memory", "local", "ada-card", { text: "Card code: seven seven three one", source: "seed", scope });
+  app.store.save("memory", "local", "ada-card-2", { text: "Code for the card is 7731", source: "seed", scope });
+  // The same meaning for all three, whatever their words.
+  const same = new Float32Array([1, 0, 0]);
+  const hygiene = new MemoryHygiene(app.store, { vectors: () => new Map([["owner-bank", same], ["ada-card", same], ["ada-card-2", same]]), useCounts: () => new Map() });
+  const groups = hygiene.duplicates("local").filter((group) => group.by === "meaning").map((group) => [group.keep, ...group.drop].sort());
+  assert.ok(!groups.some((ids) => ids.includes("owner-bank") && ids.some((id) => id.startsWith("ada-"))), JSON.stringify(groups));
+  assert.ok(groups.some((ids) => ids.includes("ada-card") && ids.includes("ada-card-2")), "Ada's two are still found alike");
+});

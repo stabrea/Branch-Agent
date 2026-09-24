@@ -213,6 +213,13 @@ export class MemoryReview {
     if (proposal.kind === "merge" && proposal.memoryId && proposal.text) {
       const current = this.memories.get(owner, proposal.memoryId);
       if (!current) throw new Error("The fact this suggestion would keep no longer exists");
+      // The kept fact takes the merged words, so every fact merged into it must be the same person's. Checked here, when
+      // the owner says yes, because a suggestion may have been made before tidying knew that, or by the look back,
+      // which groups what the model saw (Mac mini 5c2e4f6, NAS ea14643).
+      const whose = (data: Record<string, unknown>): string => String(data.scope ?? "private");
+      const others = proposal.memoryIds.map((id) => this.memories.get(owner, id)).filter((record) => record !== undefined);
+      if (others.some((record) => whose(record.data) !== whose(current.data)))
+        throw new Error("These facts belong to different people, so they are not merged. Each stays as it is.");
       this.memories.save(owner, current.id, { ...current.data, text: proposal.text, source: proposal.source || String(current.data.source) });
     }
     const setAside: string[] = [];
