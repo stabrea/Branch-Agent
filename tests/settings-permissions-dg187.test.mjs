@@ -131,6 +131,31 @@ test("DG-025 the limits are saved as you go, with no Save button", async (t) => 
   assert.deepEqual(errors, []);
 });
 
+test("DG-025 a number typed while the saved limits are still loading is kept and saved, not written over", async (t) => {
+  const { page, call, errors } = await fixture(t, { preferences: { settingsLevel: "advanced" } });
+  /* The card's saved values are asked for again, and that answer is held until the person has started typing. */
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let asked;
+  const askedFor = new Promise((resolve) => { asked = resolve; });
+  await page.route("**/api/limits", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    asked();
+    await held;
+    return route.continue();
+  });
+  const drawing = page.evaluate(() => globalThis.branchSandboxRemote.render());
+  await askedFor;
+  await page.locator("#limit-requests").fill("12");
+  release();
+  await drawing;
+  assert.equal(await page.locator("#limit-requests").inputValue(), "12", "the answer did not write over what was typed");
+  await page.locator("#limit-requests").press("Enter");
+  await page.waitForFunction(() => /Saved/.test(document.getElementById("limit-status").textContent), null, { timeout: 10000 });
+  assert.equal((await call("/api/limits")).limits.requestsPerMinute, 12);
+  assert.deepEqual(errors, []);
+});
+
 test("DG-008 on Permissions only the page title is level two, and a one-card section does not repeat its title", async (t) => {
   const { page, errors } = await fixture(t, { preferences: { settingsLevel: "technical" } });
   const host = page.locator("#lx-page-permissions");

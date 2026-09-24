@@ -71,7 +71,8 @@ const limitIds = { requestsPerMinute: "limit-requests", tokensPerHour: "limit-to
 
 async function showLimits() {
   const { limits } = await api("limits");
-  for (const field of limitFields) $(limitIds[field]).value = limits[field] ?? 0;
+  // A box the person is already typing in is left alone: this answer can arrive after they started.
+  for (const field of limitFields) if (document.activeElement !== $(limitIds[field])) $(limitIds[field]).value = limits[field] ?? 0;
 }
 async function saveLimits() {
   try {
