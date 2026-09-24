@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { takeBackFact, visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
+import { reworded, takeBackFact, visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
 import { FactKindSchema } from "./memory-layers.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
@@ -177,7 +177,8 @@ export class MemoryReview {
       const apply = async () => {
         const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
         if (!current) throw new Error("The memory this suggestion changes no longer exists");
-        const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId };
+        // Only the words change: an accepted change keeps whose fact it is, as memory.update does.
+        const data = reworded(current.data, { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
         return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
       };
       // Read and written under the same lock as memory.update, so neither overwrites the other unseen.

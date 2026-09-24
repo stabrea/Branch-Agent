@@ -1524,3 +1524,52 @@ test("a Trunk's delete of its own fact goes to the service it was found on, even
   assert.equal(await deleting, true);
   assert.equal(double.byOwner.get("local").has(hers.id), false, "it is gone from the service it was on");
 });
+
+/** What a changed fact must keep: everything about it but its words. */
+const keptOf = (data) => ({ scope: data.scope, layer: data.layer, entity: data.entity, attribute: data.attribute, project: data.project });
+
+test("on this computer's memory, a Trunk's fact stays its own when it changes it, and keeps what it is about and how long it lasts", async (t) => {
+  const { app, context } = await fixture(t);
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put",
+    { text: "Ada's boiler is serviced in March ADAKEEP1", source: "owner", entity: "boiler", attribute: "service month", project: "house" }, ada);
+  const before = keptOf(app.store.get("memory", "local", hers.id).data);
+  assert.equal(before.scope, "agent:trunk:ada-test");
+  assert.ok(before.layer, "the fact has a layer to keep");
+  await app.registry.execute("memory.update", { id: hers.id, text: "Ada's boiler is serviced in April ADAKEEP1", source: "owner", expectedRevision: hers.revision }, ada);
+  const after = app.store.get("memory", "local", hers.id).data;
+  assert.equal(after.text, "Ada's boiler is serviced in April ADAKEEP1");
+  assert.deepEqual(keptOf(after), before, "a change keeps whose fact it is, its layer, and what it is about");
+  assert.deepEqual((await app.registry.execute("memory.search", { query: "ADAKEEP1" }, ada)).map((record) => record.data.text),
+    ["Ada's boiler is serviced in April ADAKEEP1"], "she still finds it");
+  // The owner's own fact stays the owner's.
+  const owners = await app.registry.execute("memory.put", { text: "Owner fact OWNKEEP2", source: "owner" }, context);
+  await app.registry.execute("memory.update", { id: owners.id, text: "Owner fact, corrected OWNKEEP2", source: "owner", expectedRevision: owners.revision }, context);
+  assert.equal(app.store.get("memory", "local", owners.id).data.scope, undefined);
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "OWNKEEP2" }, ada), [], "and Ada never finds it");
+});
+
+for (const where of ["this computer's memory", "an outside memory service"]) {
+  test(`with approval on, a Trunk's change the owner accepts keeps the fact its own, on ${where}`, async (t) => {
+    const double = memoryDouble();
+    const base = await double.listen();
+    t.after(() => double.close());
+    const { app, context } = await fixture(t);
+    const outside = where !== "this computer's memory";
+    if (outside) await app.memory.backend.configure("local", { mode: "outside", url: base });
+    const ada = { ...context, agent: "trunk:ada-test" };
+    const hers = await app.registry.execute("memory.put", { text: "Ada's shed key hangs by the door ADAKEEP3", source: "owner", entity: "shed key", attribute: "place" }, ada);
+    const stored = () => (outside ? double.byOwner.get("local").get(hers.id) : app.store.get("memory", "local", hers.id)).data;
+    const before = keptOf(stored());
+    assert.equal(before.scope, "agent:trunk:ada-test");
+    app.store.review.configure("local", { requireApproval: true });
+    await app.registry.execute("memory.update", { id: hers.id, text: "Ada's shed key hangs in the hall ADAKEEP3", source: "owner", expectedRevision: hers.revision }, ada);
+    const [proposal] = app.store.review.proposals("local", "pending");
+    assert.equal(proposal?.kind, "update", "the change waits for the owner");
+    await app.store.review.decide("local", proposal.id, true);
+    assert.equal(stored().text, "Ada's shed key hangs in the hall ADAKEEP3");
+    assert.deepEqual(keptOf(stored()), before, "the accepted change keeps whose fact it is, its layer, and what it is about");
+    assert.deepEqual((await app.registry.execute("memory.search", { query: "ADAKEEP3" }, ada)).map((record) => record.data.text),
+      ["Ada's shed key hangs in the hall ADAKEEP3"], "she still finds it");
+  });
+}

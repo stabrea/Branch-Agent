@@ -36,6 +36,16 @@ export const MemoryDataSchema = z.object({
   expiresAt: z.iso.datetime().optional(),
   // ── end R17-058 ──
 }).strict();
+/**
+ * A fact reworded: its words, where they came from and the run that changed them are new, and everything else
+ * about it stays: whose it is (scope), how long it is meant to last (layer, expiry), what it is about (entity,
+ * attribute, dates) and the owner's labels. Before this, only the outside path kept the scope, and a Trunk's
+ * fact changed on this computer, or by an accepted suggestion, became the owner's and was lost to the Trunk.
+ * What cannot be read as a fact is refused, not half-kept.
+ */
+export function reworded(previous: unknown, words: { text: string; source: string; sourceRunId: string }): z.infer<typeof MemoryDataSchema> {
+  return { ...MemoryDataSchema.parse(previous), ...words };
+}
 /** Scopes a reader may see: everything for the owner, shared plus its own for a delegated specialist. */
 export function visibleTo(record: { data: { scope?: string } }, agent?: string): boolean {
   if (!agent) return true;
@@ -349,10 +359,7 @@ export class MemoryFacts {
     const value = UpdateMemorySchema.parse(input), previous = this.get(owner, value.id);
     if (!previous) throw new Error("Memory not found");
     if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
-    // R17-058 (integration review): a reworded fact keeps the owner's labels and when it expires.
-    const { tags, expiresAt } = previous.data as { tags?: string[]; expiresAt?: string };
-    return this.save(owner, value.id, { text: value.text, source: value.source, sourceRunId,
-      ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}) });
+    return this.save(owner, value.id, reworded(previous.data, { text: value.text, source: value.source, sourceRunId }));
   }
   export(owner: string) {
     if (this.capacity(owner).count > 500) throw new Error("Memory archive exceeds 500 records; reduce legacy memory count before exporting");
@@ -525,9 +532,7 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
         if (!previous || !writableTo(previous, agent)) throw new Error("Memory not found");
         if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
         // The fact keeps whose it is and how long it lasts: only its words change.
-        const { tags, expiresAt, scope, layer } = previous.data as { tags?: string[]; expiresAt?: string; scope?: string; layer?: string };
-        return provider!.write(owner, value.id, { text: value.text, source: value.source, sourceRunId: context.runId,
-          ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}), ...(scope ? { scope } : {}), ...(layer ? { layer } : {}) });
+        return provider!.write(owner, value.id, reworded(previous.data, { text: value.text, source: value.source, sourceRunId: context.runId }));
       });
     } });
   registry.register({ name: "memory.search", description: "Search this owner's facts by words and, where the provider allows it, by meaning.",
