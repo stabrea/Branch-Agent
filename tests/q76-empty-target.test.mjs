@@ -210,7 +210,12 @@ test('default-deny: on no target, only a tool with no arguments or one listed as
 
 test('a target that is itself a pattern never gets a standing yes, however it is written', async (t) => {
   const state = await harness(t, 'q76-pattern');
-  for (const target of ['*', 'docs/*', 'a?b', '%2A', 'https%3A%2F%2F%2A']) assert.equal(state.app.registry.noStandingTarget('files.write', target), true, target);
+  for (const target of ['*', 'docs/*', '%2A', 'https%3A%2F%2F%2A']) assert.equal(state.app.registry.noStandingTarget('files.write', target), true, target);
+  // The rule matcher reads only `*` as a pattern: `?` and `[` stay literal, so they keep their yes.
+  for (const target of ['a?b', 'notes/[ab].md']) assert.equal(state.app.registry.noStandingTarget('files.write', target), false, target);
+  // A command keeps a starred command as one exact command; only a bare `*` would be everything.
+  assert.equal(state.app.registry.noStandingTarget('shell.execute', 'ls *.md'), false);
+  assert.equal(state.app.registry.noStandingTarget('shell.execute', '*'), true);
   assert.equal(state.app.registry.noStandingTarget('files.write', 'notes/today.md'), false);
   state.calls.push({id: 'c1', name: 'files.write', arguments: JSON.stringify({path: '*', content: 'x'})});
   const run = await state.app.runtime.run({prompt: 'run'});
@@ -221,22 +226,23 @@ test('a target that is itself a pattern never gets a standing yes, however it is
   assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'files.write' && r.match === '*').length, 0);
 });
 
-test('an outside server tool that lists no arguments keeps a standing yes; one that lists any does not', async (t) => {
+test('an outside server tool keeps a standing yes only when its schema accepts nothing but {}', async (t) => {
   const state = await harness(t, 'q76-mcp-shapes');
   const {z} = await import('zod');
   const add = (name, inputSchema) => state.app.registry.register({name, permission: name, description: name, external: true,
     parameters: z.record(z.string(), z.unknown()), inputSchema, execute: async () => ({ok: true})});
-  add('mcp.clock.now', {type: 'object', properties: {}});
-  add('mcp.clock.bare', {type: 'object'});
+  add('mcp.clock.now', {type: 'object', properties: {}, additionalProperties: false});
+  add('mcp.clock.bare', {type: 'object'}); // accepts any key: could carry a recipient
+  add('mcp.lent.fallback', {type: 'object', additionalProperties: true}); // a lent tool's fallback schema
+  add('mcp.mail.any', {type: 'object', additionalProperties: false, anyOf: [{properties: {to: {type: 'string'}}}]});
   add('mcp.mail.send', {type: 'object', properties: {to: {type: 'string'}}});
-  assert.equal(state.app.registry.noStandingTarget('mcp.clock.now', ''), false);
-  assert.equal(state.app.registry.noStandingTarget('mcp.clock.bare', ''), false);
-  assert.equal(state.app.registry.noStandingTarget('mcp.mail.send', ''), true);
+  assert.equal(state.app.registry.noStandingTarget('mcp.clock.now', ''), false, 'closed and empty: takes nothing');
+  for (const name of ['mcp.clock.bare', 'mcp.lent.fallback', 'mcp.mail.any', 'mcp.mail.send'])
+    assert.equal(state.app.registry.noStandingTarget(name, ''), true, name);
 });
 
 test('branch approve on the command line writes no rule for a target that is a pattern', async (t) => {
   const {answerFromCommand} = await import('../dist/cli-run.js');
-  assert.equal((await harness(t, 'q76-bracket')).app.registry.noStandingTarget('files.write', 'notes/[ab].md'), true);
   const state = await harness(t, 'q76-cli-pattern');
   state.calls.push({id: 'c1', name: 'files.write', arguments: JSON.stringify({path: '*', content: 'x'})});
   const run = await state.app.runtime.run({prompt: 'run'});

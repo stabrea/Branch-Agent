@@ -6,6 +6,7 @@ import type {
   ToolTarget,
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
+import { isCommandTool } from "./policy-resources.js";
 import { resourceOf, type PolicyResource } from "./policy-resources.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
 import { underTask } from "./task-scope.js"; // household-followups
@@ -33,12 +34,24 @@ export const targetlessTools: Readonly<Record<string, string>> = {
   "specialists.propose": "Proposing only saves the specialist. `evaluation.checks[].path` is read later, by files.verify, when it is evaluated.",
   "specialists.delegate": "`checks.files` is what the specialist's answer must account for. Every tool the specialist itself runs is judged on its own, with fewer permissions.",
 };
-/** Q76: a target that is itself a pattern ("*", "?", "[", even written %2A) would be kept as a rule for everything. */
-export const patternTarget = (target: string): boolean => {
+/**
+ * Q76: a target a kept rule would read as a pattern, so a standing yes on it would cover far more than
+ * this call. Rules match with `*` only (`?` and `[` are literal), even when written %2A. A command
+ * tool keeps a starred command as one exact command (policy.ts standingRule), so for those only a
+ * bare `*` is a pattern.
+ */
+export const patternTarget = (target: string, tool = ""): boolean => {
   let read = target;
   try { read = decodeURIComponent(target); } catch { /* not encoded: judged as written */ }
-  return /[*?[]/.test(read);
+  if (tool === "remote.run" || isCommandTool(tool)) return read.trim() === "*";
+  return read.includes("*");
 };
+/** Q76: a JSON schema that accepts only `{}`: nothing listed, nothing else allowed, nothing composed. */
+function closedEmptySchema(schema: Record<string, unknown> | undefined): boolean {
+  if (!schema || schema.type !== "object" || schema.additionalProperties !== false) return false;
+  const opens = ["patternProperties", "anyOf", "oneOf", "allOf", "$ref", "if", "dependentSchemas", "unevaluatedProperties"];
+  return Object.keys((schema.properties as Record<string, unknown> | undefined) ?? {}).length === 0 && !opens.some((key) => key in schema);
+}
 /** Q76: a target of only spaces or invisible characters (a zero-width space, a joiner) names nothing. */
 export const blankTarget = (target: string): boolean => !target.replace(/[\p{Cf}\s]/gu, "");
 
@@ -145,15 +158,15 @@ export class ToolRegistry {
    * arguments cannot be read) could have named where it reaches, so a rule on "*" would cover it all.
    */
   noStandingTarget(name: string, target: string): boolean {
-    if (patternTarget(target)) return true;
+    if (patternTarget(target, name)) return true;
     if (!blankTarget(target)) return false;
     const tool = this.tools.get(name);
     if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
     const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
     if (shape && Object.keys(shape).length === 0) return false;
-    // An outside server's tool says what it takes in its own JSON schema: one that lists nothing takes nothing.
-    const listed = (tool.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
-    if (!shape && tool.inputSchema && Object.keys(listed ?? {}).length === 0) return false;
+    // An outside server's tool takes nothing only when its JSON schema closes every door: an object
+    // with no properties and no others allowed. Anything else can carry a recipient under any name.
+    if (!shape && closedEmptySchema(tool.inputSchema)) return false;
     return !Object.hasOwn(targetlessTools, name);
   }
   /** Every registered tool with its permission, for the capability inventory. */
