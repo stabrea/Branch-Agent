@@ -135,6 +135,14 @@ test("B5 opening a conversation from Recents in a fresh window starts at its new
 test("Q197 Shift+Space, and a key pressed with the focus on the page itself, count as reading up (NAS b613f63)", async (t) => {
   const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
   await send(page, "A long answer please.");
+  // The window reloads the conversation after an answer lands: wait until the page is quiet, so that redraw's own
+  // scroll cannot land between a key and the check that follows it.
+  // (The page keeps polling, so it is never network-idle: quiet here means its height held for two looks in a row.)
+  for (let still = 0, tries = 0; still < 2 && tries < 40; tries++)
+    still = await page.evaluate(() => new Promise((resolve) => {
+      const box = document.getElementById("workspace"), before = box.scrollHeight;
+      setTimeout(() => resolve(box.scrollHeight === before), 400);
+    })) ? still + 1 : 0;
   const following = () => page.evaluate(() => globalThis.branchFollowNewest.following);
   assert.equal(await following(), true, "control: following after the answer");
   await page.locator("#conversation").click();
