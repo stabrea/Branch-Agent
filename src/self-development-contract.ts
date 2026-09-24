@@ -370,7 +370,8 @@ const remotePermissions = new Set(["git.remote", "github.manage"]);
  * Branch pins the known settings (src/integrations/git-run.ts); this keeps Git out of such folders.
  */
 function gitBelowRoot(deps: ContractGuardDeps, name: string, args: unknown): string | null {
-  if (!/^(git|plans)\./.test(name)) return null;
+  // Q98: publishing runs `git remote` and `git push` in its folder too.
+  if (!/^(git|plans)\./.test(name) && name !== "github.publish_repo") return null;
   const named = (args as { folder?: unknown } | null)?.folder;
   const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
   const folder = workspacePath(deps.workspace, scope, typeof named === "string" && named ? named : ".");

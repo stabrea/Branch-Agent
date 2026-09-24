@@ -406,3 +406,23 @@ test("Q98: publishing from Branch's source gets the push checks: a rewritten add
   await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /credential helper/);
   assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "");
 });
+
+test("Q98: publishing is held to the worktree-root rule like the Git tools", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-publish-root-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const { marker } = await plantedRepository(workspace);
+  new ContractBook(app.store.sqlite).create(app.runtime.owner, { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms: {
+    allowedPaths: ["src/ui/**"], permissions: ["github.publish_repo"], expectedTests: ["t"], definitionOfDone: "d", sideEffects: [], rollbackPlan: "r" } });
+  // Publishing is registered only once GitHub access is set up; the refusal comes before GitHub is ever asked.
+  const { GitHubAccess } = await import("../dist/integrations/github.js");
+  const { registerGitHubProject } = await import("../dist/integrations/git-tools.js");
+  const { NetworkPolicy } = await import("../dist/network-policy.js");
+  registerGitHubProject(app.registry, new GitHubAccess({ apiBase: "http://127.0.0.1:9" }, new NetworkPolicy({ allowPrivateAddresses: true }), async () => "ghp_fake"), app.git);
+  const run = app.store.createRun(app.runtime.owner, "publish");
+  const context = app.runtime.context({ runId: run.id, source: "owner" });
+  await assert.rejects(app.registry.execute("github.publish_repo", { folder: `${worktree}/src/ui/x`, name: "demo" }, context),
+    /Git runs in Branch's own source only at a self-development worktree's root/);
+  assert.equal(existsSync(marker), false, "the planted program never ran");
+});
