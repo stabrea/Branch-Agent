@@ -188,28 +188,31 @@ export class WorkspaceHistory {
   }
   /** The files the assistant changed in one conversation, the most recently changed first. */
   changedIn(sessionId: string): string[] {
-    const rows = this.db.prepare(`SELECT DISTINCT path FROM file_versions WHERE owner=? AND reason='before write'
-      AND run_id IN (SELECT id FROM tasks WHERE session_id=?) ORDER BY created_at DESC`).all(this.owner, sessionId);
+    const rows = this.db.prepare(`SELECT DISTINCT path FROM file_versions WHERE owner=? AND scope=? AND reason='before write'
+      AND run_id IN (SELECT id FROM tasks WHERE session_id=?) ORDER BY created_at DESC`).all(this.owner, this.currentScope(), sessionId);
     return rows.map((row) => String(row.path));
   }
 
   /** The change that would be undone next in this conversation, with what putting it back would do. */
   async undoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
-    const row = this.db.prepare(`SELECT id, path FROM file_versions WHERE owner=? AND reason='before write'
+    const row = this.db.prepare(`SELECT id, path FROM file_versions WHERE owner=? AND scope=? AND reason='before write'
       AND run_id IN (SELECT id FROM tasks WHERE session_id=?)
       AND id NOT IN (SELECT version_id FROM workspace_undo WHERE owner=? AND redone=0)
-      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner);
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, this.currentScope(), sessionId, this.owner);
     return row ? this.planFor(String(row.id), String(row.path)) : null;
   }
   /** The undo that would be put back next in this conversation. */
   async redoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
     const row = this.db.prepare(`SELECT redo_version_id AS id, path FROM workspace_undo
-      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+      WHERE owner=? AND session_id=? AND redone=0
+      AND redo_version_id IN (SELECT id FROM file_versions WHERE owner=? AND scope=?)
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner, this.currentScope());
     return row ? this.planFor(String(row.id), String(row.path)) : null;
   }
   /** What writing one kept version back would do to the file as it stands now. */
   private async planFor(versionId: string, path: string): Promise<FileChange & { versionId: string }> {
-    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId)!;
+    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=? AND scope=?").get(this.owner, versionId, this.currentScope());
+    if (!row) throw new Error("That earlier version is not kept");
     const wanted = Number(row.existed) ? Buffer.from(String(row.content), "base64").toString("utf8") : "";
     const now = (await this.current(path))?.toString("utf8") ?? "";
     return { path, versionId, existed: Number(row.existed) === 1, ...lineDiff(now, wanted) };
@@ -236,7 +239,7 @@ export class WorkspaceHistory {
   }
   /** Writes one kept version's exact bytes; a version of a file that did not exist removes it. */
   private async writeVersion(versionId: string, path: string): Promise<void> {
-    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
+    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=? AND scope=?").get(this.owner, versionId, this.currentScope());
     if (!row) throw new Error("That earlier version is not kept");
     const target = await this.files.checked(path);
     if (!Number(row.existed)) { await rm(target, { force: true }); return; }
