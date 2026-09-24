@@ -3,6 +3,7 @@
  * passages it would use. Kept in its own file; the page only provides the empty section.
  */
 import { inlineNodes } from "/markdown.js";
+import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const sizeLimit = 20 * 1024 * 1024;
@@ -50,8 +51,8 @@ function render() {
   $("documents-use").checked = view.inAnswers;
   $("documents-repository").checked = Boolean(context.repositoryContext);
   $("documents-meaning").textContent = view.meaningSearch
-    ? "Your documents are matched by wording and by meaning."
-    : "Your documents are matched by the words in them. Connect a model that offers comparisons by meaning to also match by meaning.";
+    ? t("documents.meaning.on")
+    : t("documents.meaning.off");
   const list = $("documents-list");
   list.replaceChildren();
   if (!view.documents.length) {

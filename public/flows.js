@@ -3,6 +3,7 @@
  * box in the order it happens, an arrow says what follows what, and a box that stops to ask or that
  * did not work is marked. Nothing here changes a flow; it is for seeing what one does at a glance.
  */
+import { t } from "./i18n.js";
 import { api } from "/app.js";
 
 const $ = (id) => document.getElementById(id);
@@ -99,7 +100,7 @@ export async function drawFlows() {
     if (!flows.length) {
       const empty = document.createElement("p");
       empty.className = "meta";
-      empty.textContent = "No flows saved yet. A flow is a list of steps the app works through on its own.";
+      empty.textContent = t("flows.empty");
       list.append(empty);
       return;
     }

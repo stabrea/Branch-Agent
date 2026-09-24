@@ -4,6 +4,7 @@
  * are reading. Every chip filters through the `labels` parameter the conversation search already
  * takes, so nothing new decides what matches.
  */
+import { t } from "./i18n.js";
 import { trackPopover } from "/popover.js";
 
 const el = (tag, text, className) => {
@@ -78,7 +79,7 @@ export async function openLabelPicker(button, sessionId, afterChange) {
   if (!sessionId) { globalThis.toast?.("Open a conversation first, then you can label it."); return; }
   picker = el("div", undefined, "label-picker");
   picker.setAttribute("role", "dialog");
-  picker.setAttribute("aria-label", "Labels for this conversation");
+  picker.setAttribute("aria-label", t("labels.picker.title")); picker.dataset.tLabel = "labels.picker.title";
   const draw = async () => {
     const [catalog, mine] = await Promise.all([
       conversationLabels(),
@@ -102,7 +103,8 @@ export async function openLabelPicker(button, sessionId, afterChange) {
     const field = el("input");
     field.type = "text";
     field.maxLength = 40;
-    field.placeholder = "New label";
+    field.placeholder = t("labels.field.new");
+    field.dataset.tPlaceholder = "labels.field.new"; // follows a language change while the picker is open
     field.className = "label-new";
     const add = el("button", "Add", "label-add");
     add.type = "button";
@@ -116,7 +118,9 @@ export async function openLabelPicker(button, sessionId, afterChange) {
     });
     const chips = el("div", undefined, "label-chips");
     chips.append(...rows);
-    picker.replaceChildren(el("p", "Labels for this conversation", "label-picker-head"), chips, field, add);
+    const head = el("p", t("labels.picker.title"), "label-picker-head");
+    head.dataset.t = "labels.picker.title";
+    picker.replaceChildren(head, chips, field, add);
   };
   await draw();
   button.insertAdjacentElement("afterend", picker);

@@ -4,6 +4,7 @@
  * queue of suggestions the owner decides on. Nothing on this page writes a remembered fact.
  */
 import { api, toast } from "/app.js";
+import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 function el(tag, text, className) {
@@ -62,8 +63,8 @@ async function runRefresh() {
   try {
     const done = await api("knowledge/refresh", { collection });
     $("memory-refresh-status").textContent = done.staged.length
-      ? `${done.staged.length} card${done.staged.length === 1 ? "" : "s"} suggested. Accept them under "What it learns". ${done.reason}`.trim()
-      : `Nothing was suggested. ${done.reason}`.trim();
+      ? t(done.staged.length === 1 ? "selfImproving.suggested.one" : "selfImproving.suggested.many", { count: done.staged.length, reason: done.reason }).trim()
+      : t("selfImproving.suggested.none", { reason: done.reason }).trim();
   } catch (error) { toast(error.message); $("memory-refresh-run").disabled = false; }
 }
 

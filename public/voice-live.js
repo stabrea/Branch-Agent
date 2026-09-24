@@ -7,6 +7,7 @@
  * whenever you have asked for sound to stay on this computer, the ordinary Talk button is what
  * you get, and it says why.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 const token = () => sessionStorage.getItem("branch-token") || "";
 const say = (message) => (typeof globalThis.toast === "function" ? globalThis.toast(message) : console.warn(message));
@@ -38,7 +39,11 @@ function show(next) {
   const row = $("voice-live-status");
   if (row) { row.textContent = statusFor[state]; row.hidden = state === "idle"; }
   const button = $("voice-live");
-  if (button) button.textContent = state === "idle" ? "Talk live" : state === "speaking" ? "Cut in" : "Stop";
+  /* data-t: this runs as the page loads, before the words do; the language pass then writes them in. */
+  if (button) {
+    button.dataset.t = state === "idle" ? "voiceLive.talk" : state === "speaking" ? "voiceLive.cutIn" : "voiceLive.stop";
+    button.textContent = t(button.dataset.t);
+  }
   tell("branch-live-state", { state }); // phase2/rooms
 }
 

@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * Talking to Branch and hearing it talk back. Hold the Talk button, speak, let go: what you said
  * is written out, sent as an ordinary message, and the answer is read aloud. Press Talk again to
@@ -86,7 +87,7 @@ function show(next) {
   row.textContent = statusFor[state];
   row.hidden = state === "idle";
   const button = $("voice-talk");
-  if (button) button.textContent = state === "speaking" ? "Stop" : "Talk";
+  if (button) button.textContent = state === "speaking" ? t("voice.talkStop") : t("voice.talkStart");
 }
 
 async function ready() {

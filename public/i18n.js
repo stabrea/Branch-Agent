@@ -45,22 +45,46 @@ export const formatDate = (value, options = { dateStyle: "medium", timeStyle: "s
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(current, options).format(date);
 };
-/** Writes every marked string on the page (or inside one node) in the language now chosen. */
+/**
+ * Writes every marked string on the page (or inside one node) in the language now chosen. Words that
+ * already read right are left alone: writing the same words again still counts as a change to the
+ * page, and every part of the window that watches for changes (Settings putting its cards in order,
+ * among others) would wake and do its work again for nothing.
+ */
 export function applyLanguage(root = document) {
-  for (const node of root.querySelectorAll("[data-t]")) node.textContent = t(node.dataset.t);
+  for (const node of root.querySelectorAll("[data-t]")) {
+    const words = t(node.dataset.t);
+    if (node.textContent !== words) node.textContent = words;
+  }
   // mac7/r17-g integration review: descriptions read aloud (aria-description) follow the language too.
   const attributes = { tLabel: "aria-label", tPlaceholder: "placeholder", tTitle: "title", tAriaDescription: "aria-description" };
   for (const [dataKey, attribute] of Object.entries(attributes))
-    for (const node of root.querySelectorAll(`[data-${dataKey.replace(/([A-Z])/g, "-$1").toLowerCase()}]`))
-      node.setAttribute(attribute, t(node.dataset[dataKey]));
+    for (const node of root.querySelectorAll(`[data-${dataKey.replace(/([A-Z])/g, "-$1").toLowerCase()}]`)) {
+      const words = t(node.dataset[dataKey]);
+      if (node.getAttribute(attribute) !== words) node.setAttribute(attribute, words);
+    }
   document.documentElement.lang = current;
 }
 /** Switches language, remembers the choice, and redraws the page's words. */
+/**
+ * The language whose words are on the page now, or null when none has been put there yet.
+ *
+ * Choosing the language already in force used to rewrite the page and announce a change anyway.
+ * applyLanguage itself is careful — it leaves text that already says the right thing alone — but the
+ * announcement is answered by listeners that throw whole cards away and build them again, so a change
+ * to nothing cost 2504 mutations and took the keyboard, an open explanation and a half-filled field
+ * with it. Nothing to do now means nothing done and nobody told.
+ */
+let applied = null;
 export async function setLanguage(next) {
   const chosen = LANGUAGES.some((l) => l.id === next) ? next : "en";
+  if (applied === chosen) return chosen;
   dictionary = chosen === "en" ? english : await load(chosen).catch(() => ({}));
   current = chosen;
   try { localStorage.setItem(STORAGE, chosen); } catch { /* a private window simply forgets */ }
+  /* A language whose words never arrived is not applied, so asking for it again tries again rather
+     than sitting silently on an empty dictionary. */
+  applied = chosen === "en" || Object.keys(dictionary).length > 0 ? chosen : null;
   applyLanguage();
   document.dispatchEvent(new CustomEvent("branch-language", { detail: { language: chosen } }));
   return chosen;
@@ -69,6 +93,9 @@ export async function setLanguage(next) {
 export async function initLanguage() {
   english = await load("en").catch(() => ({}));
   dictionary = english;
+  /* Starting up applies from scratch: the page may be showing whatever the HTML shipped with, so the
+     "already in force" guard above must not skip the first pass. */
+  applied = null;
   let saved = "en";
   try { saved = localStorage.getItem(STORAGE) || "en"; } catch { /* default to English */ }
   return setLanguage(saved);

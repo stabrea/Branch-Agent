@@ -6,6 +6,7 @@
  *
  * The one thing this card can change is deleting all of that, which it does in one button.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -109,7 +110,7 @@ $("tool-catalog-forget")?.addEventListener("click", async () => {
   const status = $("tool-catalog-status");
   try {
     const result = await api("tools/forget", "POST", { what: "all" });
-    status.textContent = `Forgotten: ${result.history} tasks and ${result.notes} notes. Your tools are untouched.`;
+    status.textContent = t("toolCatalog.status.forgotten", { history: result.history, notes: result.notes });
     await renderToolCatalog();
   } catch (error) {
     status.textContent = String(error.message || error);
