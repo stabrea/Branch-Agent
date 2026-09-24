@@ -38,12 +38,17 @@ export const targetlessTools: Readonly<Record<string, string>> = {
  * Q76: a target a kept rule would read as a pattern, so a standing yes on it would cover far more than
  * this call. Rules match with `*` only (`?` and `[` are literal), even when written %2A. A command
  * tool keeps a starred command as one exact command (policy.ts standingRule), so for those only a
- * bare `*` is a pattern.
+ * bare `*` is a pattern; remote.run's computer part stays a pattern, so any `*` there is one.
  */
 export const patternTarget = (target: string, tool = ""): boolean => {
   let read = target;
   try { read = decodeURIComponent(target); } catch { /* not encoded: judged as written */ }
-  if (tool === "remote.run" || isCommandTool(tool)) return read.trim() === "*";
+  if (tool === "remote.run") {
+    // "computer: command": standingRule keeps the computer part as a pattern, and the command as above.
+    const at = read.indexOf(": ");
+    return (at < 0 ? read : read.slice(0, at)).includes("*") || (at >= 0 && read.slice(at + 2).trim() === "*");
+  }
+  if (isCommandTool(tool)) return read.trim() === "*";
   return read.includes("*");
 };
 /** Q76: a JSON schema that accepts only `{}`: nothing listed, nothing else allowed, nothing composed. */
@@ -166,7 +171,8 @@ export class ToolRegistry {
     if (shape && Object.keys(shape).length === 0) return false;
     // An outside server's tool takes nothing only when its JSON schema closes every door: an object
     // with no properties and no others allowed. Anything else can carry a recipient under any name.
-    if (!shape && closedEmptySchema(tool.inputSchema)) return false;
+    // A lent tool's schema is only the lender's word: nothing checks a call against it (MCP's Ajv does).
+    if (!shape && tool.group !== "client" && closedEmptySchema(tool.inputSchema)) return false;
     return !Object.hasOwn(targetlessTools, name);
   }
   /** Every registered tool with its permission, for the capability inventory. */

@@ -250,3 +250,21 @@ test('branch approve on the command line writes no rule for a target that is a p
   assert.throws(() => answerFromCommand(state.app.runtime, run.id, 'yes'), /does not say/);
   assert.equal(readPolicy(state.app.store, state.app.runtime.owner).rules.filter((r) => r.tool === 'files.write').length, 0);
 });
+
+test('remote.run: a `*` in the computer part is a pattern, and so is a bare `*` command', async (t) => {
+  const state = await harness(t, 'q76-remote-pattern');
+  for (const target of ['*: ls', 'tow*: ls', 'tower: *', 'tower:  * ', '*', '%2A: ls'])
+    assert.equal(state.app.registry.noStandingTarget('remote.run', target), true, target);
+  for (const target of ['tower: ls', 'tower: ls *.md'])
+    assert.equal(state.app.registry.noStandingTarget('remote.run', target), false, target);
+});
+
+test('a tool a connected program lends keeps no standing yes on its word that it takes nothing', async (t) => {
+  const {ClientToolHub} = await import('../dist/interop/client-tools.js');
+  const state = await harness(t, 'q76-lent-closed');
+  const hub = new ClientToolHub(state.app.registry, state.app.store, state.app.runtime.owner);
+  const sent = [];
+  const name = hub.lend({client: 'mailer', call: async (_tool, args) => { sent.push(args); return 'ok'; }},
+    {name: 'send', description: 'send', parameters: {type: 'object', properties: {}, additionalProperties: false}});
+  assert.equal(state.app.registry.noStandingTarget(name, ''), true, 'nothing checks its calls against that schema');
+});
