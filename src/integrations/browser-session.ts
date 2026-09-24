@@ -211,7 +211,10 @@ export class BrowserSession {
       this.browserSession ??= await this.context.browser()!.newBrowserCDPSession();
       const { targetInfos } = await this.browserSession.send('Target.getTargets') as { targetInfos: TargetInfo[] };
       const target = targetInfos.find(each => each.targetId === id);
-      return !!target && this.tracesTo(target, new Map(targetInfos.map(each => [each.targetId, each])), await this.ourTargetIds());
+      if (!target) return false;
+      const byId = new Map(targetInfos.map(each => [each.targetId, each]));
+      // Traced tabs are asked first: a tab of ours whose id cannot be read then leaves this answer as it is.
+      return this.tracesTo(target, byId, new Set()) || this.tracesTo(target, byId, await this.ourTargetIds());
     } catch {
       return false;
     }

@@ -239,3 +239,16 @@ test("in the owner's browser, a page whose traced opener has closed is refused a
   assert.equal(orphan.closes, 1);
   assert.equal(theirs.closes, 0);
 });
+
+test("in the owner's browser, a page whose traced opener has closed is refused even while a tab of ours cannot be read", async () => {
+  const { state, context, send } = await borrowedWindow();
+  state.targets.push({ targetId: "p", type: "page", url: "", openerId: "t0" });
+  assert.equal(await send(), "aborted"); // p is traced, then closed
+  state.ourTargetFails = true; // from here on, which tabs are Branch's cannot be read
+  const orphan = Object.assign(fakePage("orphan"), { tid: "g", opener: async () => null });
+  state.targets.push({ targetId: "g", type: "page", url: "http://x.test/", openerId: "p" });
+  context.emit("page", orphan);
+  assert.equal(await send(orphan), "aborted");
+  for (let i = 0; i < 20 && orphan.closes === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(orphan.closes, 1);
+});
