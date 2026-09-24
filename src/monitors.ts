@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { errorText } from "./contracts.js";
+import { errorText, type ToolContext } from "./contracts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { WebAccess } from "./integrations/web.js";
@@ -35,8 +35,47 @@ export interface MonitorRecord {
   /** Healthy, failing or never run, from the last few looks. */
   health: Health; lastError: string | null;
 }
-export interface MonitorCheck { id: string; changed: boolean; summary: string; delivered: string | null }
+export interface MonitorCheck {
+  id: string; changed: boolean; summary: string; delivered: string | null;
+  /** Why the news was kept in the app instead of going to its chat. */
+  held?: string;
+}
 const snapshotChars = 20000;
+
+/**
+ * Q141: what a watch asks about Trunks. src/index.ts connects both; on its own no call is a Trunk's work, and a
+ * watch a Trunk made never sends to its chat.
+ */
+export interface WatchTrunks {
+  /** The Trunk whose work is going on here, if any: a step or a box it set going (Q114). */
+  atWork(): string | undefined;
+  /** Whether that Trunk may send to chats now; false once it is gone. */
+  maySend(trunkId: string): boolean;
+}
+export const noWatchTrunks: WatchTrunks = { atWork: () => undefined, maySend: () => false };
+export const trunkMayNotSend = "The Trunk that made this watch may no longer send to chats, so its news was kept here.";
+
+/**
+ * Q141: a watch that sends its news to a chat sends it as the owner's own bot, so pointing one at a chat asks what
+ * sending now asks (channels.broadcast): the owner, and a caller that may send to chats. The app's own watch route
+ * has no tool call behind it, so there only who is at the window is asked.
+ */
+export function requireMaySendToChats(store: Store, context: ToolContext | undefined): void {
+  store.profiles.requireOwner("Sending messages to your chats");
+  if (context && !context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+}
+/**
+ * A2: whether a call may see a watch. The owner's own calls (and the app's routes and timer, which have no tool call
+ * behind them) see every watch; a Trunk sees only the watches it made, and any other reads as not there.
+ */
+export function watchVisibleTo(context: ToolContext | undefined, trunks: WatchTrunks, madeBy: unknown): boolean {
+  const asking = context ? watchMadeBy(context, trunks) : null;
+  return !asking || madeBy === asking;
+}
+/** Q141: the Trunk a watch is made for: its turn, a specialist it handed work to, or work it set going. */
+export function watchMadeBy(context: ToolContext | undefined, trunks: WatchTrunks): string | null {
+  return context?.trunk ?? /^trunk:([^:]+)/.exec(context?.agent ?? "")?.[1] ?? trunks.atWork() ?? null;
+}
 
 /** "90", "90m", "6 hours", "1d" all become a number of minutes. */
 export function everyMinutes(value: number | string): number {
@@ -53,7 +92,8 @@ export class Monitors {
   private readonly db: DatabaseSync;
   /** Watches being looked at right now: a beat that overlaps the last one must not look again. */
   private readonly inFlight = new Set<string>();
-  constructor(private readonly store: Store, private readonly web: WebAccess, private readonly deliver?: DeliveryHandler) {
+  constructor(private readonly store: Store, private readonly web: WebAccess, private readonly deliver?: DeliveryHandler,
+    private readonly trunks: WatchTrunks = noWatchTrunks) {
     this.db = store.sqlite;
     this.db.exec(`CREATE TABLE IF NOT EXISTS monitors(id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind TEXT NOT NULL,
       target TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', every_minutes INTEGER NOT NULL, notify TEXT NOT NULL,
@@ -63,6 +103,8 @@ export class Monitors {
     const columns = new Set(this.db.prepare("PRAGMA table_info(monitors)").all().map((row) => String(row.name)));
     if (!columns.has("recent")) this.db.exec("ALTER TABLE monitors ADD COLUMN recent TEXT NOT NULL DEFAULT '[]'");
     if (!columns.has("last_error")) this.db.exec("ALTER TABLE monitors ADD COLUMN last_error TEXT");
+    // Q141: the Trunk that made the watch, if one did.
+    if (!columns.has("made_by")) this.db.exec("ALTER TABLE monitors ADD COLUMN made_by TEXT");
   }
   /** Writes one look into the short record the health badge reads. */
   private remember(id: string, entry: HealthEntry, error: string | null): void {
@@ -70,22 +112,31 @@ export class Monitors {
     const recent = [...parseRecent(row?.recent), entry].slice(-10);
     this.db.prepare("UPDATE monitors SET recent=?, last_error=? WHERE id=?").run(JSON.stringify(recent), error, id);
   }
-  list(owner: string): MonitorRecord[] {
-    return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner).map(toRecord);
+  /** `context` is the tool call behind it, if any: a Trunk lists only the watches it made (A2). */
+  list(owner: string, context?: ToolContext): MonitorRecord[] {
+    return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner)
+      .filter((row) => watchVisibleTo(context, this.trunks, row.made_by)).map(toRecord);
   }
-  remove(owner: string, id: string): { removed: string } {
-    if (!this.db.prepare("DELETE FROM monitors WHERE owner=? AND id=?").run(owner, id).changes) throw new Error("There is no watch with that number");
+  remove(owner: string, id: string, context?: ToolContext): { removed: string } {
+    const row = this.db.prepare("SELECT made_by FROM monitors WHERE owner=? AND id=?").get(owner, id);
+    if (!row || !watchVisibleTo(context, this.trunks, row.made_by)) throw new Error("There is no watch with that number");
+    this.db.prepare("DELETE FROM monitors WHERE owner=? AND id=?").run(owner, id);
     return { removed: id };
   }
-  /** Starts a watch and takes the first look right away, so the next change is a real change. */
-  async create(owner: string, input: unknown, signal?: AbortSignal): Promise<MonitorRecord> {
+  /**
+   * Starts a watch and takes the first look right away, so the next change is a real change. `context` is the tool
+   * call behind it; the app's own watch route has none.
+   */
+  async create(owner: string, input: unknown, signal?: AbortSignal, context?: ToolContext): Promise<MonitorRecord> {
     const value = MonitorSchema.parse(input);
+    if (value.notifyVia !== "activity") requireMaySendToChats(this.store, context);
     const minutes = everyMinutes(value.every), id = randomUUID(), now = new Date();
     const kind = value.url ? "page" : "search", target = value.url ?? value.query!;
     this.db.prepare(`INSERT INTO monitors(id, owner, kind, target, label, every_minutes, notify, hash, snapshot,
-      checked_at, next_at, changes, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      checked_at, next_at, changes, created_at, made_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       id, owner, kind, target, value.label ?? target.slice(0, 120), minutes, JSON.stringify(value.notifyVia),
-      null, null, null, new Date(now.getTime() + minutes * 60000).toISOString(), 0, now.toISOString());
+      null, null, null, new Date(now.getTime() + minutes * 60000).toISOString(), 0, now.toISOString(),
+      watchMadeBy(context, this.trunks));
     const text = await this.observe(kind, target, signal).catch((error) => `Could not be read: ${errorText(error)}`);
     this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=? WHERE id=?")
       .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), id);
@@ -109,9 +160,9 @@ export class Monitors {
   }
 
   /** Looks again, describes anything that changed, and sends it on. */
-  async check(owner: string, id: string, now = new Date(), signal?: AbortSignal): Promise<MonitorCheck> {
+  async check(owner: string, id: string, now = new Date(), signal?: AbortSignal, context?: ToolContext): Promise<MonitorCheck> {
     const row = this.db.prepare("SELECT * FROM monitors WHERE owner=? AND id=?").get(owner, id);
-    if (!row) throw new Error("There is no watch with that number");
+    if (!row || !watchVisibleTo(context, this.trunks, row.made_by)) throw new Error("There is no watch with that number"); // A2
     const record = toRecord(row);
     const next = new Date(now.getTime() + record.everyMinutes * 60000).toISOString();
     this.inFlight.add(id);
@@ -122,13 +173,16 @@ export class Monitors {
       // A different fingerprint with the same lines (spacing, order) is not news: it is kept, not sent.
       const changed = digest(text) !== String(row.hash ?? "") && linesDiffer(before, text);
       const summary = changed ? describeChange(record, before, text) : `No change at ${record.label}.`;
+      // Q141: a watch a Trunk made sends to its chat only while that Trunk may still send to chats.
+      const madeBy = row.made_by ? String(row.made_by) : null;
+      const held = changed && record.notifyVia !== "activity" && madeBy && !this.trunks.maySend(madeBy) ? trunkMayNotSend : null;
       // The news goes out before the new copy is kept: a delivery that fails leaves the old copy in
       // place, so the same change is noticed again next time instead of being lost silently.
-      const delivered = changed ? await this.announce(owner, record, summary) : null;
+      const delivered = changed ? await this.announce(owner, record, summary, held) : null;
       this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=?, next_at=?, changes=? WHERE id=?")
         .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), next, record.changes + (changed ? 1 : 0), id);
       this.remember(id, { status: "completed", startedAt: started, finishedAt: new Date().toISOString() }, null);
-      return { id, changed, summary, delivered };
+      return { id, changed, summary, delivered, ...(held ? { held } : {}) };
     } finally { this.inFlight.delete(id); }
   }
   /** Every watch that is due; each one's own failure is recorded and does not stop the others. */
@@ -150,12 +204,16 @@ export class Monitors {
     }
     return results;
   }
-  /** Sends the summary to the chosen chat, or puts it in the activity list when none was chosen. */
-  private async announce(owner: string, record: MonitorRecord, summary: string): Promise<string | null> {
-    if (record.notifyVia === "activity" || !this.deliver) {
+  /**
+   * Sends the summary to the chosen chat, or puts it in the activity list when none was chosen, or when it is
+   * `held` from its chat: then the activity list says why, and the hold is recorded.
+   */
+  private async announce(owner: string, record: MonitorRecord, summary: string, held: string | null = null): Promise<string | null> {
+    if (record.notifyVia === "activity" || !this.deliver || held) {
       const run = this.store.createRun(owner, `Watch: ${record.label}`);
-      this.store.message(run.sessionId, { role: "assistant", content: summary });
+      this.store.message(run.sessionId, { role: "assistant", content: held ? `${summary}\n\n${held}` : summary });
       this.store.event(run.id, "monitor.changed", { monitorId: record.id, target: record.target });
+      if (held && record.notifyVia !== "activity") this.store.event(run.id, "delivery.held", { ...record.notifyVia, reason: held });
       this.store.finish(run.id, "completed", summary);
       return "activity";
     }
@@ -205,24 +263,24 @@ export function registerMonitors(registry: ToolRegistry, monitors: Monitors): vo
     name: "monitor.create", reach: "outbound", permission: "monitors.manage",
     description: "Watch a web page or a web search and say what changed. Give an address or a search, how often to look (for example \"6h\"), and where to send the news — a chat, or the activity list.",
     parameters: MonitorSchema,
-    execute: async (input, context) => monitors.create(context.owner, input, context.signal),
+    execute: async (input, context) => monitors.create(context.owner, input, context.signal, context),
   });
   registry.register({
     name: "monitor.list", permission: "monitors.read",
     description: "List the watches that are running, what each is looking at, when it was last checked and how often it has changed.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => ({ monitors: monitors.list(context.owner) }),
+    execute: async (_input, context) => ({ monitors: monitors.list(context.owner, context) }),
   });
   registry.register({
     name: "monitor.check", reach: "outbound", permission: "monitors.manage",
     description: "Look at one watch right now instead of waiting for its next turn, and report what changed.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async ({ id }, context) => monitors.check(context.owner, id, new Date(), context.signal),
+    execute: async ({ id }, context) => monitors.check(context.owner, id, new Date(), context.signal, context),
   });
   registry.register({
     name: "monitor.remove", permission: "monitors.manage",
     description: "Stop a watch and forget what it had seen.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async ({ id }, context) => monitors.remove(context.owner, id),
+    execute: async ({ id }, context) => monitors.remove(context.owner, id, context),
   });
 }

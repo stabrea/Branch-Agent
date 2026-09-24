@@ -52,6 +52,13 @@ const GUARDS = [
   { file: "src/vault-autofill.ts", tool: "signin.fill", args: { login: "bank" }, setup: (app) => registerVaultAutofill(app.registry,
     new VaultAutofill({ store: app.store, owner: app.runtime.owner, page: { async fill() { return { filled: false }; } },
       read: async () => { throw new Error("nothing saved"); }, requireOwner: (what) => app.store.profiles.requireOwner(what) })) },
+  // A watch that sends its news to a chat is sending to the owner's chats, each time it sees a change. The page is a
+  // stand-in, so nothing is fetched.
+  { file: "src/monitors.ts", tool: "monitor.create",
+    args: { url: "https://example.test/p", every: 5, notifyVia: { channel: "telegram", chatId: "1" } },
+    setup: (app) => { app.monitors.web.fetchPage = async () => ({ text: "" }); } },
+  { file: "src/screen-watch.ts", tool: "monitors.screen.create",
+    args: { label: "a light", region: { x: 0, y: 0, width: 8, height: 8 }, notifyVia: { channel: "telegram", chatId: "1" } } },
 ];
 /** Files with an owner check that is not a tool's guard, and why. */
 const NOT_TOOL_GUARDS = {

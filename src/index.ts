@@ -863,12 +863,21 @@ export async function createBranch(options: {
     return { url: snapshot.url ?? url, title: snapshot.url ?? url, text: String(snapshot.accessibility ?? "") };
   };
   registerResearch(registry, research);
-  const monitors = new Monitors(store, web, deliverMessage);
+  // Q141: a watch a Trunk made sends to its chat only while that Trunk may still send to chats, asked of the Trunk
+  // as it is now. A Trunk that is gone, or that cannot be asked here, may not, so its news is kept in the app.
+  const watchTrunks = {
+    atWork: () => runtime.trunkAtWork(),
+    maySend: (trunkId: string) => {
+      try { return runtime.trunkShape({ prompt: "", trunkId })?.permissions.includes("channels.send") ?? false; }
+      catch { return false; }
+    },
+  };
+  const monitors = new Monitors(store, web, deliverMessage, watchTrunks);
   registerMonitors(registry, monitors);
   // Wave 8: watching one rectangle of the screen for a change. Off unless the owner switches it on
   // AND has using the screen switched on; the picture is never kept, only a fingerprint of it.
   const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
-    () => desktop.enabled(runtime.owner), deliverMessage);
+    () => desktop.enabled(runtime.owner), deliverMessage, watchTrunks);
   registerScreenWatches(registry, screenWatches);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
