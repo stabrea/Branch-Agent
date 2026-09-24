@@ -3,6 +3,7 @@
  * added to the bottom of the Usage screen; deciding approvals a kind of thing at a time rather
  * than a tool at a time; and the practice workspace, where nothing is real.
  */
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 const say = (message) => (globalThis.toast ? globalThis.toast(message) : console.warn(message));
 function el(tag, text, className) {
@@ -95,6 +96,12 @@ async function restoreCategoryFocus(select) {
 }
 
 /** Approval settings, a kind of thing at a time: one choice covers every tool of that kind. */
+/** A kind's name or sentence in the chosen language; the server's English when there is no translation yet. */
+function kindWords(category, part) {
+  const key = `toolKinds.kind.${category.id}.${part}`;
+  const words = t(key);
+  return words === key ? category[part] : words;
+}
 async function renderCategories() {
   const host = $("approval-categories");
   if (!host || !sessionStorage.getItem("branch-token")) return;
@@ -107,11 +114,18 @@ async function renderCategories() {
   for (const category of view.categories) {
     if (!category.tools.length) continue;
     const row = el("div", undefined, "card-list-item");
-    row.append(el("strong", category.label));
-    row.append(el("p", `${category.description} (${category.tools.length} ${category.tools.length === 1 ? "tool" : "tools"})`, "subtle"));
+    /* The kind's name is the dropdown's name: without it a screen reader announced six identical
+       "combo box, Leave as it is" with nothing to tell them apart. (What the choice does is linked
+       by public/settings-describe.js, from its "#approval-categories select" row.) */
+    const name = el("strong", kindWords(category, "label"));
+    name.id = `approval-category-${category.id}-name`;
+    row.append(name, el("p", t(category.tools.length === 1 ? "toolKinds.aboutOne" : "toolKinds.aboutMany",
+      { about: kindWords(category, "description"), count: category.tools.length }), "subtle"));
     const choice = el("select");
-    for (const [value, label] of [["", "Leave as it is"], ["allow", "Just get on with it"], ["ask", "Ask me first"], ["deny", "Never do this"]]) {
-      const option = el("option", label);
+    choice.setAttribute("aria-labelledby", name.id);
+    choice.dataset.kind = category.id;
+    for (const [value, key] of [["", "toolKinds.leave"], ["allow", "toolKinds.allow"], ["ask", "toolKinds.ask"], ["deny", "toolKinds.deny"]]) {
+      const option = el("option", t(key));
       option.value = value;
       choice.append(option);
     }
@@ -122,9 +136,9 @@ async function renderCategories() {
         await api("approvals/categories", { [category.id]: choice.value });
         category.decision = choice.value;
         categoriesDrawn = categoriesShape(view.categories);
-        say(`Saved: ${category.label.toLowerCase()} — ${choice.selectedOptions[0].textContent.toLowerCase()}.`);
+        say(t("toolKinds.saved", { kind: kindWords(category, "label").toLowerCase(), choice: choice.selectedOptions[0].textContent.toLowerCase() }));
         void window.branchApprovals?.render();
-      } catch (e) { say("That could not be saved: " + e.message); }
+      } catch (e) { say(t("toolKinds.notSaved", { message: e.message })); }
     });
     row.append(choice);
     host.append(row);
@@ -208,3 +222,28 @@ async function render() {
 }
 window.branchAllowed = { render: renderAllowed };
 window.branchMisc = { render, askBeforeStarting };
+/** The kind of tool the keyboard is on right now, or null when it is somewhere else entirely. */
+function focusedKind() {
+  const node = document.activeElement;
+  return node instanceof HTMLSelectElement && node.closest("#approval-categories") ? node.dataset.kind ?? null : null;
+}
+
+/**
+ * Puts the keyboard back on the same kind after the list has been thrown away and made again.
+ * restoreCategoryFocus above cannot do this: it holds the old node, and a redraw detaches it, so the
+ * kind is found again by its id. Only when the redraw left the focus nowhere -- never take it from
+ * wherever the person actually is, which in this flow is the language they just chose.
+ */
+function refocusKind(kind) {
+  if (!kind) return;
+  if (document.activeElement !== document.body && document.activeElement !== document.documentElement) return;
+  for (const select of document.querySelectorAll("#approval-categories select"))
+    if (select.dataset.kind === kind) { select.focus({ preventScroll: true }); return; }
+}
+
+/* The kinds are only redrawn when they change; a change of language must redraw them in the new words. */
+document.addEventListener("branch-language", () => {
+  const kind = focusedKind();
+  categoriesDrawn = "";
+  void renderCategories().then(() => refocusKind(kind));
+});
