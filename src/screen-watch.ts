@@ -131,7 +131,8 @@ export class ScreenWatches {
       : `"${watch.label}" looks the same as last time.`;
     // Q141: a watch a Trunk made sends to its chat only while that Trunk may still send to chats.
     const madeBy = found.made_by ? String(found.made_by) : null;
-    const held = changed && watch.notifyVia !== "activity" && madeBy && !this.trunks.maySend(madeBy) ? trunkMayNotSend : null;
+    const held = changed && watch.notifyVia !== "activity" && madeBy && !this.trunks.maySend(madeBy)
+      ? (this.trunks.offReason() ?? trunkMayNotSend) : null;
     const delivered = changed ? await this.tell(owner, watch, summary, held) : null;
     return { id, changed, summary, delivered, ...(held ? { held } : {}) };
   }

@@ -43,7 +43,7 @@ export interface MonitorCheck {
 const snapshotChars = 20000;
 
 /**
- * Q141: what a watch asks about Trunks. src/index.ts connects both; on its own no call is a Trunk's work, and a
+ * Q141: what a watch asks about Trunks. src/index.ts connects each; on its own no call is a Trunk's work, and a
  * watch a Trunk made never sends to its chat.
  */
 export interface WatchTrunks {
@@ -51,9 +51,12 @@ export interface WatchTrunks {
   atWork(): string | undefined;
   /** Whether that Trunk may send to chats now; false once it is gone. */
   maySend(trunkId: string): boolean;
+  /** Why no watch a Trunk made sends to its chat now, while Trunks are switched off; null while they are on. */
+  offReason(): string | null;
 }
-export const noWatchTrunks: WatchTrunks = { atWork: () => undefined, maySend: () => false };
+export const noWatchTrunks: WatchTrunks = { atWork: () => undefined, maySend: () => false, offReason: () => null };
 export const trunkMayNotSend = "The Trunk that made this watch may no longer send to chats, so its news was kept here.";
+export const trunksSwitchedOff = "Trunks are switched off, so this watch a Trunk made did not send to its chat; its news was kept here.";
 
 /**
  * Q141: a watch that sends its news to a chat sends it as the owner's own bot, so pointing one at a chat asks what
@@ -179,7 +182,8 @@ export class Monitors {
       const summary = changed ? describeChange(record, before, text) : `No change at ${record.label}.`;
       // Q141: a watch a Trunk made sends to its chat only while that Trunk may still send to chats.
       const madeBy = row.made_by ? String(row.made_by) : null;
-      const held = changed && record.notifyVia !== "activity" && madeBy && !this.trunks.maySend(madeBy) ? trunkMayNotSend : null;
+      const held = changed && record.notifyVia !== "activity" && madeBy && !this.trunks.maySend(madeBy)
+        ? (this.trunks.offReason() ?? trunkMayNotSend) : null;
       // The news goes out before the new copy is kept: a delivery that fails leaves the old copy in
       // place, so the same change is noticed again next time instead of being lost silently.
       const delivered = changed ? await this.announce(owner, record, summary, held) : null;
