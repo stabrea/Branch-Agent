@@ -88,6 +88,11 @@ export const signInPrefixes: readonly string[] = ["remote-agent:"];
 export const thisComputerSettings: readonly string[] = [
   "folder_trust", "folder_trust_mode", "folder-trust-real", "folder-trust-copies", "remote-agent-pairing", "remote-computers",
   "secret-commands", "keychain-entries", "reach-remote-trunks-keys",
+  // NAS 49b183b's unchecked class: this computer's OS sandbox, whether its emergency stop is pressed (letting it go
+  // needs the authenticator code, which a replacing restore would skip), and which tools need that code.
+  "os-sandbox", "safety-emergency-stop", "safety-code-approvals-setup",
+  // Q193 (NAS a870cea): which release failed to install on this computer, so update by itself skips it here only.
+  "comfort-update-failed",
 ];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
@@ -107,8 +112,12 @@ export const staysOnThisComputer = (id: string): boolean =>
  * until then. One that is the same as this computer's is not held at all (a restore point minutes old).
  */
 export const heldSettings: readonly string[] = ["accounts", "model-connections", "sender-allowlist", "people-shares", "people-groups", "policy",
-  "chat-permissions"];
-const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:"];
+  "chat-permissions",
+  // What works by itself, and how much of it: standing instructions every automatic turn reads, and its limits. The
+  // agent market's index addresses, and whether the password book fills sign-ins.
+  "autonomy-limits", "autonomy-kept-instructions", "interop-market-indexes", "vault-autofill"];
+/** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
+const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:"];
 export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
 /** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
 export interface HeldRow { owner: string; id: string; data: string }

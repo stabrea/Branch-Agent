@@ -14,6 +14,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { restoreBackup } from "../dist/server.js";
 import { staysOnThisComputer, thisComputerSettings } from "../dist/backup.js";
+import { engageStop, stopState } from "../dist/safety-extras/emergency-stop.js";
 import { decideFolder, folderTrust, integrationsFileTrusted, realFolder, saveFolderTrustSettings } from "../dist/folder-trust.js";
 
 async function fixture(t) {
@@ -28,8 +29,9 @@ async function fixture(t) {
 const keys = [...thisComputerSettings, "devices-book", "remote-agent:helper"];
 
 test("the list is what Q168 A names, and devices-book stays too (named once, with the #186 fix's sign-ins)", () => {
-  assert.deepEqual([...thisComputerSettings].sort(), ["folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
-    "keychain-entries", "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "secret-commands"]);
+  assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
+    "keychain-entries", "os-sandbox", "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup",
+    "safety-emergency-stop", "secret-commands"]);
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
@@ -95,4 +97,14 @@ test("a replacing restore keeps this computer's own paired chat senders (NAS ecd
   await restoreBackup(app, async () => changed, true);
   assert.deepEqual(setting("channel-pair:telegram:5:88"), { approved: true, mine: true });
   assert.deepEqual(setting("sender-allowlist"), { senders: ["telegram:5:88"] });
+});
+
+test("an emergency stop pressed here stays pressed through a replacing restore; letting it go is the owner's, with the code", async (t) => {
+  const { app, owner } = await fixture(t);
+  const released = app.store.backup(app.version); // made before the stop was pressed
+  engageStop(app.store, owner, { network: true, tools: ["shell.execute"] });
+  await restoreBackup(app, async () => released, true);
+  const after = stopState(app.store, owner);
+  assert.equal(after.engaged, true);
+  assert.deepEqual([after.network, after.tools], [true, ["shell.execute"]]);
 });
