@@ -4586,6 +4586,13 @@ With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works an
 turned off from the card: the settings screen shows what the door is really doing, but you take the
 wider door away again by starting the container without that line, not by changing the setting.
 
+**What the window shows.** The card **How Branch runs on this computer**, in Settings, has one line
+made from `GET /api/listen`: whether Branch listens beyond this computer on every address, beyond it
+on private IPv4 networks only, or on this computer only, with the address the door is on. When the
+door was closed while Branch ran, the line says so with Branch's own reason, or, once this computer's
+addresses would let a start open it again, that starting Branch again opens it. The line is in
+English and French; the reason is Branch's own English sentence. Anyone but the owner sees no line.
+
 Routes: `GET /api/listen` and `POST /api/listen`, both the owner's alone. The setting is saved under
 `listen-address`.
 
