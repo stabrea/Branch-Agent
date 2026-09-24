@@ -8,9 +8,11 @@ import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
 import { UpdateInstallClaim } from "./update-install-claim.js";
 import { builtFrom } from "./build-identity.js";
+import { primaryRepo } from "./repo-pair.js";
 
 export const updateSource = {
-  repo: "stabrea/Branch-Agent",
+  /* Tried first; the Updater falls back to the other name of the pair on a 404 (src/desktop/repo-pair.ts). */
+  repo: primaryRepo,
   assetName: "Branch-Agent-windows-x64.zip",
   executableName: "Branch Agent.exe",
 } as const;

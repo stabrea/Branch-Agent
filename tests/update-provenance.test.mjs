@@ -499,9 +499,9 @@ async function installFixture(t, { attestationFor = () => null, blobs = {}, real
  * operating system, and reaching the unpack step is the proof the check let the update through.
  */
 const reachedUnpack = "reached the unpack step";
-function gateUpdater(fixture, { platform = "win32", fetch = fixture.fetchViaFixture } = {}) {
+function gateUpdater(fixture, { platform = "win32", fetch = fixture.fetchViaFixture, repo = "stabrea/Branch-Agent" } = {}) {
   return new Updater({
-    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: fixture.installDir, platform,
+    repo, currentVersion: "0.2.0", installDir: fixture.installDir, platform,
     executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
     scratchDir: join(fixture.root, "scratch"), fetch,
     extract: async () => { throw new Error(reachedUnpack); },
@@ -551,6 +551,18 @@ test("install refuses a provenance record for a different file, and removes what
     await assert.rejects(updater.install(), /provenance record did not check out/, platform);
     await assert.rejects(readFile(join(fixture.root, "scratch", "Branch-Agent-windows-x64.zip")), /ENOENT/);
   }
+});
+
+/* Before the move a copy set to KeepOak finds the release under stabrea (KeepOak answers 404). The provenance
+   record is asked of the repository that served the release, so a bad one is found and stops the update; asked
+   of KeepOak, there would be no record at all and the update would go on with the checksum alone. */
+test("a release found under the old name has its provenance record asked of the old name, and a bad one stops it", async (t) => {
+  const fixture = await installFixture(t, {
+    realArchive: false, attestationFor: () => makeBundle(createHash("sha256").update("some other file entirely").digest("hex")),
+  });
+  await assert.rejects(gateUpdater(fixture, { repo: "KeepOak/Branch-Agent" }).install(), /provenance record did not check out \(the provenance record is for a different file\)/);
+  assert.equal(fixture.attestationHits(), 1, "the record was asked of stabrea/Branch-Agent, which served the release");
+  assert.ok(fixture.hits.includes("/repos/KeepOak/Branch-Agent/releases/latest"), "the new name was asked first");
 });
 
 test("install refuses a self-signed record naming anything but the release workflow for a version tag", async (t) => {
@@ -785,6 +797,12 @@ test("verifyAttestationBundle refuses look-alike repos (KeepOak-x, keepoak lower
     "keepoak.evil",
     "KeepOak/Branch-Agent-fork",
     "someone/Branch-Agent",
+    // Whole names that differ from Branch's two only in case or in the owner.
+    "keepoak/Branch-Agent",
+    "KeepOak/branch-agent",
+    "Stabrea/Branch-Agent",
+    "stabrea/branch-agent",
+    "KeepOak-x/Branch-Agent",
   ];
   for (const lookAlike of lookAlikes) {
     const fakeUri = `https://github.com/${lookAlike}/.github/workflows/package.yml@refs/tags/v0.3.0`;

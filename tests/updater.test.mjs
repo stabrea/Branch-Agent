@@ -105,6 +105,51 @@ test("beta sees newest published prerelease, stable ignores it, and switching ba
   assert.equal((await finalAhead.check()).release.latestVersion, "0.19.2", "the final stable release outranks its betas");
 });
 
+/* After the move KeepOak answers with releases of its own: each check asks it once, takes the release from it, and
+   says so; a Beta whose files live under the new name belongs to it. When neither name has a release, it says so. */
+test("after the move each channel reads KeepOak once and takes the release from it", async () => {
+  const at = "https://github.com/KeepOak/Branch-Agent/releases";
+  const release = (tag, prerelease) => ({ tag_name: tag, name: tag, body: "", published_at: "2026-09-24T00:00:00Z",
+    html_url: `${at}/tag/${tag}`, prerelease, draft: false, assets: [
+      { name: "Branch-Agent-windows-x64.zip", browser_download_url: `${at}/download/${tag}/Branch-Agent-windows-x64.zip`, size: 100 },
+      { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: `${at}/download/${tag}/Branch-Agent-windows-x64.zip.sha256`, size: 96 },
+    ] });
+  const stable = release("v0.20.0", false), beta = release("v0.20.1-beta.1", true);
+  const asked = [];
+  const fetch = async (url) => {
+    asked.push(String(url));
+    if (!String(url).includes("/repos/KeepOak/Branch-Agent/")) return { ok: false, status: 500, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => String(url).endsWith("/latest") ? stable : [beta, stable] };
+  };
+  const updater = new Updater({ repo: "KeepOak/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch });
+  const onStable = await updater.check();
+  assert.equal(onStable.phase, "available");
+  assert.equal(onStable.release.latestVersion, "0.20.0");
+  assert.equal(onStable.release.sourceRepo, "KeepOak/Branch-Agent");
+  assert.deepEqual(asked, ["https://api.github.com/repos/KeepOak/Branch-Agent/releases/latest"], "one question, to the new name");
+  asked.length = 0;
+  updater.setChannel("beta");
+  const onBeta = await updater.check();
+  assert.equal(onBeta.phase, "available", onBeta.message);
+  assert.equal(onBeta.release.latestVersion, "0.20.1-beta.1");
+  assert.equal(onBeta.release.sourceRepo, "KeepOak/Branch-Agent");
+  assert.equal(asked.length, 1, asked.join(" "));
+  assert.match(asked[0], /^https:\/\/api\.github\.com\/repos\/KeepOak\/Branch-Agent\/releases\?/);
+});
+
+test("when neither name has a release yet, the check says so rather than guessing", async () => {
+  for (const channel of ["stable", "beta"]) {
+    const updater = new Updater({ repo: "KeepOak/Branch-Agent", currentVersion: "0.19.1", channel,
+      installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+      scratchDir: "C:/scratch", fetch: async () => ({ ok: false, status: 404, json: async () => ({ message: "Not Found" }) }) });
+    const status = await updater.check();
+    assert.equal(status.phase, "error", channel);
+    assert.match(status.message, /No release has been published yet\./, channel);
+  }
+});
+
 /* Q37: measured on v0.19.3-beta.2, minutes after publication GitHub's release list showed no assets while the
    release's own assets list had all nine; the installed Beta check then said the download was missing. */
 test("a newest release whose listed assets lag is read from its own assets list, or skipped", async () => {
