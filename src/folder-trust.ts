@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import { z } from "zod";
@@ -120,7 +120,33 @@ function branchCopy(store: Pick<Store, "get">, owner: string, folder: string, pa
   if (pathApi.basename(home) !== ".branch-worktrees") return false;
   try { if (!lstatSync(join(folder, ".git")).isFile()) return false; } catch { return false; }
   const source = pathApi.dirname(home);
+  // The source must be a repository itself (then the walk judges it, not a folder inside one) whose own list
+  // of worktrees still names this copy: a record the copy outlived grants nothing.
+  if (!listedBy(source, folder)) return false;
   return copies(store, owner).some((one) => one.copy === folder && one.source === source);
+}
+/** Where a repository keeps its worktrees' entries: its own `.git/worktrees`, or, for a copy, the one it shares. */
+function worktreeEntries(source: string): string | null {
+  const dotGit = join(source, ".git");
+  try {
+    if (lstatSync(dotGit).isDirectory()) return join(dotGit, "worktrees");
+    const own = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+    if (!own) return null;
+    const entry = resolve(source, own);
+    return join(resolve(entry, readFileSync(join(entry, "commondir"), "utf8").trim()), "worktrees");
+  } catch { return null; }
+}
+/** Whether `source`'s repository still lists `copy` among its worktrees (the entry's `gitdir` points at the copy). */
+function listedBy(source: string, copy: string): boolean {
+  const entries = worktreeEntries(source);
+  if (!entries) return false;
+  const wanted = realFolder(join(copy, ".git"));
+  let names: string[];
+  try { names = readdirSync(entries); } catch { return false; }
+  return names.some((name) => {
+    try { return realFolder(resolve(join(entries, name), readFileSync(join(entries, name, "gitdir"), "utf8").trim())) === wanted; }
+    catch { return false; }
+  });
 }
 
 /** How far a folder is trusted, from the closest folder the owner has decided about. */

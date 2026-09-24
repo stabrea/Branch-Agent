@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -501,4 +502,51 @@ test("Q100: a copy takes its source's decision, whatever it is",
   assert.equal(folderTrust(app.store, owner, copy), "unknown", "undecided, like its source");
   decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
   assert.equal(folderTrust(app.store, owner, copy), "untrusted", "distrusted, like its source");
+});
+
+test("Q100: a copy made from a folder inside a repository is not trusted by that folder's decision",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const mono = join(workspace, "work", "mono");
+  await mkdir(join(mono, "pkg"), { recursive: true });
+  await writeFile(join(mono, "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await writeFile(join(mono, "pkg", "readme.md"), "pkg");
+  gitIn(mono, "init", "-q", "-b", "main");
+  gitIn(mono, "add", ".");
+  gitIn(mono, "commit", "-q", "-m", "first");
+  decideFolder(app.store, owner, workspace, { folder: "work/mono/pkg", decision: "trust" });
+  await app.git.worktree({ folder: "work/mono/pkg", action: "add", name: "x" }, signal());
+  const copy = join(mono, "pkg", ".branch-worktrees", "x");
+  assert.ok(existsSync(join(copy, "integrations.json")), "the copy is a full checkout, root file included");
+  assert.equal(folderTrust(app.store, owner, copy), "unknown", "a package's decision does not cover a copy of the whole repository");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(copy, "integrations.json")), false);
+});
+
+test("Q100: a record the copy outlived grants nothing to what is put at its place later",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  const other = join(workspace, "work", "other");
+  await mkdir(other, { recursive: true });
+  gitIn(other, "init", "-q", "-b", "main");
+  gitIn(other, "commit", "-q", "--allow-empty", "-m", "first");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  const copy = join(proj, ".branch-worktrees", "exp");
+  gitIn(proj, "worktree", "remove", "--force", copy); // by hand, not through the tool: the record stays
+  gitIn(other, "worktree", "add", "-q", "--detach", copy);
+  assert.equal(folderTrust(app.store, owner, copy), "unknown", "another repository's worktree at the recorded place");
+});
+
+test("Q100: a copy of a copy, both made by the tool, takes the first repository's decision",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  await app.git.worktree({ folder: "work/proj/.branch-worktrees/exp", action: "add", name: "deeper" }, signal());
+  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "exp", ".branch-worktrees", "deeper")), "trusted");
 });
