@@ -221,6 +221,7 @@ export class Scheduler {
     for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
       if (this.deferredForDayOff(candidate, now)) continue;
       if (this.heldForScripts(candidate)) continue;
+      if (this.heldForTrunks(candidate, now)) continue;
       const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
       if (!claimed) continue;
       const passed = this.gateApplies(claimed.data) ? await this.passGate(claimed, now) : { data: null };
@@ -243,6 +244,24 @@ export class Scheduler {
     if (off !== (record.data.heldBecause === scriptsOff))
       this.store.save("schedules", record.owner, record.id, { ...record.data, heldBecause: off ? scriptsOff : null });
     return off;
+  }
+  /**
+   * A repeating schedule a Trunk made waits while Trunks are switched off, as a gated job does while scripts are. The
+   * turn is held, not failed: no failure is counted, so the job is never paused for it. It says why on its health
+   * badge and moves on to its next turn; once Trunks are on again, that turn runs and the badge is cleared.
+   */
+  private heldForTrunks(record: SavedRecord, now: Date): boolean {
+    const data = record.data;
+    // The schedule itself, as `execute` sees it: a Trunk's routine is routed there instead.
+    const madeBy = typeof data.startedBy === "string" && repeating(data) && !this.routeRun(record.id) ? data.startedBy : null;
+    const held = madeBy ? this.trunkHeld(madeBy) : null;
+    if (held) {
+      this.store.save("schedules", record.owner, record.id, { ...data, heldBecause: held, dueAt: nextTurn(data, now) });
+      return true;
+    }
+    if (madeBy && typeof data.heldBecause === "string" && data.heldBecause !== scriptsOff)
+      this.store.save("schedules", record.owner, record.id, { ...data, heldBecause: null });
+    return false;
   }
   /** "When needed" runs the script for repeating jobs only; a one-off goes straight ahead. */
   private gateApplies(data: Record<string, unknown>): boolean {
