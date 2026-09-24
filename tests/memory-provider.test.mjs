@@ -1061,3 +1061,51 @@ test("a forget asked for while an update is still reading the fact waits for tha
   assert.deepEqual(order, ["PUT", "DELETE"], "the forget waited for the update it arrived during");
   assert.equal(double.byOwner.get("local")?.has(saved.id) ?? false, false, "the service no longer keeps the fact");
 });
+
+test("a memory.delete the outside service refuses still leaves the fact forgotten here", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const saved = await app.registry.execute("memory.put", { text: "Alarm code is 7788", source: "owner" }, context);
+  double.respond = (method) => (method === "DELETE" ? [500, { error: "read only" }] : undefined);
+  await assert.rejects(() => app.registry.execute("memory.delete", { id: saved.id }, context), /refused to forget/);
+  assert.equal(double.byOwner.get("local").has(saved.id), true, "the service really does still hold it");
+  assert.equal(await app.memory.backend.read("local", saved.id), undefined, "but Branch does not read it back");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Alarm" }, context), []);
+  assert.equal(await app.memory.backend.count("local"), 0);
+});
+
+test("an accepted update suggestion reads and writes under the fact's lock, so a forget asked meanwhile lands after it", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const saved = await app.registry.execute("memory.put", { text: "Door code is 1111", source: "owner" }, context);
+  app.store.review.configure("local", { requireApproval: true });
+  const staged = await app.registry.execute("memory.update", { id: saved.id, text: "Door code is 2222", source: "owner", expectedRevision: 1 }, context);
+  assert.equal(staged.staged, true);
+  app.store.review.configure("local", { requireApproval: false });
+  // The suggestion's read is answered with the fact as it is now, and the answer is held on its way back.
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const order = [];
+  let reads = 0;
+  double.server.on("request", (request, response) => {
+    const parts = new URL(request.url, "http://x").pathname.split("/").filter(Boolean);
+    if (request.method === "GET" && parts.length === 3 && reads++ === 0) {
+      const end = response.end.bind(response);
+      response.end = (...args) => { setTimeout(() => end(...args), 300); return response; };
+    }
+    if (request.method === "PUT" || request.method === "DELETE") order.push(request.method);
+    return answer(request, response);
+  });
+  const accepting = app.store.review.decide("local", staged.proposalId, true);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const forgetting = app.registry.execute("memory.delete", { id: saved.id }, context);
+  await Promise.allSettled([accepting, forgetting]);
+  assert.deepEqual(order, ["PUT", "DELETE"], "the forget waited for the accepted suggestion it arrived during");
+  assert.equal(double.byOwner.get("local")?.has(saved.id) ?? false, false, "the service no longer keeps the fact");
+});
