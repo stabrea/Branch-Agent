@@ -74,8 +74,10 @@ export function updatePlan(store: Pick<Store, "get">, owner: string, facts: Plan
      itself" on it is built and installed like any other update, once no task is working, so each fix is seen live. */
   const install = mode === "install";
   if (install && facts.updaterPhase === "available") {
+    // NAS a870cea: a failed release is not tried again, but looking goes on as usual, or the next one would never be found.
     if (facts.updaterTag && failedInstall(store, owner) === facts.updaterTag)
-      return plan("nothing", "The newest version did not install here last time, so it is not tried again by itself. The next one is, as soon as it lands; Update tries this one now.");
+      return due ? plan("check", "Looking past the version that did not install here for a newer one.")
+        : plan("nothing", "The newest version did not install here last time, so it is not tried again by itself. The next one is, as soon as it lands; Update tries this one now.");
     if (facts.busyTasks > 0) return plan("nothing", "A newer version is ready; it installs once no task is working.");
     return plan("install", "A newer version is ready and nothing is working, so it is installed now, safely.");
   }
