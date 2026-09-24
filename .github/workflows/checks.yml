@@ -13,6 +13,12 @@ on:
   push:
     branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'mac5/**', 'mac6/**', 'mac7/**', 'wave9/**']
   workflow_dispatch:
+    inputs:
+      windows_runner:
+        description: Where Windows runs (auto asks which Legion runners are idle)
+        type: choice
+        options: [auto, legion, windows-latest]
+        default: auto
   schedule:
     - cron: '17 3 * * *'
 permissions:
@@ -29,26 +35,48 @@ concurrency:
 # than after them. Nothing is skipped in this workflow: `verify` is red unless every share on every
 # system and every packaging job are green.
 jobs:
+  # Which machines take this run. The owner's own computers are used when their runners are online and idle,
+  # and GitHub's otherwise, so a run never waits for a computer that is off or busy. Windows goes to the
+  # Legion PC's runners (label branch-legion), except the desktop and uninstall tests, which never run on
+  # the owner's own computer and go to one hosted Windows share. Listing runners needs a token that can read
+  # the repository's administration (RUNNER_STATUS_TOKEN); without it, or asked with windows_runner, the
+  # choice is made by hand.
+  pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+          REPO: ${{ github.repository }}
+          ASKED: ${{ inputs.windows_runner || 'auto' }}
+        run: |
+          idle=0
+          if [ "$ASKED" = legion ]; then idle=3
+          elif [ "$ASKED" = auto ] && [ -n "$GH_TOKEN" ]; then
+            idle=$(gh api "repos/$REPO/actions/runners" --jq '[.runners[] | select(.status == "online" and (.busy | not) and ([.labels[].name] | index("branch-legion")))] | length' || echo 0)
+          fi
+          node -e '
+            const idle = Number(process.argv[1]); const rows = [];
+            const add = (os, runner, total, extra = {}) => { for (let shard = 1; shard <= total; shard++) rows.push({ os, runner, shard, total, ...extra }); };
+            if (idle > 0) {
+              add("windows", "legion", idle, { exclude: process.argv[2], concurrency: "8,3" });
+              rows.push({ os: "windows", runner: "windows-latest", shard: 1, total: 1, only: process.argv[2], concurrency: "3,1" });
+            } else add("windows", "windows-latest", 6);
+            add("macos", "macos-latest", 5);
+            add("linux", "ubuntu-latest", 8);
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({ include: rows }) + "\n");
+            console.log(`Windows on ${idle > 0 ? idle + " Legion runner(s)" : "GitHub"}; ${rows.length} shares.`);
+          ' "$idle" '^tests/(desktop[^/]*|[^/]*uninstall[^/]*|windows-hidden[^/]*|[^/]*console[^/]*)\.test\.mjs$'
   test:
-    name: test (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.total }})
+    name: test (${{ matrix.os }}${{ matrix.runner == 'legion' && ' on legion' || '' }}${{ matrix.only && ' desktop' || '' }}, ${{ matrix.shard }}/${{ matrix.total }})
+    needs: pick
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: windows-latest, shard: 1, total: 6 }
-          - { os: windows-latest, shard: 2, total: 6 }
-          - { os: windows-latest, shard: 3, total: 6 }
-          - { os: windows-latest, shard: 4, total: 6 }
-          - { os: windows-latest, shard: 5, total: 6 }
-          - { os: windows-latest, shard: 6, total: 6 }
-          - { os: macos-latest, shard: 1, total: 4 }
-          - { os: macos-latest, shard: 2, total: 4 }
-          - { os: macos-latest, shard: 3, total: 4 }
-          - { os: macos-latest, shard: 4, total: 4 }
-          - { os: ubuntu-latest, shard: 1, total: 3 }
-          - { os: ubuntu-latest, shard: 2, total: 3 }
-          - { os: ubuntu-latest, shard: 3, total: 3 }
-    runs-on: ${{ matrix.os }}
+      matrix: ${{ fromJSON(needs.pick.outputs.matrix) }}
+    runs-on: ${{ matrix.runner == 'legion' && fromJSON('["self-hosted","branch-legion"]') || matrix.runner }}
     # A share takes 20 to 45 minutes on Windows. A test that leaves a process behind once kept a share waiting
     # 78 minutes for a file that would never finish; the default limit is six hours.
     timeout-minutes: 60
@@ -98,6 +126,9 @@ jobs:
         run: npm test -- --shard=${{ matrix.shard }}/${{ matrix.total }}
         env:
           BRANCH_TEST_TIMINGS: ${{ runner.temp }}/test-timings.json
+          BRANCH_TEST_EXCLUDE: ${{ matrix.exclude }}
+          BRANCH_TEST_ONLY: ${{ matrix.only }}
+          BRANCH_TEST_CONCURRENCY: ${{ matrix.concurrency }}
       # How long each file took, so tests/test-weights.json can be refreshed from a real run.
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
