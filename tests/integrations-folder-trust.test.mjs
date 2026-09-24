@@ -584,8 +584,9 @@ test("Q100: a copies folder that is a link into another repository's copies is n
   gitIn(other, "commit", "-q", "--allow-empty", "-m", "first");
   await symlink(join(other, ".branch-worktrees"), join(proj, ".branch-worktrees"), "dir");
   decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
-  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
-  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "exp")), "unknown", "it really lives in another repository's copies");
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal()), /is a link/);
+  assert.equal(existsSync(join(other, ".branch-worktrees", "exp")), false, "no copy is made in another repository's copies");
+  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "exp")), "unknown");
 });
 
 test("Q100: the source's list must name this copy, not just any copy",
@@ -660,12 +661,13 @@ test("Q100: a copy made through another checkout of the same repository is not j
   gitIn(main, "init", "-q", "-b", "main");
   gitIn(main, "commit", "-q", "--allow-empty", "-m", "first");
   gitIn(main, "worktree", "add", "-q", "-b", "prb", pr);
-  await mkdir(join(main, ".branch-worktrees"), { recursive: true });
-  await symlink(join(main, ".branch-worktrees"), join(pr, ".branch-worktrees"), "dir");
   decideFolder(app.store, owner, workspace, { folder: "work/main", decision: "trust" });
   decideFolder(app.store, owner, workspace, { folder: "work/pr", decision: "distrust" });
-  await app.git.worktree({ folder: "work/pr", action: "add", name: "exp" }, signal());
+  // Branch no longer makes a copy through a linked copies folder; a record from before that still names pr.
   const exp = join(main, ".branch-worktrees", "exp");
+  gitIn(pr, "worktree", "add", "-q", "--detach", exp);
+  const { recordWorktreeCopy } = await import("../dist/folder-trust.js");
+  recordWorktreeCopy(app.store, owner, pr, exp, true);
   await mkdir(join(exp, "sub"), { recursive: true });
   await writeFile(join(exp, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
   assert.notEqual(folderTrust(app.store, owner, exp), "trusted", "made from the distrusted pr, not from main");
@@ -720,5 +722,53 @@ test("Q100: a real folder in a copy is not judged through a link its source has 
     await symlink(link, join(proj, "sub"), "dir");
     assert.equal(folderTrust(app.store, owner, sub), "untrusted", `${name}: the copy's own place decides`);
     assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(sub, "integrations.json")), false, name);
+  }
+});
+
+test("Q100: a link at any level of the source's path is not followed, even for a copy made from an older branch",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = join(workspace, "work", "proj");
+  await mkdir(join(proj, "a", "b"), { recursive: true });
+  await mkdir(join(workspace, "work", "lib", "b"), { recursive: true });
+  await writeFile(join(proj, "a", "b", "AGENTS.md"), "planted");
+  await writeFile(join(proj, "a", "b", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "old");
+  gitIn(proj, "branch", "old");
+  gitIn(proj, "rm", "-q", "-r", "a");
+  await symlink("../lib", join(proj, "a"), "dir");
+  gitIn(proj, "add", "a");
+  gitIn(proj, "commit", "-q", "-m", "a is a link now");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "trust" });
+  await app.git.planStart({ folder: "work/proj", name: "t", from: "old" }, signal());
+  const copy = join(proj, ".branch-worktrees", "t");
+  for (const inside of [join(copy, "a"), join(copy, "a", "b")])
+    assert.equal(folderTrust(app.store, owner, inside), "untrusted", inside);
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(copy, "a", "b", "integrations.json")), false);
+});
+
+test("Q100: a repository that carries its copies folder as a link gets no copy, so none lands outside it",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  await writeFile(join(proj, "AGENTS.md"), "planted");
+  await writeFile(join(proj, "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  gitIn(proj, "init", "-q", "-b", "main");
+  for (const [name, link] of [["up", ".."], ["out", "../../.."]]) {
+    await rm(join(proj, ".branch-worktrees"), { force: true });
+    await symlink(link, join(proj, ".branch-worktrees"), "dir");
+    gitIn(proj, "add", ".");
+    gitIn(proj, "commit", "-q", "-m", `copies folder -> ${link}`);
+    decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+    decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+    await assert.rejects(app.git.worktree({ folder: "work/proj", action: "add", name }, signal()), /is a link/, `git.worktree_add through ${link}`);
+    await assert.rejects(app.git.planStart({ folder: "work/proj", name: `${name}-plan` }, signal()), /is a link/, `plans.try through ${link}`);
+    for (const made of [name, `${name}-plan`])
+      assert.equal(existsSync(join(proj, link, made)), false, `nothing written at ${link}/${made}`);
   }
 });

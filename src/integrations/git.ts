@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
@@ -22,6 +22,19 @@ function canonical(path: string): string {
   try { return realpathSync.native(path); } catch { return resolve(path); }
 }
 export interface GitChange { path: string; state: string }
+
+/**
+ * Q100: the folder a repository's parallel copies go in, made when missing. It must be a real folder in the
+ * repository: a `.branch-worktrees` the repository itself carries as a link would put Branch's copy somewhere
+ * else, outside the folder it was asked about (and out of reach of that folder's trust).
+ */
+async function copiesHome(cwd: string): Promise<string> {
+  const home = join(cwd, WORKTREE_HOME);
+  await mkdir(home, { recursive: true });
+  if (!(await lstat(home)).isDirectory() || canonical(home) !== join(canonical(cwd), WORKTREE_HOME))
+    throw new Error(`${WORKTREE_HOME} in this folder is a link, so no parallel copy is made here: it would land outside the folder.`);
+  return home;
+}
 
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
@@ -137,7 +150,7 @@ export class GitTools {
       this.onCopy({ source: cwd, copy: target, made: false });
       return { folder: input.folder, name: input.name, removed: true };
     }
-    await mkdir(home, { recursive: true });
+    await copiesHome(cwd);
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
     await this.run(cwd, ["worktree", "add", ...create, target], signal, { timeoutMs: 60000 });
     this.onCopy({ source: cwd, copy: target, made: true });
@@ -153,8 +166,7 @@ export class GitTools {
   async planStart(input: { folder: string; name: string; from?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
-    const home = join(cwd, WORKTREE_HOME);
-    await mkdir(home, { recursive: true });
+    const home = await copiesHome(cwd);
     const from = input.from ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["worktree", "add", "-b", branch, join(home, input.name), from], signal, { timeoutMs: 60000 });
     this.onCopy({ source: cwd, copy: join(home, input.name), made: true });
