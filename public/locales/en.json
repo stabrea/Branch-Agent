@@ -2787,6 +2787,7 @@
   "meter.label": "Context used",
   "meter.messages": "Messages",
   "meter.noCost": "No price on file for this model yet",
+  "meter.nextRequest": "The next request carries",
   "meter.noPrice": "no price on file",
   "meter.of": "{used} of {budget} words of context",
   "meter.runs": "Tasks",

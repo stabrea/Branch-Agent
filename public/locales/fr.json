@@ -2788,6 +2788,7 @@
   "meter.label": "Contexte utilisé",
   "meter.messages": "Messages",
   "meter.noCost": "Aucun tarif enregistré pour ce modèle",
+  "meter.nextRequest": "La prochaine demande contient",
   "meter.noPrice": "aucun tarif enregistré",
   "meter.of": "{used} sur {budget} mots de contexte",
   "meter.runs": "Tâches",
