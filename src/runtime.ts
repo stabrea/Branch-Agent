@@ -1206,6 +1206,8 @@ ${run.output.slice(0, 6000)}`;
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
   /** Q114: a Trunk's own key choices, by its id, or null once it is gone (set by src/trunks). */
   trunkKeysFor: (id: string) => TrunkRunShape["keys"] | null = () => null;
+  /** Q119: the tools a Trunk may use now, by its id, or null once it is gone (set by src/trunks). */
+  trunkPermissionsFor: (id: string) => string[] | null = () => null;
   /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
   trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
   /**

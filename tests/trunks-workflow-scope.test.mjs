@@ -107,6 +107,18 @@ test("the owner pressing Run on a Trunk's workflow runs it as that Trunk, under 
   assert.match(await use(ada, "workflows.list", {}), new RegExp(id));
 });
 
+test("a Trunk's workflow keeps to what that Trunk may use now, not what it could when it made it", async (t) => {
+  const { app, ada, owner, use, saved } = await setup(t);
+  await use(ada, "memory.put", { text: "zebra Ada ADAOWN5150", source: "me" });
+  await use(ada, "workflows.create", { name: "looks", steps: [
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  const id = saved("looks").id;
+  app.trunks.edit(ada.id, { permissions: ["workflows.manage", "workflows.read"] }); // the owner takes memory.read away
+  const done = await app.workflows.run(owner, id);
+  assert.equal(done.status, "failed", "the step is refused, as it would be in Ada's own turn");
+  assert.doesNotMatch(JSON.stringify(done.state), /ADAOWN5150/);
+});
+
 test("a Trunk's workflow cannot run the owner's workflow as one of its steps, nor make it the Trunk's", async (t) => {
   const { app, ada, owner, use, saved } = await setup(t);
   const owners = await app.registry.execute("workflows.create", { name: "owners", steps: [

@@ -142,17 +142,12 @@ export class Workflows {
     if (!record || (caller && this.whose(record.data) !== caller)) throw new Error("Workflow not found");
     return record;
   }
-  /**
-   * `given` is the Trunk the owner hands a new workflow to (Teach); otherwise it is whoever makes it. `within`
-   * is the maker's tool limit, kept for a Trunk's workflow so the owner pressing Run on it never widens it.
-   */
-  create(owner: string, input: unknown, options: { given?: string; within?: readonly string[] } = {}): WorkflowView {
+  /** `given` is the Trunk the owner hands a new workflow to (Teach); otherwise it is whoever makes it. */
+  create(owner: string, input: unknown, options: { given?: string } = {}): WorkflowView {
     const definition = WorkflowSchema.parse(input);
     const id = definition.id ?? randomUUID();
     const existing = this.store.get("workflows", owner, id) ? this.reach(owner, id).data : undefined; // Q119
     const whose = existing ? this.whose(existing) : options.given ?? this.runtime.trunkAtWork() ?? null;
-    const madeWithin = this.runtime.trunkAtWork() && options.within ? [...options.within]
-      : Array.isArray(existing?.madeWithin) ? existing.madeWithin : null;
     this.store.save("workflows", owner, id, {
       ...definition, id, status: existing?.status ?? "idle", cursor: Number(existing?.cursor ?? 0),
       waitingUntil: existing?.waitingUntil ?? null, question: null, error: null,
@@ -162,7 +157,6 @@ export class Workflows {
       ...(typeof existing?.startedFrom === "string" ? { startedFrom: existing.startedFrom } : {}),
       // Q114/Q119: nor the Trunk whose work it is, so saving the steps again never hands the rest to someone else.
       ...(whose ? { startedBy: whose } : {}),
-      ...(whose && madeWithin ? { madeWithin } : {}),
     });
     return this.view(owner, id);
   }
@@ -271,11 +265,14 @@ export class Workflows {
    * workflow, so an owner's yes later does not widen it); the owner starting it afresh clears it.
    */
   private limitFor(owner: string, id: string, fresh: boolean, within: readonly string[] | undefined): string[] | null {
-    const data = this.store.get("workflows", owner, id)?.data as { taskLimit?: string[] | null; madeWithin?: string[] } | undefined;
-    // Q119: a fresh start of a Trunk's workflow keeps to what that Trunk could use when it made it.
-    const saved = (fresh ? data?.madeWithin : data?.taskLimit) ?? null;
-    if (!within) return saved;
-    return saved ? saved.filter((p) => within.includes(p)) : [...within];
+    const data = this.store.get("workflows", owner, id)?.data;
+    const saved = fresh ? null : (data as { taskLimit?: string[] | null } | undefined)?.taskLimit ?? null;
+    const limit = !within ? saved : saved ? saved.filter((p) => within.includes(p)) : [...within];
+    // Q119: a Trunk's workflow keeps to what that Trunk may use now, whoever presses Run or says yes.
+    const whose = this.whose(data);
+    const trunkMay = whose ? this.runtime.trunkPermissionsFor(whose) : null;
+    if (!trunkMay) return limit;
+    return limit ? limit.filter((p) => trunkMay.includes(p)) : [...trunkMay];
   }
   /**
    * mac7/outside-resume: who a run of the workflow is held as. Carrying one on (after a pause, a wait
@@ -445,8 +442,7 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     parameters: WorkflowSchema,
     execute: async (value, context) => {
       if (startedFromChat(context, workflows.store)) throw chatOwnerOnly("Saving a workflow");
-      const within = workflows.taskLimit(context);
-      return workflows.create(workflows.forOwner(context.owner), value, within ? { within } : {});
+      return workflows.create(workflows.forOwner(context.owner), value);
     },
   });
   registry.register({
