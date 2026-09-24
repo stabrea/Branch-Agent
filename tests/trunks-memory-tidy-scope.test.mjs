@@ -341,3 +341,23 @@ test("tidying by the owner's instructions is shown only the owner's own facts, s
   assert.equal(result.proposed, 1);
   assert.deepEqual(app.store.review.proposals("local", "pending").map((p) => p.memoryId), ["owner-wifi"]);
 });
+
+test("the look back still sees the owner's own facts when a Trunk has far more newer ones", async (t) => {
+  const { app, ada } = await seeded(t);
+  const { lookBack } = await import("../dist/reflection/pass.js");
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed" });
+  // More newer facts of Ada's than the look back is shown, so a filter taken after the cut would leave the owner's out (NAS 44f3648).
+  const scope = `agent:trunk:${ada.id}`;
+  for (let i = 0; i < 70; i += 1) app.store.save("memory", "local", `ada-many-${i}`, { text: `Ada noted thing ${i}`, source: "seed", scope });
+  const run = await app.runtime.run({ prompt: "Remind me about the wifi.", onTextDelta: () => undefined });
+  let asked = "";
+  const ask = async (_instructions, question) => {
+    asked = question;
+    return JSON.stringify({ remember: [], correct: [{ id: "owner-wifi", text: "The wifi password is hunter2, pin 4417", why: "x" }],
+      setAside: [], skillNotes: [], newSkills: [], merge: [] });
+  };
+  await lookBack(app.store, { owner: "local", sessionId: run.sessionId, runId: run.id, trigger: "asked", ask });
+  assert.match(asked, /pin 4417/, "the owner's own fact is still shown");
+  assert.doesNotMatch(asked, /Ada noted/, "none of Ada's is");
+  assert.ok(app.store.review.proposals("local", "pending").some((p) => p.kind === "update" && p.memoryId === "owner-wifi"), "its correction is staged");
+});

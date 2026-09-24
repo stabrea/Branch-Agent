@@ -77,7 +77,7 @@ export const tidyByInstructionsSource = "Tidying by your instructions:";
 const modelWritten = (source: string): boolean => [lookBackSource, tidyByInstructionsSource].some((start) => source.startsWith(start));
 /** Whose a fact is: missing means the owner's own. */
 const whose = (data: Record<string, unknown>): string => String(data.scope ?? "private");
-const notTheOwners = "A suggestion a model wrote can only change the owner's own facts, and this one names someone else's, so it is not made. Suggest tidying again.";
+const notTheOwners = "A suggestion a model wrote can only change the owner's own facts, and this one names someone else's, so it is not made. Decline it, then tidy again.";
 export const tidyingKinds: Proposal["kind"][] = ["merge", "archive", "forget"];
 
 export class MemoryReview {
@@ -230,10 +230,10 @@ export class MemoryReview {
       // the owner says yes, because a suggestion may have been made before tidying knew that, or by the look back,
       // which groups what the model saw (Mac mini 5c2e4f6, NAS ea14643).
       // A fact named in the merge that is gone by now (deleted, forgotten, expired) still has its words in the merged
-      // text, and whose they were can no longer be told, so the merge is refused (NAS c4840ce).
+      // text, and whose they were can no longer be told, so the merge is refused (NAS ec65398).
       const others = proposal.memoryIds.filter((id) => id !== current.id).map((id) => this.memories.get(owner, id));
       if (others.some((record) => record === undefined))
-        throw new Error("A fact this merge names is gone, so it is not merged. Suggest tidying again.");
+        throw new Error("A fact this merge names is gone, so it is not merged. Decline it, then tidy again.");
       if (others.some((record) => whose(record!.data) !== whose(current.data)))
         throw new Error("These facts belong to different people, so they are not merged. Each stays as it is.");
       if (modelWritten(proposal.source) && whose(current.data) !== "private") throw new Error(notTheOwners);
