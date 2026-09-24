@@ -6,7 +6,7 @@ from trunk 8bcfec20. Not merged into trunk: an adversarial integrator reviews af
 Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`).
 
 - [x] 5. `code.run` (and every other `process.execPath` spawn) runs as Node inside the desktop app
-- [x] 6. Crash capture switchable, ships off (engine crash notes + Electron crash reporter)
+- [x] 6. Crash capture switchable, ships on since the owner's decision of 2026-09-21 (engine crash notes + Electron crash reporter)
 - [x] 3. Longer first-reply wait for local models, with a status line
 - [x] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
 - [x] 1. Read before edit
@@ -40,7 +40,7 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
 `process.versions.electron` checks the environment handed to the spawn.
 
 ### 6. Crash capture switch
-- Setting: `crashCapture: "off" | "on"` in `settings/diagnostic-log` (ships off), a *Keep crash notes*
+- Setting: `crashCapture: "off" | "on"` in `settings/diagnostic-log` (ships on since 2026-09-21), a *Keep crash notes*
   select on the Activity log card (en + fr), documented in `docs/configuration.md` (Activity log section).
 - Engine: `DiagnosticLog.crash()` writes `crashes.jsonl` only when on. The one-line "Crashed:" entry is an
   ordinary log line and still follows the *log's* switch (split kept on purpose). `src/tracing.ts` still
