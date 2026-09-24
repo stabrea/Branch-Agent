@@ -553,7 +553,7 @@ test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref
   for (const branch of ["worktrees/self-x/HEAD", "ORIG_HEAD", "side"])
     await app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)).catch(() => undefined);
   await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "main-worktree/HEAD" }, AbortSignal.timeout(10_000)).catch(() => undefined);
-  assert.deepEqual(pushed, ["refs/heads/worktrees/self-x/HEAD", "refs/heads/ORIG_HEAD", "refs/heads/side", "refs/heads/main-worktree/HEAD"]);
+  assert.deepEqual(pushed, ["worktrees/self-x/HEAD", "ORIG_HEAD", "side", "main-worktree/HEAD"].map((name) => `refs/heads/${name}:refs/heads/${name}`));
 });
 
 test("Q103: a read of what removing the name would leave that does not finish counts as something left", { skip: posixOnly }, async (t) => {
@@ -583,7 +583,7 @@ test("Q98: a push with no branch, or HEAD, sends the branch checked out, never a
   await app.git.push({ folder, remote: "origin" }, signal()).catch(() => undefined);
   await app.git.push({ folder, remote: "origin", branch: "HEAD" }, signal()).catch(() => undefined);
   await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "HEAD" }, signal()).catch(() => undefined);
-  assert.deepEqual(pushed, ["refs/heads/feature", "refs/heads/feature", "refs/heads/feature"]);
+  assert.deepEqual(pushed, Array(3).fill("refs/heads/feature:refs/heads/feature"));
   // Detached, there is no branch to send: refused before anything is pushed or any remote is added.
   git("checkout", "-q", "--detach");
   await assert.rejects(app.git.push({ folder, remote: "origin" }, signal()), /HEAD is detached/);
@@ -606,4 +606,27 @@ test("Q98: sending to main or master asks first however the branch is written, o
   for (const branch of [undefined, "HEAD", "main", "refs/heads/main", "refs/heads/Master"])
     await assert.rejects(app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)), /straight to "(main|Master)"/, String(branch));
   assert.deepEqual(pushed, [], "nothing is sent before the person says yes");
+});
+
+test("Q104: a push lands on the branch it names, never where an alias of main or a push mapping would send it", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-push-lands-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const cwd = join(root, "workspace", "work", "r"), bare = join(root, "remote.git");
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "first");
+  execFileSync("git", ["init", "--bare", "-q", bare]);
+  git("remote", "add", "origin", bare);
+  const landed = () => execFileSync("git", ["for-each-ref", "--format=%(refname)"], { cwd: bare, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  // An alias of main the owner made: a branch that is a symbolic ref to it.
+  git("symbolic-ref", "refs/heads/trunk", "refs/heads/main");
+  await app.git.push({ folder: "work/r", remote: "origin", branch: "trunk" }, AbortSignal.timeout(10_000));
+  assert.deepEqual(landed(), ["refs/heads/trunk"], "on trunk, not on main");
+  // A push mapping that sends feature to main.
+  git("branch", "feature");
+  git("config", "remote.origin.push", "refs/heads/feature:refs/heads/main");
+  await app.git.push({ folder: "work/r", remote: "origin", branch: "feature" }, AbortSignal.timeout(10_000));
+  assert.deepEqual(landed(), ["refs/heads/feature", "refs/heads/trunk"], "on feature, not on main");
 });
