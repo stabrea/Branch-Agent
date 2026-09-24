@@ -567,3 +567,43 @@ test("Q103: a read of what removing the name would leave that does not finish co
   await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /publishing cannot replace/);
   assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
 });
+
+test("Q98: a push with no branch, or HEAD, sends the branch checked out, never a tag named HEAD", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("config", "--local", "http.proxy", "http://127.0.0.1:9"); // should anything be sent, it never leaves this computer
+  git("remote", "add", "origin", "https://github.com/o/r.git");
+  const orphan = git("commit-tree", git("mktree"), "-m", "orphan");
+  git("update-ref", "refs/tags/HEAD", orphan); // what `git tag HEAD` made in older Git; newer Git refuses the name
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  const signal = () => AbortSignal.timeout(10_000);
+  await app.git.push({ folder, remote: "origin" }, signal()).catch(() => undefined);
+  await app.git.push({ folder, remote: "origin", branch: "HEAD" }, signal()).catch(() => undefined);
+  await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "HEAD" }, signal()).catch(() => undefined);
+  assert.deepEqual(pushed, ["refs/heads/feature", "refs/heads/feature", "refs/heads/feature"]);
+  // Detached, there is no branch to send: refused before anything is pushed or any remote is added.
+  git("checkout", "-q", "--detach");
+  await assert.rejects(app.git.push({ folder, remote: "origin" }, signal()), /HEAD is detached/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "HEAD" }, signal()), /HEAD is detached/);
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/q.git", remote: "other" }, signal()), /HEAD is detached/);
+  assert.equal(pushed.length, 3, "nothing more was pushed");
+  assert.doesNotMatch(git("remote"), /other/, "no remote was added");
+});
+
+test("Q98: sending to main or master asks first however the branch is written, or when it is the one checked out", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const git = (...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("config", "--local", "http.proxy", "http://127.0.0.1:9");
+  git("remote", "add", "origin", "https://github.com/o/r.git");
+  git("checkout", "-q", "-b", "main");
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  for (const branch of [undefined, "HEAD", "main", "refs/heads/main", "refs/heads/Master"])
+    await assert.rejects(app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)), /straight to "(main|Master)"/, String(branch));
+  assert.deepEqual(pushed, [], "nothing is sent before the person says yes");
+});

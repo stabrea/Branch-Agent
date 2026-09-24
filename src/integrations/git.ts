@@ -190,7 +190,7 @@ export class GitTools {
     const address = new URL(input.url);
     if (address.protocol !== "https:" || address.username || address.password)
       throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
-    const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    const ref = await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
     // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
     // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
     // worktree the remotes are the source checkout's).
@@ -217,7 +217,7 @@ export class GitTools {
     }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, ref], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }
 
@@ -317,6 +317,19 @@ export class GitTools {
   }
 
   /**
+   * Q98: the full ref a push sends: the branch named, or (none named, or `HEAD`) the branch checked out, read
+   * from HEAD itself. Never a bare `HEAD`, which Git could send as a tag of that name while the contract walks
+   * the worktree's HEAD; a detached HEAD has no branch to send.
+   */
+  private async sendRef(cwd: string, branch: string | undefined, signal: AbortSignal): Promise<string> {
+    if (branch && branch !== "HEAD") return branchRef(branch);
+    const outcome = await this.runner.run({ cwd, args: ["symbolic-ref", "-q", "HEAD"], timeoutMs: 10_000 }, signal);
+    const ref = outcome.status === "completed" ? outcome.stdout.trim() : "";
+    if (!/^refs\/heads\/./.test(ref)) throw new Error("No branch is checked out here (HEAD is detached), so name the branch to send.");
+    return ref;
+  }
+
+  /**
    * Q12, C: when Git run inside Branch's source, validate that a remote is configured
    * and uses only https:// or ssh:// (including scp-like user@host:path).
    * Refuses file://, plain paths, ext::, and other transports that could execute code.
@@ -333,10 +346,10 @@ export class GitTools {
     const cwd = await this.folder(input.folder);
     const urlError = await this.validateRemoteURL(cwd, input.remote, true, signal);
     if (urlError) throw new Error(urlError);
-    const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    if (/^(main|master)$/i.test(branch) && !input.confirmed)
+    const ref = await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
+    if (/^refs\/heads\/(main|master)$/i.test(ref) && !input.confirmed)
       throw new NeedsInputError(`This would send your work straight to "${branch}" on ${input.remote}, the copy everyone shares. Shall I go ahead?`);
-    const outcome = await this.run(cwd, ["push", input.remote, branchRef(branch)], signal, { timeoutMs: 120000 });
+    const outcome = await this.run(cwd, ["push", input.remote, ref], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, sent: true, notes: notes(outcome) };
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
@@ -349,6 +362,7 @@ export class GitTools {
   }
 }
 
+const shortBranch = (ref: string): string => ref.replace(/^refs\/heads\//, "");
 const notes = (outcome: GitOutcome): string => `${outcome.stdout}\n${outcome.stderr}`.trim().slice(0, 2000);
 
 /**
