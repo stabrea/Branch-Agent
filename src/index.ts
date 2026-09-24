@@ -559,6 +559,8 @@ export async function createBranch(options: {
   const selfDevelopment = {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input: import("./integrations/git-run.js").GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal), store, runtime, files,
+    openDraft: (input: { repo: string; head: string; base: string; title: string; body: string; draft: true }) =>
+      runtime.executeTool("github.open_pull_request", input, { mode: "owner" }),
   };
   offerSelfDevelopment(selfDevelopment);
   registerSourceEditTools(selfDevelopment);
