@@ -906,3 +906,15 @@ test("Q108: a trust covers the folder the owner trusted, not wherever its path l
   await symlink("pub", lib, "dir");
   assert.equal(folderTrust(app.store, owner, pub), "untrusted");
 });
+
+test("Q115: the saved answers keep the shape an older build reads, so a rollback loses none of them", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  await mkdir(join(workspace, "work", "proj", "docs"), { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/docs", decision: "trust" });
+  const saved = app.store.get("settings", owner, "folder_trust").data;
+  assert.equal(saved.folders.length, 2);
+  for (const entry of saved.folders)
+    assert.deepEqual(Object.keys(entry).sort(), ["decidedAt", "decision", "path"], "nothing an older build's strict reading refuses");
+  assert.deepEqual(Object.keys(saved), ["folders"]);
+});

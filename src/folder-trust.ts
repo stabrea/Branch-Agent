@@ -44,8 +44,6 @@ const SavedSchema = z.object({
     path: z.string().min(1).max(1000),
     decision: DecisionSchema,
     decidedAt: z.string().max(40),
-    /** Q108: the folder's real path when the owner decided (older answers have none). */
-    real: z.string().min(1).max(4096).optional(),
   }).strict()).max(200).default([]),
 }).strict();
 type Saved = z.infer<typeof SavedSchema>;
@@ -152,8 +150,21 @@ function listedBy(source: string, copy: string): boolean {
   });
 }
 
+/**
+ * Q108: each decided folder's real path when the owner decided, by the path as saved (older answers have none).
+ * Q115: kept apart from the answers themselves, so an older build, which reads those strictly, still reads them
+ * all after a rollback.
+ */
+const realsKey = "folder-trust-real";
+const RealsSchema = z.object({ reals: z.record(z.string().max(1000), z.string().min(1).max(4096)).default({}) }).strict();
+const decidedReals = (store: Pick<Store, "get">, owner: string): Record<string, string> => {
+  const parsed = RealsSchema.safeParse(store.get("settings", owner, realsKey)?.data ?? {});
+  return parsed.success ? parsed.data.reals : {};
+};
+type Decided = Saved["folders"][number] & { real?: string | undefined };
+
 /** The owner's decision closest above `inner` (a real path), or null when none covers it. */
-function closestDecision(entries: Saved["folders"], inner: string, platform: NodeJS.Platform) {
+function closestDecision(entries: Decided[], inner: string, platform: NodeJS.Platform) {
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
@@ -168,7 +179,8 @@ function closestDecision(entries: Saved["folders"], inner: string, platform: Nod
 }
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
-  const entries = saved(store, owner).folders;
+  const reals = decidedReals(store, owner);
+  const entries: Decided[] = saved(store, owner).folders.map((entry) => ({ ...entry, real: reals[entry.path] }));
   if (!entries.length) return "unknown";
   const inner = realFolder(folder, platform);
   const best = closestDecision(entries, inner, platform);
@@ -226,8 +238,10 @@ export function decideFolder(store: Store, owner: string, workspace: string, inp
   // The same folder written another way (letter case on Windows, a link) replaces the old answer.
   const same = (other: string) => folderContains(realFolder(other), realFolder(path)) && folderContains(realFolder(path), realFolder(other));
   const kept = saved(store, owner).folders.filter((entry) => !same(entry.path));
-  const folders = [...kept, { path, decision, decidedAt: new Date().toISOString(), real: realFolder(path) }].slice(-200);
+  const folders = [...kept, { path, decision, decidedAt: new Date().toISOString() }].slice(-200);
   store.save("settings", owner, settingsKey, { folders });
+  const reals = { ...decidedReals(store, owner), [path]: realFolder(path) };
+  store.save("settings", owner, realsKey, { reals: Object.fromEntries(folders.flatMap((entry) => reals[entry.path] ? [[entry.path, reals[entry.path]!]] : [])) });
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `Folder ${decision === "trust" ? "trusted" : "not trusted"}: ${path}`.slice(0, 300),
     reason: decision === "trust"
