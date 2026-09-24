@@ -18,7 +18,8 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 const FIXTURE = join(import.meta.dirname, "fixtures", "markdown-sample.md");
 
 /** A workspace, a server and a connected browser page, cleaned up when the test ends. */
-async function fixture(t, provider) {
+async function fixture(t, provider, options = {}) {
+  const viewport = options.viewport || { width: 1280, height: 800 };
   const scratch = join(tmpdir(), "Codex-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-web-ui-"));
@@ -39,7 +40,7 @@ async function fixture(t, provider) {
     await app.close();
     await discardTemp(root);
   });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const page = await browser.newPage({ viewport });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -214,6 +215,16 @@ test("U3 the live row appears during a slow task and Stop cancels it", async (t)
   assert.match(await page.locator("#live-line").innerText(), /s so far|Working/);
   for (const id of ["live-pause", "live-steer", "live-stop"])
     assert.ok(await page.locator("#" + id).isVisible(), `${id} is offered`);
+  /* Verify that the pane doesn't cover the live row controls at 1280x800 */
+  for (const id of ["live-steer-send", "live-stop", "send"]) {
+    const box = await page.locator("#" + id).boundingBox();
+    if (!box) continue; // skip if element is not visible
+    const element = await page.evaluate(({ id, x, y, width, height }) => {
+      const el = document.elementFromPoint(x + width / 2, y + height / 2);
+      return el?.id || el?.closest("#live-row")?.id || null;
+    }, { id, x: box.x, y: box.y, width: box.width, height: box.height });
+    assert.ok(element === id || element === "live-row", `${id} is not covered by pane at 1280px`);
+  }
   /* Asking it to wait and telling it to carry on are both notes to a working task, and both must
      come back without an error; neither may touch the resume route, which refuses a running task. */
   await page.locator("#live-pause").click();
@@ -227,6 +238,39 @@ test("U3 the live row appears during a slow task and Stop cancels it", async (t)
   await page.locator("#live-steer-text").fill("Keep it short.");
   await page.locator("#live-steer-send").click();
   await page.locator("#live-status").filter({ hasText: /take that into account/ }).waitFor();
+  await page.locator("#live-stop").click();
+  await page.locator("#live-status").filter({ hasText: "Stopped." }).waitFor();
+  release();
+  await page.waitForTimeout(500);
+  assert.deepEqual(errors, []);
+});
+
+test("U3 the live row controls are not covered by the pane at 1000x800", async (t) => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const { page, errors } = await fixture(t, {
+    name: "scripted",
+    async complete(_request, options) {
+      await Promise.race([held, new Promise((r) => setTimeout(r, 15000))]);
+      options?.signal?.throwIfAborted?.();
+      return { content: "Finished.", toolCalls: [] };
+    },
+  }, { viewport: { width: 1000, height: 800 } });
+  await settle(page);
+  await page.locator("#prompt").fill("Take your time.");
+  await page.locator("#send").click();
+  await page.locator("#live-row").waitFor({ state: "visible" });
+  await page.locator("#live-stop").waitFor();
+  /* Verify that the pane doesn't cover the live row controls at 1000x800 */
+  for (const id of ["live-steer-send", "live-stop", "send"]) {
+    const box = await page.locator("#" + id).boundingBox();
+    if (!box) continue; // skip if element is not visible
+    const element = await page.evaluate(({ id, x, y, width, height }) => {
+      const el = document.elementFromPoint(x + width / 2, y + height / 2);
+      return el?.id || el?.closest("#live-row")?.id || null;
+    }, { id, x: box.x, y: box.y, width: box.width, height: box.height });
+    assert.ok(element === id || element === "live-row", `${id} is not covered by pane at 1000px`);
+  }
   await page.locator("#live-stop").click();
   await page.locator("#live-status").filter({ hasText: "Stopped." }).waitFor();
   release();
