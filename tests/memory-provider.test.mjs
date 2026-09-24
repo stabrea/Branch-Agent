@@ -878,78 +878,61 @@ process.exit(0);
   await discardTemp(tmpDir);
 });
 
-test("two concurrent writes through MemoryProvider to the same fact are strictly serialized (withFactLock works)", async (t) => {
-  const double = memoryDouble();
-  const base = await double.listen();
-  t.after(() => double.close());
-  const { app, context } = await fixture(t);
-  await app.memory.backend.configure("local", { mode: "outside", url: base });
-
-  const eventLog = [];
-  const origHandler = double.server.listeners("request")[0];
-  double.server.removeAllListeners("request");
-  double.server.on("request", async (request, response) => {
-    const url = new URL(request.url, "http://x");
-    const parts = url.pathname.split("/").filter(Boolean);
-    const id = decodeURIComponent(parts[2] ?? "");
-    if (request.method === "PUT") {
-      eventLog.push(`arrive:${id}`);
-      // Delay response to ensure interleaving would be visible
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    const result = await Promise.resolve(origHandler(request, response)).catch(() => {});
-
-    if (request.method === "PUT") eventLog.push(`answer:${id}`);
-  });
-
-  // Two concurrent writes through provider.write (which calls withFactLock)
-  const factId = "serialization-test-" + Math.random();
-  const promises = [
-    app.memory.backend.write("local", factId, { text: "First", source: "test" }),
-    app.memory.backend.write("local", factId, { text: "Second", source: "test" }),
-  ];
-
-  const results = await Promise.all(promises);
-  assert.equal(results[0].data.text, "First");
-  assert.equal(results[1].data.text, "Second");
-
-  // Verify PUT requests arrived and were answered in order
-  const putRequests = double.requests.filter((r) => r.method === "PUT" && r.body.text);
-  assert.equal(putRequests.length, 2, "both writes reached the service");
-  assert.equal(putRequests[0].body.text, "First", "first write arrived first");
-  assert.equal(putRequests[1].body.text, "Second", "second write arrived second");
-});
-
-test("lock map cleanup: withFactLock deletes entries when chain settles", async (t) => {
+test("two writes to one fact through the provider never overlap at the outside service", async (t) => {
   const double = memoryDouble();
   const base = await double.listen();
   t.after(() => double.close());
   const { app } = await fixture(t);
   await app.memory.backend.configure("local", { mode: "outside", url: base });
+  // Each PUT is held for a moment; a second one that is not waiting its turn arrives while the first is held.
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  let held = 0, most = 0;
+  double.server.on("request", async (request, response) => {
+    if (request.method !== "PUT") return answer(request, response);
+    held += 1; most = Math.max(most, held);
+    response.on("finish", () => { held -= 1; });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return answer(request, response);
+  });
+  const [first, second] = await Promise.all([
+    app.memory.backend.write("local", "one-fact", { text: "First" }),
+    app.memory.backend.write("local", "one-fact", { text: "Second" }),
+  ]);
+  assert.equal(first.data.text, "First");
+  assert.equal(second.data.text, "Second");
+  assert.equal(most, 1, "the second write waited for the first to be answered");
+  assert.deepEqual(double.requests.filter((r) => r.method === "PUT").map((r) => r.body.text), ["First", "Second"]);
+});
 
+test("a fact's update lock is let go once nothing waits on it, whether the update worked or failed", async (t) => {
+  const { app } = await fixture(t);
   const { memoryProviderTestHook } = await import("../dist/memory-provider.js");
   const provider = app.memory.backend;
+  await provider.withFactLock("local", "a", async () => 1);
+  const order = [];
+  await Promise.all([
+    provider.withFactLock("local", "b", async () => { await new Promise((resolve) => setTimeout(resolve, 20)); order.push(1); }),
+    provider.withFactLock("local", "b", async () => { order.push(2); }),
+  ]);
+  assert.deepEqual(order, [1, 2], "the second update on a fact waits for the first");
+  await assert.rejects(provider.withFactLock("local", "c", async () => { throw new Error("refused"); }), /refused/);
+  assert.equal(memoryProviderTestHook(provider).updateLocksSize, 0, "no lock is kept for a fact nothing is updating");
+});
 
-  // Start with empty locks
-  let sizes = memoryProviderTestHook(provider);
-  assert.equal(sizes.updateLocksSize, 0, "lock map starts empty");
-
-  // Single write should clean up after itself
-  const factId = "cleanup-test-" + Math.random();
-  await provider.write("local", factId, { text: "Test", source: "test" });
-  
-  sizes = memoryProviderTestHook(provider);
-  assert.equal(sizes.updateLocksSize, 0, "lock map cleaned up after write");
-
-  // Multiple sequential writes to different facts should not accumulate
-  const facts = Array.from({ length: 5 }, (_, i) => `fact-${i}-${Math.random()}`);
-  for (const id of facts) {
-    await provider.write("local", id, { text: `Text ${id}`, source: "test" });
-  }
-
-  sizes = memoryProviderTestHook(provider);
-  assert.equal(sizes.updateLocksSize, 0, "lock map cleaned up after 5 writes");
+test("a provider setting saved some other way than configure still leaves one outside connection kept", async (t) => {
+  const first = memoryDouble(), second = memoryDouble();
+  const firstBase = await first.listen(), secondBase = await second.listen();
+  t.after(() => { first.close(); second.close(); });
+  const { app } = await fixture(t);
+  const { memoryProviderTestHook, saveMemoryProviderSettings } = await import("../dist/memory-provider.js");
+  const provider = app.memory.backend;
+  await provider.configure("local", { mode: "outside", url: firstBase });
+  await provider.list("local");
+  saveMemoryProviderSettings(app.store, "local", { mode: "outside", url: secondBase }, true);
+  await provider.list("local");
+  assert.equal(memoryProviderTestHook(provider).backendCacheSize, 1, "the connection for the old address was dropped");
+  assert.ok(second.requests.length > 0, "the new address is the one used");
 });
 
 test("backend cache eviction: old configs are cleared when settings change", async (t) => {

@@ -286,10 +286,7 @@ export class MemoryProvider implements MemoryBackend {
   }
   private current(owner: string): MemoryBackend {
     const settings = memoryProviderSettings(this.store, owner);
-    if (settings.mode !== "outside" || !settings.url) {
-      // Clear cache when not using outside provider
-      return this.builtIn;
-    }
+    if (settings.mode !== "outside" || !settings.url) return this.builtIn;
     const allowPrivate = this.guard.settings().allowPrivateAddresses;
     const name = settings.secret;
     const configKey = `${settings.url}|${settings.header}|${name}|${settings.timeoutMs}|${allowPrivate}`;
@@ -411,10 +408,7 @@ export class MemoryProvider implements MemoryBackend {
 
 const stillHeld = (count: number): string => `${count === 1 ? "One fact" : `${count} facts`} could not be deleted from the outside memory service and may still be kept there. Branch will not use ${count === 1 ? "it" : "them"} again.`;
 
-/**
- * Test hook: returns the current sizes of internal maps for mutation testing.
- * NOT for production use; gated by non-null check so tree-shaking removes it.
- */
+/** For tests: how many update locks and outside connections a provider is holding right now. */
 export function memoryProviderTestHook(provider: MemoryProvider): { updateLocksSize: number; backendCacheSize: number } {
   return {
     updateLocksSize: provider["updateLocks"].size,
