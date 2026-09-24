@@ -142,7 +142,8 @@ export class BrowserSession {
       for (const target of unloaded) void this.browserSession.send('Target.closeTarget', { targetId: target.targetId }).catch(() => undefined);
       return unloaded.length > 0;
     } catch {
-      return false;
+      // Whose tab it is cannot be told, so it is refused: the owner can open theirs again, a tab of ours must send nothing.
+      return true;
     }
   }
   private browserSession: CDPSession | undefined;
@@ -440,10 +441,12 @@ export class BrowserSession {
     await this.opening?.catch(() => undefined);
     await this.recording?.cancel().catch(() => undefined);
     if (this.borrowed) {
-      // Only Branch's own tabs go, and the window's route comes off; their tabs are left as they were.
+      // Only Branch's own tabs go, and the tabs they opened; the window's route comes off only after, so nothing they
+      // open on the way out goes unrefused. The owner's tabs are left as they were.
+      for (const page of this.pages) await page.close().catch(() => undefined);
+      for (const page of this.context?.pages() ?? []) if (await this.openedByUs(page)) await page.close().catch(() => undefined);
       await this.context?.unroute('**/*', this.borrowedRoute).catch(() => undefined);
       await this.browserSession?.detach().catch(() => undefined);
-      for (const page of this.pages) await page.close().catch(() => undefined);
       await this.options.attached?.detach();
       return;
     }

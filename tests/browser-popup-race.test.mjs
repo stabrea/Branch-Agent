@@ -117,3 +117,49 @@ test("in the owner's browser, a tab Branch's tab opens sends nothing, even befor
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(theirs.closes, 0);
 });
+
+test("giving the owner's browser back closes Branch's tabs and the tabs they opened before the window's route comes off", async () => {
+  const steps = [];
+  const ourTab = Object.assign(fakePage("ours"), { close: async () => { steps.push("closed ours"); } });
+  const opened = Object.assign(fakePage("opened"), { opener: async () => ourTab, close: async () => { steps.push("closed opened"); } });
+  const theirs = Object.assign(fakePage("theirs"), { close: async () => { steps.push("closed theirs"); } });
+  const context = Object.assign(events(), {
+    setDefaultTimeout() {},
+    route: async () => {},
+    unroute: async () => { steps.push("route off"); },
+    pages: () => [ourTab, opened, theirs],
+    newCDPSession: async () => ({ on() {}, send: async () => {} }),
+    newPage: async () => { await null; context.emit("page", ourTab); return ourTab; },
+  });
+  const session = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
+  session.options = { attached: { context, detach: async () => { steps.push("detached"); } } };
+  await session.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => undefined);
+  await session.close();
+  const off = steps.indexOf("route off");
+  assert.ok(off > steps.indexOf("closed ours") && off > steps.indexOf("closed opened") && steps.includes("closed ours") && steps.includes("closed opened"),
+    `Branch's tabs and theirs-by-Branch are closed while the route still stands (${steps.join(", ")})`);
+  assert.equal(steps.includes("closed theirs"), false, "the owner's own tab is left open");
+});
+
+test("in the owner's browser, a new tab's first request is refused when whose tab it is cannot be asked", async () => {
+  let windowRoute;
+  const ourTab = fakePage("ours");
+  const context = Object.assign(events(), {
+    setDefaultTimeout() {},
+    route: async (_pattern, handler) => { windowRoute = handler; },
+    unroute: async () => {},
+    pages: () => [ourTab],
+    browser: () => ({ newBrowserCDPSession: async () => { throw new Error("Target closed"); } }),
+    newCDPSession: async () => ({ on() {}, send: async () => {} }),
+    newPage: async () => { await null; context.emit("page", ourTab); return ourTab; },
+  });
+  const session = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
+  session.options = { attached: { context } };
+  await session.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => undefined);
+  const route = { outcome: null,
+    request: () => ({ url: () => "http://unlisted.test/", resourceType: () => "document", isNavigationRequest: () => true,
+      frame: () => { throw new Error("Frame for this navigation request is not available"); } }),
+    abort: async () => { route.outcome = "aborted"; }, fallback: async () => { route.outcome = "passed on"; }, continue: async () => { route.outcome = "continued"; } };
+  await windowRoute(route);
+  assert.equal(route.outcome, "aborted");
+});
