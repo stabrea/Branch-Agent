@@ -7,9 +7,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { createBranch, NetworkPolicy } from "../dist/index.js";
 import { GitRunner } from "../dist/integrations/git-run.js";
@@ -236,4 +236,122 @@ test("from Branch's own source, the commit walked is the one HEAD was read as, e
     assert.equal(moved, true, "HEAD was moved between the read and the walk");
     assert.deepEqual(d.pushed, [], "nothing was sent");
     assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
+
+/** The hook reading which commit the new branch holds, right before that commit is sent. */
+const readsBranch = (args, head) => args[0] === "rev-parse" && args.at(-1) === `refs/heads/${head}^{commit}`;
+
+test("from Branch's own source, a new branch holding a merge is refused, even one on the checked commit that changes only the named file, and nothing is sent",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked, other, others } = await sourceWorktree(t);
+    let merge = "";
+    const d = hookDeps(app, owner, { before: (args) => {
+      if (merge || !readsBranch(args, "branch/pinned")) return;
+      // The new commit's own tree, on the checked commit (first parent) and the other work (second parent).
+      merge = plain(worktree, "commit-tree", "refs/heads/branch/pinned^{tree}", "-p", walked, "-p", other, "-m", "merge");
+      plain(worktree, "update-ref", "refs/heads/branch/pinned", merge);
+    } });
+    await assert.rejects(pullRequestFromChanges(d.value, ask("pinned")),
+      /"branch\/pinned" is not just one new commit on the checked work .*so nothing was sent/);
+    assert.ok(merge, "the branch held the merge when it was read");
+    assert.deepEqual(plain(worktree, "diff-tree", "-r", "--no-commit-id", "--name-only", walked, merge).split("\n"), ["src/ui/new.ts"],
+      "against the checked commit, the merge changes only the named file");
+    assert.equal(others.every((commit) => plain(worktree, "rev-list", merge).split("\n").includes(commit)), true, "its history holds the other work");
+    assert.deepEqual(d.pushed, [], "nothing was sent");
+    assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
+
+test("from Branch's own source, a new commit that sits on other work is refused, even when against the checked commit it changes only the named file",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked, other, others } = await sourceWorktree(t);
+    let moved = "";
+    const d = hookDeps(app, owner, { before: (args) => {
+      if (moved || !readsBranch(args, "branch/pinned")) return;
+      // The other work, then the checked files again, then the new commit's own tree: one parent, but not the checked commit.
+      const back = plain(worktree, "commit-tree", `${walked}^{tree}`, "-p", other, "-m", "the checked files again");
+      moved = plain(worktree, "commit-tree", "refs/heads/branch/pinned^{tree}", "-p", back, "-m", "the new commit, on other work");
+      plain(worktree, "update-ref", "refs/heads/branch/pinned", moved);
+    } });
+    await assert.rejects(pullRequestFromChanges(d.value, ask("pinned")),
+      /"branch\/pinned" is not just one new commit on the checked work .*so nothing was sent/);
+    assert.ok(moved, "the branch held the commit on other work when it was read");
+    assert.equal(plain(worktree, "rev-list", "--parents", "--max-count=1", moved).split(" ").length, 2, "one parent");
+    assert.deepEqual(plain(worktree, "diff-tree", "-r", "--no-commit-id", "--name-only", walked, moved).split("\n"), ["src/ui/new.ts"],
+      "against the checked commit, it changes only the named file");
+    assert.equal(others.every((commit) => plain(worktree, "rev-list", moved).split("\n").includes(commit)), true, "its history holds the other work");
+    assert.deepEqual(d.pushed, [], "nothing was sent");
+    assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
+
+test("from Branch's own source, a new commit that also changes a file the pull request does not name is refused, and nothing is sent",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked, change } = await sourceWorktree(t);
+    const extras = {
+      "a file the contract does not allow": ".github/workflows/extra.yml",
+      "a file the contract allows but the pull request does not name": "src/ui/stray.ts",
+    };
+    let count = 0;
+    for (const [what, extra] of Object.entries(extras)) {
+      plain(worktree, "switch", "-q", "-f", "self-x");
+      plain(worktree, "reset", "-q", "--hard", walked);
+      await change();
+      const head = `branch/pinned-${++count}`;
+      let amended = "";
+      const d = hookDeps(app, owner, { before: async (args) => {
+        if (amended || !readsBranch(args, head)) return;
+        // The new commit, amended to hold one more file: still one commit, right on the checked one.
+        await mkdir(dirname(join(worktree, extra)), { recursive: true });
+        await writeFile(join(worktree, extra), "more\n");
+        plain(worktree, "add", "--", extra);
+        plain(worktree, "commit", "-q", "--amend", "--no-edit");
+        amended = plain(worktree, "rev-parse", `refs/heads/${head}`);
+      } });
+      await assert.rejects(pullRequestFromChanges(d.value, ask(`pinned-${count}`)),
+        /is not just one new commit on the checked work .*so nothing was sent/, what);
+      assert.ok(amended, `${what}: the branch held the amended commit when it was read`);
+      assert.equal(plain(worktree, "rev-parse", `${amended}^`), walked, `${what}: one commit, right on the checked one`);
+      assert.deepEqual(plain(worktree, "diff-tree", "-r", "--no-commit-id", "--name-only", walked, amended).split("\n").sort(),
+        [extra, "src/ui/new.ts"].sort(), `${what}: the named file and the other one`);
+      assert.deepEqual(d.pushed, [], `${what}: nothing was sent`);
+      assert.deepEqual(d.opened, [], `${what}: no pull request was opened`);
+    }
+  });
+
+test("from Branch's own source, a new commit that also changes a submodule pointer the pull request does not name is refused, whatever the submodule settings say",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked } = await sourceWorktree(t);
+    let amended = "";
+    const d = hookDeps(app, owner, { before: async (args) => {
+      if (amended || !readsBranch(args, "branch/pinned")) return;
+      // The new commit, amended to point a submodule at vendor/lib as well, with settings that say to
+      // ignore that submodule: still one commit, right on the checked one.
+      await writeFile(join(worktree, ".gitmodules"), "[submodule \"lib\"]\n\tpath = vendor/lib\n\turl = ./lib\n\tignore = all\n");
+      plain(worktree, "update-index", "--add", "--cacheinfo", `160000,${"1".repeat(40)},vendor/lib`);
+      plain(worktree, "commit", "-q", "--amend", "--no-edit");
+      amended = plain(worktree, "rev-parse", "refs/heads/branch/pinned");
+    } });
+    await assert.rejects(pullRequestFromChanges(d.value, ask("pinned")),
+      /"branch\/pinned" is not just one new commit on the checked work .*so nothing was sent/);
+    assert.ok(amended, "the branch held the amended commit when it was read");
+    assert.equal(plain(worktree, "rev-parse", `${amended}^`), walked, "one commit, right on the checked one");
+    assert.deepEqual(plain(worktree, "diff-tree", "-r", "--no-commit-id", "--name-only", "--ignore-submodules=none", walked, amended).split("\n"),
+      ["src/ui/new.ts", "vendor/lib"], "the named file and the submodule pointer");
+    assert.deepEqual(d.pushed, [], "nothing was sent");
+    assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
+
+test("from Branch's own source, a new commit holding only the named files is sent, with a file removed as well as one added and names written with ./",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked } = await sourceWorktree(t);
+    await rm(join(worktree, "src", "ui", "button.ts"));
+    const d = hookDeps(app, owner);
+    const opened = await pullRequestFromChanges(d.value, { ...ask("pinned"), paths: ["./src/ui/new.ts", "src/./ui/button.ts"] });
+    assert.deepEqual(opened.files, ["./src/ui/new.ts", "src/./ui/button.ts"]);
+    const made = plain(worktree, "rev-parse", "refs/heads/branch/pinned");
+    assert.equal(plain(worktree, "rev-parse", `${made}^`), walked, "one new commit, right on the checked one");
+    assert.deepEqual(plain(worktree, "diff-tree", "-r", "--no-commit-id", "--name-status", walked, made).split("\n"),
+      ["D\tsrc/ui/button.ts", "A\tsrc/ui/new.ts"]);
+    assert.equal(d.pushed.length, 1);
+    assert.equal(d.pushed[0].sent, made, "exactly the new commit is sent");
+    assert.deepEqual(d.opened.map((each) => each.args.head), ["branch/pinned"]);
   });
