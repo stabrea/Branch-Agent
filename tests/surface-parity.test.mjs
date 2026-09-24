@@ -53,7 +53,10 @@ for (const width of [1440, 860, 400]) {
       await page.waitForFunction((value) => document.documentElement.dataset.theme === value,
         mode === "dark" ? "forest" : "daylight");
       for (const contrast of [false, true]) {
-        await page.locator("#lx-contrast").setChecked(contrast);
+        /* Contrast is the sample's two choices now (DG-166), not a tick box. */
+        const choice = `#lx-contrast .segmented-option[data-value="${contrast ? "more" : "standard"}"]`;
+        await page.locator(choice).click();
+        await page.waitForFunction((one) => document.querySelector(one)?.getAttribute("aria-pressed") === "true", choice);
         for (const id of ids) {
           const seen = await page.evaluate((family) => {
             // Dispatch through the existing gallery control; do not write the surface or invoke applyLook.
