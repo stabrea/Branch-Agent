@@ -142,6 +142,10 @@ export class FlowGraphRunner {
     while (at) {
       const node = compiled.nodes.get(at);
       if (!node) return this.stop(runId, "failed", `The flow points at a box "${at}" that is not there.`);
+      // Q121 (NAS 7af12b6): a Trunk removed while its run works stops it before the next box.
+      const trunk = (this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined)?.trunk;
+      if (typeof trunk === "string" && !this.runtime.trunkKeysFor(trunk))
+        return this.stop(runId, "failed", "The Trunk that started this is no longer here, so it does not carry on.");
       this.writeNode(runId, ++seq, node, "running", "");
       this.store.event(runId, "flow.node.started", { node: node.id, name: node.name, kind: node.kind, seq });
       const result = await this.attempt(runId, seq, node, state, compiled, options);
