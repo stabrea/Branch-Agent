@@ -44,6 +44,8 @@ const SavedSchema = z.object({
     path: z.string().min(1).max(1000),
     decision: DecisionSchema,
     decidedAt: z.string().max(40),
+    /** Q108: the folder's real path when the owner decided (older answers have none). */
+    real: z.string().min(1).max(4096).optional(),
   }).strict()).max(200).default([]),
 }).strict();
 type Saved = z.infer<typeof SavedSchema>;
@@ -155,6 +157,9 @@ function closestDecision(entries: Saved["folders"], inner: string, platform: Nod
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
+    // Q108: a trust covers the folder the owner trusted. Once its path leads somewhere else (a pulled commit made
+    // it, or a folder above it, a link), it no longer counts; a "don't trust" still holds wherever it leads.
+    if (entry.decision === "trust" && entry.real && platform === process.platform && outer !== entry.real) continue;
     if (!folderContains(outer, inner, platform)) continue;
     const depth = outer.length;
     if (!best || depth >= best.depth) best = { depth, decision: entry.decision, path: outer };
@@ -221,7 +226,7 @@ export function decideFolder(store: Store, owner: string, workspace: string, inp
   // The same folder written another way (letter case on Windows, a link) replaces the old answer.
   const same = (other: string) => folderContains(realFolder(other), realFolder(path)) && folderContains(realFolder(path), realFolder(other));
   const kept = saved(store, owner).folders.filter((entry) => !same(entry.path));
-  const folders = [...kept, { path, decision, decidedAt: new Date().toISOString() }].slice(-200);
+  const folders = [...kept, { path, decision, decidedAt: new Date().toISOString(), real: realFolder(path) }].slice(-200);
   store.save("settings", owner, settingsKey, { folders });
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `Folder ${decision === "trust" ? "trusted" : "not trusted"}: ${path}`.slice(0, 300),

@@ -871,3 +871,38 @@ test("Q107: a plan's merge that brings a link to the copy's place never gets the
   assert.equal(result.merged, true);
   assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
 });
+
+test("Q108: a trust covers the folder the owner trusted, not wherever its path leads after it became a link",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = join(workspace, "work", "proj");
+  for (const folder of ["docs/api", "sub", "other/api"]) await mkdir(join(proj, folder), { recursive: true });
+  await writeFile(join(proj, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/docs", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(proj, "docs")), "trusted", "the folder the owner trusted");
+  // A pulled commit turns docs into a link: into the repository's root, or to another of its folders.
+  const relink = async (target) => { await rm(join(proj, "docs"), { recursive: true, force: true }); await symlink(target, join(proj, "docs"), "dir"); };
+  await relink(".");
+  assert.equal(folderTrust(app.store, owner, proj), "untrusted", "the repository's root, reached through docs");
+  await relink("sub");
+  assert.equal(folderTrust(app.store, owner, join(proj, "sub")), "untrusted");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(proj, "sub", "integrations.json")), false);
+  // A link above the trusted folder: the trust on docs/api does not follow docs to other/api.
+  await rm(join(proj, "docs"));
+  await mkdir(join(proj, "docs", "api"), { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/docs/api", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(proj, "docs", "api")), "trusted");
+  await relink("other");
+  assert.equal(folderTrust(app.store, owner, join(proj, "other", "api")), "untrusted");
+  // A "don't trust" still holds wherever its path leads now: that can only be more careful.
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  const lib = join(workspace, "work", "lib"), pub = join(workspace, "work", "pub");
+  await mkdir(lib, { recursive: true });
+  await mkdir(pub, { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" });
+  await rm(lib, { recursive: true });
+  await symlink("pub", lib, "dir");
+  assert.equal(folderTrust(app.store, owner, pub), "untrusted");
+});
