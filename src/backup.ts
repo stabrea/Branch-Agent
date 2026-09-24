@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { ensureFlyTables, flyTables } from "./fly-core/state.js";
@@ -77,6 +78,24 @@ export const signInPrefixes: readonly string[] = ["channel-pair:", "remote-agent
 const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings"
   && (signInSettings.includes(String(row.id)) || signInPrefixes.some((prefix) => String(row.id).startsWith(prefix)));
 
+/**
+ * A restored schedule keeps its job but not its standing yes (Q168 C). Its check script waits for the
+ * owner to approve it again (the scheduler pauses it and asks), and its webhook gets a token made on
+ * this computer. Without this, a changed backup could bring a check program that approves itself, or a
+ * webhook whose token the file's maker already holds.
+ */
+function disarmed<Row extends Record<string, unknown>>(table: string, row: Row): Row {
+  if (table !== "schedules" || typeof row.data !== "string") return row;
+  let job: unknown;
+  try { job = JSON.parse(row.data); } catch { return row; }
+  if (!job || typeof job !== "object" || Array.isArray(job)) return row;
+  const kept: Record<string, unknown> = { ...job };
+  if ("gateApproved" in kept) kept.gateApproved = null;
+  // Only a job that has a webhook gets a new token; an empty one would otherwise switch a webhook on.
+  if (typeof kept.hookToken === "string" && kept.hookToken) kept.hookToken = randomBytes(24).toString("hex");
+  return { ...row, data: JSON.stringify(kept) } as Row;
+}
+
 /** Reads every backed-up table in insertion order. */
 export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchive {
   const tables: Record<string, Record<string, string | number | null>[]> = {};
@@ -125,8 +144,9 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       if (!list?.length) continue;
       const columns = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
       tables++;
-      for (const row of list) {
-        if (staysHere(table, row)) continue;
+      for (const given of list) {
+        if (staysHere(table, given)) continue;
+        const row = disarmed(table, given);
         const keys = Object.keys(row).filter((k) => columns.has(k));
         if (keys.length !== Object.keys(row).length) throw new Error(`Backup row for ${table} has a column this version does not know`);
         // An append-only row gets a fresh id and is skipped when this install already has that revision.
