@@ -46,7 +46,7 @@ function paeth(a: number, b: number, c: number): number {
 export function decodePng(file: Buffer): DecodedPng {
   if (file.length < 8 || !file.subarray(0, 8).equals(pngSignature)) throw new Error("Not a PNG picture: its first eight bytes are wrong.");
   let at = 8;
-  let ihdr: { width: number; height: number; bitDepth: number; colorType: number } | null = null;
+  let ihdr: { width: number; height: number; bitDepth: number; colorType: number; interlace: number } | null = null;
   const idat: Buffer[] = [];
   while (at + 12 <= file.length) {
     const length = file.readUInt32BE(at);
@@ -58,7 +58,7 @@ export function decodePng(file: Buffer): DecodedPng {
     if ((crc32(file.subarray(at + 4, start + length)) >>> 0) !== (storedCrc >>> 0)) throw new Error(`The ${type} chunk's checksum does not match its bytes.`);
     if (type === "IHDR") {
       if (body.length < 13) throw new Error("IHDR is too short to say the picture's size.");
-      ihdr = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), bitDepth: body.readUInt8(8), colorType: body.readUInt8(9) };
+      ihdr = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), bitDepth: body.readUInt8(8), colorType: body.readUInt8(9), interlace: body.readUInt8(12) };
       if (ihdr.width <= 0 || ihdr.height <= 0) throw new Error("IHDR claims a picture with no width or height.");
     } else if (type === "IDAT") idat.push(body);
     else if (type === "IEND") { at = start + length + 4; break; }
@@ -69,6 +69,7 @@ export function decodePng(file: Buffer): DecodedPng {
   if (ihdr.bitDepth !== 8) throw new Error(`Only 8-bit PNGs are decoded here, not ${ihdr.bitDepth}-bit.`);
   const channels = channelsFor[ihdr.colorType];
   if (!channels) throw new Error(`Unknown PNG colour type ${ihdr.colorType}.`);
+  if (ihdr.interlace !== 0) throw new Error("interlaced PNG is not supported");
   if (ihdr.width > maximumSide || ihdr.height > maximumSide)
     throw new Error(`This picture claims to be ${ihdr.width}x${ihdr.height}; pictures over ${maximumSide} on a side are not decoded here.`);
   const stride = ihdr.width * channels;
