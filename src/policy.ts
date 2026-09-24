@@ -190,6 +190,10 @@ const readOnlyPermissions = new Set([
   "settings.read",
   // Reading Branch's own handbook to answer a question about Branch (src/help-search.ts).
   "help.read",
+  // Reading back forecasts and their scores changes nothing (src/asks/forecasts.ts).
+  "forecasts.read",
+  // The prospect list read back as CSV changes nothing (src/asks/leads.ts).
+  "leads.read",
   // Looking at what a program left running has printed changes nothing; starting or stopping one does.
   "process.read",
   // GitLab is read-only here: issues, releases and how the checks went.

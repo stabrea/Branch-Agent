@@ -8171,6 +8171,18 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
 - **A2258** (several agent runtimes) — built: Claude Code, Codex, Copilot, Gemini CLI and Codex over
   app-server are added as connections, remembered, and follow their switch (`src/asks/runtimes.ts`,
   `tests/asks-runtimes.test.mjs` "A2258").
+- **packages.forecasting** (forecasts and calibration) — built: a question, a probability and a date
+  are kept; the answer is recorded once; the Brier score and a ten-band calibration table count only
+  answered forecasts and say "none yet" rather than invent a number. Its own three-way switch
+  (`asks-forecasts`, ships off), a card in Settings › Data, and the tools `forecast.add`,
+  `forecast.resolve` and `forecast.score` (`src/asks/forecasts.ts`, `tests/asks-forecasts.test.mjs`).
+- **packages.leads** (prospects) — built: a list of prospects is filled out from its own fields (the
+  company domain from a work email or website, the company name tidied, how senior the title sounds),
+  scored against the owner's words with every point naming the word that earned it, and exported as
+  CSV with duplicates (same email, or same person at the same domain) taken out and named. Nothing is
+  looked up online; a formula-looking cell is written as text. Its own switch (`asks-leads`, ships
+  off), a card in Settings › Data, and `leads.add`, `leads.export`, `leads.clear` (`src/asks/leads.ts`,
+  `tests/asks-leads.test.mjs`).
 - **A0032** (an app-server protocol) — built: `branch app-server` speaks Codex's app-server protocol
   (`src/asks/app-server.ts`, `tests/asks-runtimes.test.mjs` "A0032"); `branch acp-serve` still speaks ACP.
 - **A0601** (Codex's app-server as a backend) — built: Codex answers over app-server, read-only, and its
