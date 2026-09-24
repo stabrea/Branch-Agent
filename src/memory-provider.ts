@@ -173,7 +173,7 @@ export class RemoteMemoryBackend implements MemoryBackend {
         chunks.push(value);
       }
     } finally {
-      reader.cancel();
+      await reader.cancel().catch(() => {});
     }
     const buffer = new Uint8Array(totalBytes);
     let offset = 0;
@@ -253,6 +253,8 @@ const noLocker: MemoryProviderSecret = async () => { throw new Error("There is n
  */
 export class MemoryProvider implements MemoryBackend {
   readonly name = "the owner's chosen memory provider";
+  private backendCache = new Map<string, RemoteMemoryBackend>(); // config key -> backend instance
+  private updateLocks = new Map<string, Promise<unknown>>(); // (owner:id) -> update lock chain
   constructor(
     private readonly store: Store,
     private readonly builtIn: MemoryBackend,
@@ -282,10 +284,26 @@ export class MemoryProvider implements MemoryBackend {
   private current(owner: string): MemoryBackend {
     const settings = memoryProviderSettings(this.store, owner);
     if (settings.mode !== "outside" || !settings.url) return this.builtIn;
+    const allowPrivate = this.guard.settings().allowPrivateAddresses;
     const name = settings.secret;
-    return new RemoteMemoryBackend({ url: settings.url, timeoutMs: settings.timeoutMs, fetch: this.guardedFetch(),
-      allowPrivate: this.guard.settings().allowPrivateAddresses,
+    const configKey = `${settings.url}|${settings.header}|${name}|${settings.timeoutMs}|${allowPrivate}`;
+    if (this.backendCache.has(configKey)) return this.backendCache.get(configKey)!;
+    const backend = new RemoteMemoryBackend({ url: settings.url, timeoutMs: settings.timeoutMs, fetch: this.guardedFetch(),
+      allowPrivate,
       ...(name ? { auth: { header: settings.header, key: () => this.secret(name) } } : {}) });
+    this.backendCache.set(configKey, backend);
+    return backend;
+  }
+  async withFactLock<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T> {
+    const key = `${owner}:${id}`;
+    // Ensure we always have a lock promise for this key, atomically creating one if needed
+    if (!this.updateLocks.has(key)) {
+      this.updateLocks.set(key, Promise.resolve(undefined));
+    }
+    const currentLock = this.updateLocks.get(key)!;
+    const nextLock = currentLock.then(() => fn(), () => fn());
+    this.updateLocks.set(key, nextLock);
+    return nextLock;
   }
   async read(owner: string, id: string): Promise<MemoryRecord | undefined> {
     if (!this.isOutside(owner)) return this.builtIn.read(owner, id);

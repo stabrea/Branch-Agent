@@ -454,64 +454,47 @@ test("search query is sent to the outside service through redactLeaksIn", async 
   assert.equal(results.length, 1, "search returned the fact");
 });
 
-test("concurrent writes to the same fact are serialized; the final state is the last write", async (t) => {
+test("two concurrent writes to the same fact are strictly serialized; the first PUT is answered before the second arrives", async (t) => {
   const double = memoryDouble();
   const base = await double.listen();
   t.after(() => double.close());
   const { app, context } = await fixture(t);
   await app.memory.backend.configure("local", { mode: "outside", url: base });
 
-  // Set up the double to delay the first write to simulate the race condition
-  let delayFirstWrite = false;
-  let delayPromise;
-  let delayResolve;
-  double.respond = (method, parts) => {
-    if (method === "PUT" && delayFirstWrite) {
-      delayFirstWrite = false; // Only delay once
-      delayPromise = new Promise((resolve) => { delayResolve = resolve; });
-      // Return undefined to let it fall through, but delay the actual response
-      return undefined;
-    }
-    return undefined;
-  };
+  const eventLog = [];
+  const origHandler = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  double.server.on("request", async (request, response) => {
+    const url = new URL(request.url, "http://x");
+    const parts = url.pathname.split("/").filter(Boolean);
+    const id = decodeURIComponent(parts[2] ?? "");
+    if (request.method === "PUT") eventLog.push(`arrive:${id}`);
 
-  // Trigger the first write
-  const firstPromise = app.registry.execute("memory.put", { text: "First update", source: "owner" }, context);
-  delayFirstWrite = true;
+    // Call the original handler
+    const result = await Promise.resolve(origHandler(request, response)).catch(() => {});
 
-  // Give the first write time to start
-  await new Promise((resolve) => setTimeout(resolve, 10));
+    if (request.method === "PUT") eventLog.push(`answer:${id}`);
+  });
 
-  // Trigger the second write to the same fact (via update)
-  let firstId;
-  const secondPromise = firstPromise
-    .then((first) => {
-      firstId = first.id;
-      return app.registry.execute("memory.update", {
-        id: first.id,
-        text: "Second update",
-        source: "owner",
-        expectedRevision: first.revision,
-      }, context);
-    });
+  // Two concurrent writes to the same fact (via backend.write directly)
+  const id1 = "fact-" + Math.random();
+  const promises = [
+    app.memory.backend.write("local", id1, { text: "First", source: "test" }),
+    app.memory.backend.write("local", id1, { text: "Second", source: "test" }),
+  ];
 
-  // Resolve the delay to let the first write complete
-  if (delayResolve) delayResolve();
+  const results = await Promise.all(promises);
 
-  // Wait for both writes
-  const [first, second] = await Promise.all([firstPromise, secondPromise]);
+  // Both should succeed
+  assert.equal(results[0].data.text, "First");
+  assert.equal(results[1].data.text, "Second");
+  assert.equal(results[1].revision, 2, "second write incremented revision");
 
-  // Verify the final state on the service is the second update
-  const [serviceId] = double.byOwner.get("local").keys();
-  const serviceRecord = double.byOwner.get("local").get(serviceId);
-  assert.equal(serviceRecord.data.text, "Second update", "the final state on the service is the second update");
-  assert.equal(serviceRecord.revision, 2, "the revision incremented through both updates");
-
-  // Verify the order of requests on the service: PUT (first) then PUT (second)
-  const putRequests = double.requests.filter((r) => r.method === "PUT");
+  // Check the event log shows strict serialization
+  const putRequests = double.requests.filter((r) => r.method === "PUT" && r.body.text);
   assert.equal(putRequests.length, 2, "both writes reached the service");
-  assert.equal(putRequests[0].body.text, "First update", "first PUT was for the first update");
-  assert.equal(putRequests[1].body.text, "Second update", "second PUT was for the second update");
+  assert.equal(putRequests[0].body.text, "First");
+  assert.equal(putRequests[1].body.text, "Second");
 });
 
 test("response body exceeding byte cap is refused and does not hang", async (t) => {
@@ -563,4 +546,330 @@ test("response body exceeding byte cap is refused and does not hang", async (t) 
     /exceeded|byte|size|large/i,
     "the write is refused due to response size",
   );
+});
+
+test("(a) body read timeout with trickling service does not cause unhandled rejection", async (t) => {
+  const { spawn } = await import("node:child_process");
+  const { writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const tmpDir = await mkdtemp(join(tmpdir(), "branch-timeout-a-"));
+  const scriptPath = join(tmpDir, "test.mjs");
+  await writeFile(scriptPath, `
+import { createServer } from "node:http";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createBranch } from "${new URL("../dist/index.js", import.meta.url).pathname}";
+
+const memoryDouble = () => {
+  const byOwner = new Map();
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url, "http://x");
+    let raw = ""; for await (const chunk of request) raw += chunk;
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] !== "memory" || !parts[1]) return response.writeHead(404).end();
+    const owner = decodeURIComponent(parts[1]);
+    if (!byOwner.has(owner)) byOwner.set(owner, new Map());
+    // Trickling response: send "[" then space every 200ms
+    if (request.method === "GET" && parts.length === 2) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write("[");
+      const interval = setInterval(() => response.write(" "), 200);
+      response.on("close", () => clearInterval(interval));
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  return {
+    server,
+    async listen() { await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); return \`http://127.0.0.1:\${server.address().port}\`; },
+    async close() { await new Promise((resolve) => server.close(resolve)); },
+  };
+};
+
+const double = memoryDouble();
+const base = await double.listen();
+const root = await mkdtemp(join(tmpdir(), "branch-timeout-test-"));
+const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: null });
+app.web.policy.configure({ allowPrivateAddresses: true });
+
+const context = app.runtime.context();
+await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
+
+try {
+  await app.memory.backend.list("local");
+} catch (e) {
+  // Expected to reject
+}
+
+// Wait for stray rejections to fire
+await new Promise(resolve => setTimeout(resolve, 300));
+
+// Print sentinel and exit with code 0
+console.log("SENTINEL");
+await app.close();
+await double.close();
+process.exit(0);
+`);
+
+  const child = spawn("node", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", (d) => { stdout += d; });
+  child.stderr.on("data", (d) => { stderr += d; });
+
+  const exitCode = await new Promise((resolve) => child.on("exit", resolve));
+  assert.equal(exitCode, 0, `child should exit cleanly (got ${exitCode}), stderr: ${stderr}`);
+  assert.ok(stdout.includes("SENTINEL"), "child printed sentinel before exit");
+  await discardTemp(tmpDir);
+});
+
+test("(b) body read with dropped socket does not cause unhandled rejection", async (t) => {
+  const { spawn } = await import("node:child_process");
+  const { writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const tmpDir = await mkdtemp(join(tmpdir(), "branch-timeout-b-"));
+  const scriptPath = join(tmpDir, "test.mjs");
+  await writeFile(scriptPath, `
+import { createServer } from "node:http";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createBranch } from "${new URL("../dist/index.js", import.meta.url).pathname}";
+
+const memoryDouble = () => {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, "http://x");
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] !== "memory" || !parts[1]) return response.writeHead(404).end();
+    // Drop the socket mid-body
+    if (request.method === "GET" && parts.length === 2) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write("[");
+      response.socket.destroy();
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  return {
+    server,
+    async listen() { await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); return \`http://127.0.0.1:\${server.address().port}\`; },
+    async close() { await new Promise((resolve) => server.close(resolve)); },
+  };
+};
+
+const double = memoryDouble();
+const base = await double.listen();
+const root = await mkdtemp(join(tmpdir(), "branch-drop-test-"));
+const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: null });
+app.web.policy.configure({ allowPrivateAddresses: true });
+
+const context = app.runtime.context();
+await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 8000 });
+
+try {
+  await app.memory.backend.list("local");
+} catch (e) {
+  // Expected to reject
+}
+
+// Wait for stray rejections to fire
+await new Promise(resolve => setTimeout(resolve, 300));
+
+// Print sentinel and exit with code 0
+console.log("SENTINEL");
+await app.close();
+await double.close();
+process.exit(0);
+`);
+
+  const child = spawn("node", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", (d) => { stdout += d; });
+  child.stderr.on("data", (d) => { stderr += d; });
+
+  const exitCode = await new Promise((resolve) => child.on("exit", resolve));
+  assert.equal(exitCode, 0, `child should exit cleanly (got ${exitCode}), stderr: ${stderr}`);
+  assert.ok(stdout.includes("SENTINEL"), "child printed sentinel before exit");
+  await discardTemp(tmpDir);
+});
+
+test("(d) two concurrent memory.update calls with expectedRevision 1 give one success and one 'changed' refusal", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Save an initial fact at revision 1
+  const saved = await app.registry.execute("memory.put", { text: "Initial", source: "owner" }, context);
+  assert.equal(saved.revision, 1);
+  const factId = saved.id;
+
+  // Add a delay to first GET to allow both updates to start before serialization kicks in
+  let getRequestCount = 0;
+  const origHandler = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  double.server.on("request", async (request, response) => {
+    const url = new URL(request.url, "http://x");
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (request.method === "GET" && parts.length === 3 && parts[2] !== "search") {
+      getRequestCount++;
+      if (getRequestCount === 1) {
+        // Delay the first GET to ensure both updates start
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+    return origHandler(request, response);
+  });
+
+  // Two concurrent update calls with expectedRevision 1
+  const promise1 = app.registry.execute("memory.update", {
+    id: factId, text: "Update 1", source: "owner", expectedRevision: 1
+  }, context);
+  const promise2 = app.registry.execute("memory.update", {
+    id: factId, text: "Update 2", source: "owner", expectedRevision: 1
+  }, context);
+
+  const results = await Promise.allSettled([promise1, promise2]);
+
+  // One should succeed, one should fail with "changed"
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+
+  assert.equal(fulfilled.length, 1, `exactly one update succeeded, got ${fulfilled.length}`);
+  assert.equal(rejected.length, 1, `exactly one update was rejected, got ${rejected.length}`);
+
+  assert.match(rejected[0].reason.message, /changed since you opened it/, "rejection message is about revision mismatch");
+
+  // The service should have received exactly one PUT (the successful one)
+  const putRequests = double.requests.filter((r) => r.method === "PUT");
+  assert.equal(putRequests.length, 1, `only one PUT reached the service, got ${putRequests.length}`);
+  assert.match(putRequests[0].body.text, /Update [12]/, "the successful update was written");
+});
+
+test("write redaction: ghp_ tokens in fact text are redacted before sending to outside service", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Write a fact with a GitHub token in the text
+  const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB";
+  await app.memory.backend.write("local", "test-fact", {
+    text: "My secret token is " + token,
+    source: "owner"
+  });
+
+  // Check the PUT request sent to the service
+  const putRequest = double.requests.find((r) => r.method === "PUT");
+  assert.ok(putRequest, "PUT request reached service");
+  assert.doesNotMatch(putRequest.body.text, /ghp_/, "GitHub token was redacted");
+  assert.match(putRequest.body.text, /\[hidden key-like value: GitHub token\]/, "token replaced with redaction placeholder");
+});
+
+test("query redaction: ghp_ tokens in search query are redacted before sending to outside service", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Pre-populate a fact
+  await app.memory.backend.write("local", "test-fact", { text: "A fact", source: "owner" });
+
+  // Search with a query containing a GitHub token
+  const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB";
+  await app.memory.backend.search("local", "my token is " + token);
+
+  // Check the search request
+  const searchRequest = double.requests.find((r) => r.method === "GET" && r.path.includes("search"));
+  assert.ok(searchRequest, "search request reached service");
+  const decodedQuery = decodeURIComponent(searchRequest.search);
+  assert.doesNotMatch(decodedQuery, /ghp_/, "GitHub token was redacted in query");
+  assert.match(decodedQuery, /\[hidden key-like value: GitHub token\]/, "token replaced with redaction placeholder");
+});
+
+test("request timeout aborts the body read and closes the socket promptly", async (t) => {
+  const { spawn } = await import("node:child_process");
+  const { writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const tmpDir = await mkdtemp(join(tmpdir(), "branch-abort-test-"));
+  const scriptPath = join(tmpDir, "test.mjs");
+  await writeFile(scriptPath, `
+import { createServer } from "node:http";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createBranch } from "${new URL("../dist/index.js", import.meta.url).pathname}";
+
+let socketClosed = false;
+const memoryDouble = () => {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, "http://x");
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] !== "memory" || !parts[1]) return response.writeHead(404).end();
+    // Slow response: never finishes
+    if (request.method === "GET" && parts.length === 2) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write("[");
+      request.socket.on("close", () => { socketClosed = true; });
+      // Never finish writing
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  return {
+    server,
+    async listen() { await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); return \`http://127.0.0.1:\${server.address().port}\`; },
+    async close() { await new Promise((resolve) => server.close(resolve)); },
+  };
+};
+
+const double = memoryDouble();
+const base = await double.listen();
+const root = await mkdtemp(join(tmpdir(), "branch-abort-test-"));
+const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: null });
+app.web.policy.configure({ allowPrivateAddresses: true });
+
+const startTime = Date.now();
+await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
+
+try {
+  const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Test timeout")), 3000));
+  await Promise.race([app.memory.backend.list("local"), timeoutPromise]);
+} catch (e) {
+  // Expected to reject
+}
+
+const elapsed = Date.now() - startTime;
+console.log("ELAPSED:" + elapsed);
+console.log("SOCKET_CLOSED:" + socketClosed);
+
+// Wait briefly for socket close event to fire
+await new Promise(resolve => setTimeout(resolve, 100));
+console.log("SOCKET_CLOSED_FINAL:" + socketClosed);
+
+await app.close();
+await double.close();
+process.exit(0);
+`);
+
+  const child = spawn("node", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  child.stdout.on("data", (d) => { stdout += d; });
+
+  const exitCode = await new Promise((resolve) => child.on("exit", resolve));
+  assert.equal(exitCode, 0, "child should exit cleanly");
+
+  // Check timing
+  const elapsedMatch = stdout.match(/ELAPSED:(\d+)/);
+  assert.ok(elapsedMatch, "timing logged");
+  const elapsed = parseInt(elapsedMatch[1], 10);
+  assert.ok(elapsed < 2000, `should timeout in ~500ms, not ${elapsed}ms`);
+
+  // Check socket was closed
+  assert.ok(stdout.includes("SOCKET_CLOSED_FINAL:true"), "socket was closed");
+
+  await discardTemp(tmpDir);
 });

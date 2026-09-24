@@ -412,7 +412,10 @@ export const memoryScope = (store: Store, context: { owner: string }): string =>
  * the hygiene/versions screens) stay on this computer's database either way: they are Branch's own
  * bookkeeping on top of a fact, not part of what `MemoryBackend` promises a backend does.
  */
-export interface OutsideMemoryProvider extends MemoryBackend { isOutside(owner: string): boolean }
+export interface OutsideMemoryProvider extends MemoryBackend {
+  isOutside(owner: string): boolean;
+  withFactLock?<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T>;
+}
 
 export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch, provider?: OutsideMemoryProvider): void {
   registry.register({ name: "memory.put", description: "Save one clear fact with its source. Give entity and attribute when it may change later, so a newer fact ends the earlier one.",
@@ -447,12 +450,15 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       if (proposal) return proposal;
       const owner = memoryScope(store, context);
       if (!provider?.isOutside(owner)) return store.updateMemory(owner, value, context.runId);
-      const previous = await provider.read(owner, value.id);
-      if (!previous) throw new Error("Memory not found");
-      if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
-      const { tags, expiresAt } = previous.data as { tags?: string[]; expiresAt?: string };
-      return provider.write(owner, value.id, { text: value.text, source: value.source, sourceRunId: context.runId,
-        ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}) });
+      if (!provider.withFactLock) return Promise.reject(new Error("Provider does not support outside updates"));
+      return provider.withFactLock(owner, value.id, async () => {
+        const previous = await provider.read(owner, value.id);
+        if (!previous) throw new Error("Memory not found");
+        if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
+        const { tags, expiresAt } = previous.data as { tags?: string[]; expiresAt?: string };
+        return provider.write(owner, value.id, { text: value.text, source: value.source, sourceRunId: context.runId,
+          ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}) });
+      });
     } });
   registry.register({ name: "memory.search", description: "Search this owner's facts by words and, where the provider allows it, by meaning.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
