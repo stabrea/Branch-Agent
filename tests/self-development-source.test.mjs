@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { offerSelfDevelopment, registerSourceEditTools, prepareBranchSourceChange, proposeBranchSourceChange, decideBranchSourceChange, pendingBranchSourceChanges } from "../dist/self-development.js";
+import { offerSelfDevelopment, registerSourceEditTools, prepareBranchSourceChange, proposeBranchSourceChange, decideBranchSourceChange, pendingBranchSourceChanges, reviewedBranchSourceChanges, branchSourceDiff } from "../dist/self-development.js";
 import { inWorktree } from "../dist/coding/worktrees.js";
 import { Store } from "../dist/store.js";
 import { offLimitsToShortLivedKeys, offLimitsToHousehold } from "../dist/server.js";
@@ -148,6 +148,18 @@ test("owner approval runs bounded coding in the isolated copy without publish pe
   const proposal = proposeBranchSourceChange(deps, input, { runId: run.id, source: "channel" });
   const result = await decideBranchSourceChange(deps, proposal.id, "approve", AbortSignal.timeout(30000));
   assert.equal(result.status, "review");
+  const [review] = reviewedBranchSourceChanges(deps);
+  assert.equal(review.taskRunId, "coding-run");
+  assert.equal(review.folder, "branch-agent-source/.branch-worktrees/self-coding");
+  assert.match(review.summary, /completed/);
+  assert.equal(review.status, "review");
+  deps.exists = async () => false;
+  await assert.rejects(branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), /missing/);
+  deps.exists = async () => true;
+  deps.git = async ({ args }) => completed(args[0] === "diff" ? "sample diff" : "");
+  assert.deepEqual(await branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), { id: proposal.id, diff: "sample diff", truncated: false, files: "", filesTruncated: false });
+  store.sqlite.prepare("UPDATE branch_source_requests SET worktree_folder = ? WHERE id = ?").run("../other", proposal.id);
+  await assert.rejects(branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), /invalid/);
   assert.equal(runs.length, 1);
   assert.equal(runs[0].source, "owner");
   assert.equal(runs[0].timeoutMs, 240000);
