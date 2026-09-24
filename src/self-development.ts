@@ -148,13 +148,13 @@ export async function publishBranchSourceChange(deps: SelfDevelopmentDeps, id: s
   await run(deps, cwd, ["-c", "core.fsmonitor=false", "add", "--update", "--", "."], signal);
   const staged = await run(deps, cwd, ["-c", "core.fsmonitor=false", "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--", "."], signal);
   if (staged !== before.diff) throw new Error("Source-change diff changed while staging; nothing was pushed.");
-  await run(deps, cwd, ["-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "user.name=Branch Agent", "-c", "user.email=branch-agent@users.noreply.github.com", "commit", "-m", `Draft: ${input.goal.slice(0, 120)}`], signal);
+  await run(deps, cwd, ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "user.name=Branch Agent", "-c", "user.email=branch-agent@users.noreply.github.com", "commit", "-m", `Draft: ${input.goal.slice(0, 120)}`], signal);
   const sha = await run(deps, cwd, ["rev-parse", "HEAD"], signal);
   const committed = await run(deps, cwd, ["-c", "core.fsmonitor=false", "diff", "HEAD^", "HEAD", "--binary", "--no-ext-diff", "--no-textconv", "--", "."], signal);
   if (committed !== before.diff) throw new Error("Committed source-change diff differs from review; nothing was pushed.");
   const dirty = await run(deps, cwd, ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--untracked-files=all"], signal);
   if (dirty) throw new Error("Worktree changed during publication; nothing was pushed.");
-  await run(deps, cwd, ["push", "--force-with-lease=refs/heads/" + branch + ":", "origin", `refs/heads/${branch}:refs/heads/${branch}`], signal, 180_000);
+  await run(deps, cwd, ["-c", "core.hooksPath=/dev/null", "push", "--force-with-lease=refs/heads/" + branch + ":", "origin", `refs/heads/${branch}:refs/heads/${branch}`], signal, 180_000);
   const remoteSha = await run(deps, cwd, ["ls-remote", "origin", `refs/heads/${branch}`], signal);
   if (remoteSha.split(/\s/)[0] !== sha) throw new Error("Remote branch SHA differs from published commit.");
   const repo = repositoryAddress(input.repository).repo;

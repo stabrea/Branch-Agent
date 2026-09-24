@@ -37,7 +37,7 @@ test("draft publication rejects changed diff, wrong provenance, replay and concu
     if (cmd.includes("ls-remote")) return ok(pushed ? `${"b".repeat(40)}\trefs/heads/${branch}` : "");
     if (cmd.includes(" add ")) { entered(); await barrier; return ok(); }
     if (cmd.includes(" commit ")) { committed = true; return ok(); }
-    if (cmd.startsWith("push ")) { pushed = true; return ok(); }
+    if (cmd.includes(" push ")) { pushed = true; return ok(); }
     return ok();
   };
   const deps = { workspace, store, owner: "local", git, policy: { assertAllowed: async () => {} },
