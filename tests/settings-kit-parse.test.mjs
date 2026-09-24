@@ -423,6 +423,7 @@ test("put-back always asks for a record it cannot read, whatever it holds, and p
     store.save("settings", owner, "voice", saved);
     const asked = await call("/api/settings-kit/put-back", { key: "voice" });
     assert.equal(asked.status, 409, `${JSON.stringify(saved).slice(0, 80)}: ${JSON.stringify(asked.body)}`);
+    assert.match(asked.body.error, /less careful \(Keep audio on this computer[,)]/, "the ask names the guard put-back turns off");
     assert.deepEqual(store.get("settings", owner, "voice").data, saved, "nothing written without the yes");
     const back = await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true });
     if (back.status === 200) assert.deepEqual(voiceSettings(store, owner), VoiceSettingsSchema.parse({}));
