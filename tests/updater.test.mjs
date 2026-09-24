@@ -170,6 +170,17 @@ test("switching channels discards a check that was still in flight", async () =>
   assert.equal(updater.status.release, null);
 });
 
+test("switching channels clears the previous attempt's provenance", () => {
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: async () => {} });
+  // Simulate provenance from a previous attempt
+  updater.provenance = { outcome: "checked", message: "A build provenance record was found…" };
+  assert.ok(updater.provenance, "provenance is initially set from previous attempt");
+  updater.setChannel("beta");
+  assert.equal(updater.provenance, null, "setChannel clears the previous attempt's provenance");
+});
+
 test("check reports availability against the current version", async (t) => {
   const { root, installDir, fetchViaFixture } = await releaseFixture(t);
   const newer = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir, executableName: "Branch Agent Test.exe",

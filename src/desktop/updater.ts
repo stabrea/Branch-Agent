@@ -206,6 +206,7 @@ export class Updater {
     if (channel === this.channel) return this.status;
     this.channel = channel;
     this.generation++;
+    this.provenance = null;
     return this.set("idle", `Checking ${channel} updates has not started yet.`, null, null);
   }
   async check(): Promise<UpdateStatus> {
