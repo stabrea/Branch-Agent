@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { restoreBackup } from "../dist/server.js";
+import { readChatPermissionSettings } from "../dist/channels/chat-permissions.js";
+import { settingsHistory } from "../dist/settings-kit/history.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-backup-yes-"));
@@ -95,4 +97,51 @@ test("only the owner's own window hears about it or answers", async (t) => {
   fresh.app.store.profiles.switch({ profileId: null });
   assert.equal(fresh.setting("accounts"), undefined);
   assert.ok(fresh.app.store.restoreHeld.list().held.length > 0);
+});
+
+test("what a chat sender's task may use is held too, over this Branch and into a fresh one (NAS 49b183b)", async (t) => {
+  const { app, owner } = await fixture(t);
+  const grant = { extras: true, rules: [{ channel: "telegram", sender: "777", allow: ["files.write", "code.execute"], approvals: true }] };
+  const archive = app.store.backup(app.version);
+  const now = new Date().toISOString();
+  archive.tables.settings.push({ id: "chat-permissions", owner, data: JSON.stringify(grant), created_at: now, updated_at: now });
+  const answer = await restoreBackup(app, async () => archive, true);
+  assert.ok(groups(answer.held).includes("chat-permissions"), "it waits for the owner");
+  assert.deepEqual(readChatPermissionSettings(app.store, owner), { extras: false, rules: [] }, "nothing new for a chat until then");
+  const fresh = await fixture(t);
+  const second = await restoreBackup(fresh.app, async () => archive, false);
+  assert.ok(groups(second.held).includes("chat-permissions"));
+  assert.deepEqual(readChatPermissionSettings(fresh.app.store, owner), { extras: false, rules: [] });
+});
+
+test("the owner's yes to a held setting is written down: a settings change and an audit line (Q48, NAS 49b183b)", async (t) => {
+  const { app, owner, setting } = await fixture(t);
+  app.store.save("settings", owner, "policy", { preset: "ask-before-changes", rules: [] });
+  await restoreBackup(app, async () => changed(app, owner), true);
+  const before = settingsHistory(app.store, owner).length;
+  app.store.restoreHeld.answer({ use: ["policy"], keep: ["people-shares"] });
+  assert.deepEqual(setting("policy"), { preset: "off", rules: [] });
+  const records = settingsHistory(app.store, owner);
+  assert.equal(records.length, before + 1, "one change record");
+  assert.ok(records.some((record) => record.source === "import" && record.changes.some((change) => change.setting.startsWith("policy."))));
+  const lines = app.store.audit.list(owner, { action: "data.imported" }).map((entry) => `${entry.subject} ${entry.outcome}`);
+  assert.ok(lines.includes("From a restore: policy used"), lines.join(" | "));
+  assert.ok(lines.includes("From a restore: people-shares kept"), lines.join(" | "));
+});
+
+test("the waiting list keeps its limits when written, so an odd row or one too many never loses what waits (Q186)", async (t) => {
+  const { app, owner } = await fixture(t);
+  await restoreBackup(app, async () => changed(app, owner), true);
+  assert.ok(groups(app.store.restoreHeld.groups()).includes("policy"), "control: policy waits");
+  const now = new Date().toISOString();
+  const second = app.store.backup(app.version);
+  second.tables.settings.push({ id: `channel-pair:telegram:${"9".repeat(220)}`, owner, data: JSON.stringify({ approved: true }), created_at: now, updated_at: now });
+  await restoreBackup(app, async () => second, true);
+  assert.ok(groups(app.store.restoreHeld.groups()).includes("policy"), "a 220-character id does not empty the list");
+  const third = app.store.backup(app.version);
+  for (let i = 0; i < 501; i++)
+    third.tables.settings.push({ id: `channel-pair:telegram:${i}`, owner, data: JSON.stringify({ approved: true }), created_at: now, updated_at: now });
+  await restoreBackup(app, async () => third, true);
+  assert.equal(app.store.restoreHeld.groups().reduce((sum, one) => sum + one.ids.length, 0), 500, "the list stays at its 500 rows");
+  assert.doesNotThrow(() => app.store.restoreHeld.answer({ keep: ["channel-pair:telegram:500"] }), "and it can still be answered");
 });

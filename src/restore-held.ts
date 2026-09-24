@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { audit } from "./audit.js";
 import { restoreHeldKey, type HeldRow } from "./backup.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js";
+import { specFor } from "./settings-kit/catalogue.js";
 import type { Store } from "./store.js";
 
 /**
@@ -9,11 +12,15 @@ import type { Store } from "./store.js";
  * computer, so a backup never carries it.
  */
 const HeldRowSchema = z.object({ owner: z.string().min(1).max(200), id: z.string().min(1).max(200), data: z.string().max(4_000_000) }).strict();
-const HeldListSchema = z.object({ rows: z.array(HeldRowSchema).max(500).default([]), restoredAt: z.string().nullable().default(null) }).strict();
+const maxHeldRows = 500;
+const HeldListSchema = z.object({ rows: z.array(HeldRowSchema).max(maxHeldRows).default([]), restoredAt: z.string().nullable().default(null) }).strict();
 const AnswerSchema = z.object({
   use: z.array(z.string().min(1).max(200)).max(500).default([]),
   keep: z.array(z.string().min(1).max(200)).max(500).default([]),
 }).strict();
+
+/** Who put a held row in place, for the settings history: the owner, in the window, from a restore. */
+const restoredByTheOwner = { writer: "owner-in-window", source: "import", detail: "a restore, on the owner's yes" } as const;
 
 /** A model account is only half of where the owner's words go without its connection, so the two are one group. */
 const groupOf = (id: string): string => (id === "model-connections" ? "accounts" : id);
@@ -35,10 +42,14 @@ export class RestoreHeld {
    * rest of an earlier restore's list stays waiting, so a second restore never answers the first one's rows.
    */
   merge(held: readonly HeldRow[]): HeldGroup[] {
-    if (held.length) {
+    // Q186: the list's own limits are kept when it is written, or one odd row (an id past 200 characters) or one
+    // row too many would make the whole list unreadable, and everything waiting would be lost. A row left out
+    // here is simply not brought back: this computer's own value stays, as for any row the owner keeps.
+    const fit = held.filter((row) => HeldRowSchema.safeParse(row).success);
+    if (fit.length) {
       const key = (row: HeldRow) => `${row.owner}\u0000${row.id}`;
-      const fresh = new Set(held.map(key));
-      this.write([...this.read().rows.filter((row) => !fresh.has(key(row))), ...held]);
+      const fresh = new Set(fit.map(key));
+      this.write([...this.read().rows.filter((row) => !fresh.has(key(row))), ...fit].slice(-maxHeldRows));
     }
     return this.groups();
   }
@@ -65,9 +76,21 @@ export class RestoreHeld {
     const rows = this.read().rows, waiting = new Set(rows.map((row) => groupOf(row.id)));
     const unknown = [...use, ...keep].filter((group) => !waiting.has(group));
     if (unknown.length) throw new Error(`Nothing from a restore is waiting for ${unknown.join(", ")}.`);
-    for (const row of rows.filter((one) => use.includes(groupOf(one.id))))
-      this.store.save("settings", row.owner, row.id, JSON.parse(row.data) as Record<string, unknown>);
+    const chosen = rows.filter((one) => use.includes(groupOf(one.id)));
+    // Q48 (NAS e699303): a held row can be a Settings setting ("When to check with me", which chats may do what),
+    // so putting it in place is written down as a change, per owner, like any other.
+    for (const owner of new Set(chosen.map((row) => row.owner))) {
+      const mine = chosen.filter((row) => row.owner === owner);
+      const settings = [...new Set(mine.map((row) => row.id))].filter((id) => specFor(id) !== undefined);
+      recordedWrite(this.store, owner, restoredByTheOwner, settings, () => {
+        for (const row of mine) this.store.save("settings", row.owner, row.id, JSON.parse(row.data) as Record<string, unknown>);
+      });
+    }
     this.write(rows.filter((row) => !use.includes(groupOf(row.id)) && !keep.includes(groupOf(row.id))));
+    // NAS 49b183b: each answer is in the audit log, as pairing a sender or changing the rules is anywhere else.
+    for (const [groups, outcome] of [[use, "used"], [keep, "kept"]] as const)
+      for (const group of groups) audit(this.store, this.owner, { action: "data.imported", actor: this.owner, outcome,
+        subject: `From a restore: ${group}`, reason: outcome === "used" ? "The owner put the backup's value in place." : "The owner kept this computer's own value." });
     return { used: use, kept: keep, held: this.groups() };
   }
 }

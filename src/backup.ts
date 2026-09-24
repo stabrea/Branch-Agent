@@ -101,11 +101,13 @@ export const staysOnThisComputer = (id: string): boolean =>
 /**
  * The owner's own preferences that say where their words go or who gets in (Q168 B): the model accounts and
  * connections, approved chat senders and the allow list, who may view or drive the owner's conversations, each
- * person's role, and the approval rules. They are worth bringing back, so a backup carries them, but a restore
+ * person's role, the approval rules, and what a chat sender's task may use and say yes to (`chat-permissions`, NAS
+ * 49b183b). They are worth bringing back, so a backup carries them, but a restore
  * never puts one in place by itself: it holds it for the owner's yes, row by row, and this computer's own stays
  * until then. One that is the same as this computer's is not held at all (a restore point minutes old).
  */
-export const heldSettings: readonly string[] = ["accounts", "model-connections", "sender-allowlist", "people-shares", "people-groups", "policy"];
+export const heldSettings: readonly string[] = ["accounts", "model-connections", "sender-allowlist", "people-shares", "people-groups", "policy",
+  "chat-permissions"];
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:"];
 export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
 /** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
