@@ -340,3 +340,73 @@ test("a page in Branch's own window cannot start a shared worker that fetches an
   await new Promise((resolve) => setTimeout(resolve, 1500));
   assert.equal(forbiddenHits, 0, "the unlisted website was never asked");
 });
+
+test("in the owner's browser, a service worker their own browsing registered cannot fetch an unlisted website for Branch's tab", async (t) => {
+  const { chromium } = await import("playwright");
+  const { BrowserSession } = await import("../dist/integrations/browser-session.js");
+  const hits = [];
+  const forbidden = createServer((request, response) => { hits.push(request.url); response.setHeader("access-control-allow-origin", "*"); response.end("must not load"); });
+  forbidden.listen(0, "127.0.0.1");
+  await once(forbidden, "listening");
+  t.after(async () => { forbidden.close(); await once(forbidden, "close"); });
+  const forbiddenOrigin = `http://127.0.0.1:${forbidden.address().port}`;
+  // The owner's own site, whose worker passes every request of the pages it controls on, as many real ones do.
+  const allowed = createServer((request, response) => {
+    if (request.url === "/sw.js") {
+      response.setHeader("content-type", "text/javascript");
+      response.end(`self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", (event) => event.respondWith(fetch(event.request)));`);
+      return;
+    }
+    response.setHeader("content-type", "text/html");
+    if (request.url === "/frame") {
+      response.end(`<!doctype html><script>fetch(${JSON.stringify(`${forbiddenOrigin}/frame-fetch`)}).catch(() => {});
+new Image().src = ${JSON.stringify(`${forbiddenOrigin}/frame-image`)};</script>`);
+      return;
+    }
+    response.end("<!doctype html><title>allowed</title>");
+  });
+  allowed.listen(0, "127.0.0.1");
+  await once(allowed, "listening");
+  t.after(async () => { allowed.close(); await once(allowed, "close"); });
+  const allowedOrigin = `http://127.0.0.1:${allowed.address().port}`;
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const owners = await browser.newContext();
+  // Before the task, the owner visits the allowed site, which registers its worker.
+  const theirs = await owners.newPage();
+  await theirs.goto(allowedOrigin);
+  await theirs.evaluate(async () => { await navigator.serviceWorker.register("/sw.js"); await navigator.serviceWorker.ready; });
+  await theirs.reload();
+  assert.equal(await theirs.evaluate(() => !!navigator.serviceWorker.controller), true, "the owner's worker is running");
+  const session = new BrowserSession(async () => browser, async () => undefined);
+  session.options = { attached: { context: owners, detach: async () => undefined },
+    guardUrl: (url) => (url.startsWith(forbiddenOrigin) ? "not on the website list" : null) };
+  const task = () => ({ owner: "test", runId: "sw", signal: AbortSignal.timeout(60000) });
+  await session.use(task(), async (page) => { await page.goto(allowedOrigin); await page.reload(); });
+  assert.equal(await session.use(task(), (page) => page.evaluate(() => !!navigator.serviceWorker.controller)), false,
+    "Branch's tab is not run by the owner's worker");
+  const fetched = await session.use(task(), (page) => page.evaluate((url) => fetch(url).then((r) => r.status, () => "refused"), `${forbiddenOrigin}/fetch`));
+  await session.use(task(), (page) => page.evaluate((url) => { const image = new Image(); image.src = url; document.body.append(image); }, `${forbiddenOrigin}/image`));
+  // A page on another website (localhost is another site than 127.0.0.1, so the frame is a separate process)
+  // that frames the owner's site: the frame is in Branch's tab, and skips the owner's worker as well.
+  const framer = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html");
+    response.end(`<!doctype html><iframe src="${allowedOrigin}/frame"></iframe>`);
+  });
+  framer.listen(0, "127.0.0.1");
+  await once(framer, "listening");
+  t.after(async () => { framer.close(); await once(framer, "close"); });
+  await session.use(task(), async (page) => {
+    await page.goto(`http://localhost:${framer.address().port}/`);
+    assert.equal(page.frames().length, 2, "the owner's site is framed");
+  });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(fetched, "refused");
+  assert.deepEqual(hits, [], "the unlisted website was never asked, from the page or from the frame");
+  // The owner's own tab is theirs as it was: their worker still runs it and still reaches the website for them.
+  assert.equal(await theirs.evaluate(() => !!navigator.serviceWorker.controller), true, "the owner's tab still has its worker");
+  assert.equal(await theirs.evaluate((url) => fetch(url).then((r) => r.status), `${forbiddenOrigin}/theirs`), 200);
+  assert.deepEqual(hits, ["/theirs"]);
+});

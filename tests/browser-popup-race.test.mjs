@@ -259,3 +259,35 @@ test("in the owner's browser, a page whose traced opener has closed is refused e
   for (let i = 0; i < 20 && orphan.closes === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(orphan.closes, 1);
 });
+
+test("in the owner's browser, Branch's tab skips service workers, and a tab that cannot is closed and never used", async () => {
+  const run = async (refuse) => {
+    const tab = fakePage("ours");
+    const sent = [];
+    const context = Object.assign(events(), {
+      setDefaultTimeout() {},
+      route: async () => {}, unroute: async () => {},
+      newCDPSession: async () => ({ on() {}, send: async (method, params) => {
+        sent.push([method, params]);
+        if (method === refuse) throw new Error("Target closed");
+      } }),
+      newPage: async () => { await null; context.emit("page", tab); return tab; },
+    });
+    const session = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
+    session.options = { attached: { context } };
+    let used = false;
+    const outcome = await session.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => { used = true; })
+      .then(() => "used", (error) => error.message);
+    return { tab, sent, used, outcome };
+  };
+  const guarded = await run(null);
+  assert.equal(guarded.outcome, "used");
+  assert.deepEqual(guarded.sent.find(([method]) => method === "Network.setBypassServiceWorker"), ["Network.setBypassServiceWorker", { bypass: true }]);
+  assert.equal(guarded.tab.closes, 0);
+  for (const refused of ["Network.enable", "Network.setBypassServiceWorker"]) {
+    const failed = await run(refused);
+    assert.equal(failed.used, false, `${refused} refused: the tab is never handed to the task`);
+    assert.match(failed.outcome, /Target closed/);
+    assert.equal(failed.tab.closes, 1, `${refused} refused: the tab is closed`);
+  }
+});

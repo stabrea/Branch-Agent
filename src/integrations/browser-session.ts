@@ -313,7 +313,13 @@ export class BrowserSession {
         };
       });
     }
-    await this.guardPage(page);
+    // A tab that could not be guarded is closed, never handed over: in the owner's browser it would reach
+    // websites through their service workers.
+    await this.guardPage(page).catch(async (error: unknown) => {
+      if (this.creating === creating) this.creating = null;
+      await page.close().catch(() => undefined);
+      throw error;
+    });
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
       // R17-S19: the owner may have message boxes accepted (OK) rather than dismissed (Cancel).
@@ -371,6 +377,15 @@ export class BrowserSession {
       void this.answerPaused(session, event, redirectCounts);
     });
     await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+    // In the owner's own browser, a service worker their own browsing registered on an allowed website takes
+    // over Branch's tab there, and sends that tab's requests itself, where the route and the pause cannot see
+    // them (Mac mini 9d9b344: it fetched a website the owner never allowed). Branch's tab skips every service
+    // worker instead; theirs keep theirs. It holds while this session is open, which is as long as the tab.
+    // No response is kept for this session (the buffers are 0): it is on only for the bypass.
+    if (this.borrowed) {
+      await session.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 });
+      await session.send('Network.setBypassServiceWorker', { bypass: true });
+    }
   }
   private async answerPaused(session: CDPSession, event: PausedRequest,
     redirectCounts: Map<string, number>): Promise<void> {
