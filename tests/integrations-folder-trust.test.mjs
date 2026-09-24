@@ -893,3 +893,84 @@ test("Q107: a copy already gone is never handed to Git to remove, so a link that
   assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
   assert.deepEqual(removes, [], "Git was never asked to remove a place that is not there");
 });
+
+test("Q107: a folder the repository carries at a copy's place, swapped for a link as Git is called, never gets another worktree removed",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  // NAS 28ba0db: a real folder passed the check, then a branch switch (Branch's own git.branch, in another run)
+  // put a link there before Git looked, and Git followed it to the owner's worktree. Here the switch is made at
+  // the moment Git is asked to remove, which is the widest that window can be.
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj"), side = join(workspace, "work", "side");
+  await mkdir(join(proj, ".branch-worktrees", "x"), { recursive: true });
+  await writeFile(join(proj, ".branch-worktrees", "x", "keep.txt"), "a folder the repository carries");
+  gitIn(proj, "init", "-q", "-b", "with-dir");
+  gitIn(proj, "config", "user.name", "t");
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "a real folder at the copy's place");
+  gitIn(proj, "switch", "-q", "-c", "with-link");
+  await rm(join(proj, ".branch-worktrees", "x"), { recursive: true });
+  await symlink("../../side", join(proj, ".branch-worktrees", "x"), "dir");
+  gitIn(proj, "add", "-A");
+  gitIn(proj, "commit", "-q", "-m", "a link at the copy's place");
+  gitIn(proj, "switch", "-q", "with-dir");
+  gitIn(proj, "branch", "plan/x"); // so a merge would go through
+  gitIn(proj, "worktree", "add", "-q", "--detach", side); // the owner's own worktree, made by hand
+  await writeFile(join(side, "unsaved.txt"), "the owner's unsaved work");
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") {
+      removes.push(options.args.at(-1));
+      gitIn(proj, "switch", "-q", "with-link"); // the other run's switch lands now
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: proj, encoding: "utf8" }).trim();
+  const before = head();
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()), /not a parallel copy Git knows of/);
+  await assert.rejects(app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal()), /not a parallel copy Git knows of/);
+  assert.deepEqual(removes, [], "Git was never asked to remove a folder it has no copy at");
+  assert.equal(readFileSync(join(side, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree is untouched");
+  assert.match(execFileSync("git", ["worktree", "list"], { cwd: proj, encoding: "utf8" }), /side/, "and still registered");
+  assert.equal(head(), before, "nothing was merged either");
+});
+
+test("Q107: a copy Branch made is still removed, by the path Git registered for it", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "config", "user.name", "t");
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "mine" }, signal());
+  await app.git.planStart({ folder: "work/proj", name: "plan" }, signal());
+  assert.deepEqual(await app.git.worktree({ folder: "work/proj", action: "remove", name: "mine" }, signal()),
+    { folder: "work/proj", name: "mine", removed: true });
+  const merged = await app.git.planMerge({ folder: "work/proj", name: "plan", remove: true }, signal());
+  assert.equal(merged.copyRemoved, true);
+  assert.deepEqual((await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies, []);
+});
+
+test("Q107: two removes of one copy at once go one at a time, so Git is asked once and the other says it is gone", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "twice" }, signal());
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") {
+      removes.push(options.args.at(-1));
+      await new Promise((resolve) => setTimeout(resolve, 200)); // Git is slow; the other remove is checking meanwhile
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const both = await Promise.allSettled([1, 2].map(() => app.git.worktree({ folder: "work/proj", action: "remove", name: "twice" }, signal())));
+  assert.equal(removes.length, 1, "Git was asked once");
+  assert.equal(both.filter((one) => one.status === "fulfilled").length, 1);
+  assert.match(String(both.find((one) => one.status === "rejected")?.reason?.message), /nothing was removed/);
+});
