@@ -602,23 +602,103 @@ test("somebody switched in on this computer cannot read the viewer password", as
 
 // -------------------------------------------------------------- Q94 desktop minors: banner race and long types
 
-test("Q94(a): TakeOverBanner.hide() hides the window", async () => {
-  const banner = new TakeOverBanner(undefined, { platform: "win32" });
-  await banner.hide(); // should complete without error
-});
+/** A notice window whose making is held until the test lets it go, so a take-over, a stop or a hand-back can land meanwhile. */
+function heldWindows() {
+  const waiting = [], made = [];
+  const factory = (closed) => new Promise((resolve) => waiting.push(() => {
+    const window = { showing: true, close() { this.showing = false; } };
+    made.push(window);
+    resolve(window);
+  }));
+  return { factory, made, release: () => { for (const go of waiting.splice(0)) go(); } };
+}
 
-test("Q94(a): start() with enabled desktop completes", async (t) => {
+test("Q94(a) A1: a take-over while start's notice is still being made refuses the start, and no notice stays up", async (t) => {
   const { app } = await fixture(t);
-  const { desktop, ran } = heldFixture(app);
-  const { runner } = fakeRunner();
-  desktop.runner = runner;
-  saveLinuxDesktop(app.store, "local", { mode: "on" });
-  const info = await desktop.start("local");
-  assert(info.port > 0, "desktop has a port");
-  await desktop.end("local");
+  const windows = heldWindows();
+  const { desktop, banner } = heldFixture(app, undefined, windows.factory);
+  const starting = desktop.start("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  await desktop.takeOver("local");
+  windows.release();
+  await assert.rejects(starting, (error) => { assert.equal(error.message, takenOverMessage); return true; });
+  assert.equal(banner.visible, false, "the notice made after the take-over was closed");
+  assert.equal(windows.made.every((window) => !window.showing), true);
 });
 
-test("B: long type timeout scales with text length, minimum 65s", async (t) => {
+test("Q94(a) A2: a stop while the hand-back's notice is still being made leaves no notice up", async (t) => {
+  const { app } = await fixture(t);
+  const windows = heldWindows();
+  const { desktop, banner } = heldFixture(app, undefined, windows.factory);
+  const starting = desktop.start("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  windows.release();
+  await starting;
+  await desktop.takeOver("local");
+  const handingBack = desktop.handBack("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  await desktop.stop("local");
+  windows.release();
+  await handingBack.catch(() => undefined);
+  assert.equal(desktop.controlOf("local"), "none");
+  assert.equal(banner.visible, false, "the notice asked for before the stop is not left up after it");
+});
+
+test("Q94(a): a stop while the first notice is still being made refuses the start as not running", async (t) => {
+  const { app } = await fixture(t);
+  const windows = heldWindows();
+  const { desktop, banner } = heldFixture(app, undefined, windows.factory);
+  const starting = desktop.start("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  // A stop waits for the start under way to finish (it takes its own container down), so the notice is let go after it is asked.
+  const stopping = desktop.stop("local");
+  windows.release();
+  await stopping;
+  await assert.rejects(starting, (error) => { assert.equal(error.message, notRunningMessage); return true; });
+  assert.equal(banner.visible, false);
+});
+
+test("Q94(b): a type that fails on its own kills xdotool before act reports it; one a take-over stopped does not", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  await desktop.start("local");
+  const plain = desktop.runner;
+  const order = [];
+  let held = null;
+  desktop.runner = (file, args, timeoutMs, signal) => {
+    if (args[4] === "pkill") { order.push("pkill"); return Promise.resolve(""); }
+    if (args[0] === "exec" && args.includes("type")) {
+      order.push("type");
+      if (held) return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+      return Promise.reject(new Error("Command failed"));
+    }
+    return plain(file, args, timeoutMs, signal);
+  };
+  await assert.rejects(desktop.act("local", { type: "type", text: "hello" }), /Command failed/);
+  assert.deepEqual(order, ["type", "pkill"], "the pkill ran before act rejected");
+  order.length = 0;
+  held = true;
+  const acting = desktop.act("local", { type: "type", text: "hello" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await desktop.takeOver("local");
+  await assert.rejects(acting, (error) => { assert.equal(error.message, takenOverMessage); return true; });
+  assert.deepEqual(order, ["type", "pkill"], "only the take-over's own pkill, none of act's");
+});
+
+test("Q94: a Take over pressed while a hand-back waits wins, and the assistant does not get the desktop", async (t) => {
+  const { desktop, release } = await heldPkill(t);
+  const first = desktop.takeOver("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  const handingBack = desktop.handBack("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = desktop.takeOver("local");
+  release();
+  await first; await handingBack; await second;
+  assert.equal(desktop.controlOf("local"), "user", "the last press was Take over");
+  await assert.rejects(desktop.act("local", { type: "type", text: "x" }), (error) => { assert.equal(error.message, takenOverMessage); return true; });
+});
+
+test("B: long type timeout scales with text length, up to 65 s", async (t) => {
   assert.equal(execTimeoutMs({ type: "key", chord: "Return" }), 15_000, "key should use 15s");
   assert.equal(execTimeoutMs({ type: "open", app: "xterm" }), 15_000, "open should use 15s");
 
@@ -626,10 +706,10 @@ test("B: long type timeout scales with text length, minimum 65s", async (t) => {
   assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(100) }), 6_500, "100 chars");
   // 1000 chars: 5000 + 1000*15 = 20000
   assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(1000) }), 20_000, "1000 chars");
-  // 4000 chars: 5000 + 4000*15 = 65000 (at minimum)
-  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(4000) }), 65_000, "4000 chars (at minimum 65s)");
-  // 5000 chars: 5000 + 5000*15 = 80000, uncapped
-  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(5000) }), 80_000, "5000 chars (above minimum)");
+  // 4000 chars (the most desktop.shared.type takes): 5000 + 4000*15 = 65000
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(4000) }), 65_000, "4000 chars");
+  // Longer text is capped at the same 65 s.
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(5000) }), 65_000, "5000 chars, capped");
 });
 
 test("B: act uses scaled timeout for long types", async (t) => {

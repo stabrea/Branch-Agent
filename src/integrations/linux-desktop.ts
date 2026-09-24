@@ -77,8 +77,8 @@ export type SharedDesktopAction =
 export function execTimeoutMs(action: SharedDesktopAction): number {
   if (action.type !== 'type') return 15_000;
   const charMs = 15; // xdotool types at ~12 ms per char; add buffer
-  // 4000 chars × 15 ms + 5s base = 65s, so the formula naturally handles all text lengths
-  return 5_000 + action.text.length * charMs;
+  // 4000 chars (the most desktop.shared.type takes) × 15 ms + 5 s = 65 s, and never more than that.
+  return Math.min(65_000, 5_000 + action.text.length * charMs);
 }
 /**
  * xdotool's argument list for one action. Nothing here ever reaches a shell: it is one argv, run
@@ -356,9 +356,13 @@ export class LinuxDesktopSandbox {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     if (session.control !== 'agent') throw new Error(takenOverMessage);
+    const signal = session.inFlightAbort.signal;
     try {
-      await this.runner('docker', dockerExecArgv(session.id, action), execTimeoutMs(action), session.inFlightAbort.signal);
+      await this.runner('docker', dockerExecArgv(session.id, action), execTimeoutMs(action), signal);
     } catch (error) {
+      // A take-over stopped it: the take-over's own pkill (which a hand-back waits for) covers it, and a
+      // second, later one could end what the assistant starts after the hand-back.
+      if (signal.aborted) throw new Error(takenOverMessage);
       // Kill any lingering xdotool to prevent double-typing on retry
       await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined);
       // Check if control changed while the action was running
@@ -402,10 +406,13 @@ export class LinuxDesktopSandbox {
     if (session.control === 'agent') return;
     // Q96: a take-over still under way finishes first, so its late pkill cannot end what the assistant
     // starts next, and its hiding the notice cannot come after the one shown here.
-    await session.takingOver?.catch(() => undefined);
+    const waitedFor = session.takingOver;
+    await waitedFor?.catch(() => undefined);
     const current = this.sessions.get(owner);
     if (current !== session) throw new Error(notRunningMessage);
     if (current.control === 'agent') return;
+    // A Take over pressed while this waited is the owner's last word: it wins.
+    if (current.takingOver !== waitedFor) return;
     session.control = 'agent';
     // Create a new AbortController since the old one was aborted on takeOver
     session.inFlightAbort = new AbortController();
