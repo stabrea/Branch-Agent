@@ -1573,3 +1573,17 @@ for (const where of ["this computer's memory", "an outside memory service"]) {
       ["Ada's shed key hangs in the hall ADAKEEP3"], "she still finds it");
   });
 }
+
+test("the owner bringing back an earlier wording of a Trunk's fact keeps it the Trunk's own", async (t) => {
+  const { app, context } = await fixture(t);
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put", { text: "Ada's bins go out on Monday ADAKEEP4", source: "owner", entity: "bins", attribute: "day" }, ada);
+  const before = keptOf(app.store.get("memory", "local", hers.id).data);
+  await app.registry.execute("memory.update", { id: hers.id, text: "Ada's bins go out on Tuesday ADAKEEP4", source: "owner", expectedRevision: hers.revision }, ada);
+  app.store.review.restoreVersion("local", hers.id, 1);
+  const after = app.store.get("memory", "local", hers.id).data;
+  assert.equal(after.text, "Ada's bins go out on Monday ADAKEEP4", "the earlier wording is back");
+  assert.deepEqual(keptOf(after), before, "and the fact is still hers, with its layer and what it is about");
+  assert.deepEqual((await app.registry.execute("memory.search", { query: "ADAKEEP4" }, ada)).map((record) => record.data.text),
+    ["Ada's bins go out on Monday ADAKEEP4"], "she still finds it");
+});
