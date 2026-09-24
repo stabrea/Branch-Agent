@@ -5,6 +5,7 @@ import type { AttachmentRef, Message } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import { canAccessSession } from "./history.js";
 import { accessAgent } from "./trunks/memory-scope.js";
 
 export const BranchSessionSchema = z.object({

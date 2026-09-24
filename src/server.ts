@@ -14,7 +14,7 @@ import { TeamHandoffs, TeamHandoffRefusedError } from "./team-handoff.js";
 import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
-import { RunInputSchema, errorText, maximumImagesPerTurn, runBodyLimit } from "./contracts.js";
+import { RunInputSchema, errorText, maximumImagesPerTurn, runBodyLimit, type Run } from "./contracts.js";
 import type { ImagePart } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
@@ -45,6 +45,8 @@ import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalo
 import { localModelsApi } from "./local-models-api.js";
 import type { PressContext } from "./local-one-button.js";
 import { handlesRemovePath, removeBranchApi } from "./remove-branch.js";
+import { handlesUpdateFailurePath, updateFailureApi } from "./update-failure.js";
+import { handlesUpdateFixPath, updateFixApi } from "./update-fix.js";
 
 /** mac7/clean-uninstall: the folder holding this copy's package.json, as `branch uninstall` reads it. */
 const packageRootHere = (): string => dirname(dirname(fileURLToPath(import.meta.url)));

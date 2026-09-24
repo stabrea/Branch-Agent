@@ -6,6 +6,7 @@ import {
   ToolCallSchema, type AttachmentRef, type Message,
 } from "./contracts.js";
 import { attachmentLimits, kindOf } from "./attachments.js";
+import { participation } from "./history.js";
 import type { ConversationFiles } from "./sessions.js";
 
 /** What a conversation's words may come to in an archive. */
