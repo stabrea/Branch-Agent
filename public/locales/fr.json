@@ -2151,6 +2151,7 @@
   "folder-trust.more": "et {count} de plus",
   "folder-trust.project-folder": "Le dossier du projet « {name} »",
   "folder-trust.saved": "Enregistré.",
+  "folder-trust.nested-repo-note": "Un dépôt à l'intérieur de ce dossier a besoin de sa propre confiance.",
   "jev.args.note": "Sous Windows, utilisez JEV avec WSL : wsl.exe, puis --exec et jev sur des lignes séparées.",
   "jev.credentials": "Configurez les identifiants dans votre terminal avec jev auth set. Branch ne les lit ni ne les conserve.",
   "describe.jev-command": "Le programme JEV que Branch lance pour les décisions limitées. Laissez vide pour utiliser la commande habituelle de JEV.",

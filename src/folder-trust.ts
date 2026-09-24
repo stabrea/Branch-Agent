@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import { z } from "zod";
@@ -30,6 +30,11 @@ import type { Store } from "./store.js";
  *
  * A decision covers the folder and everything inside it; the closest decided folder wins. The
  * shape follows Gemini CLI's `trust.ts` and `FolderTrustDiscoveryService.ts` (Apache-2.0).
+ *
+ * Inheritance stops at a nested repository: a folder containing `.git` (as a dir or file)
+ * strictly below the closest decided folder. A folder inside a nested repo with no explicit
+ * decision of its own is treated as undecided, so integrations files hold back their security
+ * sections until the owner trusts the repo itself.
  */
 export type FolderTrust = "trusted" | "untrusted" | "unknown";
 
@@ -95,7 +100,7 @@ export function realFolder(path: string, platform: NodeJS.Platform = process.pla
 
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
-  let best: { depth: number; decision: "trust" | "distrust" } | null = null;
+  let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   const entries = saved(store, owner).folders;
   if (!entries.length) return "unknown";
   const inner = realFolder(folder, platform);
@@ -103,9 +108,24 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
     const outer = realFolder(entry.path, platform);
     if (!folderContains(outer, inner, platform)) continue;
     const depth = outer.length;
-    if (!best || depth >= best.depth) best = { depth, decision: entry.decision };
+    if (!best || depth >= best.depth) best = { depth, decision: entry.decision, path: outer };
   }
-  return best ? (best.decision === "trust" ? "trusted" : "untrusted") : "unknown";
+  if (!best) return "unknown";
+
+  // Inheritance stops at a nested repository (a folder containing .git, dir or file).
+  // Walk from inner up to (but not including) best.path, using resolved paths so symlinks
+  // cannot skip the check. A symlink to a repo elsewhere is still subject to the check
+  // at the resolved location.
+  if (platform === process.platform) {
+    const path = platform === "win32" ? win32 : posix;
+    let current = inner;
+    while (current !== best.path && current !== path.dirname(current)) {
+      if (existsSync(join(current, ".git"))) return "unknown";
+      current = path.dirname(current);
+    }
+  }
+
+  return best.decision === "trust" ? "trusted" : "untrusted";
 }
 
 /** Writes down the owner's answer for one folder inside the workspace. */

@@ -322,11 +322,74 @@ test("Q89.3: workspace root vs subfolder integrations files — both locations c
       "subfolder file is NOT trusted (specific distrust wins)");
   });
 
-test("Q89.4 (pins today's rule, for a ruling): a repository cloned into a trusted folder with no decision of its own inherits that trust", async (t) => {
+test("Q89.4: a repository cloned into a trusted folder does NOT inherit trust — nested repos need their own decision", async (t) => {
   const { app, workspace, owner } = await fixture(t);
   decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
   // A repository cloned later into the trusted folder; nobody has decided anything about it.
-  const cloned = await place(join(workspace, "work", "cloned-repo", "integrations.json"), { git: { remote: true } });
-  assert.equal(integrationsFileTrusted(app.store, owner, workspace, cloned), true,
-    "the closest decided folder is `work`, so its trust covers the clone; change this test only with the rule");
+  const cloned = await place(join(workspace, "work", "cloned-repo", ".git", "HEAD"), ""),
+        file = join(workspace, "work", "cloned-repo", "integrations.json");
+  await writeFile(file, JSON.stringify({ git: { remote: true } }));
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), false,
+    "nested repo with .git directory does NOT inherit trust from parent");
+});
+
+test("Q89.5: trusting a nested repo explicitly works, overriding inheritance stop", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  const cloned = await place(join(workspace, "work", "cloned-repo", ".git", "HEAD"), ""),
+        file = join(workspace, "work", "cloned-repo", "integrations.json");
+  await writeFile(file, JSON.stringify({ git: { remote: true } }));
+  // Nested repo is not trusted by inheritance
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), false,
+    "before decision");
+  // Now trust it explicitly
+  decideFolder(app.store, owner, workspace, { folder: "work/cloned-repo", decision: "trust" });
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), true,
+    "explicit trust decision on nested repo works");
+});
+
+test("Q89.6: a plain subfolder (no .git) still inherits trust from parent", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  const file = await place(join(workspace, "work", "subdir", "integrations.json"), { git: { remote: true } });
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), true,
+    "plain subfolder without .git inherits trust from parent");
+});
+
+test("Q89.7: a .git file (worktree/submodule) also stops inheritance", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  // .git as a file (worktree or submodule pointing to the real .git)
+  await mkdir(dirname(join(workspace, "work", "cloned-repo", "integrations.json")), { recursive: true });
+  await writeFile(join(workspace, "work", "cloned-repo", ".git"), "gitdir: /path/to/real/.git");
+  const file = join(workspace, "work", "cloned-repo", "integrations.json");
+  await writeFile(file, JSON.stringify({ git: { remote: true } }));
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), false,
+    ".git file (worktree) also stops inheritance");
+});
+
+test("Q89.8: a symlink pointing to a repo inside the same trusted folder also stops inheritance",
+  { skip: process.platform === "win32" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  // Create a real nested repo
+  const realRepo = join(workspace, "work", "real-repo");
+  await mkdir(join(realRepo, ".git"), { recursive: true });
+  // Symlink to it from elsewhere in the same folder
+  const linkPath = join(workspace, "work", "link-to-real");
+  await symlink(realRepo, linkPath, "dir");
+  const file = join(linkPath, "integrations.json");
+  await writeFile(file, JSON.stringify({ git: { remote: true } }));
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), false,
+    "symlink to repo inside folder: resolved .git stops inheritance");
+});
+
+test("Q89.9: a trusted folder that itself contains .git still trusts its own files", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  // The workspace root itself is a repo and is trusted
+  await mkdir(join(workspace, ".git"), { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  const file = await place(join(workspace, "integrations.json"), { git: { remote: true } });
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), true,
+    "trusted folder with .git trusts its own files (check stops at folder level, not below)");
 });
