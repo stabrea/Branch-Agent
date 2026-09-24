@@ -6,6 +6,7 @@ import { detectInjection } from "../content-guard.js";
 import { asLines, ownerTurns, turnsOf } from "./evidence.js";
 import { reflectionSettings } from "./settings.js";
 import { noteAction } from "./skill-notes.js";
+import { lookBackSource } from "../memory-review.js";
 
 /**
  * Looking back over a conversation. It reads only the turns since the last look, together with what
@@ -96,7 +97,7 @@ export async function lookBack(store: Store, input: { owner: string; sessionId: 
   const answer = AnswerSchema.parse(checked.value);
   const batch: Batch = { id: randomUUID(), sessionId, runId: input.runId, trigger: input.trigger,
     fromMessage: cursor.read + 1, toMessage: messages.length, proposalIds: [], createdAt: new Date().toISOString() };
-  const source = `Looked back over messages ${batch.fromMessage}–${batch.toMessage} of a conversation`;
+  const source = `${lookBackSource} ${batch.fromMessage}–${batch.toMessage} of a conversation`;
   batch.proposalIds = stage(store, owner, answer, { source, runId: input.runId, known, newSkills });
   saveBatch(store, owner, batch);
   store.save("settings", owner, cursorKey(sessionId), { read: messages.length, turns: ownerTurns(messages), at: batch.createdAt });

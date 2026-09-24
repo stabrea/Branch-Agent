@@ -294,3 +294,50 @@ test("the owner's tidy never groups two Trunks' facts together, nor a private fa
   assert.ok(!groups.some((ids) => ids.some((id) => id.startsWith("Ada")) && ids.some((id) => id.startsWith("Bo"))), JSON.stringify(groups));
   assert.ok(!groups.some((ids) => ids.includes("owner-office") && ids.includes("shared-fact")), "private and shared stay apart");
 });
+
+test("a look-back or tidying row a model wrote is refused when accepted if it names someone else's facts, however old", async (t) => {
+  const { app } = await seeded(t);
+  const { lookBackSource, tidyByInstructionsSource } = await import("../dist/memory-review.js");
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed" });
+  app.store.save("memory", "local", "owner-wifi-2", { text: "wifi: hunter2", source: "seed" });
+  const lookedBack = `${lookBackSource} 1–4 of a conversation`;
+  // Rows as a look back or a tidy staged them before they were shown only the owner's facts (NAS d2ca9b8).
+  const stale = [
+    { kind: "merge", memoryId: "Ada-dup-1", memoryIds: ["Ada-dup-1", "Ada-dup-2"], text: "Ada's plan, and the wifi pin 4417", source: lookedBack },
+    { kind: "update", memoryId: "Ada-dup-1", text: "pin 4417", source: lookedBack },
+    { kind: "update", memoryId: "shared-fact", text: "The office opens at nine; the wifi pin is 4417", source: `${tidyByInstructionsSource} shorter` },
+  ].map((row) => app.store.review.propose("local", row));
+  for (const row of stale) await assert.rejects(() => app.store.review.decide("local", row.id, true), /owner's own facts/, row.kind);
+  assert.equal(app.store.get("memory", "local", "Ada-dup-1").data.text, "Ada's secret plan is to ship the rocket on Friday");
+  assert.ok(app.store.get("memory", "local", "Ada-dup-2"), "nothing of Ada's is set aside");
+  assert.equal(app.store.get("memory", "local", "shared-fact").data.text, "The office opens at nine every morning");
+  // The owner's own facts still take a model's suggestion, and a Trunk's own staged correction is not a model's tidy.
+  const own = app.store.review.propose("local", { kind: "merge", memoryId: "owner-wifi", memoryIds: ["owner-wifi", "owner-wifi-2"], text: "The wifi password is hunter2, pin 4417", source: lookedBack });
+  await app.store.review.decide("local", own.id, true);
+  assert.equal(app.store.get("memory", "local", "owner-wifi").data.text, "The wifi password is hunter2, pin 4417");
+  const trunks = app.store.review.propose("local", { kind: "update", memoryId: "Ada-new", text: "Ada launch code: 5555", source: "Ada corrected her code" });
+  await app.store.review.decide("local", trunks.id, true);
+  assert.equal(app.store.get("memory", "local", "Ada-new").data.text, "Ada launch code: 5555");
+});
+
+test("tidying by the owner's instructions is shown only the owner's own facts, so it suggests nothing about anyone else's", async (t) => {
+  const { app } = await seeded(t);
+  const { MarkdownReadBack } = await import("../dist/learning-more/readback.js");
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed" });
+  const readback = new MarkdownReadBack(app.store, { grouped: () => [] });
+  readback.configure("local", { tidyInstructions: "Make every note shorter." });
+  let shown = "";
+  const provider = { name: "scripted", async complete(request) {
+    shown = request.messages.at(-1).content;
+    return { content: JSON.stringify({ changes: [
+      { action: "update", id: "Ada-dup-1", text: "pin 4417", why: "x" },
+      { action: "update", id: "shared-fact", text: "pin 4417", why: "x" },
+      { action: "update", id: "owner-wifi", text: "wifi pin 4417", why: "shorter" },
+    ] }), toolCalls: [] };
+  } };
+  const result = await readback.tidy("local", provider);
+  assert.match(shown, /pin 4417/, "the owner's own fact is shown");
+  assert.doesNotMatch(shown, /Ada|Bo |office opens/, "no Trunk's fact and no shared one is shown");
+  assert.equal(result.proposed, 1);
+  assert.deepEqual(app.store.review.proposals("local", "pending").map((p) => p.memoryId), ["owner-wifi"]);
+});
