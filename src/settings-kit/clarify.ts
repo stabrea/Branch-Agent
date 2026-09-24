@@ -40,7 +40,7 @@ function stem(word: string): string {
 }
 
 /** Every mark people type as an apostrophe (straight, curly, the modifier letter, an acute or grave accent, a prime, and others). */
-const apostropheMarks = "'\\u2018\\u2019\\u02BC\\u00B4\\u0060\\u2032\\uFF07\\u02BB\\u02B9\\u2035\\uA78C\\u055A\\uFF40";
+const apostropheMarks = "'\\u2018\\u2019\\u02BC\\u00B4\\u0060\\u2032\\uFF07\\u201B\\u02BB\\u02B9\\u2035\\uA78C\\u055A\\uFF40";
 const apostrophes = new RegExp(`[${apostropheMarks}]`, "g");
 
 /** Invisible format characters (zero-width joiners and spaces, soft hyphens) are taken out, and full-width letters read as plain ones. */
@@ -58,8 +58,8 @@ const plainWords = (text: string): string[] => wordsOf(text.normalize("NFD").rep
 /** Variant of plainWords that replaces invisible characters with spaces, normalizes, then strips, to catch cues separated by only invisible characters. */
 const plainWordsWithSpaces = (text: string): string[] => {
   const nfd = text.normalize("NFD").replace(/[̀-ͯ]/g, "");
-  // Replace \p{Cf} (invisible format chars) with spaces, normalize NFKC first, then remove apostrophes, then split
-  const variant = nfd.replace(/\p{Cf}/gu, " ").normalize("NFKC").replace(apostrophes, "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  // Replace \p{Cf} (invisible format chars) with spaces, strip apostrophes before NFKC so accents+apostrophes are caught, then split
+  const variant = nfd.replace(/\p{Cf}/gu, " ").replace(apostrophes, "").normalize("NFKC").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   return variant;
 };
 
