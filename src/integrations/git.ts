@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
@@ -198,8 +199,9 @@ export class GitTools {
       // apply after the name is re-pointed, so they are refused before the folder's own remote is touched.
       const pattern = `^remote\\.${input.remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`;
       const elsewhere = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
-      if (elsewhere.status === "completed" && elsewhere.stdout.split("\n").some((line) => line && !/^(local|worktree)\s/.test(line)))
-        throw new Error(`Git settings outside this repository say where "${input.remote}" sends, so nothing was sent.`);
+      const lines = elsewhere.status === "completed" ? elsewhere.stdout.split("\n").filter(Boolean) : [];
+      if (lines.some((line) => !/^local\s/.test(line)) || (lines.length && await this.unremovable(cwd, input.remote, pattern, signal)))
+        throw new Error(`Git settings for "${input.remote}" that publishing cannot replace (kept outside the repository's own settings, or written so Git cannot remove them) say where it sends, so nothing was sent.`);
       // A name of its own for each publish: worktrees of one source share its remotes, so a fixed name could
       // be re-pointed by another publish while this one is being checked.
       const check = `${publishCheckRemote}-${randomUUID()}`;
@@ -213,6 +215,22 @@ export class GitTools {
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
     const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
+  }
+
+  /**
+   * Q101: whether `git remote remove` would leave some of the named remote's settings behind (a section spelt
+   * `[Remote "origin"]`, which Git cannot remove), tried on a copy of the repository's settings.
+   */
+  private async unremovable(cwd: string, name: string, pattern: string, signal: AbortSignal): Promise<boolean> {
+    const settings = resolve(cwd, (await this.run(cwd, ["rev-parse", "--git-path", "config"], signal)).stdout.trim());
+    const scratch = await mkdtemp(join(tmpdir(), "branch-publish-"));
+    try {
+      const copy = join(scratch, "config");
+      await copyFile(settings, copy);
+      const removed = await this.runner.run({ cwd, args: ["config", "--file", copy, "--remove-section", `remote.${name}`], timeoutMs: 10_000 }, signal);
+      const left = await this.runner.run({ cwd, args: ["config", "--file", copy, "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      return removed.status !== "completed" || left.status === "completed";
+    } finally { await rm(scratch, { recursive: true, force: true }); }
   }
 
   /**

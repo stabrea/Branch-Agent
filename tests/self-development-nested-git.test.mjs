@@ -456,7 +456,7 @@ test("Q101: settings for the pushed name kept in the computer's own Git settings
   process.env.HOME = home; process.env.XDG_CONFIG_HOME = join(home, ".config");
   t.after(() => { for (const [key, value] of Object.entries(before)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
   execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
-  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /Git settings outside this repository/);
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
   assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git",
     "refused before the folder's own origin is touched");
 });
@@ -486,6 +486,25 @@ test("Q101: two publishes at once each check their own address", { skip: posixOn
   await b;
   const origin = (() => { try { return execFileSync("git", ["config", "--get-all", "remote.origin.url"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; } })();
   assert.equal(origin, "", "origin was never pointed at A's refused address");
+});
+
+test("Q101: settings for the pushed name that removing it would leave behind are refused before it is touched", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  // A per-worktree push address survives `git remote remove`.
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  execFileSync("git", ["config", "extensions.worktreeConfig", "true"], { cwd });
+  execFileSync("git", ["config", "--worktree", "remote.origin.pushurl", "https://evil.example/x.git"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
+  // A section spelt in capitals is one Git cannot remove at all.
+  execFileSync("git", ["config", "--worktree", "--unset", "remote.origin.pushurl"], { cwd });
+  execFileSync("git", ["remote", "remove", "origin"], { cwd });
+  const settings = execFileSync("git", ["rev-parse", "--git-path", "config"], { cwd, encoding: "utf8" }).trim();
+  await writeFile(join(cwd, settings), `${await (await import("node:fs/promises")).readFile(join(cwd, settings), "utf8")}[Remote "origin"]\n\turl = https://example.com/mine.git\n`);
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
 });
 
 
