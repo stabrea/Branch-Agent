@@ -5,7 +5,7 @@ import { fillMarkdown, inlineNodes } from "/markdown.js";
 import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
-import { applyLanguage, t } from "/i18n.js";
+import { applyLanguage, fromEnglish, t } from "/i18n.js";
 import { taskWhen, taskWords } from "/task-state.js"; // Q51
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
@@ -1092,7 +1092,17 @@ document.addEventListener("branch-language", () => {
   showRestored(lastActivation);
 });
 function showUpdateStatus(status) {
-  $("updates-status").textContent = status.message;
+  // The build provenance outcomes arrive as fixed English sentences that the language files also hold.
+  $("updates-status").textContent = fromEnglish(status.message) ?? status.message;
+  // Show the build provenance sentence persistently once it is known, even as later phases run.
+  const provenanceEl = $("updates-provenance");
+  if (status.provenance?.message) {
+    provenanceEl.textContent = fromEnglish(status.provenance.message) ?? status.provenance.message;
+    provenanceEl.hidden = false;
+  } else {
+    // Hide provenance whenever there is no message (e.g., on retry, or when checking restarts).
+    provenanceEl.hidden = true;
+  }
   showVersions(status);
   showBuild(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);

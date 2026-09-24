@@ -5962,5 +5962,9 @@
   "linux-desktop.viewer-password": "Password:",
   "linux-desktop.status.viewer-shown": "Viewer connection info is shown above.",
   "describe.linux-desktop-mode": "Off: Branch cannot start a shared Linux desktop, and one that is running is taken down at once. When needed or on: Branch may start one in a container and work in it.",
-  "describe.linux-desktop-image": "The container image a shared desktop starts from. It must already be on this computer; Branch never downloads it."
+  "describe.linux-desktop-image": "The container image a shared desktop starts from. It must already be on this computer; Branch never downloads it.",
+  "updates.provenance.checked": "A build provenance record was found for this download. It names this exact file and Branch's release workflow run for a version tag, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
+  "updates.provenance.checkedBeta": "A build provenance record was found for this download. It names this exact file and Branch's beta workflow run on the mac/cross-platform branch, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
+  "updates.provenance.notChecked": "The build provenance record for this download was not checked: GitHub could not be reached, did not answer in time, or sent a record that could not be read. The update relies on the published checksum alone, which it passed.",
+  "updates.provenance.none": "No build provenance record is published for this download. The update relies on the published checksum alone, which it passed."
 }

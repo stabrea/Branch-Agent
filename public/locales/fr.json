@@ -5963,5 +5963,9 @@
   "linux-desktop.viewer-password": "Mot de passe :",
   "linux-desktop.status.viewer-shown": "Les informations de connexion du spectateur s'affichent ci-dessus.",
   "describe.linux-desktop-mode": "Désactivé : Branch ne peut pas démarrer de bureau Linux partagé, et celui qui tourne est arrêté aussitôt. Si nécessaire ou activé : Branch peut en démarrer un dans un conteneur et y travailler.",
-  "describe.linux-desktop-image": "L'image de conteneur à partir de laquelle démarre un bureau partagé. Elle doit déjà se trouver sur cet ordinateur ; Branch ne la télécharge jamais."
+  "describe.linux-desktop-image": "L'image de conteneur à partir de laquelle démarre un bureau partagé. Elle doit déjà se trouver sur cet ordinateur ; Branch ne la télécharge jamais.",
+  "updates.provenance.checked": "Un enregistrement de provenance de build a été trouvé pour ce téléchargement. Il désigne ce fichier précis et le workflow de publication de Branch exécuté pour une étiquette de version, et sa signature correspond au certificat qui l'accompagne. La chaîne de ce certificat jusqu'à Sigstore n'a pas été vérifiée.",
+  "updates.provenance.checkedBeta": "Un enregistrement de provenance de build a été trouvé pour ce téléchargement. Il désigne ce fichier précis et le workflow bêta de Branch exécuté sur la branche mac/cross-platform, et sa signature correspond au certificat qui l'accompagne. La chaîne de ce certificat jusqu'à Sigstore n'a pas été vérifiée.",
+  "updates.provenance.notChecked": "L'enregistrement de provenance de build de ce téléchargement n'a pas été vérifié : GitHub était injoignable, n'a pas répondu à temps ou a envoyé un enregistrement illisible. La mise à jour repose uniquement sur la somme de contrôle publiée, qu'elle a passée.",
+  "updates.provenance.none": "Aucun enregistrement de provenance de build n'est publié pour ce téléchargement. La mise à jour repose uniquement sur la somme de contrôle publiée, qu'elle a passée."
 }
