@@ -436,6 +436,18 @@ test("Q98: publishing checks the address Git will push to, so a push-only rewrit
   assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "no remote is left");
 });
 
+test("Q101: a refused publish leaves the folder's own remote as it was", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://github.com/"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  assert.equal(execFileSync("git", ["config", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git",
+    "the folder's own origin is untouched");
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "origin", "the check's own remote is gone");
+});
+
+
 test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref the contract walks", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
   execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
