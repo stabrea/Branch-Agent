@@ -316,6 +316,36 @@ form > button {
   color: var(--muted);
   margin-top: 13px;
 }
+/* Files that came with a message, shown whenever the conversation is read (public/app.js). */
+.message-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+.message-file {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-width: 320px;
+}
+.message-file-name {
+  font-weight: 600;
+  word-break: break-word;
+}
+.message-file-shown img,
+.message-file-shown video {
+  max-width: 100%;
+  max-height: 260px;
+  border-radius: var(--radius);
+}
+.message-file-shown audio {
+  width: 100%;
+}
 .message-controls button,
 .session-context button {
   margin: 0;

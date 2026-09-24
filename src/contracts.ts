@@ -41,6 +41,59 @@ export function parseImages(input: unknown): ImagePart[] {
     return { ...part, data };
   });
 }
+/**
+ * A media type as it is actually written: two tokens and optional parameters, nothing else. This ends
+ * up in a `content-type` header, so a control character or a stray newline in it must be refused here
+ * rather than turning header writing into a server error later.
+ */
+export const mediaTypeToken = z
+  .string()
+  .trim()
+  .min(3)
+  .max(100)
+  .regex(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+(?:\s*;\s*[A-Za-z0-9!#$%&'*+.^_`|~-]+=[A-Za-z0-9!#$%&'*+.^_`|~-]+)*$/,
+    "Give the file's kind as a plain media type, such as image/png");
+/** The kinds of file a person can attach to a message. */
+export const attachmentKinds = ["picture", "sound", "video", "document"] as const;
+export type AttachmentKind = (typeof attachmentKinds)[number];
+/** The largest any one attachment may be, whatever its kind; each kind's own limit is lower. */
+export const maxAttachmentBytes = 32 * 1024 * 1024;
+/**
+ * Everything attached to one message, added up once decoded. One budget for the turn rather than six
+ * times the largest file: the point is what a single request may carry, not how it is divided.
+ */
+export const maxAttachmentsBytesPerTurn = 32 * 1024 * 1024;
+export const maximumAttachmentsPerTurn = 6;
+/**
+ * How much JSON `/api/run` will read: room for one full turn of attachments once base64 has made them
+ * a third larger, plus the message itself. Without this the ordinary 64 KiB ceiling refuses anything
+ * bigger than a small picture, and every limit above it is decoration.
+ */
+export const runBodyLimit = Math.ceil(maxAttachmentsBytesPerTurn / 3) * 4 + 128 * 1024;
+/**
+ * What a message keeps about a file that was attached to it. The bytes are kept beside the private
+ * database, not here, so a conversation can be read back cheaply and still say what it was given.
+ */
+export const AttachmentRefSchema = z.object({
+  /** Names the file inside its conversation's folder; the only thing a page ever sends back. */
+  id: z.string().regex(/^[a-f0-9]{16}$/),
+  kind: z.enum(attachmentKinds),
+  /** The file's own type, kept as it arrived, and always a real media type. */
+  mediaType: mediaTypeToken,
+  /** What the person calls it, for reading; never used as a path. */
+  name: z.string().trim().min(1).max(200),
+  bytes: z.number().int().nonnegative(),
+}).strict();
+export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
+/** What the page sends when a file is attached. */
+export const AttachmentInputSchema = z.object({
+  mediaType: mediaTypeToken,
+  name: z.string().trim().min(1).max(200),
+  /** The file's bytes, base64 encoded; a data: prefix is accepted and stripped. */
+  data: z.string().min(1).max(Math.ceil(maxAttachmentBytes / 3) * 4 + 1024),
+}).strict();
+export type AttachmentInput = z.infer<typeof AttachmentInputSchema>;
+
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -48,6 +101,11 @@ export interface Message {
   toolCallId?: string;
   /** Pictures that travel with this message; only user messages carry them. */
   images?: MessageImage[];
+  /**
+   * Files attached to this message, as references to the kept originals. Unlike a picture's bytes,
+   * these are written down with the conversation, so it can still show what it was given.
+   */
+  attachments?: AttachmentRef[];
 }
 export interface Usage {
   input: number;
@@ -376,6 +434,8 @@ export const RunInputSchema = z
     dryRun: z.boolean().optional(),
     /** Pictures to show the model with this message; text-only models say so plainly. */
     images: z.array(ImagePartSchema).max(maximumImagesPerTurn).optional(),
+    /** Files attached to this message: the originals are kept and the message keeps their references. */
+    attachments: z.array(AttachmentInputSchema).max(maximumAttachmentsPerTurn).optional(),
     /** Ask for a short plan first and work through it step by step. */
     plan: z.boolean().optional(),
     /** Have a reviewer check the finished answer before it is given. */

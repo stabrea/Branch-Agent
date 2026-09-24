@@ -802,6 +802,57 @@ test("A0329/A0544 the other computers and the marks are reachable, and both refu
 
 // ------------------------------------------------------------ A2344: letting old conversations go
 
+
+test("A2344 the size a conversation counts as is its words and its files, and an unreadable one is never the one offered", async (t) => {
+  // "Keep everything under N MB" measured message JSON alone, so a conversation holding thirty
+  // megabytes of video counted as a few kilobytes and the rule was blind to the only thing that now
+  // makes a conversation big. It counts the files now. Nothing is deleted without the owner's yes,
+  // so an honest number changes what is *offered*, never what goes — which is the whole boundary.
+  const { app } = await fixture(t);
+  const { ConversationRetention, saveRetentionSettings, sentenceFor, retentionSettings } =
+    await import("../dist/retention.js");
+
+  const light = app.store.createSession("local");
+  app.store.message(light, { role: "user", content: "a few words" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const heavy = app.store.createSession("local");
+  const film = { id: "0123456789abcdef", kind: "video", mediaType: "video/mp4", name: "film.mp4", bytes: 30 * 1024 * 1024 };
+  app.store.message(heavy, { role: "user", content: "a few words, and a film", attachments: [film] });
+  app.attachments.writeInto(heavy, [{ ref: film, bytes: Buffer.alloc(30 * 1024 * 1024, 7) }]);
+
+  saveRetentionSettings(app.store, "local", { enabled: true, keepDays: 0, megabytes: 20, exportBeforeDeleting: false });
+  assert.match(sentenceFor(retentionSettings(app.store, "local")), /the words and the files attached to them/,
+    "and the rule says what it counts, rather than leaving the owner to find out");
+
+  const proposal = new ConversationRetention(app.store, "local").propose();
+  assert.ok(proposal.bytes > 30 * 1024 * 1024, `the history is measured as what it really is (${proposal.bytes})`);
+  assert.deepEqual(proposal.conversations.map((entry) => entry.sessionId), [light, heavy],
+    "oldest first, as it always did, until the history fits again");
+  for (const entry of proposal.conversations)
+    assert.match(entry.why, /once the files attached to it are counted/,
+      "every one of them says the files are why, because until now they were not counted at all");
+
+  // Nothing has gone. That is the boundary: counting honestly proposes more, and deletes nothing.
+  const looked = new ConversationRetention(app.store, "local").prune({ approve: false });
+  assert.equal(looked.deleted, false);
+  assert.equal(app.store.messages(light).length, 1);
+  assert.equal(app.store.messages(heavy).length, 1);
+
+  // A conversation whose files cannot be measured still counts towards the total — leaving it out
+  // would make the history look smaller than it is — but it is never the one offered up.
+  const unreadable = app.store.createSession("local");
+  app.store.message(unreadable, { role: "user", content: "a film nobody can measure", attachments: [film] });
+  app.attachments.writeInto(unreadable, [{ ref: film, bytes: Buffer.alloc(1024, 3) }]);
+  await writeFile(join(app.attachments.root, unreadable.replace(/[^a-z0-9]/gi, ""), "kept.json"), "{ not a listing");
+
+  const second = new ConversationRetention(app.store, "local").propose();
+  assert.ok(second.bytes > 60 * 1024 * 1024,
+    `what cannot be read is still counted, from what the messages say (${second.bytes})`);
+  assert.equal(second.conversations.some((entry) => entry.sessionId === unreadable), false,
+    "but it is not offered for deletion on the strength of a number nobody could check");
+});
+
+
 test("A2344 old conversations are proposed, exported, and deleted only on the owner's yes", async (t) => {
   const { app } = await fixture(t);
   const { ConversationRetention, retentionSettings, saveRetentionSettings, sentenceFor } =
@@ -863,7 +914,7 @@ test("A2344 the rule can also be about size, and the screen never deletes by its
   const saved = await api("POST", "/api/retention", { enabled: true, keepDays: 0, megabytes: 1, exportBeforeDeleting: true });
   assert.equal(saved.status, 200);
   assert.equal(saved.body.settings.megabytes, 1);
-  assert.match(saved.body.sentence, /once everything together is over 1 MB/);
+  assert.match(saved.body.sentence, /once everything together . the words and the files attached to them . is over 1 MB/);
   assert.deepEqual(saved.body.conversations, [], "8 KB is nowhere near 1 MB, so nothing is proposed");
   assert.ok(saved.body.bytes >= 8000, "the card knows how big the whole history is");
 
