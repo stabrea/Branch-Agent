@@ -5497,7 +5497,7 @@ and kept in this browser, not in the workspace. Dates and numbers are written wi
 chosen language.
 
 The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.js`, `/live-run.js`,
-`/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
+`/conversation-cost.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
 `/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
 as the rest of the interface.
 
@@ -6006,9 +6006,9 @@ not shown a thinned-out one, because what a paid-for connection has left is the 
 seen from another angle. `branch usage` prints the same rows in the same words, and `--json` hands
 back the same shape the screen reads.
 
-Note what this panel is **not**. The meter under the message box measures how much of *this
-conversation's* room has been used against the model's context window. That is a different thing
-from a provider's allowance, and the two are deliberately kept apart.
+Note what this panel is **not**. The quiet cost line under the message box estimates what the current
+conversation has cost, and stays empty if any task lacks a price on file. Neither it nor the optional
+round-by-round chart in Data & usage measures a provider's remaining allowance.
 
 ### The ring under the message box, and saving progress at 95% (redesign phase 1)
 
@@ -8785,7 +8785,7 @@ rounds are read from `/api/model-savings/rounds?session=<id>`.
 | Keep the cache warm during a pause (R17-050) | Models → Defaults | Claude connections only. After each answered round the same request is repeated for one token every few minutes, up to a number of pings and a spending cap per pause (both required). Each ping is priced at the full input price before it is sent; a model with no price is never pinged. Pings are added to the task's usage and written down as `cache.keep_alive` events |
 | OpenRouter company choice (R17-046) | Models → Connection | Sends OpenRouter's documented `provider` object (sort, order, only, ignore, fallbacks, data collection), and only to connections whose address is `openrouter.ai` |
 | Mixtures of models (R17-051) | Models → Second opinion | Each mixture becomes a connection named `mixture-<name>` in the picker. Its reference connections answer without tools, and the writing connection answers with their answers as material. Usage is the sum of every call; the mixture is priced as its most expensive member so a spending cap is never undercounted |
-| Round-by-round chart (R17-049) | Appearance | Adds a chart to the meter's popover: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
+| Round-by-round chart (R17-049) | Appearance | Adds a chart to Data & usage: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
 
 Setting names: `planModel` and `sideTier` (planning model and flex for side questions), `easyModel`, `hardModel` and
 `classifierModel` (choose by difficulty), `maxPings` (keep-alive), `allowFallbacks` and `dataCollection` (OpenRouter),

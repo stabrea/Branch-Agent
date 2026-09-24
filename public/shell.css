@@ -1047,8 +1047,7 @@ details.tool-step > summary:hover {
 .composer-temporary {
   flex: none;
 }
-/* Wave 8: one quiet line under the box holds the helper text and the room meter together,
-   so the meter no longer sits centred across the box's own bottom edge. */
+/* One quiet line under the box holds the helper text and real-data cost. */
 .composer-foot {
   display: flex;
   align-items: center;

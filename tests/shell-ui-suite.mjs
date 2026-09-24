@@ -46,7 +46,7 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  /* These tests are about the full shell: every rail row, icon, tab and meter. Since 0.18.1 that is
+  /* These tests are about the full shell: every rail row, icon, tab and cost line. Since 0.18.1 that is
      "Show everything"; the calm default has its own tests in calm-ui.test.mjs. */
   await showEverything(page);
   return { page, server, errors };
@@ -869,24 +869,18 @@ test("Q5 Escape closes every popover this pass touched", async (t) => {
   await f.page.locator("#owner-menu").waitFor({ state: "hidden" });
   assert.equal(await f.page.locator("#owner-menu-button").getAttribute("aria-expanded"), "false");
 
-  /* The room meter moved into the new row under the message box; its numbers still close. */
-  await f.page.evaluate(() => document.getElementById("meter-row").hidden = false);
-  await f.page.locator("#meter-button").click();
-  await f.page.locator("#meter-popover").waitFor({ state: "visible" });
-  await f.page.keyboard.press("Escape");
-  await f.page.locator("#meter-popover").waitFor({ state: "hidden" });
+  assert.equal(await f.page.locator("#meter-button").count(), 0, "the obsolete meter is not constructed");
   assert.deepEqual(f.errors, []);
 });
 
-test("Q5 the helper line and the room meter share one row, clear of the message box", async (t) => {
+test("Q5 the helper and cost line stay clear of the message box", async (t) => {
   const f = await fixture(t);
-  await f.page.evaluate(() => document.getElementById("meter-row").hidden = false);
   const boxes = await f.page.evaluate(() => {
     const rect = (sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
-    return { composer: rect(".composer"), foot: rect(".composer-foot"), meter: rect("#meter-row"), note: rect(".composer-foot .composer-note") };
+    return { composer: rect(".composer"), foot: rect(".composer-foot"), cost: rect("#conversation-cost"), note: rect(".composer-foot .composer-note") };
   });
   assert.ok(boxes.foot.top >= boxes.composer.bottom - 1, "the quiet row still overlaps the message box");
-  assert.ok(boxes.meter.left >= boxes.note.right - 1, "the meter and the helper line overlap each other");
+  assert.ok(boxes.cost.left >= boxes.note.right - 1, "the cost and helper line overlap each other");
   assert.deepEqual(f.errors, []);
 });
 

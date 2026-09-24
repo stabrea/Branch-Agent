@@ -27,8 +27,9 @@ when you have some, and stock prompts otherwise.
 blocks with a copy button and the language written out. Nothing in an answer can become anything but
 text on the page.
 
-**Room in the conversation.** A quiet meter under the message box shows how much of the conversation's
-room has been used and roughly what it has cost so far. When a conversation grows long, Branch folds
+**Room in the conversation.** A quiet line under the message box shows about what the conversation
+has cost so far, but only when every task has a price on file. Data & usage holds the detailed usage
+figures and optional round-by-round chart. When a conversation grows long, Branch folds
 the older turns into a short summary — what we are doing, what was decided, what is still open, which
 files were touched — keeps the recent turns as they are, and carries on. The complete history stays
 saved and searchable. Any message you **pin** stays in front of the assistant however long the

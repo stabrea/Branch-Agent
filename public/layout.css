@@ -1531,7 +1531,7 @@ body.lx #connection[data-state="lost"] {
   display: none !important;
 }
 
-/* What the calm window keeps out of sight. Nothing here is removed. */
+/* What the calm window keeps out of sight. The approved cost line remains visible. */
 :root:not([data-everything="on"]) :is(
   #cmd-open, #appearance-shortcut, .lx-gear, #rail-find,
   #owner-menu-button,
@@ -1540,7 +1540,7 @@ body.lx #connection[data-state="lost"] {
   .welcome > p, #suggestions,
   #composer-media, #composer-attach, #voice-record, #voice-talk,
   .composer-temporary, .composer-specialist, #new-session, .lx-model-chip,
-  .composer-foot, .context-stats, #session-context[data-kind="plain"], #activity, #first-run-next,
+  .composer-foot .composer-note, .context-stats, #session-context[data-kind="plain"], #activity, #first-run-next,
   [data-t^="first-run-next.watch"], #composer-media-file
 ) {
   display: none !important;
@@ -2396,10 +2396,10 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
     width: auto;
   }
 }
-/* in the full window the ring is the last thing on the line under the box */
+/* In the full window, the ring precedes the right-aligned cost line. */
 .composer-foot > .status-bar {
   flex: 0 1 auto;
-  margin: 0 0 0 auto;
+  margin: 0;
 }
 .composer-foot > .status-bar {
   min-height: 0;

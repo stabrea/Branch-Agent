@@ -1,4 +1,4 @@
-/* Wave 6: rendered markdown and code, the "Look inside" panel, the live row, the context meter,
+/* Wave 6: rendered markdown and code, the "Look inside" panel, the live row, the cost line,
    the developer playground and the offline banner. Tokens only — every colour here comes from
    tokens.css, so Daylight and Forest both work without a second rule. */
 
@@ -223,48 +223,8 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 .feed-row strong { font-size: 0.85rem; font-weight: 550; }
 .feed-row .meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--faint); }
 
-/* ---- The quiet context meter under the composer ---- */
-.meter-row { position: relative; display: flex; justify-content: flex-end; flex: none; padding: 0; }
-.meter-row[hidden] { display: none; }
-.meter-button {
-  background: transparent;
-  border: 0;
-  color: var(--faint);
-  font-size: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 8px;
-  cursor: pointer;
-  max-width: 100%;
-}
-.meter-button:hover { background: var(--hover); color: var(--muted); }
-.meter-track {
-  width: 4.5rem;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--line);
-  overflow: hidden;
-  flex: none;
-}
-.meter-fill { height: 100%; width: 0; background: var(--copper); border-radius: 999px; }
-.meter-button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meter-popover {
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  min-width: 15rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  box-shadow: var(--shadow);
-  padding: 0.7rem 0.85rem;
-  z-index: 20;
-}
-.meter-popover[hidden] { display: none; }
-.meter-popover h3 { margin: 0 0 0.45rem; font-size: 0.85rem; }
-.meter-stat { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.82rem; padding: 0.17rem 0; color: var(--muted); }
+/* The sample's quiet cost line; it occupies no space until a complete price exists. */
+.conversation-cost { margin-left: auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 0.75rem; white-space: nowrap; }
 
 /* ---- The developer playground ---- */
 .play-field { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.6rem; }
@@ -291,17 +251,6 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 
 @media (max-width: 720px) {
   .inspect-sheet { width: 100%; border-left: 0; }
-  .meter-popover { right: auto; left: 50%; transform: translateX(-50%); }
-}
-/* On a phone there is only room for the bar and the count; the cost is in the popover. */
-@media (max-width: 520px) {
-  .meter-row { padding: 0; }
-  .meter-button { font-size: 0.7rem; gap: 0.35rem; padding: 0.1rem 0.4rem; }
-  .meter-track { width: 3rem; }
-  #meter-cost { display: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .meter-fill { transition: none; }
 }
 
 /* ---------- Artifacts and charts (wave 8) ----------
@@ -474,8 +423,8 @@ input.plan-step-title {
 .local-search .input-row { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .local-search .input-row input { flex: 1 1 12rem; min-width: 0; }
 
-/* R17-E (R17-049): the per-round chart inside the meter's popover. */
-.round-chart { margin-top: 0.6rem; border-top: 1px solid var(--line); padding-top: 0.5rem; max-width: min(22rem, calc(100vw - 2rem)); }
+/* R17-E (R17-049): the per-round chart in Data & usage. */
+.round-chart { margin-top: 0.6rem; max-width: min(32rem, 100%); }
 .round-chart[hidden] { display: none; }
 .round-chart-bars { display: block; width: 100%; height: 6rem; }
 .round-chart-unreported { opacity: 0.45; }

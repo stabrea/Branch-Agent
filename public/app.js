@@ -2130,7 +2130,7 @@ $("chat-form").addEventListener("submit", async (event) => {
     globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);
-    globalThis.branchTokenMeter?.refresh();
+    globalThis.branchConversationCost?.refresh();
     setConversationBusy(false);
     if (pendingFollowUps > 0) void awaitFollowUps();
   }

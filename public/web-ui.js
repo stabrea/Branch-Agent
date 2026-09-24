@@ -1,6 +1,6 @@
 /**
  * Wave 6 boot: choose the language before anything else draws, then bring in the "Look inside"
- * panel, the live row, the context meter and the developer playground. Last of all, the phone bits:
+ * panel, the live row, the conversation cost line and the developer playground. Last of all, the phone bits:
  * the app can be kept on the home screen and opens from a cached copy of its own files, with a
  * clear banner when there is no way back to your computer. Inside the desktop app none of that
  * applies, so it is skipped.
@@ -76,7 +76,7 @@ document.addEventListener("branch-language", () => wireLanguagePicker());
 await Promise.all([
   import("./inspector.js"),
   import("./live-run.js"),
-  import("./token-meter.js"),
+  import("./conversation-cost.js"),
   /* Wave 7: two tasks side by side, and the live feed of what is happening now. */
   import("./compare.js"),
   import("./activity-feed.js"),

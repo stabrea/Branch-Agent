@@ -516,6 +516,7 @@ async function render() {
   // Wave 8: how busy each connection is against the allowance it reports, and what asking the same
   // thing twice saved (public/logs.js).
   await window.branchDashboards?.renderInto(view);
+  document.dispatchEvent(new Event("branch-usage-rendered"));
 }
 
 window.branchUsage = { render };

@@ -227,13 +227,13 @@ document.addEventListener("branch-profile", () => void refreshGlance());
 document.addEventListener("branch-usage-glance", () => void refreshGlance());
 document.addEventListener("branch-language", () => paintRing());
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void refreshGlance(); });
-/* In the full window the line under the box is already there, so the ring joins it at the end instead
+/* In the full window the line under the box is already there, so the ring joins it before the cost instead
    of adding a row of its own; in the calm window, where that line is hidden, it sits just under it. */
 function placeBar() {
   const bar = $("status-bar"), foot = document.querySelector(".composer-foot");
   if (!bar || !foot) return;
   const full = document.documentElement.dataset.everything === "on";
-  if (full && bar.parentElement !== foot) foot.append(bar);
+  if (full && bar.parentElement !== foot) foot.insertBefore(bar, $("conversation-cost"));
   if (!full && bar.parentElement === foot) foot.after(bar);
 }
 new MutationObserver(placeBar).observe(document.documentElement, { attributes: true, attributeFilter: ["data-everything"] });
