@@ -918,3 +918,20 @@ test("Q115: the saved answers keep the shape an older build reads, so a rollback
     assert.deepEqual(Object.keys(entry).sort(), ["decidedAt", "decision", "path"], "nothing an older build's strict reading refuses");
   assert.deepEqual(Object.keys(saved), ["folders"]);
 });
+
+test("Q116: a don't-trust stays on the folder the owner meant when its link is pointed somewhere else",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const work = join(workspace, "work");
+  for (const folder of ["third", "other"]) await mkdir(join(work, folder), { recursive: true });
+  await writeFile(join(work, "third", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await symlink("third", join(work, "lib"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" }); // meant for what lib is: third
+  await rm(join(work, "lib"));
+  await symlink("other", join(work, "lib"), "dir");
+  assert.equal(folderTrust(app.store, owner, join(work, "third")), "untrusted", "the folder the owner meant");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(work, "third", "integrations.json")), false);
+  assert.equal(folderTrust(app.store, owner, join(work, "other")), "untrusted", "and where the path leads now");
+});

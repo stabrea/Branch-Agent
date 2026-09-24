@@ -168,12 +168,15 @@ function closestDecision(entries: Decided[], inner: string, platform: NodeJS.Pla
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
+    const moved = !!entry.real && platform === process.platform && outer !== entry.real;
     // Q108: a trust covers the folder the owner trusted. Once its path leads somewhere else (a pulled commit made
-    // it, or a folder above it, a link), it no longer counts; a "don't trust" still holds wherever it leads.
-    if (entry.decision === "trust" && entry.real && platform === process.platform && outer !== entry.real) continue;
-    if (!folderContains(outer, inner, platform)) continue;
-    const depth = outer.length;
-    if (!best || depth >= best.depth) best = { depth, decision: entry.decision, path: outer };
+    // it, or a folder above it, a link), it no longer counts. Q116: a "don't trust" holds both on the folder the
+    // owner meant and wherever its path leads now, so re-pointing a link never moves it off that folder.
+    if (entry.decision === "trust" && moved) continue;
+    for (const place of moved ? [outer, entry.real!] : [outer]) {
+      if (!folderContains(place, inner, platform)) continue;
+      if (!best || place.length >= best.depth) best = { depth: place.length, decision: entry.decision, path: place };
+    }
   }
   return best;
 }
