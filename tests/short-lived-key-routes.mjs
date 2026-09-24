@@ -289,6 +289,8 @@ export const ROUTES = {
   "/api/asks/analytics/send": "owner POST",
   "/api/asks/answer": "other POST",
   "/api/asks/blocks": "look",
+  "/api/asks/forecasts": "look",
+  "/api/asks/leads": "look",
   "/api/asks/blocks/key": "owner POST",
   "/api/asks/blocks/run": "other POST",
   "/api/asks/article": "other POST",
