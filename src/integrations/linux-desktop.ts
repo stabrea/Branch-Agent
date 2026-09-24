@@ -73,6 +73,13 @@ export type SharedDesktopAction =
   | { type: 'open'; app: string }
   | { type: 'type'; text: string }
   | { type: 'key'; chord: string };
+/** Compute the timeout for a docker exec action: types longer than ~1250 chars need more than 15s. */
+export function execTimeoutMs(action: SharedDesktopAction): number {
+  if (action.type !== 'type') return 15_000;
+  const charMs = 15; // xdotool types at ~12 ms per char; add buffer
+  // 4000 chars × 15 ms + 5s base = 65s, so the formula naturally handles all text lengths
+  return 5_000 + action.text.length * charMs;
+}
 /**
  * xdotool's argument list for one action. Nothing here ever reaches a shell: it is one argv, run
  * directly. A program is started with `xdotool exec`, which starts it and returns without waiting.
@@ -237,14 +244,18 @@ export class LinuxDesktopSandbox {
       if (running.control !== 'agent') throw new Error(takenOverMessage);
       return infoOf(running);
     }
+    const epoch = this.epoch(owner);
     let pending = this.starting.get(owner);
     if (!pending) {
-      const started: Promise<Session> = this.launch(owner, settings, this.epoch(owner))
+      const started: Promise<Session> = this.launch(owner, settings, epoch)
         .finally(() => { if (this.starting.get(owner) === started) this.starting.delete(owner); });
       this.starting.set(owner, started);
       pending = started;
     }
-    return infoOf(await pending);
+    const session = await pending;
+    if (this.calledOff(owner, epoch)) throw new Error(notRunningMessage);
+    if (session.control !== 'agent') throw new Error(takenOverMessage);
+    return infoOf(session);
   }
   private async launch(owner: string, settings: LinuxDesktopSettings, epoch: number): Promise<Session> {
     const check = await this.available(owner);
@@ -342,8 +353,10 @@ export class LinuxDesktopSandbox {
     if (!session) throw new Error(notRunningMessage);
     if (session.control !== 'agent') throw new Error(takenOverMessage);
     try {
-      await this.runner('docker', dockerExecArgv(session.id, action), 15_000, session.inFlightAbort.signal);
+      await this.runner('docker', dockerExecArgv(session.id, action), execTimeoutMs(action), session.inFlightAbort.signal);
     } catch (error) {
+      // Kill any lingering xdotool to prevent double-typing on retry
+      await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined);
       // Check if control changed while the action was running
       const current = this.sessions.get(owner);
       if (current?.control === 'user') throw new Error(takenOverMessage);

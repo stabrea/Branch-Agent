@@ -12,6 +12,7 @@ import { startServer } from "../dist/server.js";
 import {
   LinuxDesktopSandbox, dockerRunArgv, dockerExecArgv, dockerStopArgv, xvfbArgv, x11vncArgv, xdotoolArgv,
   readLinuxDesktop, saveLinuxDesktop, switchedOffMessage, takenOverMessage, notRunningMessage, vncPort, display,
+  dockerExecKillArgv, execTimeoutMs,
 } from "../dist/integrations/linux-desktop.js";
 import { TakeOverBanner, takeOverNotice } from "../dist/integrations/linux-desktop-banner.js";
 import { bannerPage } from "../dist/desktop/banner-window.js";
@@ -269,15 +270,16 @@ function deferred() {
 
 /** Like `sandboxFixture`, but `docker run` and `docker stop` can be held until the test lets them go,
  * and the notice stand-in says whether it is showing. */
-function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store)) {
+function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store), windowFactory = null) {
   saveLinuxDesktop(app.store, "local", { mode: "on" });
   const calls = [];
-  const hold = { run: null, stop: null };
+  const hold = { run: null, stop: null, exec: null };
   let started = 0;
-  desktop.runner = async (file, args) => {
-    calls.push({ file, args });
+  desktop.runner = async (file, args, timeoutMs) => {
+    calls.push({ file, args, timeoutMs });
     if (args[0] === "image") return "ok";
     if (args[0] === "run") { started += 1; if (hold.run) await hold.run.promise; return `abcdef01234${started}\n`; }
+    if (args[0] === "exec" && hold.exec) await hold.exec.promise;
     if (args[0] === "stop" && hold.stop) await hold.stop.promise;
     return "";
   };
@@ -290,14 +292,18 @@ function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store)) {
     kill: () => {},
     pid: 12345,
   });
-  const banner = { visible: false, shown: 0, async show() { this.shown += 1; this.visible = true; }, async hide() { this.visible = false; } };
-  desktop.banner = banner;
+  if (windowFactory) {
+    desktop.banner = new TakeOverBanner(undefined, { platform: "linux", window: windowFactory });
+  } else {
+    const banner = { visible: false, shown: 0, async show() { this.shown += 1; this.visible = true; }, async hide() { this.visible = false; } };
+    desktop.banner = banner;
+  }
   desktop.port = async () => 15902;
   desktop.password = () => "test-pass";
   desktop.pauseMs = 1;
   desktop.probe = async () => true;
   const ran = (verb) => calls.filter((call) => call.args[0] === verb);
-  return { desktop, calls, hold, banner, ran };
+  return { desktop, calls, hold, banner: desktop.banner, ran };
 }
 const settle = async (until) => { for (let i = 0; i < 200 && !until(); i++) await new Promise((done) => setTimeout(done, 5)); };
 
@@ -592,4 +598,58 @@ test("somebody switched in on this computer cannot read the viewer password", as
   const answer = await call("/api/linux-desktop/viewer");
   assert.notEqual(answer.status, 200);
   assert.match(answer.text, /belongs to the owner/, "refused as the owner's, not only because nothing is running");
+});
+
+// -------------------------------------------------------------- Q94 desktop minors: banner race and long types
+
+test("Q94(a): TakeOverBanner.hide() hides the window", async () => {
+  const banner = new TakeOverBanner(undefined, { platform: "win32" });
+  await banner.hide(); // should complete without error
+});
+
+test("Q94(a): start() with enabled desktop completes", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop, ran } = heldFixture(app);
+  const { runner } = fakeRunner();
+  desktop.runner = runner;
+  saveLinuxDesktop(app.store, "local", { mode: "on" });
+  const info = await desktop.start("local");
+  assert(info.port > 0, "desktop has a port");
+  await desktop.end("local");
+});
+
+test("B: long type timeout scales with text length, minimum 65s", async (t) => {
+  assert.equal(execTimeoutMs({ type: "key", chord: "Return" }), 15_000, "key should use 15s");
+  assert.equal(execTimeoutMs({ type: "open", app: "xterm" }), 15_000, "open should use 15s");
+
+  // 100 chars: 5000 + 100*15 = 6500
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(100) }), 6_500, "100 chars");
+  // 1000 chars: 5000 + 1000*15 = 20000
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(1000) }), 20_000, "1000 chars");
+  // 4000 chars: 5000 + 4000*15 = 65000 (at minimum)
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(4000) }), 65_000, "4000 chars (at minimum 65s)");
+  // 5000 chars: 5000 + 5000*15 = 80000, uncapped
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(5000) }), 80_000, "5000 chars (above minimum)");
+});
+
+test("B: act uses scaled timeout for long types", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop, calls, ran } = heldFixture(app);
+  saveLinuxDesktop(app.store, "local", { mode: "on" });
+  await desktop.start("local");
+
+  // Type with 1000 characters should use ~20s timeout
+  const longText = "x".repeat(1000);
+  await desktop.act("local", { type: "type", text: longText });
+
+  const typeCalls = ran("exec").filter((call) => call.args.includes("type"));
+  assert.ok(typeCalls.length > 0, "type was executed");
+  const typeCall = typeCalls[0];
+  const timeoutMs = typeCall.timeoutMs;
+  assert.ok(timeoutMs >= 20_000, `timeout ${timeoutMs}ms should be at least 20s for 1000 chars`);
+});
+
+test("B: dockerExecKillArgv has the correct pkill argv for xdotool", () => {
+  const killArgv = dockerExecKillArgv("abcdef012341");
+  assert.deepEqual(killArgv, ["exec", "-e", "DISPLAY=:1", "abcdef012341", "pkill", "-x", "xdotool"]);
 });
