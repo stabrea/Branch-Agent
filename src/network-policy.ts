@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import { z } from "zod";
+import { pinnedFetch, pinnedTo, platformFetch, proxyCarries, type PinnedInit } from "./pinned-fetch.js";
 
 /**
  * One network policy for everything the assistant reaches over HTTP: web reading, the browser and
@@ -164,7 +165,12 @@ export class NetworkPolicy {
   /** Replaced by the app so every connection leaves a span and a line in the record. */
   watchSockets: SocketWatcher = () => undefined;
   private readonly sockets = new Set<{ socket: WebSocket; runId: string | null }>();
-  constructor(input: unknown = {}, private readonly resolve: (host: string) => Promise<string[]> = defaultResolve) {
+  constructor(
+    input: unknown = {},
+    private readonly resolve: (host: string) => Promise<string[]> = defaultResolve,
+    /** Where a judged address is really dialled. Only tests change it, so a local server can stand in for a site. */
+    private readonly dial: (address: string) => string = (address) => address,
+  ) {
     this.config = NetworkPolicySchema.parse(input);
   }
   configure(input: unknown): NetworkPolicyConfig { return (this.config = NetworkPolicySchema.parse(input)); }
@@ -173,6 +179,15 @@ export class NetworkPolicy {
   emergencyStop: (target: URL) => void = () => undefined;
   /** Throws a plain reason when an address may not be reached; call it for every hop of every request. */
   async assertAllowed(target: URL, what = "address"): Promise<void> {
+    await this.judge(target, what);
+  }
+  /**
+   * The check itself. For a site's name it also returns the addresses the one lookup gave back, each
+   * of which it judged, so the connection can be held to exactly those. It returns null when there is
+   * nothing to hold a connection to: an address written out is reached as written, and with private
+   * addresses allowed no answer a name gives is refused while the host and path rules go by the name.
+   */
+  private async judge(target: URL, what: string): Promise<string[] | null> {
     this.emergencyStop(target); // mac7/r17-g
     if (!["http:", "https:"].includes(target.protocol)) throw new Error(`Only http and https ${what}es can be reached`);
     if (target.username || target.password) throw new Error("Addresses with embedded credentials are refused");
@@ -181,7 +196,7 @@ export class NetworkPolicy {
     if (this.config.allowedHosts && !this.config.allowedHosts.some((p) => hostMatches(host, p))) throw new Error(`${host} is not on the allowed list`);
     if (this.config.blockedPaths.some((rule) => pathRuleMatches(host, pathname, rule))) throw new Error(`${host}${pathname} is on the blocked list`);
     if (this.config.allowedPaths && !this.config.allowedPaths.some((rule) => pathRuleMatches(host, pathname, rule))) throw new Error(`${host}${pathname} is not on the allowed list`);
-    if (this.config.allowPrivateAddresses) return;
+    if (this.config.allowPrivateAddresses) return null;
     if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal"))
       throw new Error(`${host} points at this computer or a private network, which the assistant may not reach`);
     const literal = isIP(host) !== 0;
@@ -189,14 +204,28 @@ export class NetworkPolicy {
     if (!addresses.length) throw new Error(`${host} could not be resolved`);
     const refused = literal ? addresses.filter(isPrivateAddress) : refusedAnswers(addresses, this.config.fakeIpProxy === true);
     if (refused.length) throw new Error(refusedReason(host, addresses, refused, literal));
+    return literal ? null : addresses;
   }
-  /** A fetch that checks the policy on every call, for clients (MCP, browser) that make their own requests. */
+  /**
+   * A fetch that checks the policy on every call, for clients (MCP, browser) that make their own
+   * requests. A site's name is looked up once, by the check, and the request connects only to the
+   * addresses the check judged, keeping the site's name for the secure handshake, its certificate
+   * check and the Host line (src/pinned-fetch.ts). A request a proxy carries (the owner's, or one Node
+   * was started with) goes to the proxy by name after the same check, since the proxy does its own
+   * lookup. A redirect is never followed by itself: the caller asks again, and the new address is
+   * checked and held the same way.
+   */
   guard(base: typeof fetch): typeof fetch {
     const policy = this;
     return async function guarded(input: string | URL | Request, init?: RequestInit) {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-      await policy.assertAllowed(url);
-      return base(input, { ...init, redirect: init?.redirect ?? "error" });
+      if (init?.redirect === "follow")
+        throw new Error("A checked request does not follow a redirect by itself: each new address is checked first, so follow it by asking again");
+      const judged = await policy.judge(url, "address");
+      const next: RequestInit = { ...init, redirect: init?.redirect ?? "error" };
+      if (!judged || proxyCarries(url)) return base(input, next);
+      const held: PinnedInit = { ...next, [pinnedTo]: { host: url.hostname, addresses: judged, dial: policy.dial } };
+      return (base === platformFetch ? pinnedFetch : base)(input, held);
     } as typeof fetch;
   }
   /**

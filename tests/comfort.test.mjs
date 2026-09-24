@@ -164,7 +164,13 @@ test("R17-S20: with a proxy set, a call the network rules allowed goes through t
   const { address, reached } = await proxyServer(t, "through the proxy");
   const outbound = new OutboundNetwork(processNetworkHooks());
   t.after(() => outbound.reset());
-  const policy = new NetworkPolicy({}, async () => ["93.184.216.34"]);
+  // The address the rules check stands for a site on the internet, so the dialling seam notes it and
+  // refuses it: without the proxy a checked call goes to that address, and this test never goes there.
+  const dialled = [];
+  const policy = new NetworkPolicy({}, async () => ["93.184.216.34"], (judged) => {
+    dialled.push(judged);
+    throw new Error("the checked address stands for a site on the internet, which this test never reaches");
+  });
   outbound.apply({ proxy: address, noProxy: [], caCertificates: [] });
   const guarded = policy.guard(globalThis.fetch);
   assert.equal(await (await guarded("http://branch-comfort.example/hello")).text(), "through the proxy");
@@ -173,9 +179,13 @@ test("R17-S20: with a proxy set, a call the network rules allowed goes through t
     reached.includes("request http://branch-comfort.example/hello") || reached.includes("CONNECT branch-comfort.example:80"),
     `the proxy was asked for the call itself, not ${JSON.stringify(reached)}`,
   );
+  assert.deepEqual(dialled, [], "the proxy carried the call, so nothing was dialled from here");
   await assert.rejects(guarded("http://localhost/"), /this computer or a private network/, "the rules still come first");
   outbound.reset();
-  await assert.rejects(guarded("http://branch-comfort.example/hello"), "without the proxy the made-up name goes nowhere");
+  const asked = reached.length;
+  await assert.rejects(guarded("http://branch-comfort.example/hello"), "without the proxy the call does not go through it");
+  assert.deepEqual(dialled, ["93.184.216.34"], "without the proxy the call goes straight to the address the rules checked");
+  assert.equal(reached.length, asked, "and the proxy is not asked again");
 });
 
 /**
