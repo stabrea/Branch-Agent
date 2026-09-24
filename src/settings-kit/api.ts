@@ -168,11 +168,14 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   // A key the record should not have (`__proto__`, `voice`, a misspelling) may be where the owner's value
   // went, so a field missing from its own place counts as unreadable too.
   const shippedRecord = spec.shipped?.() ?? {};
+  // Or the field's own name found deeper inside the record (under a key it does know): the owner's value went there.
+  const buried = (value: unknown, key: string, depth = 0): boolean => depth < 8 && typeof value === "object" && value !== null
+    && Object.entries(value).some(([name, inner]) => (depth > 0 && name === key) || buried(inner, key, depth + 1));
   const strayKey = Object.keys(raw).some((key) => !Object.hasOwn(shippedRecord, key));
   const loosenings: string[] = [];
   for (const field of spec.fields) {
     const rawValue = readPathRaw(raw, field.field);
-    const missing = strayKey && rawValue === undefined;
+    const missing = rawValue === undefined && (strayKey || buried(raw, field.field.split(".").at(-1)!));
     const acceptedValue = hidden || missing ? undefined : acceptValue(field, rawValue);
     const shipped = field.initial as Value;
     // A saved value the field cannot read held the setting closed: putting back asks unless the shipped

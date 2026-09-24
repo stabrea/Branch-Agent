@@ -444,3 +444,15 @@ test("put-back: a guard missing from its place while the record carries a key it
   store.save("settings", owner, "voice", { systemVoice: "bogus" });
   assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200);
 });
+
+test("put-back: a guard found deeper in the record, under a key the record does know, asks", async (t) => {
+  const { store, owner, call } = await served(t);
+  const careful = { keepAudioOnThisComputer: true };
+  for (const record of [{ systemVoice: careful }, { autoReadAloud: careful }, { replyWithVoiceOnChannels: careful },
+    { liveMaxDollars: careful }, { sttRoute: careful }, { systemVoice: { deeper: [careful] } }]) {
+    store.save("settings", owner, "voice", record);
+    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.equal(refused.status, 409, `${JSON.stringify(record)}: ${JSON.stringify(refused.body)}`);
+    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
+  }
+});
