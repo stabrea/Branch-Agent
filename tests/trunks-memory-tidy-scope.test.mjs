@@ -184,3 +184,35 @@ test("a Trunk stages nothing against shared facts when tidying with stage: true"
   assert.ok(!stagedIds.has("shared-dup-1") && !stagedIds.has("shared-dup-2"), "shared duplicates are not staged");
   assert.ok(!stagedIds.has("shared-task"), "shared task note is not staged");
 });
+
+test("the owner's tidy never merges one person's fact into another's, so the owner's words never reach a Trunk", async (t) => {
+  const { app, ada } = await seeded(t);
+  const scope = `agent:trunk:${ada.id}`;
+  // The owner's own fact, then Ada's saying nearly the same with fewer words (the newest is kept by a merge).
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed", validFrom: "2026-01-01T00:00:00.000Z" });
+  app.store.save("memory", "local", "ada-wifi", { text: "The wifi password is hunter2", source: "seed", scope, validFrom: "2026-01-02T00:00:00.000Z" });
+  const report = await app.runtime.executeTool("memory.tidy", { stage: true });
+  const grouped = report.duplicates.map((group) => [group.keep, ...group.drop].sort());
+  assert.ok(!grouped.some((ids) => ids.includes("owner-wifi") && ids.includes("ada-wifi")), JSON.stringify(grouped));
+  assert.equal(report.duplicates.length, 2, "each Trunk's own duplicates are still found");
+  for (const proposal of app.store.review.proposals("local", "pending")) await app.store.review.decide("local", proposal.id, true);
+  assert.equal(app.store.get("memory", "local", "ada-wifi")?.data.text, "The wifi password is hunter2", "Ada's fact keeps her own words");
+  assert.equal(app.store.get("memory", "local", "ada-wifi")?.data.scope, scope);
+  assert.equal(app.store.get("memory", "local", "owner-wifi")?.data.text, "The wifi password is hunter2 pin 4417", "and the owner's is not set aside for hers");
+  const run = await app.trunks.say(ada.id, "tidy");
+  assert.doesNotMatch(JSON.stringify(toolOutcome(app, run.runId, "memory.tidy").result), /4417/, "nothing of the owner's reaches Ada");
+});
+
+test("the owner's newer fact about the same thing never sets a Trunk's older fact aside, nor the other way round", async (t) => {
+  const { app, ada } = await seeded(t);
+  const scope = `agent:trunk:${ada.id}`;
+  // Ada's is saved last, so saving it ends nothing of the owner's, and both are current.
+  app.store.save("memory", "local", "owner-gate", { text: "Garden gate code: 2222", source: "seed", entity: "garden gate", attribute: "code", validFrom: "2026-06-01T00:00:00.000Z" });
+  app.store.save("memory", "local", "ada-gate", { text: "Garden gate code: 1111", source: "seed", scope, entity: "garden gate", attribute: "code", validFrom: "2025-06-01T00:00:00.000Z" });
+  const report = await app.runtime.executeTool("memory.tidy", { stage: true });
+  const pairs = report.contradictions.map((pair) => [pair.older.id, pair.newer.id]);
+  assert.ok(!pairs.some((pair) => pair.includes("ada-gate") && pair.includes("owner-gate")), JSON.stringify(pairs));
+  assert.deepEqual(report.contradictions.map((pair) => pair.older.id).sort(), ["Ada-old", "Bo-old"], "each Trunk's own contradictions are still found");
+  for (const proposal of app.store.review.proposals("local", "pending")) await app.store.review.decide("local", proposal.id, true);
+  assert.equal(app.store.get("memory", "local", "ada-gate")?.data.text, "Garden gate code: 1111", "Ada keeps her fact");
+});
