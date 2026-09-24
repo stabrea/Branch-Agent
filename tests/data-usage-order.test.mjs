@@ -63,7 +63,8 @@ test("DG-081 Data & usage leads with usage, in the sample's order, at each level
   const { page, errors } = await dataPage(t);
   await level(page, "regular");
   const regular = await sections(page);
-  assert.deepEqual(regular.map((one) => one.head), ["data:usage", "data:left", "data:save", "data:kept", "data:cost", "data:under"]);
+  /* Under the hood holds only Technical cards, so at the default level its heading is not drawn either. */
+  assert.deepEqual(regular.map((one) => one.head), ["data:usage", "data:left", "data:save", "data:kept", "data:cost"]);
   assert.deepEqual(regular.slice(0, 3).map((one) => one.cards), [["usage"], ["usage-left-card"], ["usage-save-card"]]);
   assert.deepEqual(regular[4].cards, ["usage-costs-card", "usage-report-card"], "model prices wait for Technical, as the sample's");
   await level(page, "technical");
