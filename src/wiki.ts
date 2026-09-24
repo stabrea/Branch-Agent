@@ -5,6 +5,7 @@ import type { ToolContext, ToolTarget } from "./contracts.js";
 import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /**
  * A small wiki the owner and the assistant write together: pages with names, and links between them
@@ -339,6 +340,8 @@ export const chatWikiRefusal = "A message from a chat app cannot read or write t
  * top of every wiki tool as well.
  */
 export const householdWikiRefusal = "The wiki belongs to the owner. Switch back to the owner's profile to use it.";
+/** NAS review of #194: a Trunk's turn starts as the owner's own, so it is refused by who is asking, not by where the task came from. */
+export const agentWikiRefusal = "The wiki belongs to the owner. A Trunk or a helper cannot read or write it.";
 /**
  * Whether this call is the owner's own, and if not, why not — one answer, used by both the guard that
  * refuses a tool and the step that works out what a call would touch.
@@ -357,6 +360,7 @@ export const householdWikiRefusal = "The wiki belongs to the owner. Switch back 
  * the window is what decides, exactly as it does everywhere else.
  */
 function notTheOwners(store: Store, context: ToolContext): string | null {
+  if (accessAgent(context)) return agentWikiRefusal;
   // A real task is one that wrote down where it came from when it started. A bare run row with no
   // `run.started` recorded nothing about whose it is, so there is nothing to read and the window
   // decides, the same as a call made by hand.

@@ -80,7 +80,9 @@ export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchiv
 /** Whether this install already holds someone's state; restoring over it is refused. */
 export function hasState(db: DatabaseSync): boolean {
   const count = (table: string) => Number((db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number | bigint }).n);
-  return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0;
+  // NAS review of #194: a Branch holding only wiki pages has work in it too, so a restore does not merge over them.
+  const wiki = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='wiki_pages'").get() ? count("wiki_pages") : 0;
+  return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0 || wiki > 0;
 }
 
 export interface RestoreOptions {

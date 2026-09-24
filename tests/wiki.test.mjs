@@ -517,3 +517,23 @@ test("a restore puts pages back even where the wiki's tables were never made", a
   importBackup(second.app.store.sqlite, archive, { replaceExisting: true });
   assert.equal(second.app.store.sqlite.prepare("SELECT body FROM wiki_pages WHERE owner=?").get(owner)?.body, "Beans in June.");
 });
+
+test("a Trunk or a helper cannot read, search or write the owner's wiki", async (t) => {
+  const { app, wiki } = await branch(t);
+  wiki.write(owner, { title: "Safe", body: "The code is 4417." });
+  for (const agent of [{ agent: "trunk:bo" }, { trunk: "bo" }]) {
+    const context = { ...app.runtime.context({ permissions: app.registry.permissions() }), ...agent };
+    for (const [tool, args] of [["wiki.read", { title: "Safe" }], ["wiki.search", { query: "4417" }], ["wiki.write", { title: "Planted", body: "x" }]])
+      await assert.rejects(app.registry.execute(tool, args, context), /A Trunk or a helper cannot/, `${tool} as ${JSON.stringify(agent)}`);
+  }
+  assert.equal(wiki.find(owner, "Planted"), undefined, "nothing was planted");
+});
+
+test("a Branch that holds only wiki pages is not merged over by a restore", async (t) => {
+  const { importBackup, exportBackup } = await import("../dist/backup.js");
+  const first = await branch(t);
+  const archive = exportBackup(first.app.store.sqlite, "test");
+  const second = await branch(t);
+  second.wiki.write(owner, { title: "Mine", body: "kept" });
+  assert.throws(() => importBackup(second.app.store.sqlite, archive), /already has/);
+});
