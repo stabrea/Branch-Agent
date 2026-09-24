@@ -24,8 +24,10 @@ export const trunkFilesHome = ".branch-agents";
 
 /** The id inside a Trunk's memory-scope agent string (`trunk:<id>`), or undefined for anything else
  *  (the owner's own turn, a delegated specialist's `agent`, no agent at all). Kept narrow on purpose:
- *  a specialist already shares its parent's files by design, so only a Trunk gets its own root. */
-export function trunkIdOf(agent: string | undefined): string | undefined {
+ *  a specialist already shares its parent's files by design, so only a Trunk gets its own root.
+ *  FQ-routing.isolated-agents: prefer the dedicated trunk field, fall back to parsing agent. */
+export function trunkIdOf(agent: string | undefined, trunk?: string): string | undefined {
+  if (trunk) return trunk;
   if (!agent?.startsWith("trunk:")) return undefined;
   // Trunk ids are UUIDs (src/trunks/record.ts), but a folder name built from one is still sanitised
   // defensively rather than trusted, the same caution `files.checked` takes with any workspace path.
@@ -38,9 +40,9 @@ export function trunkIdOf(agent: string | undefined): string | undefined {
  * fork). `null` for anything but a Trunk's fresh top-level turn, so the owner's own conversation, a
  * delegated specialist and a helper task all keep working in the shared project exactly as before.
  */
-export function trunkFilePlace(root: string, context: Pick<ToolContext, "agent">, parent: unknown): TaskPlace | null {
+export function trunkFilePlace(root: string, context: Pick<ToolContext, "agent" | "trunk">, parent: unknown): TaskPlace | null {
   if (parent) return null;
-  const id = trunkIdOf(context.agent);
+  const id = trunkIdOf(context.agent, context.trunk);
   if (!id) return null;
   const scope = posix.join(trunkFilesHome, id);
   return { scope, workspace: join(root, scope), release: async () => undefined };

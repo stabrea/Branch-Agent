@@ -25,20 +25,23 @@ type Read = z.input<typeof HistoryReadSchema>;
  * visibleTo keeps for the owner's private facts and history.meaning keeps for every agent — and
  * leaving it open would let a Trunk reach another Trunk's chat one delegation away.
  */
-export function participation(agent: string | undefined): { clause: string; args: string[] } {
-  if (!agent) return { clause: "", args: [] };
-  if (!agent.startsWith("trunk:")) return { clause: " AND 0", args: [] };
+// FQ-routing.isolated-agents: use the trunk field to identify the Trunk, fall back to parsing agent.
+export function participation(agent: string | undefined, trunk?: string): { clause: string; args: string[] } {
+  if (!agent && !trunk) return { clause: "", args: [] };
+  const trunkId = trunk ?? (agent?.startsWith("trunk:") ? agent.slice("trunk:".length).split(":")[0] : undefined);
+  if (!trunkId) return { clause: " AND 0", args: [] };
   return {
     clause: ` AND EXISTS (SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
       WHERE t.session_id=s.id AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?)`,
-    args: [agent.slice("trunk:".length)],
+    args: [trunkId],
   };
 }
-/** Check if an agent can access a session. Owner (undefined) can access any. Specialist ("-") cannot. Trunk needs a trunk.turn event. */
-export function canAccessSession(db: DatabaseSync, sessionId: string, agent: string | undefined): boolean {
-  if (!agent) return true;
-  if (!agent.startsWith("trunk:")) return false;
-  const trunkId = agent.slice("trunk:".length);
+/** Check if an agent can access a session. Owner (undefined) can access any. Specialist ("-") cannot. Trunk needs a trunk.turn event.
+ *  FQ-routing.isolated-agents: use the trunk field to identify the Trunk. */
+export function canAccessSession(db: DatabaseSync, sessionId: string, agent: string | undefined, trunk?: string): boolean {
+  if (!agent && !trunk) return true;
+  const trunkId = trunk ?? (agent?.startsWith("trunk:") ? agent.slice("trunk:".length).split(":")[0] : undefined);
+  if (!trunkId) return false;
   const row = db.prepare(`SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
     WHERE t.session_id=? AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?`).get(sessionId, trunkId);
   return !!row;
@@ -46,13 +49,13 @@ export function canAccessSession(db: DatabaseSync, sessionId: string, agent: str
 
 export class SessionHistory {
   constructor(private db: DatabaseSync) { this.initializeSources(); this.initialize(); }
-  search(owner: string, input: Query, excludeSessionId = "", agent?: string) {
+  search(owner: string, input: Query, excludeSessionId = "", agent?: string, trunk?: string) {
     const query = HistoryQuerySchema.parse(input);
     const words = query.query.match(/[\p{L}\p{N}]+/gu) ?? [];
     if (words.length > 32) throw new Error("History search accepts up to 32 keywords");
     if (!words.length) return [];
     const expression = words.map((word) => `"${word}"`).join(query.match === "all" ? " AND " : " OR ");
-    const scope = participation(agent);
+    const scope = participation(agent, trunk);
     const rows = this.db.prepare(`SELECT m.source_id, m.session_id, s.created_at,
       json_extract(m.body,'$.role') AS role, bm25(message_search) AS rank,
       snippet(message_search,0,'','','…',48) AS excerpt
@@ -66,9 +69,9 @@ export class SessionHistory {
       excerpt: Array.from(String(row.excerpt)).slice(0, 1200).join(""), rank: Number(row.rank),
     }));
   }
-  read(owner: string, input: Read, excludeSessionId = "", agent?: string) {
+  read(owner: string, input: Read, excludeSessionId = "", agent?: string, trunk?: string) {
     const options = HistoryReadSchema.parse(input);
-    const scope = participation(agent);
+    const scope = participation(agent, trunk);
     // A conversation outside the agent's own is refused exactly as a missing message is.
     const row = this.db.prepare(`SELECT m.body, s.created_at FROM messages m
       JOIN sessions s ON s.id=m.session_id WHERE m.source_id=? AND m.session_id=?

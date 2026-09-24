@@ -546,7 +546,8 @@ export class Runtime {
     const sub = knobs.subtaskLimits(this.store, this.owner); // R17-S11
     const timeoutMs = options.timeoutMs ?? sub.timeoutMs;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new Error("Child timeout must be 1 to 120 seconds");
-    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget(knobs.taskBudget(this.store, this.owner)), ...(options.agent ? { agent: options.agent } : {}) };
+    // FQ-routing.isolated-agents: trunk from parent is never changed by options; passed after agent so nothing can override it
+    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget(knobs.taskBudget(this.store, this.owner)), ...(options.agent ? { agent: options.agent } : {}), ...(parent.trunk !== undefined ? { trunk: parent.trunk } : {}) };
     let started: Run | undefined;
     const startedAt = new Promise<Run>((resolve) => { started = undefined; void resolve; });
     void startedAt;
@@ -735,12 +736,14 @@ export class Runtime {
     this.children.set(parent.runId, running + 1);
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(new Error(`Child stopped: it took longer than ${timeoutMs / 1000} seconds`)), timeoutMs);
+    // FQ-routing.isolated-agents: trunk from parent is never changed by options; passed after agent so nothing can override it
     const context = {
       ...parent,
       signal: AbortSignal.any([parent.signal, timeout.signal]),
       permissions: new Set(permissions),
       depth: parent.depth + 1,
       ...(options.agent ? { agent: options.agent } : {}),
+      ...(parent.trunk !== undefined ? { trunk: parent.trunk } : {}),
     };
     try {
       const model = knobs.subtaskModel(this.store, this.owner, (id) => this.models.presets.has(id)); // R17-S11
@@ -833,8 +836,9 @@ ${run.output.slice(0, 6000)}`;
   private scopeToSession(run: Run, given: ToolContext, trunk: TrunkRunShape | null = null): ToolContext {
     // R17-A (Trunks): a Trunk remembers in its own scope, and the task says whose it was.
     // mac7/lockdown-fix: trunkKeys. Work a Trunk set going (a workflow's prompt step, a flow box) is its work too.
+    // FQ-routing.isolated-agents: set trunk field so delegation carries it through.
     const inherited = given.trunkKeys ?? currentAccountCall()?.trunk?.keys;
-    const context = trunk ? { ...given, agent: trunk.agent, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
+    const context = trunk ? { ...given, agent: trunk.agent, trunk: trunk.trunkId, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
     if (trunk) this.store.event(run.id, "trunk.turn", { trunkId: trunk.trunkId });
     if (!this.store.sessionTemporary(run.sessionId)) return context;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });

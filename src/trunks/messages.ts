@@ -118,7 +118,8 @@ export class TrunkMessages {
   }
   /** Only a Trunk's own conversation may send: not a room, not an ordinary conversation. */
   private senderOf(context: ToolContext): Trunk {
-    const id = context.agent?.startsWith("trunk:") ? context.agent.slice(6) : "";
+    // FQ-routing.isolated-agents: use trunk field, fall back to parsing agent
+    const id = context.trunk ?? (context.agent?.startsWith("trunk:") ? context.agent.slice(6) : "");
     const sender = id ? this.records.find(id) : undefined;
     const run = context.runId ? this.store.run(context.runId) : undefined;
     if (!sender || !run || run.sessionId !== sender.chatSessionId)

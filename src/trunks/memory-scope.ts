@@ -12,6 +12,17 @@ const keepsToItself = new Set<string>();
 
 export const trunkAgent = (id: string): string => `trunk:${id}`;
 
+/**
+ * FQ-routing.isolated-agents: extract the Trunk ID from a context.
+ * When a specialist is delegated to work under a Trunk, context.trunk holds the Trunk's id
+ * and context.agent is the specialist's name. Fall back to parsing agent if trunk is not set.
+ */
+export function trunkOf(context: { agent?: string; trunk?: string }): string | undefined {
+  if (context.trunk) return context.trunk;
+  if (context.agent?.startsWith("trunk:")) return context.agent.slice("trunk:".length).split(":")[0];
+  return undefined;
+}
+
 /** Called whenever a Trunk is saved: whether it reads the owner's shared facts. */
 export function setSharedFacts(agent: string, reads: boolean): void {
   if (reads) keepsToItself.delete(agent);

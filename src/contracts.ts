@@ -242,6 +242,8 @@ export interface ToolContext {
   depth: number;
   /** Set for delegated specialists: memory reads are limited to shared facts and this agent's own. */
   agent?: string;
+  /** FQ-routing.isolated-agents: the Trunk ID when this context runs under a Trunk. Set once at Trunk turn start and copied through delegation; never changed by a child. */
+  trunk?: string;
   /** The task whose shared scratch area this run and all of its sub-tasks read and write. */
   scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */
