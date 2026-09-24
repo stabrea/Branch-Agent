@@ -74,28 +74,33 @@ test("a pop-up that opens while the assistant is opening a tab is refused and cl
   assert.equal(session.tabs().length, 2);
 });
 
-test("in the owner's browser, a tab Branch's tab opens sends nothing while it is still being asked whose it is", async () => {
+test("in the owner's browser, a tab Branch's tab opens sends nothing, even before anyone knows whose it is, and theirs are untouched", async () => {
   const ourTab = fakePage("ours");
-  let tabRoute, answerOpener;
+  let windowRoute, answerOpener;
   const opened = Object.assign(fakePage("opened"), {
-    route: async (_pattern, handler) => { tabRoute = handler; },
-    unroute: async () => {},
     opener: () => new Promise((resolve) => { answerOpener = () => resolve(ourTab); }),
   });
+  const theirs = Object.assign(fakePage("theirs"), { opener: async () => null });
   const context = Object.assign(events(), {
     setDefaultTimeout() {},
+    route: async (_pattern, handler) => { windowRoute = handler; },
+    unroute: async () => {},
     newCDPSession: async () => ({ on() {}, send: async () => {} }),
     newPage: async () => { await null; context.emit("page", ourTab); return ourTab; }, // Playwright tells of a page after the call returns
   });
   const session = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
   session.options = { attached: { context } };
   await session.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => undefined);
+  const request = (page, url) => {
+    const route = { outcome: null, request: () => ({ url: () => url, resourceType: () => "document", frame: () => ({ page: () => page, parentFrame: () => null }) }),
+      abort: async () => { route.outcome = "aborted"; }, fallback: async () => { route.outcome = "passed on"; }, continue: async () => { route.outcome = "continued"; } };
+    return route;
+  };
 
+  // A tab Branch's page opened: its first request arrives before anyone knows whose tab it is.
   context.emit("page", opened);
-  for (let i = 0; i < 20 && !tabRoute; i++) await new Promise((resolve) => setTimeout(resolve, 5));
-  // Its first request arrives before anyone knows whose tab it is.
-  const first = { outcome: null, abort: async () => { first.outcome = "aborted"; }, fallback: async () => { first.outcome = "sent"; } };
-  const handled = tabRoute(first);
+  const first = request(opened, "http://unlisted.test/");
+  const handled = windowRoute(first);
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(first.outcome, null, "nothing is sent while the question is open");
   answerOpener();
@@ -103,4 +108,12 @@ test("in the owner's browser, a tab Branch's tab opens sends nothing while it is
   for (let i = 0; i < 20 && opened.closes === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(first.outcome, "aborted", "Branch's tab opened it, so it gets nothing");
   assert.equal(opened.closes, 1, "and it is closed");
+
+  // The owner's own tab: passed on as it was, and never closed.
+  context.emit("page", theirs);
+  const mine = request(theirs, "http://anything.test/");
+  await windowRoute(mine);
+  assert.equal(mine.outcome, "passed on");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(theirs.closes, 0);
 });

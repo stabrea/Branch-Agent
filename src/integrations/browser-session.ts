@@ -99,38 +99,47 @@ export class BrowserSession {
     }
   }
   /**
-   * The owner's own window. Their tabs are left entirely alone: the website list is applied to
-   * Branch's own tab only, nothing of theirs is watched, and nothing of theirs is closed.
+   * The owner's own window, while they lend it for one task. The website list is applied to Branch's own
+   * tab, a tab Branch's tab opens (or one that tab opens) gets nothing and is closed, and nothing of theirs
+   * is closed or changed. That is decided by a route on the whole window, because a page gets the last
+   * word over anything done inside it: a script can set a link's target back after Branch set it, or open
+   * a tab from where no listener sees it, and a guard put on a new tab afterwards is always too late
+   * (Mac mini 0361600, cdc7fd0). The owner's own tabs pass through it unchanged; while it is on, the
+   * browser does not use its cache for them. It comes off when the task gives the browser back.
    */
   private async openBorrowed(context: BrowserContext): Promise<Page> {
     this.checkOpen();
     this.context = context;
     this.borrowed = true;
     context.setDefaultTimeout(10000);
-    // A tab that Branch's own tab opens is Branch's doing and nobody else's, so it is refused
-    // everything and closed. Only tabs whose opener is one of ours arrive here: the owner's own tabs
-    // are neither watched nor touched, which is the whole promise of working in their browser.
+    await context.route('**/*', this.borrowedRoute);
     context.on('page', page => { void this.closeTabWeOpened(page); });
     return this.newPage();
   }
+  private readonly borrowedRoute = (route: Route): Promise<void> => this.answerBorrowed(route);
+  /** In the owner's window: Branch's tab by the website list, a tab it opened by nothing, anything else as it was. */
+  private async answerBorrowed(route: Route): Promise<void> {
+    let page: Page | undefined;
+    try { page = route.request().frame().page(); } catch { page = undefined; } // a service worker of theirs
+    if (page && await this.isOurs(page)) return this.answerRoute(route);
+    if (page && await this.openedByUs(page)) { await route.abort().catch(() => undefined); return; }
+    await route.fallback().catch(() => undefined);
+  }
+  /** Tabs opened from Branch's tab, or from one of those, asked once each (their opener cannot change). */
+  private readonly openedFromOurs = new WeakMap<Page, Promise<boolean>>();
+  private openedByUs(page: Page): Promise<boolean> {
+    let known = this.openedFromOurs.get(page);
+    if (!known) {
+      known = page.opener().then(
+        async opener => !!opener && (await this.isOurs(opener) || await this.openedByUs(opener)),
+        () => false);
+      this.openedFromOurs.set(page, known);
+    }
+    return known;
+  }
   private async closeTabWeOpened(page: Page): Promise<void> {
     if (await this.isOurs(page)) return;
-    // The route goes on first and the question is asked second. Asking first loses a race the tab
-    // wins: its first request is already in flight while `opener()` is still being answered. Until the
-    // answer comes, what the tab asks for waits: letting it through meanwhile sent a tab Branch's page
-    // opened to a website the owner never allowed, and every redirect after it.
-    let decide!: (ours: boolean) => void;
-    const decided = new Promise<boolean>(resolve => { decide = resolve; });
-    await page.route('**/*', async route => {
-      if (await decided) { await route.abort().catch(() => undefined); return; }
-      await route.fallback().catch(() => undefined);
-    }).catch(() => undefined);
-    const opener = await page.opener().catch(() => null);
-    const ours = !!opener && this.pages.includes(opener);
-    decide(ours);
-    // Not ours after all: the owner opened it themselves. Take the route straight back off.
-    if (!ours) { await page.unroute('**/*').catch(() => undefined); return; }
-    await page.close().catch(() => undefined);
+    if (await this.openedByUs(page)) await page.close().catch(() => undefined);
   }
   /**
    * Whether a page is one the assistant asked for. While one is being made, the page that making it
@@ -155,10 +164,9 @@ export class BrowserSession {
       if (this.creating === creating) this.creating = null;
       throw error;
     });
-    // In the owner's own browser the website list is put on Branch's tab alone, so their other
-    // tabs carry on exactly as before.
+    // In the owner's own browser the website list reaches this tab through the window's route
+    // (openBorrowed). What follows only keeps new tabs from opening at all, which saves closing them.
     if (this.borrowed) {
-      await page.route('**/*', route => this.answerRoute(route));
       // In the owner's own browser a tab this one opens cannot be stopped after the fact: its first
       // request is in flight before any guard can be put on it, and it was reaching websites they
       // never allowed. So it is stopped at the source, on Branch's tab alone: a window this page
@@ -388,7 +396,8 @@ export class BrowserSession {
     await this.opening?.catch(() => undefined);
     await this.recording?.cancel().catch(() => undefined);
     if (this.borrowed) {
-      // Only Branch's own tabs go; the owner's window and their tabs are left exactly as they were.
+      // Only Branch's own tabs go, and the window's route comes off; their tabs are left as they were.
+      await this.context?.unroute('**/*', this.borrowedRoute).catch(() => undefined);
       for (const page of this.pages) await page.close().catch(() => undefined);
       await this.options.attached?.detach();
       return;

@@ -67,6 +67,13 @@ const routes = {
   '/opens-shadow': page(`<div id="h"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="x";a.dispatchEvent(new MouseEvent("click",{bubbles:true,composed:true}));</script>`),
   // A link filling a closed shadow root, clicked for real by pressing its host.
   '/opens-shadow-click': page(`<div id="h" style="display:block;width:160px;height:48px"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="Open";a.style.cssText="display:block;width:160px;height:48px";</script>`),
+  // Mac mini cdc7fd0: shapes where the page has the last word. B14 sets a link's target back in its own click
+  // listener, B16 a form's in its submit listener, B12 is a closed shadow root the parser makes (no attachShadow
+  // call), and B10 submits a form inside a closed shadow root, where no click or composed event is seen.
+  '/escape-b14': page(`<a id="n">Next</a><script>const n=document.getElementById("n");n.href=new URLSearchParams(location.search).get("to");n.addEventListener("click",()=>{n.target="_blank";});</script>`),
+  '/escape-b16': page(`<form id="f" method="GET"><button type="submit">Send it</button></form><script>const f=document.getElementById("f");f.action=new URLSearchParams(location.search).get("to");f.addEventListener("submit",()=>{f.target="_blank";});</script>`),
+  '/escape-b12': (url) => page(`<div id="h" style="display:block;width:160px;height:48px"><template shadowrootmode="closed"><a href="${url.searchParams.get('to')}" target="_blank" style="display:block;width:160px;height:48px">Open</a></template></div>`),
+  '/escape-b10': page(`<div id="h"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});r.innerHTML='<form method="GET" target="_blank"><button>go</button></form>';const f=r.querySelector("form");f.action=new URLSearchParams(location.search).get("to");f.requestSubmit();</script>`),
   // A page that goes round the worker block: the prototype's own method, and deleting the page's copy.
   '/worker-around': page(`<script>const to=new URLSearchParams(location.search).get("to");const go=async (register)=>{try{await register();await navigator.serviceWorker.ready;const sw=(await navigator.serviceWorker.getRegistration()).active;if(sw)sw.postMessage(to);}catch{}};go(()=>ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker,"/worker.js"));try{delete navigator.serviceWorker.register;}catch{}go(()=>navigator.serviceWorker.register("/worker.js"));try{new SharedWorker("/worker.js");}catch{}</script>`),
   // A page showing whatever the query string names in a frame.
@@ -93,7 +100,9 @@ async function fixture() {
       return;
     }
     response.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
-    response.end(routes[path] ?? routes['/']);
+    const answer = routes[path] ?? routes['/'];
+    // A route may be written from the address it was asked with (what a page opens, when the parser must see it).
+    response.end(typeof answer === 'function' ? answer(new URL(request.url, 'http://fixture')) : answer);
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -336,6 +345,18 @@ test("in the owner's own browser, a tab Branch opens reaches nothing and is not 
     await new Promise(resolve => { setTimeout(resolve, 2500); });
     assert.equal(forbiddenHits, 0, 'nor by a link clicked inside a closed shadow root');
     assert.equal(opened, 0, "that link opened in Branch's own tab, not a new one");
+    // The page has the last word inside itself, so these may open a tab: the window's route gives it nothing,
+    // and it is closed. What matters is that the unlisted website is never asked and nothing is left behind.
+    const escapes = [['escape-b14', {tool: 'browser.click', args: {role: 'link', name: 'Next'}}],
+      ['escape-b16', {tool: 'browser.click', args: {role: 'button', name: 'Send it'}}],
+      ['escape-b12', {tool: 'browser.act', args: {action: 'click', selector: '#h', name: 'Open'}}], ['escape-b10', null]];
+    for (const [where, press] of escapes) {
+      await h.registry.execute('browser.navigate', {url: `${h.origin}/${where}?to=${encodeURIComponent(elsewhere)}`}, context);
+      if (press) await h.registry.execute(press.tool, press.args, context).catch(() => undefined);
+      await new Promise(resolve => { setTimeout(resolve, 2500); });
+      assert.equal(forbiddenHits, 0, `nor by ${where}`);
+      assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1, `and ${where} left no tab behind`);
+    }
     await h.registry.execute('browser.navigate',
       {url: `${h.origin}/worker-around?to=${encodeURIComponent(`${elsewhere}/from-worker`)}`}, context);
     await new Promise(resolve => { setTimeout(resolve, 4000); });
