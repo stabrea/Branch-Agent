@@ -30,7 +30,10 @@ interface PausedRequest {
  * is never let go, and what a frame says is read only when it is about targets or answers one of these calls.
  */
 const deepestFrame = 4;
-/** Chromium writes an event's method first and a reply's id first, so the rest (every network event) is never parsed. */
+/**
+ * Chromium writes an event's method first and a reply's id first, so a frame's network event is never parsed at its own
+ * level. The wrappers the frames above it put round it still are, once each; the depth bound is what caps that.
+ */
 const worthReading = (text: string): boolean => text.startsWith('{"id"') || text.startsWith('{"method":"Target.');
 async function bypassEveryFrame(root: CDPSession): Promise<void> {
   let next = 0;

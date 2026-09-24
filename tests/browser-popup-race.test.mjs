@@ -386,6 +386,11 @@ test("in the owner's browser, frames inside frames are stopped the same way, and
   JSON.parse = (...args) => { parsed += 1; return parse(...args); };
   try { from(["f1"], { method: "Network.requestWillBeSent", params: { requestId: "1" } }); } finally { JSON.parse = parse; }
   assert.equal(parsed, 0, "a network event is not parsed");
+  // Three frames down, only the two wrappers around it are read, never the event itself (NAS b5daf6f).
+  parsed = 0;
+  JSON.parse = (...args) => { parsed += 1; return parse(...args); };
+  try { from(["f1", "f2", "f3"], { method: "Network.requestWillBeSent", params: { requestId: "2" } }); } finally { JSON.parse = parse; }
+  assert.equal(parsed, 2, "at level 3, the two wrappers are read and the network event is not");
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(calls().length, before);
 });
