@@ -74,9 +74,9 @@ export async function branchSourceDiff(deps: SelfDevelopmentDeps, id: string, si
     if (inside.startsWith("..") || isAbsolute(inside)) throw new Error("Source-change worktree escapes the source checkout.");
   }
   // Read-only Git with bounded output; never execute scripts or follow a stored arbitrary path.
-  const outcome = await deps.git({ cwd, args: ["diff", "--no-ext-diff", "--no-textconv", "--", "."], timeoutMs: 10_000 }, signal);
+  const outcome = await deps.git({ cwd, args: ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--", "."], timeoutMs: 10_000 }, signal);
   if (outcome.status !== "completed") throw new Error(explainGit(outcome));
-  const status = await deps.git({ cwd, args: ["status", "--short", "--untracked-files=normal", "--", "."], timeoutMs: 10_000 }, signal);
+  const status = await deps.git({ cwd, args: ["-c", "core.fsmonitor=false", "status", "--short", "--untracked-files=normal", "--", "."], timeoutMs: 10_000 }, signal);
   if (status.status !== "completed") throw new Error(explainGit(status));
   return { id, diff: outcome.stdout.slice(0, 65536), truncated: outcome.stdout.length > 65536,
     files: status.stdout.slice(0, 8192), filesTruncated: status.stdout.length > 8192 };
