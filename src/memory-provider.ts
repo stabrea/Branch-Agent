@@ -379,21 +379,28 @@ export class MemoryProvider implements MemoryBackend {
    * is listed in `notRemoved` with a plain `problem`, and is never read back from it again.
    */
   async forgetConversation(owner: string, input: unknown) {
-    // Marked forgotten before the outside service is asked what it keeps. A save it finishes after that answer
-    // was taken is not in it, and memory.put, seeing the mark once its save lands, takes that fact back itself.
+    // A save the service finishes after it answered what it keeps is not in that answer. Such a save waits
+    // for this Forget to settle (forgetSettled) and then takes itself back if the conversation was forgotten.
+    // Nothing is marked early, so a refused Forget has nothing to undo and never touches the owner's own choice.
     const sessionId = (input as { sessionId?: unknown } | null)?.sessionId;
-    const early = this.isOutside(owner) && typeof sessionId === "string" && !this.store.memorySuppressed(owner, sessionId);
-    if (early) this.store.setMemorySuppressed(owner, sessionId, true);
-    let outside: Awaited<ReturnType<MemoryProvider["outsideFacts"]>>;
-    let forgotten: ReturnType<Store["forgetMemory"]>;
-    try {
-      outside = await this.outsideFacts(owner);
-      forgotten = this.store.forgetMemory(owner, input, outside.records);
-    } catch (error) {
-      if (early) this.store.setMemorySuppressed(owner, sessionId, false); // nothing was forgotten after all
-      throw error;
+    const key = typeof sessionId === "string" ? `${owner}:${sessionId}` : null;
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => { settle = resolve; });
+    if (key) this.forgetting.set(key, settled);
+    try { return await this.forgetNow(owner, input); }
+    finally {
+      if (key && this.forgetting.get(key) === settled) this.forgetting.delete(key);
+      settle();
     }
-    const { ids, ...result } = forgotten;
+  }
+  /** Resolves once every Forget of this conversation now running has finished, whatever its answer. */
+  async forgetSettled(owner: string, sessionId: string): Promise<void> {
+    await this.forgetting.get(`${owner}:${sessionId}`);
+  }
+  private readonly forgetting = new Map<string, Promise<void>>();
+  private async forgetNow(owner: string, input: unknown) {
+    const outside = await this.outsideFacts(owner);
+    const { ids, ...result } = this.store.forgetMemory(owner, input, outside.records);
     const held = new Set(outside.records.map((record) => record.id));
     const notRemoved = await this.forgetOutside(owner, ids.filter((id) => held.has(id)));
     const problems = [outside.problem, notRemoved.length ? stillHeld(notRemoved.length) : undefined].filter(Boolean);

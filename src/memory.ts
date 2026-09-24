@@ -415,6 +415,7 @@ export const memoryScope = (store: Store, context: { owner: string }): string =>
 export interface OutsideMemoryProvider extends MemoryBackend {
   isOutside(owner: string): boolean;
   withFactLock?<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T>;
+  forgetSettled?(owner: string, sessionId: string): Promise<void>;
 }
 
 export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch, provider?: OutsideMemoryProvider): void {
@@ -436,7 +437,9 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const id = randomUUID();
       const saved = await provider.write(owner, id, data);
       // "Forget this conversation" may have run while the service was still saving this fact, and it could not see
-      // a fact the service did not have yet. What was saved is taken back (and never read back) and refused the same way.
+      // a fact the service did not have yet. Once any Forget of it now running has settled, what was saved is taken
+      // back (and never read back) and refused the same way if the conversation was forgotten.
+      if (sessionId) await provider.forgetSettled?.(owner, sessionId);
       if (sessionId && store.memorySuppressed(owner, sessionId)) {
         const deleted = await provider.forget(owner, id).then(() => true, () => false);
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view."

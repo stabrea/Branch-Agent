@@ -1273,3 +1273,28 @@ test("a conversation already forgotten stays forgotten when a later Forget of it
   assert.notEqual(refused.status, 200);
   assert.equal(app.store.memorySuppressed("local", sessionId), true, "a refused Forget never undoes the owner's own choice");
 });
+
+test("switching remembering off while a Forget is still asking the service stays off when that Forget is refused", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const post = await served(t, app, root);
+  const sessionId = app.store.createSession("local");
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  let listAsked;
+  const asked = new Promise((resolve) => { listAsked = resolve; });
+  double.server.on("request", async (request, response) => {
+    const parts = new URL(request.url, "http://x").pathname.split("/").filter(Boolean);
+    if (request.method === "GET" && parts.length === 2) { listAsked(); await new Promise((resolve) => setTimeout(resolve, 300)); }
+    return answer(request, response);
+  });
+  const forgetting = post("memory/forget", { sessionId, ids: ["not-in-the-preview"] });
+  await asked;
+  app.store.setMemorySuppressed("local", sessionId, true); // NAS 728ca5e: the owner turns remembering off meanwhile
+  const refused = await forgetting;
+  assert.notEqual(refused.status, 200);
+  assert.equal(app.store.memorySuppressed("local", sessionId), true, "the owner's own choice is kept");
+});
