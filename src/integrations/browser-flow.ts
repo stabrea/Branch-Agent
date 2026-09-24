@@ -93,6 +93,9 @@ export function flowTargets(input: z.infer<typeof FlowSchema>, current: string):
   });
 }
 
+/** A one-time yes for a step was taken by another run of the same flow judged at the same moment. */
+export const stepYesUsedRefusal = "A yes given just once for a step here was already used by another run of this flow, so nothing was done. Ask again.";
+
 /**
  * What a question about the flow as a whole, and a standing yes to it, is kept for: the websites it
  * declares (`flowTargets`), each once, in the order it reaches them — one host alone, or "2 websites:
@@ -101,9 +104,6 @@ export function flowTargets(input: z.infer<typeof FlowSchema>, current: string):
  * (`Runtime.approve`): cut text would be a start that other flows share, and a rule on it would cover
  * them too.
  */
-/** A one-time yes for a step was taken by another run of the same flow judged at the same moment. */
-export const stepYesUsedRefusal = "A yes given just once for a step here was already used by another run of this flow, so nothing was done. Ask again.";
-
 export function flowTarget(sent: unknown, current: string): string {
   const parsed = FlowSchema.safeParse(sent);
   if (!parsed.success) return '';
@@ -164,8 +164,10 @@ export async function runFlow(registry: ToolRegistry, host: FlowHost, input: z.i
   const usedOverrules = await judgeFlow(registry, host, input, context);
   // The one-time yeses the steps were judged on are used now, before any step runs. One already
   // used by a run judged alongside this one means this run has no yes of its own: nothing runs.
-  if (usedOverrules.length > 0 && registry.takeStepYeses?.(usedOverrules, context) === false)
-    throw new Error(stepYesUsedRefusal);
+  if (usedOverrules.length > 0) {
+    if (!registry.takeStepYeses) throw new Error(stepYesUsedRefusal);
+    if (!registry.takeStepYeses(usedOverrules, context)) throw new Error(stepYesUsedRefusal);
+  }
   const steps: FlowStepReport[] = [];
   const seen = new Set<string>();
   for (const [index, step] of input.steps.entries()) {
