@@ -132,6 +132,10 @@ export class FlowGraphRunner {
     // mac7/lockdown-fix: a task's limit is kept with the run, so the owner's yes later does not widen it.
     if (options.within) this.store.save("settings", this.owner, limitKey(runId), { within: [...options.within] });
     options = { ...options, source: this.holdSource(runId, options.source) }; // mac7/outside-resume
+    // Q119 (NAS da81dfd): a Trunk's run keeps to what that Trunk may use now, whoever carries it on, as its workflows do.
+    const trunk = this.trunkOf(runId);
+    const trunkMay = trunk ? this.runtime.trunkPermissionsFor(trunk) : null;
+    if (trunkMay) options = { ...options, within: options.within ? options.within.filter((p) => trunkMay.includes(p)) : [...trunkMay] };
     const limit = compiled.definition.loopLimit;
     let saved = this.checkpoint(runId);
     let at = saved.nextNode, state = saved.state, loops = saved.loops, seq = this.lastSeq(runId);
