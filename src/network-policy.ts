@@ -165,8 +165,6 @@ export class NetworkPolicy {
   /** Replaced by the app so every connection leaves a span and a line in the record. */
   watchSockets: SocketWatcher = () => undefined;
   private readonly sockets = new Set<{ socket: WebSocket; runId: string | null }>();
-  /** The fetches already reported for a checked request they did not keep to its checked addresses. */
-  private readonly unheldFetches = new WeakSet<typeof fetch>();
   constructor(
     input: unknown = {},
     private readonly resolve: (host: string) => Promise<string[]> = defaultResolve,
@@ -215,9 +213,9 @@ export class NetworkPolicy {
    * check and the Host line (src/pinned-fetch.ts). A request a proxy carries (the owner's, or one Node
    * was started with) goes to the proxy by name after the same check, since the proxy does its own
    * lookup. A redirect is never followed by itself: the caller asks again, and the new address is
-   * checked and held the same way. A fetch given here that does not hand a checked request's
-   * addresses on to the sender that holds it to them is reported, once for that fetch; the request
-   * is not refused, and its answer or its failure is passed on as it came.
+   * checked and held the same way. A checked request whose fetch does not hand its addresses on to
+   * the sender that holds it to them is refused, whatever that fetch did: an answer it gave is let
+   * go, and a failure of its own is kept as the refusal's cause.
    */
   guard(base: typeof fetch): typeof fetch {
     const policy = this;
@@ -230,24 +228,17 @@ export class NetworkPolicy {
       if (!judged || proxyCarries(url)) return base(input, next);
       const pin: Pin = { host: url.hostname, addresses: judged, dial: policy.dial };
       const held: PinnedInit = { ...next, [pinnedTo]: pin };
+      let answer: Response;
       try {
-        return await (base === platformFetch ? pinnedFetch : base)(input, held);
-      } finally {
-        if (!pinTaken(pin)) policy.reportUnheld(base, url.host);
+        answer = await (base === platformFetch ? pinnedFetch : base)(input, held);
+      } catch (error) {
+        if (pinTaken(pin)) throw error;
+        throw new Error(unkeptReason(url), { cause: error });
       }
+      if (pinTaken(pin)) return answer;
+      letGo(answer);
+      throw new Error(unkeptReason(url));
     } as typeof fetch;
-  }
-  /**
-   * Says, once for each fetch, that a checked request it was given did not reach the sender that
-   * holds it to the checked addresses. Only the site is named, never the path or the query, where a
-   * key can travel. A warning that cannot be written changes nothing about the request.
-   */
-  private reportUnheld(base: typeof fetch, host: string): void {
-    if (this.unheldFetches.has(base)) return;
-    this.unheldFetches.add(base);
-    try {
-      console.warn(`Branch Agent: the fetch behind a checked request to ${host} did not keep to the checked addresses, so the request was not held to them. This is said once for each such fetch.`);
-    } catch { /* the request's own answer or failure stands */ }
   }
   /**
    * Opens a connection that stays open, under the same rules as every other address. The check
@@ -318,6 +309,17 @@ function refusedReason(host: string, addresses: readonly string[], refused: read
   return `${host} resolves to ${address}, a private or local address in ${fakeIpRangeText}, the range kept for network testing. ` +
     "A fake-IP proxy (such as Clash, Mihomo, Surge, Stash or sing-box) answers every name with an address there. " +
     'If you use one, switch on the fake-IP proxy setting ("fakeIpProxy": true in the web section of the launch settings file); the proxy then does the resolving.';
+}
+/**
+ * Why a checked request is refused when its fetch did not keep to the addresses its check judged.
+ * Only the site is named, never the path or the query, where a key can travel.
+ */
+function unkeptReason(url: URL): string {
+  return `A checked request to ${url.host} is refused: its fetch did not keep to the checked addresses`;
+}
+/** Lets go of a refused answer's body, so nothing is left holding its connection open. */
+function letGo(answer: Response | undefined): void {
+  try { void answer?.body?.cancel().catch(() => undefined); } catch { /* an answer with nothing to let go of */ }
 }
 async function defaultResolve(host: string): Promise<string[]> {
   return (await lookup(host, { all: true }).catch(() => [])).map((entry) => entry.address);
