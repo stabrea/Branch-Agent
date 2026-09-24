@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { ToolCallSchema } from "./contracts.js";
+import { participation } from "./history.js";
 
 export const maximumArchiveBytes = 4 * 1024 * 1024;
 const MessageSchema = z.object({
@@ -96,8 +97,10 @@ export class SessionLibrary {
       })),
     };
   }
-  search(owner: string, input: unknown, hidden: readonly string[] = []) {
+  /** `agent`: only the conversations that agent may look back on (src/history.ts `participation`); unset for the owner. */
+  search(owner: string, input: unknown, hidden: readonly string[] = [], agent?: string) {
     const { query, offset, labels } = SessionSearchSchema.parse(input);
+    const scope = participation(agent);
     const wanted = labels.map((label) => label.toLocaleLowerCase("en"));
     // Only conversations carrying every wanted label; an empty list means no label filter at all.
     const labelFilter = wanted.length
@@ -113,8 +116,8 @@ export class SessionLibrary {
       FROM sessions s WHERE s.owner=? AND s.temporary=0 AND EXISTS(SELECT 1 FROM messages m WHERE m.session_id=s.id
         AND json_extract(m.body,'$.role') IN ('user','assistant')
         AND (?='' OR instr(branch_fold(json_extract(m.body,'$.content')),branch_fold(?))>0))
-      ${labelFilter} ${notIn(hidden)}
-      ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, ...labelArgs, ...hidden, offset);
+      ${labelFilter} ${notIn(hidden)}${scope.clause}
+      ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, ...labelArgs, ...hidden, ...scope.args, offset);
     return {
       sessions: rows.slice(0, 20).map(row => ({ sessionId: String(row.id),
         createdAt: String(row.created_at), preview: String(row.preview ?? ""),

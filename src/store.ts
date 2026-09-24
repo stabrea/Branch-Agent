@@ -184,8 +184,9 @@ export class Store {
   sessionView(owner: string, sessionId: string) {
     return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
   }
-  searchSessions(owner: string, input: unknown) {
-    return this.library.search(owner, input, this.hiddenSessions().slice(0, 500));
+  /** `agent` narrows the list to the conversations that agent took part in (src/history.ts); unset for the owner. */
+  searchSessions(owner: string, input: unknown, agent?: string) {
+    return this.library.search(owner, input, this.hiddenSessions().slice(0, 500), agent);
   }
   /** The recent conversations with what was last said in each, for picking one up on a phone. */
   recentSessions(owner: string, limit?: number) {
