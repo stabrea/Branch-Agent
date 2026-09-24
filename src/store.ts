@@ -21,6 +21,7 @@ import { achievementTallies, type AchievementTallies, type EventScan } from "./a
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
+import { RestoreHeld } from "./restore-held.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
@@ -54,6 +55,7 @@ export class Store {
   private readonly memories: MemoryFacts;
   readonly review: MemoryReview;
   private governanceStore: SkillGovernance | undefined;
+  private restoreHeldStore: RestoreHeld | undefined;
   private historyStore: WorkspaceHistory | undefined;
   readonly skills: InstalledSkills;
   readonly projects: Projects;
@@ -276,7 +278,18 @@ export class Store {
   /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
   backup(appVersion: string) { return exportBackup(this.db, appVersion); }
   /** Restores a backup into a fresh install; refuses when this copy already has state. */
-  restore(input: unknown, options: RestoreOptions = {}) { return importBackup(this.db, input, options); }
+  /**
+   * Q168 B: what a restore held for the owner's yes is added to the waiting list, and the answer says what is
+   * waiting, so the window and `branch restore` can both say so.
+   */
+  restore(input: unknown, options: RestoreOptions = {}) {
+    const { held, ...result } = importBackup(this.db, input, options);
+    return { ...result, held: this.restoreHeld.merge(held) };
+  }
+  /** Rows from a restore waiting for the owner's yes (src/restore-held.ts). */
+  get restoreHeld(): RestoreHeld {
+    return (this.restoreHeldStore ??= new RestoreHeld(this));
+  }
   /** Skill failure patterns, exclusions, demotion, benchmarks and drafts for this owner. */
   get governance(): SkillGovernance {
     return (this.governanceStore ??= new SkillGovernance(this, "local"));

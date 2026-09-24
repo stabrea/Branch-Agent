@@ -875,6 +875,7 @@ export const ROUTES = {
   "/api/request-rates": "look",
   "/api/research": "look",
   "/api/restore": "owner POST",
+  "/api/restore/held": "owner GET,POST", // Q168 B: rows a restore holds for the owner's yes
   "/api/retention": "owner POST",
   "/api/retention/prune": "owner POST",
   "/api/retrieval": "owner POST",

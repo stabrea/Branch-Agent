@@ -66,15 +66,16 @@ export function parseBackupArchive(input: unknown): BackupArchive {
  * a passkey the owner took away came back with an older backup, and one planted in a changed file let its holder sign in
  * as a person here (Mac mini 6534228). The people's passkeys, whether they may sign in from elsewhere, OIDC sign-ins
  * waiting, which steps a phone must pass, and the paired devices' secret fingerprints.
- * Also everyone and everything else paired with this computer (NAS review of #186): the devices it lends itself to,
- * with their keys (`devices-book`), which chat senders may reach the assistant (`sender-allowlist`, each approved
- * `channel-pair:<chat>:<sender>`), and the other Branch installs it sends work to with their keys (`remote-agent:<id>`).
- * An older backup must not let a disconnected sender or a revoked device back in, nor a changed one plant them.
+ * Also everything else paired with this computer (NAS review of #186): the devices it lends itself to, with their
+ * keys (`devices-book`), and the other Branch installs it sends work to with their keys (`remote-agent:<id>`). An
+ * older backup must not let a revoked device back in, nor a changed one plant one. Which chat senders may reach the
+ * assistant (`sender-allowlist`, each `channel-pair:<chat>:<sender>`) travel, but a restore holds them for the
+ * owner's yes (Q168 B, `heldSettings` below), and this computer's own stay until the owner answers.
  */
 export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth",
-  "remote-devices", "devices-book", "sender-allowlist"];
-/** Settings kept on this computer by the start of their id: one row per paired chat sender, or per other install. */
-export const signInPrefixes: readonly string[] = ["channel-pair:", "remote-agent:"];
+  "remote-devices", "devices-book"];
+/** Settings kept on this computer by the start of their id: one row per other install. */
+export const signInPrefixes: readonly string[] = ["remote-agent:"];
 /**
  * What else is about this computer and whom it trusts, not about the owner's work (Q168 A), so it stays here
  * too: which workspaces' integration files are trusted to load, and which copies of a trusted folder share its
@@ -88,12 +89,27 @@ export const thisComputerSettings: readonly string[] = [
   "folder_trust", "folder_trust_mode", "folder-trust-real", "folder-trust-copies", "remote-agent-pairing", "remote-computers",
   "secret-commands", "keychain-entries", "reach-remote-trunks-keys",
 ];
+/** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
+export const restoreHeldKey = "restore-held";
 /**
  * Whether a settings row stays on this computer: never in a backup, never taken from one, and kept by a replacing
  * restore. One test for all three, so what a backup leaves out and what a replace keeps can never drift apart.
  */
 export const staysOnThisComputer = (id: string): boolean =>
-  signInSettings.includes(id) || thisComputerSettings.includes(id) || signInPrefixes.some((start) => id.startsWith(start));
+  signInSettings.includes(id) || thisComputerSettings.includes(id) || signInPrefixes.some((start) => id.startsWith(start))
+  || id === restoreHeldKey;
+/**
+ * The owner's own preferences that say where their words go or who gets in (Q168 B): the model accounts and
+ * connections, approved chat senders and the allow list, who may view or drive the owner's conversations, each
+ * person's role, and the approval rules. They are worth bringing back, so a backup carries them, but a restore
+ * never puts one in place by itself: it holds it for the owner's yes, row by row, and this computer's own stays
+ * until then. One that is the same as this computer's is not held at all (a restore point minutes old).
+ */
+export const heldSettings: readonly string[] = ["accounts", "model-connections", "sender-allowlist", "people-shares", "people-groups", "policy"];
+const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:"];
+export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
+/** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
+export interface HeldRow { owner: string; id: string; data: string }
 const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));
 
 /**
@@ -147,17 +163,20 @@ export interface RestoreOptions {
 }
 
 /** Inserts every row of the archive into a fresh install, in one transaction; unknown columns are refused. */
-export function importBackup(db: DatabaseSync, input: unknown, options: RestoreOptions = {}): { tables: number; rows: number } {
+export function importBackup(db: DatabaseSync, input: unknown, options: RestoreOptions = {}): { tables: number; rows: number; held: HeldRow[] } {
   const archive = parseBackupArchive(input);
   if (!options.replaceExisting && hasState(db)) throw new Error("This copy already has conversations, memory or skills. Restore into a fresh install (empty data folder) instead.");
   let tables = 0, rows = 0;
+  const held: HeldRow[] = [];
   db.exec("BEGIN");
   try {
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
           if (table === "settings") {
-            const kept = (db.prepare("SELECT DISTINCT id FROM settings").all() as { id: string }[]).map((row) => row.id).filter(staysOnThisComputer);
+            // What stays on this computer stays, and so does this computer's value of anything held for the owner's yes.
+            const kept = (db.prepare("SELECT DISTINCT id FROM settings").all() as { id: string }[]).map((row) => row.id)
+              .filter((id) => staysOnThisComputer(id) || heldForTheOwner(id));
             db.prepare(`DELETE FROM settings WHERE id NOT IN (${kept.map(() => "?").join(",")})`).run(...kept);
           }
           else db.exec(`DELETE FROM ${table}`);
@@ -170,6 +189,11 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       tables++;
       for (const given of list) {
         if (staysHere(table, given)) continue;
+        if (table === "settings" && heldForTheOwner(String(given.id))) {
+          const here = db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(String(given.owner), String(given.id)) as { data: string } | undefined;
+          if (here?.data !== given.data) held.push({ owner: String(given.owner), id: String(given.id), data: String(given.data) });
+          continue;
+        }
         const row = disarmed(table, given);
         if (!row) continue;
         const keys = Object.keys(row).filter((k) => columns.has(k));
@@ -184,7 +208,7 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
   dropIndex(db);
-  return { tables, rows };
+  return { tables, rows, held };
 }
 
 /**
