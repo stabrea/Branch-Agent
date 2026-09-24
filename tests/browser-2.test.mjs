@@ -64,6 +64,8 @@ const routes = {
   // Links the window never sees clicked: one never put in the document, and one inside a closed shadow root.
   '/opens-detached': page(`<script>const a=document.createElement("a");a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.rel="noopener";a.click();</script>`),
   '/opens-shadow': page(`<div id="h"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="x";a.dispatchEvent(new MouseEvent("click",{bubbles:true,composed:true}));</script>`),
+  // A link filling a closed shadow root, clicked for real by pressing its host.
+  '/opens-shadow-click': page(`<div id="h" style="display:block;width:160px;height:48px"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="Open";a.style.cssText="display:block;width:160px;height:48px";</script>`),
   // A page that goes round the worker block: the prototype's own method, and deleting the page's copy.
   '/worker-around': page(`<script>const to=new URLSearchParams(location.search).get("to");const go=async (register)=>{try{await register();await navigator.serviceWorker.ready;const sw=(await navigator.serviceWorker.getRegistration()).active;if(sw)sw.postMessage(to);}catch{}};go(()=>ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker,"/worker.js"));try{delete navigator.serviceWorker.register;}catch{}go(()=>navigator.serviceWorker.register("/worker.js"));try{new SharedWorker("/worker.js");}catch{}</script>`),
   // A page showing whatever the query string names in a frame.
@@ -327,6 +329,12 @@ test("in the owner's own browser, a tab Branch opens reaches nothing and is not 
       assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1, `and ${where} left no tab behind`);
       assert.equal(opened, 0, `${where} opened in Branch's own tab, not a new one`);
     }
+    // A real click (the assistant pressing it) on a link inside a closed shadow root: the window sees only the host.
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/opens-shadow-click?to=${encodeURIComponent(elsewhere)}`}, context);
+    await h.registry.execute('browser.act', {action: 'click', selector: '#h', name: 'Open'}, context).catch(() => undefined);
+    await new Promise(resolve => { setTimeout(resolve, 2500); });
+    assert.equal(forbiddenHits, 0, 'nor by a link clicked inside a closed shadow root');
+    assert.equal(opened, 0, "that link opened in Branch's own tab, not a new one");
     await h.registry.execute('browser.navigate',
       {url: `${h.origin}/worker-around?to=${encodeURIComponent(`${elsewhere}/from-worker`)}`}, context);
     await new Promise(resolve => { setTimeout(resolve, 4000); });
