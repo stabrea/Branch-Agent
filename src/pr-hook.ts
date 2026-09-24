@@ -13,6 +13,13 @@ import type { WorkspaceFiles } from "./files.js";
 import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { pushRefusal } from "./self-development-contract.js"; // Q12
 
+// The branch a pull request asks to join, for the saved setting and the tool alike. A tool's pattern
+// is sent to the model, and the ChatGPT endpoint refuses the whole request when one holds a lookahead
+// (see `branchName` in integrations/git-tools.ts). So the pattern says what each character may be,
+// with no dash first, and "no .." is a check beside it.
+const baseBranch = z.string().regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]{0,99}$/)
+  .refine((value) => !value.includes(".."), "No .. in a branch name");
+
 /**
  * Opening a pull request from a task's changes (A0300, after SWE-agent's "open PR" hook).
  *
@@ -35,7 +42,7 @@ export const PullRequestHookSettingsSchema = z.object({
   mode: FeatureModeSchema.default("off"),
   remote: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,39}$/).default("origin"),
   /** The branch the pull request asks to join; the remote's own default when not given. */
-  base: z.string().regex(/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/).optional(),
+  base: baseBranch.optional(),
 }).strict();
 export type PullRequestHookSettings = z.infer<typeof PullRequestHookSettingsSchema>;
 const KEY = "pull-request-hook";
@@ -269,9 +276,10 @@ export function registerPullRequestFromChanges(deps: PullRequestDeps): void {
       name: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,50}$/, "Use lowercase letters, digits, dots, dashes and underscores"),
       title: z.string().trim().min(1).max(200),
       summary: z.string().trim().min(1).max(8000),
-      paths: z.array(z.string().min(1).max(500).regex(/^(?!-)[^\\:\0]+$/)).max(200).optional(),
+      // No dash first, and no backslash, colon or NUL: the git tools' own file path pattern.
+      paths: z.array(z.string().min(1).max(500).regex(/^[^\\:\0-][^\\:\0]*$/)).max(200).optional(),
       targetRepository: z.string().regex(/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/).optional(),
-      base: z.string().regex(/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/).optional(),
+      base: baseBranch.optional(),
     }).strict(),
     target: (args) => `send changes to GitHub on branch/${String((args as { name?: unknown }).name ?? "")} and open a pull request`,
     execute: async (args, context: ToolContext) => {
