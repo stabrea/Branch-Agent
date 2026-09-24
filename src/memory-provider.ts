@@ -126,6 +126,7 @@ const parseMany = (value: unknown): MemoryRecord[] => z.array(RemoteRecordSchema
 
 export class RemoteMemoryBackend implements MemoryBackend {
   readonly name = "an outside memory service";
+  private writeChains = new Map<string, Promise<MemoryRecord>>(); // (owner,id) -> write chain
   constructor(private readonly config: RemoteMemoryConfig) {}
   private base(): string { return this.config.url.replace(/\/+$/, ""); }
   private async request(method: string, path: string, body?: unknown): Promise<Response> {
@@ -156,37 +157,78 @@ export class RemoteMemoryBackend implements MemoryBackend {
       throw new Error(`The outside memory service could not be reached: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  private async readResponseWithBytesCap(response: Response, byteCap: number = 1024 * 1024): Promise<unknown> {
+    const reader = response.body?.getReader();
+    if (!reader) return response.json(); // Fallback if no body reader
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.length;
+        if (totalBytes > byteCap) {
+          throw new Error(`Response body exceeded ${byteCap} bytes limit`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.cancel();
+    }
+    const buffer = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return JSON.parse(new TextDecoder().decode(buffer));
+  }
   async read(owner: string, id: string): Promise<MemoryRecord | undefined> {
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`The outside memory service refused to read a fact (status ${response.status})`);
-    return mine(owner, parseOne(await response.json()), id);
+    return mine(owner, parseOne(await this.readResponseWithBytesCap(response)), id);
   }
   async list(owner: string): Promise<MemoryRecord[]> {
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}`);
     if (!response.ok) throw new Error(`The outside memory service refused to list facts (status ${response.status})`);
-    return parseMany(await response.json()).map((record) => mine(owner, record));
+    return parseMany(await this.readResponseWithBytesCap(response)).map((record) => mine(owner, record));
   }
   async write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> {
-    const checked = MemoryDataSchema.parse(data); // never sends anything off this computer unvalidated
-    const clean = redactLeaksIn(checked).value; // remove any accidental secrets before sending to the outside service
-    const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, clean);
-    if (!response.ok) throw new Error(`The outside memory service refused to save a fact (status ${response.status})`);
-    return mine(owner, parseOne(await response.json()), id);
+    const key = `${owner}:${id}`;
+    const doWrite = async (): Promise<MemoryRecord> => {
+      const checked = MemoryDataSchema.parse(data); // never sends anything off this computer unvalidated
+      const clean = redactLeaksIn(checked).value; // remove any accidental secrets before sending to the outside service
+      const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, clean);
+      if (!response.ok) throw new Error(`The outside memory service refused to save a fact (status ${response.status})`);
+      return mine(owner, parseOne(await this.readResponseWithBytesCap(response)), id);
+    };
+    // Serialize writes per fact id to prevent race conditions
+    const previousChain = this.writeChains.get(key) ?? Promise.resolve(undefined as unknown);
+    const newChain = previousChain.then(() => doWrite(), () => doWrite());
+    this.writeChains.set(key, newChain);
+    try {
+      return await newChain;
+    } finally {
+      // Clean up the chain once it settles
+      if (this.writeChains.get(key) === newChain) {
+        this.writeChains.delete(key);
+      }
+    }
   }
   async search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> {
     // Redact any secrets from the search query before sending to the outside service
     const { value: cleanQuery } = redactLeaksIn(query);
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/search?q=${encodeURIComponent(cleanQuery)}`);
     if (!response.ok) throw new Error(`The outside memory service refused to search facts (status ${response.status})`);
-    const records = parseMany(await response.json()).map((record) => mine(owner, record));
+    const records = parseMany(await this.readResponseWithBytesCap(response)).map((record) => mine(owner, record));
     return records.filter((record) => visibleTo(record, agent));
   }
   async forget(owner: string, id: string): Promise<boolean> {
     const response = await this.request("DELETE", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
     if (response.status === 404) return false;
     if (!response.ok) throw new Error(`The outside memory service refused to forget a fact (status ${response.status})`);
-    const body = await response.json().catch(() => ({})) as { deleted?: boolean };
+    const body = await this.readResponseWithBytesCap(response).catch(() => ({})) as { deleted?: boolean };
     return body.deleted ?? true;
   }
   async count(owner: string): Promise<number> { return (await this.list(owner)).length; }

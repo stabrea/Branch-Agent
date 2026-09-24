@@ -453,3 +453,114 @@ test("search query is sent to the outside service through redactLeaksIn", async 
   assert.ok(searchRequest.search.includes("q="), "search request includes query parameter");
   assert.equal(results.length, 1, "search returned the fact");
 });
+
+test("concurrent writes to the same fact are serialized; the final state is the last write", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Set up the double to delay the first write to simulate the race condition
+  let delayFirstWrite = false;
+  let delayPromise;
+  let delayResolve;
+  double.respond = (method, parts) => {
+    if (method === "PUT" && delayFirstWrite) {
+      delayFirstWrite = false; // Only delay once
+      delayPromise = new Promise((resolve) => { delayResolve = resolve; });
+      // Return undefined to let it fall through, but delay the actual response
+      return undefined;
+    }
+    return undefined;
+  };
+
+  // Trigger the first write
+  const firstPromise = app.registry.execute("memory.put", { text: "First update", source: "owner" }, context);
+  delayFirstWrite = true;
+
+  // Give the first write time to start
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  // Trigger the second write to the same fact (via update)
+  let firstId;
+  const secondPromise = firstPromise
+    .then((first) => {
+      firstId = first.id;
+      return app.registry.execute("memory.update", {
+        id: first.id,
+        text: "Second update",
+        source: "owner",
+        expectedRevision: first.revision,
+      }, context);
+    });
+
+  // Resolve the delay to let the first write complete
+  if (delayResolve) delayResolve();
+
+  // Wait for both writes
+  const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+  // Verify the final state on the service is the second update
+  const [serviceId] = double.byOwner.get("local").keys();
+  const serviceRecord = double.byOwner.get("local").get(serviceId);
+  assert.equal(serviceRecord.data.text, "Second update", "the final state on the service is the second update");
+  assert.equal(serviceRecord.revision, 2, "the revision incremented through both updates");
+
+  // Verify the order of requests on the service: PUT (first) then PUT (second)
+  const putRequests = double.requests.filter((r) => r.method === "PUT");
+  assert.equal(putRequests.length, 2, "both writes reached the service");
+  assert.equal(putRequests[0].body.text, "First update", "first PUT was for the first update");
+  assert.equal(putRequests[1].body.text, "Second update", "second PUT was for the second update");
+});
+
+test("response body exceeding byte cap is refused and does not hang", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Set up the double to stream a huge response without content-length
+  double.respond = (method, parts) => {
+    if (method === "PUT") {
+      // Return a special marker that the test handler will use
+      return [200, { _stream_huge: true }];
+    }
+    return undefined;
+  };
+
+  // Patch the server to actually stream a huge body
+  const originalWrite = double.server.close.bind(double.server);
+  let serverPatched = false;
+  const originalHandler = double.server.listeners("request")[0];
+  if (!serverPatched) {
+    serverPatched = true;
+    double.server.removeAllListeners("request");
+    double.server.on("request", async (request, response) => {
+      const url = new URL(request.url, "http://x");
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (request.method === "PUT" && parts[0] === "memory" && parts[2]) {
+        // Stream 2 MiB without content-length to trigger the byte cap
+        response.writeHead(200, { "content-type": "application/json" });
+        const chunkSize = 64 * 1024; // 64KB chunks
+        const chunks = Math.ceil((2 * 1024 * 1024) / chunkSize); // 2 MiB total
+        for (let i = 0; i < chunks; i++) {
+          const chunk = JSON.stringify({ id: "test", owner: parts[1], data: { text: "x".repeat(chunkSize) }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
+          response.write(chunk.substring(0, chunkSize));
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+        response.end();
+      } else {
+        return originalHandler(request, response);
+      }
+    });
+  }
+
+  // Attempt a write; it should fail with byte cap exceeded
+  await assert.rejects(
+    () => app.registry.execute("memory.put", { text: "Should fail due to size", source: "owner" }, context),
+    /exceeded|byte|size|large/i,
+    "the write is refused due to response size",
+  );
+});
