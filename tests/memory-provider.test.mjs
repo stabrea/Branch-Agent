@@ -705,18 +705,22 @@ test("(d) two concurrent memory.update calls with expectedRevision 1 give one su
   assert.equal(saved.revision, 1);
   const factId = saved.id;
 
-  // Add a delay to first GET to allow both updates to start before serialization kicks in
+  // Mark where updates' requests start (after the setup PUT)
+  const mark = double.requests.length;
+
+  // Delay the first GET response to test concurrent update serialization
   let getRequestCount = 0;
   const origHandler = double.server.listeners("request")[0];
   double.server.removeAllListeners("request");
-  double.server.on("request", async (request, response) => {
+  double.server.on("request", (request, response) => {
     const url = new URL(request.url, "http://x");
     const parts = url.pathname.split("/").filter(Boolean);
     if (request.method === "GET" && parts.length === 3 && parts[2] !== "search") {
       getRequestCount++;
       if (getRequestCount === 1) {
-        // Delay the first GET to ensure both updates start
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Delay the response.end() of the first GET to ensure both updates read before either writes
+        const end = response.end.bind(response);
+        response.end = (...a) => { setTimeout(() => end(...a), 50); return response; };
       }
     }
     return origHandler(request, response);
@@ -741,10 +745,10 @@ test("(d) two concurrent memory.update calls with expectedRevision 1 give one su
 
   assert.match(rejected[0].reason.message, /changed since you opened it/, "rejection message is about revision mismatch");
 
-  // The service should have received exactly one PUT (the successful one)
-  const putRequests = double.requests.filter((r) => r.method === "PUT");
-  assert.equal(putRequests.length, 1, `only one PUT reached the service, got ${putRequests.length}`);
-  assert.match(putRequests[0].body.text, /Update [12]/, "the successful update was written");
+  // The service should have received exactly one PUT from the updates (not counting the setup)
+  const updateRequests = double.requests.slice(mark).filter((r) => r.method === "PUT");
+  assert.equal(updateRequests.length, 1, `only one PUT reached the service from updates, got ${updateRequests.length}`);
+  assert.match(updateRequests[0].body.text, /Update [12]/, "the successful update was written");
 });
 
 test("write redaction: ghp_ tokens in fact text are redacted before sending to outside service", async (t) => {
