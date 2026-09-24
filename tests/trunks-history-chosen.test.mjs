@@ -228,3 +228,24 @@ test("a Trunk seated again before its room is deleted keeps its side of the room
   asked.tree = side;
   assert.doesNotMatch(await use(ada, "tree it", "sessions.tree"), /REFUSED/, "and its shape");
 });
+
+test("a Trunk taken out of a room cannot bring its old side in with history.attach once the room is deleted, as its turn or its workflow step", async (t) => {
+  // history.attach (#159) reached a deleted room's side only through canAccessSession: while the room stands its
+  // sides are hidden, but once it is deleted the side is an ordinary conversation, and only the mark keeps Ada out.
+  const { app, ada, bo } = await setup(t);
+  on(app, "rooms");
+  const cy = app.trunks.create({ name: "Cy" });
+  await app.trunks.introduced();
+  const room = app.trunks.rooms.create({ name: "Bench", members: [ada.id, bo.id, cy.id] });
+  app.trunks.rooms.send(room.id, { text: "ROOMBEFORE7741 heronsgate plan" });
+  await app.trunks.rooms.settled(room.id);
+  const side = app.trunks.rooms.get(room.id).memberSessions[ada.id];
+  app.trunks.rooms.edit(room.id, { members: [bo.id, cy.id] }); // the owner takes Ada out
+  app.trunks.rooms.remove(room.id); // and later deletes the room
+  // The control: the side is an ordinary conversation now, and the owner brings it in.
+  assert.match(await as(app, {}, "history.attach", { conversation: side }), /^GAVE .*ROOMBEFORE7741/);
+  for (const who of [{ agent: trunkAgent(ada.id) }, { trunk: ada.id }]) {
+    assert.match(await as(app, who, "history.attach", { conversation: side }), /^REFUSED There is no conversation of yours/, JSON.stringify(who));
+    assert.match(await as(app, who, "history.attach", { conversation: "heronsgate" }), /^REFUSED No other conversation mentions/, JSON.stringify(who));
+  }
+});
