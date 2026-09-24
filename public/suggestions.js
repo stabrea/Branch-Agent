@@ -48,13 +48,13 @@ function barFor(id) {
   bar.setAttribute("role", "region");
   bar.setAttribute("aria-label", t(spec.words));
   bar.dataset.tLabel = spec.words;
-  /* The KeepOak mark, the light one on a dark theme and the dark one in Daylight (style.css swaps them). */
-  const marks = [["oak-reversed", "/assets/keepoak-mark-reversed.png"], ["oak-normal", "/assets/keepoak-mark.png"]].map(([kind, src]) => {
-    const mark = el("img", undefined, `suggest-mark ${kind}`);
-    mark.src = src;
+  /* Branch Agent itself recommends it: its mascot, on every theme. */
+  const marks = [(() => {
+    const mark = el("img", undefined, "suggest-mark mascot-mark");
+    mark.src = "/assets/mascot-128.png";
     mark.alt = "";
     return mark;
-  });
+  })()];
   const words = el("span", undefined, "suggest-words");
   words.append(worded("span", spec.words), document.createTextNode(" "), worded("b", "suggest.recommended"), worded("small", spec.why));
   const close = () => { bar.remove(); $("prompt")?.focus(); };

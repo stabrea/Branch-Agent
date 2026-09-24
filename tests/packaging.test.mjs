@@ -2,13 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assetNameFor, checksumLine, finishMac, includedInApp, signingRequired, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
+  assetNameFor, checksumLine, finishMac, includedInApp, signingRequired, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons, PACKAGE_ICON, macIconPlan,
 } from "../scripts/package-desktop.mjs";
+import { ICO_OUTPUT, ICO_SIZES, icoFrom, runningAsProgram } from "../scripts/prepare-icon.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
 import { builtOutputs, missingOutputs, pathInTarball } from "../scripts/pack-cli.mjs";
@@ -68,7 +70,7 @@ test("macOS options carry the bundle id, the icon and the permission sentences",
 });
 
 test("Linux options name the program without a space", () => {
-  const options = packagerOptions("linux", "x64", "public/assets/keepoak-mark.png");
+  const options = packagerOptions("linux", "x64", PACKAGE_ICON);
   assert.equal(options.platform, "linux");
   assert.equal(options.executableName, "branch-agent");
   assert.throws(() => linux.linuxAssetName("arm64"), /no Linux download/);
@@ -231,10 +233,16 @@ test("a real .icns is made with sips and iconutil", { skip: process.platform !==
   t.after(() => discardTemp(root));
   const iconset = join(root, "k.iconset");
   await mkdir(iconset);
-  for (const [file, ...args] of mac.iconPlan("public/assets/keepoak-mark.png", iconset, join(root, "k.icns")))
+  for (const [file, ...args] of mac.iconPlan(PACKAGE_ICON, iconset, join(root, "k.icns")))
     execFileSync(file, args, { stdio: "ignore" });
   const bytes = await readFile(join(root, "k.icns"));
   assert.equal(bytes.subarray(0, 4).toString("latin1"), "icns");
+  /* And it is the mascot inside, not only a well-formed file: the dock never takes its icon from the
+     window, so this file is the whole of what an installed Branch shows there. */
+  execFileSync("iconutil", ["-c", "iconset", join(root, "k.icns"), "-o", join(root, "back.iconset")], { stdio: "ignore" });
+  const drawn = readPng(await readFile(join(root, "back.iconset", "icon_256x256.png")));
+  assert.equal(drawn.width, 256);
+  await isTheMascot(drawn, "the macOS .icns at 256");
 });
 
 /**
@@ -340,6 +348,7 @@ test("the packager really writes every icon size into the Linux download, under 
     const drawn = readPng(await readFile(file));
     assert.equal(drawn.width, size);
     assert.ok(drawn.data.some((byte) => byte !== 0), `${file} is really the mark, not an empty square`);
+    await isTheMascot(drawn, file);
   }
 });
 
@@ -440,4 +449,149 @@ test("a version tag cannot build or publish until fail-closed CI passed for that
   assert.match(job("android"), /needs: release-gate/);
   assert.match(job("build"), /needs: \[release-gate, android\]/);
   assert.match(job("publish"), /needs: \[release-gate, build\]/);
+});
+
+
+/* ---------- mac7/app-icon: the icon an installed Branch actually shows ---------- */
+
+/** How far apart two same-sized pictures are, 0 being the same picture. */
+function apart(one, other) {
+  let total = 0;
+  for (let at = 0; at < one.data.length; at++) total += Math.abs(one.data[at] - other.data[at]);
+  return total / one.data.length;
+}
+
+/** The mascot and the mark it replaces, both at `size`, to say which a drawn icon really is. */
+async function marks(size) {
+  const [mascot, old] = await Promise.all([readFile(PACKAGE_ICON), readFile("public/assets/keepoak-mark.png")]);
+  return { mascot: scale(readPng(mascot), size), old: scale(readPng(old), size) };
+}
+
+/** Fails when `drawn` is the old KeepOak mark rather than the mascot. */
+async function isTheMascot(drawn, where) {
+  const { mascot, old } = await marks(drawn.width);
+  const toMascot = apart(drawn, mascot), toOld = apart(drawn, old);
+  assert.ok(toMascot < toOld, `${where} is still the old mark (${toMascot.toFixed(1)} from the mascot, ${toOld.toFixed(1)} from the mark)`);
+}
+
+test("every installed icon is made from the one approved mascot, so the three platforms cannot drift apart", async () => {
+  assert.ok(existsSync(PACKAGE_ICON), `${PACKAGE_ICON} is not in the repository`);
+  const source = readPng(await readFile(PACKAGE_ICON));
+  assert.ok(source.width >= 1024, `the source is ${source.width} wide; a Retina dock asks for 1024`);
+  assert.equal(source.width, source.height, "an app icon is square");
+  await isTheMascot(scale(source, 256), PACKAGE_ICON);
+  /* Each platform names the same file, read from what the build really runs rather than from a call
+     the test makes up: the macOS iconset commands, the Linux packager and the Windows .ico. */
+  const plan = macIconPlan();
+  const sips = plan.commands.filter(([tool]) => tool === "sips");
+  assert.ok(sips.length >= 10, "every size a Mac asks for");
+  for (const command of sips) assert.equal(command[4], PACKAGE_ICON, "a Mac icon size is drawn from something else");
+  assert.equal(packagerOptions("linux", "x64", PACKAGE_ICON).icon, PACKAGE_ICON);
+
+  /* And the old mark is named nowhere in the packaging, so no platform can quietly keep it. */
+  const script = await readFile("scripts/package-desktop.mjs", "utf8");
+  assert.doesNotMatch(script, /keepoak-mark/, "the packaging still reaches for the old mark somewhere");
+  const windows = await readFile("scripts/prepare-icon.mjs", "utf8");
+  assert.doesNotMatch(windows, /keepoak-mark/, "the Windows icon still reaches for the old mark");
+});
+
+test("the Windows icon holds every size Windows draws, and every one of them is the mascot", async () => {
+  const ico = icoFrom(readPng(await readFile(PACKAGE_ICON)));
+  assert.equal(ico.readUInt16LE(0), 0);
+  assert.equal(ico.readUInt16LE(2), 1, "an icon, not a cursor");
+  assert.equal(ico.readUInt16LE(4), ICO_SIZES.length, "one entry per size");
+  /* One 256 image is what shipped before: the Start menu, the taskbar and a file listing each ask
+     for a different size, and Windows shrinking one big picture is where a blurry icon comes from. */
+  assert.ok(ICO_SIZES.includes(16) && ICO_SIZES.includes(32) && ICO_SIZES.includes(256), "the sizes Windows really asks for");
+  for (const [index, size] of ICO_SIZES.entries()) {
+    const entry = 6 + index * 16;
+    assert.equal(ico[entry] || 256, size, `entry ${index} says the wrong width`);
+    assert.equal(ico[entry + 1] || 256, size, `entry ${index} says the wrong height`);
+    assert.equal(ico.readUInt16LE(entry + 6), 32, "with its alpha kept");
+    const at = ico.readUInt32LE(entry + 12), length = ico.readUInt32LE(entry + 8);
+    assert.ok(at + length <= ico.length, `entry ${index} points past the end of the file`);
+    const drawn = readPng(ico.subarray(at, at + length));
+    assert.equal(drawn.width, size, `entry ${index} holds a picture of the wrong size`);
+    await isTheMascot(drawn, `the Windows icon at ${size}`);
+  }
+});
+
+
+/*
+ * Codex review of `6c062291`: the Windows icon was never built, and every test I had written missed it.
+ *
+ * The entry guard compared `import.meta.url` with `file://` + `process.argv[1]`. On Windows the first
+ * is `file:///C:/...` and the second makes `file://C:\...`: no slash before the drive letter and
+ * backslashes throughout, so they can never be equal. The build ran the script, matched nothing, did
+ * nothing, exited 0, and the packager shipped no Windows application icon at all.
+ *
+ * Six mutations passed over that without noticing, because every one of them called icoFrom directly
+ * and not one of them ran the program. These three do.
+ */
+test("the Windows icon script knows when it is the program, by conversion and not by gluing strings", async () => {
+  const here = join(import.meta.dirname, "..", "scripts", "prepare-icon.mjs");
+  assert.equal(runningAsProgram(pathToFileURL(here).href, here), true, "its own path is recognised");
+  assert.equal(runningAsProgram(pathToFileURL(here).href, join(import.meta.dirname, "other.mjs")), false,
+    "another file being run is not this one");
+  assert.equal(runningAsProgram(pathToFileURL(here).href, undefined), false, "and no program at all is not this one");
+
+  /* The bug itself cannot be run on a Mac -- only Windows produces a `C:\` argv -- so the shape is
+     held instead: the comparison must go through pathToFileURL, which knows about drive letters and
+     separators, and must never be built by gluing `file://` onto a path. */
+  const source = await readFile(here, "utf8");
+  assert.match(source, /url === pathToFileURL\(resolve\(argv1\)\)\.href/,
+    "the entry guard must compare a converted path; gluing file:// onto argv[1] is the bug this replaced");
+});
+
+test("running the Windows icon script as a program really writes an icon, and it has its alpha", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-ico-"));
+  t.after(() => discardTemp(root));
+  const into = join(root, "keepoak.ico");
+  assert.equal(existsSync(into), false, "the directory starts clean, so a stale file cannot pass for a new one");
+
+  const ran = spawnSync(process.execPath, [join("scripts", "prepare-icon.mjs"), into],
+    { cwd: join(import.meta.dirname, ".."), encoding: "utf8" });
+  assert.equal(ran.status, 0, `the script failed: ${ran.stderr || ran.stdout}`);
+  assert.equal(existsSync(into), true, "the script reported success and wrote nothing, which is the whole bug");
+
+  const ico = await readFile(into);
+  assert.equal(ico.readUInt16LE(4), ICO_SIZES.length, "every size Windows asks for");
+  let transparent = 0;
+  for (const [index, size] of ICO_SIZES.entries()) {
+    const entry = 6 + index * 16;
+    const drawn = readPng(ico.subarray(ico.readUInt32LE(entry + 12), ico.readUInt32LE(entry + 12) + ico.readUInt32LE(entry + 8)));
+    assert.equal(drawn.width, size);
+    // A square icon with no transparent corner is a square icon: the mascot has to keep its alpha or
+    // Windows draws it on a white tile.
+    const corner = drawn.data[3];
+    if (corner < 8) transparent += 1;
+  }
+  assert.equal(transparent, ICO_SIZES.length, "every size kept its transparent corner");
+  assert.match(ran.stdout, /keepoak\.ico from/, "and it says what it made and from what");
+});
+
+test("the Windows icon script refuses to report success when it could not write the file", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-ico-shut-"));
+  t.after(() => discardTemp(root));
+  // A file where a directory would have to be: writing inside it cannot work.
+  const blocker = join(root, "blocker");
+  await writeFile(blocker, "not a directory", "utf8");
+  const ran = spawnSync(process.execPath, [join("scripts", "prepare-icon.mjs"), join(blocker, "keepoak.ico")],
+    { cwd: join(import.meta.dirname, ".."), encoding: "utf8" });
+  assert.notEqual(ran.status, 0, "a build that cannot write the icon must not exit 0");
+  assert.equal(existsSync(join(blocker, "keepoak.ico")), false);
+});
+
+/* The readback is its own claim: a write can succeed and still leave nothing behind. /dev/null takes
+   every byte and keeps none, which is exactly that case and needs no trickery to arrange. */
+test("a write that succeeds and keeps nothing is still a failure", { skip: process.platform === "win32" }, () => {
+  const ran = spawnSync(process.execPath, [join("scripts", "prepare-icon.mjs"), "/dev/null"],
+    { cwd: join(import.meta.dirname, ".."), encoding: "utf8" });
+  assert.notEqual(ran.status, 0, "the bytes went nowhere and the build was told everything was fine");
+  assert.match(ran.stderr, /was not written|bytes, expected/, ran.stderr || ran.stdout);
+});
+
+test("the packager asks for the icon at the path the installer later reads", () => {
+  assert.equal(ICO_OUTPUT, "public/assets/keepoak.ico");
+  assert.equal(packagerOptions("win32", "x64").icon, ICO_OUTPUT, "the packager and the script must name one file");
 });

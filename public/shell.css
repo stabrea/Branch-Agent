@@ -1617,6 +1617,7 @@ details.tool-step > summary:hover {
 .profile-badge button {
   padding: 2px var(--s2);
   font-size: 12px;
+}
 
 /* A conversation with a task at work, in Recents (public/shell.js railItem). */
 .rail-line[data-running] .rail-item {
@@ -1640,4 +1641,34 @@ details.tool-step > summary:hover {
   height: 6px;
   border-radius: 50%;
   background: var(--copper);
+}
+
+/* ---------- Branch Agent's mascot ---------- */
+/* One image on every theme: it is coloured and its background is clear. */
+.brand-icon .mascot-mark, .strip-brand .mascot-mark { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* The greeting's own line: the mascot says it, and the welcome keeps its height. */
+.welcome-head { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.welcome-head h2 { margin: 0; }
+/* A spacer as wide as the mascot, so the question stays centred over the box (the approved look). */
+.welcome-head::after { content: ""; flex: none; width: 42px; }
+.welcome-mascot {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  filter: drop-shadow(0 0 18px var(--copper-tint));
+  animation: mascot-breathe 6s ease-in-out infinite;
+}
+/* While Branch works, its lanterns glow. */
+body.branch-working .brand-icon .mascot-mark,
+body.branch-working .strip-brand .mascot-mark { animation: mascot-lanterns 2.4s ease-in-out infinite; }
+@keyframes mascot-lanterns {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 7px var(--copper-hi)); }
+}
+@keyframes mascot-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-mascot, body.branch-working .brand-icon .mascot-mark, body.branch-working .strip-brand .mascot-mark { animation: none; }
 }

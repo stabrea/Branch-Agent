@@ -32,7 +32,7 @@
     <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
     <link rel="stylesheet" href="/topic-panes.css" /><!-- FQ-surfaces.panes: compare topics side by side -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/favicon-64.png" type="image/png" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   </head>
   <body>
@@ -255,7 +255,10 @@
             <div id="live-ask-slot"></div>
           </div>
           <div class="welcome">
-            <h2 id="greeting">What do you want done?</h2>
+            <div class="welcome-head">
+              <img class="welcome-mascot" src="/assets/mascot-128.png" alt="" aria-hidden="true" />
+              <h2 id="greeting">What do you want done?</h2>
+            </div>
             <p>Ask for anything, or start from one of these.</p>
             <div class="chips" id="suggestions">
               <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
@@ -1379,7 +1382,7 @@
             <h4 class="sr-only" data-t="settings.card.updates">Updates</h4>
             <p class="subtle" data-t="updates.source">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
             <div class="updates-brand">
-              <img src="/assets/icon.svg" alt="" width="56" height="56" />
+              <img src="/assets/mascot-128.png" alt="" width="56" height="56" />
               <div><b>Branch Agent</b><span class="subtle" data-t="updates.brand.line">A personal assistant that runs on your own computer · open source</span></div>
             </div>
             <div class="updates-now">

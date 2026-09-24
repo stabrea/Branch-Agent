@@ -1641,6 +1641,7 @@ $("followup-send").addEventListener("click", async () => {
 });
 function setConversationBusy(busy) {
   conversationBusy = busy;
+  document.body.classList.toggle("branch-working", busy); // the mascot's lanterns glow while it works
   $("send").disabled = busy;
   $("followup-send").hidden = !(busy && sessionId);
   // A follow-up message carries words only, so pictures cannot be attached while a task is working.
