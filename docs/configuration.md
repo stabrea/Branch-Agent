@@ -3744,6 +3744,24 @@ off unless the owner turns it on, and the owner or repository maintainer decides
 merged. Repeating setup for the same change reuses the isolated copy instead of opening terminals
 or creating more copies.
 
+**Asking for a change to Branch from a chat.** A chat app cannot prove who is typing, so a chat can
+only ask. `/improve <what to change>` files a request that holds the words exactly as they were sent,
+and who sent them, from which app and chat. It is a chat command, so it follows the chat apps'
+commands switch and the commands switch. Filing starts no task, writes no contract and runs no Git.
+At most 20 requests wait at once, and one longer than 4000 characters is refused rather than cut.
+Only the owner answers, in the Branch app:
+- `GET /api/self-development/requests` lists them.
+- `POST /api/self-development/requests/:id/approve` takes the same `name`, `repository`, `base` and
+  `contract` as `branch.prepare_source_change` and prepares the change exactly as that tool does:
+  the contract is written first, then the worktree is made at the contract's commit. It is refused
+  while remote Git is off, and a yes that fails leaves the request waiting, with the reason.
+- `POST /api/self-development/requests/:id/decline` closes the request.
+
+A chat's reply, a pressed button and `/improve approve` never answer a request. Short-lived keys and
+household persons are refused at all three routes, and nothing inside a task (a Trunk's turn, another
+program's tool call) can read, file or answer a request. Asserted in
+`tests/self-development-requests.test.mjs`.
+
 Integration review (mac4/bucket-18): each file goes through the same checks as the assistant's own
 file tools before it is sent: secret-looking names (`.env`, keys), anything `.branchignore` hides,
 links, folders and Branch's own saved work and keys are left out. Names are taken literally (`*` is

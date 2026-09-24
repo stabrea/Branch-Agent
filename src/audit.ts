@@ -39,6 +39,9 @@ export const auditActions = [
   // Q12: Branch changing its own source stepped outside its written contract and was refused, or
   // the owner widened that contract (src/self-development-contract.ts).
   "self_development.contract",
+  // Somebody in a chat asked for a change to Branch itself, or the owner answered that request
+  // (src/self-development-requests.ts). Only the owner's yes writes a contract.
+  "self_development.request",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -113,6 +116,7 @@ const actionLabels: Record<AuditAction, string> = {
   "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
   "data.imported": "Chats, memory or settings were brought in from another assistant",
   "self_development.contract": "Branch changing its own source was held to its contract, or the contract was widened",
+  "self_development.request": "Somebody in a chat asked for a change to Branch itself, or you answered that request",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

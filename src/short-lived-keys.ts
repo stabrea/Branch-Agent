@@ -165,6 +165,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/search$/,
   // Q64: a team's tasks from every source, with who asked, who holds each, questions put to the owner and answers.
   new RegExp(`^/api/teams/${id}/tasks$`),
+  // Requests from a chat to change Branch itself carry what people wrote and who they are
+  // (src/self-development-requests.ts); only the owner reads and answers them, in the app window.
+  /^\/api\/self-development\/requests$/,
 ];
 
 /**
