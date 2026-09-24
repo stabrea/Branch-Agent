@@ -567,7 +567,8 @@ function drawSearchKeys() {
   hint.textContent = keys;
   hint.hidden = !keys;
   const button = $("head-search");
-  if (keys) button.setAttribute("aria-keyshortcuts", keys.replace(/\bCtrl\b/g, "Control").replaceAll(" ", "+"));
+  // A screen reader is told the keys by their standard names: Command is "Meta" (public/comfort.js shows it as Cmd on a Mac).
+  if (keys) button.setAttribute("aria-keyshortcuts", keys.replace(/\bCtrl\b/g, "Control").replace(/\bCmd\b/g, "Meta").replaceAll(" ", "+"));
   else button.removeAttribute("aria-keyshortcuts");
 }
 $("cmd-open").addEventListener("click", () => openPalette());

@@ -54,7 +54,7 @@ async function settings(t) {
   errors.length = 0; // what failed before the key was given is the login page's business
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   /* Opened as a person opens it, not through the helper that also shows every card of the page. */
-  await page.keyboard.press("Control+Comma");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   return { page, errors };
 }

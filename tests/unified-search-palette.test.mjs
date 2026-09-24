@@ -61,7 +61,7 @@ async function fixture(t) {
 }
 
 async function searchFor(page, word) {
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   await page.locator("#cmd-input").waitFor({ state: "visible" });
   await page.locator("#cmd-input").fill(word);
 }
@@ -106,7 +106,7 @@ test("a one-letter query never reaches the remote search, but the full word does
   // The workflow and the audit entry are never in any local, already-loaded list — the only way
   // the palette can find either is a round trip to /api/search, so they are the clean signal for
   // whether that round trip happened yet.
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   await page.locator("#cmd-input").waitFor({ state: "visible" });
   await page.locator("#cmd-input").fill(word[0]);
   await page.waitForTimeout(300);

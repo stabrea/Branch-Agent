@@ -125,7 +125,7 @@ test("the calm window is the default: one box, Send, New conversation, Recents, 
 test("conversation history is built only when requested and closes with Escape", async (t) => {
   const f = await fixture(t, { onboarded: true, width: 390, height: 844 });
   assert.equal(await f.page.locator("#saved-conversations").count(), 0);
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").fill("Conversation history");
   await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
   const dialog = f.page.getByRole("dialog", { name: "Conversation history" });
@@ -134,7 +134,7 @@ test("conversation history is built only when requested and closes with Escape",
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await f.page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").fill("Conversation history");
   await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
   await dialog.waitFor({ state: "visible" });
@@ -654,9 +654,9 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   await f.page.keyboard.press("Escape");
   /* Ctrl+K opens the box and Ctrl+K closes it, and the keyboard goes back where it was. */
   await f.page.locator("#prompt").focus();
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "hidden" });
   assert.equal(await f.page.evaluate(() => document.activeElement.id), "prompt");
   /* The side panel asked for from More closes from the same row. */

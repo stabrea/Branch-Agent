@@ -35,7 +35,7 @@ async function dataPage(t) {
   errors.length = 0; // what failed before the key was given is the login page's business
   await page.locator("body.sg-ready").waitFor();
   /* Opened as a person opens it, not through the helper that shows every card of the page. */
-  await page.keyboard.press("Control+Comma");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   await page.locator('.lx-settings-link[data-page="data"]').click();
   await page.locator("#usage-left-card #usage-limits").waitFor({ state: "attached" });

@@ -43,7 +43,8 @@ test("the top bar has the sample's search box, and it opens the same finder as C
   const box = page.locator("header #head-search");
   assert.ok(await box.isVisible(), "a search box is in the top bar");
   assert.equal((await box.locator("span").textContent()).trim(), "Search", "its words are the sample's");
-  assert.equal((await box.locator("kbd").textContent()).trim(), "Ctrl K", "and it shows the keys that open it");
+  // The main key is Command on a Mac (public/comfort.js), and the hint says so.
+  assert.equal((await box.locator("kbd").textContent()).trim(), process.platform === "darwin" ? "Cmd K" : "Ctrl K", "and it shows the keys that open it");
   // The parts of the sample's box that do not depend on how a font is drawn on this computer. The
   // window's buttons are bold by default; the sample's search box is not.
   assert.deepEqual(await box.evaluate((element) => {
@@ -58,7 +59,7 @@ test("the top bar has the sample's search box, and it opens the same finder as C
   const byClick = await page.locator(".cmd-panel").getAttribute("aria-label");
   await closeFinder(page);
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   await page.locator("#cmd-input").waitFor({ state: "visible" });
   assert.equal(await page.locator(".cmd-panel").getAttribute("aria-label"), byClick, "Ctrl K opens that same finder");
   assert.equal(await page.locator(".cmd-panel").count(), 1, "one finder, not a second one for the box");
@@ -71,10 +72,12 @@ test("the key hint is the owner's own binding, and says nothing when there is no
   const box = page.locator("#head-search");
   saveComfort(app.store, "local", "keys", { palette: "Ctrl+Shift+F" });
   await page.evaluate(() => globalThis.branchComfort.refresh());
-  await page.waitForFunction(() => document.getElementById("head-search-keys").textContent === "Ctrl Shift F");
-  assert.equal(await box.getAttribute("aria-keyshortcuts"), "Control+Shift+F", "a screen reader hears the same keys");
+  // Stored keys say Ctrl for the main key, which is Command on a Mac (public/comfort.js).
+  const mac = process.platform === "darwin";
+  await page.waitForFunction((shown) => document.getElementById("head-search-keys").textContent === shown, mac ? "Cmd Shift F" : "Ctrl Shift F");
+  assert.equal(await box.getAttribute("aria-keyshortcuts"), mac ? "Meta+Shift+F" : "Control+Shift+F", "a screen reader hears the same keys");
 
-  await page.keyboard.press("Control+Shift+F");
+  await page.keyboard.press("ControlOrMeta+Shift+F");
   await page.locator("#cmd-input").waitFor({ state: "visible" });
   await closeFinder(page);
 
