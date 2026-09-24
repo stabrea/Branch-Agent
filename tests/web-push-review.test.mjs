@@ -1,6 +1,7 @@
 /**
  * FQ-surfaces.mobile-push, the review's findings: whose finished task may reach the owner's devices,
- * where the two Web Push secrets are kept (and that a backup never carries them), the address rule
+ * where the two Web Push secrets are kept (a backup never carries them, and no project may take the
+ * id of their locker project or of a ChatGPT account's), the address rule
  * held on every send with the settings every install starts with, what a lock screen shows, and
  * that an evaluation's own tasks are nobody's news.
  *
@@ -21,6 +22,7 @@ import { startServer } from "../dist/server.js";
 import { ecKeyToStored, generateEcKeyPair, toBase64Url } from "../dist/web-push-crypto.js";
 import { saveComfort } from "../dist/comfort/settings.js";
 import { asPerson } from "../dist/people/context.js";
+import { newAccountId, tokenProject } from "../dist/accounts/settings.js";
 
 const provider = () => ({ name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } });
 
@@ -132,6 +134,26 @@ test("the VAPID private key and a device's auth secret are kept in the locker, n
 
   const { VAPID_PRIVATE_KEY: d } = await app.store.locker.resolve(app.runtime.owner, "web-push", ["VAPID_PRIVATE_KEY"]);
   assert.ok(d && !backup.includes(d), "the private key is in the locker, and only there");
+});
+
+test("the push and ChatGPT account locker projects cannot be made projects, so no route reads or removes their secrets", async (t) => {
+  const { app, call } = await fixture(t);
+  const owner = app.runtime.owner, projects = app.store.projects;
+  const push = await fakePushService(t);
+  await subscribeReceiver(call, push);
+  assert.equal((await call("GET", "/api/push/vapid-key")).status, 200);
+  assert.equal(app.store.locker.exists(owner, "web-push", "VAPID_PRIVATE_KEY"), true, "the push key is kept in the web-push locker project");
+
+  for (const id of ["web-push", tokenProject("primary"), tokenProject(newAccountId())])
+    assert.throws(() => projects.save(owner, { id, name: "Mine" }), /kept for Branch/, `${id} must be refused like branch-safety`);
+  const made = await call("POST", "/api/projects", { id: "web-push", name: "Web push" });
+  assert.ok(made.status >= 400, `POST /api/projects web-push answered ${made.status}`);
+  assert.ok(!projects.list(owner).some((project) => project.id === "web-push"));
+
+  const removed = await call("POST", "/api/secrets/web-push/VAPID_PRIVATE_KEY/remove", {});
+  assert.equal(removed.status, 403, "the secrets card cannot remove Branch's push key");
+  assert.equal(app.store.locker.exists(owner, "web-push", "VAPID_PRIVATE_KEY"), true, "Branch's push key is still there");
+  assert.equal(projects.save(owner, { id: "web-push-app", name: "Only the exact ids are kept" }).id, "web-push-app");
 });
 
 test("secrets an older version left in settings rows move to the locker at start and still work", async (t) => {
