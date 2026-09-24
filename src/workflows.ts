@@ -231,6 +231,11 @@ export class Workflows {
     const waitingForYes = current.status === "waiting_approval"
       || (current.status === "paused" && current.pausedFrom === "waiting_approval");
     if (!waitingForYes) return this.run(owner, id, options.source ?? "owner", [], options.within);
+    // Q126 (NAS 65b7ab8): a yes that cannot be carried on is refused before it is written down, so the question
+    // stays asked and the step it was about is never recorded as approved.
+    const trunk = this.startedBy(owner, id);
+    const refused = trunk ? this.runtime.trunkWorkRefusal(trunk) : null;
+    if (refused) throw new Error(refused);
     const asked = this.pending(owner, id);
     if (asked) {
       this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);

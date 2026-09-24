@@ -605,3 +605,27 @@ test("Q122: a flow run of a Trunk that is gone is never copied, and at launch it
   assert.match(String(view.error), /no longer here/);
   assert.equal(second.store.sqlite.prepare("SELECT status FROM tasks WHERE id=?").get(stopped).status, "failed");
 });
+
+test("Q126: a yes to a workflow whose Trunk is gone is refused before it is written down: the question stays, nothing is marked approved", async (t) => {
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await madeBy(app, ada, { name: "later", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    () => app.workflows.run(app.runtime.owner, workflow.id));
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
+  app.trunks.remove(ada.id);
+  for (const time of ["first", "second"]) {
+    await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id), /no longer here/, `the ${time} yes`);
+    const view = app.workflows.view(app.runtime.owner, workflow.id);
+    assert.equal(view.status, "waiting_approval", `still waiting after the ${time} yes`);
+    assert.equal(view.question, "Carry on?", "the question is still asked");
+    assert.equal(view.cursor, 0);
+    assert.equal(view.state.some((step) => step.status === "approved"), false, "no step recorded as approved");
+  }
+});
