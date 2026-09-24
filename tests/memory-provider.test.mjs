@@ -1324,6 +1324,99 @@ test("a save Branch gave up on is never read back, even when the service applies
   assert.equal((await app.memory.backend.list("local")).some((r) => r.data.text === "Garage code is 4321"), false);
 });
 
+test("an accepted suggestion whose save Branch gave up on is never read back, even when the service applies it late", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
+  app.store.review.configure("local", { requireApproval: true });
+  const staged = await app.registry.execute("memory.put", { text: "Garage code is 4321", source: "owner" }, context);
+  assert.equal(staged.staged, true, "the fact waits for the owner as a suggestion");
+  // The service holds the save past Branch's 500 ms patience. It applies it at about 1.2 s, and only after it has
+  // answered Branch's delete of that fact (or after 3 s when no delete comes).
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let hold = true, deleteAnswered, appliedLate;
+  const deleted = new Promise((resolve) => { deleteAnswered = resolve; });
+  const late = new Promise((resolve) => { appliedLate = resolve; });
+  double.server.on("request", async (request, response) => {
+    if (request.method === "DELETE") { await answer(request, response); return deleteAnswered(); }
+    if (request.method !== "PUT" || !hold) return answer(request, response);
+    let raw = ""; for await (const chunk of request) raw += chunk; // read before Branch gives up on it
+    await Promise.all([wait(1200), Promise.race([deleted, wait(3000)])]);
+    const [, owner, id] = new URL(request.url, "http://x").pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const now = new Date().toISOString();
+    if (!double.byOwner.has(owner)) double.byOwner.set(owner, new Map());
+    double.byOwner.get(owner).set(id, { id, owner, data: JSON.parse(raw), createdAt: now, updatedAt: now, revision: 1 });
+    response.destroy(); // Branch is no longer listening
+    appliedLate(id);
+  });
+  await assert.rejects(() => app.store.review.decide("local", staged.proposalId, true), /timeout|could not be reached/i,
+    "accepting it reports that the save failed");
+  assert.equal(app.store.review.proposals("local", "all").find((p) => p.id === staged.proposalId)?.status, "pending", "the suggestion is still waiting");
+  const lateId = await late;
+  assert.equal(double.byOwner.get("local").get(lateId)?.data.text, "Garage code is 4321", "the service did keep the save it applied late");
+  const fresh = app.runtime.context();
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, fresh), [], "Branch does not find what it said was not saved");
+  assert.equal((await app.memory.backend.list("local")).some((r) => r.id === lateId), false, "nor lists it");
+  assert.equal(await app.memory.backend.read("local", lateId), undefined, "nor reads it by its id");
+  assert.ok(double.requests.some((r) => r.method === "DELETE" && r.path === `/memory/local/${lateId}`), "the service was asked to delete it");
+
+  // Accepted again while the service answers, the same suggestion is saved under a new id, kept and found.
+  hold = false;
+  const { applied } = await app.store.review.decide("local", staged.proposalId, true);
+  assert.notEqual(applied.id, lateId);
+  assert.deepEqual((await app.registry.execute("memory.search", { query: "Garage" }, app.runtime.context())).map((r) => r.id), [applied.id]);
+  assert.deepEqual((await app.memory.backend.list("local")).filter((r) => r.data.text === "Garage code is 4321").map((r) => r.id), [applied.id]);
+  assert.equal(app.store.review.proposals("local", "all").find((p) => p.id === staged.proposalId)?.status, "accepted");
+});
+
+test("an accepted suggestion whose save Branch gave up on is taken back from the service it went to, even after a switch to this computer", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
+  app.store.review.configure("local", { requireApproval: true });
+  const staged = await app.registry.execute("memory.put", { text: "Garage code is 4321", source: "owner" }, context);
+  assert.equal(staged.staged, true, "the fact waits for the owner as a suggestion");
+  // The service holds the save past Branch's 500 ms patience. It applies it at about 1.2 s, and only after it has
+  // answered Branch's delete of that fact (or after 3 s when no delete comes).
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let putArrived, deleteAnswered, appliedLate;
+  const arrived = new Promise((resolve) => { putArrived = resolve; });
+  const deleted = new Promise((resolve) => { deleteAnswered = resolve; });
+  const late = new Promise((resolve) => { appliedLate = resolve; });
+  double.server.on("request", async (request, response) => {
+    if (request.method === "DELETE") { await answer(request, response); return deleteAnswered(); }
+    if (request.method !== "PUT") return answer(request, response);
+    let raw = ""; for await (const chunk of request) raw += chunk; // read before Branch gives up on it
+    putArrived();
+    await Promise.all([wait(1200), Promise.race([deleted, wait(3000)])]);
+    const [, owner, id] = new URL(request.url, "http://x").pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const now = new Date().toISOString();
+    if (!double.byOwner.has(owner)) double.byOwner.set(owner, new Map());
+    double.byOwner.get(owner).set(id, { id, owner, data: JSON.parse(raw), createdAt: now, updatedAt: now, revision: 1 });
+    response.destroy(); // Branch is no longer listening
+    appliedLate(id);
+  });
+  const accepting = app.store.review.decide("local", staged.proposalId, true);
+  await arrived;
+  await app.memory.backend.configure("local", { mode: "built-in" }); // NAS 4654193: the owner switches while the save is on its way
+  await assert.rejects(() => accepting, /timeout|could not be reached/i, "accepting it reports that the save failed");
+  const lateId = await late;
+  assert.ok(double.requests.some((r) => r.method === "DELETE" && r.path === `/memory/local/${lateId}`), "the service it went to was asked to delete it");
+  assert.equal(double.byOwner.get("local").get(lateId)?.data.text, "Garage code is 4321", "the service did keep the save it applied late");
+  await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, app.runtime.context()), [], "Branch does not find what it said was not saved");
+  assert.equal((await app.memory.backend.list("local")).some((r) => r.id === lateId), false, "nor lists it");
+  assert.equal(await app.memory.backend.read("local", lateId), undefined, "nor reads it by its id");
+});
+
 test("a Forget deletes from the service it asked, even when the owner switches to this computer's memory meanwhile", async (t) => {
   const double = memoryDouble();
   const base = await double.listen();
@@ -1390,8 +1483,10 @@ test("a save Branch gave up on is never read back, even after a switch to this c
   await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
   const answer = double.server.listeners("request")[0];
   double.server.removeAllListeners("request");
+  let putPath;
   double.server.on("request", async (request, response) => {
     if (request.method !== "PUT") return answer(request, response);
+    putPath = new URL(request.url, "http://x").pathname;
     let raw = ""; for await (const chunk of request) raw += chunk;
     await new Promise((resolve) => setTimeout(resolve, 1200));
     const [, owner, id] = new URL(request.url, "http://x").pathname.split("/").filter(Boolean).map(decodeURIComponent);
@@ -1404,6 +1499,8 @@ test("a save Branch gave up on is never read back, even after a switch to this c
   await new Promise((resolve) => setTimeout(resolve, 200));
   await app.memory.backend.configure("local", { mode: "built-in" }); // NAS 4654193 (failswitch)
   await assert.rejects(() => saving, /timeout|could not be reached/i);
+  assert.ok(putPath && double.requests.some((r) => r.method === "DELETE" && r.path === putPath),
+    "the failed save's delete went to the service it was written to, not to this computer's memory"); // NAS 6321fbc
   await new Promise((resolve) => setTimeout(resolve, 1500));
   await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
   assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), []);
