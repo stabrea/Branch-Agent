@@ -2119,6 +2119,8 @@ Both have a three-way switch in **Settings**, and both ship **off**, which is ex
 
 Any part of Branch that reads what a folder carries asks `isFolderTrusted(store, owner, path)` (or `runtime.guards.isFolderTrusted(path)`) first; a loader that cannot wait, and has already found a file to read, asks `folderAllows(store, owner, path)`, which gives the same answer without looking at the disk. **Off:** always yes. **On:** only for a folder the owner trusts. **When needed:** for a trusted folder, or for one nobody has decided about that holds nothing on the list. A folder the owner does not trust is always no. With the switch on or when needed, a task whose own folder (the workspace, or the active project's `folder`) is not trusted asks before every change, even with approvals switched off; deny and ask rules are kept and standing yeses are dropped. That fallback follows only the task's own folder: distrusting `vendor/` inside a trusted workspace keeps what `vendor/` holds out without making writes there ask. A folder that needs an answer shows a question on the chat screen, and a task started there writes `folder.trust_needed` once per launch. A short-lived key cannot change either switch or any answer. Every answer and every change of the switch is written to the record as `policy.changed`.
 
+The launch's integrations file (`BRANCH_INTEGRATIONS`) follows the same answer when it sits inside the workspace. From a folder that may not be read, none of the file is used: not its web and network settings, chat apps, AI tool servers or hooks, and not its browser, command, git or issue tracker settings, since each of them can change where Branch connects, what it runs or what it allows. The owner is told once, in one line naming the sections left out, and the launch-file card shows the same list. A file outside the workspace is the owner's. A file that is itself a link counts only when both where it is written and where it really is may be read.
+
 **macOS and Linux.** Both work the same on every system. Folder decisions compare paths with letter case on macOS and Linux and without it on Windows. Note files are listed whatever their letter case, since the usual macOS disk (and Windows) ignores case. A skills or plugin folder that is a link is never looked into.
 
 ## Keeping Branch running (never breaks)
@@ -8677,6 +8679,9 @@ check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `she
 `commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
 launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
 linked file keeps its link and the file it points at is written), and the change is used from the next start.
+When a start left the file out because its folder is not trusted, the card names the sections it
+left out (`facts.leftOut`), asks for the folder to be trusted and Branch restarted, and counts nothing
+from those sections as set up.
 
 **macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
 apply to the same program list on every system; the loader names refused include the macOS

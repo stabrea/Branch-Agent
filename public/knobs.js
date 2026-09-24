@@ -252,11 +252,12 @@ function launchFacts(file) {
   if (!file.path) return [keyed("p", "knobs.launch.none", "subtle")];
   if (file.problem) return [keyed("p", "knobs.launch.problem", "subtle", { problem: file.problem })];
   const facts = file.facts;
-  const lines = [
-    keyed("p", "knobs.launch.where", "subtle", { path: file.path }),
-    keyed("p", "knobs.launch.counts", "subtle", { servers: formatNumber(facts.servers), hooks: formatNumber(facts.hooks),
-      chats: facts.chatApps.join(", ") || "—", programs: facts.programs.join(", ") || "—" }),
-  ];
+  const lines = [keyed("p", "knobs.launch.where", "subtle", { path: file.path })];
+  // What this start left out, because the file's folder is not trusted; none of it is counted below.
+  if (facts.leftOut?.length) lines.push(keyed("p", "knobs.launch.left-out", "field-note knobs-warning",
+    { sections: facts.leftOut.map((section) => t(`knobs.launch.section.${section}`)).join(", ") }));
+  lines.push(keyed("p", "knobs.launch.counts", "subtle", { servers: formatNumber(facts.servers), hooks: formatNumber(facts.hooks),
+    chats: facts.chatApps.join(", ") || "—", programs: facts.programs.join(", ") || "—" }));
   if (facts.keyLikeValues.length) lines.push(keyed("p", "knobs.launch.keys", "field-note", { where: facts.keyLikeValues.join(", ") }));
   for (const line of lines) line.style.overflowWrap = "anywhere";
   return lines;
