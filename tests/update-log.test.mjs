@@ -314,7 +314,7 @@ test("a secret with an escape sequence hidden inside it is still taken out", asy
   // Each of these is a case where nothing else would have caught it: a key with no label beside it, a path
   // with no `authorization:` in front of it, an address the escape splits in two.
   const broken = (text, at) => text.slice(0, at) + escape + "[0m" + text.slice(at);
-  const key = "sk-ant-api03-A1b2C3d4E5f6G7h8I9j0KLMNOPQRSTUVWX";
+  const key = "sk-ant-api03-A1b2C3d4E5f6G7h8I9j0KLMNOPQRSTUVWX"; // not-a-real-secret
   const dir = await updateLog(t, [
     `step 7: using ${broken(key, 25)}`,
     `at ${broken("C:" + String.fromCharCode(92) + "Users" + String.fromCharCode(92) + "bishi" + String.fromCharCode(92) + "Documents", 12)}`,
@@ -405,16 +405,16 @@ test("the end of the log is kept, because that is where an update stops", async 
 
 test("secrets, addresses and the owner's own folder do not reach the file either", async (t) => {
   const dir = await updateLog(t, [
-    "authorization: Bearer sk-ant-api03-NOTAREALKEY-abcdefghijklmnop",
-    'config {"apiKey":"sk-proj-abcdef1234567890"}',
+    "authorization: Bearer sk-ant-api03-NOTAREALKEY-abcdefghijklmnop", // not-a-real-secret
+    'config {"apiKey":"sk-proj-abcdef1234567890"}', // not-a-real-secret
     "owner email: someone@example.com",
     `a very long line: ${"x".repeat(6000)}`,
     "step 9: failed to move the folder",
   ]);
   const item = await updateLogItem(dir);
 
-  assert.equal(item.text.includes("sk-ant-api03-NOTAREALKEY"), false);
-  assert.equal(item.text.includes("sk-proj-abcdef1234567890"), false);
+  assert.equal(item.text.includes("sk-ant-api03-NOTAREALKEY"), false); // not-a-real-secret
+  assert.equal(item.text.includes("sk-proj-abcdef1234567890"), false); // not-a-real-secret
   assert.equal(item.text.includes("someone@example.com"), false);
   assert.ok(Math.max(...item.text.split("\n").map((line) => line.length)) <= 2000,
     "and no single line runs away with the file");
