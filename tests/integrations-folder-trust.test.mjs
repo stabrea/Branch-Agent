@@ -393,3 +393,34 @@ test("Q89.9: a trusted folder that itself contains .git still trusts its own fil
   assert.equal(integrationsFileTrusted(app.store, owner, workspace, file), true,
     "trusted folder with .git trusts its own files (check stops at folder level, not below)");
 });
+
+test("Q89.10: a link inside a trusted folder pointing at a clone outside the workspace is not trusted",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  const elsewhere = await mkdtemp(join(tmpdir(), "branch-q89-clone-"));
+  t.after(() => discardTemp(elsewhere));
+  await mkdir(join(elsewhere, ".git"), { recursive: true });
+  await writeFile(join(elsewhere, "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await mkdir(join(workspace, "work"), { recursive: true });
+  const link = join(workspace, "work", "linked-clone");
+  await symlink(elsewhere, link, "dir");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(link, "integrations.json")), false,
+    "reached through a trusted folder, but the real place is a repository nobody trusted");
+  decideFolder(app.store, owner, workspace, { folder: "cloned", decision: "distrust" });
+  await mkdir(join(workspace, "cloned"), { recursive: true });
+  const plain = await mkdtemp(join(tmpdir(), "branch-q89-plain-"));
+  t.after(() => discardTemp(plain));
+  await writeFile(join(plain, "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await symlink(plain, join(workspace, "cloned", "out"), "dir");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(workspace, "cloned", "out", "integrations.json")), false,
+    "a folder link in an untrusted folder is still that folder's, wherever it points");
+});
+
+test("Q89.11: a repository inside a folder the owner distrusts stays distrusted, not merely undecided", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "distrust" });
+  await mkdir(join(workspace, "work", "clone", ".git"), { recursive: true });
+  assert.equal(folderTrust(app.store, owner, join(workspace, "work", "clone")), "untrusted");
+});

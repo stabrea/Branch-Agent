@@ -103,7 +103,8 @@ function buttons(folder, filled = true) {
     });
     row.append(button);
   }
-  return [row, status];
+  // Q89: trusting a folder does not reach a repository cloned inside it.
+  return [row, worded("p", "folder-trust.nested-repo-note", "subtle"), status];
 }
 
 /** The question on the chat screen, shown only while a folder with something in it is undecided. */

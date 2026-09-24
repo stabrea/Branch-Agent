@@ -116,7 +116,8 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
   // Walk from inner up to (but not including) best.path, using resolved paths so symlinks
   // cannot skip the check. A symlink to a repo elsewhere is still subject to the check
   // at the resolved location.
-  if (platform === process.platform) {
+  // Only trust stops there: a nested repository under a folder the owner distrusts stays distrusted.
+  if (best.decision === "trust" && platform === process.platform) {
     const path = platform === "win32" ? win32 : posix;
     let current = inner;
     while (current !== best.path && current !== path.dirname(current)) {
@@ -251,7 +252,8 @@ export function folderAllows(store: Store, owner: string, path: string, holdsSom
  * workspace is a folder's own; one elsewhere is the owner's. A file that is itself a link is judged
  * both where it is written and where it really is, and counts only when both may be used: a link
  * outside the workspace to a file in a folder the owner has not trusted is still that folder's file,
- * and a link inside such a folder is still that folder's, wherever it points. `platform` is for
+ * and a link inside such a folder is still that folder's, wherever it points. A path written inside
+ * the workspace that a folder link leads out of it is judged where it leads, with no decision there. `platform` is for
  * tests, as in `folderTrust`.
  */
 export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string,
@@ -259,7 +261,10 @@ export function integrationsFileTrusted(store: Store, owner: string, workspace: 
   const path = platform === "win32" ? win32 : posix;
   const full = path.resolve(file), root = realFolder(workspace, platform);
   const written = realFolder(path.dirname(full), platform), really = path.dirname(realFolder(full, platform));
-  return [written, really].every((folder) => !folderContains(root, folder, platform) || folderAllows(store, owner, folder, true, platform));
+  // Q89: a path written inside the workspace is still the workspace's when a folder link on the way leads out of it.
+  const fromInside = folderContains(path.resolve(workspace), full, platform) || folderContains(root, written, platform);
+  const judged = (folder: string) => fromInside || folderContains(root, folder, platform);
+  return [written, really].every((folder) => !judged(folder) || folderAllows(store, owner, folder, true, platform));
 }
 
 /** Whether the owner should be asked about a folder now, under the owner's setting. */
