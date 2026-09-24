@@ -226,7 +226,12 @@ test("a person's card keeps the keyboard when an older draw of the People page f
   await reached;
   await f.page.evaluate(async (id) => (await import("/people-place.js")).showPerson(id), sam.id);
   await f.page.waitForFunction((id) => document.activeElement?.dataset.person === id, sam.id);
+  // The older draw lands now: after the held answer it asks for the people's settings, then decides whether to
+  // put its page in. Waiting for that answer and two frames sees it decide on every run, however slow the
+  // machine; a fixed wait could look before it had (NAS 08d179b).
+  const lastAsk = f.page.waitForResponse((response) => response.url().endsWith("/api/people/settings"));
   release();
-  await f.page.waitForTimeout(1500); // the older draw lands now
+  await lastAsk;
+  await f.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.person ?? null), sam.id, "the card still has the keyboard");
 });
