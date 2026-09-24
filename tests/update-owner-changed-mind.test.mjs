@@ -46,3 +46,18 @@ test("the engine's readiness carries the owner's update-by-itself choice, read f
   const later = await updateReadiness(loopback, server.token);
   assert.match(changedMind(later, { channel: "dev", automatic: true }) ?? "", /turned off/);
 });
+
+test("an automatic install that finds the channel just changed only switches it, so the next turn looks first (NAS 2e3ead6)", async () => {
+  // src/desktop/updater-ipc.ts is Electron code, so its order is read here, as tests/update-install-claim.test.mjs does.
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../src/desktop/updater-ipc.ts", import.meta.url), "utf8");
+  const handler = source.slice(source.indexOf('"branch:update-install"'));
+  const moved = handler.indexOf("const moved = updater.selectedChannel !== readiness.channel;");
+  const setChannel = handler.indexOf("updater.setChannel(readiness.channel);");
+  const goesBack = handler.indexOf("if (automatic === true && moved) return updater.status;");
+  const install = handler.indexOf("updater.install(");
+  assert.ok(moved >= 0 && moved < setChannel, "the channel it was on is read before it is switched");
+  assert.ok(goesBack > setChannel && goesBack < install, "and an automatic install goes back before installing anything");
+  const { Updater } = await import("../dist/desktop/updater.js");
+  assert.equal(typeof Object.getOwnPropertyDescriptor(Updater.prototype, "selectedChannel")?.get, "function", "the updater says which channel it is on");
+});

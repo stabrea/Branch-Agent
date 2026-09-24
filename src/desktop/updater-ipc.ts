@@ -107,7 +107,12 @@ export function registerUpdaterIpc(
     return installClaim.run(() => updater.status, () => updater.inProgress, async () => {
       if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
       const readiness = await hooks.readiness();
+      const moved = updater.selectedChannel !== readiness.channel;
       updater.setChannel(readiness.channel);
+      // NAS 2e3ead6: an automatic install that finds the channel just changed only switches it. The release it
+      // would take was never looked at on this channel (a Dev change that failed here, say), so the next turn looks
+      // first, and the plan weighs what that look finds. The Update button, pressed by the owner, goes on.
+      if (automatic === true && moved) return updater.status;
       started = { channel: readiness.channel, automatic: automatic === true };
       await ensureIdle();
       diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });
