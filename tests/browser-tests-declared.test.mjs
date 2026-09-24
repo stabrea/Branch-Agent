@@ -229,6 +229,15 @@ const EXCUSED = {
       "await registry.execute(\"computer.type\", { at: \"window\", window: \"Notes\", name: \"Body\", text: \"hello\" }, context);",
     ],
   },
+  "tests/browser-flow-standing.test.mjs": {
+    why: "the browser's own actions are replaced by a recorder before its tools are registered, so these scripted model calls only write down what they would have done; no browser is started.",
+    callsites: [
+      "? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.flow', arguments: JSON.stringify(model.args)}]}",
+      "? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.flow', arguments: JSON.stringify(model.args)}]}",
+      ": {content: 'done', toolCalls: model.click ? [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify(model.click)}] : []};",
+      "? {content: '', toolCalls: [{id: `c${model.calls}`, name: 'browser.click', arguments: JSON.stringify({role: 'button', name: 'Buy'})}]}",
+    ],
+  },
   "tests/guardrails.test.mjs": {
     why: "the one navigate is inside assert.rejects: the address is on the blocked list and is refused before anything launches Closing a browser that never launched opens nothing.",
     callsites: [
@@ -282,6 +291,12 @@ const EXCUSED = {
       "await assert.rejects(browser.navigate(nonsense, context), /not an allowed origin/, JSON.stringify(nonsense));",
     ],
   },
+  "tests/tool-targets.test.mjs": {
+    why: "the browser's tools are registered only so what each one says it touches can be read; nothing is called on it, and closing a browser that never launched opens nothing.",
+    callsites: [
+      "t.after(() => browser.close());",
+    ],
+  },
   "tests/tracing-policy.test.mjs": {
     why: "a scripted model calls a stand-in browser.click that the test itself registers, to watch the rules judge a website",
     callsites: [
@@ -309,6 +324,20 @@ async function testFiles() {
   return found.sort();
 }
 const slash = (file) => file.replaceAll("\\", "/");
+/**
+ * What a test file runs, which is not always what is written in it. A slow file is split into parts:
+ * each `tests/<name>-N.test.mjs` is a few lines that run a share of `tests/<name>-suite.mjs`, and the
+ * suite holds every call. The grouping reads the part, so the part is where the declaration has to
+ * be; what the part makes run is read from the suite, or a suite that drives a browser would be
+ * judged by parts that say nothing at all.
+ */
+const RUNS_SUITE = /["'`](\.\/[^"'`\n]+-suite\.mjs)["'`]/g;
+export async function sourceOf(file, read = (path) => readFile(join(ROOT, path), "utf8")) {
+  const own = await read(file);
+  const folder = file.slice(0, file.lastIndexOf("/") + 1);
+  const suites = [...new Set([...own.matchAll(RUNS_SUITE)].map((found) => folder + found[1].slice(2)))];
+  return [own, ...await Promise.all(suites.map((suite) => read(suite)))].join(String.fromCharCode(10));
+}
 /**
  * This file quotes callsites rather than making them: the excused lines below, and the little examples
  * the detector is measured against. It is named here rather than excused line by line, because keeping
@@ -360,19 +389,19 @@ test("a file that makes a browser and hides the name it gives it is refused", as
     "tests/plain.test.mjs": ["const browser = new BranchBrowser({});", "await browser.close();"],
     "tests/named.test.mjs": ["const driver = new BranchBrowser({});", "await driver.close();"],
     "tests/nothing.test.mjs": ["assert.equal(1, 1);"],
-    /* Codex's exact-head review: one readable construction used to answer for the whole file, so a
-       second hidden one rode in behind it with its calls unseen. Counting per file could not see this;
-       counting per construction can. */
+    /* One readable construction used to answer for the whole file, so a second hidden one rode in
+       behind it with its calls unseen. Counting per file could not see this; counting per
+       construction can. */
     "tests/mixed.test.mjs": ["const browser = new BranchBrowser({});", "await browser.close();",
       "let hidden;", "hidden = new BranchBrowser({});", "await hidden.pdf(context);"],
     /* And the shape that made counting per construction cost something: a declarator after a comma is
        an ordinary way to write real code, and tests/browser.test.mjs writes it five times. */
     "tests/comma.test.mjs": ["const probe = observeLaunch(), browser = new BranchBrowser({});",
       "await browser.close();"],
-    /* Codex's second exact-head review: taking comments out before masking strings let a string that
-       contained a comment opener win, and a construction after it disappeared. Each of these hides one
-       behind a literal, and each must still be refused. The last is a regular expression, which only a
-       real parse can tell from the start of a string. */
+    /* Taking comments out before masking strings let a string that contained a comment opener win,
+       and a construction after it disappeared. Each of these hides one behind a literal, and each
+       must still be refused. The last is a regular expression, which only a real parse can tell from
+       the start of a string. */
     /* On ONE line, because that is the whole failure: a // inside a string truncated the rest of *that
        line*, so a fixture with the construction on a later line would not have reproduced it at all. */
     "tests/quoted-url.test.mjs": ['const u = "https://x.test"; let h; h = new BranchBrowser({});',
@@ -425,7 +454,7 @@ test("a test that runs a browser-backed tool is in the browser group, or every s
   const names = await browserBackedNames(), methods = await browserMethods();
   const inBrowserGroup = new Set(testGroups().browser.map(slash));
   const { offenders, unreadable } = await judgeFiles(await testFiles(),
-    (file) => readFile(join(ROOT, file), "utf8"), names, methods, inBrowserGroup);
+    (file) => sourceOf(file), names, methods, inBrowserGroup);
   assert.deepEqual(unreadable, [],
     "These make a browser and keep it under a name this cannot read — assigned on a later line, out of "
     + "an array, in an object property. Give it a plain `const name = new BranchBrowser(...)`, or put the "
@@ -433,7 +462,43 @@ test("a test that runs a browser-backed tool is in the browser group, or every s
     + "cannot be seen from here.");
   assert.deepEqual(offenders, [],
     "These make a browser-backed tool run, and no browser is installed for the lane that runs them. Declare the "
-    + "engine the way tests/comfort.test.mjs does, or add the exact line to EXCUSED with a reason it never launches.");
+    + "engine the way tests/comfort.test.mjs does (in each part, for a file split into parts), or add the exact "
+    + "line to EXCUSED with a reason it never launches.");
+});
+
+test("a part of a split file is judged on the suite it runs, and declares the engine itself", async () => {
+  const names = await browserBackedNames(), methods = await browserMethods();
+  const NL = String.fromCharCode(10);
+  // One suite that drives a browser, run by two parts: one declares the engine and one does not.
+  const written = {
+    "tests/drives-suite.mjs": ["const browser = new BranchBrowser({});", "registerBrowser(registry, browser);",
+      'await registry.execute("browser.navigate", { url }, context);'],
+    "tests/drives-1.test.mjs": ["globalThis.branchTestPart = { index: 0, of: 2 };", 'await import("./drives-suite.mjs");'],
+    "tests/drives-2.test.mjs": ['import { chromium as _browserFile } from "playwright";', "void _browserFile;",
+      "globalThis.branchTestPart = { index: 1, of: 2 };", 'await import("./drives-suite.mjs");'],
+  };
+  const read = async (file) => written[file].join(NL);
+  const listed = (folder) => (folder === "tests" ? Object.keys(written).map((file) => file.slice("tests/".length)) : []);
+  const inBrowserGroup = new Set(testGroups(listed, (file) => written[slash(file)].join(NL)).browser.map(slash));
+  assert.deepEqual([...inBrowserGroup], ["tests/drives-2.test.mjs"], "the grouping reads the part, not the suite");
+  const judged = await judgeFiles(["tests/drives-1.test.mjs", "tests/drives-2.test.mjs"],
+    (file) => sourceOf(file, read), names, methods, inBrowserGroup);
+  assert.deepEqual(judged.offenders, ['tests/drives-1.test.mjs: await registry.execute("browser.navigate", { url }, context);'],
+    "the part that runs the suite's call without declaring the engine is named, with the suite's line");
+  assert.equal(callsitesIn(await read("tests/drives-1.test.mjs"), names, methods).length, 0,
+    "read on its own, the part makes nothing run, which is how a suite's calls would go unread");
+
+  // Every real part is read through to its suite, so a change to how parts are written cannot quietly
+  // turn this off. This file only quotes the shape, above.
+  const parts = [], unread = [];
+  for (const file of await testFiles()) {
+    const own = await readFile(join(ROOT, file), "utf8");
+    if (file === SELF || !/globalThis\.branchTestPart\s*=/.test(own)) continue;
+    parts.push(file);
+    if ((await sourceOf(file)).length <= own.length) unread.push(file);
+  }
+  assert.ok(parts.length > 0, "the repository has files split into parts, so this is not asked about nothing");
+  assert.deepEqual(unread, [], "these parts were read without the suite they run");
 });
 
 test("every excused line is still in its file, and every excuse still has a file", async () => {
@@ -443,7 +508,7 @@ test("every excused line is still in its file, and every excuse still has a file
   for (const [file, excuse] of Object.entries(EXCUSED)) {
     assert.ok(excuse.why.length > 40, `${file}: the reason has to be a sentence somebody can disagree with`);
     if (!files.has(file)) { stale.push(`${file} (gone)`); continue; }
-    const sites = callsitesIn(await readFile(join(ROOT, file), "utf8"), names, methods);
+    const sites = callsitesIn(await sourceOf(file), names, methods);
     for (const line of excuse.callsites)
       if (!sites.includes(line)) stale.push(`${file}: excused a line that is no longer there — ${line.slice(0, 80)}`);
   }

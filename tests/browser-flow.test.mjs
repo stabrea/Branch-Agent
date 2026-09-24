@@ -8,6 +8,7 @@ import {tmpdir} from 'node:os';
 import {BranchBrowser, registerBrowser} from '../dist/integrations/browser.js';
 import {RunArtifacts, ToolRegistry, Budget, createBranch, NetworkPolicy} from '../dist/index.js';
 import {addPolicyRule, savePolicy} from '../dist/policy.js';
+import { chromium } from "playwright";
 
 const runContext = (runId, owner = 'test', signal = new AbortController().signal) => ({
   owner, workspace: '.', runId, signal, budget: new Budget(),
@@ -60,6 +61,13 @@ async function harness(label, config = {}) {
   return {root, origin, hits, browser, registry, server,
     close: async () => { await browser.close(); await stop(); await rm(root, {recursive: true, force: true}); }};
 }
+
+test("this test needs a real browser, and says so", () => {
+  // It drives one through Branch's own browser tool rather than importing Playwright to steer it, so
+  // without this the file looks like a test that needs nothing and the lane that runs it installs no
+  // browser. The import above is what the test selector reads; this asserts it is really there.
+  assert.equal(chromium.name(), "chromium", "this test declares the browser engine it requires");
+});
 
 test('browser.flow walks three pages with one browser window, screenshotting each step, and the sign-in cookie from step one is still there on the last page', async () => {
   const h = await harness('browser-flow');
