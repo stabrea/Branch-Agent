@@ -354,3 +354,88 @@ test("the Update button holds the claim through the hand-over and gives it back 
   // Q55: the words say the background engine was stopped only when this install really closed it.
   assert.match(handler, /throw new Error\(updater\.backgroundStopped\s*\?/, "the stopped-engine sentence follows what the updater did");
 });
+
+// Repo-move fallback tests: when KeepOak is 404, fall back to stabrea
+test("release lookup tries KeepOak first; on 404, falls back to stabrea", async () => {
+  const assetUrl = "https://example.com/branch-agent.zip";
+  const checksumUrl = "https://example.com/branch-agent.zip.sha256";
+  const responses = {};
+  responses["KeepOak/Branch-Agent"] = { status: 404 }; // KeepOak not found yet
+  responses["stabrea/Branch-Agent"] = {
+    status: 200,
+    json: async () => ({
+      tag_name: "v0.3.0", name: "v0.3.0", body: "Release notes", published_at: "2026-09-23T00:00:00Z",
+      html_url: "https://github.com/stabrea/Branch-Agent/releases/tag/v0.3.0",
+      assets: [
+        { name: "Branch-Agent-windows-x64.zip", browser_download_url: assetUrl, size: 1000 },
+        { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: checksumUrl, size: 96 },
+      ],
+    }),
+  };
+  const requested = [];
+  const mockFetch = async (url) => {
+    for (const [repo, response] of Object.entries(responses)) {
+      if (url.includes(`repos/${repo}/releases`)) {
+        requested.push(repo);
+        return { ok: response.status === 200, status: response.status, json: response.json };
+      }
+    }
+    return { ok: false, status: 404 };
+  };
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: "C:/installed",
+    executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: mockFetch,
+  });
+  const status = await updater.check();
+  assert.equal(status.phase, "available", status.message);
+  assert.equal(status.release?.latestVersion, "0.3.0");
+  assert.equal(status.release?.assetUrl, assetUrl);
+  assert.deepEqual(requested, ["KeepOak/Branch-Agent", "stabrea/Branch-Agent"], "tried KeepOak first, then stabrea");
+});
+
+test("release lookup does NOT fall back on HTTP 500 or other errors", async () => {
+  const responses = {};
+  responses["KeepOak/Branch-Agent"] = { status: 500 }; // Server error, not 404
+  responses["stabrea/Branch-Agent"] = { status: 200, json: async () => ({}) };
+  const requested = [];
+  const mockFetch = async (url) => {
+    for (const [repo, response] of Object.entries(responses)) {
+      if (url.includes(`repos/${repo}/releases`)) {
+        requested.push(repo);
+        return { ok: false, status: response.status, json: response.json };
+      }
+    }
+    return { ok: false, status: 404 };
+  };
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: "C:/installed",
+    executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: mockFetch,
+  });
+  const status = await updater.check();
+  assert.equal(status.phase, "error", status.message);
+  assert.match(status.message, /HTTP 500/);
+  assert.deepEqual(requested, ["KeepOak/Branch-Agent"], "did not fall back to stabrea on 500");
+});
+
+test("release lookup does NOT fall back when fetch throws (network error)", async () => {
+  const requested = [];
+  const mockFetch = async (url) => {
+    if (url.includes("repos/KeepOak/Branch-Agent/releases")) {
+      requested.push("KeepOak/Branch-Agent");
+      throw new Error("Network timeout");
+    }
+    requested.push("stabrea/Branch-Agent");
+    return { ok: false, status: 404 };
+  };
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: "C:/installed",
+    executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: mockFetch,
+  });
+  const status = await updater.check();
+  assert.equal(status.phase, "error", status.message);
+  assert.match(status.message, /Network timeout/);
+  assert.deepEqual(requested, ["KeepOak/Branch-Agent"], "did not fall back to stabrea on network error");
+});

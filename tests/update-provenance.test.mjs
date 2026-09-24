@@ -739,3 +739,70 @@ test("a Beta install refuses a record from the final release workflow", async (t
   const { done } = await betaOutcome(fixture);
   await assert.rejects(done, /provenance record did not check out/);
 });
+
+// Repo-move tests: both stabrea and KeepOak are trusted repos.
+const keepOakRepo = "KeepOak/Branch-Agent";
+const keepOakWorkflow = `https://github.com/${keepOakRepo}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+const keepOakBetaWorkflow = `https://github.com/${keepOakRepo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`;
+
+test("verifyAttestationBundle accepts KeepOak's release workflow for a final version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: keepOakWorkflow });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex });
+  assert.equal(result.workflow, keepOakWorkflow);
+});
+
+test("verifyAttestationBundle accepts stabrea's release workflow for a final version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: workflowUri });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex });
+  assert.equal(result.workflow, workflowUri);
+});
+
+test("verifyAttestationBundle accepts KeepOak's beta workflow for a Beta version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: keepOakBetaWorkflow });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex, version: "0.19.4-beta.5" });
+  assert.equal(result.workflow, keepOakBetaWorkflow);
+});
+
+test("verifyAttestationBundle refuses KeepOak's beta.yml for a final version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: keepOakBetaWorkflow });
+  assert.throws(
+    () => verifyAttestationBundle(bundle, { repo, digestHex, version: "0.19.4" }),
+    /does not name this repository's release workflow for a version tag/
+  );
+});
+
+test("verifyAttestationBundle refuses look-alike repos (KeepOak-x, keepoak lowercase, etc.)", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const lookAlikes = [
+    "KeepOak-x",
+    "KeepOakx",
+    "keepoak",
+    "KEEPOAK",
+    "keepoak.evil",
+    "KeepOak/Branch-Agent-fork",
+    "someone/Branch-Agent",
+  ];
+  for (const lookAlike of lookAlikes) {
+    const fakeUri = `https://github.com/${lookAlike}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+    const bundle = makeBundle(digestHex, { uri: fakeUri });
+    assert.throws(
+      () => verifyAttestationBundle(bundle, { repo, digestHex }),
+      /does not name this repository's release workflow for a version tag/,
+      lookAlike
+    );
+  }
+});
+
+test("verifyAttestationBundle refuses evil domains that look like the URI", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const evilUri = `https://evil.example/URI:https://github.com/${keepOakRepo}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+  const bundle = makeBundle(digestHex, { uri: evilUri });
+  assert.throws(
+    () => verifyAttestationBundle(bundle, { repo, digestHex }),
+    /does not name this repository's release workflow for a version tag/
+  );
+});

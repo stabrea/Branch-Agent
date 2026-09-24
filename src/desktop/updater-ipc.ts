@@ -23,7 +23,7 @@ const platformSource = {
   executableName: appEntryName(process.platform),
 };
 const signInPlace = process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "your Mac" : "this computer";
-const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent"];
+const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent", "https://github.com/KeepOak/Branch-Agent"];
 // mac2/desktop-ui: the four System Settings pages the permissions card offers, matched exactly.
 const settingsPages = new Set<string>(process.platform === "darwin" ? Object.values(macSettingsLinks) : []);
 
