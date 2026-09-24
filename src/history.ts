@@ -21,27 +21,48 @@ type Read = z.input<typeof HistoryReadSchema>;
  * FQ-routing.isolated-agents: the conversations an agent's turn may look back on. The owner (no
  * agent) sees every conversation, as before. A Trunk sees only the ones it has answered in: every
  * Trunk turn is written on its task as a `trunk.turn` event (src/runtime.ts scopeToSession), so its
- * own Trunk Chat, a room it spoke in, or an owner conversation handed to it. Any other agent (a
- * delegated specialist) has no conversation of its own — the owner's are not its to read, the rule
- * visibleTo keeps for the owner's private facts and history.meaning keeps for every agent — and
- * leaving it open would let a Trunk reach another Trunk's chat one delegation away.
+ * own Trunk Chat, its side of a room, a conversation its routine started, or an owner conversation
+ * handed to it. Any other agent (a delegated specialist) has no conversation of its own — the owner's
+ * are not its to read, the rule visibleTo keeps for the owner's private facts and history.meaning
+ * keeps for every agent — and leaving it open would let a Trunk reach another Trunk's chat one
+ * delegation away.
+ *
+ * A Trunk's look back ends where its part ends. A conversation the owner handed to a Trunk
+ * (src/trunks/conversations.ts keeps who answers there as `trunk-conversation:<id>`) is that Trunk's
+ * only while it is the one chosen: once the owner takes it back or hands it to another Trunk, none of
+ * it is the first Trunk's to read, its own part included. While chosen it reads all of it, since its
+ * turns there are given the whole conversation anyway. A Trunk's side of a room (`memberSessions` in
+ * src/trunks/rooms.ts) is its own only while it sits in that room. Its own chat, and a conversation a
+ * routine or a workflow step started as it, carry neither, so a turn there is enough.
  */
+const stillChosen = (session: string): string => ` AND NOT EXISTS (SELECT 1 FROM governance g
+  WHERE g.id='trunk-conversation:'||${session} AND COALESCE(json_extract(g.data,'$.trunkId'),'')<>?)`;
+const stillSeated = (session: string): string => ` AND NOT EXISTS (SELECT 1 FROM governance r,
+  json_each(r.data,'$.memberSessions') side WHERE r.id GLOB 'trunk-room:*' AND side.value=${session}
+  AND NOT EXISTS (SELECT 1 FROM json_each(r.data,'$.members') seat WHERE seat.value=?))`;
+/** Both holds on the conversation `session` names; each takes the Trunk's id, after the turn's own. */
+const stillHeld = (session: string): string => stillChosen(session) + stillSeated(session);
 export function participation(agent: string | undefined): { clause: string; args: string[] } {
   if (!agent) return { clause: "", args: [] };
   if (!agent.startsWith("trunk:")) return { clause: " AND 0", args: [] };
+  const trunkId = agent.slice("trunk:".length);
   return {
     clause: ` AND EXISTS (SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
-      WHERE t.session_id=s.id AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?)`,
-    args: [agent.slice("trunk:".length)],
+      WHERE t.session_id=s.id AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?)${stillHeld("s.id")}`,
+    args: [trunkId, trunkId, trunkId],
   };
 }
-/** Check if an agent can access a session. Owner (undefined) can access any. Specialist ("-") cannot. Trunk needs a trunk.turn event. */
+/**
+ * Check if an agent can access a session. Owner (undefined) can access any. Specialist ("-") cannot.
+ * A Trunk needs a trunk.turn event there, and the conversation still held (see participation).
+ */
 export function canAccessSession(db: DatabaseSync, sessionId: string, agent: string | undefined): boolean {
   if (!agent) return true;
   if (!agent.startsWith("trunk:")) return false;
   const trunkId = agent.slice("trunk:".length);
   const row = db.prepare(`SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
-    WHERE t.session_id=? AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?`).get(sessionId, trunkId);
+    WHERE t.session_id=? AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?${stillHeld("t.session_id")}`)
+    .get(sessionId, trunkId, trunkId, trunkId);
   return !!row;
 }
 
