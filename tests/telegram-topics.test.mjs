@@ -156,3 +156,49 @@ test('router rejects files larger than 8 MB with clear message', async () => {
     await router.detachAll();
   }
 });
+
+/** A router on the real file store, fed by a Telegram adapter whose file download is `body`. */
+async function storedFileRouter(t, body) {
+  const { RunArtifacts } = await import('../dist/artifacts.js');
+  const { ChannelRouter } = await import('../dist/channels/router.js');
+  const folder = await mkdtemp(join(tmpdir(), 'branch-telegram-names-'));
+  const stored = new RunArtifacts(folder);
+  const runs = [], names = [], deliveries = [];
+  const runtime = {
+    owner: 'owner', registry: { permissions: () => [] }, tracer: { startAfter: () => ({ end() {} }) },
+    artifacts: { write: async (id, name, type, bytes) => { names.push(name); return stored.write(id, name, type, bytes); } },
+    run: async options => { runs.push(options); return { id: 'run', sessionId: 'session', status: 'completed', output: 'done' }; },
+  };
+  const store = { ownsSession: () => false, get: () => undefined, save: () => {}, event: () => {}, events: () => [], onEvent: () => () => {}, list: () => [] };
+  const router = new ChannelRouter(store, runtime, 100000);
+  router.deliver = async (channel, chatId, text) => { deliveries.push(text); return { messageId: 'sent', queued: 0 }; };
+  const fetch = async url => {
+    const path = String(url);
+    if (path.endsWith('/getMe')) return Response.json({ ok: true, result: { id: 1, is_bot: true, username: 'branch' } });
+    if (path.endsWith('/getUpdates')) { await new Promise(resolve => setTimeout(resolve, 5)); return Response.json({ ok: true, result: [] }); }
+    if (path.endsWith('/getFile')) return Response.json({ ok: true, result: { file_path: 'docs/file' } });
+    if (path.endsWith('/docs/file')) return new Response(body);
+    throw Error(path);
+  };
+  const adapter = new TelegramAdapter({ id: 'tg', token: 'fake', fetch, pollTimeoutSeconds: 0 });
+  await router.attach(adapter, { activation: 'always', pairing: false, allowlist: ['7'] });
+  t.after(async () => { await router.detachAll(); await rm(folder, { recursive: true, force: true }); });
+  const send = (fileName, size) => router.handle(adapter.inbound({ message_id: 1234, chat: { id: 5, type: 'private' }, from: { id: 7 },
+    document: { file_id: 'd', file_unique_id: 'AgADBQADq7cxGw', file_name: fileName, mime_type: 'application/pdf', ...(size === undefined ? {} : { file_size: size }) } }));
+  return { runs, names, deliveries, send };
+}
+
+test('a file with a long name is still stored, cut to the store\'s longest name and keeping its extension', async (t) => {
+  const f = await storedFileRouter(t, new Uint8Array([1, 2, 3]));
+  await f.send('Quarterly_Financial_Report_2026_Q3_final_version_two.pdf', 3);
+  assert.equal(f.runs.length, 1, 'the task runs with the file');
+  assert.ok(f.names[0].length <= 64, `the stored name fits (${f.names[0]})`);
+  assert.match(f.names[0], /^1234-AgADBQADq7cx-Quarterly_Financial_Report_.*\.pdf$/);
+});
+
+test('a file that says nothing of its size and turns out larger than 8 MB gets the clear 8 MB reply', async (t) => {
+  const f = await storedFileRouter(t, new Uint8Array(9 * 1024 * 1024));
+  await f.send('big.pdf', undefined);
+  assert.equal(f.runs.length, 0, 'no task runs');
+  assert.ok(f.deliveries.some(text => text.includes('larger than 8 MB')), `the sender is told the limit: ${JSON.stringify(f.deliveries)}`);
+});

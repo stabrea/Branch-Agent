@@ -290,8 +290,10 @@ test("sh puts the previous version back when the new one does not stay up", { sk
   assert.equal(code, 1);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "old", "the previous version is back");
   assert.equal(await readFile(join(`${target}.failed`, "resources", "version.txt"), "utf8"), "new", "the one that failed is kept aside (mac7/real-update)");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.deepEqual((await readFile(started, "utf8")).trim().split("\n"), ["new", "old"]);
+  // The previous version is started in the background; a busy machine can take a while to get to it.
+  const lines = async () => (await readFile(started, "utf8")).trim().split("\n");
+  for (let tries = 0; tries < 200 && (await lines()).length < 2; tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(await lines(), ["new", "old"]);
   assert.match(await readFile(log, "utf8"), /starting new version[\s\S]*did not start; restoring previous/);
 });
 

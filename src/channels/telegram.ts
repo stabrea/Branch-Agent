@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ChannelAdapter, InboundMessage, OutgoingFile } from "./router.js"; // R17-C: OutgoingFile
+import { ArtifactTooLarge, maxArtifactBytes } from "../artifacts.js";
 import type { ChannelPosition } from "../never-break/channel-position.js";
 
 /**
@@ -281,17 +282,17 @@ export class TelegramAdapter implements ChannelAdapter {
   }
   /** Fetch only after the router accepts the sender, enforcing the intake ceiling on both sides. */
   private async downloadAttachment(fileId: string, declaredSize?: number): Promise<Uint8Array> {
-    const limit = 8 * 1024 * 1024; // artifact storage ceiling
-    if (declaredSize !== undefined && declaredSize > limit) throw new Error("Telegram attachment exceeds 8 MB");
+    const limit = maxArtifactBytes; // what the file store keeps
+    if (declaredSize !== undefined && declaredSize > limit) throw new ArtifactTooLarge("Telegram attachment exceeds 8 MB");
     const info = z.object({ file_path: z.string().min(1).max(400), file_size: z.number().optional() })
       .passthrough().parse(await this.call("getFile", { file_id: fileId }));
-    if (info.file_size !== undefined && info.file_size > limit) throw new Error("Telegram attachment exceeds 8 MB");
+    if (info.file_size !== undefined && info.file_size > limit) throw new ArtifactTooLarge("Telegram attachment exceeds 8 MB");
     const response = await this.fetch(`${this.base.replace("/bot", "/file/bot")}/${info.file_path}`, {
       redirect: "error", signal: AbortSignal.timeout(60000),
     });
     if (!response.ok) throw new Error(`Telegram attachment download failed (${response.status})`);
     const length = Number(response.headers.get("content-length"));
-    if (Number.isFinite(length) && length > limit) { await response.body?.cancel(); throw new Error("Telegram attachment exceeds 8 MB"); }
+    if (Number.isFinite(length) && length > limit) { await response.body?.cancel(); throw new ArtifactTooLarge("Telegram attachment exceeds 8 MB"); }
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Telegram attachment has no bytes");
     const chunks: Uint8Array[] = []; let size = 0;
@@ -300,7 +301,7 @@ export class TelegramAdapter implements ChannelAdapter {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > limit) throw new Error("Telegram attachment exceeds 8 MB");
+        if (size > limit) throw new ArtifactTooLarge("Telegram attachment exceeds 8 MB");
         chunks.push(value);
       }
     } catch (error) { await reader.cancel().catch(() => undefined); throw error; }
