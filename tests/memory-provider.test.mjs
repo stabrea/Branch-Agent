@@ -1619,3 +1619,20 @@ test("a memory suggestion cannot choose whose fact it is: only memory.put's own 
   const found = app.store.list("memory", "local").filter((record) => record.data.text === "Planted PLANT6");
   assert.equal(found[0]?.data.scope, undefined, "it is saved as the owner's, never as a Trunk's");
 });
+
+test("on an outside memory service, a Trunk's change keeps what its fact is about and how long it lasts, not only whose it is", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put",
+    { text: "Ada's car is serviced in May ADAKEEP7", source: "owner", entity: "car", attribute: "service month", project: "garage" }, ada);
+  const stored = () => double.byOwner.get("local").get(hers.id).data;
+  const before = keptOf(stored());
+  assert.deepEqual(before, { scope: "agent:trunk:ada-test", layer: "long-term", entity: "car", attribute: "service month", project: "garage" });
+  await app.registry.execute("memory.update", { id: hers.id, text: "Ada's car is serviced in June ADAKEEP7", source: "owner", expectedRevision: hers.revision }, ada);
+  assert.equal(stored().text, "Ada's car is serviced in June ADAKEEP7");
+  assert.deepEqual(keptOf(stored()), before, "the change keeps its entity, attribute and project as well as its scope and layer");
+});
