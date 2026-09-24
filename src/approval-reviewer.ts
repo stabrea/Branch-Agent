@@ -195,7 +195,8 @@ function everyTarget(host: ReviewerHost, policy: Policy, whole: PolicyOutcome, a
  */
 export async function reviewCall(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall): Promise<PolicyCheck> {
   const session = sessionOf(host, about.context);
-  if (check.decision !== "deny" && host.approvals.takeOverrule(session, about.fingerprint)) {
+  if (check.decision !== "deny" && (host.approvals.takeOverrule(session, about.fingerprint)
+    || host.approvals.takeJustNow(session, about.call.name, about.fingerprint))) {
     host.store.event(about.context.runId, "policy.overruled", { name: about.call.name, id: about.call.id, label: check.label });
     return { ...check, decision: "allow" };
   }

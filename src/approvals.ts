@@ -157,6 +157,12 @@ export class ApprovalGate {
   private readonly heldOnce = new Map<string, string>();
   /** Wave mac3 (tool-safety): one-time overrules the owner gave, as conversation and fingerprint. */
   private readonly overrules = new Set<string>();
+  /**
+   * Dogfood A6: a "Yes, just now" to an ordinary question, as conversation, tool and fingerprint, with when it
+   * lapses. The tool is part of the key: the fingerprint covers only the argument bytes, and the same bytes can
+   * go to another tool (NAS 618407c). An unused one lapses as a "for this conversation" yes does.
+   */
+  private readonly justNow = new Map<string, number>();
   /** mac7/coding-next: a "Once" given to a question that is used by the next attempt and then gone. */
   private readonly passes = new Set<string>();
   /** Keeps one pass for this conversation's next attempt at `tool` on `target`. */
@@ -229,6 +235,7 @@ export class ApprovalGate {
     const count = [...this.answers.values()].reduce((total, forSession) => total + forSession.size, 0);
     this.answers.clear();
     this.overrules.clear();
+    this.justNow.clear();
     this.passes.clear();
     return count;
   }
@@ -288,6 +295,7 @@ export class ApprovalGate {
     this.answers.delete(sessionId);
     this.pending.delete(sessionId);
     for (const key of this.overrules) if (key.startsWith(sessionId + "\u0000")) this.overrules.delete(key);
+    for (const key of this.justNow.keys()) if (key.startsWith(sessionId + "\u0000")) this.justNow.delete(key);
     for (const key of this.passes) if (key.startsWith(sessionId + "\u0000")) this.passes.delete(key);
   }
 
@@ -318,8 +326,8 @@ export class ApprovalGate {
       // yes was lost when it carried on. It is now one pass for these exact bytes in this conversation, used by the
       // next attempt (reviewCall), as a once-only question's yes already is.
       if (decision === "allow" && remember === "never") {
-        if (this.overrules.size >= 500) this.overrules.delete(this.overrules.values().next().value!);
-        this.overrules.add(`${sessionId}\u0000${fingerprint}`);
+        if (this.justNow.size >= 500) this.justNow.delete(this.justNow.keys().next().value!);
+        this.justNow.set(`${sessionId}\u0000${question.tool}\u0000${fingerprint}`, Date.now() + sessionGrantMs);
       }
       return;
     }
@@ -328,6 +336,14 @@ export class ApprovalGate {
       throw new Error(held && !this.advisedAgainst.has(fingerprint) ? `${held}. Choose "Yes, just now" to go ahead.` : onceOnlyRefusal);
     }
     if (decision === "allow") this.overrules.add(`${sessionId}\u0000${fingerprint}`);
+  }
+  /** Uses up a "Yes, just now" for this tool and these exact bytes in this conversation, if one is still good. */
+  takeJustNow(sessionId: string, tool: string, fingerprint: string | undefined): boolean {
+    if (fingerprint === undefined) return false;
+    const key = `${sessionId}\u0000${tool}\u0000${fingerprint}`, lapses = this.justNow.get(key);
+    if (lapses === undefined) return false;
+    this.justNow.delete(key);
+    return lapses > Date.now();
   }
   /** Uses up the owner's one-time overrule for this request, if there is one. */
   takeOverrule(sessionId: string, fingerprint: string | undefined): boolean {

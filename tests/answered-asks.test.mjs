@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { startServer, carryOnWords } from "../dist/server.js";
+import { underShortLivedKey } from "../dist/key-context.js";
 
 /** A model that writes the file its first message names, again when told to go ahead, then says it is done. */
 function writer() {
@@ -103,4 +104,29 @@ test("a script's answer, without the window's carryOn, settles nothing: the scri
   await new Promise((r) => setTimeout(r, 300));
   assert.equal(f.runsIn(first.sessionId).length, 1, "nothing was started for it");
   assert.equal(f.app.store.run(first.id).status, "needs_input");
+});
+
+test("an unused \"Yes, just now\" lapses after an hour, as a yes for the conversation does (NAS 618407c)", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write h.txt" });
+  f.app.runtime.approve(first.sessionId, "allow", "never");
+  const realNow = Date.now;
+  Date.now = () => realNow() + 61 * 60 * 1000;
+  try {
+    const later = await f.app.runtime.run({ prompt: "write h.txt", sessionId: first.sessionId });
+    assert.equal(later.status, "needs_input", "an hour on, it asks again");
+  } finally { Date.now = realNow; }
+});
+
+test("a short-lived key's task is never carried on as the owner's own (NAS 618407c)", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await underShortLivedKey(() => f.app.runtime.run({ prompt: "write k.txt" }), { keyId: "probe-key" });
+  assert.equal(first.status, "needs_input", "control: the key's task asks");
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  assert.equal((await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true })).status, 200);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(f.runsIn(first.sessionId).length, 1, "nothing ran as the owner");
+  assert.deepEqual(await f.waitingIn(first.sessionId), [], "and it no longer waits");
 });

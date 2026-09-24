@@ -172,7 +172,7 @@ import { People } from "./people/index.js";
 import { peopleEnabled } from "./people/settings.js";
 import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
-import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { keyAnswerRefusal, runOrigin, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
@@ -921,7 +921,12 @@ export const carryOnWords = "Yes, go ahead.";
 function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): void {
   const run = app.store.run(asked.runId);
   if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return;
-  if (decision === "allow" && asked.source === "owner" && !startedWithShortLivedKey()) {
+  // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
+  // and a carry-on would lose its key mark), a household person's, or one that came from elsewhere (NAS 618407c).
+  const origin = runOrigin(app.store, run.id);
+  const owners = asked.source === "owner" && origin.source === "owner" && !origin.shortLivedKey && !origin.keyIds.length
+    && !origin.personProfileId && !origin.lentTo;
+  if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
     void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => {
       // The conversation could not carry on (it is busy, say): it waits for the owner's next message instead.
       if (app.store.run(run.id)?.status === "needs_input") app.store.finish(run.id, "completed", run.output);
