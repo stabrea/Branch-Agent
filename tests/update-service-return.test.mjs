@@ -64,12 +64,15 @@ const note = (over = {}) => ({
 });
 const wasRunning = { pid: 4242, mode: "daemon", port: 8787, url: "http://127.0.0.1:8787",
   version: "1.0.0", startedAt: "2026-09-22T10:00:00.000Z" };
-/** The wait, driven by a list of notes, with the clock and the answering Branch in the test's hands. */
+/**
+ * The wait, driven by a list of notes, with the clock and the answering Branch in the test's hands.
+ * It waits for 2.0.0, the new version, unless a test names another one.
+ */
 async function waiting(notes, over = {}) {
   let clock = 0;
   const left = [...notes];
   const answers = over.attach === undefined ? { instance: note(), version: "2.0.0" } : over.attach;
-  const back = await waitForReturn("data", wasRunning, { version: "2.0.0" }, {
+  const back = await waitForReturn("data", wasRunning, { version: over.version ?? "2.0.0" }, {
     running: async () => left.shift() ?? null,
     attach: async () => answers,
     sleep: async (ms) => { clock += ms; },
@@ -159,6 +162,20 @@ test("the wait is for the service, on the right version, started since — and i
 
   const wrongAnswer = await waiting([note()], { attach: { instance: note(), version: "1.0.0" } });
   assert.equal(wrongAnswer.back, null, "and one that answers with another version is not the version we wanted");
+});
+
+test("a service put back on the same version is back only once a copy started since answers", async () => {
+  // A failed update puts back the version that was running, so what is waited for is the same kind of
+  // Branch on the same version as the copy that was closed. The note that copy left behind agrees on
+  // both, and here it is even made to answer as that copy, so the time it started is the only thing
+  // left to tell it from a copy started since.
+  const leftBehind = { ...wasRunning };
+  const stale = await waiting([leftBehind], { version: "1.0.0", attach: { instance: leftBehind, version: "1.0.0" } });
+  assert.equal(stale.back, null, "the note the closed copy left behind, answering as that copy, is not the service back");
+
+  const since = note({ version: "1.0.0" });
+  const fresh = await waiting([since], { version: "1.0.0", attach: { instance: since, version: "1.0.0" } });
+  assert.equal(fresh.back?.pid, 5151, "the same version, started after the closed copy, is the service back");
 });
 
 test("an undo whose restart fails is a failure, whatever else went right", async (t) => {
