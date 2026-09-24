@@ -26,6 +26,9 @@ test("K1 only the providers that send a level are offered one, and only for mode
   assert.deepEqual(thinkingLevels("openai-compatible", "gpt-4o-mini"), unknown, "a model that does not think; a saved level is still sent");
   assert.deepEqual(thinkingLevels("openai-compatible", "grok-3-mini"), effort(["low", "high"]), "xAI takes two levels");
   assert.deepEqual(thinkingLevels("chatgpt", "gpt-5.6-terra"), effort());
+  // GPT-6 review (Mac mini): the ChatGPT default is GPT-6 Sol at medium, so its Thinking list must offer levels,
+  // not say the model "does not take a thinking setting".
+  for (const model of ["gpt-6-sol", "gpt-6-luna"]) assert.deepEqual(thinkingLevels("chatgpt", model), effort(), `${model} takes a thinking level`);
   assert.deepEqual(thinkingLevels("openai-responses", "gpt-5.5"), effort());
   // Integration review: Azure OpenAI builds the same body as the OpenAI-shaped connection.
   assert.deepEqual(thinkingLevels("azure-openai", "o4-mini"), effort());
