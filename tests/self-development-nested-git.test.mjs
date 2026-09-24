@@ -357,22 +357,15 @@ test("B: git.push in source refuses when push URLs count differs from configured
   await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
 });
 
-test("C: git.pull in source detects fetch URL rewritten by url.insteadOf (checkInsteadOf uses correct URL list)", { skip: posixOnly }, async (t) => {
+test("C: git.pull in source judges the fetch URL, not the push URL, when only fetching is rewritten", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
   const signal = AbortSignal.timeout(10_000);
   execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
-  // url.insteadOf rewrites all URLs matching the pattern
+  // pushInsteadOf maps the URL to itself, so pushing still goes to example.com; fetching goes to evil.com.
+  execFileSync("git", ["config", "--local", "url.https://example.com/.pushInsteadOf", "https://example.com/"], { cwd });
   execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
-  // Pull should refuse because the URL is rewritten by insteadOf
-  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
-});
-
-test("C: git.pull in source refuses URL rewritten by url.<X>.insteadOf", { skip: posixOnly }, async (t) => {
-  const { app, folder, cwd } = await plantedBare(t);
-  const signal = AbortSignal.timeout(10_000);
-  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
-  // url.insteadOf rewrites both fetch and push URLs
-  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  assert.equal(execFileSync("git", ["remote", "get-url", "--push", "origin"], { cwd, encoding: "utf8" }).trim(), "https://example.com/repo.git");
+  assert.equal(execFileSync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" }).trim(), "https://evil.com/repo.git");
   await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
 });
 
