@@ -99,7 +99,13 @@ export class OpenAIStream {
       input: chunk.usage.prompt_tokens, output: chunk.usage.completion_tokens,
     };
     for (const choice of chunk.choices) {
-      if (this.finish) throw new Error("Provider sent choices after finish");
+      if (this.finish) {
+        // Some compatible providers repeat the terminal choice before [DONE].
+        if (choice.finish_reason === this.finish &&
+            !choice.delta.content && !choice.delta.tool_calls?.length &&
+            !thinkingText(choice.delta.reasoning_content, choice.delta.reasoning)) continue;
+        throw new Error("Provider sent choices after finish");
+      }
       const text = choice.delta.content;
       if (text) { this.content += text; this.emit(text); }
       const thought = thinkingText(choice.delta.reasoning_content, choice.delta.reasoning);
