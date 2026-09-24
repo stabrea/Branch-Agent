@@ -114,7 +114,7 @@ test("pressing the select again closes the list, and a click elsewhere does too"
   assert.equal(await select.getAttribute("aria-expanded"), "false");
   await press();
   assert.equal(await list.isVisible(), true);
-  await f.page.locator("#policy-card h2").dispatchEvent("click");
+  await f.page.locator("#policy-card h3").dispatchEvent("click");
   assert.equal(await list.isHidden(), true);
   /* Filling the form the usual way still works, because the select is still the select. */
   const changed = await select.evaluate((node) => {

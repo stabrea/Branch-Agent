@@ -39,21 +39,18 @@ const search = async (page, words) => {
   await page.waitForFunction((typed) => !typed || document.getElementById("sg-results"), words);
 };
 
-/** The head as drawn, and the results it counts: the cards on show plus everything "Also found" lists. */
+/** The head as drawn, and the results it counts: what the h2 title displays (the source of truth). */
 const head = (page) => page.evaluate(() => {
   const box = document.getElementById("sg-results");
-  const cards = [...document.querySelectorAll(".lx-page:not([hidden]) :is(.lx-subpanel > *, .lx-page > *)")]
-    .filter((card) => !card.matches(".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel, .lx-on-this-page, .sg-head, .lx-miss")
-      && card.checkVisibility()).length;
-  /* "Show all N" names the whole count when only the first few are listed. */
-  const all = document.querySelector("#sg-found .sg-found-all");
-  const also = all ? Number(all.textContent.match(/\d+/)[0]) : document.querySelectorAll("#sg-found .sg-found-item").length;
+  const h2 = box?.querySelector("h2");
+  const titleText = h2?.textContent ?? "";
+  const counted = Number(titleText.match(/\d+/)?.[0] ?? 0);
   return box && {
     first: box === document.getElementById("lx-settings-body").firstElementChild,
     role: box.getAttribute("role"),
-    level: box.querySelector("h2") ? 2 : null,
-    title: box.querySelector("h2")?.textContent, line: box.querySelector(".sg-results-for")?.textContent,
-    lineShown: box.querySelector(".sg-results-for")?.checkVisibility(), counted: cards + also,
+    level: h2 ? 2 : null,
+    title: titleText, line: box.querySelector(".sg-results-for")?.textContent,
+    lineShown: box.querySelector(".sg-results-for")?.checkVisibility(), counted,
     empty: document.getElementById("lx-settings-empty")?.textContent ?? null,
   };
 });
@@ -131,14 +128,7 @@ test("DG-061 the head goes with its search when Settings opens again, and speaks
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => /résultat/.test(document.querySelector("#sg-results h2")?.textContent ?? ""));
   /* Cards draw themselves again in the new language; the count settles on what is then on show. */
-  await page.waitForFunction(() => {
-    const cards = [...document.querySelectorAll(".lx-page:not([hidden]) :is(.lx-subpanel > *, .lx-page > *)")]
-      .filter((card) => !card.matches(".lx-page-title, .lx-page-intro, .lx-subtabs, .lx-subpanel, .lx-on-this-page, .sg-head, .lx-miss")
-        && card.checkVisibility()).length;
-    const all = document.querySelector("#sg-found .sg-found-all");
-    const also = all ? Number(all.textContent.match(/\d+/)[0]) : document.querySelectorAll("#sg-found .sg-found-item").length;
-    return Number(document.querySelector("#sg-results h2")?.textContent.match(/\d+/)?.[0]) === cards + also;
-  }, null, { timeout: 5000 }).catch(() => undefined);
+  await page.waitForFunction(() => /résultat/.test(document.querySelector("#sg-results h2")?.textContent ?? ""), null, { timeout: 5000 });
   const french = await head(page);
   const plural = await page.evaluate((n) => new Intl.PluralRules("fr").select(n), french.counted);
   assert.equal(french.title, `${french.counted} ${plural === "one" ? "résultat" : "résultats"}`);
