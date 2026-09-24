@@ -157,8 +157,10 @@ test("each knob card is in its home, every control has its own sentence, and sav
     && response.request().method() === "POST", { timeout: 20000 });
   await page.locator("#knobs-launch-file-card").getByRole("button", { name: "Save for the next start", exact: true }).click();
   await launchResp;
+  // The save goes through the launch file and back; on a four-processor build machine that alone has taken over ten
+  // seconds (Q154 looks at why), so the wait is longer than the page's own. A save that never says so still fails.
   await page.locator("#knobs-launch-file-card [role=status]").filter({ hasText: "next time it starts" })
-    .waitFor({ state: "visible", timeout: 10000 });
+    .waitFor({ state: "visible", timeout: 30000 });
 
   assert.deepEqual(JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins, ["https://example.com", "https://docs.example.org"]);
 });
