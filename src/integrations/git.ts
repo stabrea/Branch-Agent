@@ -212,11 +212,13 @@ export class GitTools {
     const copy = input.remove ? await copyToRemove(cwd, input.name) : "";
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
-    if (input.remove) {
-      await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
-      this.onCopy({ source: cwd, copy, made: false });
-    }
-    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
+    // Q107: checked again right before the remove, since the merge itself can put a link at the copy's place.
+    // Reported as removed only when the remove really ran and finished.
+    const removed = input.remove && await copyToRemove(cwd, input.name).then(
+      () => this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).then(() => true, () => false),
+      () => false);
+    if (removed) this.onCopy({ source: cwd, copy, made: false });
+    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: removed };
   }
 
   /**

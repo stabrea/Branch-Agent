@@ -843,3 +843,31 @@ test("Q107: removing a copy never follows a link the repository carries to anoth
   assert.equal(readFileSync(join(side, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree is untouched");
   assert.equal(head(), before, "nothing was merged either");
 });
+
+test("Q107: a plan's merge that brings a link to the copy's place never gets the owner's worktree removed",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const external = await mkdtemp(join(tmpdir(), "branch-q107-owner-worktree-"));
+  t.after(() => discardTemp(external));
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "config", "user.name", "t"); // a real identity, so the merge really goes through
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await rm(external, { recursive: true });
+  gitIn(proj, "worktree", "add", "-q", "--detach", external); // the owner's own worktree, outside the workspace
+  await writeFile(join(external, "unsaved.txt"), "the owner's unsaved work");
+  // The plan's branch carries the copy's place as a link to it; main does not, so the first check passes.
+  gitIn(proj, "switch", "-q", "-c", "plan/x");
+  await mkdir(join(proj, ".branch-worktrees"), { recursive: true });
+  await symlink(external, join(proj, ".branch-worktrees", "x"), "dir");
+  gitIn(proj, "add", ".branch-worktrees/x");
+  gitIn(proj, "commit", "-q", "-m", "the copy's place, as a link");
+  gitIn(proj, "switch", "-q", "main");
+  assert.equal(existsSync(join(proj, ".branch-worktrees", "x")), false);
+  const result = await app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal());
+  assert.ok(existsSync(join(external, "unsaved.txt")), "the owner's worktree is untouched");
+  assert.equal(result.merged, true);
+  assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
+});
