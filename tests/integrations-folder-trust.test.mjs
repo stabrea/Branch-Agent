@@ -1078,3 +1078,41 @@ test("Q107: where the workspace is reached through a system link, a copy swapped
     assert.match(execFileSync("git", ["worktree", "list"], { cwd: proj, encoding: "utf8" }), /side/, `and still registered (${order})`);
   }
 });
+
+test("Q127: a remove Git refuses after every check passed leaves the copy, its record, and says so", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "held" }, signal());
+  await app.git.planStart({ folder: "work/proj", name: "plan" }, signal());
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") throw new Error("fatal: Git would not remove it");
+    return real(options, signal);
+  };
+  const told = [], heard = app.git.onCopy;
+  app.git.onCopy = (event) => { told.push(event); heard(event); };
+  t.after(() => { runner.run = real; app.git.onCopy = heard; });
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "held" }, signal()), /Git would not remove it/);
+  const merged = await app.git.planMerge({ folder: "work/proj", name: "plan", remove: true }, signal());
+  assert.equal(merged.merged, true);
+  assert.equal(merged.copyRemoved, false, "the merge says the copy was not removed");
+  assert.deepEqual(told, [], "no copy is reported as removed, so its folder-trust record stays");
+  for (const name of ["held", "plan"]) assert.ok(existsSync(join(proj, ".branch-worktrees", name)), `${name} is still there`);
+  const listed = (await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies.map((copy) => copy.name).sort();
+  assert.deepEqual(listed, ["held", "plan"]);
+});
+
+test("Q128: a copy deleted by hand is listed as gone, not as a working copy", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  for (const name of ["kept", "binned"]) await app.git.worktree({ folder: "work/proj", action: "add", name }, signal());
+  await rm(join(proj, ".branch-worktrees", "binned"), { recursive: true, force: true }); // put away by hand
+  const { copies } = await app.git.worktree({ folder: "work/proj", action: "list" }, signal());
+  assert.deepEqual([...copies].sort((a, b) => a.name.localeCompare(b.name)), [{ name: "binned", gone: true }, { name: "kept" }]);
+});

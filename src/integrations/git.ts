@@ -186,7 +186,13 @@ export class GitTools {
       const base = canonical(home);
       const inside = (path: string) => { const rel = relative(base, canonical(path)); return rel !== "" && !rel.startsWith(".."); };
       const mine = paths.filter(inside);
-      return { folder: input.folder, copies: mine.map((path) => ({ name: relative(base, canonical(path)).replace(/\\/g, "/") })) };
+      // Q128 (NAS 9730120): a copy whose folder was deleted by hand is still on Git's list; it is shown as gone, so a
+      // name that cannot be used again is explained rather than silently listed as a working copy.
+      return { folder: input.folder, copies: await Promise.all(mine.map(async (path) => {
+        const name = relative(base, canonical(path)).replace(/\\/g, "/");
+        const there = await lstat(path).then(() => true, () => false);
+        return there ? { name } : { name, gone: true };
+      })) };
     }
     if (!input.name) throw new Error("Tell me what to call this parallel copy.");
     const target = join(home, input.name);
