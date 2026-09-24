@@ -83,10 +83,10 @@ export class KnowledgeCards {
    * It counts the same conversations the refresh itself reads — `store.recentSessions` — leaving
    * out the empty ones, which the refresh passes over without sending anything.
    */
-  cost(owner: string, conversations = refreshConversations): RefreshCost {
+  cost(owner: string, conversations = refreshConversations, agent?: string): RefreshCost {
     let turns = 0, characters = 0, counted = 0;
-    for (const session of this.store.recentSessions(owner, conversations).sessions.slice(0, conversations)) {
-      const messages = this.store.messages(session.sessionId) as { role: string; content: string }[];
+    for (const sessionId of this.recent(owner, conversations, agent)) {
+      const messages = this.store.messages(sessionId) as { role: string; content: string }[];
       const digest = conversationDigest(messages);
       if (!digest.trim()) continue;
       counted += 1;
@@ -95,6 +95,14 @@ export class KnowledgeCards {
     }
     const partial = { conversations: counted, turns, characters, units: Math.ceil(characters / 4) };
     return { ...partial, summary: refreshSummary(partial) };
+  }
+  /**
+   * The latest conversations a refresh reads. For a Trunk or a specialist (Q143), only the ones it took part in, as
+   * `knowledge.propose` asks one at a time: the owner's own conversations are never written up for it.
+   */
+  recent(owner: string, conversations: number, agent?: string): string[] {
+    const ids = this.store.recentSessions(owner, agent ? recentReach : conversations).sessions.map((session) => session.sessionId);
+    return (agent ? ids.filter((id) => canAccessSession(this.store.sqlite, id, agent)) : ids).slice(0, conversations);
   }
   /** Each card written into the review queue, skipping ones already waiting under the same title. */
   private stage(owner: string, collection: string, cards: z.infer<typeof CardsSchema>["cards"]): Proposal[] {
@@ -115,6 +123,8 @@ export class KnowledgeCards {
 }
 /** How many recent conversations one refresh looks at, and how far back it will reach. */
 export const refreshConversations = 3;
+/** How far back a Trunk's refresh looks for conversations it took part in. */
+const recentReach = 200;
 /** What one refresh would read and roughly what it would cost, worked out here with no model call. */
 export interface RefreshCost {
   conversations: number;
