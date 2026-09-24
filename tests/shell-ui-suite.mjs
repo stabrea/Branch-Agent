@@ -869,24 +869,30 @@ test("Q5 Escape closes every popover this pass touched", async (t) => {
   await f.page.locator("#owner-menu").waitFor({ state: "hidden" });
   assert.equal(await f.page.locator("#owner-menu-button").getAttribute("aria-expanded"), "false");
 
-  /* The room meter moved into the new row under the message box; its numbers still close. */
-  await f.page.evaluate(() => document.getElementById("meter-row").hidden = false);
-  await f.page.locator("#meter-button").click();
-  await f.page.locator("#meter-popover").waitFor({ state: "visible" });
-  await f.page.keyboard.press("Escape");
-  await f.page.locator("#meter-popover").waitFor({ state: "hidden" });
   assert.deepEqual(f.errors, []);
 });
 
-test("Q5 the helper line and the room meter share one row, clear of the message box", async (t) => {
+test("Q5 the helper line and the conversation's cost share one row, clear of the message box (DG-101)", async (t) => {
   const f = await fixture(t);
-  await f.page.evaluate(() => document.getElementById("meter-row").hidden = false);
+  await f.page.evaluate(() => { document.getElementById("conversation-cost").textContent = "About $0.12 so far"; });
   const boxes = await f.page.evaluate(() => {
     const rect = (sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
-    return { composer: rect(".composer"), foot: rect(".composer-foot"), meter: rect("#meter-row"), note: rect(".composer-foot .composer-note") };
+    return { composer: rect(".composer"), foot: rect(".composer-foot"), cost: rect("#conversation-cost"), note: rect(".composer-foot .composer-note") };
   });
   assert.ok(boxes.foot.top >= boxes.composer.bottom - 1, "the quiet row still overlaps the message box");
-  assert.ok(boxes.meter.left >= boxes.note.right - 1, "the meter and the helper line overlap each other");
+  assert.ok(boxes.cost.left >= boxes.note.right - 1, "the cost and the helper line overlap each other");
+  assert.ok(boxes.cost.top >= boxes.foot.top - 1 && boxes.cost.bottom <= boxes.foot.bottom + 1, "the cost sits on the line under the box");
+  // With Show everything on, the limits ring ends the line; the cost sits just before it, at the far end (NAS f3a163d).
+  await f.page.evaluate(() => { document.documentElement.dataset.everything = "on"; });
+  await f.page.waitForFunction(() => document.querySelector(".composer-foot > .status-bar"));
+  const end = await f.page.evaluate(() => {
+    const bar = document.querySelector(".composer-foot > .status-bar"), cost = document.getElementById("conversation-cost");
+    bar.style.minWidth = "24px"; // the ring's own size, whatever it has to say yet
+    return { gap: bar.getBoundingClientRect().left - cost.getBoundingClientRect().right,
+      toEnd: document.querySelector(".composer-foot").getBoundingClientRect().right - bar.getBoundingClientRect().right };
+  });
+  assert.ok(end.gap >= 0 && end.gap <= 16, `the cost sits just before the ring, not floating mid-line (${end.gap} px apart)`);
+  assert.ok(end.toEnd <= 24, `and the ring ends the line (${end.toEnd} px short)`);
   assert.deepEqual(f.errors, []);
 });
 

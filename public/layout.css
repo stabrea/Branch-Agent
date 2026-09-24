@@ -1344,6 +1344,11 @@ body.lx-help .context-panel > .acorn-art {
 body.lx .rail-head {
   gap: 0;
 }
+/* Dogfood B9: the model, how hard it thinks and a pinned skill are chosen from the model chip beside Send, whose
+   name says the model and its thinking level. The row of labelled selects is not drawn; its selects still save. */
+body.lx #model-controls {
+  display: none !important;
+}
 /* how it should work, and the model for this conversation: a quiet row of chips, not two big menus */
 body.lx .model-controls {
   gap: 6px 10px;
@@ -1582,12 +1587,18 @@ body.lx #connection[data-state="lost"] {
     border-bottom-left-radius: 0;
   }
 }
-/* The task at work reads after what was asked: the person's message, then the working card under it. */
-:root:not([data-everything="on"]) #chat > #live-row {
+/* The task at work reads after what was asked: the person's message, then the working card under it, and the
+   question it stops on ("It needs your answer") with it, where the work is. In the full window too (dogfood B4:
+   there it sat above the whole conversation). The plan's own rows follow the card. */
+#chat > #live-row {
   order: 1;
   margin: var(--s3) 0 0;
 }
-:root:not([data-everything="on"]) #chat:has(> #live-row:not([hidden])) > #conversation {
+#chat > #plan-controls,
+#chat > #plan-card {
+  order: 2;
+}
+#chat:has(> #live-row:not([hidden])) > #conversation {
   flex: 0 0 auto;
 }
 /* The working card: Stop is a plain button, the other two read as things to press. */
@@ -2403,6 +2414,11 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
 }
 .composer-foot > .status-bar {
   min-height: 0;
+}
+/* DG-101: with a cost showing, the cost takes the far end's auto margin and the ring sits just after it; two auto
+   margins would split the line and leave the cost floating in the middle (NAS f3a163d). */
+.composer-foot > .conversation-cost:not(:empty) + .status-bar {
+  margin-left: 0;
 }
 .composer-foot > .status-bar .usage-ring {
   height: 18px;

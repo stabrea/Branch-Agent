@@ -56,6 +56,23 @@ function modelChoice(option, select, close) {
   return row;
 }
 
+/**
+ * Dogfood B9: a section of the model menu that sets one of the conversation's own selects (how hard it thinks, a
+ * pinned skill), shown only when there is a conversation and more than one choice. The long row of labelled selects
+ * those came from is no longer drawn; the selects stay in the page and are the ones that save.
+ */
+function menuSection(id, key, fallback, close) {
+  const select = $(id);
+  if ($("model-controls")?.hidden || !select || select.options.length < 2) return [];
+  const heading = element("p", "lx-more-head", say(key, fallback));
+  heading.dataset.t = key;
+  return [element("hr", "lx-menu-rule"), heading, ...[...select.options].map((option) => {
+    const row = modelChoice(option, select, close);
+    row.disabled = select.disabled;
+    return row;
+  })];
+}
+
 function paintModelMenu(menu, close) {
   const select = $("model-controls")?.hidden ? $("models-active") : $("session-model");
   if (!select) return;
@@ -64,7 +81,19 @@ function paintModelMenu(menu, close) {
   const manage = menuButton(say("composer.manageModels", "Manage models…"));
   manage.dataset.t = "composer.manageModels";
   manage.addEventListener("click", () => { close(); globalThis.branchLayout?.go("settings:models"); });
-  menu.replaceChildren(heading, ...[...select.options].map((option) => modelChoice(option, select, close)), element("hr", "lx-menu-rule"), manage);
+  menu.replaceChildren(heading, ...[...select.options].map((option) => modelChoice(option, select, close)),
+    ...menuSection("session-reasoning", "field.thinking", "Thinking", close),
+    ...menuSection("session-skill", "field.pinned-skill", "Pinned skill", close),
+    element("hr", "lx-menu-rule"), manage);
+}
+
+/** The conversation's own thinking level, in the chip beside the model when it is not the workspace's default. */
+function thinkingWord() {
+  const select = $("session-reasoning");
+  if ($("model-controls")?.hidden || !select?.value) return "";
+  // The short word ("Balanced"), not the list's longer wording for a model that thinks by budget, or the note on
+  // a level the model does not take: the chip is a name, and it is cut at its width (NAS 62efb38).
+  return say(`thinking.effort.${select.value}`, select.selectedOptions[0]?.textContent.trim() ?? "");
 }
 
 function installModelPicker() {
@@ -91,11 +120,14 @@ function installModelPicker() {
   const sync = () => {
     const active = activeModel(models, session);
     const practice = active?.provider === "offline-demo-fixture";
-    name.textContent = practice ? say("composer.practiceModel", "Practice") : active?.model || say("composer.noModel", "Connect a model");
+    const thinking = practice ? "" : thinkingWord();
+    name.textContent = (practice ? say("composer.practiceModel", "Practice") : active?.model || say("composer.noModel", "Connect a model"))
+      + (thinking ? ` · ${thinking}` : "");
     chip.setAttribute("aria-label", `${say("composer.changeModel", "Change the model")}: ${name.textContent}`);
   };
   document.addEventListener("branch-models", (event) => { models = event.detail; sync(); });
   document.addEventListener("branch-session-model", (event) => { session = event.detail; sync(); });
+  $("session-reasoning")?.addEventListener("change", sync);
   document.addEventListener("branch-language", sync);
   sync();
 }
@@ -195,7 +227,9 @@ function installFootChips() {
   const foot = document.querySelector(".composer-foot");
   if (!foot || foot.querySelector(".lx-foot-chips")) return;
   const chips = element("span", "lx-foot-chips");
-  chips.append(footChip("ask-first-toggle", "more.askFirst", "Ask me questions first"),
+  // DG-101: first, as in the sample, how much of the model's room the next request takes (public/conversation-facts.js fills it).
+  const context = element("span", "lx-foot-chip lx-foot-context", say("composer.contextUsed", "Context used 0%").replace("{share}", "0"));
+  chips.append(context, footChip("ask-first-toggle", "more.askFirst", "Ask me questions first"),
     footChip("temporary-toggle", "composer.chip.temporary", "Temporary"), element("span", "lx-foot-chip lx-foot-assistant"));
   foot.prepend(chips);
   document.addEventListener("change", (event) => {

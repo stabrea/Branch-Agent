@@ -945,6 +945,7 @@ export const ROUTES = {
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
   "/api/sessions/:id/context": "look",
+  "/api/sessions/:id/cost": "look", // DG-101: what the conversation probably cost, for the line under the box
   "/api/sessions/:id/discard": "other POST",
   "/api/sessions/:id/duplicate": "other POST",
   "/api/sessions/:id/export": "look",

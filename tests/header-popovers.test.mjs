@@ -277,17 +277,3 @@ test("Q34 only a scroller that carries the menu keeps it in place: one it escape
   assert.deepEqual(seen, { escapes: true, carried: false });
   assert.deepEqual(errors, []);
 });
-
-test("Q34 the phone's usage meter opens where it drew over the card", async (t) => {
-  const { page, errors } = await fixture(t, 400, { everything: true });
-  await openCard(page);
-  const button = page.locator("#meter-button");
-  if (!(await button.isVisible())) return t.skip("the meter is not shown in this window");
-  await button.click();
-  await page.locator("#meter-popover").waitFor({ state: "visible" });
-  const seen = await measure(page, "#meter-popover");
-  assert.equal(seen.lifted, true, "the meter is lifted");
-  assert.deepEqual(seen.shown, seen.home, "and opens where and as it always drew, centred once");
-  assert.equal(seen.covered, 0, `nothing covers it (${seen.covered} of ${seen.points} points hit ${seen.under.join(", ")})`);
-  assert.deepEqual(errors, []);
-});

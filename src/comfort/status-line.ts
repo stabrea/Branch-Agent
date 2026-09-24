@@ -17,7 +17,7 @@ export interface StatusFacts {
   cost: string;
   now: Date;
 }
-/** The room the window's meter measures against when nothing else is known (public/token-meter.js). */
+/** The room the status line measures against when nothing else is known. */
 export const defaultRoom = 128000;
 
 export interface StatusWords { t(key: string, english: string, values?: Record<string, string | number>): string }

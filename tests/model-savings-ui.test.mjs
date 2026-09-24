@@ -1,7 +1,7 @@
 /**
  * R17-E: the model cards open where docs/places.md says, every control is described by its own
  * sentence, a change saved on the screen reaches the server, a mixture appears in the model list,
- * the cards fit at 400 px, and the round-by-round chart shows up under the meter when switched on.
+ * the cards fit at 400 px, and the round-by-round chart shows up in Data & usage when switched on.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -149,27 +149,33 @@ test("the French words are real, and the cards fit at 400 px", async (t) => {
   assert.deepEqual(copied, [], "every word has its own French");
 });
 
-test("R17-049 the round-by-round chart appears in the meter's popover only when switched on", async (t) => {
+/** Settings › Data & usage, opened as a person opens it (DG-101: the chart lives there now, not under a meter). */
+async function openDataAndUsage(page) {
+  await page.keyboard.press("Control+Comma");
+  await page.locator("#settings-window").waitFor({ state: "visible" });
+  await page.locator('.lx-settings-link[data-page="data"]').click();
+  await page.locator("#usage-left-card").waitFor({ state: "attached" });
+}
+
+test("R17-049 the round-by-round chart appears in Data & usage only when switched on", async (t) => {
   const { app, page, errors } = await openApp(t);
   const run = await app.runtime.run({ prompt: "hello" });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
-  await page.evaluate(() => window.branchTokenMeter.refresh());
-  await page.locator("#meter-row").waitFor({ state: "visible" });
-  await page.locator("#meter-button").click();
+  await openDataAndUsage(page);
+  await page.evaluate(() => window.branchRoundChart.refresh());
   await page.waitForTimeout(300);
   assert.equal(await page.locator("#round-chart:not([hidden])").count(), 0, "off: no chart");
-  await page.locator("#meter-button").click();
 
   saveSavings(app.store, "local", "roundChart", { mode: "on" });
   await page.evaluate(() => window.branchModelSavings.refresh());
-  await page.locator("#meter-button").click();
-  await page.locator("#round-chart svg rect").first().waitFor();
+  await page.locator("#usage #round-chart svg rect").first().waitFor();
+  assert.ok(await page.locator("#round-chart").isVisible(), "on: the chart is on show in Data & usage");
   const summary = await page.locator("#round-chart-summary").textContent();
   assert.match(summary, /Rounds: 1\. Tokens in: 700\. Served from the cache: 500\. Summaries: 0\./);
-  // The meter redraws its numbers every few seconds; the chart stays.
-  await page.evaluate(() => window.branchTokenMeter.refresh());
+  // The usage view redraws itself by emptying its cards; the chart stays.
+  await page.evaluate(() => window.branchUsage.render());
   await page.waitForTimeout(300);
-  assert.equal(await page.locator("#meter-popover #round-chart svg").count(), 1);
+  assert.equal(await page.locator("#usage #round-chart svg").count(), 1);
   assert.deepEqual(errors, []);
 });
 
@@ -179,9 +185,7 @@ test("a round whose service never reported the cache is said to be unknown, neve
   const first = await app.runtime.run({ prompt: "hello" });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, first.sessionId);
   await page.evaluate(() => window.branchModelSavings.refresh());
-  await page.evaluate(() => window.branchTokenMeter.refresh());
-  await page.locator("#meter-row").waitFor({ state: "visible" });
-  await page.locator("#meter-button").click();
+  await openDataAndUsage(page);
   /** Draws the chart now, waiting for that drawing itself, and answers its summary and its bars. */
   const drawn = async () => {
     await page.evaluate(() => window.branchRoundChart.refresh());
@@ -207,5 +211,22 @@ test("a round whose service never reported the cache is said to be unknown, neve
     "a reported zero counts as reported, so only one round is still unreported");
   assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1,
     "and a round reporting zero is not faded");
+  assert.deepEqual(errors, []);
+});
+
+test("R17-049 the chart asks for rounds only while Data & usage is on screen", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  const run = await app.runtime.run({ prompt: "hello" });
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
+  let asked = 0;
+  page.on("request", (request) => { if (request.url().includes("/api/model-savings/rounds")) asked += 1; });
+  saveSavings(app.store, "local", "roundChart", { mode: "on" });
+  await page.evaluate(() => window.branchModelSavings.refresh());
+  // Two of its four-second turns with Settings closed (NAS f3a163d: #usage is never marked hidden in this layout).
+  await page.waitForTimeout(9000);
+  assert.equal(asked, 0, "closed: the chart asks for nothing");
+  await openDataAndUsage(page);
+  await page.locator("#usage #round-chart svg rect").first().waitFor({ timeout: 10000 });
+  assert.ok(asked > 0, "open: it asks, and draws");
   assert.deepEqual(errors, []);
 });
