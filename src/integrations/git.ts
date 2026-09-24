@@ -3,6 +3,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
+import { randomUUID } from "node:crypto";
 import { branchRef, explainGit, inBranchSource, type GitOutcome, type GitRunner } from "./git-run.js";
 
 /**
@@ -193,19 +194,23 @@ export class GitTools {
     // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
     // worktree the remotes are the source checkout's).
     if (inBranchSource(cwd)) {
-      await this.run(cwd, ["remote", "remove", publishCheckRemote], signal).catch(() => undefined);
-      await this.run(cwd, ["remote", "add", publishCheckRemote, address.href], signal);
+      // Settings for the pushed name kept outside the repository (the computer's own Git settings) would still
+      // apply after the name is re-pointed, so they are refused before the folder's own remote is touched.
+      const pattern = `^remote\\.${input.remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`;
+      const elsewhere = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      if (elsewhere.status === "completed" && elsewhere.stdout.split("\n").some((line) => line && !/^(local|worktree)\s/.test(line)))
+        throw new Error(`Git settings outside this repository say where "${input.remote}" sends, so nothing was sent.`);
+      // A name of its own for each publish: worktrees of one source share its remotes, so a fixed name could
+      // be re-pointed by another publish while this one is being checked.
+      const check = `${publishCheckRemote}-${randomUUID()}`;
+      await this.run(cwd, ["remote", "add", check, address.href], signal);
       // Taken away even when the run is being stopped, so the unchecked address never stays behind.
-      const refused = await this.validateRemoteURL(cwd, publishCheckRemote, true, signal).finally(() =>
-        this.run(cwd, ["remote", "remove", publishCheckRemote], AbortSignal.timeout(10_000)).catch(() => undefined));
+      const refused = await this.validateRemoteURL(cwd, check, true, signal).finally(() =>
+        this.run(cwd, ["remote", "remove", check], AbortSignal.timeout(10_000)).catch(() => undefined));
       if (refused) throw new Error(refused);
     }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    // And once more on the name that is pushed: settings for that name kept outside the repository (the
-    // computer's own Git settings) can still send it somewhere else.
-    const renamed = await this.validateRemoteURL(cwd, input.remote, true, signal);
-    if (renamed) throw new Error(renamed);
     const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }

@@ -455,7 +455,37 @@ test("Q101: settings for the pushed name kept in the computer's own Git settings
   const before = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
   process.env.HOME = home; process.env.XDG_CONFIG_HOME = join(home, ".config");
   t.after(() => { for (const [key, value] of Object.entries(before)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
-  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /Git settings outside this repository/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git",
+    "refused before the folder's own origin is touched");
+});
+
+test("Q101: two publishes at once each check their own address", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "url.https://evil.example/a.insteadOf", "https://github.com/o/a"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  // Hold A right after its own check remote is added, and let B go all the way through meanwhile.
+  let letAGo, aAdded;
+  const aHeld = new Promise((resolve) => { letAGo = resolve; });
+  const aReady = new Promise((resolve) => { aAdded = resolve; });
+  runner.run = async (options, signal) => {
+    const [verb, action, name, url] = options.args;
+    if (verb === "remote" && action === "add" && String(name).startsWith("branch-publish-check") && String(url).includes("/o/a")) {
+      const outcome = await real(options, signal); aAdded(); await aHeld; return outcome;
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const a = app.git.publish({ folder, url: "https://github.com/o/a.git", remote: "origin" }, AbortSignal.timeout(20_000));
+  await aReady;
+  const b = app.git.publish({ folder, url: "https://github.com/o/b.git", remote: "upstream" }, AbortSignal.timeout(20_000)).catch((error) => error);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  letAGo();
+  await assert.rejects(a, /insteadOf.*redirect/, "A's own address was checked, not B's");
+  await b;
+  const origin = (() => { try { return execFileSync("git", ["config", "--get-all", "remote.origin.url"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; } })();
+  assert.equal(origin, "", "origin was never pointed at A's refused address");
 });
 
 
