@@ -321,3 +321,12 @@ test("Q89.3: workspace root vs subfolder integrations files — both locations c
     assert.equal(integrationsFileTrusted(app.store, owner, workspace, subFile), false,
       "subfolder file is NOT trusted (specific distrust wins)");
   });
+
+test("Q89.4 (pins today's rule, for a ruling): a repository cloned into a trusted folder with no decision of its own inherits that trust", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  // A repository cloned later into the trusted folder; nobody has decided anything about it.
+  const cloned = await place(join(workspace, "work", "cloned-repo", "integrations.json"), { git: { remote: true } });
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, cloned), true,
+    "the closest decided folder is `work`, so its trust covers the clone; change this test only with the rule");
+});
