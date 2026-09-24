@@ -177,7 +177,11 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
     if (depth >= 8) return true;
     return Object.entries(value).some(([name, inner]) => (depth > 0 && name === key) || buried(inner, key, depth + 1));
   };
-  const strayKey = Object.keys(raw).some((key) => !Object.hasOwn(shippedRecord, key));
+  // Judged by shape as well as name: a known key holding a record (an object, a list, or text that looks like
+  // one) where Branch keeps a plain value is where a misspelt or renamed guard could have gone.
+  const structured = (value: unknown) => (typeof value === "object" && value !== null) || (typeof value === "string" && /^\s*[[{]/.test(value));
+  const strayKey = Object.keys(raw).some((key) => !Object.hasOwn(shippedRecord, key)
+    || (structured(raw[key]) && !structured(shippedRecord[key])));
   const loosenings: string[] = [];
   for (const field of spec.fields) {
     const rawValue = readPathRaw(raw, field.field);

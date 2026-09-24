@@ -472,3 +472,23 @@ test("put-back: a guard inside a string under a field, or deeper than the look g
   store.save("settings", owner, "voice", { systemVoice: "bogus" });
   assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200);
 });
+
+test("put-back: a known key holding a record where Branch keeps a plain value asks, whatever the guard is called there", async (t) => {
+  const { store, owner, call } = await served(t);
+  for (const record of [
+    { KeepAudioOnThisComputer: true },
+    { voice: JSON.stringify({ systemVoice: "on", keepAudioOnThisComputer: true }) },
+    { systemVoice: { KeepAudioOnThisComputer: true } },
+    { systemVoice: { "keepAudioOnThisComputer ": true } },
+    { autoReadAloud: { keep_audio_on_this_computer: true } },
+    { replyWithVoiceOnChannels: { voice: { systemVoice: "on", KeepAudioOnThisComputer: true } } },
+    { systemVoice: JSON.stringify({ Keep_Audio: true }) },
+  ]) {
+    store.save("settings", owner, "voice", record);
+    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.equal(refused.status, 409, `${JSON.stringify(record)}: ${JSON.stringify(refused.body)}`);
+    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
+  }
+  store.save("settings", owner, "voice", { systemVoice: "bogus" });
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200, "a plain unreadable value still does not ask");
+});
