@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { audit, auditOrigins, type AuditOrigin } from "./audit.js";
 import type { ToolContext } from "./contracts.js";
-import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
+import { branchRef, type GitOutcome, type GitRunOptions } from "./integrations/git-run.js";
 import { commandFolder } from "./integrations/shell-config.js";
 import { cwdOf } from "./never-break/protected.js";
 import { isReadOnlyPermission } from "./policy.js";
@@ -457,11 +457,9 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     // git.push and publishing send the branch they name (or the one checked out); that ref is the one walked.
     const named = (args as { branch?: unknown } | null)?.branch;
     const sends = (name === "git.push" || name === "github.publish_repo") && typeof named === "string" && named ? named : "";
-    // A name in capitals and underscores (ORIG_HEAD, FETCH_HEAD, ...) is read by Git as one of its own files before
-    // any branch, so the walk and the push could pick different commits: such a name is not sent from the source.
-    if (/^[A-Z_]+$/.test(sends))
-      refuse(deps, context, name, held.contract.worktreePath, `"${sends}" is a name Git reads as one of its own files, not as a branch, so it is not sent from Branch's source.`);
-    const ref = sends || "HEAD";
+    // Walked as the branch itself (refs/heads/<name>), which is what the push sends: a bare name would let Git pick
+    // one of its own files first (ORIG_HEAD, worktrees/<id>/HEAD), so the walk and the push could differ.
+    const ref = branchRef(sends || "HEAD");
     const broken = await remoteBroken(deps, held.contract, context.signal, ref);
     if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
   };

@@ -15,6 +15,8 @@ import { posixEnvironment } from "./shell-config.js";
 export type GitLocator = () => Promise<string | null>;
 export interface GitRunOptions { cwd: string; args: string[]; timeoutMs?: number; maxOutputBytes?: number }
 export interface GitOutcome extends ProcessResult { command: string }
+/** Q98: a branch as the full ref Git pushes and walks alike (`HEAD` and a ref already written in full stay as they are). */
+export const branchRef = (branch: string): string => (branch === "HEAD" || branch.startsWith("refs/") ? branch : `refs/heads/${branch}`);
 
 const NO_HOOKS = join(tmpdir(), "branch-hooks-disabled-does-not-exist");
 const KEEP_ENV = ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE",

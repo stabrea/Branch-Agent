@@ -370,19 +370,27 @@ test("a push is walked commit by commit, both sides of each change, for the bran
   const moved = walk("D\tscripts/a.mjs\nA\tsrc/ui/p.mjs\n");
   await assert.rejects(moved.guard("git.push", { folder: "." }, { runId: "r", signal: signal() }), /allowed paths: scripts\/a\.mjs/);
   // The branch pushed is the one walked, not whatever is checked out.
-  const side = guardWith((args) => (args[0] === "log" && args.at(-1) === `${sha}..side` ? answer("A\tscripts/evil.mjs\n") : answer("")));
+  const side = guardWith((args) => (args[0] === "log" && args.at(-1) === `${sha}..refs/heads/side` ? answer("A\tscripts/evil.mjs\n") : answer("")));
   await side.guard("git.push", { folder: "." }, { runId: "r", signal: signal() });
   await assert.rejects(side.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() }), /scripts\/evil\.mjs/);
-  assert.ok(side.calls.includes(`merge-base --is-ancestor ${sha} side`));
+  assert.ok(side.calls.includes(`merge-base --is-ancestor ${sha} refs/heads/side`));
   // Q98: publishing sends the branch it names too, so that is the one walked. It works on the whole worktree,
   // so its contract allows everything; an owner's branch that does not start from the source commit is refused.
-  const orphan = guardWith((args) => (args[0] === "merge-base" && args.at(-1) === "owner-orphan" ? answer("", "failed") : answer("")), { allowedPaths: ["**"] });
+  const orphan = guardWith((args) => (args[0] === "merge-base" && args.at(-1) === "refs/heads/owner-orphan" ? answer("", "failed") : answer("")), { allowedPaths: ["**"] });
   await orphan.guard("github.publish_repo", { folder: "." }, { runId: "r", signal: signal() });
   await assert.rejects(orphan.guard("github.publish_repo", { folder: ".", branch: "owner-orphan" }, { runId: "r", signal: signal() }),
-    /owner-orphan no longer starts from the contract's source commit/);
-  // Q98: a name Git reads as one of its own files (ORIG_HEAD) could be walked as one commit and pushed as another.
-  for (const [tool, branch] of [["git.push", "ORIG_HEAD"], ["github.publish_repo", "ORIG_HEAD"], ["git.push", "FETCH_HEAD"], ["github.publish_repo", "MY_BRANCH"]])
-    await assert.rejects(orphan.guard(tool, { folder: ".", branch }, { runId: "r", signal: signal() }), /a name Git reads as one of its own files/, `${tool} ${branch}`);
+    /refs\/heads\/owner-orphan no longer starts from the contract's source commit/);
+  // Q98: the branch is walked as refs/heads/<name>, never as a bare name Git could read as one of its own files
+  // (ORIG_HEAD, worktrees/<id>/HEAD, main-worktree/HEAD), so the walk and the push pick the same commit.
+  const full = guardWith(() => answer(""), { allowedPaths: ["**"] });
+  for (const tool of ["git.push", "github.publish_repo"])
+    for (const branch of ["ORIG_HEAD", "worktrees/self-x/HEAD", "main-worktree/HEAD", "worktrees/self-x/ORIG_HEAD", "refs/heads/side"]) {
+      await full.guard(tool, { folder: ".", branch }, { runId: "r", signal: signal() });
+      const walked = branch.startsWith("refs/") ? branch : `refs/heads/${branch}`;
+      assert.ok(full.calls.includes(`merge-base --is-ancestor ${sha} ${walked}`), `${tool} ${branch}: ${full.calls.at(-3)}`);
+    }
+  await full.guard("git.push", { folder: ".", branch: "HEAD" }, { runId: "r", signal: signal() });
+  assert.ok(full.calls.includes(`merge-base --is-ancestor ${sha} HEAD`), "HEAD itself is the checked-out branch");
   const clean = walk("M\tsrc/ui/button.ts\n");
   await clean.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() });
 });

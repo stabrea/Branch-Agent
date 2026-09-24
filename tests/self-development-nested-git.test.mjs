@@ -435,3 +435,17 @@ test("Q98: publishing checks the address Git will push to, so a push-only rewrit
   await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
   assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "no remote is left");
 });
+
+test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref the contract walks", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  execFileSync("git", ["remote", "add", "origin", "https://github.com/o/r.git"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  for (const branch of ["worktrees/self-x/HEAD", "ORIG_HEAD", "side"])
+    await app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)).catch(() => undefined);
+  await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "main-worktree/HEAD" }, AbortSignal.timeout(10_000)).catch(() => undefined);
+  assert.deepEqual(pushed, ["refs/heads/worktrees/self-x/HEAD", "refs/heads/ORIG_HEAD", "refs/heads/side", "refs/heads/main-worktree/HEAD"]);
+});
