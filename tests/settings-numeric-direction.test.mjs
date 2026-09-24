@@ -56,18 +56,23 @@ async function fixture(t, provider) {
   const api = (route, body) => settingsKitApi(deps, "POST", `/api/settings-kit/${route}`, async () => body);
   const tool = (name, args) => app.registry.execute(name, args, context);
   const value = async (id) => (await tool("settings.list", { search: id })).shown[0].value;
-  return { app, owner, api, tool, value };
+  /** A less careful change is put to the owner every time, and the yes is never kept (dogfood A1: one question, one yes). */
+  const askedEveryTime = (args) => {
+    const held = app.runtime.checkPolicy("settings.change", args, context, `fp-${JSON.stringify(args)}`);
+    assert.deepEqual([held.decision, held.remember], ["ask", "never"], "a less careful change is asked about every time");
+  };
+  return { app, owner, api, tool, value, askedEveryTime };
 }
 
-test("numeric loosening cannot use settings.change, while tightening can", async (t) => {
-  const { tool, value } = await fixture(t);
+test("numeric loosening is asked about every time, then made by settings.change; tightening too", async (t) => {
+  const { tool, value, askedEveryTime } = await fixture(t);
   for (const [key, field, from, to] of numeric.slice(0, 2)) {
     const id = `${key}.${field}`, args = { changes: [{ setting: id, value: to }] };
     const row = (await tool("settings.list", { search: id })).shown[0];
     assert.match(row.lessCareful, key === "wake-word" ? /turning it down/ : /turning it up/);
-    await assert.rejects(tool("settings.change", args), /less careful.*settings\.loosen/s);
-    assert.equal(await value(id), from, "refused tool changed nothing");
-    assert.equal((await tool("settings.loosen", args)).changed.length, 1);
+    askedEveryTime(args);
+    assert.equal(await value(id), from, "nothing is written before the owner's yes");
+    assert.equal((await tool("settings.change", args)).changed.length, 1, "after that yes, settings.change makes it");
     assert.equal(await value(id), to);
     const tighter = { changes: [{ setting: id, value: from }] };
     await assert.rejects(tool("settings.loosen", tighter), /None of these makes Branch less careful/);
@@ -164,24 +169,24 @@ test("numeric loosening through a conversation asks each time and cannot remembe
 });
 
 test("a quiet wait saved between whole seconds is compared as it is, so turning it up still asks every time", async (t) => {
-  const { app, owner, tool, value } = await fixture(t);
+  const { app, owner, value, askedEveryTime } = await fixture(t);
   /* The dictation route itself takes 1.5 (src/voice-dictation.ts); the settings kit only proposes whole seconds. */
   saveDictationSettings(app.store, owner, { silenceSeconds: 1.5 });
   assert.equal(await value("live-dictation.silenceSeconds"), 1.5, "the list shows what is really saved");
   const [change] = changesFor(app.store, owner, [{ key: "live-dictation", field: "silenceSeconds", value: 3 }]).changes;
   assert.deepEqual([change?.from, change?.to, change?.loosens], [1.5, 3, true]);
-  await assert.rejects(tool("settings.change", { changes: [{ setting: "live-dictation.silenceSeconds", value: 3 }] }), /less careful.*settings\.loosen/s);
-  assert.equal(await value("live-dictation.silenceSeconds"), 1.5, "refused tool changed nothing");
+  askedEveryTime({ changes: [{ setting: "live-dictation.silenceSeconds", value: 3 }] });
+  assert.equal(await value("live-dictation.silenceSeconds"), 1.5, "nothing is written before the owner's yes");
 });
 
 test("a whole-number setting saved as a fraction is weighed as the app runs it, so lowering it still asks every time", async (t) => {
-  const { app, owner, tool, value } = await fixture(t);
+  const { app, owner, value, askedEveryTime } = await fixture(t);
   /* The wake word keeps whole numbers only (src/voice-wake.ts): a stored 60.5 makes the app run on its starting 80. */
   app.store.save("settings", owner, "wake-word", { mode: "off", word: "", sureness: 60.5, windowSeconds: 2 });
   assert.equal(await value("wake-word.sureness"), 80, "the list shows what is really in force");
   const [change] = changesFor(app.store, owner, [{ key: "wake-word", field: "sureness", value: 70 }]).changes;
   assert.deepEqual([change?.from, change?.to, change?.loosens], [80, 70, true]);
-  await assert.rejects(tool("settings.change", { changes: [{ setting: "wake-word.sureness", value: 70 }] }), /less careful.*settings\.loosen/s);
+  askedEveryTime({ changes: [{ setting: "wake-word.sureness", value: 70 }] });
 });
 
 test("a record the app would not accept is shown as the starting values the app runs on", async (t) => {
