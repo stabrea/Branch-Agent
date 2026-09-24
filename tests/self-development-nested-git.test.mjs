@@ -431,6 +431,7 @@ test("Q98: publishing checks the address Git will push to, so a push-only rewrit
   const { app, folder, cwd } = await plantedBare(t);
   const signal = AbortSignal.timeout(10_000);
   execFileSync("git", ["config", "--local", "url.https://evil.com/.pushInsteadOf", "https://github.com/"], { cwd });
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd }); // should the check ever miss, nothing leaves this computer
   await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
   assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "no remote is left");
 });

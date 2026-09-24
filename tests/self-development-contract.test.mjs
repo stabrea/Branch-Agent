@@ -380,6 +380,9 @@ test("a push is walked commit by commit, both sides of each change, for the bran
   await orphan.guard("github.publish_repo", { folder: "." }, { runId: "r", signal: signal() });
   await assert.rejects(orphan.guard("github.publish_repo", { folder: ".", branch: "owner-orphan" }, { runId: "r", signal: signal() }),
     /owner-orphan no longer starts from the contract's source commit/);
+  // Q98: a name Git reads as one of its own files (ORIG_HEAD) could be walked as one commit and pushed as another.
+  for (const [tool, branch] of [["git.push", "ORIG_HEAD"], ["github.publish_repo", "ORIG_HEAD"], ["git.push", "FETCH_HEAD"], ["github.publish_repo", "MY_BRANCH"]])
+    await assert.rejects(orphan.guard(tool, { folder: ".", branch }, { runId: "r", signal: signal() }), /a name Git reads as one of its own files/, `${tool} ${branch}`);
   const clean = walk("M\tsrc/ui/button.ts\n");
   await clean.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() });
 });

@@ -456,7 +456,12 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     if (!held || !remotePermissions.has(held.permission)) return;
     // git.push and publishing send the branch they name (or the one checked out); that ref is the one walked.
     const named = (args as { branch?: unknown } | null)?.branch;
-    const ref = (name === "git.push" || name === "github.publish_repo") && typeof named === "string" && named ? named : "HEAD";
+    const sends = (name === "git.push" || name === "github.publish_repo") && typeof named === "string" && named ? named : "";
+    // A name in capitals and underscores (ORIG_HEAD, FETCH_HEAD, ...) is read by Git as one of its own files before
+    // any branch, so the walk and the push could pick different commits: such a name is not sent from the source.
+    if (/^[A-Z_]+$/.test(sends))
+      refuse(deps, context, name, held.contract.worktreePath, `"${sends}" is a name Git reads as one of its own files, not as a branch, so it is not sent from Branch's source.`);
+    const ref = sends || "HEAD";
     const broken = await remoteBroken(deps, held.contract, context.signal, ref);
     if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
   };
