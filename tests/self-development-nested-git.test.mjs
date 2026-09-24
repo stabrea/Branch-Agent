@@ -426,3 +426,11 @@ test("Q98: publishing is held to the worktree-root rule like the Git tools", { s
     /Git runs in Branch's own source only at a self-development worktree's root/);
   assert.equal(existsSync(marker), false, "the planted program never ran");
 });
+
+test("Q98: publishing checks the address Git will push to, so a push-only rewrite is refused too", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.pushInsteadOf", "https://github.com/"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "no remote is left");
+});

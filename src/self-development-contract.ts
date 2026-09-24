@@ -454,9 +454,9 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     if (startsProgram(deps, name, args) && sourceCheckedOut(deps.workspace)) return confineCommand(deps, name, args, context);
     const held = heldTerms(deps, name, args, context);
     if (!held || !remotePermissions.has(held.permission)) return;
-    // git.push sends the branch it names (or the one checked out); that ref is the one walked.
+    // git.push and publishing send the branch they name (or the one checked out); that ref is the one walked.
     const named = (args as { branch?: unknown } | null)?.branch;
-    const ref = name === "git.push" && typeof named === "string" && named ? named : "HEAD";
+    const ref = (name === "git.push" || name === "github.publish_repo") && typeof named === "string" && named ? named : "HEAD";
     const broken = await remoteBroken(deps, held.contract, context.signal, ref);
     if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
   };

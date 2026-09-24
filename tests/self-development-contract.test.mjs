@@ -210,13 +210,15 @@ function guardWith(git, contract = {}, workspace = "/w") {
   for (const name of ["git.push", "git.pull"])
     registry.register({ name, permission: "git.remote", description: "double", targets: inFolder,
       parameters: z.object({ folder: z.string().default("."), remote: z.string().default("origin"), branch: z.string().optional() }), execute: async () => ({}) });
+  registry.register({ name: "github.publish_repo", permission: "github.manage", description: "double", targets: inFolder,
+    parameters: z.object({ folder: z.string().default("."), name: z.string().default("r"), remote: z.string().default("origin"), branch: z.string().optional() }), execute: async () => ({}) });
   // Like the real git.commit: the repository folder beside the named files, whole only when none are named.
   registry.register({ name: "git.commit", permission: "git.write", description: "double",
     targets: (args) => [{ kind: "write", path: args.folder, ...(args.paths?.length ? {} : { folder: true }) },
       ...(args.paths ?? []).map((path) => ({ kind: "write", path: `${args.folder}/${path}` }))],
     parameters: z.object({ folder: z.string().default("."), message: z.string().default("m"), paths: z.array(z.string()).optional() }), execute: async () => ({}) });
   book.create("local", { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree,
-    terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes", "git.push", "git.pull", "git.commit"], ...contract } });
+    terms: { ...terms, permissions: ["files.write", "github.pull_request_from_changes", "git.push", "git.pull", "git.commit", "github.publish_repo"], ...contract } });
   const calls = [];
   const guard = contractGuard({ store: { audit: log }, owner: "local", workspace, registry, book,
     git: async (options) => {
@@ -372,6 +374,12 @@ test("a push is walked commit by commit, both sides of each change, for the bran
   await side.guard("git.push", { folder: "." }, { runId: "r", signal: signal() });
   await assert.rejects(side.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() }), /scripts\/evil\.mjs/);
   assert.ok(side.calls.includes(`merge-base --is-ancestor ${sha} side`));
+  // Q98: publishing sends the branch it names too, so that is the one walked. It works on the whole worktree,
+  // so its contract allows everything; an owner's branch that does not start from the source commit is refused.
+  const orphan = guardWith((args) => (args[0] === "merge-base" && args.at(-1) === "owner-orphan" ? answer("", "failed") : answer("")), { allowedPaths: ["**"] });
+  await orphan.guard("github.publish_repo", { folder: "." }, { runId: "r", signal: signal() });
+  await assert.rejects(orphan.guard("github.publish_repo", { folder: ".", branch: "owner-orphan" }, { runId: "r", signal: signal() }),
+    /owner-orphan no longer starts from the contract's source commit/);
   const clean = walk("M\tsrc/ui/button.ts\n");
   await clean.guard("git.push", { folder: ".", branch: "side" }, { runId: "r", signal: signal() });
 });
