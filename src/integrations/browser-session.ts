@@ -20,6 +20,60 @@ interface PausedRequest {
   resourceType: string;
   networkId?: string | undefined;
 }
+/**
+ * The bypass below holds for one target only, and a frame from another website becomes a target of its own once it
+ * loads there: from its next page on, the owner's service worker ran it again (measured, NAS 6d8c1b1). So every frame
+ * Branch's tab starts, and every one they start, is stopped before it runs, given the same bypass, and only then let
+ * go; one that cannot be given it is never let go. A worker is let go at once: it has no page of its own to bypass. A target's own targets report
+ * through it, so a message to one `path` levels down is wrapped once for each session above it. Each level doubles
+ * what a message weighs (NAS 705d511: 19 MB at 18 levels), so a frame deeper than `deepestFrame` from another site
+ * is never let go, and what a frame says is read only when it is about targets or answers one of these calls.
+ */
+const deepestFrame = 4;
+/**
+ * Chromium writes an event's method first and a reply's id first, so a frame's network event is never parsed at its own
+ * level. The wrappers the frames above it put round it still are, once each; the depth bound is what caps that.
+ */
+const worthReading = (text: string): boolean => text.startsWith('{"id"') || text.startsWith('{"method":"Target.');
+async function bypassEveryFrame(root: CDPSession): Promise<void> {
+  let next = 0;
+  const waiting = new Map<number, (error: unknown) => void>();
+  const call = (path: string[], method: string, params: object = {}) => new Promise<void>((resolve, reject) => {
+    const id = ++next;
+    waiting.set(id, error => (error ? reject(new Error(`${method} was refused`)) : resolve()));
+    let message = JSON.stringify({ id, method, params });
+    for (let at = path.length - 1; at >= 1; at--)
+      message = JSON.stringify({ id: ++next, method: 'Target.sendMessageToTarget', params: { sessionId: path[at], message } });
+    root.send('Target.sendMessageToTarget', { sessionId: path[0]!, message }).catch(reject);
+  });
+  const stopped = { autoAttach: true, waitForDebuggerOnStart: true, flatten: false };
+  const attach = (path: string[], type: string): void => {
+    if (type === 'iframe' && path.length > deepestFrame) return;
+    const ready = type === 'iframe'
+      ? call(path, 'Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 })
+        .then(() => call(path, 'Network.setBypassServiceWorker', { bypass: true }))
+        .then(() => call(path, 'Target.setAutoAttach', stopped))
+      : Promise.resolve();
+    void ready.then(() => call(path, 'Runtime.runIfWaitingForDebugger')).catch(() => undefined);
+  };
+  const heard = (path: string[], message: { id?: number; method?: string; params?: Record<string, unknown>; error?: unknown }): void => {
+    if (message.method === 'Target.receivedMessageFromTarget') {
+      const inner = message.params as { sessionId: string; message: string };
+      if (worthReading(inner.message)) heard([...path, inner.sessionId], JSON.parse(inner.message));
+    } else if (message.method === 'Target.attachedToTarget') {
+      const child = message.params as { sessionId: string; targetInfo: { type: string } };
+      attach([...path, child.sessionId], child.targetInfo.type);
+    } else if (message.id !== undefined) {
+      waiting.get(message.id)?.(message.error);
+      waiting.delete(message.id);
+    }
+  };
+  root.on('Target.attachedToTarget', event => attach([event.sessionId], event.targetInfo.type));
+  root.on('Target.receivedMessageFromTarget', event => {
+    try { if (worthReading(event.message)) heard([event.sessionId!], JSON.parse(event.message)); } catch { /* not a message this reads */ }
+  });
+  await root.send('Target.setAutoAttach', stopped);
+}
 export interface SessionOptions {
   /** Cookies and site storage from a saved sign-in, used for this run's window only. */
   storageState?: StorageState | undefined;
@@ -338,7 +392,13 @@ export class BrowserSession {
         };
       });
     }
-    await this.guardPage(page);
+    // A tab that could not be guarded is closed, never handed over: in the owner's browser it would reach
+    // websites through their service workers.
+    await this.guardPage(page).catch(async (error: unknown) => {
+      if (this.creating === creating) this.creating = null;
+      await page.close().catch(() => undefined);
+      throw error;
+    });
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
       // R17-S19: the owner may have message boxes accepted (OK) rather than dismissed (Cancel).
@@ -396,6 +456,16 @@ export class BrowserSession {
       void this.answerPaused(session, event, redirectCounts);
     });
     await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+    // In the owner's own browser, a service worker their own browsing registered on an allowed website takes
+    // over Branch's tab there, and sends that tab's requests itself, where the route and the pause cannot see
+    // them (Mac mini 9d9b344: it fetched a website the owner never allowed). Branch's tab skips every service
+    // worker instead; theirs keep theirs. It holds while this session is open, which is as long as the tab.
+    // No response is kept for this session (the buffers are 0): it is on only for the bypass.
+    if (this.borrowed) {
+      await session.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 });
+      await session.send('Network.setBypassServiceWorker', { bypass: true });
+      await bypassEveryFrame(session);
+    }
   }
   private async answerPaused(session: CDPSession, event: PausedRequest,
     redirectCounts: Map<string, number>): Promise<void> {
