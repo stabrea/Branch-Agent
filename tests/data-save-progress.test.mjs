@@ -32,7 +32,7 @@ async function dataPage(t, width) {
   errors.length = 0; // what failed before the key was given is the login page's business
   const open = async () => {
     await page.locator("body.sg-ready").waitFor();
-    await page.keyboard.press("Control+Comma");
+    await page.keyboard.press("ControlOrMeta+Comma");
     await page.locator("#settings-window").waitFor({ state: "visible" });
     /* As a link to the page reaches it: on a phone the page list is a strip, and this base may still draw it otherwise. */
     await page.evaluate(() => globalThis.branchLayout.go("settings:data"));

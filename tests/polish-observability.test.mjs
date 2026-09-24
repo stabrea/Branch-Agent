@@ -819,7 +819,7 @@ test("G4 label chips filter Recents and the Ctrl+K box through the labels search
   assert.equal(await chips.first().getAttribute("aria-pressed"), "true");
 
   /* The Ctrl+K box shows the same chips and offers only the conversations they leave. */
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   await page.locator("#cmd").waitFor({ state: "visible" });
   const paletteChips = page.locator("#cmd-labels .label-chip");
   await paletteChips.first().waitFor();

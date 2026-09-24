@@ -175,7 +175,7 @@ test("H4 Help opens the chapter for the section you are on", async (t) => {
 test("H4 the palette offers every chapter by name", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   await page.locator("#cmd-input").waitFor({ state: "visible" });
   await page.locator("#cmd-input").fill("Help: Glossary");
   const entry = page.locator(".cmd-item", { hasText: "Help: Glossary" }).first();

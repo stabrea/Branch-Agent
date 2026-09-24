@@ -43,7 +43,7 @@ async function settings(t, before) {
   errors.length = 0;
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   /* Opened as a person opens it, not through the helper that also shows every card of the page. */
-  await page.keyboard.press("Control+Comma");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   return { app, page, errors };
 }

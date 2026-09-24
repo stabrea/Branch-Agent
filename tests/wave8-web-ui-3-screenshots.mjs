@@ -90,7 +90,7 @@ for (const theme of ["forest", "daylight"]) {
     /* 2. The to-do card in the context pane. On a narrow window the pane is a slide-over, so it is
           opened with the keyboard the same way the owner would (Ctrl+Shift+K). */
     if (width < 1024) {
-      await page.keyboard.press("Control+Shift+K");
+      await page.keyboard.press("ControlOrMeta+Shift+K");
       await page.waitForTimeout(400);
     }
     const todos = page.locator("#context-todos");
@@ -103,7 +103,7 @@ for (const theme of ["forest", "daylight"]) {
     } else {
       console.log(`todo card not on screen at ${width}px in ${theme}`);
     }
-    if (width < 1024) await page.keyboard.press("Control+Shift+K");
+    if (width < 1024) await page.keyboard.press("ControlOrMeta+Shift+K");
 
     /* 3. The flow editor, with a saved flow open in it. */
     await show("procedures");
