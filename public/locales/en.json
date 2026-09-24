@@ -265,6 +265,7 @@
   "updates.busy.waiting-unknown": "Still cannot tell whether a task is working. Looking again every few seconds.",
   "updates.failed.to": "The update to {to} didn't go through. Branch stayed on {version}, and nothing was lost.",
   "updates.failed.now": "The update didn't go through. Branch stayed on {version}, and nothing was lost.",
+  "updates.failed.why": "What stopped it: {why}",
   "updates.failed.download": "Download what happened",
   "updates.failed.send": "Send the file to us yourself, on Discord for example. Nothing is sent by itself.",
   "updates.failed.saved": "Saved as {name}. Send it to us yourself, on Discord for example. Nothing was sent.",

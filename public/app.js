@@ -1178,7 +1178,8 @@ async function installNow() {
     showUpdateStatus(await window.branchDesktop.installUpdate());
   } catch (e) {
     window.branchUpdateScreen?.hide(); toast(e.message);
-    failedNow = { version: state.version };
+    // The reason stays on the card: a toast is gone before the owner can read it or tell us.
+    failedNow = { version: state.version, why: e.message };
     failureAsked++; // a look already on its way is now out of date
     await renderUpdates();
   }
@@ -1195,6 +1196,9 @@ function sayFailure(failure) {
   $("updates-failed-text").textContent = failure.toVersion
     ? t("updates.failed.to", { to: failure.toVersion, version: state.version })
     : t("updates.failed.now", { version: state.version });
+  const why = $("updates-failed-why");
+  why.hidden = !failure.why;
+  why.textContent = failure.why ? t("updates.failed.why", { why: failure.why }) : "";
   block.hidden = false;
   $("updates-card").hidden = false;
   // Without the desktop app there is nothing to check or install from here: only the failure shows.
