@@ -540,7 +540,9 @@ test("a Trunk's flow run that was working when the app closed carries on as that
   const { createBranch } = await import("../dist/index.js");
   const { brain } = await import("./trunks-helpers.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-trunk-flow-restart-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // The second launch is closed before its folder goes: Windows will not delete a database that is still open.
+  let second;
+  t.after(async () => { await second?.close(); await rm(root, { recursive: true, force: true }); });
   const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
   const first = await open();
   on(first);
@@ -558,8 +560,7 @@ test("a Trunk's flow run that was working when the app closed carries on as that
   // As a close in the middle leaves it: still working, with the second box next.
   first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b' WHERE run_id=?").run(runId);
   await first.close();
-  const second = await open();
-  t.after(() => second.close());
+  second = await open();
   const view = await second.flows.settled(runId);
   assert.equal(view.status, "completed", `carried on at launch: ${JSON.stringify(view).slice(0, 300)}`);
   assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "as Ada, not as the owner");
@@ -572,7 +573,9 @@ test("Q122: a flow run of a Trunk that is gone is never copied, and at launch it
   const { createBranch } = await import("../dist/index.js");
   const { brain } = await import("./trunks-helpers.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-q122-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // The second launch is closed before its folder goes: Windows will not delete a database that is still open.
+  let second;
+  t.after(async () => { await second?.close(); await rm(root, { recursive: true, force: true }); });
   const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
   const first = await open();
   on(first);
@@ -598,8 +601,7 @@ test("Q122: a flow run of a Trunk that is gone is never copied, and at launch it
   assert.equal(runs(), before, "no copy was made");
   await first.close();
   // At the next launch the run Ada left working is ended, with the reason, and its task with it.
-  const second = await open();
-  t.after(() => second.close());
+  second = await open();
   const view = await second.flows.settled(stopped);
   assert.equal(view.status, "failed", JSON.stringify(view).slice(0, 300));
   assert.match(String(view.error), /no longer here/);
@@ -637,7 +639,9 @@ test("Q121: a Trunk's flow run carried on at launch reads and writes in that Tru
   const { createBranch } = await import("../dist/index.js");
   const { brain } = await import("./trunks-helpers.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-q121-folder-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // The second launch is closed before its folder goes: Windows will not delete a database that is still open.
+  let second;
+  t.after(async () => { await second?.close(); await rm(root, { recursive: true, force: true }); });
   const workspace = join(root, "workspace");
   // Ada sets the flow going in her own turn, through the tool the saved flow is published as.
   const rules = [({ last }) => {
@@ -668,8 +672,7 @@ test("Q121: a Trunk's flow run carried on at launch reads and writes in that Tru
   first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b', state=? WHERE run_id=?")
     .run(JSON.stringify({ first: "[]", second: "" }), runId);
   await first.close();
-  const second = await open();
-  t.after(() => second.close());
+  second = await open();
   const view = await second.flows.settled(runId);
   assert.equal(view.status, "completed", JSON.stringify(view).slice(0, 300));
   assert.match(String(view.state.second), /ADAFILE5582/, "the read at launch is Ada's own file");
@@ -738,7 +741,9 @@ test("Q121: flows left working still carry on at launch when the window was left
   const { createBranch } = await import("../dist/index.js");
   const { brain } = await import("./trunks-helpers.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-q121-profile-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // The second launch is closed before its folder goes: Windows will not delete a database that is still open.
+  let second;
+  t.after(async () => { await second?.close(); await rm(root, { recursive: true, force: true }); });
   const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
   const first = await open();
   const graph = first.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
@@ -754,8 +759,7 @@ test("Q121: flows left working still carry on at launch when the window was left
   const kid = first.store.profiles.create({ name: "Kid", pin: "2468" });
   first.store.profiles.switch({ profileId: kid.id, pin: "2468" });
   await first.close();
-  const second = await open();
-  t.after(() => second.close());
+  second = await open();
   assert.equal(second.store.profiles.active()?.id, kid.id, "the window is back on Kid's profile");
   const view = await second.flows.settled(runId);
   assert.equal(view.status, "completed", `the owner's flow carried on all the same: ${JSON.stringify(view).slice(0, 200)}`);
