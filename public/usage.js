@@ -393,7 +393,8 @@ function limitRow(row) {
 function renderLimits(view) {
   const card = el("article", undefined, "table-card");
   card.id = "usage-limits";
-  card.append(el("h2", "What each connection has left"));
+  /* Its section's heading already says this (DG-081); the title stays for a screen reader. */
+  card.append(el("h2", "What each connection has left", "sr-only"));
   card.append(el("p", "Only what a service actually told Branch, with the time it said it. Where a service publishes nothing, this says so rather than guessing. Accounts are listed one by one and never added together: subscriptions are not interchangeable, and keys in one organisation share a single limit."));
   if (limits === null) return; // Refused, not empty: somebody other than the owner is looking.
   if (limits.empty) {
@@ -412,7 +413,8 @@ function renderLimits(view) {
   card.append(ask);
   card.append(el("p", "OpenRouter publishes a web address for this, so asking is fair. No subscription account is ever asked: the question itself would spend the allowance it is measuring.", "subtle"));
   box.addEventListener("change", () => void saveLimitsSwitch(box.checked));
-  renderGlanceSettings(card);
+  if (glanceSettings) card.append(glanceSwitch("glance-ring", "glance.setting.ring", glanceSettings.ring !== "hidden",
+    (on) => saveGlance({ ring: on ? "shown" : "hidden" })));
   view.append(card);
 }
 /* Redesign phase 1: the ring under the message box can be hidden, and the question at 95% switched
@@ -427,13 +429,18 @@ function glanceSwitch(id, key, checked, onChange) {
   row.append(box, document.createTextNode(" " + t(key)));
   return row;
 }
-function renderGlanceSettings(card) {
+/* DG-055: the question at 95% is the sample's own section, "Saving progress before an allowance runs out",
+   after what each connection has left, not a line inside it. */
+function renderSaveProgress(view) {
   if (!glanceSettings) return;
-  card.append(glanceSwitch("glance-ring", "glance.setting.ring", glanceSettings.ring !== "hidden",
-    (on) => saveGlance({ ring: on ? "shown" : "hidden" })));
+  const card = el("article", undefined, "table-card");
+  card.id = "usage-save-progress";
+  /* Its section's heading already says this; the title stays for a screen reader. */
+  card.append(el("h2", t("settingsGrown.bucket.data.save"), "sr-only"));
   card.append(glanceSwitch("glance-save-progress", "glance.setting.save", glanceSettings.saveProgress === "ask",
     (on) => saveGlance({ saveProgress: on ? "ask" : "off" })));
   card.append(el("p", t("glance.setting.saveNote"), "subtle"));
+  view.append(card);
 }
 async function saveGlance(change) {
   try {
@@ -446,6 +453,23 @@ async function saveLimitsSwitch(on) {
     await api("usage/limits/settings", { mode: on ? "on" : "off", enabled: on });
     limits = await api("usage/limits");
   } catch (e) { say(e.message); }
+}
+
+/*
+ * DG-081: Data & usage reads as the approved sample does, usage first: the usage itself, then what each connection
+ * has left, then (after what is kept) what it costs, and the spreadsheet under the hood. The parts that live under
+ * another heading are drawn into cards of their own, which say where they belong (data-home) and are placed by
+ * public/settings-buckets.js. The figures are the same figures.
+ */
+function host(id) {
+  let card = $(id);
+  if (!card) {
+    card = el("section", undefined, "usage-part");
+    card.id = id;
+    card.dataset.home = "settings:data";
+    document.body.append(card);
+  }
+  return card;
 }
 
 /** Loads everything the screen shows and draws it. Safe to call again at any time. */
@@ -464,22 +488,26 @@ async function render() {
     limits = await api("usage/limits").catch(() => null);
     glanceSettings = limits ? (await api("usage/glance/settings").catch(() => null))?.settings ?? null : null;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
-  view.replaceChildren();
+  const left = host("usage-left-card"), save = host("usage-save-card"), costs = host("usage-costs-card");
+  const prices = host("usage-prices-card"), sheet = host("usage-sheet-card");
+  for (const part of [view, left, save, costs, prices, sheet]) part.replaceChildren();
   // Wave 8: every section opens by saying what it is for, in one line.
   view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
-  // mac7/usage-bar: what each connection has left, above the month, and never in the meter under the
-  // message box — that bar is this conversation's room against the model's context window, which is
+  // mac7/usage-bar: what each connection has left, in a card of its own after the usage, and never in the meter
+  // under the message box — that bar is this conversation's room against the model's context window, which is
   // a different thing entirely and must not be conflated with a provider's allowance.
-  renderLimits(view);
+  renderLimits(left);
+  renderSaveProgress(save);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.
   renderMonth(view);
   renderStatistics(view);
   renderTables(view);
-  renderBudget(view);
-  renderPricing(view);
+  renderBudget(costs);
+  // DG-190: the sample keeps model prices at Technical, apart from the monthly limit.
+  renderPricing(prices);
   renderExport(view);
-  renderMetering(view);
+  renderMetering(sheet);
   // Batch 19 (wave 7): how this copy of Branch is doing, read from its own counters.
   await window.branchRules?.renderHealth(view);
   await window.branchEvaluation?.renderInto(view);

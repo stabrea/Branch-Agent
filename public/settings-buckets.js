@@ -128,13 +128,20 @@ export const BUCKETS = {
     ["keys", "key", "Passwords and keys", "Keys and passwords Branch may use, one at a time.",
       [["secret-managers", R], ["vault-autofill", R], ["keychain-card", A]]],
   ],
+  /* DG-081: the sample's order, usage first. */
   data: [
-    ["cost", "coins", "What it costs", "Spending limits, and what each model costs.",
-      [["usage", R], ["usage-report-card", R]]],
+    ["usage", "layers", "Usage", "What your assistant has done this month, and what it cost.",
+      [["usage", R]]],
+    ["left", "gauge", "What each connection has left", "How much of each service's allowance is still there.",
+      [["usage-left-card", R]]],
+    ["save", "shield", "Saving progress before an allowance runs out", "Branch can ask whether running tasks should write down where they are.",
+      [["usage-save-card", R]]],
     ["kept", "archive", "What is kept, and for how long", "How long conversations stay, safety copies, and bringing things over.",
       [["retention-card", R], ["backup-card", R], ["snapshots-card", A], ["goal-undo-form", A], ["move-in-card", A], ["settings-kit-file", A]]],
-    ["under", "wrench", "Under the hood", "Counting how Branch is used. Rarely needed.",
-      [["asks-analytics-card", T]]],
+    ["cost", "coins", "What it costs", "Spending limits, and what each model costs.",
+      [["usage-costs-card", R], ["usage-report-card", R], ["usage-prices-card", T]]],
+    ["under", "wrench", "Under the hood", "Counting how Branch is used, and the spreadsheet of this month. Rarely needed.",
+      [["usage-sheet-card", T], ["asks-analytics-card", T]]],
   ],
   /* DG-191: the sample's two sections, each card in the sample's order; the activity log and JEV decision support
      have no card in the sample, so they close their sections. Under the hood is the sample's own, at Technical. */
