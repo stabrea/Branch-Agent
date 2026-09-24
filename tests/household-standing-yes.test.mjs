@@ -14,6 +14,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { runForCurrentPerson } from "../dist/collab-server.js";
 import { readPolicy, savePolicy } from "../dist/policy.js";
+import { underShortLivedKey } from "../dist/key-context.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 /** A model that writes one file when asked to, then says it is done. */
@@ -88,4 +89,21 @@ test("a household window is not offered Yes, always; the owner's window is", asy
   assert.ok(offered.includes("Yes, just now"), `Sam can still say yes: ${offered}`);
   assert.equal(offered.includes("Yes, always"), false, `Sam is not offered a standing yes: ${offered}`);
   assert.deepEqual(errors, []);
+});
+
+test("a short-lived key never makes a standing rule: approve refuses, and a flow carried on takes it as this conversation (NAS 68eb8b2)", async (t) => {
+  const { app, rules } = await fixture(t);
+  const run = await app.runtime.run({ prompt: "write key.txt" });
+  const asked = app.runtime.approvals.questionFor(run.sessionId);
+  assert.throws(() => underShortLivedKey(() => app.runtime.approve(run.sessionId, "allow", "always", asked.fingerprint), { keyId: "k1" }),
+    /the owner's to give/);
+  assert.deepEqual(rules(), []);
+  // A graph flow's question carries its own "always"; a key carrying the flow on is the same shape as this call.
+  underShortLivedKey(() => app.runtime.grantApproval("flow-key", { tool: "files.write", target: "g1.txt", label: "Write g1.txt", source: "owner" }, "always"),
+    { keyId: "k1" });
+  assert.deepEqual(rules(), [], "no standing rule in the owner's policy");
+  assert.equal(app.runtime.approvals.answer("flow-key", "files.write", "g1.txt"), "allow", "the flow may still carry on in its own conversation");
+  // Control: the owner's own flow keeps its standing yes.
+  app.runtime.grantApproval("flow-owner", { tool: "files.write", target: "g2.txt", label: "Write g2.txt", source: "owner" }, "always");
+  assert.equal(rules().length, 1);
 });

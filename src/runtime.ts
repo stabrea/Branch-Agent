@@ -328,6 +328,8 @@ export interface RunOptions {
 }
 /** Q182: why only the owner gives a standing yes. */
 export const ownersStandingYes = "A standing yes is the owner's to give. Answer this just now, or for this conversation.";
+/** Q182: whether a standing yes may be given here: by the owner at the window, never with a short-lived key (NAS 68eb8b2). */
+export const mayGiveStandingYes = (store: Store): boolean => store.profiles.isOwner() && !startedWithShortLivedKey();
 
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -2807,6 +2809,9 @@ ${run.output.slice(0, 6000)}`;
       fingerprint?: string },
     remember: PolicyRemember = "session",
   ): void {
+    // Q182 (NAS 68eb8b2): a flow carried on by a key or away from the owner takes its question's "always" as
+    // "for this conversation": it may carry on, but never writes a standing rule into the owner's policy.
+    if (remember === "always" && !mayGiveStandingYes(this.store)) remember = "session";
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
@@ -3067,7 +3072,7 @@ ${run.output.slice(0, 6000)}`;
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     // Q182: a standing yes is a rule in the owner's own policy, which then covers the owner's tasks too. Someone else
     // at the window (a household profile) answers just now or for the conversation; setting Branch up is the owner's.
-    if (remember === "always" && !this.store.profiles.isOwner()) throw new Error(ownersStandingYes);
+    if (remember === "always" && !mayGiveStandingYes(this.store)) throw new Error(ownersStandingYes);
     if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
     // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
     if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
