@@ -936,3 +936,35 @@ test("Q144: carrying on the flow run of a Trunk set to start on another computer
   app.flows.resumeGraph(graph.id, { runId });
   assert.equal((await app.flows.settled(runId)).status, "completed", "back on this computer, it carries on");
 });
+
+test("Q144: an 'always' yes to the workflow of a Trunk set to start on another computer writes no standing rule", async (t) => {
+  // Legion 109b9bc (NAS's probe-startsin-guarded): before the up-front check, the refused yes still added an allow rule.
+  const { readPolicy, savePolicy } = await import("../dist/policy.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  savePolicy(app.store, app.runtime.owner, { preset: "custom", rules: [
+    { tool: "files.write", decision: "ask", remember: "session" }, { tool: "*", decision: "allow", remember: "always" }] });
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "files.read", "files.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await madeBy(app, ada, { name: "write", steps: [
+    { name: "write", kind: "tool", tool: "files.write", args: { path: "q144.md", content: "x" } }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    () => app.workflows.run(app.runtime.owner, workflow.id, "owner"));
+  const pending = () => app.store.get("workflows", app.runtime.owner, workflow.id)?.data?.pendingApproval ?? null;
+  assert.equal(pending()?.tool, "files.write", "the write stopped to ask");
+  const rules = () => JSON.stringify(readPolicy(app.store, app.runtime.owner).rules);
+  const before = rules();
+  startsOnTower(app, ada);
+  for (const time of ["first", "second"]) {
+    await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id, { remember: "always" }), onTower, `the ${time} yes`);
+    assert.equal(rules(), before, `no standing rule was written by the ${time} yes`);
+    assert.equal(pending()?.tool, "files.write", "the question is still pending");
+  }
+  // The control: back on this computer, the same "always" yes is kept as a rule and the write goes on.
+  app.trunks.edit(ada.id, { startsIn: null });
+  await app.workflows.resume(app.runtime.owner, workflow.id, { remember: "always" });
+  assert.notEqual(rules(), before, "an 'always' that is carried on is written down");
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "completed");
+});
