@@ -7,8 +7,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -483,4 +484,41 @@ test("Git run in Branch's own source reads commits as stored, with no replacemen
     assert.deepEqual(elsewhere.filter((line) => /^(replace|grafts)=/.test(line)), ["replace=unset", "grafts=unset"],
       "the owner's own repositories are unchanged");
     assert.equal(elsewhere.includes("core.commitGraph=false"), false);
+  });
+
+/**
+ * A commit-graph file keeps a copy of each commit's parents, and Git believes it over the commit
+ * itself. One rewritten to list a merge with one parent must not be read in Branch's own source.
+ */
+test("Git run in Branch's own source reads a commit's parents from the commit, not from a rewritten commit-graph file",
+  { skip: posixOnly }, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "branch-pr-graph-"));
+    t.after(() => discardTemp(root));
+    const source = join(root, "workspace", "branch-agent-source");
+    await mkdir(source, { recursive: true });
+    plain(source, "init", "-q", "-b", "main");
+    plain(source, "commit", "-q", "--allow-empty", "-m", "walked");
+    const walked = plain(source, "rev-parse", "HEAD");
+    plain(source, "commit", "-q", "--allow-empty", "-m", "other");
+    const other = plain(source, "rev-parse", "HEAD");
+    const merge = plain(source, "commit-tree", `${other}^{tree}`, "-p", walked, "-p", other, "-m", "merge");
+    plain(source, "update-ref", "refs/heads/main", merge);
+    plain(source, "-c", "commitGraph.generationVersion=1", "commit-graph", "write", "--reachable", "--no-changed-paths");
+    // The file's chunk table names where each list starts; the merge's entry loses its second parent,
+    // and the checksum at the end is written again so Git takes the file as it is.
+    const graph = join(source, ".git", "objects", "info", "commit-graph");
+    const bytes = await readFile(graph);
+    const chunk = {};
+    for (let i = 0; i <= bytes[6]; i++) chunk[bytes.toString("latin1", 8 + 12 * i, 12 + 12 * i)] = Number(bytes.readBigUInt64BE(12 + 12 * i));
+    const count = bytes.readUInt32BE(chunk.OIDF + 255 * 4);
+    const at = Array.from({ length: count }, (_, i) => bytes.toString("hex", chunk.OIDL + 20 * i, chunk.OIDL + 20 * i + 20)).indexOf(merge);
+    assert.ok(at >= 0, "the merge is in the commit-graph file");
+    bytes.writeUInt32BE(0x70000000, chunk.CDAT + 36 * at + 24);
+    createHash("sha1").update(bytes.subarray(0, bytes.length - 20)).digest().copy(bytes, bytes.length - 20);
+    await chmod(graph, 0o644);
+    await writeFile(graph, bytes);
+    assert.equal(plain(source, "rev-list", "--parents", "--max-count=1", merge), `${merge} ${walked}`,
+      "Git's ordinary reads believe the rewritten file: one parent, the checked commit");
+    assert.equal(await branchSees(source, "rev-list", "--parents", "--max-count=1", merge), `${merge} ${walked} ${other}`,
+      "Branch's own reads show both parents, as stored");
   });
