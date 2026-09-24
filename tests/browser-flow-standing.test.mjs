@@ -264,40 +264,32 @@ test('(d) with confirmSensitive on, "Yes, just now" runs the flow; a retry asks 
   assert.deepEqual(state.did, [], 'nothing ran before the question');
 });
 
-test('(d2) a yes for one flow on a host does not cover the same flow on a different host', async (t) => {
+test('(d2) a yes for a step on one website does not cover the same step on another, and the question carries the step\'s own fingerprint', async (t) => {
   const state = await harness(t, 'flow-different-host');
-  state.model = dualModel();
   const {store, runtime} = state.app;
   savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
   addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
   addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
   saveBrowser(state.app, {confirmSensitive: true});
-
-  // First flow on shop.example.com
-  state.model.args = shop;
   const first = await turn(state, shop);
   assert.equal(first.status, 'needs_input');
   const asked = waitingIn(state, first);
   assert.equal(asked.target, 'shop.example.com');
-
-  // User says "Yes, just now" to the shop flow's click.
+  const {argumentFingerprint} = await import('../dist/runtime.js');
+  assert.notEqual(asked.fingerprint, argumentFingerprint(JSON.stringify({role: 'button', name: 'Place order'})),
+    'bound to the step, not only to the words of the click');
   state.app.runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
-
-  // Retry: shop flow runs.
+  // While that yes is still unused, the same click on another website asks again and nothing runs.
   state.did.length = 0;
-  const second = await turn(state, shop, first.sessionId);
-  assert.equal(second.status, 'completed');
+  const elsewhere = {steps: [{action: 'navigate', url: 'https://shop.example.com:8443/cart'}, {action: 'click', role: 'button', name: 'Place order'}]};
+  const other = await turn(state, elsewhere, first.sessionId);
+  assert.equal(other.status, 'needs_input', 'the yes for shop.example.com does not cover :8443');
+  assert.equal(waitingIn(state, other).target, 'shop.example.com:8443');
+  assert.deepEqual(state.did, [], 'nothing ran on the other website');
+  // The yes it was given is still there for its own website.
+  const back = await turn(state, shop, first.sessionId);
+  assert.equal(back.status, 'completed');
   assert.deepEqual(state.did, ['navigate https://shop.example.com/cart', 'click Place order on shop.example.com']);
-
-  // Third call: the same flow on a different host (shop.example.com:8443).
-  // The yes should not cover this because the target (host) is different.
-  state.did.length = 0;
-  const sameFlowDifferentHost = {steps: [{action: 'navigate', url: 'https://shop.example.com:8443/cart'}, {action: 'click', role: 'button', name: 'Place order'}]};
-  const third = await turn(state, sameFlowDifferentHost, first.sessionId);
-  assert.equal(third.status, 'needs_input', 'the same flow on a different host is asked about again');
-  const hostAsked = waitingIn(state, third);
-  assert.equal(hostAsked.target, 'shop.example.com:8443', 'the question is for the different host');
-  assert.deepEqual(state.did, [], 'nothing on the different host ran before the question');
 });
 
 test('after a yes for step 1, step 2 of the same flow asks again', async (t) => {
@@ -330,30 +322,19 @@ test('after a yes for step 1, step 2 of the same flow asks again', async (t) => 
   assert.notEqual(askedAboutSecond.fingerprint, askedAboutFirst.fingerprint, 'the second step has a different fingerprint');
 });
 
-test('consumeStepYeses returns false when a fingerprint is missing', async () => {
-  const {runFlow, stepYesUsedRefusal} = await import('../dist/integrations/browser-flow.js');
-  const {ToolRegistry} = await import('../dist/registry.js');
-
-  const registry = new ToolRegistry();
-  const ran = [];
-
-  // Registry with both judgeStep and takeStepYeses:
-  // judgeStep returns a fingerprint, takeStepYeses immediately returns false (as if another run took it)
-  registry.judgeStep = () => 'step-fingerprint-consumed';
-  registry.takeStepYeses = (fps, ctx) => false; // the other run already consumed it
-
-  const host = {
-    hostFor: () => 'shop.example.com', checkAddress: async () => {},
-    navigate: async (url) => { ran.push(`navigate ${url}`); return {url, title: ''}; },
-    click: async () => { ran.push('click'); return {}; }, fill: async () => { ran.push('fill'); return {}; },
-    wait: async () => ({}), screenshot: async () => ({}),
-  };
-
-  await assert.rejects(
-    runFlow(registry, host, {steps: [{action: 'click', role: 'button', name: 'Place order'}]}, {runId: 'r', owner: 'local'}),
-    (error) => error.message === stepYesUsedRefusal
-  );
-  assert.deepEqual(ran, [], 'nothing ran when another run consumed the yes');
+test('the runtime uses a step\'s one-time yes once: taken the first time, gone the second', async (t) => {
+  const state = await harness(t, 'flow-consume-once');
+  const {store, runtime} = state.app;
+  savePolicy(store, runtime.owner, {preset: 'ask-before-changes'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.flow', match: '*', decision: 'allow', remember: 'always'});
+  addPolicyRule(store, runtime.owner, {tool: 'browser.navigate', match: '*', decision: 'allow', remember: 'always'});
+  saveBrowser(state.app, {confirmSensitive: true});
+  const first = await turn(state, shop);
+  const asked = waitingIn(state, first);
+  runtime.approve(first.sessionId, 'allow', 'never', asked.fingerprint);
+  const context = {runId: 'consume-check', owner: runtime.owner, approvalKey: first.sessionId};
+  assert.equal(runtime.consumeStepYeses([asked.fingerprint], context), true, 'the first use takes it');
+  assert.equal(runtime.consumeStepYeses([asked.fingerprint], context), false, 'a second use finds it gone');
 });
 
 test('when takeStepYeses is not wired, runFlow refuses instead of going ahead', async () => {
