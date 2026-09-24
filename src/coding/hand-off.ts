@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { errorText, type ToolContext } from "../contracts.js";
 import { refuseSignInForTrunk } from "../accounts/context.js";
@@ -26,6 +28,9 @@ import { startCall } from "../windows-command.js";
  * - Branch's own check afterwards: every file the job changed is listed against where it started, and inside
  *   Branch's own source (a self-development worktree) anything outside the contract's allowed paths is put back
  *   and named, so the contract holds whatever the program did. Sending still goes through the contract's push check.
+ *   That check runs Git in the folder, so if the job rewrote the folder's own Git settings (its config, the files
+ *   that config pulls in, its attributes or its hooks) Branch runs no more Git there: nothing is checked or kept,
+ *   and the owner is told. The owner's own global and system config is untouched, so their sign-in stays.
  * - It is the owner's sign-in, so a Trunk or somebody else on this computer never reaches it.
  */
 
@@ -168,11 +173,80 @@ export interface HandOffDeps {
 export interface HandOffResult {
   program: HandOffProgram;
   account: string;
-  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out";
+  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out" | "repository settings changed";
   summary: string;
   steps: string[];
   changed: string[];
   undone: string[];
+}
+
+/** Where a folder's own Git settings live: its `.git` when that is a directory, or the directories a linked worktree's `.git` file points at. */
+function gitDirsOf(folder: string): { common: string; perWorktree: string } | null {
+  const dotGit = join(folder, ".git");
+  let isDirectory = false;
+  try { isDirectory = statSync(dotGit).isDirectory(); } catch { return null; }
+  if (isDirectory) return { common: dotGit, perWorktree: dotGit };
+  let pointer = "";
+  try { pointer = readFileSync(dotGit, "utf8"); } catch { return null; }
+  const target = /^gitdir:\s*(.+?)\s*$/m.exec(pointer)?.[1];
+  if (!target) return null;
+  const perWorktree = resolve(folder, target);
+  let common = perWorktree;
+  try { const shared = readFileSync(join(perWorktree, "commondir"), "utf8").trim(); if (shared) common = resolve(perWorktree, shared); }
+  catch { /* a standalone git directory has no commondir */ }
+  return { common, perWorktree };
+}
+
+/** The files a Git config pulls in with `include.path` / `includeIf.*.path`, each resolved to an absolute path. */
+function includeTargets(configFile: string, text: string): string[] {
+  const base = dirname(configFile), targets: string[] = [];
+  let inInclude = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    if (line.startsWith("[")) { inInclude = /^\[\s*(include|includeIf)\b/i.test(line); continue; }
+    const captured = inInclude ? /^path\s*=\s*(.+?)\s*$/i.exec(line)?.[1] : undefined;
+    if (!captured) continue;
+    let value = captured.replace(/^"(.*)"$/, "$1");
+    if (value.startsWith("~/")) value = join(homedir(), value.slice(2));
+    targets.push(isAbsolute(value) ? value : resolve(base, value));
+  }
+  return targets;
+}
+
+/**
+ * A fingerprint of the settings in the folder's own repository that could make Git start a program: its local
+ * config and every file that config pulls in, the per-worktree config, the git-directory attributes file, and the
+ * hooks. Read straight from disk, so it can be taken before a job and again after without running Git itself. When
+ * a job rewrites any of them this string changes, and the after-check then runs no Git in the folder (NAS 22aa6e3).
+ * The owner's own global and system config is never read here, so their credential helpers and filters (git-lfs)
+ * keep working for a folder a job did not touch.
+ */
+export function repoOwnSettings(folder: string): string {
+  const parts: [string, string][] = [];
+  const record = (label: string, path: string): string => {
+    try { const bytes = readFileSync(path); parts.push([label, `sha256:${createHash("sha256").update(bytes).digest("hex")}`]); return bytes.toString("utf8"); }
+    catch { parts.push([label, "absent"]); return ""; }
+  };
+  const dotGit = join(folder, ".git");
+  try { if (!statSync(dotGit).isDirectory()) record(".git", dotGit); } catch { parts.push([".git", "absent"]); }
+  const dirs = gitDirsOf(folder);
+  if (dirs) {
+    const seen = new Set<string>();
+    const queue = [join(dirs.common, "config"), join(dirs.common, "config.worktree"), join(dirs.perWorktree, "config.worktree")];
+    while (queue.length) {
+      const file = queue.shift()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const target of includeTargets(file, record(`config:${file}`, file))) if (!seen.has(target)) queue.push(target);
+    }
+    record("info/attributes", join(dirs.common, "info", "attributes"));
+    let hooks: string[] = [];
+    try { hooks = readdirSync(join(dirs.common, "hooks")).sort(); } catch { /* no hooks directory */ }
+    parts.push(["hooks", hooks.join(",")]);
+    for (const name of hooks) record(`hooks/${name}`, join(dirs.common, "hooks", name));
+  }
+  return JSON.stringify(parts.sort());
 }
 
 export class HandOff {
@@ -242,6 +316,8 @@ export class HandOff {
     if (context.agent) throw new Error("Handing a job to the owner's Claude Code or Codex is the owner's own; a specialist cannot.");
     const folder = this.folderOf(input.folder), account = input.account ?? primaryAccount;
     const env = this.environment(input.program, account);
+    // The folder's own Git settings as they were before the job, so a job that rewrites them is caught below.
+    const settingsBefore = repoOwnSettings(folder.absolute);
     const start = (await this.gitText(folder.absolute, ["rev-parse", "--verify", "HEAD"], context.signal)).trim();
     let shown = 0;
     const onLine = (line: string): void => {
@@ -251,6 +327,9 @@ export class HandOff {
       context.signal, input.minutes * 60_000, onLine);
     if (ran.missing) throw new Error(`"${programCall(input.program, folder.absolute).command}" is not installed on this computer.`);
     const report = input.program === "codex" ? readCodex(ran.lines) : readClaude(ran.lines);
+    // A job could have written the folder's own `.git` settings (its config, attributes or hooks) so that the
+    // steps below would run a program of its choosing. If any of them changed, run no Git in the folder at all.
+    if (repoOwnSettings(folder.absolute) !== settingsBefore) return this.settingsChanged(input, account, report, context);
     const changed = await this.changedSince(folder.absolute, start, AbortSignal.timeout(60_000));
     const undone = await this.keepToContract(folder, start, changed, AbortSignal.timeout(60_000));
     const status: HandOffResult["status"] = context.signal.aborted ? "stopped" : ran.timedOut ? "timed out"
@@ -258,6 +337,16 @@ export class HandOff {
     const result: HandOffResult = { program: input.program, account, status,
       summary: (report.summary || report.failed || ran.stderr.trim()).slice(0, 4000), steps: report.steps.slice(-40),
       changed: [...changed.tracked, ...changed.added].filter((file) => !undone.includes(file)), undone };
+    this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
+    return result;
+  }
+
+  /** The job changed the folder's own Git settings. Branch runs no more Git in it: nothing is checked or put back, and the owner is told plainly. */
+  private settingsChanged(input: HandOffInput, account: string, report: ProgramReport, context: ToolContext): HandOffResult {
+    const result: HandOffResult = { program: input.program, account, status: "repository settings changed",
+      summary: "The job changed this folder's own Git settings (its config, attributes or hooks), so I ran no more Git in it: "
+        + "nothing it did was checked or put back. Look the folder over yourself before you trust or keep anything from this run.",
+      steps: report.steps.slice(-40), changed: [], undone: [] };
     this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
     return result;
   }

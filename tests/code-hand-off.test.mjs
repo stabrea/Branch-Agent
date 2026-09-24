@@ -240,3 +240,90 @@ test("handing a job over is asked every time, just this once, even with a standi
   assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always", question.fingerprint));
   assert.ok(handOffReason.length > 0);
 });
+
+/**
+ * The after-check runs Git in the folder as the owner. A job could write the folder's own Git settings so that a
+ * later `git diff` or `git checkout` would run a program the job chose. So Branch reads the folder's own settings
+ * before the job and again after, and if the job changed them it runs no more Git there: nothing is checked or kept.
+ * The stand-in "program" here writes those settings the way a real one could, and leaves a marker the planted
+ * program would write; the marker staying absent is the proof that no such program ran.
+ */
+
+test("a job that plants a Git filter in the folder's own settings gets no program run by the after-check, and the owner is told", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const marker = join(f.root, "FILTER_RAN");
+  const result = await f.handOff(async (call) => {
+    const git = (...a) => execFileSync("git", a, { cwd: call.cwd });
+    git("config", "filter.x.clean", `sh -c 'echo ran > ${marker}; cat'`);
+    git("config", "filter.x.smudge", `sh -c 'echo ran > ${marker}; cat'`);
+    git("config", "filter.x.required", "true");
+    await writeFile(join(call.cwd, ".gitattributes"), "README.md filter=x\n");
+    await writeFile(join(call.cwd, "README.md"), "tampered\n");
+    return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(existsSync(marker), false, "the after-check ran no Git, so the planted filter never ran");
+  assert.equal(result.status, "repository settings changed");
+  assert.deepEqual([result.changed, result.undone], [[], []], "nothing is reported as checked or kept");
+  assert.match(result.summary, /settings|config/i);
+});
+
+test("the same holds for a diff textconv program planted in the folder's own settings", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const marker = join(f.root, "TEXTCONV_RAN");
+  const result = await f.handOff(async (call) => {
+    const git = (...a) => execFileSync("git", a, { cwd: call.cwd });
+    git("config", "diff.x.textconv", `sh -c 'echo ran > ${marker}; cat'`);
+    await writeFile(join(call.cwd, ".gitattributes"), "README.md diff=x\n");
+    await writeFile(join(call.cwd, "README.md"), "tampered\n");
+    return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(existsSync(marker), false, "no diff text was produced in the folder, so no textconv program ran");
+  assert.equal(result.status, "repository settings changed");
+  assert.deepEqual(result.changed, [], "nothing is reported as checked");
+});
+
+test("a job that points the folder's config at a file it planted is caught the same way", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const marker = join(f.root, "INCLUDE_RAN");
+  const result = await f.handOff(async (call) => {
+    const git = (...a) => execFileSync("git", a, { cwd: call.cwd });
+    const planted = join(call.cwd, ".git", "planted.inc");
+    git("config", "--file", planted, "filter.x.clean", `sh -c 'echo ran > ${marker}; cat'`);
+    git("config", "--file", planted, "filter.x.required", "true");
+    git("config", "include.path", "planted.inc");
+    await writeFile(join(call.cwd, ".gitattributes"), "README.md filter=x\n");
+    await writeFile(join(call.cwd, "README.md"), "tampered\n");
+    return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(existsSync(marker), false, "the after-check ran no Git, so the pulled-in filter never ran");
+  assert.equal(result.status, "repository settings changed");
+});
+
+test("an untouched folder whose owner-level Git config has a filter still hands off and is checked as usual", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-hand-off-ok-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "Noted.", toolCalls: [] }; } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const globalConfig = join(root, "owner.gitconfig");
+  await writeFile(globalConfig, `[filter "lfs"]\n\tclean = cat\n\tsmudge = cat\n[credential]\n\thelper = store\n`);
+  const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_SYSTEM: "/dev/null" };
+  const calls = [];
+  const git = async ({ cwd, args }) => {
+    try { return { status: "completed", stdout: execFileSync("git", args, { cwd, encoding: "utf8", env: gitEnv }), stderr: "" }; }
+    catch (error) { return { status: "failed", stdout: "", stderr: String(error.stderr ?? error.message) }; }
+  };
+  const handOff = (run) => new HandOff({ store: app.store, owner, workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    book: new ContractBook(app.store.sqlite), git, run: async (call, prompt, env, signal, timeoutMs, onLine) => { calls.push({ call }); return run(call, onLine); } });
+  await repository(join(root, "workspace", "site"));
+  const result = await handOff(async (call, onLine) => {
+    await writeFile(join(call.cwd, "src", "a.ts"), "export const a = 2;\n");
+    const lines = claudeLines("changed a"); lines.forEach(onLine);
+    return { code: 0, lines, stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(app));
+  assert.equal(result.status, "done", "an owner-level filter does not trip the refusal");
+  assert.deepEqual(result.changed, ["src/a.ts"]);
+  assert.equal(calls.length, 1, "the program still ran");
+});
