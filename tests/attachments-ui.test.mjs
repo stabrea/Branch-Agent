@@ -233,8 +233,14 @@ test("a temporary conversation's file opens from its own card, like any other", 
   // which folder to read from — the conversation itself decides (src/attachments.ts).
   // Temporary is one of the controls the calm window keeps out of sight; a person who wants it has
   // the full window on, so the test asks for the same window rather than reaching past the page.
-  await page.evaluate(() => { document.documentElement.dataset.everything = "on"; });
-  await page.locator("#temporary-toggle").check();
+  // There it is chosen from the message box's + menu (DG-175), as a person chooses it.
+  await page.evaluate(async () => {
+    const { applyAppearance, currentAppearance } = await import("/appearance.js");
+    applyAppearance({ ...currentAppearance(), showEverything: true });
+  });
+  await page.locator("#lx-plus").click();
+  await page.locator("#lx-plus-menu").getByRole("menuitem", { name: /^Temporary/ }).click();
+  await page.waitForFunction(() => document.getElementById("temporary-toggle").checked);
   await page.locator("#composer-media-file").setInputFiles(file);
   await page.locator("#composer-attachments").getByText("dot.png").waitFor({ timeout: 10000 });
   await page.locator("#prompt").fill("Keep this for now.");
