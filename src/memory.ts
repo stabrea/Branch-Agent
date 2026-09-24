@@ -411,12 +411,12 @@ export class MemoryFacts {
 }
 
 /** When the owner asked to approve memory changes, the model's change waits as a suggestion. */
-function staged(store: Store, context: { owner: string; runId: string }, proposal: Record<string, unknown>) {
+function staged(store: Store, context: { owner: string; runId: string }, proposal: Record<string, unknown>, fact: unknown = null) {
   // A suggestion waits in the scope it was made in, so a profile's suggestion never turns up in
   // the owner's Memory view and the owner's never turns up in theirs.
   const owner = memoryScope(store, context);
   if (!store.review.settings(owner).requireApproval) return null;
-  const saved = store.review.propose(owner, { ...proposal, runId: context.runId });
+  const saved = store.review.propose(owner, { ...proposal, runId: context.runId }, fact);
   return { staged: true, proposalId: saved.id, message: "Saved as a suggestion. The owner can accept it in the Memory view." };
 }
 /** Hybrid retrieval, when it is wired: the same shape src/memory-retrieval.ts provides. */
@@ -472,9 +472,11 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const { scope: _requested, ...rest } = value; void _requested;
       // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
       const layer = layerForKind(value.kind ?? "fact-about-world");
-      const proposal = staged(store, context, { kind: "put", text: value.text, source: value.source });
-      if (proposal) return proposal;
       const data = { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId };
+      // A suggestion carries whose the fact is and what it is about, so the owner's yes saves it as this would have.
+      const { text: _text, source: _source, sourceRunId: _run, ...fact } = data; void _text; void _source; void _run;
+      const proposal = staged(store, context, { kind: "put", text: value.text, source: value.source }, fact);
+      if (proposal) return proposal;
       if (!provider?.isOutside(owner)) return store.save("memory", owner, randomUUID(), data, agent);
       const id = randomUUID();
       const service = provider.serviceFor?.(owner); // taken with the write, so a switch since cannot redirect the takeback
