@@ -204,6 +204,9 @@ test("cue words match whole words only, so a name that holds or is waiting is no
   // Invisible characters as the only gap between words: zero-width space and word joiner
   assert.equal(negated("don’t​turn on the learning"), true, "zero-width space between words");
   assert.equal(negated("stop⁠the learning"), true, "word joiner between words");
+  // An accent typed as the apostrophe, with only an invisible character before the next word
+  assert.equal(negated("don\u00B4t\u200Bturn on the learning"), true, "an acute accent, then a zero-width space");
+  assert.equal(negated("don\u00B4t\u2060turn on the learning"), true, "an acute accent, then a word joiner");
   // Extra apostrophe-like marks that should also be recognized as apostrophes
   for (const mark of ["‛", "ʻ", "ʹ", "‵", "ꞌ", "՚", "｀"]) {
     assert.equal(negated(`don${mark}t turn on the learning`), true, `don${mark}t (U+${mark.codePointAt(0).toString(16)})`);
