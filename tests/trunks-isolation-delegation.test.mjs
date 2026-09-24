@@ -716,3 +716,23 @@ test("a Trunk's mark that outlives the Trunk starts none of its workflows either
   assert.equal(view.status, "idle", "nothing marked running or done");
   assert.equal(JSON.stringify(view.state).includes("STALEMARK5521"), false, "its step never ran as the gone Trunk");
 });
+
+test("a flow set going from a mark that outlived its Trunk ends at once, saying why, not left running", async (t) => {
+  // NAS d2cd104 (STALE-START): the start was refused before any box, but the run and its task stayed `running`.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  const graph = app.flows.saveGraph({ name: "Once", input: {}, state: { found: "text" }, entry: "look",
+    nodes: [{ id: "look", name: "Look", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { found: "text" } }], edges: [] });
+  app.trunks.remove(ada.id);
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  const view = await app.flows.settled(runId);
+  assert.equal(view.status, "failed", JSON.stringify(view).slice(0, 200));
+  assert.match(String(view.error), /no longer here/);
+  assert.equal(app.store.run(runId).status, "failed", "its task ended too");
+  assert.match(String(app.store.run(runId).output ?? ""), /no longer here/, "and says why");
+  assert.equal(Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_nodes WHERE run_id=?").get(runId).n), 0, "no box ran");
+});
