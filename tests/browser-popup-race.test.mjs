@@ -291,3 +291,39 @@ test("in the owner's browser, Branch's tab skips service workers, and a tab that
     assert.equal(failed.tab.closes, 1, `${refused} refused: the tab is closed`);
   }
 });
+
+test("in the owner's browser, a frame of Branch's tab runs only once it skips service workers too; one that cannot never runs", async () => {
+  const tab = fakePage("ours");
+  const session = Object.assign(events(), { sent: [], send: async (method, params) => { session.sent.push([method, params]); } });
+  const context = Object.assign(events(), {
+    setDefaultTimeout() {}, route: async () => {}, unroute: async () => {},
+    newCDPSession: async () => session,
+    newPage: async () => { await null; context.emit("page", tab); return tab; },
+  });
+  const browser = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
+  browser.options = { attached: { context } };
+  await browser.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => undefined);
+  assert.deepEqual(session.sent.find(([method]) => method === "Target.setAutoAttach"),
+    ["Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: false }], "every frame is stopped before it runs");
+  // What was asked of one frame, in order; each is answered, the bypass with `refuse` if given.
+  const askedOf = (child) => session.sent.filter(([method, params]) => method === "Target.sendMessageToTarget" && params.sessionId === child)
+    .map(([, params]) => JSON.parse(params.message));
+  const answer = async (child, refuse) => {
+    for (let round = 0; round < 6; round++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      for (const asked of askedOf(child).slice(round, round + 1))
+        session.emit("Target.receivedMessageFromTarget", { sessionId: child, message: JSON.stringify(
+          asked.method === refuse ? { id: asked.id, error: { message: "no" } } : { id: asked.id, result: {} }) });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return askedOf(child).map((asked) => asked.method);
+  };
+  session.emit("Target.attachedToTarget", { sessionId: "ok", targetInfo: { type: "iframe" }, waitingForDebugger: true });
+  assert.deepEqual(await answer("ok", null),
+    ["Network.enable", "Network.setBypassServiceWorker", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger"]);
+  session.emit("Target.attachedToTarget", { sessionId: "refused", targetInfo: { type: "iframe" }, waitingForDebugger: true });
+  assert.deepEqual(await answer("refused", "Network.setBypassServiceWorker"), ["Network.enable", "Network.setBypassServiceWorker"],
+    "a frame that cannot skip them is never let go");
+  session.emit("Target.attachedToTarget", { sessionId: "worker", targetInfo: { type: "worker" }, waitingForDebugger: true });
+  assert.deepEqual(await answer("worker", null), ["Runtime.runIfWaitingForDebugger"], "a worker is let go at once");
+});

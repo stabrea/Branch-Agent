@@ -360,9 +360,17 @@ self.addEventListener("fetch", (event) => event.respondWith(fetch(event.request)
       return;
     }
     response.setHeader("content-type", "text/html");
-    if (request.url === "/frame") {
-      response.end(`<!doctype html><script>fetch(${JSON.stringify(`${forbiddenOrigin}/frame-fetch`)}).catch(() => {});
-new Image().src = ${JSON.stringify(`${forbiddenOrigin}/frame-image`)};</script>`);
+    // A frame's page that says whether a worker runs it and what its fetch got, then fetches and loads an image.
+    if (request.url.startsWith("/frame")) {
+      const tag = new URL(request.url, allowedOrigin).searchParams.get("tag");
+      response.end(`<!doctype html><script>fetch(${JSON.stringify(`${forbiddenOrigin}/frame-fetch-`)} + ${JSON.stringify(tag)})
+  .then((r) => r.status, () => "refused").then((got) => top.postMessage({ tag: ${JSON.stringify(tag)}, controlled: !!navigator.serviceWorker.controller, got }, "*"));
+new Image().src = ${JSON.stringify(`${forbiddenOrigin}/frame-image-`)} + ${JSON.stringify(tag)};</script>`);
+      return;
+    }
+    // The frame's next page: by then a frame from another website is a target of its own.
+    if (request.url.startsWith("/hop")) {
+      response.end(`<!doctype html><script>location.href = "/frame" + location.search;</script>`);
       return;
     }
     response.end("<!doctype html><title>allowed</title>");
@@ -371,7 +379,8 @@ new Image().src = ${JSON.stringify(`${forbiddenOrigin}/frame-image`)};</script>`
   await once(allowed, "listening");
   t.after(async () => { allowed.close(); await once(allowed, "close"); });
   const allowedOrigin = `http://127.0.0.1:${allowed.address().port}`;
-  const browser = await chromium.launch({ headless: true });
+  // Started the way Chrome starts, with each website in a process of its own, as the owner's browser is.
+  const browser = await chromium.launch({ headless: true, args: ["--site-per-process"] });
   t.after(() => browser.close());
   const owners = await browser.newContext();
   // Before the task, the owner visits the allowed site, which registers its worker.
@@ -389,19 +398,32 @@ new Image().src = ${JSON.stringify(`${forbiddenOrigin}/frame-image`)};</script>`
     "Branch's tab is not run by the owner's worker");
   const fetched = await session.use(task(), (page) => page.evaluate((url) => fetch(url).then((r) => r.status, () => "refused"), `${forbiddenOrigin}/fetch`));
   await session.use(task(), (page) => page.evaluate((url) => { const image = new Image(); image.src = url; document.body.append(image); }, `${forbiddenOrigin}/image`));
-  // A page on another website (localhost is another site than 127.0.0.1, so the frame is a separate process)
-  // that frames the owner's site: the frame is in Branch's tab, and skips the owner's worker as well.
-  const framer = createServer((_request, response) => {
+  // Pages on other websites that frame the owner's site: localhost, [::1] and 127.0.0.1 are three sites, so each
+  // frame is a process and a target of its own. The frame is in Branch's tab and skips the owner's worker too: on
+  // its first page, on its next one, and inside a frame from yet another website (NAS 6d8c1b1).
+  const framer = createServer((request, response) => {
     response.setHeader("content-type", "text/html");
-    response.end(`<!doctype html><iframe src="${allowedOrigin}/frame"></iframe>`);
+    const src = new URL(request.url, "http://localhost").searchParams.get("src");
+    response.end(`<!doctype html><script>window.said = []; addEventListener("message", (event) => said.push(event.data));</script><iframe src="${src}"></iframe>`);
   });
-  framer.listen(0, "127.0.0.1");
+  framer.listen(0, "::");
   await once(framer, "listening");
   t.after(async () => { framer.close(); await once(framer, "close"); });
-  await session.use(task(), async (page) => {
-    await page.goto(`http://localhost:${framer.address().port}/`);
-    assert.equal(page.frames().length, 2, "the owner's site is framed");
-  });
+  const framing = (host, src) => `http://${host}:${framer.address().port}/?src=${encodeURIComponent(src)}`;
+  const cases = {
+    first: framing("localhost", `${allowedOrigin}/frame?tag=first`),
+    next: framing("localhost", `${allowedOrigin}/hop?tag=next`),
+    nested: framing("localhost", framing("[::1]", `${allowedOrigin}/hop?tag=nested`)),
+  };
+  for (const [tag, url] of Object.entries(cases)) {
+    const said = await session.use(task(), async (page) => {
+      await page.goto(url);
+      await page.waitForFunction(() => window.said.length > 0, undefined, { timeout: 10000 });
+      assert.ok(page.frames().some((frame) => frame.url() === `${allowedOrigin}/frame?tag=${tag}`), `${tag}: the owner's site is framed`);
+      return page.evaluate(() => window.said);
+    });
+    assert.deepEqual(said, [{ tag, controlled: false, got: "refused" }], `${tag}: no worker runs the frame, and its fetch is refused`);
+  }
   await new Promise((resolve) => setTimeout(resolve, 1500));
   assert.equal(fetched, "refused");
   assert.deepEqual(hits, [], "the unlisted website was never asked, from the page or from the frame");

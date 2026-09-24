@@ -20,6 +20,51 @@ interface PausedRequest {
   resourceType: string;
   networkId?: string | undefined;
 }
+/**
+ * The bypass below holds for one target only, and a frame from another website becomes a target of its own once it
+ * loads there: from its next page on, the owner's service worker ran it again (measured, NAS 6d8c1b1). So every frame
+ * and worker Branch's tab starts, and every one they start, is stopped before it runs, given the same bypass, and only
+ * then let go. One that cannot be given it is never let go. A target's own targets report
+ * through it, so a message to one `path` levels down is wrapped once for each session above it.
+ */
+async function bypassEveryFrame(root: CDPSession): Promise<void> {
+  let next = 0;
+  const waiting = new Map<number, (error: unknown) => void>();
+  const call = (path: string[], method: string, params: object = {}) => new Promise<void>((resolve, reject) => {
+    const id = ++next;
+    waiting.set(id, error => (error ? reject(new Error(`${method} was refused`)) : resolve()));
+    let message = JSON.stringify({ id, method, params });
+    for (let at = path.length - 1; at >= 1; at--)
+      message = JSON.stringify({ id: ++next, method: 'Target.sendMessageToTarget', params: { sessionId: path[at], message } });
+    root.send('Target.sendMessageToTarget', { sessionId: path[0]!, message }).catch(reject);
+  });
+  const stopped = { autoAttach: true, waitForDebuggerOnStart: true, flatten: false };
+  const attach = (path: string[], type: string): void => {
+    const ready = type === 'iframe'
+      ? call(path, 'Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 })
+        .then(() => call(path, 'Network.setBypassServiceWorker', { bypass: true }))
+        .then(() => call(path, 'Target.setAutoAttach', stopped))
+      : Promise.resolve();
+    void ready.then(() => call(path, 'Runtime.runIfWaitingForDebugger')).catch(() => undefined);
+  };
+  const heard = (path: string[], message: { id?: number; method?: string; params?: Record<string, unknown>; error?: unknown }): void => {
+    if (message.method === 'Target.receivedMessageFromTarget') {
+      const inner = message.params as { sessionId: string; message: string };
+      heard([...path, inner.sessionId], JSON.parse(inner.message));
+    } else if (message.method === 'Target.attachedToTarget') {
+      const child = message.params as { sessionId: string; targetInfo: { type: string } };
+      attach([...path, child.sessionId], child.targetInfo.type);
+    } else if (message.id !== undefined) {
+      waiting.get(message.id)?.(message.error);
+      waiting.delete(message.id);
+    }
+  };
+  root.on('Target.attachedToTarget', event => attach([event.sessionId], event.targetInfo.type));
+  root.on('Target.receivedMessageFromTarget', event => {
+    try { heard([event.sessionId!], JSON.parse(event.message)); } catch { /* not a message this reads */ }
+  });
+  await root.send('Target.setAutoAttach', stopped);
+}
 export interface SessionOptions {
   /** Cookies and site storage from a saved sign-in, used for this run's window only. */
   storageState?: StorageState | undefined;
@@ -385,6 +430,7 @@ export class BrowserSession {
     if (this.borrowed) {
       await session.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 });
       await session.send('Network.setBypassServiceWorker', { bypass: true });
+      await bypassEveryFrame(session);
     }
   }
   private async answerPaused(session: CDPSession, event: PausedRequest,
