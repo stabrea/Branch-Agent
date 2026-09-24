@@ -528,10 +528,15 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       if (!outside) return store.updateMemory(owner, value, context.runId);
       if (!provider!.withFactLock) return Promise.reject(new Error("Provider does not support outside updates"));
       return provider!.withFactLock(owner, value.id, async () => {
+        // The service is taken in the same step as the read, as a delete's is. A fact whose service changed while it was
+        // read has changed under this edit, so the edit is refused as stale and no copy of it is saved anywhere else.
+        const service = provider!.serviceFor?.(owner);
         const previous = await provider!.read(owner, value.id);
         if (!previous || !writableTo(previous, agent)) throw new Error("Memory not found");
-        if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
-        // The fact keeps whose it is and how long it lasts: only its words change.
+        if (previous.revision !== value.expectedRevision || provider!.serviceFor?.(owner) !== service)
+          throw new Error("Memory changed since you opened it. Reload it before saving.");
+        // The fact keeps whose it is and how long it lasts: only its words change. The write takes its service in this
+        // same step as the check above, so the words go to the service the fact was read from.
         return provider!.write(owner, value.id, reworded(previous.data, { text: value.text, source: value.source, sourceRunId: context.runId }));
       });
     } });
