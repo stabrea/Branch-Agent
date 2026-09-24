@@ -44,6 +44,7 @@ for (const releaseChannel of ["stable", "beta", "dev"]) {
     assert.equal(busy.mode, "install");
     assert.notEqual(busy.step, "install", "a working task prevents installation");
     assert.equal(unchecked.step, "check", "an idle updater must first find an available update");
-    assert.equal(idle.step, releaseChannel === "dev" ? "check" : "install");
+    // Dogfood F1: Dev installs by itself too, once nothing is working.
+    assert.equal(idle.step, "install");
   });
 }

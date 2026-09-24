@@ -3,6 +3,7 @@ import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
 import { join } from "node:path";
 import { Updater, UpdateDeferredError, type UpdateChannel } from "./updater.js";
+import { changedMind, type InstallStart, type UpdateReadiness } from "./update-readiness.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
 import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
@@ -36,7 +37,7 @@ const settingsPages = new Set<string>(process.platform === "darwin" ? Object.val
  */
 export interface UpdateHooks {
   /** Authenticated current channel and full task count from the local or joined engine. */
-  readiness?: () => Promise<{ channel: UpdateChannel; busyTasks: number }>;
+  readiness?: () => Promise<Pick<UpdateReadiness, "busyTasks" | "autoUpdate"> & { channel: UpdateChannel }>;
   backup: () => Promise<void>;
   stopDaemon?: () => Promise<number | null>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
@@ -54,12 +55,16 @@ export function registerUpdaterIpc(
   window: BrowserWindow, origin: string, version: string, requestQuit: () => void,
   hooks?: UpdateHooks,
 ): Updater {
+  // Dogfood F1 (NAS): what the owner had chosen when the install under way began; the last gate reads it again.
+  let started: InstallStart | null = null;
   const ensureIdle = async () => {
     if (!hooks?.readiness) throw new UpdateDeferredError("Branch cannot verify that work is idle, so the update is waiting.");
     const state = await hooks.readiness().catch(() => {
       throw new UpdateDeferredError("Branch cannot confirm that work is idle, so the update is waiting.");
     });
     if (state.busyTasks > 0) throw new UpdateDeferredError("An update is ready, but Branch will wait until every task finishes or is answered.");
+    const why = changedMind(state, started);
+    if (why) throw new UpdateDeferredError(why);
   };
   const updater = new Updater({
     ...(process.platform === "win32" ? updateSource : platformSource),
@@ -96,13 +101,21 @@ export function registerUpdaterIpc(
       throw error;
     });
   });
-  ipcMain.handle("branch:update-install", async (event) => {
+  ipcMain.handle("branch:update-install", async (event, automatic: unknown) => {
     authorized(event);
     // #215: one install at a time for this window, claimed before anything is awaited.
     return installClaim.run(() => updater.status, () => updater.inProgress, async () => {
       if (!hooks?.readiness) throw new Error("Branch cannot read its update channel.");
       const readiness = await hooks.readiness();
+      const moved = updater.selectedChannel !== readiness.channel;
       updater.setChannel(readiness.channel);
+      // NAS 2e3ead6: an automatic install that finds the channel just changed only switches it. The release it
+      // would take was never looked at on this channel (a Dev change that failed here, say), so the next turn looks
+      // first, and the plan weighs what that look finds. The Update button, pressed by the owner, goes on.
+      // Thrown, not returned: the install claim is only given back on a throw (NAS 1f61d43), and the window's
+      // automatic look ignores a deferral.
+      if (automatic === true && moved) throw new UpdateDeferredError("The update channel was just changed, so Branch looks again before installing.");
+      started = { channel: readiness.channel, automatic: automatic === true };
       await ensureIdle();
       diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });
       // CBQ-001: the updater's own claim is also held past install() until the hand-over is running, so

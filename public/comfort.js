@@ -492,13 +492,18 @@ async function autoUpdate() {
   updateAttempt = true;
   try {
     let status = await desktop.updateStatus();
-    let plan = await api("comfort/update-plan", { updaterPhase: status?.phase });
+    /* Dogfood F1 review: which release the updater means, and the one whose install just failed (the status then
+       carries its outcome), so the plan does not try that release again by itself and says so once. */
+    const about = (now) => ({ updaterPhase: now?.phase, ...(now?.release?.tag ? { updaterTag: now.release.tag } : {}),
+      ...(now?.phase === "error" && now?.outcome && now?.release?.tag ? { failedTag: now.release.tag } : {}) });
+    let plan = await api("comfort/update-plan", about(status));
+    if (plan.failed) globalThis.toast?.(plan.failed);
     if (plan.step === "check") {
       status = await desktop.checkForUpdates();
-      plan = await api("comfort/update-plan", { updaterPhase: status?.phase, checked: true });
+      plan = await api("comfort/update-plan", { ...about(status), checked: true });
     }
     // The same path as the Update button: checksum, a try on a copy of your work, a safety copy.
-    if (plan.step === "install") await desktop.installUpdate();
+    if (plan.step === "install") await desktop.installUpdate(true);
     else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
   finally {
