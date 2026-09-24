@@ -986,6 +986,16 @@ function state(app: Branch): unknown {
 }
 /** mac7/diagnostics: what kind of install this engine is, and when it started, for the report. */
 const diagnosticInstall = { type: "package", startedAt: Date.now() };
+
+/** Restores owner data with the profile guard attached to the operation, not only its current route. */
+export async function restoreBackup(
+  app: Pick<Branch, "store">,
+  read: () => Promise<unknown>,
+  replaceExisting: boolean,
+): Promise<unknown> {
+  app.store.profiles.requireOwner("Restoring a backup");
+  return app.store.restore(await read(), { replaceExisting });
+}
 /**
  * Who is calling a team route, from the signed-in context only (Q61): a person's key, a short-lived
  * key, a household profile, or the owner's window. A request body can never say who it is.
@@ -1596,7 +1606,10 @@ async function api(
       reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
     return app.store.backup(app.version);
   }
-  if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
+  if (request.method === "POST" && path === "/api/restore") {
+    const replaceExisting = new URL(request.url ?? "/", "http://local").searchParams.get("replace") === "1";
+    return restoreBackup(app, () => readBody(request, maximumBackupBytes), replaceExisting);
+  }
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
   if (request.method === "GET" && path === "/api/teams") return { teams: app.teams.list() };
