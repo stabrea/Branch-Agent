@@ -35,6 +35,8 @@ const GUARDS = [
   { file: "src/channels/connectors.ts", tool: "channels.broadcast", args: { text: "hello" } },
   { file: "src/channels/connectors.ts", tool: "channels.digest", args: { channel: "telegram", chatId: "1" } },
   { file: "src/workflows.ts", tool: "workflows.list", args: {} },
+  { file: "src/asks/owner-only.ts", tool: "forecast.add", args: { question: "Will it rain on Friday?", probability: 0.4 },
+    setup: (app) => app.asks.setMode("forecasts", { mode: "on" }) },
   { file: "src/personal/guard.ts", tool: "gcal.events", args: {}, setup: (app) => app.personal.setMode("google", { mode: "on" }) },
   { file: "src/personal/chat-files.ts", tool: "chat.send_file", args: { channel: "telegram", chatId: "1", path: "a.txt" },
     setup: (app) => app.personal.setMode("chat-files", { mode: "on" }) },
