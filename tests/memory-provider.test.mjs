@@ -1259,3 +1259,17 @@ test("a Forget that is refused leaves the conversation able to remember, as befo
   assert.notEqual(refused.status, 200);
   assert.equal(app.store.memorySuppressed("local", sessionId), false, "nothing was forgotten, so nothing is marked");
 });
+
+test("a conversation already forgotten stays forgotten when a later Forget of it is refused", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const post = await served(t, app, root);
+  const sessionId = app.store.createSession("local");
+  app.store.setMemorySuppressed("local", sessionId, true); // the owner switched remembering off here earlier
+  const refused = await post("memory/forget", { sessionId, ids: ["not-in-the-preview"] });
+  assert.notEqual(refused.status, 200);
+  assert.equal(app.store.memorySuppressed("local", sessionId), true, "a refused Forget never undoes the owner's own choice");
+});
