@@ -871,3 +871,25 @@ test("Q107: a plan's merge that brings a link to the copy's place never gets the
   assert.equal(result.merged, true);
   assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
 });
+
+test("Q107: a copy already gone is never handed to Git to remove, so a link that appears there meanwhile is never followed",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "config", "user.name", "t");
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "worktree" && options.args[1] === "remove") removes.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  for (const name of ["gone", "merged"]) {
+    await app.git.planStart({ folder: "work/proj", name }, signal());
+    await rm(join(proj, ".branch-worktrees", name), { recursive: true, force: true }); // put away by hand
+  }
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "gone" }, signal()), /nothing was removed/);
+  const result = await app.git.planMerge({ folder: "work/proj", name: "merged", remove: true }, signal());
+  assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
+  assert.deepEqual(removes, [], "Git was never asked to remove a place that is not there");
+});
