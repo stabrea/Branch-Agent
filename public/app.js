@@ -1984,7 +1984,9 @@ $("chat-form").addEventListener("submit", async (event) => {
         const settings = await api("voice/settings").catch(() => ({}));
         if (settings.autoReadAloud) {
           const useProvider = settings.useProviderVoice ?? false;
-          await speakText(run.output, useProvider).catch(() => {});
+          // A Trunk's conversation is read in that Trunk's own voice; any other in the owner's.
+          const talking = await api(`trunks/conversations/${sessionId}`).catch(() => null);
+          await speakText(run.output, useProvider, talking?.trunk?.voice ?? "").catch(() => {});
         }
       } catch { /* voice is optional */ }
     }

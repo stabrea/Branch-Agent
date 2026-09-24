@@ -25,11 +25,11 @@ export const ConversationRoomSchema = z.object({ trunkId: z.string().uuid() }).s
 export type ConversationKind = "plain" | "trunk" | "trunk-chat" | "room" | "member";
 interface Choice { sessionId: string; trunkId: string | null; authors: { from: number; trunkId: string | null }[]; updatedAt: string }
 /** What the window needs to know about a Trunk: never its instructions, keys or reach. */
-export interface TrunkBrief { id: string; name: string; handle: string; title: string; avatar: Trunk["avatar"]; look?: unknown }
+export interface TrunkBrief { id: string; name: string; handle: string; title: string; avatar: Trunk["avatar"]; voice: string; look?: unknown }
 /** `look` is the face the owner gave it (p2-shell), passed along when there is one. */
 const brief = (t: Trunk): TrunkBrief => {
   const look = (t as unknown as { look?: unknown }).look;
-  return { id: t.id, name: t.name, handle: t.handle, title: t.title, avatar: t.avatar, ...(look ? { look } : {}) };
+  return { id: t.id, name: t.name, handle: t.handle, title: t.title, avatar: t.avatar, voice: t.voice, ...(look ? { look } : {}) };
 };
 const key = (sessionId: string) => `trunk-conversation:${sessionId}`;
 /** How much of the conversation a room made from it carries over, so its Trunks know what came before. */
