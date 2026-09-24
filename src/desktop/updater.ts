@@ -370,35 +370,25 @@ export class Updater {
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     if (this.channel === "dev") return this.newestDevBuild();
-    // Try the primary repo first; if it returns 404, fall back to the fallback repo.
-    // All other HTTP errors and network errors propagate.
-    const lookupRepo = await this.resolveReleaseRepo();
-    return this.lookupLatestRelease(lookupRepo);
+    // The repository is moving from stabrea to KeepOak: the new name is asked first, and the old one only when GitHub
+    // says the new one does not exist (404). Any other answer, or no answer, stops here. One request per name asked.
+    const primary = await this.releaseList(primaryRepo);
+    if (primary.status !== 404) return this.lookupLatestRelease(primaryRepo, primary);
+    const fallback = await this.releaseList(fallbackRepo);
+    if (fallback.status === 404) throw new Error("No release has been published yet.");
+    return this.lookupLatestRelease(fallbackRepo, fallback);
   }
 
-  /** Resolves which repo to look up releases from, with fallback on 404. */
-  private async resolveReleaseRepo(): Promise<string> {
+  /** GitHub's list of releases for one repository name: the newest final, or the newest hundred for Beta. */
+  private releaseList(repo: string): Promise<Response> {
     const path = this.channel === "stable" ? "releases/latest" : "releases?per_page=100";
-    const checkRepo = async (repo: string): Promise<boolean> => {
-      const response = await this.fetch(`https://api.github.com/repos/${repo}/${path}`, {
-        headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (response.status === 404) return false;
-      if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
-      return true;
-    };
-    if (await checkRepo(primaryRepo)) return primaryRepo;
-    if (await checkRepo(fallbackRepo)) return fallbackRepo;
-    throw new Error("No release has been published yet.");
-  }
-
-  private async lookupLatestRelease(sourceRepo: string): Promise<ReleaseInfo> {
-    const path = this.channel === "stable" ? "releases/latest" : "releases?per_page=100";
-    const response = await this.fetch(`https://api.github.com/repos/${sourceRepo}/${path}`, {
+    return this.fetch(`https://api.github.com/repos/${repo}/${path}`, {
       headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
       signal: AbortSignal.timeout(15000),
     });
+  }
+
+  private async lookupLatestRelease(sourceRepo: string, response: Response): Promise<ReleaseInfo> {
     if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
     const raw = await response.json();
     const candidates = this.channel === "stable" ? [releaseSchema.parse(raw)] : betaCandidates(raw);

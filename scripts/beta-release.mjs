@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+/** The repository Beta publishes from: the one this workflow runs in, when it is Branch's own under either name
+ *  (it is moving from stabrea to KeepOak); any other repository, a fork included, is not Branch's. */
 const trustedRepos = new Set(["KeepOak/Branch-Agent", "stabrea/Branch-Agent"]);
+const canonical = trustedRepos.has(process.env.GITHUB_REPOSITORY ?? "") ? process.env.GITHUB_REPOSITORY : "stabrea/Branch-Agent";
 const branch = "mac/cross-platform";
 const archives = ["Branch-Agent-windows-x64.zip", "Branch-Agent-macos-arm64.zip",
   "Branch-Agent-macos-x64.zip", "Branch-Agent-linux-x64.tar.gz"];
@@ -26,8 +29,8 @@ export function betaPlan(version, runNumber) {
   return { version: beta, tag: `v${beta}` };
 }
 
-export function latestTrustedChecks(payload, sha, repo) {
-  if (!shaPattern.test(sha) || !trustedRepos.has(repo)) throw new Error("Invalid beta source identity.");
+export function latestTrustedChecks(payload, sha, repo = canonical) {
+  if (!shaPattern.test(sha) || repo !== canonical) throw new Error("Invalid beta source identity.");
   const runs = Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : [];
   const trusted = runs.filter((run) =>
     run.path === ".github/workflows/checks.yml" &&
@@ -85,8 +88,8 @@ async function mergeHeadCurrent(sha, pullHead, repo, gh) {
   return comparison.behind_by === 0;
 }
 
-export async function fastProof(sha, repo, gh = github) {
-  if (!shaPattern.test(sha) || !trustedRepos.has(repo)) throw new Error("Invalid beta source identity.");
+export async function fastProof(sha, repo = canonical, gh = github) {
+  if (!shaPattern.test(sha) || repo !== canonical) throw new Error("Invalid beta source identity.");
   const pulls = JSON.parse(await gh(["api", "--method", "GET", `repos/${repo}/commits/${sha}/pulls`,
     "-f", "per_page=100"]));
   const merged = pulls.filter((pull) => pull.merged_at && pull.merge_commit_sha === sha &&

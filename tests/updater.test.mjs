@@ -70,6 +70,10 @@ test("version comparison handles tags, prefixes and uneven lengths", () => {
   assert.equal(compareVersions("1.2.3+build.7", "1.2.3"), 0);
 });
 
+/** GitHub as it answers before the move: the new name, KeepOak/Branch-Agent, does not exist yet (404). */
+const beforeTheMove = (fake) => async (url, ...rest) => String(url).includes("/repos/KeepOak/Branch-Agent/")
+  ? { ok: false, status: 404, json: async () => ({ message: "Not Found" }) } : fake(url, ...rest);
+
 test("beta sees newest published prerelease, stable ignores it, and switching back never downgrades", async () => {
   const asset = (tag) => [
     { name: "Branch-Agent-windows-x64.zip", browser_download_url: `https://github.com/stabrea/Branch-Agent/releases/download/${tag}/Branch-Agent-windows-x64.zip`, size: 100 },
@@ -84,20 +88,20 @@ test("beta sees newest published prerelease, stable ignores it, and switching ba
     [beta9, { ...release("v0.19.2-beta.11", true), draft: true }, beta10, stable] });
   const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: "C:/scratch", fetch: call });
+    scratchDir: "C:/scratch", fetch: beforeTheMove(call) });
   assert.equal((await updater.check()).phase, "current");
   updater.setChannel("beta");
   assert.equal((await updater.check()).release.latestVersion, "0.19.2-beta.10");
   const onBeta = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.2-beta.10", channel: "beta",
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: "C:/scratch", fetch: call });
+    scratchDir: "C:/scratch", fetch: beforeTheMove(call) });
   assert.equal((await onBeta.check()).phase, "current");
   onBeta.setChannel("stable");
   assert.equal((await onBeta.check()).phase, "current", "returning to stable does not install the older version");
   const final = release("v0.19.2", false);
   const finalAhead = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.2-beta.10", channel: "beta",
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: "C:/scratch", fetch: async () => ({ ok: true, status: 200, json: async () => [beta10, final, stable] }) });
+    scratchDir: "C:/scratch", fetch: beforeTheMove(async () => ({ ok: true, status: 200, json: async () => [beta10, final, stable] })) });
   assert.equal((await finalAhead.check()).release.latestVersion, "0.19.2", "the final stable release outranks its betas");
 });
 
@@ -114,13 +118,13 @@ test("a newest release whose listed assets lag is read from its own assets list,
   const asked = [];
   const make = (channel, own, current = "0.19.2") => new Updater({ repo, currentVersion: current, channel,
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: name, scratchDir: "C:/scratch",
-    fetch: async (url) => {
+    fetch: beforeTheMove(async (url) => {
       asked.push(url.replace(`https://api.github.com/repos/${repo}/`, ""));
       const assets = /releases\/(\d+)\/assets/.exec(url);
       if (assets) return { ok: true, status: 200, json: async () => own[assets[1]] ?? [] };
       if (url.endsWith("/latest")) return { ok: true, status: 200, json: async () => release(2, "v0.19.2", false, []) };
       return { ok: true, status: 200, json: async () => [release(3, "v0.19.3-beta.2", true, []), release(2, "v0.19.2", false, files("v0.19.2"))] };
-    } });
+    }) });
   /* The list lags, the release's own list is current: the Beta is found, with its own files. */
   const found = await make("beta", { 3: files("v0.19.3-beta.2") }).check();
   assert.equal(found.phase, "available", found.message);
