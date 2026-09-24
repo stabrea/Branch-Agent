@@ -102,6 +102,8 @@ export const PROVENANCE_WORDS: Record<ProvenanceOutcome, string> = {
   "not-checked": "The build provenance record for this download was not checked: GitHub could not be reached, did not answer in time, or sent a record that could not be read. The update relies on the published checksum alone, which it passed.",
   none: "No build provenance record is published for this download. The update relies on the published checksum alone, which it passed.",
 };
+// Beta version of the "checked" message
+export const PROVENANCE_WORDS_BETA_CHECKED = "A build provenance record was found for this download. It names this exact file and Branch's beta workflow run on the mac/cross-platform branch, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.";
 const assetSchema = z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() });
 const releaseSchema = z.object({
   id: z.number().int().positive().optional(),
@@ -511,8 +513,11 @@ export class Updater {
     this.provenanceFound(lookup && lookup.unreadable > 0 ? "not-checked" : "none", release);
   }
   private provenanceFound(outcome: ProvenanceOutcome, release: ReleaseInfo): void {
-    this.provenance = { outcome, message: PROVENANCE_WORDS[outcome] };
-    this.set("verifying", PROVENANCE_WORDS[outcome], null, release);
+    // Use the Beta-specific message when a Beta version is checked.
+    const isBeta = outcome === "checked" && /^\d+\.\d+\.\d+-beta\.\d+$/.test(release.latestVersion);
+    const message = isBeta ? PROVENANCE_WORDS_BETA_CHECKED : PROVENANCE_WORDS[outcome];
+    this.provenance = { outcome, message };
+    this.set("verifying", message, null, release);
   }
   private async unpack(archive: string): Promise<string> {
     this.set("unpacking", "Unpacking…", null, this.status.release);

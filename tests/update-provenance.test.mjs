@@ -628,3 +628,43 @@ test("the provenance words say what was checked, admit the chain was not, and ar
   assert.match(french[keys.checked], /n'a pas été vérifiée/);
   assert.match(PROVENANCE_WORDS["not-checked"], /was not checked/);
 });
+
+test("verifyAttestationBundle accepts beta.yml for a Beta version only, rejects package.yml for Beta, and rejects beta.yml for final versions", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  // Beta version accepts beta.yml@refs/heads/mac/cross-platform
+  const betaUri = `https://github.com/${repo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`;
+  const betaBundle = makeBundle(digestHex, { uri: betaUri });
+  assert.equal(
+    verifyAttestationBundle(betaBundle, { repo, digestHex, version: "0.19.4-beta.5" }).workflow,
+    betaUri,
+    "Beta version accepts beta.yml@refs/heads/mac/cross-platform"
+  );
+  // Final version refuses beta.yml
+  assert.throws(
+    () => verifyAttestationBundle(betaBundle, { repo, digestHex, version: "0.19.4" }),
+    /does not name this repository's release workflow for a version tag/,
+    "final version refuses beta.yml"
+  );
+  // Beta version refuses package.yml
+  const packageUri = `https://github.com/${repo}/.github/workflows/package.yml@refs/tags/v0.19.4-beta.5`;
+  const packageBundle = makeBundle(digestHex, { uri: packageUri });
+  assert.throws(
+    () => verifyAttestationBundle(packageBundle, { repo, digestHex, version: "0.19.4-beta.5" }),
+    /does not name this repository's release workflow for a version tag/,
+    "Beta version refuses package.yml"
+  );
+});
+
+test("a retried install clears the previous attempt's provenance outcome", { skip: !windows && "Windows archive tooling" }, async (t) => {
+  // Attempt 1: records "checked" and then fails at the stubbed extract.
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const fixture = await installFixture(t, { attestationFor: (d) => d === digestHex ? makeBundle(d) : null });
+  const updater1 = gateUpdater(fixture);
+  await assert.rejects(updater1.install(), new RegExp(reachedUnpack));
+  assert.equal(updater1.status.provenance?.outcome, "checked", "attempt 1 recorded checked");
+
+  // Attempt 2: uses the same updater, which fails before the provenance check (bad checksum).
+  await assert.rejects(updater1.install(), /did not match the published checksum/);
+  // The provenance from attempt 1 should not appear in attempt 2's status.
+  assert.equal(updater1.status.provenance, undefined, "attempt 2 clears the old provenance");
+});

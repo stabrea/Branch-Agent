@@ -294,10 +294,10 @@ export function verifyAttestationBundle(bundle: AttestationBundle, expected: Pro
   }
 
   const names = (cert.subjectAltName ?? "").split(",").map((entry) => entry.trim());
-  // Beta releases accept beta.yml@refs/heads/mac/cross-platform; final releases accept package.yml@refs/tags/vX.Y.Z only.
+  // Beta releases accept ONLY beta.yml@refs/heads/mac/cross-platform; final releases accept ONLY package.yml@refs/tags/vX.Y.Z.
   const isBeta = isBetaVersion(expected.version);
   const acceptedWorkflows = isBeta
-    ? [releaseWorkflowIdentity(expected.repo), betaWorkflowIdentity(expected.repo)]
+    ? [betaWorkflowIdentity(expected.repo)]
     : [releaseWorkflowIdentity(expected.repo)];
   const workflowEntry = names.find((entry) => acceptedWorkflows.some((pattern) => pattern.test(entry)));
   if (!workflowEntry) throw new Error("the provenance record's signing certificate does not name this repository's release workflow for a version tag");

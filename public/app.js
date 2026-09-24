@@ -1029,7 +1029,8 @@ function showUpdateStatus(status) {
   if (status.provenance?.message) {
     provenanceEl.textContent = fromEnglish(status.provenance.message) ?? status.provenance.message;
     provenanceEl.hidden = false;
-  } else if (status.phase === "checking") {
+  } else {
+    // Hide provenance whenever there is no message (e.g., on retry, or when checking restarts).
     provenanceEl.hidden = true;
   }
   showVersions(status);

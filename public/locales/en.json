@@ -4399,6 +4399,7 @@
   "updates.channel.dev": "Dev",
   "updates.channel.note": "Beta shows accepted changes sooner and may be less tested. Dev builds every merged change on this computer, the moment it lands, before the full checks: it needs git and Node.js, each update takes a few minutes, and it never updates by itself. Stable remains the default. Switching back never installs an older version.",
   "updates.provenance.checked": "A build provenance record was found for this download. It names this exact file and Branch's release workflow run for a version tag, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
+  "updates.provenance.checkedBeta": "A build provenance record was found for this download. It names this exact file and Branch's beta workflow run on the mac/cross-platform branch, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
   "updates.provenance.notChecked": "The build provenance record for this download was not checked: GitHub could not be reached, did not answer in time, or sent a record that could not be read. The update relies on the published checksum alone, which it passed.",
   "updates.provenance.none": "No build provenance record is published for this download. The update relies on the published checksum alone, which it passed.",
   "settings.card.using-your-screen-and-keyboard": "Using your screen and keyboard",
