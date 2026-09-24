@@ -1003,3 +1003,30 @@ test("Q144: over HTTP, carrying on a Trunk's workflow or flow run while it is se
   assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
   assert.equal((await app.flows.settled(runId)).status, "failed", "the flow run is left as it stopped");
 });
+
+test("Q144: carrying on the flow run of a Trunk that is gone still ends it saying why before the owner is told", async (t) => {
+  // NAS review of Q148: the refusal is thrown only after the resume has ended the gone Trunk's run (Q122), not instead of it.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  // As a failure at the second box leaves it, for the owner to press Carry on; then Ada is removed.
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='b', error='stopped' WHERE run_id=?").run(runId);
+  app.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
+  app.trunks.remove(ada.id);
+  assert.throws(() => app.flows.resumeGraph(graph.id, { runId }), /no longer here/, "the owner is told why");
+  const ended = await app.flows.settled(runId);
+  assert.equal(ended.status, "failed", JSON.stringify(ended).slice(0, 300));
+  assert.match(String(ended.error), /no longer here/, "the run itself says why, not the old 'stopped'");
+  assert.equal(app.store.run(runId).status, "failed", "its task ended too");
+  assert.match(String(app.store.run(runId).output ?? ""), /no longer here/, "and says why");
+});
