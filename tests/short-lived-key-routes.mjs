@@ -933,6 +933,7 @@ export const ROUTES = {
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
+  "/api/sessions/:id/context": "look",
   "/api/sessions/:id/discard": "other POST",
   "/api/sessions/:id/duplicate": "other POST",
   "/api/sessions/:id/export": "look",
