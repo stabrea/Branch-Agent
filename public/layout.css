@@ -1344,6 +1344,11 @@ body.lx-help .context-panel > .acorn-art {
 body.lx .rail-head {
   gap: 0;
 }
+/* Dogfood B9: the model, how hard it thinks and a pinned skill are chosen from the model chip beside Send, whose
+   name says the model and its thinking level. The row of labelled selects is not drawn; its selects still save. */
+body.lx #model-controls {
+  display: none !important;
+}
 /* how it should work, and the model for this conversation: a quiet row of chips, not two big menus */
 body.lx .model-controls {
   gap: 6px 10px;

@@ -137,3 +137,33 @@ test("K4 a conversation's list follows its own model, and a per-model level offe
   assert.deepEqual(local.thinking, { how: "none", levels: [], sent: false }, "the per-model levels carry the same map");
   assert.deepEqual(errors, []);
 });
+
+test("K5 dogfood B9: the model chip carries the thinking level, chosen from its menu, and the long row is not drawn", async (t) => {
+  const { page, errors, server } = await fixture(t);
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body ? "POST" : "GET",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) }).then((r) => r.json());
+  await page.evaluate(async () => {
+    const { applyAppearance, currentAppearance } = await import("/appearance.js");
+    applyAppearance({ ...currentAppearance(), showEverything: true });
+  });
+  await page.locator("#prompt").fill("Hello there");
+  await page.locator("#send").click();
+  await page.locator(".message.assistant").first().waitFor({ timeout: 20000 });
+  const sessionId = await page.locator("#conversation").getAttribute("data-session-id");
+  await call(`/api/sessions/${sessionId}/model`, { preset: "think-claude", reasoning: null });
+  await page.evaluate(() => globalThis.branchRefreshSessionModel());
+  await page.waitForFunction(() => document.querySelectorAll("#session-reasoning option").length === 4);
+  assert.equal(await page.locator("#model-controls").isVisible(), false, "the row of labelled selects is not drawn");
+  assert.doesNotMatch(await page.locator("#lx-model-chip").innerText(), /·/, "at the workspace's own level the chip names only the model");
+  const balanced = await page.locator('#session-reasoning option[value="medium"]').innerText();
+  await page.locator("#lx-model-chip").click();
+  const menu = page.locator("#lx-model-menu");
+  await menu.waitFor({ state: "visible" });
+  assert.ok(await menu.getByText("Thinking", { exact: true }).isVisible(), "the menu has a Thinking part");
+  await menu.getByRole("menuitemradio", { name: balanced.trim(), exact: true }).click();
+  await page.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}/model`, {
+    headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).reasoning === "medium", sessionId);
+  await page.waitForFunction((word) => document.getElementById("lx-model-chip")?.innerText.includes(`· ${word}`), balanced.trim());
+  assert.match(await page.locator("#lx-model-chip").innerText(), /claude-sonnet-4-5 · /, "the chip says the model and how hard it thinks");
+  assert.deepEqual(errors, []);
+});
