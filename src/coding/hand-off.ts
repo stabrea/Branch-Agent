@@ -96,8 +96,12 @@ export const runProgram: RunProgram = (call, prompt, env, signal, timeoutMs, onL
 });
 
 /** What a program's stream said: its last words, the steps it took, and whether its plan's limit stopped it. */
-export interface ProgramReport { summary: string; steps: string[]; failed: string | null; limitReached: boolean }
+export interface ProgramReport { summary: string; steps: string[]; failed: string | null; limitReached: boolean; signedOut: boolean }
 const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded your (?:current )?quota|too many requests/i;
+/** The program's sign-in has run out, or was never made: the owner signs in again, and nothing else will fix it. */
+const signedOutWords = /failed to authenticate|oauth (?:access )?token has expired|not logged in|please (?:run \S+ )?log ?in|re-?authenticate|\b401\b/i;
+const reportOf = (summary: string, steps: string[], failed: string | null): ProgramReport =>
+  ({ summary, steps, failed, limitReached: limitWords.test(failed ?? ""), signedOut: signedOutWords.test(failed ?? "") });
 const parse = (line: string): Record<string, unknown> | null => {
   try { const value = JSON.parse(line) as unknown; return value && typeof value === "object" ? value as Record<string, unknown> : null; }
   catch { return null; }
@@ -121,7 +125,7 @@ export function readClaude(lines: readonly string[]): ProgramReport {
         failed = typeof event.result === "string" && event.result ? event.result : String(event.subtype ?? "failed");
     }
   }
-  return { summary, steps, failed, limitReached: limitWords.test(failed ?? "") };
+  return reportOf(summary, steps, failed);
 }
 
 /** Codex's `exec --json`: items as they complete (its words, the commands it ran, the files it changed), then the turn. */
@@ -139,7 +143,7 @@ export function readCodex(lines: readonly string[]): ProgramReport {
       failed = error ?? "failed";
     }
   }
-  return { summary, steps, failed, limitReached: limitWords.test(failed ?? "") };
+  return reportOf(summary, steps, failed);
 }
 
 export interface HandOffDeps {
@@ -155,7 +159,7 @@ export interface HandOffDeps {
 export interface HandOffResult {
   program: HandOffProgram;
   account: string;
-  status: "done" | "failed" | "limit reached" | "stopped" | "timed out";
+  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out";
   summary: string;
   steps: string[];
   changed: string[];
@@ -233,7 +237,7 @@ export class HandOff {
     const changed = await this.changedSince(folder.absolute, start, AbortSignal.timeout(60_000));
     const undone = await this.keepToContract(folder, start, changed, AbortSignal.timeout(60_000));
     const status: HandOffResult["status"] = context.signal.aborted ? "stopped" : ran.timedOut ? "timed out"
-      : report.limitReached ? "limit reached" : report.failed || ran.code !== 0 ? "failed" : "done";
+      : report.limitReached ? "limit reached" : report.signedOut ? "sign in again" : report.failed || ran.code !== 0 ? "failed" : "done";
     const result: HandOffResult = { program: input.program, account, status,
       summary: (report.summary || report.failed || ran.stderr.trim()).slice(0, 4000), steps: report.steps.slice(-40),
       changed: [...changed.tracked, ...changed.added].filter((file) => !undone.includes(file)), undone };

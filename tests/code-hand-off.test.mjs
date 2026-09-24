@@ -97,6 +97,26 @@ test("a job in a workspace repository is done by the program in that folder, and
   assert.equal(steps.length, 2, "each line the program printed is shown on the task as it comes");
 });
 
+test("the model and how hard it thinks are passed to each program in its own words", () => {
+  const claude = programCall("claude-code", "/work/repo", "claude-opus-5-5", "medium");
+  assert.deepEqual(claude.args.slice(claude.args.indexOf("--model"), claude.args.indexOf("--model") + 2), ["--model", "claude-opus-5-5"]);
+  assert.deepEqual(claude.args.slice(claude.args.indexOf("--effort"), claude.args.indexOf("--effort") + 2), ["--effort", "medium"]);
+  const codex = programCall("codex", "/work/repo", "gpt-6-astra", "medium");
+  assert.deepEqual(codex.args.slice(codex.args.indexOf("--model"), codex.args.indexOf("--model") + 2), ["--model", "gpt-6-astra"]);
+  assert.ok(codex.args.includes('model_reasoning_effort="medium"'));
+  assert.equal(codex.args.at(-1), "-", "the job itself still comes in on the program's input");
+  assert.ok(!programCall("codex", "/work/repo").args.includes("--model"), "with none chosen, the program's own setting stands");
+});
+
+test("an expired sign-in is said as one, so the owner knows to sign in again", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const expired = await f.handOff(async () => ({ code: 1, stderr: "", timedOut: false, missing: false, lines: [JSON.stringify({
+    type: "result", subtype: "success", is_error: true, result: "Failed to authenticate. API Error: 401 OAuth access token has expired." })] }))
+    .run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(expired.status, "sign in again");
+});
+
 test("a folder outside the workspace, or one that is not a Git repository, is refused before anything starts", async (t) => {
   const f = await fixture(t);
   await mkdir(join(f.workspace, "plain"), { recursive: true });
