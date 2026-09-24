@@ -333,7 +333,7 @@ async function commitOf(deps: Pick<ContractGuardDeps, "workspace" | "git">, cont
  * worktree and not yet committed. A file added and removed again, or moved out of the allowed paths
  * under another name, is caught as surely as one left changed at the end.
  */
-async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, commit = "HEAD", ref = commit): Promise<string | null> {
+async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, commit: string, ref = commit): Promise<string | null> {
   const cwd = resolve(deps.workspace, contract.worktreePath);
   const git = (args: string[]) => deps.git({ cwd, args, timeoutMs: 60_000, maxOutputBytes: 4_194_304 }, signal);
   // The repository Git finds here must be the worktree's own, sharing the source checkout's, not one planted in it.
@@ -502,14 +502,17 @@ const pullRequestTool = "github.pull_request_from_changes";
  * (`pullRequestFromChanges`), so every way there is held to it: the tool, the hook that runs when a
  * task finishes, anything added later. The folder must be a worktree with a sound contract that
  * lists the pull request step, still start from the contract's source commit, and change nothing
- * outside its allowed paths. A sentence refuses (and is audited); null lets the push go. Anything
- * that goes wrong while checking a folder inside the source refuses too.
+ * outside its allowed paths. `refusal` is a sentence that refuses (and is audited), or null to let
+ * the push go. Anything that goes wrong while checking a folder inside the source refuses too.
+ * `walked` is the one commit HEAD named when it was read, which is what was checked: the pull request
+ * builds on exactly that commit, so nothing that moves HEAD afterwards changes what is sent. It is
+ * null outside the source, where nothing is walked.
  */
 export async function pushRefusal(input: {
   store: Store; owner: string; workspace: string; git: ContractGuardDeps["git"]; folder: string; runId?: string | undefined; signal: AbortSignal;
-}): Promise<string | null> {
+}): Promise<{ refusal: string | null; walked: string | null }> {
   const where = workspacePath(input.workspace, "", input.folder);
-  if (where === null || !insideSource(where)) return null;
+  if (where === null || !insideSource(where)) return { refusal: null, walked: null };
   const worktree = worktreeOf(where), context = { runId: input.runId ?? "" };
   try {
     if (!worktree) refuse(input, context, pullRequestTool, "", "The protected Branch Agent source checkout is never sent directly; work in a self-development worktree.");
@@ -520,8 +523,13 @@ export async function pushRefusal(input: {
     if (!contract) refuse(input, context, pullRequestTool, worktree, `no contract: ${worktree} has no self-development contract, so nothing in it may be sent.`);
     if (!contract.permissions.includes(pullRequestTool))
       refuse(input, context, pullRequestTool, worktree, `${pullRequestTool} is not one of the tools this contract allows (${contract.permissions.join(", ")}).`);
-    const broken = await remoteBroken(input, contract, input.signal);
+    // HEAD is read once, as one commit; that commit is what is walked and what the caller builds on.
+    const walked = await commitOf(input, contract, input.signal, "HEAD");
+    if (!walked) refuse(input, context, pullRequestTool, worktree, "This worktree has no commit checked out, so nothing is sent.");
+    const broken = await remoteBroken(input, contract, input.signal, walked, "HEAD");
     if (broken) refuse(input, context, pullRequestTool, worktree, broken);
-    return null;
-  } catch (error) { return error instanceof Error ? error.message : "Branch could not check this push against its contract."; }
+    return { refusal: null, walked };
+  } catch (error) {
+    return { refusal: error instanceof Error ? error.message : "Branch could not check this push against its contract.", walked: null };
+  }
 }
