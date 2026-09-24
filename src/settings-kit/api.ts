@@ -3,7 +3,7 @@ import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { lockedDown } from "../lockdown.js";
 import { settingsCatalogue, switchPositions, type FieldSpec } from "./catalogue.js";
-import { acceptValue, applyWithPins, changesFor, currentValue, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
+import { applyWithPins, changesFor, currentValue, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
 import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
 import { perFileBytes } from "../context-files.js"; // phase2/accounts
@@ -134,12 +134,10 @@ function apply(deps: SettingsKitDeps, input: unknown) {
  * Q65 review: the way out for a setting whose saved record cannot be read (voice): the whole record is put
  * back to how Branch ships, because neither the kit nor the setting's own card can change a record they
  * cannot read. The owner's alone, like every route here, and not while Lockdown holds the settings.
- * Q83 review: putting back the shipped value must ask for confirmLoosening if it is looser than the
- * actual saved values in the unreadable record (or than the setting's careful direction if the record can't be read).
+ * Q83: it always asks for confirmLoosening, since a record that cannot be read cannot say what it held,
+ * unless every field already ships at its most careful value.
  */
 const PutBackBody = z.object({ key: z.string().max(80), confirmLoosening: z.boolean().default(false) }).strict();
-const readPathRaw = (data: Record<string, unknown>, field: string): unknown =>
-  field.split(".").reduce<unknown>((node, part) => (node && typeof node === "object" ? (node as Record<string, unknown>)[part] : undefined), data);
 
 /** Every value a field can hold (a number's two ends): enough to tell whether one value is its most careful. */
 function holdable(field: FieldSpec): Value[] {
@@ -159,42 +157,12 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
   // Q83: check if putting back to shipped values is loosening by comparing actual saved record values
   // to the shipped defaults. Use raw saved values, not the app's parsed reading.
-  const stored = deps.store.get("settings", deps.owner, spec.key)?.data;
-  // A record that is not an object at all (a string holding the old record, a list, a number) hides every
-  // field in it, so each counts as unreadable. `false`, `0` and "" are read as shipped already.
-  const whole = typeof stored === "object" && stored !== null && !Array.isArray(stored);
-  const hidden = !whole && Boolean(stored);
-  const raw = (whole ? stored : {}) as Record<string, unknown>;
-  // A key the record should not have (`__proto__`, `voice`, a misspelling) may be where the owner's value
-  // went, so a field missing from its own place counts as unreadable too.
-  const shippedRecord = spec.shipped?.() ?? {};
-  // Or the field's own name found deeper inside the record (under a key it does know): the owner's value went there.
-  // A string holding it (a record saved as text, at any depth of encoding) counts, and so does anything too
-  // deep to look all the way through.
-  const buried = (value: unknown, key: string, depth = 0): boolean => {
-    if (typeof value === "string") return depth > 0 && value.includes(key);
-    if (typeof value !== "object" || value === null) return false;
-    if (depth >= 8) return true;
-    return Object.entries(value).some(([name, inner]) => (depth > 0 && name === key) || buried(inner, key, depth + 1));
-  };
-  // Judged by shape as well as name: a known key holding a record (an object, a list, or text that looks like
-  // one) where Branch keeps a plain value is where a misspelt or renamed guard could have gone.
-  const structured = (value: unknown) => (typeof value === "object" && value !== null) || (typeof value === "string" && /^\s*[[{]/.test(value));
-  const strayKey = Object.keys(raw).some((key) => !Object.hasOwn(shippedRecord, key)
-    || (structured(raw[key]) && !structured(shippedRecord[key])));
-  const loosenings: string[] = [];
-  for (const field of spec.fields) {
-    const rawValue = readPathRaw(raw, field.field);
-    const missing = rawValue === undefined && (strayKey || buried(raw, field.field.split(".").at(-1)!));
-    const acceptedValue = hidden || missing ? undefined : acceptValue(field, rawValue);
-    const shipped = field.initial as Value;
-    // A saved value the field cannot read held the setting closed: putting back asks unless the shipped
-    // value is already the most careful one the field can hold.
-    const unreadable = (hidden || missing || (rawValue !== undefined && acceptedValue === undefined))
-      && holdable(field).some((value) => loosens(field, value, shipped, spec));
-    if (unreadable || (acceptedValue !== undefined && acceptedValue !== shipped && loosens(field, acceptedValue, shipped, spec)))
-      loosenings.push(field.label);
-  }
+  // Q83 (NAS 1024d5f): put-back is offered only for a record that cannot be read, and such a record cannot be
+  // trusted to say what it held, however its keys are spelt or nested. So it always asks, unless every field
+  // Branch weighs already ships at its most careful value.
+  const loosenings = spec.fields
+    .filter((field) => holdable(field).some((value) => loosens(field, value, field.initial as Value, spec)))
+    .map((field) => field.label);
   if (loosenings.length && !body.confirmLoosening)
     throw new SettingsKitError(409, `${loosenings.length} of these make Branch less careful (${loosenings.join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
   spec.putBack(deps.store, deps.owner);

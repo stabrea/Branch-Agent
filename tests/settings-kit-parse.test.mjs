@@ -343,18 +343,6 @@ test("put-back: a loosening change asks for confirmLoosening and is refused with
   assert.deepEqual(voiceSettings(store, owner), (await import("../dist/voice.js")).VoiceSettingsSchema.parse({}));
 });
 
-test("put-back: a tightening or neutral change does not ask for confirmLoosening", async (t) => {
-  const { store, owner, call } = await served(t);
-  // Unreadable voice record with systemVoice="invalid" (unreadable) but all guard fields set to less careful
-  // replyWithVoiceOnChannels:false is the initial value for the reach field, so it's not loosening
-  const unreadableTightening = { systemVoice: "invalid", autoReadAloud: "maybe", keepAudioOnThisComputer: false, replyWithVoiceOnChannels: false };
-  store.save("settings", owner, "voice", unreadableTightening);
-  // Put-back without confirmLoosening should succeed because putting back to false from false is not loosening
-  const result = await call("/api/settings-kit/put-back", { key: "voice" });
-  assert.equal(result.status, 200, JSON.stringify(result.body));
-  assert.deepEqual(voiceSettings(store, owner), (await import("../dist/voice.js")).VoiceSettingsSchema.parse({}));
-});
-
 test("the way out: an unreadable voice record is put back as shipped, then voice reads and its own card saves again", async (t) => {
   const { store, owner, call } = await served(t);
   store.save("settings", owner, "voice", brokenVoice);
@@ -415,80 +403,29 @@ test("put-back: a guarding field whose saved value cannot be read counts as less
   assert.equal((await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true })).status, 200);
 });
 
-test("put-back: a record that is not an object at all hides every field, so it asks; false, 0 and an empty string do not", async (t) => {
-  const { store, owner, call } = await served(t);
-  for (const record of [JSON.stringify({ systemVoice: "on", keepAudioOnThisComputer: true }), [{ keepAudioOnThisComputer: true }], 1, true]) {
-    store.save("settings", owner, "voice", record);
-    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
-    assert.equal(refused.status, 409, `${JSON.stringify(record)}: ${JSON.stringify(refused.body)}`);
-    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
-  }
-  for (const record of [false, 0, ""]) {
-    store.save("settings", owner, "voice", record);
-    const back = await call("/api/settings-kit/put-back", { key: "voice" });
-    assert.notEqual(back.status, 409, `${JSON.stringify(record)} is read as shipped: ${JSON.stringify(back.body)}`);
-  }
-});
 
-test("put-back: a guard missing from its place while the record carries a key it should not have asks", async (t) => {
+test("put-back always asks for a record it cannot read, whatever it holds, and puts back as shipped with the yes", async (t) => {
   const { store, owner, call } = await served(t);
+  const { VoiceSettingsSchema } = await import("../dist/voice.js");
   const careful = { systemVoice: "on", keepAudioOnThisComputer: true };
-  for (const record of [{ __proto__: null, ["__proto__"]: careful }, { constructor: careful }, { constructor: { prototype: careful } }, { voice: careful }]) {
-    const saved = JSON.parse(JSON.stringify(record));
-    store.save("settings", owner, "voice", saved);
-    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
-    assert.equal(refused.status, 409, `${JSON.stringify(saved)}: ${JSON.stringify(refused.body)}`);
-    assert.deepEqual(store.get("settings", owner, "voice").data, saved, "nothing written without the yes");
-  }
-  // Every key known and the guard simply absent: nothing hidden, so no ask.
-  store.save("settings", owner, "voice", { systemVoice: "bogus" });
-  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200);
-});
-
-test("put-back: a guard found deeper in the record, under a key the record does know, asks", async (t) => {
-  const { store, owner, call } = await served(t);
-  const careful = { keepAudioOnThisComputer: true };
-  for (const record of [{ systemVoice: careful }, { autoReadAloud: careful }, { replyWithVoiceOnChannels: careful },
-    { liveMaxDollars: careful }, { sttRoute: careful }, { systemVoice: { deeper: [careful] } }]) {
-    store.save("settings", owner, "voice", record);
-    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
-    assert.equal(refused.status, 409, `${JSON.stringify(record)}: ${JSON.stringify(refused.body)}`);
-    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
-  }
-});
-
-test("put-back: a guard inside a string under a field, or deeper than the look goes, asks", async (t) => {
-  const { store, owner, call } = await served(t);
-  const text = JSON.stringify({ systemVoice: "on", keepAudioOnThisComputer: true });
   let deep = { keepAudioOnThisComputer: true };
   for (let level = 0; level < 12; level++) deep = { inner: deep };
-  for (const record of [{ systemVoice: text }, { autoReadAloud: text }, { sttRoute: JSON.stringify(text) }, { systemVoice: deep }]) {
-    store.save("settings", owner, "voice", record);
-    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
-    assert.equal(refused.status, 409, `${JSON.stringify(record).slice(0, 80)}: ${JSON.stringify(refused.body)}`);
-    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
+  const records = [
+    { systemVoice: "bogus" }, // unreadable, and nothing careful in sight: still asks, the record cannot vouch for itself
+    { systemVoice: "invalid", autoReadAloud: "maybe", keepAudioOnThisComputer: false, replyWithVoiceOnChannels: false },
+    JSON.stringify(careful), [careful], 1, true, false, 0, "",
+    { __proto__: null, ["__proto__"]: careful }, { constructor: { prototype: careful } }, { voice: careful },
+    { systemVoice: careful }, { systemVoice: JSON.stringify(careful) }, { systemVoice: { KeepAudioOnThisComputer: true } },
+    { autoReadAloud: { keep_audio_on_this_computer: true } }, { systemVoice: deep },
+  ];
+  for (const record of records) {
+    const saved = JSON.parse(JSON.stringify(record));
+    store.save("settings", owner, "voice", saved);
+    const asked = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.equal(asked.status, 409, `${JSON.stringify(saved).slice(0, 80)}: ${JSON.stringify(asked.body)}`);
+    assert.deepEqual(store.get("settings", owner, "voice").data, saved, "nothing written without the yes");
+    const back = await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true });
+    if (back.status === 200) assert.deepEqual(voiceSettings(store, owner), VoiceSettingsSchema.parse({}));
+    else assert.match(JSON.stringify(back.body), /reads as it should/, `${JSON.stringify(saved).slice(0, 80)}: a record voice reads is not put back`);
   }
-  // A plain unreadable value names no guard: no ask.
-  store.save("settings", owner, "voice", { systemVoice: "bogus" });
-  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200);
-});
-
-test("put-back: a known key holding a record where Branch keeps a plain value asks, whatever the guard is called there", async (t) => {
-  const { store, owner, call } = await served(t);
-  for (const record of [
-    { KeepAudioOnThisComputer: true },
-    { voice: JSON.stringify({ systemVoice: "on", keepAudioOnThisComputer: true }) },
-    { systemVoice: { KeepAudioOnThisComputer: true } },
-    { systemVoice: { "keepAudioOnThisComputer ": true } },
-    { autoReadAloud: { keep_audio_on_this_computer: true } },
-    { replyWithVoiceOnChannels: { voice: { systemVoice: "on", KeepAudioOnThisComputer: true } } },
-    { systemVoice: JSON.stringify({ Keep_Audio: true }) },
-  ]) {
-    store.save("settings", owner, "voice", record);
-    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
-    assert.equal(refused.status, 409, `${JSON.stringify(record)}: ${JSON.stringify(refused.body)}`);
-    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
-  }
-  store.save("settings", owner, "voice", { systemVoice: "bogus" });
-  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200, "a plain unreadable value still does not ask");
 });
