@@ -75,12 +75,16 @@ const staysHere = (table: string, row: Record<string, unknown>): boolean => tabl
  * owner to approve it again (the scheduler pauses it and asks), and its webhook gets a token made on
  * this computer. Without this, a changed backup could bring a check program that approves itself, or a
  * webhook whose token the file's maker already holds.
+ *
+ * A schedule whose data is not a plain JSON object is left out of the restore (null): it cannot be disarmed, and
+ * SQLite reads JSON5, so the next start would rewrite it into a job that still carries the file's yes (NAS 54d30f2).
  */
-function disarmed<Row extends Record<string, unknown>>(table: string, row: Row): Row {
-  if (table !== "schedules" || typeof row.data !== "string") return row;
+function disarmed<Row extends Record<string, unknown>>(table: string, row: Row): Row | null {
+  if (table !== "schedules") return row;
+  if (typeof row.data !== "string") return null;
   let job: unknown;
-  try { job = JSON.parse(row.data); } catch { return row; }
-  if (!job || typeof job !== "object" || Array.isArray(job)) return row;
+  try { job = JSON.parse(row.data); } catch { return null; }
+  if (!job || typeof job !== "object" || Array.isArray(job)) return null;
   const kept: Record<string, unknown> = { ...job };
   if ("gateApproved" in kept) kept.gateApproved = null;
   // Only a job that has a webhook gets a new token; an empty one would otherwise switch a webhook on.
@@ -138,6 +142,7 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       for (const given of list) {
         if (staysHere(table, given)) continue;
         const row = disarmed(table, given);
+        if (!row) continue;
         const keys = Object.keys(row).filter((k) => columns.has(k));
         if (keys.length !== Object.keys(row).length) throw new Error(`Backup row for ${table} has a column this version does not know`);
         // An append-only row gets a fresh id and is skipped when this install already has that revision.

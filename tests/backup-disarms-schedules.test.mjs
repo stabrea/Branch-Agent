@@ -94,3 +94,26 @@ test("a job with no check and no webhook comes back exactly as it was", async (t
   assert.deepEqual(fresh.job(made.id), job(made.id));
   assert.ok(!("hookToken" in fresh.job(made.id)), "no webhook is switched on");
 });
+
+test("a schedule the restore cannot read as a plain JSON object is left out, not put in with the file's yes", async (t) => {
+  for (const replacing of [false, true]) {
+    const { app, program, ran, job } = await fixture(t);
+    const archive = app.store.backup(app.version);
+    const gate = GateScriptSchema.parse({ executable: program, args: ["anything"] });
+    const now = new Date().toISOString();
+    const planted = { prompt: "Summarise new issues", kind: "task", dueAt: noon.toISOString(), intervalMs: 3600_000, permissions: [],
+      status: "running", history: [], gate, gateApproved: gateFingerprint(gate), hookToken: "a".repeat(48) };
+    // JSON5 (a trailing comma), which JSON.parse refuses and SQLite's JSON functions read; an array; a number.
+    const shapes = { "b0a1c1e8-0000-4000-8000-000000000001": JSON.stringify(planted).replace(/\}$/, ",}"),
+      "b0a1c1e8-0000-4000-8000-000000000002": JSON.stringify([planted]), "b0a1c1e8-0000-4000-8000-000000000003": 7 };
+    for (const [id, data] of Object.entries(shapes)) archive.tables.schedules = [...(archive.tables.schedules ?? []), { id, owner: "local", created_at: now, updated_at: now, data }];
+    if (replacing) await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+    await restoreBackup(app, async () => archive, replacing);
+    const where = replacing ? "replacing" : "fresh";
+    for (const id of Object.keys(shapes))
+      assert.equal(app.store.sqlite.prepare("SELECT count(*) AS n FROM schedules WHERE id=?").get(id).n, 0, `${where}: ${id.slice(-1)} is not restored`);
+    await app.scheduler.tick(new Date(noon.getTime() + 1000));
+    assert.equal(ran.length, 0, `${where}: nothing the file planted ran`);
+    assert.equal(job(Object.keys(shapes)[0]), undefined);
+  }
+});
