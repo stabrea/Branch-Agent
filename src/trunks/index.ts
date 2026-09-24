@@ -98,6 +98,7 @@ export class Trunks {
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
     byRuntime.set(runtime, this);
     scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
+    scheduler.trunkHeld = () => (this.mode("trunks") === "off" ? "Trunks are switched off, so this schedule a Trunk made did not run." : null);
     this.syncTools();
     if (this.mode("rooms") !== "off") this.rooms.resumeAll();
   }
