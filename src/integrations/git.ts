@@ -1,8 +1,10 @@
 import { realpathSync } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
+import { randomUUID } from "node:crypto";
 import { branchRef, explainGit, inBranchSource, type GitOutcome, type GitRunner } from "./git-run.js";
 
 /**
@@ -12,6 +14,8 @@ import { branchRef, explainGit, inBranchSource, type GitOutcome, type GitRunner 
  * rewrites a saved version. Sending work to a server lives in the separate remote tools.
  */
 export const WORKTREE_HOME = ".branch-worktrees";
+/** Q101: the remote a new address is checked under before publishing touches the folder's own remote. */
+const publishCheckRemote = "branch-publish-check";
 
 /** The real, long-form spelling of a path when it exists; otherwise the resolved path as given. */
 function canonical(path: string): string {
@@ -187,16 +191,51 @@ export class GitTools {
     if (address.protocol !== "https:" || address.username || address.password)
       throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
+    // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
+    // worktree the remotes are the source checkout's).
+    if (inBranchSource(cwd)) {
+      // Settings for the pushed name kept outside the repository (the computer's own Git settings) would still
+      // apply after the name is re-pointed, so they are refused before the folder's own remote is touched.
+      const pattern = `^remote\\.${input.remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`;
+      const elsewhere = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      // Exit 1 is "no such settings"; anything else that did not complete (stopped, too slow, too much) is not a no.
+      if (elsewhere.status !== "completed" && !(elsewhere.status === "failed" && elsewhere.exitCode === 1))
+        throw new Error(`Could not read the Git settings for "${input.remote}", so nothing was sent.`);
+      const lines = elsewhere.status === "completed" ? elsewhere.stdout.split("\n").filter(Boolean) : [];
+      if (lines.some((line) => !/^local\s/.test(line)) || (lines.length && await this.unremovable(cwd, input.remote, pattern, signal)))
+        throw new Error(`Git settings for "${input.remote}" that publishing cannot replace (kept outside the repository's own settings, or written so Git cannot remove them) say where it sends, so nothing was sent.`);
+      // A name of its own for each publish: worktrees of one source share its remotes, so a fixed name could
+      // be re-pointed by another publish while this one is being checked.
+      const check = `${publishCheckRemote}-${randomUUID()}`;
+      // Taken away even when the run is being stopped, the add included, so the unchecked address never stays behind.
+      const refused = await (async () => {
+        await this.run(cwd, ["remote", "add", check, address.href], signal);
+        return this.validateRemoteURL(cwd, check, true, signal);
+      })().finally(() => this.run(cwd, ["remote", "remove", check], AbortSignal.timeout(10_000)).catch(() => undefined));
+      if (refused) throw new Error(refused);
+    }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
-    const refused = await this.validateRemoteURL(cwd, input.remote, true, signal);
-    if (refused) {
-      await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
-      throw new Error(refused);
-    }
     const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
+  }
+
+  /**
+   * Q101: whether `git remote remove` would leave some of the named remote's settings behind (a section spelt
+   * `[Remote "origin"]`, which Git cannot remove), tried on a copy of the repository's settings.
+   */
+  private async unremovable(cwd: string, name: string, pattern: string, signal: AbortSignal): Promise<boolean> {
+    const settings = resolve(cwd, (await this.run(cwd, ["rev-parse", "--git-path", "config"], signal)).stdout.trim());
+    const scratch = await mkdtemp(join(tmpdir(), "branch-publish-"));
+    try {
+      const copy = join(scratch, "config");
+      await copyFile(settings, copy);
+      const removed = await this.runner.run({ cwd, args: ["config", "--file", copy, "--remove-section", `remote.${name}`], timeoutMs: 10_000 }, signal);
+      const left = await this.runner.run({ cwd, args: ["config", "--file", copy, "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      // Only Git's own "no such settings" (exit 1) means nothing is left; a read that did not finish is not a no.
+      return removed.status !== "completed" || !(left.status === "failed" && left.exitCode === 1);
+    } finally { await rm(scratch, { recursive: true, force: true }); }
   }
 
   /**

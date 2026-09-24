@@ -436,6 +436,112 @@ test("Q98: publishing checks the address Git will push to, so a push-only rewrit
   assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "no remote is left");
 });
 
+test("Q101: a refused publish leaves the folder's own remote as it was", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://github.com/"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  assert.equal(execFileSync("git", ["config", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git",
+    "the folder's own origin is untouched");
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "origin", "the check's own remote is gone");
+});
+
+test("Q101: settings for the pushed name kept in the computer's own Git settings are checked too", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  const home = await mkdtemp(join(tmpdir(), "branch-q101-home-"));
+  await writeFile(join(home, ".gitconfig"), "[remote \"origin\"]\n\tpushurl = https://evil.example/global.git\n");
+  const before = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+  process.env.HOME = home; process.env.XDG_CONFIG_HOME = join(home, ".config");
+  t.after(() => { for (const [key, value] of Object.entries(before)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git",
+    "refused before the folder's own origin is touched");
+});
+
+test("Q101: two publishes at once each check their own address", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd }); // B's push goes nowhere
+  execFileSync("git", ["config", "--local", "url.https://evil.example/a.insteadOf", "https://github.com/o/a"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  // Hold A right after its own check remote is added, and let B go all the way through meanwhile.
+  let letAGo, aAdded;
+  const aHeld = new Promise((resolve) => { letAGo = resolve; });
+  const aReady = new Promise((resolve) => { aAdded = resolve; });
+  runner.run = async (options, signal) => {
+    const [verb, action, name, url] = options.args;
+    if (verb === "remote" && action === "add" && String(name).startsWith("branch-publish-check") && String(url).includes("/o/a")) {
+      const outcome = await real(options, signal); aAdded(); await aHeld; return outcome;
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const a = app.git.publish({ folder, url: "https://github.com/o/a.git", remote: "origin" }, AbortSignal.timeout(20_000));
+  await aReady;
+  const b = app.git.publish({ folder, url: "https://github.com/o/b.git", remote: "upstream" }, AbortSignal.timeout(20_000)).catch((error) => error);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  letAGo();
+  await assert.rejects(a, /insteadOf.*redirect/, "A's own address was checked, not B's");
+  await b;
+  const origin = (() => { try { return execFileSync("git", ["config", "--get-all", "remote.origin.url"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; } })();
+  assert.equal(origin, "", "origin was never pointed at A's refused address");
+});
+
+test("Q101: settings for the pushed name that removing it would leave behind are refused before it is touched", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  // A per-worktree push address survives `git remote remove`.
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  execFileSync("git", ["config", "extensions.worktreeConfig", "true"], { cwd });
+  execFileSync("git", ["config", "--worktree", "remote.origin.pushurl", "https://evil.example/x.git"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
+  // A section spelt in capitals is one Git cannot remove at all.
+  execFileSync("git", ["config", "--worktree", "--unset", "remote.origin.pushurl"], { cwd });
+  execFileSync("git", ["remote", "remove", "origin"], { cwd });
+  const settings = execFileSync("git", ["rev-parse", "--git-path", "config"], { cwd, encoding: "utf8" }).trim();
+  await writeFile(join(cwd, settings), `${await (await import("node:fs/promises")).readFile(join(cwd, settings), "utf8")}[Remote "origin"]\n\turl = https://example.com/mine.git\n`);
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
+});
+
+test("Q101: a settings read that did not finish is not taken as none, and a stop during the check's add leaves no check remote", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  t.after(() => { runner.run = real; });
+  runner.run = async (options, signal) => (options.args[0] === "config" && options.args.includes("--show-scope") && options.args.at(-1).startsWith("^remote\\.origin")
+    ? { ...(await real(options, signal)), status: "timed_out", exitCode: null } : real(options, signal));
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /Could not read the Git settings for "origin"/);
+  // A stop that lands while the check remote is being added: the add goes through, and the remote is still taken away.
+  const stop = new AbortController();
+  runner.run = async (options, signal) => {
+    const outcome = await real(options, signal);
+    if (options.args[0] === "remote" && options.args[1] === "add" && String(options.args[2]).startsWith("branch-publish-check")) {
+      stop.abort();
+      return { ...outcome, status: "cancelled" };
+    }
+    return outcome;
+  };
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, stop.signal));
+  assert.doesNotMatch(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }), /branch-publish-check/, "no check remote is left behind");
+});
+
+test("Q101: a settings read that failed for any reason but \"no such settings\" is not taken as none", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  t.after(() => { runner.run = real; });
+  // Git ends the read with exit 1 when there are no such settings; a settings file it cannot read ends it with another code.
+  runner.run = async (options, signal) => (options.args[0] === "config" && options.args.includes("--show-scope") && options.args.at(-1).startsWith("^remote\\.origin")
+    ? { ...(await real(options, signal)), status: "failed", exitCode: 128 } : real(options, signal));
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /Could not read the Git settings for "origin"/);
+});
+
+
 test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref the contract walks", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
   execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
@@ -448,4 +554,16 @@ test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref
     await app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)).catch(() => undefined);
   await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "main-worktree/HEAD" }, AbortSignal.timeout(10_000)).catch(() => undefined);
   assert.deepEqual(pushed, ["refs/heads/worktrees/self-x/HEAD", "refs/heads/ORIG_HEAD", "refs/heads/side", "refs/heads/main-worktree/HEAD"]);
+});
+
+test("Q103: a read of what removing the name would leave that does not finish counts as something left", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/mine.git"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  t.after(() => { runner.run = real; });
+  runner.run = async (options, signal) => (options.args[0] === "config" && options.args[1] === "--file" && options.args[3] === "--get-regexp"
+    ? { ...(await real(options, signal)), status: "timed_out", exitCode: null } : real(options, signal));
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /publishing cannot replace/);
+  assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
 });
