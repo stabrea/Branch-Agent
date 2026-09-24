@@ -1,0 +1,92 @@
+/**
+ * Dogfood B4 and B5, in a real window with Show everything on (as the owner uses it):
+ * - the question a task stops on ("It needs your answer") sits under the conversation, where the work is, not above
+ *   its first message;
+ * - sending goes to the newest message, and the view keeps up with the answer, unless the person has scrolled up
+ *   to read.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { showEverything } from "./places.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import { saveConversationModeSettings } from "../dist/conversation-mode.js";
+
+async function fixture(t, provider) {
+  const root = await mkdtemp(join(tmpdir(), "branch-follow-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 700 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await showEverything(page);
+  if (await page.locator("#first-run").isVisible()) {
+    await page.getByRole("button", { name: /Try it without an account/ }).click();
+    await page.locator("#first-run").waitFor({ state: "hidden" });
+  }
+  return { app, page, errors };
+}
+const long = Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1} of a long answer, with enough words to take a line.`).join("\n\n");
+const gap = (page) => page.evaluate(() => { const box = document.getElementById("workspace"); return box.scrollHeight - box.scrollTop - box.clientHeight; });
+async function send(page, words) {
+  const before = await page.locator(".message.assistant").count();
+  await page.locator("#prompt").fill(words);
+  await page.locator("#send").click();
+  await page.waitForFunction((n) => document.querySelectorAll(".message.assistant").length > n, before, { timeout: 20000 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
+test("B4 the question a task stops on sits under the conversation, where the work is", async (t) => {
+  let asked = 0;
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() {
+    asked += 1;
+    return asked === 1 ? { content: long, toolCalls: [] }
+      : asked === 2 ? { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: "gated.txt", content: "x" }) }] }
+        : { content: "Done.", toolCalls: [] };
+  } });
+  await send(page, "Tell me a long story first.");
+  await page.evaluate(async () => {
+    await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" },
+      body: JSON.stringify({ preset: "ask-before-changes" }) });
+  });
+  await page.locator("#prompt").fill("Now write a gated file.");
+  await page.locator("#send").click();
+  await page.locator("#live-ask").waitFor({ state: "visible", timeout: 20000 });
+  const where = await page.evaluate(() => {
+    const ask = document.getElementById("live-ask").getBoundingClientRect();
+    const messages = [...document.querySelectorAll("#conversation .message")];
+    return { askTop: ask.top, firstTop: messages[0].getBoundingClientRect().top, lastBottom: messages.at(-1).getBoundingClientRect().bottom };
+  });
+  assert.ok(where.askTop > where.firstTop, `the card is not above the first message (${where.askTop} vs ${where.firstTop})`);
+  assert.ok(where.askTop >= where.lastBottom - 1, `the card is under the last message (${where.askTop} vs ${where.lastBottom})`);
+  assert.ok(await page.locator("#live-ask").isVisible() && (await gap(page)) <= 80, "and it is on screen: the view followed it down");
+  assert.deepEqual(errors, []);
+});
+
+test("B5 sending and the answer follow the newest message, unless the person has scrolled up to read", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "First, a long answer please.");
+  assert.ok((await gap(page)) <= 80, `after the answer the view is at the newest message (${await gap(page)} px above the bottom)`);
+  // Reading further up is left alone while more arrives.
+  await page.evaluate(() => { const box = document.getElementById("workspace"); box.scrollTop = 0; box.dispatchEvent(new Event("scroll")); });
+  await page.evaluate(() => { const note = document.createElement("div"); note.className = "message assistant"; note.textContent = "More."; document.getElementById("conversation").append(note); });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.evaluate(() => document.getElementById("workspace").scrollTop), 0, "someone reading further up is not pulled away");
+  await page.evaluate(() => document.querySelector("#conversation .message.assistant:last-child")?.remove());
+  // Sending goes back to the bottom and follows the next answer.
+  await send(page, "And another.");
+  assert.ok((await gap(page)) <= 80, `sending went to the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});

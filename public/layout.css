@@ -1587,12 +1587,18 @@ body.lx #connection[data-state="lost"] {
     border-bottom-left-radius: 0;
   }
 }
-/* The task at work reads after what was asked: the person's message, then the working card under it. */
-:root:not([data-everything="on"]) #chat > #live-row {
+/* The task at work reads after what was asked: the person's message, then the working card under it, and the
+   question it stops on ("It needs your answer") with it, where the work is. In the full window too (dogfood B4:
+   there it sat above the whole conversation). The plan's own rows follow the card. */
+#chat > #live-row {
   order: 1;
   margin: var(--s3) 0 0;
 }
-:root:not([data-everything="on"]) #chat:has(> #live-row:not([hidden])) > #conversation {
+#chat > #plan-controls,
+#chat > #plan-card {
+  order: 2;
+}
+#chat:has(> #live-row:not([hidden])) > #conversation {
   flex: 0 0 auto;
 }
 /* The working card: Stop is a plain button, the other two read as things to press. */
