@@ -12,6 +12,7 @@ const inMinutes = (minutes) => new Date(Date.now() + minutes * 60000);
 const stranger = { channel: "hand", chatId: "stranger-9" };
 const region = { x: 10, y: 20, width: 200, height: 100 };
 const heldReason = /may no longer send to chats, so its news was kept here/;
+const offReason = /Trunks are switched off, so this watch a Trunk made did not send to its chat; its news was kept here/;
 /** A chat app that never talks to the network: what is sent is kept. */
 function handChat() {
   const chat = { id: "hand", kind: "hand", sent: [], deliver: null,
@@ -68,13 +69,13 @@ function kept(app, owner, word) {
     .map((run) => ({ text: app.store.messages(run.sessionId).map((m) => m.content).join("\n"), events: app.store.events(run.id) }))
     .filter((one) => one.text.includes(word));
 }
-function assertHeld(app, owner, word) {
+function assertHeld(app, owner, word, reason = heldReason) {
   const found = kept(app, owner, word);
   assert.equal(found.length, 1, `the news with ${word} was kept in the activity list`);
-  assert.match(found[0].text, heldReason);
+  assert.match(found[0].text, reason);
   const held = found[0].events.find((event) => event.kind === "delivery.held");
   assert.equal(held?.data.chatId, "stranger-9", JSON.stringify(found[0].events));
-  assert.match(String(held?.data.reason), heldReason);
+  assert.match(String(held?.data.reason), reason);
 }
 
 test("a Trunk that may not send to chats cannot point a page watch or a screen watch at a chat", async (t) => {
@@ -174,11 +175,50 @@ test("Q153: a Trunk's chat watch keeps its news in the app while Trunks are swit
   app.trunks.setMode("trunks", { mode: "off" });
   page.text = "line B OFFWATCH7901";
   const result = await app.monitors.check(owner, id, new Date());
-  assert.match(String(result.held), heldReason, JSON.stringify(result));
+  assert.match(String(result.held), offReason, JSON.stringify(result));
   assert.deepEqual(await reached(chat, "OFFWATCH7901"), [], "nothing reached the chat");
   // Switched on again, the next change goes to its chat as before.
   app.trunks.setMode("trunks", { mode: "on" });
   page.text = "line C ONWATCH7906";
   await app.monitors.check(owner, id, new Date());
   assert.equal((await reached(chat, "ONWATCH7906")).length, 1);
+});
+
+test("a Trunk's page watch kept in the app while Trunks are switched off says that is why, on the timer and when looked at now", async (t) => {
+  const { app, ada, chat, page, owner, said } = await setup(t, ["monitors.manage", "channels.send"]);
+  const id = idOf(await said("watch"));
+  await app.registry.execute("monitor.create", { url: "https://example.test/p", every: 5, notifyVia: { channel: "hand", chatId: "friend-1" } },
+    app.runtime.context({ source: "owner" }));
+  app.trunks.setMode("trunks", { mode: "off" });
+  // The timer: her news is kept in the app, and both the activity entry and the recorded hold say Trunks are off.
+  page.text = "line A\nOFF7821";
+  await app.scheduler.tick(inMinutes(10));
+  assert.deepEqual((await reached(chat, "OFF7821")).map((one) => one.chatId), ["friend-1"], "only the owner's own watch sent");
+  assertHeld(app, owner, "OFF7821", offReason);
+  assert.doesNotMatch(kept(app, owner, "OFF7821")[0].text, heldReason, "not the reason for a Trunk that may not send");
+  // Looking now answers the same.
+  page.text = "line A\nOFF7821\nLOOK7822";
+  const looked = await app.monitors.check(owner, id, new Date());
+  assert.match(String(looked.held), offReason, JSON.stringify(looked));
+  assertHeld(app, owner, "LOOK7822", offReason);
+  // With Trunks on again but sending taken away from her, the reason is that she may no longer send.
+  app.trunks.setMode("trunks", { mode: "on" });
+  app.trunks.edit(ada.id, { permissions: ["monitors.manage"] });
+  page.text = "line A\nOFF7821\nLOOK7822\nNARROW7823";
+  const narrowed = await app.monitors.check(owner, id, new Date());
+  assert.match(String(narrowed.held), heldReason, JSON.stringify(narrowed));
+  assert.doesNotMatch(String(narrowed.held), offReason);
+  assertHeld(app, owner, "NARROW7823");
+  assert.deepEqual(await reached(chat, "NARROW7823"), [], "nothing reached her chat");
+});
+
+test("a Trunk's screen watch kept in the app while Trunks are switched off says that is why", async (t) => {
+  const { app, chat, screen, owner, said } = await setup(t, ["monitors.manage", "channels.send"]);
+  const id = idOf(await said("watch screen"));
+  app.trunks.setMode("trunks", { mode: "off" });
+  screen.bytes = new Uint8Array([5, 6, 7, 8]);
+  const looked = await app.registry.execute("monitors.screen.check", { id }, app.runtime.context({ source: "owner" }));
+  assert.match(String(looked.held), offReason, JSON.stringify(looked));
+  assert.deepEqual(await reached(chat, "The build light"), [], "nothing reached her chat");
+  assertHeld(app, owner, "The build light", offReason);
 });

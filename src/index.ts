@@ -134,7 +134,7 @@ import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
-import { Monitors, registerMonitors } from "./monitors.js";
+import { Monitors, registerMonitors, trunksSwitchedOff } from "./monitors.js";
 // Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
@@ -861,6 +861,8 @@ export async function createBranch(options: {
       try { return runtime.trunkShape({ prompt: "", trunkId })?.permissions.includes("channels.send") ?? false; }
       catch { return false; }
     },
+    // While Trunks are switched off, the news a Trunk's watch keeps says so, not that the Trunk may no longer send.
+    offReason: () => (trunkMode(store, runtime.owner, "trunks") === "off" ? trunksSwitchedOff : null),
   };
   const monitors = new Monitors(store, web, deliverMessage, watchTrunks);
   registerMonitors(registry, monitors);
