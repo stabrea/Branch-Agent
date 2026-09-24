@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { ensureFlyTables, flyTables } from "./fly-core/state.js";
 import { dropIndex } from "./fly-core/fast-index.js";
+import { reservedProjectId } from "./projects.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -95,6 +96,11 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       const columns = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
       tables++;
       for (const row of list) {
+        // Skip project rows with reserved ids
+        if (table === "settings" && typeof row.id === "string" && row.id.startsWith("project:")) {
+          const projectId = row.id.slice("project:".length);
+          if (reservedProjectId(projectId)) continue;
+        }
         const keys = Object.keys(row).filter((k) => columns.has(k));
         if (keys.length !== Object.keys(row).length) throw new Error(`Backup row for ${table} has a column this version does not know`);
         db.prepare(`INSERT OR REPLACE INTO ${table}(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map((k) => row[k] ?? null));

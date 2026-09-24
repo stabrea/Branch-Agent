@@ -117,3 +117,68 @@ test("HTTP API manages projects and secret names without ever returning a value"
   assert.equal((await call("projects/site/remove", {})).data.active, "default");
   assert.equal((await call("state")).data.project.all.length, 1);
 });
+
+test("reserved project ids (web-push, acct-*) are never listed and cannot be made active", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  const projects = app.store.projects;
+  const locker = app.store.locker;
+
+  // Create a reserved project id row directly in the database (simulating an older backup)
+  app.store.save("settings", owner, "project:web-push", { id: "web-push", name: "Web Push", instructions: "", modelPreset: null, repository: "", folder: "", profile: null, knowledgeBases: [], branch: "" });
+
+  // Verify it's not listed
+  const listed = projects.list(owner).map((p) => p.id);
+  assert.ok(!listed.includes("web-push"), "reserved web-push id is not listed");
+
+  // Try to make it active - should fail
+  assert.throws(() => projects.setActive(owner, { active: "web-push" }), /kept for Branch/, "cannot make reserved id active");
+
+  // Verify active project falls back to default if already set to reserved
+  app.store.save("settings", owner, "projects", { active: "web-push" });
+  const active = projects.active(owner);
+  assert.equal(active.id, "default", "active project falls back to default if it was reserved");
+
+  // Set up a secret in the reserved web-push project
+  await locker.set(owner, "web-push", "TEST_SECRET", "test-value");
+
+  // Verify we can still access it directly through the locker (for web-push's own use)
+  const resolved = await locker.resolve(owner, "web-push", ["TEST_SECRET"]);
+  assert.deepEqual(resolved, { TEST_SECRET: "test-value" }, "internal direct locker access to reserved project works");
+});
+
+test("secrets card cannot read or modify secrets for reserved project ids", async (t) => {
+  const { app, root, closing } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  closing.push(() => server.close());
+
+  const call = async (method, path, body) => {
+    const response = await fetch(server.url + path, {
+      method,
+      headers: { authorization: "Bearer " + server.token, origin: server.url, "content-type": "application/json" },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return { status: response.status, data: await response.json() };
+  };
+
+  // Set up a secret in the web-push locker project (directly, not through API)
+  const owner = app.runtime.owner;
+  const locker = app.store.locker;
+  await locker.set(owner, "web-push", "VAPID_PRIVATE_KEY", "secret-key-value");
+
+  // Try to list secrets for web-push through the API - should fail
+  const list = await call("GET", "/api/secrets/web-push", undefined);
+  assert.equal(list.status, 403, "cannot list secrets for reserved project via API");
+
+  // Try to add a secret for web-push through the API - should fail
+  const put = await call("POST", "/api/secrets", { project: "web-push", name: "NEW_KEY", value: "new-value" });
+  assert.equal(put.status, 403, "cannot put secrets for reserved project via API");
+
+  // Try to remove a secret for web-push through the API - should fail
+  const remove = await call("POST", "/api/secrets/web-push/VAPID_PRIVATE_KEY/remove", {});
+  assert.equal(remove.status, 403, "cannot remove secrets for reserved project via API");
+
+  // Verify the secret is still there (not removed)
+  const resolved = await locker.resolve(owner, "web-push", ["VAPID_PRIVATE_KEY"]);
+  assert.deepEqual(resolved, { VAPID_PRIVATE_KEY: "secret-key-value" }, "secret was not removed");
+});

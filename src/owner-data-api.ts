@@ -40,6 +40,8 @@ export async function secretsApi(app: Branch, request: IncomingMessage, path: st
     return { uses: secrets.audit(owner), reminders: secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)) };
   const list = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
   if (list && request.method === "GET") {
+    if (reservedProjectId(list[1]!))
+      throw new HttpError(403, "Branch keeps these secrets itself; use them where they are set up.");
     knownProject(app, owner, list[1]!);
     return { project: list[1], secrets: secrets.list(owner, list[1]!) };
   }
@@ -53,6 +55,8 @@ async function putSecret(app: Branch, request: IncomingMessage): Promise<unknown
   const owner = app.runtime.owner, secrets = app.store.secrets;
   const body = z.object({ project: z.string(), name: z.string(), value: z.string(), expiresInDays: z.number().optional() })
     .strict().parse(await readJsonBody(request, 64 * 1024));
+  if (reservedProjectId(body.project))
+    throw new HttpError(403, "Branch keeps these secrets itself; change them where they are set up.");
   knownProject(app, owner, body.project);
   return secrets.put(owner, body.project, body.name, body.value, { expiresInDays: body.expiresInDays ?? 0 });
 }

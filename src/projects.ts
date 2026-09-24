@@ -53,6 +53,7 @@ export class Projects {
       .filter((record) => record.id.startsWith("project:"))
       .map((record) => ProjectSchema.safeParse(record.data))
       .flatMap((result) => (result.success ? [result.data] : []))
+      .filter((project) => !reservedProjectId(project.id))
       .sort((a, b) => a.id.localeCompare(b.id));
     return saved.some((project) => project.id === defaultProjectId)
       ? saved
@@ -60,11 +61,13 @@ export class Projects {
   }
   active(owner: string): Project {
     const saved = activeSchema.safeParse(this.store.get("settings", owner, "projects")?.data ?? {});
-    const id = saved.success ? saved.data.active : defaultProjectId;
+    let id = saved.success ? saved.data.active : defaultProjectId;
+    if (reservedProjectId(id)) id = defaultProjectId;
     return this.list(owner).find((project) => project.id === id) ?? this.defaultProject();
   }
   setActive(owner: string, input: unknown): Project {
     const { active } = activeSchema.parse(input);
+    if (reservedProjectId(active)) throw new Error(`The project id ${active} is kept for Branch's own secrets. Choose another.`);
     if (!this.list(owner).some((project) => project.id === active)) throw new Error("Project not found");
     const before = this.active(owner).id;
     this.store.save("settings", owner, "projects", { active });
