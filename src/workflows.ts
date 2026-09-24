@@ -84,6 +84,8 @@ export interface WorkflowApproval {
    */
   fingerprint?: string;
 }
+/** Q121: why a Trunk's work stops once that Trunk is removed, in the words asTrunkWork uses. */
+const goneTrunk = "The Trunk that started this is no longer here, so it does not carry on.";
 /** Where a workflow's remembered answers are kept, since a workflow is not a conversation. */
 const approvalKeyFor = (id: string): string => `workflow:${id}`;
 
@@ -279,6 +281,9 @@ export class Workflows {
       current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
         startedFrom: held, startedBy, ...(fresh ? { cursor: 0 } : {}) });
       for (let index = current.cursor; index < current.steps.length; index++) {
+        // Q121 (NAS 7af12b6): a Trunk removed while its workflow works stops it before the next step, as each step used to ask.
+        if (startedBy && !this.runtime.trunkKeysFor(startedBy))
+          return this.setStatus(owner, id, { status: "failed", cursor: index, error: goneTrunk });
         const outcome = await this.step(owner, id, index, current.steps[index]!, current, held, chain, limit);
         if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
         // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).

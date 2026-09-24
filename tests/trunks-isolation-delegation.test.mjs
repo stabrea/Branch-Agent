@@ -557,3 +557,105 @@ test("a Trunk's flow run that was working when the app closed carries on as that
   assert.equal(view.status, "completed", `carried on at launch: ${JSON.stringify(view).slice(0, 300)}`);
   assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "as Ada, not as the owner");
 });
+
+test("Q121: a Trunk's flow run carried on at launch reads and writes in that Trunk's own folder, not the owner's project", async (t) => {
+  const { mkdtemp, rm, mkdir: makeFolder, writeFile: write } = await import("node:fs/promises");
+  const { existsSync: exists } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { createBranch } = await import("../dist/index.js");
+  const { brain } = await import("./trunks-helpers.mjs");
+  const root = await mkdtemp(join(tmpdir(), "branch-q121-folder-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = join(root, "workspace");
+  // Ada sets the flow going in her own turn, through the tool the saved flow is published as.
+  const rules = [({ last }) => {
+    if (last?.role === "user" && String(last.content ?? "") === "run files") return call("flows.files", {});
+    return last?.role === "tool" ? "Done." : null;
+  }];
+  const open = () => createBranch({ workspace, dataDir: join(root, "data"), provider: brain(rules) });
+  const first = await open();
+  on(first);
+  const ada = first.trunks.create({ name: "Ada" });
+  first.trunks.edit(ada.id, { permissions: ["files.read", "files.write", "memory.read", "workflows.manage", "workflows.read"] });
+  await first.trunks.introduced();
+  await write(join(workspace, "plan.txt"), "OWNERFILE4471");
+  await makeFolder(join(workspace, ".branch-agents", ada.id), { recursive: true });
+  await write(join(workspace, ".branch-agents", ada.id, "plan.txt"), "ADAFILE5582");
+  const graph = first.flows.saveGraph({ name: "Files", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Read", kind: "tool", tool: "files.read", args: { path: "plan.txt" }, output: { second: "text" } },
+      { id: "c", name: "Write", kind: "tool", tool: "files.write", args: { path: "from-ada.txt", content: "x" }, output: {} },
+    ], edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }] });
+  await first.trunks.say(ada.id, "run files");
+  const runId = String(first.store.sqlite.prepare("SELECT run_id FROM flow_graph_runs WHERE flow_id=?").get(graph.id).run_id);
+  const within = await first.flows.settled(runId);
+  assert.match(JSON.stringify(within.state), /ADAFILE5582/, `within the session, Ada's own file: ${JSON.stringify(within).slice(0, 300)}`);
+  await rm(join(workspace, ".branch-agents", ada.id, "from-ada.txt"), { force: true });
+  // As a close in the middle leaves it: still working, with the read next.
+  first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b', state=? WHERE run_id=?")
+    .run(JSON.stringify({ first: "[]", second: "" }), runId);
+  await first.close();
+  const second = await open();
+  t.after(() => second.close());
+  const view = await second.flows.settled(runId);
+  assert.equal(view.status, "completed", JSON.stringify(view).slice(0, 300));
+  assert.match(String(view.state.second), /ADAFILE5582/, "the read at launch is Ada's own file");
+  assert.doesNotMatch(JSON.stringify(view), /OWNERFILE4471/, "never the owner's");
+  assert.ok(exists(join(workspace, ".branch-agents", ada.id, "from-ada.txt")), "the write lands in Ada's folder");
+  assert.equal(exists(join(workspace, "from-ada.txt")), false, "not in the owner's project");
+});
+
+test("Q121: a Trunk removed while its workflow works stops it before the next step", async (t) => {
+  const held = {};
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role === "user" && String(last.content ?? "") === "the step that removes Ada") { held.app.trunks.remove(held.ada.id); return "Done."; }
+    return null;
+  }]);
+  held.app = app;
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  held.ada = ada;
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "memory.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const asAda = (work) => withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } }, work);
+  const workflow = await asAda(async () => app.registry.execute("workflows.create", { name: "midway", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "remove", kind: "prompt", prompt: "the step that removes Ada" },
+    { name: "keep", kind: "tool", tool: "memory.put", args: { text: "kept after Ada went KEPT9031", source: "a step" } }] }, app.runtime.context()));
+  await asAda(() => app.workflows.run(app.runtime.owner, workflow.id));
+  const done = await app.workflows.resume(app.runtime.owner, workflow.id); // the owner's yes; Ada goes during the next step
+  assert.equal(done.status, "failed", JSON.stringify(done).slice(0, 300));
+  assert.match(String(done.error), /no longer here/);
+  assert.equal(app.store.list("memory", app.runtime.owner).some((record) => String(record.data.text).includes("KEPT9031")), false,
+    "the step after Ada was removed never ran");
+});
+
+test("Q121: a Trunk removed while its flow run works stops it before the next box", async (t) => {
+  const held = {};
+  const { app } = await fixture(t, [({ last }) => {
+    const text = String(last?.content ?? "");
+    if (last?.role === "user" && text === "run midway") return call("flows.midway", {});
+    if (last?.role === "user" && text === "the box that removes Ada") { held.app.trunks.remove(held.ada.id); return "Done."; }
+    return last?.role === "tool" ? "Done." : null;
+  }]);
+  held.app = app;
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  held.ada = ada;
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "memory.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const graph = app.flows.saveGraph({ name: "Midway", input: {}, state: { said: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "Remove", kind: "prompt", prompt: "the box that removes Ada", output: { said: "text" } },
+      { id: "b", name: "Keep", kind: "tool", tool: "memory.put", args: { text: "kept after Ada went KEPT9032", source: "a box" }, output: {} },
+    ], edges: [{ from: "a", to: "b" }] });
+  await app.trunks.say(ada.id, "run midway");
+  const runId = String(app.store.sqlite.prepare("SELECT run_id FROM flow_graph_runs WHERE flow_id=?").get(graph.id).run_id);
+  const view = await app.flows.settled(runId);
+  assert.equal(view.status, "failed", JSON.stringify(view).slice(0, 300));
+  assert.match(String(view.error), /no longer here/);
+  assert.equal(app.store.list("memory", app.runtime.owner).some((record) => String(record.data.text).includes("KEPT9032")), false,
+    "the box after Ada was removed never ran");
+});

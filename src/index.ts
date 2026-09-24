@@ -1086,11 +1086,6 @@ export async function createBranch(options: {
       return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
     } });
   retention.keeps = (sessionId) => trunks.keeps(sessionId);
-  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
-  // that finished, with the state exactly as that box left it. Nothing is started again from the
-  // top, and a launch with no interrupted flow does nothing at all. After the Trunks are wired
-  // (Q114), so a Trunk's interrupted run carries on as that Trunk rather than being refused.
-  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   // phase2/rooms (integration review): a Trunk's side of a room stays out of Recents (the room is what is
   // opened), and Talk live is refused where it would step round a Trunk, Lockdown or an outside hold.
   store.hiddenSessions = () => [...trunks.rooms.memberConversations().keys()];
@@ -1554,6 +1549,12 @@ export async function createBranch(options: {
   // Changing Branch's own settings by asking, saved through the same writers as the window's (src/settings-kit/tools.ts).
   registerSettingsTools(registry, store, () => settingsKitWriters(branch));
   registerHelpSearch(registry); // what Branch knows about itself, from its own handbook
+  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
+  // that finished, with the state exactly as that box left it. Nothing is started again from the
+  // top, and a launch with no interrupted flow does nothing at all. Last of all (Q121, NAS 7af12b6):
+  // a Trunk's run carries on as that Trunk only once every hook it reaches is wired, its own folder
+  // (`runtime.coding`) included, rather than in the owner's project.
+  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   return branch;
 }
 /** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */
