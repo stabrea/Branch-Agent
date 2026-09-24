@@ -653,3 +653,48 @@ test("B: dockerExecKillArgv has the correct pkill argv for xdotool", () => {
   const killArgv = dockerExecKillArgv("abcdef012341");
   assert.deepEqual(killArgv, ["exec", "-e", "DISPLAY=:1", "abcdef012341", "pkill", "-x", "xdotool"]);
 });
+
+/** Q96: a desktop whose take-over pkill is held until the test lets it go, with the notice's shows and hides in order. */
+async function heldPkill(t) {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  const banner = desktop.banner, notice = [];
+  banner.show = async () => { notice.push("show"); };
+  banner.hide = async () => { notice.push("hide"); };
+  await desktop.start("local");
+  const plain = desktop.runner;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  desktop.runner = (file, args, timeoutMs, signal) => (args[4] === "pkill" ? held.then(() => "") : plain(file, args, timeoutMs, signal));
+  return { app, desktop, notice, release: () => release() };
+}
+
+test("Q96: a hand-back while the take-over's pkill is held waits for it, and the notice shown last stays", async (t) => {
+  const { desktop, notice, release } = await heldPkill(t);
+  const takingOver = desktop.takeOver("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  const handingBack = desktop.handBack("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(desktop.controlOf("local"), "user", "the hand-back waits for the take-over under way");
+  notice.length = 0;
+  release();
+  await takingOver; await handingBack;
+  assert.equal(desktop.controlOf("local"), "agent");
+  assert.deepEqual(notice, ["hide", "show"], "the take-over's hide comes before the hand-back's notice, never after");
+});
+
+test("Q96: a take-over that lands after the desktop was switched off and started again leaves the new notice alone", async (t) => {
+  const { app, desktop, notice, release } = await heldPkill(t);
+  const takingOver = desktop.takeOver("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  saveLinuxDesktop(app.store, "local", { mode: "off" });
+  await desktop.act("local", { type: "key", chord: "Return" }).catch(() => undefined);
+  assert.equal(desktop.controlOf("local"), "none", "switching off ended the desktop the owner held");
+  saveLinuxDesktop(app.store, "local", { mode: "on" });
+  await desktop.start("local");
+  assert.equal(desktop.controlOf("local"), "agent");
+  notice.length = 0;
+  release();
+  await takingOver;
+  assert.deepEqual(notice, [], "the old take-over does not hide the new desktop's notice");
+});

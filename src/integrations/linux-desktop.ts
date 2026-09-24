@@ -156,7 +156,7 @@ export interface SharedDesktopInfo { host: string; port: number; password: strin
 /** What the Settings card shows. Never the VNC password: reading the card is only a look. */
 export interface SharedDesktopStatus extends LinuxDesktopSettings { running: boolean; control: 'agent' | 'user' | 'none' }
 type Tunnel = { socket: any; child: ChildProcessWithoutNullStreams };
-interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController; listener: NetServer; tunnels: Set<Tunnel> }
+interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController; takingOver?: Promise<void>; listener: NetServer; tunnels: Set<Tunnel> }
 /** The notice with the "Take over" button on it, or a stand-in for one. */
 export interface TakeOverNotice { show(onTakeOver: () => void): Promise<void>; hide(): Promise<void> }
 
@@ -315,7 +315,11 @@ export class LinuxDesktopSandbox {
     }
     throw new Error(sandboxRefusal(`the desktop did not answer within ${Math.round(this.waitMs / 1000)} seconds.`));
   }
-  /** Creates a listener on 127.0.0.1:0 and spawns socat tunnels for each connection. */
+  /**
+   * Creates a listener on 127.0.0.1:0 and spawns socat tunnels for each connection. It keeps accepting
+   * while the owner holds the desktop (take-over closes only the tunnels already open): taking over
+   * is so the owner can drive through a viewer, and the listener is loopback-only behind the password.
+   */
   private async createListenerImpl(containerId: string, tunnels: Set<Tunnel>): Promise<NetServer> {
     return new Promise((resolve, reject) => {
       const listener = createServer((socket) => {
@@ -381,15 +385,27 @@ export class LinuxDesktopSandbox {
       tunnel.child.kill();
     }
     session.tunnels.clear();
-    await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
-    this.log(owner, 'shared-desktop.taken-over', {});
-    await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
+    const tail = (async () => {
+      await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
+      // Q96: a desktop stopped and started again meanwhile is not this one; its notice stays.
+      if (this.sessions.get(owner) !== session || session.control !== 'user') return;
+      this.log(owner, 'shared-desktop.taken-over', {});
+      await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
+    })();
+    session.takingOver = tail;
+    await tail;
   }
   /** The owner hands the desktop back (their Settings route only; no tool calls this). */
   async handBack(owner: string): Promise<void> {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     if (session.control === 'agent') return;
+    // Q96: a take-over still under way finishes first, so its late pkill cannot end what the assistant
+    // starts next, and its hiding the notice cannot come after the one shown here.
+    await session.takingOver?.catch(() => undefined);
+    const current = this.sessions.get(owner);
+    if (current !== session) throw new Error(notRunningMessage);
+    if (current.control === 'agent') return;
     session.control = 'agent';
     // Create a new AbortController since the old one was aborted on takeOver
     session.inFlightAbort = new AbortController();
