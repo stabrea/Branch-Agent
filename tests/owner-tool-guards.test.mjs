@@ -59,6 +59,7 @@ const GUARDS = [
     setup: (app) => { app.monitors.web.fetchPage = async () => ({ text: "" }); } },
   { file: "src/screen-watch.ts", tool: "monitors.screen.create",
     args: { label: "a light", region: { x: 0, y: 0, width: 8, height: 8 }, notifyVia: { channel: "telegram", chatId: "1" } } },
+  { file: "src/coding/hand-off.ts", tool: "code.hand_off", args: { program: "codex", folder: "site", task: "tidy the README" } },
 ];
 /** Files with an owner check that is not a tool's guard, and why. */
 const NOT_TOOL_GUARDS = {

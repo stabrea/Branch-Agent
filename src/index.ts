@@ -16,6 +16,7 @@ import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
 import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
+import { HandOff, registerHandOff } from "./coding/hand-off.js";
 import { CredentialResolver } from "./credential-cli.js";
 import { OsPermissions, probeReader } from "./os-permissions.js";
 import { Runtime, argumentFingerprint } from "./runtime.js";
@@ -579,6 +580,9 @@ export async function createBranch(options: {
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   // Q12: Branch changing its own source is held to a contract written before anything changes.
   const selfContracts = new ContractBook(store.sqlite);
+  // Branch builds Branch: a coding job handed to the owner's own Claude Code or Codex, inside one folder (src/coding/hand-off.ts).
+  registerHandOff(registry, new HandOff({ store, owner: runtime.owner, workspace, dataDir, book: selfContracts,
+    git: (options, signal) => gitRunner.run(options, signal) }));
   // FQ-memory.providers: an outside memory service the owner switches on in Settings replaces this
   // computer's database for the assistant's remember/recall/forget loop, not only sits beside it —
   // src/memory-provider.ts reads the owner's choice fresh on every call, and web.policy is the same

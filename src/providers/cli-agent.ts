@@ -102,7 +102,7 @@ export const cliAgentCatalog: CliAgentRow[] = [
 
 /** Only what a program needs to find itself and its own sign-in; nothing else of the owner's. */
 const passedThrough = ["PATH", "PATHEXT", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "TEMP", "TMP"];
-function strippedEnvironment(): NodeJS.ProcessEnv {
+export function strippedEnvironment(): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const name of passedThrough) if (process.env[name]) result[name] = process.env[name];
   return result;
