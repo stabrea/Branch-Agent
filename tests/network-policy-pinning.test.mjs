@@ -310,10 +310,17 @@ test("a saved model connection's calls are held to the judged address", async (t
 async function localProxy(t) {
   const reached = [];
   const proxy = createServer((request, response) => { reached.push(`request ${request.url}`); response.end("through the proxy"); });
-  proxy.on("connect", (request, socket) => { reached.push(`CONNECT ${request.url}`); socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); });
+  const site = createServer((request, response) => response.end("through the proxy"));
+  // A fetch may tunnel even a plain http address (Node on Windows does): the tunnel is answered here
+  // too, by name, so either way the proxy is what serves the site.
+  proxy.on("connect", (request, socket) => {
+    reached.push(`CONNECT ${request.url}`);
+    socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    site.emit("connection", socket);
+  });
   proxy.listen(0, "127.0.0.1");
   await once(proxy, "listening");
-  t.after(() => new Promise((resolve) => { proxy.closeAllConnections(); proxy.close(resolve); }));
+  t.after(() => new Promise((resolve) => { site.closeAllConnections(); proxy.closeAllConnections(); proxy.close(resolve); }));
   return { address: `http://127.0.0.1:${proxy.address().port}`, reached };
 }
 const { setGlobalProxyFromEnv } = await import("node:http");
