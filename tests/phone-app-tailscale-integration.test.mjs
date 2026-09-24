@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { noAddressRefusal, PhoneApp, phoneAppApi, PhoneAppRefusal, phoneLockdownRefusal, pickedAddressRefusal } from "../dist/phone-app/index.js";
 import { PhoneDoor } from "../dist/phone-app/door.js";
+import { phoneCommand } from "../dist/phone-app/cli.js";
 import { filterTailnetAddresses } from "../dist/phone-app/address.js";
 
 const running = (address) => ({ present: true, running: true, address, hostname: "desk.tail1234.ts.net", message: "" });
@@ -189,4 +190,23 @@ test("Lockdown turned on while the door's own Tailscale ask is out refuses the s
     (error) => error instanceof PhoneAppRefusal && error.status === 403 && error.message === phoneLockdownRefusal);
   assert.equal(calls, 2);
   assert.equal(door.opened, 0);
+});
+
+test("Q95: branch phone refuses the share when Lockdown comes on during the door's own ask, and no door opens", async (t) => {
+  const root = await fakeApp(t);
+  let on = false;
+  const store = { get: (_kind, _owner, key) => (on && key ? { data: { on: true } } : undefined) };
+  let calls = 0;
+  const probe = async () => {
+    if (++calls === 2) on = true;
+    return running("100.101.102.103");
+  };
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+  const door = countingDoor(phone);
+  const lines = [];
+  assert.equal(await phoneCommand({ store, owner: "local", phone, write: (line) => lines.push(line), colour: false,
+    interrupted: Promise.resolve() }, []), 1);
+  assert.equal(calls, 2);
+  assert.equal(door.opened, 0);
+  assert.deepEqual(lines, [phoneLockdownRefusal]);
 });

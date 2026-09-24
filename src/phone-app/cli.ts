@@ -32,7 +32,8 @@ export function parsePhoneArgs(argv: readonly string[]): { address?: string; min
 export async function phoneCommand(deps: PhoneCommandDeps, argv: readonly string[]): Promise<number> {
   if (lockdownActive(deps.store, deps.owner)) { deps.write(phoneLockdownRefusal); return 1; }
   const phone = deps.phone ?? new PhoneApp();
-  const view = await phone.share(parsePhoneArgs(argv)).catch((error: unknown) => {
+  // Q95: the same Lockdown re-checks the window's share gets, so turning it on mid-share opens no door.
+  const view = await phone.share(parsePhoneArgs(argv), { store: deps.store, owner: deps.owner }).catch((error: unknown) => {
     if (error instanceof PhoneAppRefusal || error instanceof Error) deps.write(error.message);
     return null;
   });
