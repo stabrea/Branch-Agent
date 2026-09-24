@@ -14,7 +14,8 @@ import { TeamHandoffs, TeamHandoffRefusedError } from "./team-handoff.js";
 import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
-import { RunInputSchema, errorText, type Run } from "./contracts.js";
+import { RunInputSchema, errorText, maximumImagesPerTurn, runBodyLimit } from "./contracts.js";
+import type { ImagePart } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
@@ -144,7 +145,7 @@ import { tokenReport } from "./commands/tokens.js";
 import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
 import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
-import { maximumArchiveBytes } from "./session-library.js";
+import { archiveBodyLimit } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
@@ -199,8 +200,7 @@ import { browserContainerApi, handlesBrowserContainer } from "./browser-containe
 import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
-import { handlesUpdateFailurePath, updateFailureApi } from "./update-failure.js";
-import { handlesUpdateFixPath, updateFixApi } from "./update-fix.js";
+import { attachmentForWindow, rangeWanted, shownInPage } from "./attachments.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -1767,7 +1767,7 @@ async function api(
     return app.store.receipts.verify(body.runId, body.data);
   }
   if (request.method === "POST" && path === "/api/run") {
-    const input = RunInputSchema.parse(await readBody(request));
+    const input = RunInputSchema.parse(await readBody(request, runBodyLimit));
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
     // Redesign phase 1 (integration review): a new conversation's mode is held to what the picker allows here.
     const modeRefused = input.mode && !input.sessionId ? modeRefusal(app, input.mode) : null;
@@ -1780,7 +1780,9 @@ async function api(
       ...(input.temporary ? { temporary: true } : {}),
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
-      ...(input.images?.length ? { images: input.images } : {}),
+      // A picture that was attached is also shown to the model, so the page sends its bytes once.
+      ...picturesFor(input),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
@@ -1928,8 +1930,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   if (request.method === "POST" && path === "/api/sessions/search")
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
-    return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context))?$/.exec(path);
+    return app.store.importSession(owner, await readBody(request, archiveBodyLimit));
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note))?$/.exec(path);
   // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
   if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
   if (match && match[2] === "merge-note" && request.method === "POST")
@@ -3959,24 +3961,44 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(bytes);
     return true;
   }
-  // FQ-collaboration: the raw bytes of one video in the workspace, so the Files browser can play it
-  // and a comment's timestamp can reopen it at the same position (public/media-comments.js). Held to
-  // the same switch as the rest of the code editor, since that is the screen this is opened from.
-  if (request.method === "GET" && path === "/api/media-comments/media") {
-    if (workspaceEditorSettings(app.store, app.runtime.owner).mode === "off")
-      throw new HttpError(403, "The Files browser is switched off. Turn it on in Settings → Advanced to open a video there.");
-    const wanted = new URL(request.url ?? "/", "http://local").searchParams.get("fileId") ?? "";
-    const played = await readWorkspaceVideo(app.files, wanted, (target) =>
-      protectedTarget({ tool: "files.read", readOnly: true, args: { path: target }, target, workspace: app.files.base }, app.runtime.protectedAreas),
-    ).catch((error: unknown) => {
-      throw error instanceof VideoFileError ? new HttpError(error.status, error.message) : error;
-    });
-    response.writeHead(200, {
-      "content-type": played.contentType, "cache-control": "no-store",
-      "x-content-type-options": "nosniff", "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(played.name)}`,
-      "content-security-policy": "default-src 'none'; sandbox",
-    });
-    response.end(played.bytes);
+  // A file a person attached, handed back to their own window (src/attachments.ts). The owner's alone,
+  // checked first so the guard moves with the route; nothing the caller sends is ever used as a path.
+  if (request.method === "GET" && path === "/api/attachments/file") {
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams;
+    // The owner check lives at the top of attachmentForWindow, so it cannot be left behind here.
+    const found = await attachmentForWindow(
+      {
+        profiles: app.store.profiles, attachments: app.attachments,
+        temporaryConversation: (session) => app.store.sessionTemporary(session),
+      },
+      { session: wanted.get("session") ?? "", id: wanted.get("id") ?? "" },
+    ).catch(() => null);
+    if (!found) throw new HttpError(404, "That file is not attached to this conversation");
+    // The type is the one kept with the file, never anything the request said.
+    const inline = shownInPage(found.ref.mediaType);
+    const headers = {
+      "content-type": found.ref.mediaType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox",
+      "accept-ranges": "bytes",
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename="${found.ref.name.replace(/[^\w. -]/g, "_")}"`,
+    };
+    const part = rangeWanted(request.headers.range, found.size);
+    if (part === "outside") {
+      response.writeHead(416, { ...headers, "content-range": `bytes */${found.size}` });
+      response.end();
+      return true;
+    }
+    // Sent from the file rather than from a copy of all of it: asking for the first kilobyte of a
+    // thirty-megabyte film should not cost thirty megabytes of memory.
+    if (part) {
+      response.writeHead(206, { ...headers, "content-length": String(part.end - part.start + 1),
+        "content-range": `bytes ${part.start}-${part.end}/${found.size}` });
+    } else {
+      response.writeHead(200, { ...headers, "content-length": String(found.size) });
+    }
+    const sending = found.open(part);
+    sending.on("error", () => response.destroy());
+    sending.pipe(response);
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/transcribe") {
@@ -4268,6 +4290,27 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
   return app.sessionTokens.scopeOf(app.runtime.owner, supplied) === "read" ? { method: "GET", executes: false } : null;
 }
 
+/**
+ * The pictures among a message's attachments, in the shape the model is shown. The file itself is
+ * kept whatever happens; this is only so a picture does not have to be uploaded twice.
+ */
+/**
+ * What the model looks at this turn: the pictures the page sent to be looked at — a still out of a
+ * film — together with the pictures among the files the message carries. The two are different
+ * things, so one never hides the other: a message with a film and a photograph shows the model both.
+ */
+function picturesFor(input: { images?: ImagePart[] | undefined; attachments?: { mediaType: string; name: string; data: string }[] | undefined }): { images?: ImagePart[] } {
+  const all = [...(input.images ?? []), ...(picturesAmong(input.attachments).images ?? [])]
+    .slice(0, maximumImagesPerTurn);
+  return all.length ? { images: all } : {};
+}
+function picturesAmong(attachments?: { mediaType: string; name: string; data: string }[]): { images?: ImagePart[] } {
+  const pictures = (attachments ?? [])
+    .filter((one) => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(one.mediaType))
+    .slice(0, maximumImagesPerTurn)
+    .map((one) => ({ mediaType: one.mediaType as ImagePart["mediaType"], data: one.data, name: one.name }));
+  return pictures.length ? { images: pictures } : {};
+}
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
@@ -4285,6 +4328,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot open or read the phone download. Do that in the app window.";
   // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
+  // A person's attached files are the owner's alone, like everything else kept beside the database.
+  if (path.startsWith("/api/attachments/"))
+    return "A short-lived key cannot open a file somebody attached. Do that in the app window.";
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
   if (handlesUpdateFixPath(path))

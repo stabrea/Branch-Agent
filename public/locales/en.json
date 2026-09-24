@@ -1684,7 +1684,7 @@
   "describe.retention": "Offers to delete old conversations. Nothing goes without your yes.",
   "describe.retention-days": "Conversations older than this are offered for deletion. 0 ignores age.",
   "describe.retention-export": "Hands you a saved copy before anything is deleted.",
-  "describe.retention-mb": "Once everything together is bigger than this, the oldest are offered. 0 ignores size.",
+  "describe.retention-mb": "Once everything together — the words and the files attached to them — is bigger than this, the oldest are offered. 0 ignores size.",
   "describe.reviewer-ceiling": "One look stops once it has used this much.",
   "describe.reviewer-connection": "Which connection does the second look.",
   "describe.reviewer-mode": "A second model looks at a step before you are asked about it. Off means you are asked straight away.",
