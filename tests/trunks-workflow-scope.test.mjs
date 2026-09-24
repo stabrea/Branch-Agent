@@ -371,3 +371,18 @@ test("a Trunk reads the steps of its own flow runs only, never the owner's or an
   assert.match(await use(ada, "flow.steps", { runId: owners }), /no flow run of yours/, "Ada is refused an unrecorded run");
   assert.equal(app.store.get("settings", owner, `flow-run-trunk:${owners}`), undefined, "and her asking stamps nobody on it");
 });
+
+test("Q123 with #159: a Trunk's workflow step brings in another conversation only as that Trunk, never as the owner", async (t) => {
+  // history.attach came with #159 after Q123, and was still handed the bare agent: a step Ada's workflow runs
+  // has no agent, only her mark, so it could bring the owner's own conversation into her work.
+  const { app, ada, owner, use, saved } = await setup(t, ["memory.read", "history.read", "workflows.manage", "workflows.read"]);
+  await app.runtime.run({ prompt: "quagga OWNERHIST8813 was said here", onTextDelta: () => undefined }); // the owner's own conversation
+  const steps = [{ name: "bring it in", kind: "tool", tool: "history.attach", args: { conversation: "quagga" } }];
+  // The control: the owner's own workflow brings it in, so it is there to bring.
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps }, app.runtime.context());
+  assert.match(JSON.stringify((await app.workflows.run(owner, owners.id)).state), /OWNERHIST8813/);
+  await use(ada, "workflows.create", { name: "adas", steps });
+  await use(ada, "workflows.run", { id: saved("adas").id });
+  const brought = app.workflows.view(owner, saved("adas").id);
+  assert.doesNotMatch(JSON.stringify(brought), /OWNERHIST8813/, "Ada's step does not bring in the owner's conversation");
+});

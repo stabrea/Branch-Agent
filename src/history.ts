@@ -172,7 +172,7 @@ export function registerHistory(registry: ToolRegistry, store: Store): void {
     target: (input) => `another conversation (${input.conversation.slice(0, 60)})`,
     execute: async (input, context) => {
       const { owner, current } = historyScope(store, context);
-      return attachConversation(store, owner, input, current, context.runId, context.agent);
+      return attachConversation(store, owner, input, current, context.runId, accessAgent(context)); // Q123 with #159
     },
   });
 }
