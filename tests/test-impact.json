@@ -36,6 +36,47 @@
   "mappings": [
     {
       "paths": [
+        "tests/never-break-install-chaos-suite.mjs"
+      ],
+      "tests": [
+        "tests/never-break-install-chaos-1.test.mjs",
+        "tests/never-break-install-chaos-2.test.mjs",
+        "tests/never-break-install-chaos-3.test.mjs",
+        "tests/never-break-install-chaos-4.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "tests/settings-grown-suite.mjs"
+      ],
+      "tests": [
+        "tests/settings-grown-1.test.mjs",
+        "tests/settings-grown-2.test.mjs",
+        "tests/settings-grown-3.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "tests/shell-ui-suite.mjs"
+      ],
+      "tests": [
+        "tests/shell-ui-1.test.mjs",
+        "tests/shell-ui-2.test.mjs",
+        "tests/shell-ui-3.test.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "tests/surface-parity-suite.mjs"
+      ],
+      "tests": [
+        "tests/surface-parity-1.test.mjs",
+        "tests/surface-parity-2.test.mjs",
+        "tests/surface-parity-3.test.mjs"
+      ]
+    },
+    {
+      "paths": [
         "src/never-break/resume.ts",
         "src/recurrence.ts",
         "src/scheduler.ts"
@@ -84,7 +125,7 @@
       ],
       "tests": [
         "tests/calm-ui.test.mjs",
-        "tests/shell-ui.test.mjs",
+        "tests/shell-ui-1.test.mjs", "tests/shell-ui-2.test.mjs", "tests/shell-ui-3.test.mjs",
         "tests/tool-targets-comprehensive-guard.test.mjs"
       ]
     },
@@ -151,7 +192,7 @@
       "tests": [
         "tests/grown-up-controls.test.mjs",
         "tests/glass-select.test.mjs",
-        "tests/settings-grown.test.mjs"
+        "tests/settings-grown-1.test.mjs", "tests/settings-grown-2.test.mjs", "tests/settings-grown-3.test.mjs"
       ]
     },
     {
@@ -164,7 +205,7 @@
     },
     {
       "paths": ["public/approval-reviewer.js"],
-      "tests": ["tests/approvals.test.mjs", "tests/settings-grown.test.mjs"]
+      "tests": ["tests/approvals.test.mjs", "tests/settings-grown-1.test.mjs", "tests/settings-grown-2.test.mjs", "tests/settings-grown-3.test.mjs"]
     },
     {
       "paths": [
@@ -174,7 +215,7 @@
       ],
       "tests": [
         "tests/jev-decisions-ui.test.mjs",
-        "tests/settings-grown.test.mjs"
+        "tests/settings-grown-1.test.mjs", "tests/settings-grown-2.test.mjs", "tests/settings-grown-3.test.mjs"
       ]
     },
     {
@@ -223,7 +264,7 @@
     },
     {
       "paths": ["public/heartbeat.js"],
-      "tests": ["tests/settings-grown.test.mjs"]
+      "tests": ["tests/settings-grown-1.test.mjs", "tests/settings-grown-2.test.mjs", "tests/settings-grown-3.test.mjs"]
     },
     {
       "paths": ["public/interop.js"],

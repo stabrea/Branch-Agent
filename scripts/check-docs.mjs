@@ -105,7 +105,7 @@ export function topLevelKeys(source) {
 const SCHEMA = /export const (\w*(?:Settings|Preferences|Config))Schema\s*=\s*z[\s\S]{0,10}?\.object\(\{/g;
 
 /**
- * Every settable key, mapped to the schemas that declare it. Exported for tests/settings-grown.test.mjs
+ * Every settable key, mapped to the schemas that declare it. Exported for tests/settings-grown-suite.mjs
  * (S14), which holds Settings search to the same list; `root` is the checkout to read.
  */
 export function settingKeys(root = ".") {
