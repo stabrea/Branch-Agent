@@ -180,16 +180,22 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   // Only a record that cannot be read: a readable one is changed through the kit or its card, where a
   // loosening asks and a pin holds (a stale button in another window must not wipe what the owner just set).
   if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
-  // Q83: check if putting back to shipped values is loosening by comparing actual saved record values
-  // to the shipped defaults. Use raw saved values, not the app's parsed reading.
   // Q83 (NAS 1024d5f): put-back is offered only for a record that cannot be read, and such a record cannot be
   // trusted to say what it held, however its keys are spelt or nested. So it always asks, unless every field
   // Branch weighs already ships at its most careful value.
   const loosenings = spec.fields
     .filter((field) => holdable(field).some((value) => loosens(field, value, field.initial as Value, spec)))
     .map((field) => field.label);
+  // Q99: put-back replaces the whole record, so a saved value no field above weighs (a spending cap, where
+  // speech is turned into words) is named too when it differs from how Branch ships; an unknown key is not.
+  const stored = deps.store.get("settings", deps.owner, spec.key)?.data;
+  const raw = (typeof stored === "object" && stored !== null && !Array.isArray(stored) ? stored : {}) as Record<string, unknown>;
+  const shippedRecord = spec.shipped?.() ?? {};
+  const others = Object.keys(raw).filter((key) => !spec.fields.some((field) => field.field.split(".")[0] === key)
+    && Object.hasOwn(shippedRecord, key) && JSON.stringify(raw[key]) !== JSON.stringify(shippedRecord[key]));
+  if (others.length) loosenings.push(`other saved values Branch cannot weigh: ${others.join(", ")}`);
   if (loosenings.length && !body.confirmLoosening)
-    throw new SettingsKitError(409, `${loosenings.length} of these make Branch less careful (${loosenings.join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
+    throw new SettingsKitError(409, `${loosenings.length} of these make Branch less careful (${loosenings.join(", ")}). Tick "Yes, make it less careful" to go ahead.`);
   spec.putBack(deps.store, deps.owner);
   audit(deps.store, deps.owner, { action: "policy.changed", actor: deps.owner, subject: `${spec.name}: put back as shipped`,
     reason: "The saved record could not be read, so the whole of it was started again from how Branch ships", outcome: "saved" });
