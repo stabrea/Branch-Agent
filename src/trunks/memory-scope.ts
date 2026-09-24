@@ -21,7 +21,9 @@ export const trunkAgent = (id: string): string => `trunk:${id}`;
  */
 export function memoryAgent(context: { agent?: string | undefined; trunk?: string | undefined }): string | undefined {
   const { agent, trunk } = context;
-  if (!agent || !trunk || agent.startsWith("trunk:")) return agent;
+  // Work a Trunk set going without a turn of its own (a workflow or flow step) remembers as that Trunk.
+  if (!agent) return trunk ? trunkAgent(trunk) : undefined;
+  if (!trunk || agent.startsWith("trunk:")) return agent;
   return `${trunkAgent(trunk)}:${agent}`;
 }
 

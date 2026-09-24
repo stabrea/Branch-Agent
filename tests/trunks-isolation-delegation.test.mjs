@@ -278,3 +278,45 @@ test("the reviewer of a Trunk's answer sees only what that Trunk remembers, and 
   const handed = provider.requests.slice(before).filter((request) => !/You review a finished answer/.test(request.messages.map((m) => m.content).join("\n")));
   assert.doesNotMatch(JSON.stringify(handed.map((request) => request.messages)), /OWNERPRIV3391|BOSECRET7714/, "nor does Ada's own model get it back");
 });
+
+test("work a Trunk sets going through a saved workflow remembers as that Trunk, never with the owner's whole memory", async (t) => {
+  const steps = {
+    tool: [{ name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }],
+    prompt: [{ name: "look", kind: "prompt", prompt: "look for zebra" }],
+    share: [{ name: "keep", kind: "tool", tool: "memory.put", args: { text: "zebra shared by a step SHAREDW3", source: "a step", scope: "shared" } }],
+  };
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    if (text.startsWith("remember ")) return call("memory.put", { text: text.slice("remember ".length), source: "me" });
+    if (text.startsWith("make ")) return call("workflows.create", { name: text.slice("make ".length), steps: steps[text.slice("make ".length)] });
+    if (text.startsWith("run ")) return call("workflows.run", { id: text.slice("run ".length) });
+    if (text === "look for zebra") return call("memory.search", { query: "zebra" });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? `Found: ${last.content}` : null)]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+  for (const trunk of [ada, bo])
+    app.trunks.edit(trunk.id, { permissions: ["memory.read", "memory.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  await app.trunks.say(bo.id, "remember zebra Bo BOSECRET7714");
+  await app.trunks.say(ada.id, "remember zebra Ada ADAOWN5150");
+  const saved = (name) => app.store.list("workflows", app.runtime.owner).find((record) => record.data.name === name)?.id;
+  const ran = async (name) => {
+    await app.trunks.say(ada.id, `make ${name}`);
+    const after = lastEvent(app);
+    await app.trunks.say(ada.id, `run ${saved(name)}`);
+    await settled(app);
+    return outcomesSince(app, after, "workflows.run").join("") + outcomesSince(app, after, "memory.search").join("");
+  };
+  for (const name of ["tool", "prompt"]) {
+    const found = await ran(name);
+    assert.doesNotMatch(found, /OWNERPRIV3391|BOSECRET7714/, `a ${name} step reads only Ada's memory`);
+    assert.match(found, /ADAOWN5150/, `a ${name} step still finds Ada's own fact`);
+  }
+  await ran("share");
+  const kept = app.store.list("memory", app.runtime.owner).find((record) => String(record.data.text).includes("SHAREDW3"));
+  assert.ok(kept, "the step saved its fact");
+  assert.equal(kept.data.scope, `agent:trunk:${ada.id}`, "kept to Ada, never shared");
+});

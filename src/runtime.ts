@@ -474,6 +474,9 @@ export class Runtime {
       agent?: string;
     } = {},
   ): ToolContext {
+    // FQ-routing.isolated-agents: work a Trunk set going (a workflow or flow step, a procedure it replays)
+    // remembers as that Trunk, never with the owner's whole memory (see memoryAgent).
+    const trunkWork = currentAccountCall()?.trunk?.id;
     return {
       owner: this.owner,
       workspace: this.workspace,
@@ -490,6 +493,7 @@ export class Runtime {
       ...(options.unattended ? { unattended: true } : {}),
       ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
       ...(options.agent ? { agent: options.agent } : {}),
+      ...(trunkWork ? { trunk: trunkWork } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -815,11 +819,14 @@ ${run.output.slice(0, 6000)}`;
    * (which may be a second of the owner's own plans, reached after the first ran out).
    */
   private asTrunk<T>(context: ToolContext, work: () => Promise<T>): Promise<T> {
-    if (currentAccountCall()?.trunk) return work();
-    if (!context.trunkKeys)
+    const marked = currentAccountCall()?.trunk;
+    // FQ-routing.isolated-agents: marked again when this is another Trunk's work, so what it sets going is its own.
+    if (marked && (!context.trunk || marked.id === context.trunk)) return work();
+    const keys = context.trunkKeys ?? marked?.keys;
+    if (!keys)
       return withAccountCall({ owner: this.owner, sessionId: this.accountSession(context.runId), runId: context.runId }, work);
     const sessionId = this.store.run(context.runId)?.sessionId ?? "";
-    return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys: context.trunkKeys } }, work);
+    return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys, ...(context.trunk ? { id: context.trunk } : {}) } }, work);
   }
   /**
    * mac7/pooling-review: the conversation whose account choice a task's model calls follow: the one
