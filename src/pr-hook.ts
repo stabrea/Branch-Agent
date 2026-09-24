@@ -164,18 +164,38 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: PullR
   const refusal = deps.preflight?.("github.open_pull_request", opening, input.runId);
   if (refusal) throw new Error(refusal);
   // Q12: a push from Branch's own source is held to its contract here, where it happens, whoever asked for it.
-  const heldBack = await pushRefusal({ store: deps.store, owner: deps.owner, workspace: deps.files.root, git: deps.git,
+  const { refusal: heldBack, walked } = await pushRefusal({ store: deps.store, owner: deps.owner, workspace: deps.files.root, git: deps.git,
     folder: cwd, runId: input.runId ?? input.auditRunId, signal: input.signal });
   if (heldBack) throw new Error(heldBack);
-  await gitText(deps, cwd, ["switch", "--create", head], input.signal);
+  // In Branch's own source the new line starts at the commit the contract walked, wherever HEAD is by now.
+  await gitText(deps, cwd, ["switch", "--create", head, ...(walked ? [walked] : [])], input.signal);
   // Names are taken literally (a "*" is a file called "*"), and only the named files are committed,
   // whatever else happened to be staged already.
   await gitText(deps, cwd, ["--literal-pathspecs", "add", "--", ...visible], input.signal);
   await gitText(deps, cwd, ["--literal-pathspecs", "commit", "--only", "--message", input.title.slice(0, 200), "--", ...visible], input.signal);
   // An explicit refspec: exactly this new line, to a branch of the same name, never anything else.
-  await gitText(deps, cwd, ["push", "--set-upstream", settings.remote, `refs/heads/${head}:refs/heads/${head}`], input.signal, 180000);
+  if (walked) await sendOnWalked(deps, cwd, settings.remote, head, walked, input.signal);
+  else await gitText(deps, cwd, ["push", "--set-upstream", settings.remote, `refs/heads/${head}:refs/heads/${head}`], input.signal, 180000);
   const pullRequest = await deps.runTool("github.open_pull_request", opening, input.runId);
   return { repository: where.repo, branch: head, base: where.base, files: visible, pullRequest };
+}
+
+/** The one commit `revision` names now, read once, or "" when it names none. */
+const commitNamed = (deps: PullRequestDeps, cwd: string, revision: string, signal: AbortSignal): Promise<string> =>
+  gitText(deps, cwd, ["rev-parse", "--verify", "--quiet", revision], signal).catch(() => "");
+
+/**
+ * From Branch's own source: sends the commit just made on `head`, read once from that branch, and only
+ * when it sits right on the commit the contract walked, so nothing that moves `head` or HEAD
+ * meanwhile changes what goes out. A push that names a commit sets no upstream, so the new line is
+ * told where it went afterwards, as `push --set-upstream` did (a failure there leaves the push as it is).
+ */
+async function sendOnWalked(deps: PullRequestDeps, cwd: string, remote: string, head: string, walked: string, signal: AbortSignal): Promise<void> {
+  const made = await commitNamed(deps, cwd, `refs/heads/${head}^{commit}`, signal);
+  if (!made || (await commitNamed(deps, cwd, `${made}^`, signal)) !== walked)
+    throw new Error(`"${head}" is not just one new commit on the checked work (something else changed the repository meanwhile), so nothing was sent.`);
+  await gitText(deps, cwd, ["push", remote, `${made}:refs/heads/${head}`], signal, 180000);
+  await deps.git({ cwd, args: ["branch", `--set-upstream-to=refs/remotes/${remote}/${head}`, head], timeoutMs: 30000 }, signal);
 }
 
 const issueArgument = (text: string): { issue?: string } => {

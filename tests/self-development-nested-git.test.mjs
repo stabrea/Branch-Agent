@@ -553,7 +553,7 @@ test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref
   for (const branch of ["worktrees/self-x/HEAD", "ORIG_HEAD", "side"])
     await app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)).catch(() => undefined);
   await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "main-worktree/HEAD" }, AbortSignal.timeout(10_000)).catch(() => undefined);
-  assert.deepEqual(pushed, ["refs/heads/worktrees/self-x/HEAD", "refs/heads/ORIG_HEAD", "refs/heads/side", "refs/heads/main-worktree/HEAD"]);
+  assert.deepEqual(pushed, ["worktrees/self-x/HEAD", "ORIG_HEAD", "side", "main-worktree/HEAD"].map((name) => `refs/heads/${name}:refs/heads/${name}`));
 });
 
 test("Q103: a read of what removing the name would leave that does not finish counts as something left", { skip: posixOnly }, async (t) => {
@@ -566,4 +566,117 @@ test("Q103: a read of what removing the name would leave that does not finish co
     ? { ...(await real(options, signal)), status: "timed_out", exitCode: null } : real(options, signal));
   await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /publishing cannot replace/);
   assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
+});
+
+test("Q98: a push with no branch, or HEAD, sends the branch checked out, never a tag named HEAD", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("config", "--local", "http.proxy", "http://127.0.0.1:9"); // should anything be sent, it never leaves this computer
+  git("remote", "add", "origin", "https://github.com/o/r.git");
+  const orphan = git("commit-tree", git("mktree"), "-m", "orphan");
+  git("update-ref", "refs/tags/HEAD", orphan); // what `git tag HEAD` made in older Git; newer Git refuses the name
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  const signal = () => AbortSignal.timeout(10_000);
+  await app.git.push({ folder, remote: "origin" }, signal()).catch(() => undefined);
+  await app.git.push({ folder, remote: "origin", branch: "HEAD" }, signal()).catch(() => undefined);
+  await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "HEAD" }, signal()).catch(() => undefined);
+  assert.deepEqual(pushed, Array(3).fill("refs/heads/feature:refs/heads/feature"));
+  // Detached, there is no branch to send: refused before anything is pushed or any remote is added.
+  git("checkout", "-q", "--detach");
+  await assert.rejects(app.git.push({ folder, remote: "origin" }, signal()), /HEAD is detached/);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "HEAD" }, signal()), /HEAD is detached/);
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/q.git", remote: "other" }, signal()), /HEAD is detached/);
+  assert.equal(pushed.length, 3, "nothing more was pushed");
+  assert.doesNotMatch(git("remote"), /other/, "no remote was added");
+});
+
+test("Q98: sending to main or master asks first however the branch is written, or when it is the one checked out", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const git = (...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("config", "--local", "http.proxy", "http://127.0.0.1:9");
+  git("remote", "add", "origin", "https://github.com/o/r.git");
+  git("checkout", "-q", "-b", "main");
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  for (const branch of [undefined, "HEAD", "main", "refs/heads/main", "refs/heads/Master"])
+    await assert.rejects(app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)), /straight to "(main|Master)"/, String(branch));
+  assert.deepEqual(pushed, [], "nothing is sent before the person says yes");
+});
+
+test("Q104: a push lands on the branch it names, never where an alias of main or a push mapping would send it", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-push-lands-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const cwd = join(root, "workspace", "work", "r"), bare = join(root, "remote.git");
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "first");
+  execFileSync("git", ["init", "--bare", "-q", bare]);
+  git("remote", "add", "origin", bare);
+  const landed = () => execFileSync("git", ["for-each-ref", "--format=%(refname)"], { cwd: bare, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  // An alias of main the owner made: a branch that is a symbolic ref to it.
+  git("symbolic-ref", "refs/heads/trunk", "refs/heads/main");
+  await app.git.push({ folder: "work/r", remote: "origin", branch: "trunk" }, AbortSignal.timeout(10_000));
+  assert.deepEqual(landed(), ["refs/heads/trunk"], "on trunk, not on main");
+  // A push mapping that sends feature to main.
+  git("branch", "feature");
+  git("config", "remote.origin.push", "refs/heads/feature:refs/heads/main");
+  await app.git.push({ folder: "work/r", remote: "origin", branch: "feature" }, AbortSignal.timeout(10_000));
+  assert.deepEqual(landed(), ["refs/heads/feature", "refs/heads/trunk"], "on feature, not on main");
+});
+
+test("Q109: a push from Branch's source sends exactly the commit the guard walked, even if the branch moves after", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-walked-push-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const source = join(workspace, "branch-agent-source"), folder = "branch-agent-source/.branch-worktrees/self-x";
+  await mkdir(source, { recursive: true });
+  const git = (cwd, ...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git(source, "init", "-q", "-b", "main");
+  git(source, "commit", "-q", "--allow-empty", "-m", "source");
+  const base = git(source, "rev-parse", "HEAD");
+  git(source, "worktree", "add", "-q", "-b", "self-x", join(workspace, folder));
+  const worktree = join(workspace, folder);
+  git(worktree, "commit", "-q", "--allow-empty", "-m", "the work");
+  const walked = git(worktree, "rev-parse", "HEAD");
+  const orphan = git(worktree, "commit-tree", git(worktree, "mktree"), "-m", "never walked");
+  git(source, "config", "--local", "http.proxy", "http://127.0.0.1:9"); // nothing leaves this computer
+  git(source, "remote", "add", "origin", "https://github.com/o/r.git");
+  new ContractBook(app.store.sqlite).create(app.runtime.owner, { taskRunId: "run-1", sourceSha: base, worktreePath: folder, terms: {
+    allowedPaths: ["**"], permissions: ["git.push", "github.publish_repo"], expectedTests: ["t"], definitionOfDone: "d", sideEffects: [], rollbackPlan: "r" } });
+  const { registerGitRemote, registerGitHubProject } = await import("../dist/integrations/git-tools.js");
+  registerGitRemote(app.registry, app.git);
+  // Publishing is a push too: the repository it makes is a double, and the dead proxy refuses its send as well.
+  registerGitHubProject(app.registry, { createRepo: async (input) => ({ repository: `o/${input.name}` }) }, app.git);
+  // Another run moves the branch, or switches the worktree to another one, right after this push was walked.
+  let move = () => undefined;
+  const guard = app.registry.beforeTool;
+  app.registry.beforeTool = async (...call) => { const held = await guard(...call); move(); return held; };
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; app.registry.beforeTool = guard; });
+  const run = app.store.createRun(app.runtime.owner, "push");
+  const context = app.runtime.context({ runId: run.id, source: "owner" });
+  const moves = [() => git(worktree, "reset", "-q", "--hard", orphan), () => git(worktree, "switch", "-q", "-C", "moved", orphan)];
+  // No branch, the branch by name, and HEAD (resolved by the guard, never re-read by the tool), for both ways of sending.
+  const calls = [
+    ["git.push", { folder, remote: "origin" }], ["git.push", { folder, remote: "origin", branch: "self-x" }], ["git.push", { folder, remote: "origin", branch: "HEAD" }],
+    ["github.publish_repo", { folder, name: "demo" }], ["github.publish_repo", { folder, name: "demo", branch: "HEAD" }],
+  ];
+  for (const [tool, args] of calls)
+    for (const next of moves) {
+      git(worktree, "switch", "-q", "self-x");
+      git(worktree, "reset", "-q", "--hard", walked);
+      move = next;
+      await app.registry.execute(tool, args, context).catch(() => undefined); // the dead proxy refuses the send
+    }
+  assert.deepEqual(pushed, Array(10).fill(`${walked}:refs/heads/self-x`), "the walked commit, to the walked branch");
 });

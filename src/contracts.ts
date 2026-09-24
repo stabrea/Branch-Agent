@@ -247,6 +247,10 @@ export interface ToolContext {
   /** FQ-routing.isolated-agents: the Trunk this work is for, set on a Trunk's turn and carried through every
    *  delegation, so a specialist it hands work to remembers under that Trunk (`memoryAgent`). */
   trunk?: string;
+  /** Q109: set by the self-development guard for a push from Branch's source: the ref it walked and the one
+   *  commit it walked there, which the push sends exactly (`<commit>:<ref>`). */
+  sendsRef?: string;
+  sendsCommit?: string;
   /** The task whose shared scratch area this run and all of its sub-tasks read and write. */
   scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */

@@ -318,7 +318,7 @@ export class ToolRegistry {
     return result;
   }
   /** Q12 (src/self-development-contract.ts): may refuse a call, by throwing, before the tool runs. */
-  beforeTool?: (name: string, args: unknown, context: ToolContext) => Promise<Pick<ToolContext, "writesConfinedTo"> | void>;
+  beforeTool?: (name: string, args: unknown, context: ToolContext) => Promise<Pick<ToolContext, "writesConfinedTo" | "sendsRef" | "sendsCommit"> | void>;
   /** mac7/coding-next (src/coding/read-first.ts): told after every call, so what it wrote counts as read. */
   afterWrites?: (context: ToolContext) => Promise<void>;
   /** mac7/r17-d (src/coding/): looks at a finished call and may add to its answer (format-on-edit). */
