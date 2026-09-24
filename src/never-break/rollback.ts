@@ -352,7 +352,15 @@ export async function performRollback(entry: ActivationEntry | null, deps: Rollb
   deps.journal.rolledBack(entry.id);
   if (deps.restart) {
     try { await deps.restart(); note(entry.id, "started Branch again", true, `on version ${entry.fromVersion}`); }
-    catch (error) { failures += 1; note(entry.id, "started Branch again", false, String(error instanceof Error ? error.message : error)); }
+    catch (error) {
+      // Being back on the older files while nothing runs them is not being back. Saying so here is the
+      // difference between the owner reading "Branch is back" and the owner knowing to start it.
+      const why = error instanceof Error ? error.message : String(error);
+      note(entry.id, "started Branch again", false, why);
+      return { ok: false, reason: null, steps,
+        message: `Version ${entry.fromVersion} is back in place, but Branch could not be started again (${why}). `
+          + "Start it with `branch start`; nothing else was left half done." };
+    }
   }
   const dataWords = decision.data.action === "leave-alone"
     ? "Your conversations, settings and memory are exactly as they were."
