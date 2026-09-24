@@ -38,7 +38,7 @@ test("a pop-up that opens while the assistant is opening a tab is refused and cl
   const first = fakePage("first"), ours = fakePage("ours"), popup = fakePage("popup");
   let routeHandler, finishTab;
   const context = Object.assign(events(), {
-    setDefaultTimeout() {}, routeWebSocket: async () => {}, close: async () => {},
+    setDefaultTimeout() {}, routeWebSocket: async () => {}, addInitScript: async () => {}, close: async () => {},
     route: async (_pattern, handler) => { routeHandler = handler; },
     newCDPSession: async () => ({ on() {}, send: async () => {} }),
     newPage: (() => {
