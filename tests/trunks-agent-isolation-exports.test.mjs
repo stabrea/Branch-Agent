@@ -205,3 +205,62 @@ test("Q143: knowledge.refresh writes up only the conversations a Trunk took part
   await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, app.runtime.context());
   assert.ok(shown.some((digest) => digest.includes("OWNERSECRET4242")), "the owner's own refresh still reads their conversations");
 });
+
+test("Q143: a conversation the owner takes back while a Trunk's knowledge refresh is under way is left out of it", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-isolation-"));
+  const workspace = join(root, "workspace");
+  // A card-writing stand-in like the one above: it records every digest it is shown, and answers only the
+  // write-up requests. `meanwhile` runs once, inside its reply for Ada's own chat: by then her refresh has
+  // listed the conversations it will read, and has not yet written up the next one.
+  const shown = [];
+  let meanwhile = null;
+  const provider = brain([(context) => {
+    if (!String(context.messages?.[0]?.content ?? "").startsWith("You are reading one conversation")) return null;
+    const digest = context.messages.at(-1).content;
+    shown.push(digest);
+    if (meanwhile && digest.includes("ADAOWN78")) { const now = meanwhile; meanwhile = null; now(); }
+    return { content: JSON.stringify({ cards: [{ title: `Card ${shown.length}`, body: digest.slice(0, 400), sourceTurn: digest.slice(0, 200) }] }), toolCalls: [] };
+  }]);
+  const app = await createBranch({ workspace, dataDir: join(root, "data"), provider });
+  t.after(async () => { await app.close(); });
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  app.trunks.edit(ada.id, { permissions: ["documents.read", "documents.write"] });
+  await mkdir(join(workspace, "house"), { recursive: true });
+  await writeFile(join(workspace, "house", "notes.md"), "# House\n\nNotes.\n", "utf8");
+  const base = app.knowledgeBases.create("local", { name: "House", sources: [{ kind: "folder", path: "house" }] });
+  app.store.message(ada.chatSessionId, { role: "user", content: "Ada, the boiler is serviced in March ADAOWN78" });
+  app.store.message(ada.chatSessionId, { role: "assistant", content: "Got it." });
+
+  // An older conversation of the owner's (begun well before her chat, so it is listed after it), handed to
+  // Ada later. She answers there, so while it is hers she may read it.
+  const handed = app.store.createSession("local");
+  app.store.sqlite.prepare("UPDATE sessions SET created_at=? WHERE id=?").run("2020-01-01T00:00:00.000Z", handed);
+  app.trunks.conversations.choose(handed, { trunkId: ada.id });
+  await app.runtime.run({ prompt: "Ada, the shed key hangs by the back door HANDED5501", sessionId: handed, onTextDelta: () => undefined });
+  const asAda = { ...app.runtime.context(), agent: `trunk:${ada.id}` };
+  assert.deepEqual(app.knowledgeCards.recent("local", 10, asAda.agent), [ada.chatSessionId, handed],
+    "her refresh reads her own chat first and the handed conversation after it");
+
+  // While her own chat is being written up, the owner takes the conversation back and says something new there.
+  meanwhile = () => {
+    app.trunks.conversations.choose(handed, { trunkId: null });
+    app.store.message(handed, { role: "user", content: "back with me now: the safe code is TAKENBACK6161" });
+  };
+  shown.length = 0;
+  const refreshed = await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, asAda);
+  assert.equal(meanwhile, null, "the owner took it back while her own chat was being written up");
+  assert.equal(refreshed.conversations, 2, "her refresh had listed the handed conversation before it was taken back");
+  assert.equal(refreshed.cost?.conversations, 2, JSON.stringify(refreshed.cost));
+  assert.equal(shown.some((digest) => digest.includes("TAKENBACK6161")), false, "what the owner said after taking it back is never sent to be written up for Ada");
+  assert.equal(JSON.stringify(refreshed).includes("TAKENBACK6161"), false, "nor does any of it come back to her");
+  assert.equal(shown.some((digest) => digest.includes("HANDED5501")), false, "once it is taken back, none of that conversation is written up for her");
+  assert.equal(shown.length, 1, "only her own chat was written up");
+  assert.ok(shown[0].includes("ADAOWN78"), "her own chat is still written up");
+
+  // The owner's own refresh still reads it, what they said after taking it back included.
+  shown.length = 0;
+  await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, app.runtime.context());
+  assert.ok(shown.some((digest) => digest.includes("TAKENBACK6161")), "the owner's own refresh reads what they said there");
+});
