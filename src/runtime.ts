@@ -274,6 +274,8 @@ export interface RunOptions {
   budget?: BudgetOptions;
   onStarted?: (run: Run) => void;
   onTextDelta?: (text: string) => void;
+  /** FQ-surfaces: the id of the user message this run saved, for playback clip matching. */
+  onUserMessageId?: (id: number) => void;
   /** Conditions the final answer must meet; the model gets bounded retries when it misses one. */
   checks?: CompletionCheck;
   /** Pictures to show the model with this prompt. Refused in plain words by a text-only model. */
@@ -1037,7 +1039,10 @@ ${run.output.slice(0, 6000)}`;
           ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
         }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
-    else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+    else {
+      const userMessageId = this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+      options.onUserMessageId?.(userMessageId);
+    }
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
     // Wave mac2 (goal-undo): record the workspace before the task touches it; never fails the task.
     if (!parent && !options.resumeFrom && this.turnStarted) await this.turnStarted(run).catch(() => undefined);

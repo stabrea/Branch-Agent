@@ -91,16 +91,12 @@ function remember(key, clips) {
   sentClips.set(key, clips);
 }
 /**
- * Called by public/app.js once the send has come back and before the conversation is redrawn: the
- * first user message in `sessionId` saved after everything already drawn is the one these clips went
- * out with. Messages queued behind it are saved later, so they cannot take them. `fresh` says the send
- * started this conversation, so nothing came before it; a conversation that already existed but was
- * never drawn here (its redraw failed) has no known starting point, and its clips are dropped rather
- * than risk handing them to one of its older messages.
+ * Called by public/app.js once the send has come back and before the conversation is redrawn: these
+ * clips were sent with the message with the exact given messageId (FQ-surfaces). If the redraw fails,
+ * the clips are settled away.
  */
-function expect(sessionId, clips, fresh) {
-  const after = drawnUpTo.get(sessionId) ?? (fresh ? 0 : null);
-  expected = sessionId && clips?.length && after !== null ? { sessionId, after, clips } : null;
+function expect(sessionId, clips, messageId) {
+  expected = sessionId && clips?.length && typeof messageId === 'number' ? { sessionId, messageId, clips } : null;
 }
 /** Clips the redraw did not match (it failed, or the send did) are dropped, never handed to a later message. */
 function settle() { expected = null; }
@@ -112,12 +108,11 @@ function render(container, sessionId, source) {
   const id = source?.messageId;
   if (sessionId && id) {
     const key = `${sessionId}:${id}`;
-    if (expected?.sessionId === sessionId && id > expected.after) {
+    if (expected?.sessionId === sessionId && id === expected.messageId) {
       remember(key, expected.clips);
       expected = null;
     }
     use = sentClips.get(key);
-    if (id > (drawnUpTo.get(sessionId) ?? 0)) drawnUpTo.set(sessionId, id);
   }
   if (!use?.length) return;
   const wrap = el("div", "message-clips");
