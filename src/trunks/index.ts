@@ -89,6 +89,10 @@ export class Trunks {
     runtime.trunkShape = (options) => this.shapeOf(options);
     runtime.trunkKeysFor = (id) => this.records.find(id)?.keys ?? null; // Q114
     runtime.trunkPermissionsFor = (id) => this.shapeOf({ prompt: "", trunkId: id })?.permissions ?? null; // Q119
+    runtime.trunkStartsElsewhere = (id) => { // Q144
+      const trunk = this.records.find(id);
+      try { if (trunk) requireStartsHere(trunk, this.computers()); return null; } catch (error) { return (error as Error).message; }
+    };
     runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
     runtime.followUpNotSent = (sessionId, prompt, reason) => this.messages.notSent(sessionId, prompt, reason); // Q44
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms

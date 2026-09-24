@@ -1317,6 +1317,8 @@ ${run.output.slice(0, 6000)}`;
   trunkKeysFor: (id: string) => TrunkRunShape["keys"] | null = () => null;
   /** Q119: the tools a Trunk may use now, by its id, or null once it is gone (set by src/trunks). */
   trunkPermissionsFor: (id: string) => string[] | null = () => null;
+  /** Q144: why a Trunk may not work on this computer (Q44: it is set to start on another), or null (set by src/trunks). */
+  trunkStartsElsewhere: (id: string) => string | null = () => null;
   /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
   trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
   /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
@@ -1324,7 +1326,10 @@ ${run.output.slice(0, 6000)}`;
     const marked = currentAccountCall()?.trunk;
     if (marked?.id && marked.id !== trunkId) return "Another Trunk started this, so only that Trunk or the owner can carry it on.";
     // NAS e1e9dd2: asked even inside that Trunk's own mark, which can outlive the Trunk it names.
-    return this.trunkKeysFor(trunkId) ? null : "The Trunk that started this is no longer here, so it does not carry on.";
+    if (!this.trunkKeysFor(trunkId)) return "The Trunk that started this is no longer here, so it does not carry on.";
+    // Q144: nor while it is set to start on another computer. Asked here, before anything is approved or marked
+    // running, rather than later inside its shape, where the refusal came after the yes was written down.
+    return this.trunkStartsElsewhere(trunkId);
   }
   /**
    * Q114: work a Trunk started and someone carries on later (a workflow step or a flow box after the owner's

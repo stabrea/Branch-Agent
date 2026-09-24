@@ -871,3 +871,68 @@ test("a flow set going from a mark that outlived its Trunk ends at once, saying 
   assert.match(String(app.store.run(runId).output ?? ""), /no longer here/, "and says why");
   assert.equal(Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_nodes WHERE run_id=?").get(runId).n), 0, "no box ran");
 });
+
+/** Q144: a paired computer called Tower, and `trunk` set to start there (Q44), so it cannot work on this one. */
+function startsOnTower(app, trunk) {
+  const tower = "a1b2c3d4e5f60718";
+  app.store.save("settings", app.runtime.owner, "devices-book", { mode: "on", requests: [], devices: [{ id: tower, name: "Tower", platform: "linux",
+    publicKey: "k".repeat(44), pairedAt: "2026-09-23T00:00:00.000Z", lastSeen: null, offers: [], enabled: [], folder: null, sharedWith: [] }] });
+  app.trunks.edit(trunk.id, { startsIn: tower });
+}
+const onTower = /starts on Tower/;
+
+test("Q144: a yes to the workflow of a Trunk set to start on another computer is refused before it is written down", async (t) => {
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await madeBy(app, ada, { name: "later", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    () => app.workflows.run(app.runtime.owner, workflow.id));
+  startsOnTower(app, ada);
+  for (const time of ["first", "second"]) {
+    await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id), onTower, `the ${time} yes`);
+    const view = app.workflows.view(app.runtime.owner, workflow.id);
+    assert.equal(view.status, "waiting_approval", `still waiting after the ${time} yes`);
+    assert.equal(view.question, "Carry on?", "the question is still asked");
+    assert.equal(view.cursor, 0);
+    assert.equal(view.state.some((step) => step.status === "approved"), false, "no step recorded as approved");
+  }
+  // Back on this computer, the yes carries it on, and the tool step really runs.
+  app.trunks.edit(ada.id, { startsIn: null });
+  await app.workflows.resume(app.runtime.owner, workflow.id);
+  const done = app.workflows.view(app.runtime.owner, workflow.id);
+  assert.equal(done.status, "completed", JSON.stringify(done).slice(0, 300));
+  assert.notEqual(done.state[1]?.status, "approved", "the tool step ran rather than being written off as approved");
+});
+
+test("Q144: carrying on the flow run of a Trunk set to start on another computer leaves it as it stopped, not working", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  // As a failure at the second box leaves it, for the owner to press Carry on.
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='b', error='stopped' WHERE run_id=?").run(runId);
+  app.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
+  startsOnTower(app, ada);
+  app.flows.resumeGraph(graph.id, { runId });
+  const refused = await app.flows.settled(runId);
+  assert.equal(refused.status, "failed", `left as it stopped, not working: ${JSON.stringify(refused).slice(0, 300)}`);
+  assert.notEqual(app.store.sqlite.prepare("SELECT status FROM tasks WHERE id=?").get(runId).status, "running", "nor its task");
+  app.trunks.edit(ada.id, { startsIn: null });
+  app.flows.resumeGraph(graph.id, { runId });
+  assert.equal((await app.flows.settled(runId)).status, "completed", "back on this computer, it carries on");
+});
