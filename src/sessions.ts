@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { canAccessSession } from "./history.js";
 import type { Message } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import type { Store } from "./store.js";
@@ -21,9 +22,11 @@ export class SessionBranches {
       parent_session_id TEXT NOT NULL REFERENCES sessions(id),
       branch_point_message_id INTEGER NOT NULL, created_at TEXT NOT NULL)`);
   }
-  branch(owner: string, input: BranchInput) {
+  branch(owner: string, input: BranchInput, agent?: string) {
     const { sessionId: parentSessionId, messageId } = BranchSessionSchema.parse(input);
     this.requireOwner(owner, parentSessionId);
+    if (agent && !canAccessSession(this.db, parentSessionId, agent))
+      throw new Error("Conversation not found");
     const point = this.db.prepare("SELECT id,body FROM messages WHERE session_id=? AND source_id=?")
       .get(parentSessionId, messageId);
     if (!point) throw new Error("Branch message not found");
@@ -80,7 +83,7 @@ export function registerSessions(registry: ToolRegistry, store: Store): void {
     description: "Start a separate conversation from an earlier message. Needs history.read as well; the original is kept.",
     execute: async (input, context) => {
       if (!context.permissions.has("history.read")) throw new Error("Permission denied: history.read");
-      return store.branchSession(context.owner, input);
+      return store.branchSession(context.owner, input, context.agent);
     },
   });
 }

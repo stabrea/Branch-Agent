@@ -25,7 +25,10 @@ async function fixture(t, options = {}) {
 }
 
 const contextOf = (app, extra = {}) => ({
-  owner: "local", workspace: app?.workspace ?? "", runId: "", signal: AbortSignal.timeout(10_000),
+  // FQ-routing.isolated-agents: app.workspace was never a real field (app.runtime.workspace is); this
+  // always fell back to "", unnoticed while every tool used here read the app's own captured workspace
+  // instead of context.workspace. code.run reads context.workspace now, so it needs the real path.
+  owner: "local", workspace: app?.runtime?.workspace ?? "", runId: "", signal: AbortSignal.timeout(10_000),
   budget: { step() {}, charge() {}, remaining: () => 1000, limits: { maxSteps: 9, maxTokens: 9 }, steps: 0, tokens: 0 },
   permissions: new Set(), depth: 0, ...extra,
 });

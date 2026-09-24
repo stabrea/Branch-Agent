@@ -21,6 +21,7 @@ import { spawnProgram, type ProgramRunner } from "./runner.js";
 import { codingMode, codingOn, codingParts, codingTools, saveCodingMode, type CodingMode, type CodingPart } from "./settings.js";
 import { ShellSnapshots } from "./shell-snapshot.js";
 import { inWorktree, WorktreePlaces, type WorktreeGit } from "./worktrees.js";
+import { trunkFilePlace } from "../trunks/file-root.js"; // FQ-routing.isolated-agents
 
 /**
  * Bucket R17-D (wave mac7): coding polish. `createBranch` makes one of these; the runtime asks it
@@ -101,8 +102,11 @@ export class Coding implements CodingHooks {
 
   /* ---------- the runtime's questions (src/coding/hooks.ts) ---------- */
 
-  placeTask(run: { id: string; sessionId: string }, context: ToolContext, parent: ToolContext | undefined) {
-    return this.worktrees.placeTask(run, context, parent);
+  async placeTask(run: { id: string; sessionId: string }, context: ToolContext, parent: ToolContext | undefined) {
+    // FQ-routing.isolated-agents: a coding fork's own copy wins when there is one; otherwise a
+    // Trunk's own top-level turn gets its own folder, so it can reach neither another Trunk's files
+    // nor the owner's project by way of the workspace they would otherwise share.
+    return (await this.worktrees.placeTask(run, context, parent)) ?? trunkFilePlace(this.deps.files.root, context, parent);
   }
   inPlace<T>(scope: string, work: () => Promise<T>): Promise<T> { return inWorktree(scope, work); }
 

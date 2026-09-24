@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
+import { memoryScope, visibleTo, type MemoryRecord } from "../memory.js";
 import { contextOf, FlyCore, type MemoryAdvice, type Suggestions } from "./hook.js";
 import { flyCoreSettings, saveFlyCoreSettings, suggestToolName, type FlyCoreSettings } from "./settings.js";
 
@@ -26,9 +27,28 @@ export function registerSuggestTool(registry: ToolRegistry, store: Store): void 
       const run = store.run(context.runId);
       const situation = run ? contextOf(store, run) : { prompt: "" };
       const code = core.code(context.owner, { ...situation, prompt: value.request ?? situation.prompt });
-      return { ...core.suggest(context.owner, code), memoryAdvice: core.memoryAdvice(context.owner) };
+      const answer = { ...core.suggest(context.owner, code), memoryAdvice: core.memoryAdvice(context.owner) };
+      return context.agent ? readableOnly(store, answer, memoryScope(store, context), context.agent) : answer;
     },
   });
+}
+
+/**
+ * FQ-routing.isolated-agents: the core learns over the owner's whole memory, so for a Trunk or a
+ * delegated specialist the memory ids it names are cut to the facts that agent may read (`visibleTo`,
+ * the rule memory.search keeps). Tools and skills are left as they are; the owner's answer is untouched.
+ */
+function readableOnly(store: Store, answer: Suggestions & { memoryAdvice: MemoryAdvice }, owner: string, agent: string) {
+  const readable = (id: string): boolean => {
+    const record = store.get("memory", owner, id) as MemoryRecord | undefined;
+    return !!record && visibleTo(record, agent);
+  };
+  return {
+    ...answer,
+    memories: answer.memories.filter((s) => readable(s.name)),
+    avoid: answer.avoid.filter((s) => !s.name.startsWith("memory:") || readable(s.name.slice("memory:".length))),
+    memoryAdvice: { strengthen: answer.memoryAdvice.strengthen.filter(readable), fade: answer.memoryAdvice.fade.filter(readable) },
+  };
 }
 
 /** Makes the tool match the saved switch: present unless it is off. */
