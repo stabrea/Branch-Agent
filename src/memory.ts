@@ -131,6 +131,14 @@ export class MemoryFacts {
       revision INTEGER NOT NULL, data TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL)`);
   }
   /** Every earlier content of a fact, newest first; kept before each edit and on deletion. */
+  /**
+   * The last thing kept of a fact, by when it was kept: after a delete, what the fact was when it went. Not the highest
+   * revision: a fact brought back starts again at revision 1, so an earlier life can hold higher ones (NAS 640471a).
+   */
+  lastKept(owner: string, memoryId: string): Record<string, unknown> | undefined {
+    const row = this.db.prepare("SELECT data FROM memory_versions WHERE owner=? AND memory_id=? ORDER BY id DESC LIMIT 1").get(owner, memoryId);
+    return row ? JSON.parse(String(row.data)) as Record<string, unknown> : undefined;
+  }
   versions(owner: string, memoryId: string) {
     return this.db.prepare("SELECT * FROM memory_versions WHERE owner=? AND memory_id=? ORDER BY revision DESC, id DESC LIMIT 100").all(owner, memoryId)
       .map((row) => ({ memoryId: String(row.memory_id), revision: Number(row.revision), data: JSON.parse(String(row.data)) as Record<string, unknown>, reason: String(row.reason), createdAt: String(row.created_at) }));

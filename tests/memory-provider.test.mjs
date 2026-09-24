@@ -1647,3 +1647,38 @@ test("bringing back a Trunk's fact that was deleted brings it back as hers, as i
     ["Ada's bike lock code is in the drawer ADAKEEP9"], "she finds it again");
   assert.deepEqual(await app.registry.execute("memory.search", { query: "ADAKEEP9" }, { ...context, agent: "trunk:bob-test" }), [], "Bob does not");
 });
+
+test("a fact deleted twice comes back as it was when it last went, not as an earlier life left it", async (t) => {
+  const { app, context } = await fixture(t);
+  const ada = { ...context, agent: "trunk:ada-test" };
+  // Life 1: Ada's scribble reaches revision 3, then goes.
+  const note = await app.registry.execute("memory.put", { text: "Ada's draft ADAKEEP10 a", source: "owner", kind: "task-scratch" }, ada);
+  const r2 = await app.registry.execute("memory.update", { id: note.id, text: "Ada's draft ADAKEEP10 b", source: "owner", expectedRevision: 1 }, ada);
+  await app.registry.execute("memory.update", { id: note.id, text: "Ada's draft ADAKEEP10 c", source: "owner", expectedRevision: r2.revision }, ada);
+  await app.registry.execute("memory.delete", { id: note.id }, ada);
+  // Life 2: back at revision 1, kept for good, then gone again at revision 2.
+  app.store.review.restoreVersion("local", note.id, 1);
+  await app.registry.execute("memory.keep", { id: note.id }, ada);
+  await app.registry.execute("memory.delete", { id: note.id }, ada);
+  app.store.review.restoreVersion("local", note.id, 1);
+  const back = app.store.get("memory", "local", note.id).data;
+  assert.deepEqual({ scope: back.scope, layer: back.layer, promoted: back.promoted }, { scope: "agent:trunk:ada-test", layer: "long-term", promoted: true },
+    "as life 2 left it (kept for good), not as life 1's higher revision did");
+});
+
+test("a fact whose last life was the owner's own comes back the owner's, whoever it belonged to before", async (t) => {
+  const { app, context } = await fixture(t);
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put", { text: "Ada's note ADAKEEP11", source: "owner" }, ada);
+  const r2 = await app.registry.execute("memory.update", { id: hers.id, text: "Ada's note ADAKEEP11 b", source: "owner", expectedRevision: 1 }, ada);
+  await app.registry.execute("memory.update", { id: hers.id, text: "Ada's note ADAKEEP11 c", source: "owner", expectedRevision: r2.revision }, ada);
+  await app.registry.execute("memory.delete", { id: hers.id }, ada);
+  // As a restore before this fix left it: back owner-private at revision 1. The owner then makes it their own and deletes it.
+  app.store.save("memory", "local", hers.id, { text: "Ada's note ADAKEEP11 a", source: "owner" });
+  const mine = await app.registry.execute("memory.update", { id: hers.id, text: "my bank PIN is 7731 ADAKEEP11", source: "owner", expectedRevision: 1 }, context);
+  assert.equal(mine.revision, 2);
+  await app.registry.execute("memory.delete", { id: hers.id }, context);
+  app.store.review.restoreVersion("local", hers.id, 2);
+  assert.equal(app.store.get("memory", "local", hers.id).data.scope, undefined, "it comes back the owner's, private");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "7731" }, ada), [], "and Ada never finds the owner's words");
+});

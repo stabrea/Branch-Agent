@@ -244,8 +244,8 @@ export class MemoryReview {
     const data = version.data as { text: string; source: string; sourceRunId?: string; originRunId?: string };
     const words = { text: data.text, source: data.source, sourceRunId: data.sourceRunId ?? "" };
     // Only the words go back: the fact stays whose it is now, as with any other change. A fact that is gone is whose
-    // it was when it went (its newest kept version, never the revision chosen, which could be wider than that).
-    const now = this.memories.get(owner, memoryId)?.data ?? this.versions(owner, memoryId)[0]?.data;
+    // it was when it went (the last version kept of it, never the revision chosen, which could be wider than that).
+    const now = this.memories.get(owner, memoryId)?.data ?? this.memories.lastKept(owner, memoryId);
     return this.memories.save(owner, memoryId, now && MemoryDataSchema.safeParse(now).success ? reworded(now, words) : words);
   }
   /** Freezes every memory record and every skill's active version so both can be put back exactly. */
