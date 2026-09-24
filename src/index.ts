@@ -556,10 +556,11 @@ export async function createBranch(options: {
   registerOrchestrationModes(registry, runtime, knowledge);
   registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
-  offerSelfDevelopment({
+  const selfDevelopment = {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
-    git: (input, signal) => gitRunner.run(input, signal),
-  });
+    git: (input: import("./integrations/git-run.js").GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal), store,
+  };
+  offerSelfDevelopment(selfDevelopment);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // ── R17-S-C (comfort): the owner's proxy and extra certificates for every call Branch makes, and
   // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──
@@ -1224,6 +1225,7 @@ export async function createBranch(options: {
   // on, once everything above has started as the owner.
   store.profiles.resumeWhereLeft();
   const branch = {
+    selfDevelopment,
     store,
     registry,
     /** R17-S-C: the proxy and certificates in force (src/comfort/network.ts). */

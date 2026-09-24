@@ -1,9 +1,11 @@
 import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import { githubRepositoryOf } from "./pr-hook.js";
-import { startedWithShortLivedKey } from "./key-context.js";
+import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
+import type { Store } from "./store.js";
 import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
 import { explainGit } from "./integrations/git-run.js";
 import type { NetworkPolicy } from "./network-policy.js";
@@ -24,6 +26,57 @@ export interface SelfDevelopmentDeps {
   policy: NetworkPolicy;
   git: (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome>;
   exists?: (path: string) => Promise<boolean>;
+  store?: Store;
+}
+
+const requestSchema = z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict();
+const requestTtl = 24 * 60 * 60 * 1000;
+
+function requests(deps: SelfDevelopmentDeps): Store {
+  if (!deps.store) throw new Error("Source-change requests need the persistent store.");
+  deps.store.sqlite.exec(`CREATE TABLE IF NOT EXISTS branch_source_requests (
+    id TEXT PRIMARY KEY, owner TEXT NOT NULL, run_id TEXT NOT NULL,
+    input TEXT NOT NULL, expires_at INTEGER NOT NULL, status TEXT NOT NULL)`);
+  return deps.store;
+}
+
+export function pendingBranchSourceChanges(deps: SelfDevelopmentDeps): Array<{ id: string; runId: string; name: string; repository: string; base: string; expiresAt: string }> {
+  const store = requests(deps);
+  const rows = store.sqlite.prepare("SELECT id, run_id, input, expires_at FROM branch_source_requests WHERE owner = ? AND status = 'pending' AND expires_at > ? ORDER BY expires_at ASC LIMIT 100")
+    .all(deps.owner, Date.now()) as Array<{ id: string; run_id: string; input: string; expires_at: number }>;
+  return rows.map((row) => ({ id: row.id, runId: row.run_id, ...requestSchema.parse(JSON.parse(row.input)), expiresAt: new Date(row.expires_at).toISOString() }));
+}
+
+export function proposeBranchSourceChange(deps: SelfDevelopmentDeps, raw: unknown, context: ToolContext): { id: string; expiresAt: string; status: string } {
+  const input = requestSchema.parse(raw);
+  const store = requests(deps);
+  if (!context.runId || store.run(context.runId)?.owner !== deps.owner) throw new Error("An owner's recorded run is required for a source-change proposal.");
+  const origin = runOrigin(store, context.runId);
+  if (origin.shortLivedKey || startedWithShortLivedKey()) throw new Error("A short-lived key cannot propose source changes.");
+  if (origin.source !== "channel" || !startedFromChat(context, store)) throw new Error("This proposal tool is for chat-origin work only.");
+  repositoryAddress(input.repository);
+  const id = randomUUID(), expiresAt = Date.now() + requestTtl;
+  store.sqlite.prepare("INSERT INTO branch_source_requests (id, owner, run_id, input, expires_at, status) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(id, deps.owner, context.runId, JSON.stringify(input), expiresAt, "pending");
+  return { id, expiresAt: new Date(expiresAt).toISOString(), status: "pending" };
+}
+
+export async function decideBranchSourceChange(deps: SelfDevelopmentDeps, id: string, decision: "approve" | "deny", signal: AbortSignal): Promise<Record<string, unknown>> {
+  const store = requests(deps);
+  const row = store.sqlite.prepare("SELECT * FROM branch_source_requests WHERE id = ? AND owner = ?").get(id, deps.owner) as
+    { run_id: string; input: string; expires_at: number; status: string } | undefined;
+  if (!row || row.status !== "pending") throw new Error("Source-change request is missing or already answered.");
+  const status = row.expires_at <= Date.now() ? "expired" : decision === "deny" ? "denied" : "approved";
+  // Consume before any asynchronous work, so concurrent approvals cannot start Git twice.
+  if (store.sqlite.prepare("UPDATE branch_source_requests SET status = ? WHERE id = ? AND owner = ? AND status = 'pending'").run(status, id, deps.owner).changes !== 1)
+    throw new Error("Source-change request is already answered.");
+  if (status === "expired") throw new Error("Source-change request has expired.");
+  if (status === "denied") return { id, status };
+  const origin = store.run(row.run_id) && runOrigin(store, row.run_id);
+  if (!origin || origin.source !== "channel" || origin.shortLivedKey) throw new Error("Source-change provenance is no longer valid.");
+  const input = requestSchema.parse(JSON.parse(row.input));
+  repositoryAddress(input.repository);
+  return { id, status, result: await prepareBranchSourceChange(deps, input, signal) };
 }
 
 const present = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
@@ -112,13 +165,24 @@ function registerSelfDevelopment(deps: SelfDevelopmentDeps): void {
     name: toolName,
     permission: "git.remote",
     description: "Prepare a protected, isolated source worktree for changing Branch Agent itself. Use this before requests such as removing a Branch button. It can use the official repository or the owner's GitHub fork, never edits the installed app, and does not open or merge a pull request.",
-    parameters: z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict(),
+    parameters: requestSchema,
     target: (args) => sourceChangeFolder(deps.workspace, String(args.name)),
     execute: (input, context: ToolContext) => {
-      if (startedWithShortLivedKey() || (context.source && context.source !== "owner"))
+      if (startedWithShortLivedKey() || (context.source && context.source !== "owner") ||
+        (deps.store && startedFromChat(context, deps.store)))
         throw new Error("Only the owner in the Branch app can prepare Branch Agent source changes.");
       return prepareBranchSourceChange(deps, input, context.signal);
     },
+  });
+}
+
+function registerProposal(deps: SelfDevelopmentDeps): void {
+  if (!deps.store) return;
+  deps.registry.register({
+    name: "branch.propose_source_change", permission: "branch.propose_source_change",
+    description: "Request owner review in the Branch app before preparing an isolated Branch Agent source worktree. Does not run Git.",
+    parameters: requestSchema,
+    execute: async (input, context: ToolContext) => proposeBranchSourceChange(deps, input, context),
   });
 }
 
@@ -130,6 +194,7 @@ export function offerSelfDevelopment(deps: SelfDevelopmentDeps): () => void {
     if (remote && !offered) registerSelfDevelopment(deps);
     if (!remote && offered) deps.registry.unregister(toolName);
   };
+  if (deps.store) registerProposal(deps);
   sync();
   return deps.registry.onToolsChanged(sync);
 }

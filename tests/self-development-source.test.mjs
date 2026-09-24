@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { offerSelfDevelopment, prepareBranchSourceChange } from "../dist/self-development.js";
+import { offerSelfDevelopment, prepareBranchSourceChange, proposeBranchSourceChange, decideBranchSourceChange, pendingBranchSourceChanges } from "../dist/self-development.js";
+import { Store } from "../dist/store.js";
+import { offLimitsToShortLivedKeys, offLimitsToHousehold } from "../dist/server.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { ToolRegistry } from "../dist/registry.js";
 import { z } from "zod";
 
@@ -66,4 +70,44 @@ test("the self-development tool appears only while remote Git is enabled", () =>
   registry.unregister("git.push");
   assert.equal(registry.names().includes("branch.prepare_source_change"), false);
   stop();
+});
+
+test("chat proposal persists without Git; denial, expiry and replay block preparation", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "branch-source-request-"));
+  const store = new Store(join(folder, "branch.sqlite"));
+  const calls = [];
+  const registry = new ToolRegistry();
+  const deps = { store, workspace: folder, owner: "local", registry,
+    projects: { save: () => {}, setActive: () => {} }, policy: { assertAllowed: async () => {} },
+    exists: async () => true,
+    git: async ({ args }) => { calls.push(args); return completed(args[0] === "remote" ? "https://github.com/stabrea/Branch-Agent.git" : ""); } };
+  registry.register({ name: "git.push", permission: "git.remote", description: "test", parameters: z.object({}), execute: async () => ({}) });
+  const stop = offerSelfDevelopment(deps);
+  const run = store.createRun("local", "proposal", undefined, false, "channel");
+  store.event(run.id, "run.started", { source: "channel" });
+  const input = { name: "proposal", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
+  const context = { runId: run.id, source: "channel", signal: AbortSignal.timeout(30000), permissions: new Set(["git.remote"]), budget: { step: () => {} } };
+  await assert.rejects(registry.execute("branch.prepare_source_change", input, context), /Only the owner/);
+  const first = proposeBranchSourceChange(deps, input, context);
+  assert.equal(first.status, "pending");
+  assert.deepEqual(pendingBranchSourceChanges(deps).map(({ id, name }) => ({ id, name })), [{ id: first.id, name: "proposal" }]);
+  assert.equal(registry.permissionOf("branch.propose_source_change"), "branch.propose_source_change");
+  assert.equal(calls.length, 0);
+  assert.match(offLimitsToShortLivedKeys("POST", "/api/branch/source-change"), /owner/);
+  assert.match(offLimitsToShortLivedKeys("GET", "/api/branch/source-change"), /owner/);
+  assert.ok(offLimitsToHousehold("GET", "/api/branch/source-change"));
+  assert.ok(offLimitsToHousehold("POST", "/api/branch/source-change"));
+  assert.deepEqual(await decideBranchSourceChange(deps, first.id, "deny", context.signal), { id: first.id, status: "denied" });
+  await assert.rejects(decideBranchSourceChange(deps, first.id, "approve", context.signal), /already answered/);
+  assert.equal(calls.length, 0);
+  const expired = proposeBranchSourceChange(deps, input, context);
+  store.sqlite.prepare("UPDATE branch_source_requests SET expires_at = 0 WHERE id = ?").run(expired.id);
+  await assert.rejects(decideBranchSourceChange(deps, expired.id, "approve", context.signal), /expired/);
+  assert.equal(calls.length, 0);
+  const approved = proposeBranchSourceChange(deps, input, context);
+  const result = await decideBranchSourceChange(deps, approved.id, "approve", context.signal);
+  assert.equal(result.status, "approved");
+  assert.ok(calls.some((args) => args[0] === "fetch"));
+  await assert.rejects(decideBranchSourceChange(deps, approved.id, "approve", context.signal), /already answered/);
+  stop(); store.close(); rmSync(folder, { recursive: true, force: true });
 });
