@@ -94,7 +94,7 @@ test("the chat defaults allow only reading and review-only source proposals", ()
 });
 
 test("a Telegram-style chat can file a source proposal without Git privilege", async (t) => {
-  const input = { name: "telegram-request", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
+  const input = { name: "telegram-request", goal: "Let Branch improve its own source safely", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
   const { app } = await fixture(t, (turn, request) => request.messages.at(-1)?.role === "tool"
     ? { content: "Requested.", toolCalls: [] }
     : { content: "", toolCalls: [{ id: `proposal${turn}`, name: "branch.propose_source_change", arguments: JSON.stringify(input) }] });

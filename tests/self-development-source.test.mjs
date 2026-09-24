@@ -85,9 +85,9 @@ test("chat proposal persists without Git; denial, expiry and replay block prepar
   const stop = offerSelfDevelopment(deps);
   const run = store.createRun("local", "proposal", undefined, false, "channel");
   store.event(run.id, "run.started", { source: "channel" });
-  const input = { name: "proposal", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
+  const input = { name: "proposal", goal: "Improve Branch Agent source-change workflow", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
   const context = { runId: run.id, source: "channel", signal: AbortSignal.timeout(30000), permissions: new Set(["git.remote"]), budget: { step: () => {} } };
-  await assert.rejects(registry.execute("branch.prepare_source_change", input, context), /Only the owner/);
+  await assert.rejects(registry.execute("branch.prepare_source_change", { name: input.name, repository: input.repository, base: input.base }, context), /Only the owner/);
   const first = proposeBranchSourceChange(deps, input, context);
   assert.equal(first.status, "pending");
   assert.deepEqual(pendingBranchSourceChanges(deps).map(({ id, name }) => ({ id, name })), [{ id: first.id, name: "proposal" }]);
