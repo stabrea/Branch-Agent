@@ -222,6 +222,7 @@ import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { trunkMode } from "./trunks/settings.js"; // Q153
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
 import { computerPlatforms } from "./trunks/starts-in.js"; // Q44
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
@@ -868,6 +869,8 @@ export async function createBranch(options: {
   const watchTrunks = {
     atWork: () => runtime.trunkAtWork(),
     maySend: (trunkId: string) => {
+      // Q153: nor while Trunks are switched off, as a Trunk's own schedule does not run then (Q146).
+      if (trunkMode(store, runtime.owner, "trunks") === "off") return false;
       try { return runtime.trunkShape({ prompt: "", trunkId })?.permissions.includes("channels.send") ?? false; }
       catch { return false; }
     },
