@@ -399,10 +399,13 @@ export class MemoryProvider implements MemoryBackend {
   }
   private readonly forgetting = new Map<string, Promise<void>>();
   private async forgetNow(owner: string, input: unknown) {
-    const outside = await this.outsideFacts(owner);
+    // The service asked what it keeps is the one its facts are deleted from, even if the owner switches while
+    // this runs: switching afterwards used to send no delete at all, and the facts were reported removed.
+    const service = this.isOutside(owner) ? this.current(owner) : undefined;
+    const outside = await this.outsideFacts(owner, service);
     const { ids, ...result } = this.store.forgetMemory(owner, input, outside.records);
     const held = new Set(outside.records.map((record) => record.id));
-    const notRemoved = await this.forgetOutside(owner, ids.filter((id) => held.has(id)));
+    const notRemoved = await this.forgetOutside(owner, ids.filter((id) => held.has(id)), service);
     const problems = [outside.problem, notRemoved.length ? stillHeld(notRemoved.length) : undefined].filter(Boolean);
     return { ...result, removed: result.removed - notRemoved.length,
       ...(notRemoved.length ? { notRemoved } : {}), ...(problems.length ? { problem: problems.join(" ") } : {}) };
@@ -416,25 +419,25 @@ export class MemoryProvider implements MemoryBackend {
     const notRemoved = await this.forgetOutside(owner, scratch);
     return { cleared: scratch.filter((id) => !notRemoved.some((entry) => entry.id === id)), notRemoved };
   }
-  private async outsideFacts(owner: string): Promise<{ records: MemoryRecord[]; problem?: string }> {
-    if (!this.isOutside(owner)) return { records: [] };
-    try { return { records: await this.list(owner) }; }
+  private async outsideFacts(owner: string, service?: MemoryBackend): Promise<{ records: MemoryRecord[]; problem?: string }> {
+    if (!service && !this.isOutside(owner)) return { records: [] };
+    try { return { records: service ? this.remembered(owner, await service.list(owner)) : await this.list(owner) }; }
     catch (error) {
       return { records: [], problem: `The outside memory service could not be asked what it keeps, so only facts on this computer were included (${error instanceof Error ? error.message : String(error)}).` };
     }
   }
-  private async forgetOutside(owner: string, ids: string[]): Promise<{ id: string; reason: string }[]> {
+  private async forgetOutside(owner: string, ids: string[], service?: MemoryBackend): Promise<{ id: string; reason: string }[]> {
     const notRemoved: { id: string; reason: string }[] = [];
     for (const id of ids) {
       this.markForgotten(owner, id);
-      try { await this.forgetInTurn(owner, id); }
+      try { await this.forgetInTurn(owner, id, service); }
       catch (error) { notRemoved.push({ id, reason: error instanceof Error ? error.message : String(error) }); }
     }
     return notRemoved;
   }
   /** A forget waits for an update or a write of the same fact that is still on its way, so the fact cannot come back after it. */
-  private forgetInTurn(owner: string, id: string): Promise<boolean> {
-    return this.withFactLock(owner, id, () => this.inOrder(owner, id, () => this.current(owner).forget(owner, id)));
+  private forgetInTurn(owner: string, id: string, service?: MemoryBackend): Promise<boolean> {
+    return this.withFactLock(owner, id, () => this.inOrder(owner, id, () => (service ?? this.current(owner)).forget(owner, id)));
   }
   /**
    * Every write and forget of one outside fact goes to the service in the order it was asked for. The queue lives here,

@@ -1323,3 +1323,29 @@ test("a save Branch gave up on is never read back, even when the service applies
   assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), [], "Branch does not find what it said was not saved");
   assert.equal((await app.memory.backend.list("local")).some((r) => r.data.text === "Garage code is 4321"), false);
 });
+
+test("a Forget deletes from the service it asked, even when the owner switches to this computer's memory meanwhile", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root } = await fixture(t, [putting("Owner prefers oat milk"), say("Saved.")]);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const run = await app.runtime.run({ prompt: "remember how I take my coffee" });
+  const post = await served(t, app, root);
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  let listAsked;
+  const asked = new Promise((resolve) => { listAsked = resolve; });
+  double.server.on("request", async (request, response) => {
+    const parts = new URL(request.url, "http://x").pathname.split("/").filter(Boolean);
+    if (request.method === "GET" && parts.length === 2) { listAsked(); await new Promise((resolve) => setTimeout(resolve, 300)); }
+    return answer(request, response);
+  });
+  const forgetting = post("memory/forget", { sessionId: run.sessionId });
+  await asked;
+  await app.memory.backend.configure("local", { mode: "built-in" }); // NAS 728ca5e (switch)
+  const forgotten = await forgetting;
+  assert.equal(forgotten.status, 200);
+  assert.equal(forgotten.data.removed, 1);
+  assert.equal(double.byOwner.get("local").size, 0, "the service it asked was told to delete it");
+});
