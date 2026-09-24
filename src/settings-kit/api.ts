@@ -169,8 +169,14 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   // went, so a field missing from its own place counts as unreadable too.
   const shippedRecord = spec.shipped?.() ?? {};
   // Or the field's own name found deeper inside the record (under a key it does know): the owner's value went there.
-  const buried = (value: unknown, key: string, depth = 0): boolean => depth < 8 && typeof value === "object" && value !== null
-    && Object.entries(value).some(([name, inner]) => (depth > 0 && name === key) || buried(inner, key, depth + 1));
+  // A string holding it (a record saved as text, at any depth of encoding) counts, and so does anything too
+  // deep to look all the way through.
+  const buried = (value: unknown, key: string, depth = 0): boolean => {
+    if (typeof value === "string") return depth > 0 && value.includes(key);
+    if (typeof value !== "object" || value === null) return false;
+    if (depth >= 8) return true;
+    return Object.entries(value).some(([name, inner]) => (depth > 0 && name === key) || buried(inner, key, depth + 1));
+  };
   const strayKey = Object.keys(raw).some((key) => !Object.hasOwn(shippedRecord, key));
   const loosenings: string[] = [];
   for (const field of spec.fields) {

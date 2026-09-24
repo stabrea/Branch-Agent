@@ -456,3 +456,19 @@ test("put-back: a guard found deeper in the record, under a key the record does 
     assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
   }
 });
+
+test("put-back: a guard inside a string under a field, or deeper than the look goes, asks", async (t) => {
+  const { store, owner, call } = await served(t);
+  const text = JSON.stringify({ systemVoice: "on", keepAudioOnThisComputer: true });
+  let deep = { keepAudioOnThisComputer: true };
+  for (let level = 0; level < 12; level++) deep = { inner: deep };
+  for (const record of [{ systemVoice: text }, { autoReadAloud: text }, { sttRoute: JSON.stringify(text) }, { systemVoice: deep }]) {
+    store.save("settings", owner, "voice", record);
+    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.equal(refused.status, 409, `${JSON.stringify(record).slice(0, 80)}: ${JSON.stringify(refused.body)}`);
+    assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
+  }
+  // A plain unreadable value names no guard: no ask.
+  store.save("settings", owner, "voice", { systemVoice: "bogus" });
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200);
+});
