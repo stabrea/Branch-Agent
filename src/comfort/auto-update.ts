@@ -51,9 +51,9 @@ export function updatePlan(store: Pick<Store, "get">, owner: string, facts: Plan
   const now = (facts.now ?? new Date()).getTime();
   const interval = settings.releaseChannel === "stable" ? checkEveryMs : betaCheckEveryMs;
   const due = lastCheckedAt === null || now - Date.parse(lastCheckedAt) >= interval;
-  /* Dev builds Branch on this computer from every merged change, several times an hour: it is only ever offered,
-     never built and restarted by itself, whatever "update by itself" says. */
-  const install = mode === "install" && settings.releaseChannel !== "dev";
+  /* Dev builds Branch on this computer from every merged change (dogfood F1, the owner's decision): with "update by
+     itself" on it is built and installed like any other update, once no task is working, so each fix is seen live. */
+  const install = mode === "install";
   if (install && facts.updaterPhase === "available") {
     if (facts.busyTasks > 0) return plan("nothing", "A newer version is ready; it installs once no task is working.");
     return plan("install", "A newer version is ready and nothing is working, so it is installed now, safely.");

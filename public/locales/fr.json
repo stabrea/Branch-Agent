@@ -4628,7 +4628,7 @@
   "updates.channel.stable": "Version stable",
   "updates.channel.beta": "Bêta",
   "updates.channel.dev": "Dév",
-  "updates.channel.note": "La bêta montre plus tôt les changements acceptés et peut être moins testée. Dév construit sur cet ordinateur chaque changement fusionné, dès qu’il arrive, avant les vérifications complètes : il faut git et Node.js, chaque mise à jour prend quelques minutes, et il ne se met jamais à jour tout seul. Le canal stable reste le choix par défaut. Revenir en arrière n’installe jamais une ancienne version.",
+  "updates.channel.note": "La bêta montre plus tôt les changements acceptés et peut être moins testée. Dév construit sur cet ordinateur chaque changement fusionné, dès qu’il arrive, avant les vérifications complètes : il faut git et Node.js, chaque mise à jour prend quelques minutes, et avec « se mettre à jour tout seul » il installe chaque changement dès qu’aucune tâche ne travaille. Le canal stable reste le choix par défaut. Revenir en arrière n’installe jamais une ancienne version.",
   "updates.build.version": "Version installée",
   "updates.build.commit": "Construite depuis le commit",
   "updates.build.not-recorded": "non enregistré",
