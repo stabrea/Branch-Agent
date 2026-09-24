@@ -108,16 +108,23 @@ const row = (record: Record<string, unknown>): WikiPage => ({
   createdAt: String(record.created_at), updatedAt: String(record.updated_at),
 });
 
+/** The wiki's tables, which a backup carries (src/backup.ts). */
+export const wikiTables = ["wiki_pages", "wiki_history"] as const;
+/** Makes the wiki's tables, so a restore can put pages back before the wiki has ever been opened. */
+export function ensureWikiTables(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS wiki_pages(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
+    title TEXT NOT NULL, same_name TEXT NOT NULL, body TEXT NOT NULL, why TEXT,
+    bytes INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE UNIQUE INDEX IF NOT EXISTS wiki_pages_name ON wiki_pages(owner, same_name);
+    CREATE TABLE IF NOT EXISTS wiki_history(page_id TEXT NOT NULL, owner TEXT NOT NULL,
+      version INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, why TEXT,
+      bytes INTEGER NOT NULL, written_at TEXT NOT NULL, PRIMARY KEY(page_id, version));`);
+}
+
 export class Wiki {
   constructor(private readonly db: DatabaseSync) {
-    db.exec(`CREATE TABLE IF NOT EXISTS wiki_pages(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
-      title TEXT NOT NULL, same_name TEXT NOT NULL, body TEXT NOT NULL, why TEXT,
-      bytes INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE UNIQUE INDEX IF NOT EXISTS wiki_pages_name ON wiki_pages(owner, same_name);
-      CREATE TABLE IF NOT EXISTS wiki_history(page_id TEXT NOT NULL, owner TEXT NOT NULL,
-        version INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, why TEXT,
-        bytes INTEGER NOT NULL, written_at TEXT NOT NULL, PRIMARY KEY(page_id, version));`);
+    ensureWikiTables(db);
   }
 
   /** The page with that name, whatever way it is spelled. */

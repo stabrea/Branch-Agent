@@ -473,3 +473,47 @@ test("one page's approval never names a different page", async (t) => {
   assert.notEqual(app.runtime.checkPolicy("wiki.read", args, context).decision, "allow",
     "an approval for Private must not authorize a distinct page");
 });
+
+test("a backup carries the wiki's pages and what they used to say, and a restore puts them back", async (t) => {
+  const { exportBackup, importBackup } = await import("../dist/backup.js");
+  const first = await branch(t);
+  first.wiki.write(owner, { title: "Garden", body: "Beans in May." });
+  first.wiki.write(owner, { title: "Garden", body: "Beans in June.", why: "a late frost" });
+  const archive = exportBackup(first.app.store.sqlite, "test");
+  assert.equal(archive.tables.wiki_pages?.length, 1);
+  const second = await branch(t);
+  importBackup(second.app.store.sqlite, archive, { replaceExisting: true });
+  assert.equal(second.wiki.find(owner, "Garden")?.body, "Beans in June.");
+  assert.deepEqual(second.wiki.history(owner, second.wiki.find(owner, "Garden").id).map((entry) => entry.body), ["Beans in May."]);
+});
+
+test("a backup from before the wiki still restores", async (t) => {
+  const { exportBackup, importBackup } = await import("../dist/backup.js");
+  const first = await branch(t);
+  const archive = exportBackup(first.app.store.sqlite, "test");
+  delete archive.tables.wiki_pages;
+  delete archive.tables.wiki_history;
+  const second = await branch(t);
+  assert.doesNotThrow(() => importBackup(second.app.store.sqlite, archive, { replaceExisting: true }));
+});
+
+test("one owner's pages are never found, read, searched or linked from another's wiki", async (t) => {
+  const { wiki } = await branch(t);
+  wiki.write("someone-else", { title: "Bank", body: "The PIN is 4417." });
+  wiki.write(owner, { title: "Notes", body: "See [[Bank]]." });
+  assert.equal(wiki.find(owner, "Bank"), undefined);
+  assert.equal(wiki.search(owner, "4417").length, 0);
+  assert.ok(!JSON.stringify(wiki.read(owner, "Notes", { follow: true })).includes("4417"));
+  assert.equal(wiki.count(owner), 1);
+});
+
+test("a restore puts pages back even where the wiki's tables were never made", async (t) => {
+  const { exportBackup, importBackup } = await import("../dist/backup.js");
+  const first = await branch(t);
+  first.wiki.write(owner, { title: "Garden", body: "Beans in June." });
+  const archive = exportBackup(first.app.store.sqlite, "test");
+  const second = await branch(t);
+  second.app.store.sqlite.exec("DROP TABLE wiki_history; DROP TABLE wiki_pages;");
+  importBackup(second.app.store.sqlite, archive, { replaceExisting: true });
+  assert.equal(second.app.store.sqlite.prepare("SELECT body FROM wiki_pages WHERE owner=?").get(owner)?.body, "Beans in June.");
+});
