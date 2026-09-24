@@ -99,14 +99,15 @@ export class TrunkRoutines {
   /**
    * The scheduler's hook: a linked schedule runs as its Trunk and reports back. One that cannot run
    * as its Trunk (the part is switched off, or the Trunk is gone) is refused rather than run as the
-   * owner, whose saved set is wider than the Trunk's.
+   * owner, whose saved set is wider than the Trunk's. A refusal because the part is switched off is
+   * `held`: a repeating routine then waits for its next turn instead of failing this one.
    */
-  route(scheduleId: string, switchedOn = true): { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string } | null {
+  route(scheduleId: string, switchedOn = true): { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string; held?: boolean } | null {
     const link = this.links()[scheduleId];
     if (!link) return null;
     const trunk = this.records.find(link.trunkId);
     if (!trunk) return { refuse: "The Trunk this routine belonged to is gone, so the routine did not run." };
-    if (!switchedOn) return { refuse: "Routines a Trunk owns are switched off, so this routine did not run." };
+    if (!switchedOn) return { refuse: "Routines a Trunk owns are switched off, so this routine did not run.", held: true };
     return { options: { trunkId: trunk.id }, finished: (run) => this.report(trunk.chatSessionId, `Routine "${link.name}": ${run.status === "completed" ? run.output : `it did not finish (${run.status}). ${run.output}`}`) };
   }
   private report(sessionId: string, text: string): void {

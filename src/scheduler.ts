@@ -165,7 +165,7 @@ export class Scheduler {
    * R17-A (Trunks): a schedule a Trunk owns runs as that Trunk, and its result is handed back so it
    * lands in the Trunk's own conversation (src/trunks/routines.ts). Nothing is changed until connected.
    */
-  routeRun: (scheduleId: string) => { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string } | null = () => null;
+  routeRun: (scheduleId: string) => { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string; held?: boolean } | null = () => null;
   /** Why a schedule a Trunk made may not run now (its part switched off), or null; set by src/trunks. */
   trunkHeld: (trunkId: string) => string | null = () => null;
   constructor(
@@ -246,20 +246,25 @@ export class Scheduler {
     return off;
   }
   /**
-   * A repeating schedule a Trunk made waits while Trunks are switched off, as a gated job does while scripts are. The
-   * turn is held, not failed: no failure is counted, so the job is never paused for it. It says why on its health
-   * badge and moves on to its next turn; once Trunks are on again, that turn runs and the badge is cleared.
+   * A repeating schedule a Trunk made waits while Trunks are switched off, as a gated job does while scripts are, and a
+   * repeating routine a Trunk owns waits while routines are (they are off too while Trunks are). The turn is held, not
+   * failed: no failure is counted, so the job is never paused for it. It says why on its health badge and moves on to
+   * its next turn; once the switch is on again, that turn runs and the badge is cleared. A routine whose Trunk is gone
+   * is refused, not held: that turn fails in `execute` and is counted.
    */
   private heldForTrunks(record: SavedRecord, now: Date): boolean {
     const data = record.data;
+    if (!repeating(data)) return false;
+    const routed = this.routeRun(record.id);
     // The schedule itself, as `execute` sees it: a Trunk's routine is routed there instead.
-    const madeBy = typeof data.startedBy === "string" && repeating(data) && !this.routeRun(record.id) ? data.startedBy : null;
-    const held = madeBy ? this.trunkHeld(madeBy) : null;
+    const madeBy = typeof data.startedBy === "string" && !routed ? data.startedBy : null;
+    const held = routed ? ("refuse" in routed && routed.held ? routed.refuse : null) : madeBy ? this.trunkHeld(madeBy) : null;
     if (held) {
       this.store.save("schedules", record.owner, record.id, { ...data, heldBecause: held, dueAt: nextTurn(data, now) });
       return true;
     }
-    if (madeBy && typeof data.heldBecause === "string" && data.heldBecause !== scriptsOff)
+    // Any routine, its Trunk gone too, so an old note never shows "held" on a turn that runs or fails.
+    if ((routed || madeBy) && typeof data.heldBecause === "string" && data.heldBecause !== scriptsOff)
       this.store.save("schedules", record.owner, record.id, { ...data, heldBecause: null });
     return false;
   }
