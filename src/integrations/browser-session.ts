@@ -146,6 +146,8 @@ export class BrowserSession {
    * them itself), so a tab one of them opened is still traced once its opener has gone from Chrome's list.
    */
   private readonly traced = new Set<string>();
+  /** Chrome's ids of Branch's own tabs, kept once read, after the tab closes too: a tab it opened still names it. */
+  private readonly ourSeen = new Set<string>();
   /** Whether a tab's openers lead back to Branch's tab or to a tab traced to it, however many there are. */
   private tracesTo(target: TargetInfo, byId: Map<string, TargetInfo>, ours: Set<string>): boolean {
     const seen = new Set<string>();
@@ -158,6 +160,7 @@ export class BrowserSession {
   /** Chrome's ids of Branch's own tabs. One that cannot be read makes the whole answer unknown, never a smaller set. */
   private async ourTargetIds(): Promise<Set<string>> {
     const ids = await Promise.all(this.pages.map(page => this.targetOf(page)));
+    for (const id of ids) if (id) this.ourSeen.add(id);
     if (ids.some(id => !id)) throw new Error('A tab of ours could not be told apart');
     return new Set(ids);
   }
@@ -182,20 +185,29 @@ export class BrowserSession {
     try { page = route.request().frame().page(); } catch { page = undefined; }
     if (!page && await this.refusesNewTab(route.request())) { await route.abort().catch(() => undefined); return; }
     if (page && await this.isOurs(page)) return this.answerRoute(route);
-    if (page && await this.openedByUs(page)) { await route.abort().catch(() => undefined); return; }
+    // Opened from Branch's tab, or not known either way yet (asked again next time): nothing is sent.
+    if (page && await this.openedByUs(page) !== false) { await route.abort().catch(() => undefined); return; }
     await route.fallback().catch(() => undefined);
   }
-  /** Tabs opened from Branch's tab, or from one of those, asked once each (their opener cannot change). */
-  private readonly openedFromOurs = new WeakMap<Page, Promise<boolean>>();
-  private openedByUs(page: Page): Promise<boolean> {
+  /**
+   * Tabs opened from Branch's tab, or from one of those, asked once each (their opener cannot change). `null` is
+   * "cannot be told right now": it is never kept, so the next request asks again.
+   */
+  private readonly openedFromOurs = new WeakMap<Page, Promise<boolean | null>>();
+  private openedByUs(page: Page): Promise<boolean | null> {
     let known = this.openedFromOurs.get(page);
     if (!known) {
-      known = page.opener().then(
-        async opener => opener ? await this.isOurs(opener) || await this.openedByUs(opener) : this.openerTraced(page),
-        () => false).then(async fromOurs => {
-        if (fromOurs) { const id = await this.targetOf(page); if (id) this.traced.add(id); }
+      const asking: Promise<boolean | null> = page.opener().then(
+        async (opener): Promise<boolean | null> => {
+          if (!opener) return this.openerTraced(page);
+          return await this.isOurs(opener) ? true : this.openedByUs(opener);
+        },
+        () => null).then(async fromOurs => {
+        if (fromOurs === true) { const id = await this.targetOf(page); if (id) this.traced.add(id); }
+        if (fromOurs === null && this.openedFromOurs.get(page) === asking) this.openedFromOurs.delete(page);
         return fromOurs;
       });
+      known = asking;
       this.openedFromOurs.set(page, known);
     }
     return known;
@@ -204,24 +216,28 @@ export class BrowserSession {
    * A tab with no opener Playwright still knows: its opener may be a traced tab already closed, which Chrome
    * still names as its opener. Asked of Chrome only then, once per tab.
    */
-  private async openerTraced(page: Page): Promise<boolean> {
-    if (!this.traced.size || !this.context) return false;
+  private async openerTraced(page: Page): Promise<boolean | null> {
+    if ((!this.traced.size && !this.ourSeen.size) || !this.context) return false;
     try {
       const id = await this.targetOf(page);
+      if (!id) return null;
       this.browserSession ??= await this.context.browser()!.newBrowserCDPSession();
       const { targetInfos } = await this.browserSession.send('Target.getTargets') as { targetInfos: TargetInfo[] };
       const target = targetInfos.find(each => each.targetId === id);
       if (!target) return false;
       const byId = new Map(targetInfos.map(each => [each.targetId, each]));
-      // Traced tabs are asked first: a tab of ours whose id cannot be read then leaves this answer as it is.
-      return this.tracesTo(target, byId, new Set()) || this.tracesTo(target, byId, await this.ourTargetIds());
+      // Traced tabs and Branch's own tabs already known are asked first, so a tab of ours whose id cannot be read
+      // (Chrome names Branch's own closed tab as the opener once the tab between them closes) leaves this answer.
+      if (this.tracesTo(target, byId, this.ourSeen)) return true;
+      const ours = await this.ourTargetIds().catch(() => null);
+      return ours ? this.tracesTo(target, byId, ours) : null;
     } catch {
-      return false;
+      return null;
     }
   }
   private async closeTabWeOpened(page: Page): Promise<void> {
     if (await this.isOurs(page)) return;
-    if (await this.openedByUs(page)) await page.close().catch(() => undefined);
+    if (await this.openedByUs(page) === true) await page.close().catch(() => undefined);
   }
   /**
    * Whether a page is one the assistant asked for. While one is being made, the page that making it
@@ -249,6 +265,8 @@ export class BrowserSession {
     // In the owner's own browser the website list reaches this tab through the window's route
     // (openBorrowed). What follows only keeps new tabs from opening at all, which saves closing them.
     if (this.borrowed) {
+      // Its id is read now, so a tab it opens can be traced to it even after it closes (ourSeen).
+      void this.targetOf(page).then(id => { if (id) this.ourSeen.add(id); });
       // In the owner's own browser a tab this one opens cannot be stopped after the fact: its first
       // request is in flight before any guard can be put on it, and it was reaching websites they
       // never allowed. So it is stopped at the source, on Branch's tab alone: a window this page
@@ -481,7 +499,7 @@ export class BrowserSession {
       // Only Branch's own tabs go, and the tabs they opened; the window's route comes off only after, so nothing they
       // open on the way out goes unrefused. The owner's tabs are left as they were.
       for (const page of this.pages) await page.close().catch(() => undefined);
-      for (const page of this.context?.pages() ?? []) if (await this.openedByUs(page)) await page.close().catch(() => undefined);
+      for (const page of this.context?.pages() ?? []) if (await this.openedByUs(page) === true) await page.close().catch(() => undefined);
       await this.context?.unroute('**/*', this.borrowedRoute).catch(() => undefined);
       await this.browserSession?.detach().catch(() => undefined);
       await this.options.attached?.detach();
