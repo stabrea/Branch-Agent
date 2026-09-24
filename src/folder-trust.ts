@@ -249,11 +249,13 @@ export function folderAllows(store: Store, owner: string, path: string, holdsSom
 
 /**
  * Whether the launch's integrations file may be used at all. Only a file that sits inside the
- * workspace is a folder's own; one elsewhere is the owner's. A file that is itself a link is judged
+ * workspace is a folder's own; one elsewhere, reached without going through the workspace, is the
+ * owner's. A file that is itself a link is judged
  * both where it is written and where it really is, and counts only when both may be used: a link
  * outside the workspace to a file in a folder the owner has not trusted is still that folder's file,
  * and a link inside such a folder is still that folder's, wherever it points. A path written inside
- * the workspace that a folder link leads out of it is judged where it leads, with no decision there. `platform` is for
+ * the workspace that a link (to a folder or a file) leads out of it is judged where it leads, with no
+ * decision there, so it is refused even from a trusted folder. `platform` is for
  * tests, as in `folderTrust`.
  */
 export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string,

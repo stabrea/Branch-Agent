@@ -424,3 +424,19 @@ test("Q89.11: a repository inside a folder the owner distrusts stays distrusted,
   await mkdir(join(workspace, "work", "clone", ".git"), { recursive: true });
   assert.equal(folderTrust(app.store, owner, join(workspace, "work", "clone")), "untrusted");
 });
+
+test("Q89.12: a file link in a trusted folder to the owner's own file outside the workspace is not used",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  decideFolder(app.store, owner, workspace, { folder: "mine", decision: "trust" });
+  const elsewhere = await mkdtemp(join(tmpdir(), "branch-q89-owner-"));
+  t.after(() => discardTemp(elsewhere));
+  await writeFile(join(elsewhere, "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await mkdir(join(workspace, "mine"), { recursive: true });
+  const link = join(workspace, "mine", "integrations.json");
+  await symlink(join(elsewhere, "integrations.json"), link);
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(elsewhere, "integrations.json")), true,
+    "the owner's file named directly is the owner's");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, link), false,
+    "reached through the workspace, it has no decision where it leads");
+});
