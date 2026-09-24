@@ -63,6 +63,7 @@ const routes = {
   '/opens-formtarget': page(`<form id="f" method="GET"><button id="b" type="submit" formtarget="_blank">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.requestSubmit(document.getElementById("b"));</script>`),
   // Links the window never sees clicked: one never put in the document, and one inside a closed shadow root.
   '/opens-detached': page(`<script>const a=document.createElement("a");a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.rel="noopener";a.click();</script>`),
+  '/opens-detached-dispatch': page(`<script>const a=document.createElement("a");a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}));</script>`),
   '/opens-shadow': page(`<div id="h"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="x";a.dispatchEvent(new MouseEvent("click",{bubbles:true,composed:true}));</script>`),
   // A link filling a closed shadow root, clicked for real by pressing its host.
   '/opens-shadow-click': page(`<div id="h" style="display:block;width:160px;height:48px"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="Open";a.style.cssText="display:block;width:160px;height:48px";</script>`),
@@ -322,7 +323,7 @@ test("in the owner's own browser, a tab Branch opens reaches nothing and is not 
     // escaping before this (NAS b7f2560): each one opens here or not at all, and reaches nothing.
     let opened = 0;
     owned.on('page', () => { opened += 1; });
-    for (const where of ['opens-base', 'opens-area', 'opens-formtarget', 'opens-detached', 'opens-shadow']) {
+    for (const where of ['opens-base', 'opens-area', 'opens-formtarget', 'opens-detached', 'opens-detached-dispatch', 'opens-shadow']) {
       await h.registry.execute('browser.navigate', {url: `${h.origin}/${where}?to=${encodeURIComponent(elsewhere)}`}, context);
       await new Promise(resolve => { setTimeout(resolve, 2500); });
       assert.equal(forbiddenHits, 0, `nor by ${where}`);
