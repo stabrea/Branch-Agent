@@ -243,3 +243,38 @@ for (const [who, first] of [["another Trunk's", "Ada"], ["the owner's", "owner"]
     await app.runtime.run({ prompt: "hello again", sessionId });
     assert.doesNotMatch(JSON.stringify(provider.requests.at(-1).messages), new RegExp(secretSnap), `${next.name} is not shown it`);
   });
+
+test("the reviewer of a Trunk's answer sees only what that Trunk remembers, and hands back nothing else", async (t) => {
+  const { saveOrchestrationSettings } = await import("../dist/orchestration.js");
+  const seen = [];
+  const { app, provider } = await fixture(t, [({ system, last }) => {
+    if (!/You review a finished answer/.test(system)) return null;
+    seen.push(String(last?.content ?? ""));
+    // A reviewer that quotes what it was shown, so anything it saw would reach the Trunk's own model too.
+    return seen.length === 1 ? JSON.stringify({ verdict: "revise", fixes: [`mention: ${seen[0].replace(/\s+/g, " ").slice(0, 1500)}`] })
+      : JSON.stringify({ verdict: "accept", fixes: [] });
+  }, ({ last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    if (text.startsWith("remember ")) return call("memory.put", { text: text.slice("remember ".length), source: "me" });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? "Done." : null)]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+  for (const trunk of [ada, bo]) app.trunks.edit(trunk.id, { permissions: ["memory.read", "memory.write"] });
+  await app.trunks.introduced();
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  await app.trunks.say(bo.id, "remember zebra Bo BOSECRET7714");
+  await app.trunks.say(ada.id, "remember zebra Ada ADAOWN5150");
+  saveOrchestrationSettings(app.store, app.runtime.owner, { verify: true });
+  seen.length = 0;
+  const before = provider.requests.length;
+  // A new conversation with Ada, so her snapshot is taken now that the facts exist.
+  const { sessionId } = app.trunks.startConversation({ trunkId: ada.id });
+  await app.runtime.run({ prompt: "how is the zebra", sessionId });
+  assert.ok(seen.length >= 1, "the reviewer looked at Ada's answer");
+  assert.doesNotMatch(seen[0], /OWNERPRIV3391|BOSECRET7714/, "the reviewer is shown only Ada's memory");
+  assert.match(seen[0], /ADAOWN5150/, "including Ada's own fact");
+  const handed = provider.requests.slice(before).filter((request) => !/You review a finished answer/.test(request.messages.map((m) => m.content).join("\n")));
+  assert.doesNotMatch(JSON.stringify(handed.map((request) => request.messages)), /OWNERPRIV3391|BOSECRET7714/, "nor does Ada's own model get it back");
+});
