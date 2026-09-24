@@ -167,3 +167,18 @@ test("the owner's own watch still sends its news to a chat", async (t) => {
   await app.scheduler.tick(inMinutes(10));
   assert.deepEqual((await reached(chat, "OWNERS7807")).map((one) => one.chatId), ["friend-1"], JSON.stringify(chat.sent));
 });
+
+test("Q153: a Trunk's chat watch keeps its news in the app while Trunks are switched off", async (t) => {
+  const { app, chat, page, owner, said } = await setup(t, ["monitors.manage", "monitors.read", "channels.send"]);
+  const id = idOf(await said("watch"));
+  app.trunks.setMode("trunks", { mode: "off" });
+  page.text = "line B OFFWATCH7901";
+  const result = await app.monitors.check(owner, id, new Date());
+  assert.match(String(result.held), heldReason, JSON.stringify(result));
+  assert.deepEqual(await reached(chat, "OFFWATCH7901"), [], "nothing reached the chat");
+  // Switched on again, the next change goes to its chat as before.
+  app.trunks.setMode("trunks", { mode: "on" });
+  page.text = "line C ONWATCH7906";
+  await app.monitors.check(owner, id, new Date());
+  assert.equal((await reached(chat, "ONWATCH7906")).length, 1);
+});
