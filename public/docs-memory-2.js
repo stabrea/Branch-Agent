@@ -3,6 +3,7 @@
  * other. In Memory: one button that runs every tidying check at once and says plainly how the saved
  * facts are made up. Nothing here removes anything; tidying only ever makes suggestions.
  */
+import { t } from "./i18n.js";
 import { api } from "/app.js";
 
 const $ = (id) => document.getElementById(id);
@@ -18,8 +19,8 @@ const short = (text, max = 120) => (String(text).length > max ? String(text).sli
 async function askDocument() {
   const file = $("document-ask-file").value.trim(), question = $("document-ask-question").value.trim();
   const out = $("document-ask-result");
-  if (!file || !question) { out.textContent = "Give a file and a question."; return; }
-  out.textContent = "Reading it…";
+  if (!file || !question) { out.textContent = t("docs.status.fileAndQuestion"); return; }
+  out.textContent = t("docs.status.reading");
   try {
     const result = await api("tools/try", { name: "documents.analyse", input: { file, question } });
     const answer = result.result ?? result;
@@ -33,8 +34,8 @@ async function askDocument() {
 async function compareDocuments() {
   const file = $("document-compare-a").value.trim(), against = $("document-compare-b").value.trim();
   const out = $("document-compare-result");
-  if (!file || !against) { out.textContent = "Give both files."; return; }
-  out.textContent = "Comparing them…";
+  if (!file || !against) { out.textContent = t("docs.status.bothFiles"); return; }
+  out.textContent = t("docs.status.comparing");
   try {
     const result = await api("tools/try", { name: "documents.compare", input: { file, against } });
     const answer = result.result ?? result;
@@ -49,7 +50,7 @@ async function compareDocuments() {
 /** Every tidying check at once, with the counts behind them. Nothing is changed. */
 async function tidyEverything(stage) {
   const out = $("memory-tidy-all-result");
-  out.textContent = stage ? "Turning what it found into suggestions…" : "Looking…";
+  out.textContent = stage ? t("docs.status.suggesting") : t("docs.status.looking");
   try {
     const report = stage ? await api("memory/tidy/all", { stage: true }) : await api("memory/tidy/all");
     out.replaceChildren();

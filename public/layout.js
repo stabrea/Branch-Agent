@@ -555,7 +555,8 @@ function buildSettings() {
   backBtn.append(icon("back"));
   backBtn.append(document.createTextNode("Back to Branch"));
   const escKbd = make("kbd");
-  escKbd.textContent = "Esc";
+  // A French keyboard says Échap on that key, so this is a word to translate and not a key code.
+  escKbd.textContent = say("layout.escKey", "Esc");
   backBtn.append(escKbd);
   backBtn.addEventListener("click", closeSettings);
   nav.append(backBtn);
@@ -659,7 +660,7 @@ function buildModelTabs() {
   const page = $("lx-page-models");
   const tabs = make("div", "lx-subtabs");
   tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "Models");
+  tabs.setAttribute("aria-label", say("layout.modelTabs", "Models"));
   page.append(tabs);
   for (const [id, key, english] of MODEL_TABS) {
     const trigger = button("lx-subtab", key, english);
@@ -1643,7 +1644,7 @@ async function probeServer() {
   const lost = misses >= 2;
   const chip = $("connection");
   if (lost) chip.textContent = say("server.lost", "Branch stopped responding");
-  else if (chip.dataset.state === "lost") chip.textContent = "Connected";
+  else if (chip.dataset.state === "lost") chip.textContent = say("layout.connected", "Connected");
   chip.dataset.state = lost ? "lost" : "ok";
   $("lx-restart").hidden = !lost;
 }

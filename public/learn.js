@@ -10,6 +10,7 @@
  * button beside it, so nothing on this card needs a mouse to be usable and everything can be named.
  * Under about 520 px the picture gives way to a plain list, so the page never scrolls sideways.
  */
+import { t } from "./i18n.js";
 import { api } from "/app.js";
 
 const $ = (id) => document.getElementById(id);
@@ -28,7 +29,7 @@ const ask = () => ({
 /** What it would cost, before a button that spends anything is pressed. */
 async function showCost() {
   const out = $("learn-cost-result");
-  out.textContent = "Working it out…";
+  out.textContent = t("learn.status.workingOut");
   try {
     const answer = await api("learn/cost", ask());
     out.replaceChildren(el("p", answer.map.summary), el("p", answer.tour.summary));
@@ -37,7 +38,7 @@ async function showCost() {
 
 async function buildMap() {
   const out = $("learn-map-result");
-  out.textContent = "Building it…";
+  out.textContent = t("learn.status.building");
   try {
     const answer = await api("learn/map", { subject: $("learn-subject").value, of: $("learn-of").value.trim() });
     out.replaceChildren();
@@ -112,7 +113,7 @@ let tour = null, at = 0;
 
 async function startTour() {
   const out = $("learn-tour-result");
-  out.textContent = "Working out the stops…";
+  out.textContent = t("learn.status.tourStops");
   try {
     tour = await api("learn/tour", ask());
     at = 0;

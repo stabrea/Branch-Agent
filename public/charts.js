@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * A chart drawn in the page, from a fenced `chart` block in a reply or from a picture the data
  * tools already made. Bars, a line or a pie; the number under the pointer is written out, the same
@@ -175,15 +176,19 @@ export function drawChart(source) {
   const table = chartTable(chart);
   table.hidden = true;
   const row = el("div", undefined, "chart-actions");
-  const toggle = el("button", "Show the numbers", "quiet");
+  const toggle = el("button", t("charts.action.showNumbers"), "quiet");
+  toggle.dataset.t = "charts.action.showNumbers";
   toggle.type = "button";
   toggle.setAttribute("aria-expanded", "false");
   toggle.addEventListener("click", () => {
     table.hidden = !table.hidden;
-    toggle.textContent = table.hidden ? "Show the numbers" : "Show the chart only";
+    // The key changes with the state, so a later language change writes the right one.
+    toggle.dataset.t = table.hidden ? "charts.action.showNumbers" : "charts.action.chartOnly";
+    toggle.textContent = t(toggle.dataset.t);
     toggle.setAttribute("aria-expanded", String(!table.hidden));
   });
-  const save = el("button", "Save as a picture", "quiet");
+  const save = el("button", t("charts.action.savePicture"), "quiet");
+  save.dataset.t = "charts.action.savePicture";
   save.type = "button";
   save.addEventListener("click", async () => {
     try {
@@ -192,7 +197,7 @@ export function drawChart(source) {
       link.href = png;
       link.download = `${chart.title.replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "chart"}.png`;
       link.click();
-      reading.textContent = "Saved as a picture.";
+      reading.textContent = t("charts.status.savedPicture");
     } catch (error) { reading.textContent = error.message; }
   });
   row.append(toggle, save);
