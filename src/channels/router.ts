@@ -7,6 +7,7 @@ import type { Runtime } from "../runtime.js";
 import type { PolicyRemember } from "../policy.js";
 import { Deliveries } from "./deliveries.js";
 import { audit } from "../audit.js";
+import { maxArtifactBytes } from "../artifacts.js";
 import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
@@ -48,6 +49,7 @@ export interface InboundMessage {
    * A voice note, when the person sent one instead of typing. The bytes are fetched only if the
    * message gets as far as being answered, so a stranger cannot make Branch download anything.
    */
+  attachments?: { name: string; sourceId: string; mediaType: string; kind: "picture" | "video" | "document"; size?: number; bytes: () => Promise<Uint8Array> }[];
   voice?: {
     mediaType: string;
     seconds?: number | undefined;
@@ -754,8 +756,31 @@ export class ChannelRouter {
         await this.deliver(message.channel, message.chatId, trunkRefusal, `trunk-reach:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
         return "rejected";
       }
+      const images: { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name: string }[] = [];
+      const files: string[] = [];
+      for (const inbound of turn.messages) for (const attachment of inbound.attachments ?? []) {
+        if (attachment.size !== undefined && attachment.size > maxArtifactBytes) {
+          await live?.finish("error");
+          await this.deliver(message.channel, message.chatId, `That file is larger than ${maxArtifactBytes / 1024 / 1024} MB, so it was not used`,
+            `file-size:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+          return "failed";
+        }
+        const bytes = await attachment.bytes();
+        if (attachment.kind === "picture" && ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(attachment.mediaType)) {
+          if (bytes.byteLength > 5 * 1024 * 1024) throw new Error("Telegram picture exceeds the runtime's 5 MB picture limit");
+          images.push({ mediaType: attachment.mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: Buffer.from(bytes).toString("base64"), name: attachment.name });
+        } else {
+          if (!this.runtime.artifacts) throw new Error("Runtime artifact storage is unavailable");
+          const safe = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48).replace(/^[^a-zA-Z0-9]+/, "") || "file";
+          // A forum topic's chat is "<group>:<topic>", and a stored file's folder takes only letters, digits, dots, dashes
+          // and underscores. The sign stays, so a group and a person whose ids differ only by it keep separate folders.
+          const cleanedChatId = message.chatId.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const artifact = await this.runtime.artifacts.write(`inbound-${message.channel}-${cleanedChatId}`, `${message.messageId}-${attachment.sourceId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}-${safe}`, attachment.mediaType, Buffer.from(bytes));
+          files.push(`${safe}: ${artifact.path}`);
+        }
+      }
       const run = await this.runtime.run({
-        prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(message),
+        prompt: [heard.prompt, ...files.map((file) => `[attached file: ${file}]`)].filter(Boolean).join("\n") || "Please inspect the attached picture.", ...(images.length ? { images } : {}), ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(message),
         // A chat cannot prove who is typing, so its task is never the owner's own (see RunSource).
         source: "channel",
         onStarted: (started) => {

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { chromium, type Browser, type Download, type Page, type Route } from 'playwright';
+import { chromium, type Browser, type Download, type Page } from 'playwright';
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import type { ToolContext } from '../contracts.js';
 import type { RunArtifacts } from '../artifacts.js';
-import { BrowserSession, type DownloadRecord } from './browser-session.js';
+import { BrowserSession, type BrowserRequest, type DownloadRecord } from './browser-session.js';
 import { BrowserProfiles, profileNameSchema, type StorageState } from './browser-profiles.js';
 import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, safeDownloadName, screenshot, waitFor } from './browser-page.js';
 import { AnnotateSchema, MarkRegistry, annotate, clearMarks, liveMarkKey } from './browser-marks.js';
@@ -95,6 +95,9 @@ export interface BrowserTracer {
     { end(status: 'ok' | 'error', message?: string, attributes?: Record<string, string | number | boolean>): void } | null;
 }
 
+/** How many times in a row a site may send the browser onwards before it is simply refused. */
+export const redirectHops = 5;
+
 export class BranchBrowser {
   private browser: Browser | undefined;
   private starting: Promise<Browser> | undefined;
@@ -140,15 +143,23 @@ export class BranchBrowser {
       return this.origins.has(origin) || (!!entry?.granted && entry.granted === origin);
     } catch { return false; }
   }
-  private async route(request: Route, entry?: RunEntry): Promise<void> {
-    if (!this.allowed(request.request().url(), entry)) { await request.abort(); return; }
-    try {
-      const response = await request.fetch({ maxRedirects: 0, timeout: 10000 });
-      try {
-        if (response.status() >= 300 && response.status() < 400) { await request.abort(); return; }
-        await request.fulfill({ response });
-      } finally { await response.dispose(); }
-    } catch { await request.abort().catch(() => undefined); }
+  /** Checks Chromium's actual request, including each redirect destination, before it is sent. */
+  private async guardRequest(request: BrowserRequest, entry?: RunEntry): Promise<void> {
+    if (!this.allowed(request.url, entry)) throw new Error('Browser destination is not an allowed origin');
+    // Playwright says 'document' and Chromium's pause says 'Document'; both are the same navigation.
+    if (request.resourceType.toLowerCase() !== 'document') return;
+    const target = new URL(request.url);
+    if (entry?.granted !== target.origin)
+      await this.policy?.assertAllowed(target, 'browser address');
+    // How many different websites a task may visit is charged here, where every real navigation
+    // passes — including the ones a site sends the browser to. Charging it only where an address is
+    // typed meant going straight to a second website was refused and being *sent* there was not, so a
+    // chain of redirects could walk a task across every allowed website for the price of one.
+    // `Document` is the boundary: a page fetching a picture from a CDN it was allowed is not the task
+    // visiting a website, and counting those would refuse ordinary pages.
+    if (!entry || entry.origins.has(target.origin)) return;
+    if (entry.origins.size >= this.config.maxOriginsPerRun) throw new Error(originStop(this.config.maxOriginsPerRun));
+    entry.origins.add(target.origin);
   }
   private async launch(): Promise<Browser> {
     const env = Object.fromEntries(['PATH', 'SystemRoot', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME']
@@ -173,7 +184,7 @@ export class BranchBrowser {
     // w911 (A2019) hook: the sandbox decides per task at first launch; null keeps the local launch below.
     const session: BrowserSession = new BrowserSession(
       () => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()),
-      route => this.route(route, created));
+      request => this.guardRequest(request, created), redirectHops);
     session.options.saveDownload = download => this.saveDownload(download);
     session.options.dialogAnswer = () => this.care(context.owner).dialogs; // R17-S19
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };

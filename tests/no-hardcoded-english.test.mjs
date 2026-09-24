@@ -17,7 +17,7 @@ const pub = join(root, "public");
  * in a ternary, a `||` or a concatenation -- on the right of `.textContent`, `.innerText`,
  * `.placeholder` or `.title` =, inside `confirm(...)` or `alert(...)`, or as the value of
  * `setAttribute("aria-label" | "title" | "placeholder", ...)`. The English fallback handed to
- * `t()`, `say()` or `words()` is not an offender: those look the words up first.
+ * `t()`, `say()`, `sayWith()` or `words()` is not an offender: those look the words up first.
  *
  * Not covered: text passed to a file's own helpers (`button("Read it again", ...)`). There is no way
  * to tell from here which helper arguments reach the screen.
@@ -35,7 +35,7 @@ const LIT = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\`(?:[^\`\\]|\
 /** Where visible words start: an assignment (not a `===` comparison), a dialog, or a spoken attribute. */
 const SHOWN = /\.(?:textContent|innerText|placeholder|title)\s*=(?!=)|\b(?:confirm|alert)\(|setAttribute\(\s*["'](?:aria-label|title|placeholder)["']\s*,/g;
 /** A translation call's English fallback: looked up first, so not an offender. */
-const FALLBACK = new RegExp(String.raw`\b(?:t|say|words)\(\s*[^,()]+,\s*${LIT}`, "g");
+const FALLBACK = new RegExp(String.raw`\b(?:t|say|sayWith|words)\(\s*[^,()]+,\s*${LIT}`, "g");
 /** The statement's literals, up to the first `;` outside quotes -- a ternary may run over several lines. */
 const TOKEN = new RegExp(String.raw`${LIT}|;`, "g");
 /** A capital word then a lower-case one ("Saved as"), or one capital word ending a sentence ("Saved."). */
@@ -89,6 +89,7 @@ test("the guard catches every way a sentence reaches the page, and lets a looked
     'status.textContent = t("x.saved");',
     'status.textContent = say("x.saved", "Saved. It applies to your next task.");',
     'name.textContent = words("x.named", `Continue with ${label}`, { name: label });',
+    'status.textContent = sayWith("x.back", "Brought back {count} items.", { count: rows });',
     "version.textContent = `Branch Agent ${version}`;",
     'if (node.textContent === "Read it again") go();',
     'cell.textContent = item.name;',

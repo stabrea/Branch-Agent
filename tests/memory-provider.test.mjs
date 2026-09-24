@@ -1525,6 +1525,91 @@ test("a Trunk's delete of its own fact goes to the service it was found on, even
   assert.equal(double.byOwner.get("local").has(hers.id), false, "it is gone from the service it was on");
 });
 
+/**
+ * Changes a fact kept on the outside service while one of the change's reads of it is held there: `meanwhile` runs
+ * during that read, then the read is let through. `read` says which read of the fact to hold (1 is the first). Answers
+ * "saved", or the message the change was refused with.
+ */
+async function changeWhileRead(app, double, fact, who, read, meanwhile) {
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  let reads = 0, arrived, release;
+  const got = new Promise((resolve) => { arrived = resolve; });
+  const hold = new Promise((resolve) => { release = resolve; });
+  double.server.on("request", async (request, response) => {
+    if (request.method === "GET" && request.url.endsWith(`/${fact.id}`) && ++reads === read) { arrived(); await hold; }
+    return answer(request, response);
+  });
+  const changing = app.registry.execute("memory.update",
+    { id: fact.id, text: `${fact.data.text}, changed`, source: "owner", expectedRevision: fact.revision }, who);
+  await got;
+  await meanwhile();
+  release();
+  const outcome = await changing.then(() => "saved", (error) => String(error?.message ?? error));
+  double.server.removeAllListeners("request");
+  double.server.on("request", answer);
+  return outcome;
+}
+
+for (const to of ["this computer's memory", "another outside service"]) {
+  test(`a Trunk's change to its own outside fact is refused, and saved nowhere, when the owner switches to ${to} while it is read`, async (t) => {
+    const double = memoryDouble(), other = memoryDouble();
+    const [base, otherBase] = [await double.listen(), await other.listen()];
+    t.after(() => Promise.all([double.close(), other.close()]));
+    const { app, context } = await fixture(t);
+    await app.memory.backend.configure("local", { mode: "outside", url: base });
+    const ada = { ...context, agent: "trunk:ada-test" };
+    const hers = await app.registry.execute("memory.put", { text: "Ada's bike lock code is 2211 ADAMOVE1", source: "owner" }, ada);
+    const sent = double.requests.length;
+    // Her change reads the fact twice: first to see that it is hers, then under the fact's lock. The second read is held.
+    const outcome = await changeWhileRead(app, double, hers, ada, 2,
+      () => app.memory.backend.configure("local", to === "another outside service" ? { url: otherBase } : { mode: "built-in" }));
+    assert.match(outcome, /changed since you opened it/i, "the change is refused, not reported as saved");
+    assert.equal(double.requests.slice(sent).some((request) => request.method === "PUT"), false, "nothing is sent to the service it was read from");
+    const kept = double.byOwner.get("local").get(hers.id);
+    assert.deepEqual([kept.data.text, kept.revision], [hers.data.text, hers.revision], "which keeps the fact as it was");
+    assert.equal(app.store.get("memory", "local", hers.id), undefined, "this computer's memory has no copy of it");
+    assert.equal(other.requests.some((request) => request.method === "PUT"), false, "and neither has the other service");
+  });
+}
+
+test("the owner's change to an outside fact is refused, and saved nowhere, when the owner switches to this computer's memory while it is read", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const mine = await app.registry.execute("memory.put", { text: "The spare key is under the blue pot OWNMOVE1", source: "owner" }, context);
+  const sent = double.requests.length;
+  // The owner's change reads the fact once, under the fact's lock. That read is held.
+  const outcome = await changeWhileRead(app, double, mine, context, 1, () => app.memory.backend.configure("local", { mode: "built-in" }));
+  assert.match(outcome, /changed since you opened it/i, "the change is refused, not reported as saved");
+  assert.equal(double.requests.slice(sent).some((request) => request.method === "PUT"), false, "nothing is sent to the service it was read from");
+  const kept = double.byOwner.get("local").get(mine.id);
+  assert.deepEqual([kept.data.text, kept.revision], [mine.data.text, mine.revision], "which keeps the fact as it was");
+  assert.equal(app.store.get("memory", "local", mine.id), undefined, "and this computer's memory has no copy of it");
+});
+
+test("with nothing switched while it is read, a Trunk's and the owner's changes to outside facts are saved there, keeping scope and layer", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put", { text: "Ada's bike lock code is 2211 ADASTAY1", source: "owner" }, ada);
+  const mine = await app.registry.execute("memory.put", { text: "The spare key is under the blue pot OWNSTAY1", source: "owner" }, context);
+  assert.equal(await changeWhileRead(app, double, hers, ada, 2, async () => {}), "saved", "her change is saved");
+  assert.equal(await changeWhileRead(app, double, mine, context, 1, async () => {}), "saved", "the owner's change is saved");
+  const stored = (id) => double.byOwner.get("local").get(id);
+  const shown = (record) => ({ text: record.data.text, scope: record.data.scope, layer: record.data.layer, revision: record.revision });
+  assert.deepEqual(shown(stored(hers.id)), { text: "Ada's bike lock code is 2211 ADASTAY1, changed", scope: "agent:trunk:ada-test", layer: "long-term", revision: hers.revision + 1 },
+    "her fact is changed on the service, and is still hers");
+  assert.deepEqual(shown(stored(mine.id)), { text: "The spare key is under the blue pot OWNSTAY1, changed", scope: undefined, layer: "long-term", revision: mine.revision + 1 },
+    "the owner's fact is changed on the service, and is still the owner's");
+  assert.equal(app.store.get("memory", "local", hers.id) ?? app.store.get("memory", "local", mine.id), undefined, "and nothing is saved on this computer");
+});
+
 /** What a changed fact must keep: everything about it but its words. */
 const keptOf = (data) => ({ scope: data.scope, layer: data.layer, entity: data.entity, attribute: data.attribute, project: data.project });
 
@@ -1618,4 +1703,21 @@ test("a memory suggestion cannot choose whose fact it is: only memory.put's own 
   await app.store.review.decide("local", made.id, true);
   const found = app.store.list("memory", "local").filter((record) => record.data.text === "Planted PLANT6");
   assert.equal(found[0]?.data.scope, undefined, "it is saved as the owner's, never as a Trunk's");
+});
+
+test("on an outside memory service, a Trunk's change keeps what its fact is about and how long it lasts, not only whose it is", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put",
+    { text: "Ada's car is serviced in May ADAKEEP7", source: "owner", entity: "car", attribute: "service month", project: "garage" }, ada);
+  const stored = () => double.byOwner.get("local").get(hers.id).data;
+  const before = keptOf(stored());
+  assert.deepEqual(before, { scope: "agent:trunk:ada-test", layer: "long-term", entity: "car", attribute: "service month", project: "garage" });
+  await app.registry.execute("memory.update", { id: hers.id, text: "Ada's car is serviced in June ADAKEEP7", source: "owner", expectedRevision: hers.revision }, ada);
+  assert.equal(stored().text, "Ada's car is serviced in June ADAKEEP7");
+  assert.deepEqual(keptOf(stored()), before, "the change keeps its entity, attribute and project as well as its scope and layer");
 });

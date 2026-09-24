@@ -937,6 +937,7 @@ $("door-chatgpt").addEventListener("click", async () => {
   const prompt = await startChatGPTLogin();
   if (!prompt) return;
   $("first-run-status").textContent = `Enter ${prompt.userCode} on the sign-in page that just opened (${prompt.verificationUrl}). This page updates by itself when you finish.`;
+  globalThis.branchDeviceCode?.($("first-run-status"), prompt.userCode); // OWNER-LIST 7: the code, copyable (public/first-run-next.js)
   const poll = async () => {
     const status = await api("chatgpt/status").catch(() => null);
     if (status?.signedIn) { await refresh(); $("first-run-status").textContent = "Signed in. Try it, or start straight away."; $("first-run-done").hidden = false; return; }
@@ -970,7 +971,8 @@ $("first-run-test").addEventListener("click", async () => {
     $("first-run-status").textContent = `${result.presetName} answered in ${(result.ms / 1000).toFixed(1)} s${result.reply ? `: “${result.reply}”` : "."}`;
     $("first-run-done").hidden = false;
   } catch (e) {
-    $("first-run-status").textContent = e.message;
+    // OWNER-LIST 7: try again, a key instead or another way, with the raw words behind Details (public/first-run-next.js)
+    if (!globalThis.branchFirstRunTrouble?.($("first-run-status"), e)) $("first-run-status").textContent = e.message;
   } finally { $("first-run-test").disabled = false; }
 });
 async function finishFirstRun() {

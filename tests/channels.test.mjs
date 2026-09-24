@@ -110,6 +110,32 @@ test("Telegram: pairing for unknown senders, allowlist, group activation by ment
   await adapter.stop();
 });
 
+test("Telegram forum topics keep separate sessions and route replies to the original thread", async (t) => {
+  const { app, provider } = await fixture(t);
+  const { state, apiBase } = await fakeTelegram(t);
+  const adapter = new TelegramAdapter({ id: "telegram", token: "123:abc", apiBase, pollTimeoutSeconds: 1 });
+  await app.channels.attach(adapter, { activation: "mention", pairing: true, allowlist: [String(alice.id)] });
+  const addressed = (text, thread) => update(group, alice, `@BranchTestBot ${text}`, {
+    ...(thread === undefined ? {} : { message_thread_id: thread }),
+    entities: [{ type: "mention", offset: 0, length: 14 }],
+  });
+  state.queue.push(addressed("topic seven", 7));
+  await until(() => state.sent.length === 1, "topic seven reply");
+  state.queue.push(addressed("topic eight", 8));
+  await until(() => state.sent.length === 2, "topic eight reply");
+  state.queue.push(addressed("continue seven", 7));
+  await until(() => state.sent.length === 3, "topic seven followup");
+  state.queue.push(addressed("unthreaded"));
+  await until(() => state.sent.length === 4, "unthreaded reply");
+  assert.deepEqual(state.sent.map((reply) => [reply.chat_id, reply.message_thread_id]),
+    [[-700, 7], [-700, 8], [-700, 7], [-700, undefined]]);
+  const sessions = app.store.runs("local").map((run) => run.sessionId);
+  assert.equal(new Set(sessions).size, 3);
+  assert.equal(sessions.filter((session) => session === app.store.get("settings", "local", "channel-session:telegram:-700:7").data.sessionId).length, 2);
+  assert.equal(provider.requests[2].messages.filter((message) => message.role === "user").length, 2);
+  await adapter.stop();
+});
+
 test("integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it", async (t) => {
   const { app, root } = await fixture(t);
   const { state, apiBase } = await fakeTelegram(t);

@@ -52,6 +52,34 @@ const routes = {
     <tr class="r"><td class="n">Rent</td><td class="v">1200</td><td class="d">2026-03-01</td></tr>
     <tr class="r"><td class="n">Power</td><td class="v">85</td><td class="d">2026-03-04</td></tr></tbody></table>`),
   '/upload': page('<input id="pick" type="file"><p id="got">nothing</p><script>document.getElementById("pick").addEventListener("change",e=>{document.getElementById("got").textContent="received "+e.target.files[0].name})</script>'),
+  // A page that opens a tab of its own, to wherever the query string names.
+  '/opens': page(`<a id="go" target="_blank">open</a><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
+  // A form that asks for a new tab: a shape the link rewrite does not cover.
+  '/opens-form': page(`<form id="f" target="_blank" method="GET"><button type="submit">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.submit();</script>`),
+  // The other ways a page asks for a new tab: a plain link under <base target>, an image-map area, and a
+  // button's formtarget, which outranks its form's own target.
+  '/opens-base': page(`<base target="_blank"><a id="go">open</a><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
+  '/opens-area': page(`<map name="m"><area id="go" shape="rect" coords="0,0,50,50" target="_blank"></map><img usemap="#m" width="50" height="50" alt=""><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
+  '/opens-formtarget': page(`<form id="f" method="GET"><button id="b" type="submit" formtarget="_blank">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.requestSubmit(document.getElementById("b"));</script>`),
+  // Links the window never sees clicked: one never put in the document, and one inside a closed shadow root.
+  '/opens-detached': page(`<script>const a=document.createElement("a");a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.rel="noopener";a.click();</script>`),
+  '/opens-detached-dispatch': page(`<script>const a=document.createElement("a");a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}));</script>`),
+  '/opens-shadow': page(`<div id="h"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="x";a.dispatchEvent(new MouseEvent("click",{bubbles:true,composed:true}));</script>`),
+  // A link filling a closed shadow root, clicked for real by pressing its host.
+  '/opens-shadow-click': page(`<div id="h" style="display:block;width:160px;height:48px"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});const a=r.appendChild(document.createElement("a"));a.href=new URLSearchParams(location.search).get("to");a.target="_blank";a.textContent="Open";a.style.cssText="display:block;width:160px;height:48px";</script>`),
+  // Mac mini cdc7fd0: shapes where the page has the last word. B14 sets a link's target back in its own click
+  // listener, B16 a form's in its submit listener, B12 is a closed shadow root the parser makes (no attachShadow
+  // call), and B10 submits a form inside a closed shadow root, where no click or composed event is seen.
+  '/escape-b14': page(`<a id="n">Next</a><script>const n=document.getElementById("n");n.href=new URLSearchParams(location.search).get("to");n.addEventListener("click",()=>{n.target="_blank";});</script>`),
+  '/escape-b16': page(`<form id="f" method="GET"><button type="submit">Send it</button></form><script>const f=document.getElementById("f");f.action=new URLSearchParams(location.search).get("to");f.addEventListener("submit",()=>{f.target="_blank";});</script>`),
+  '/escape-b12': (url) => page(`<div id="h" style="display:block;width:160px;height:48px"><template shadowrootmode="closed"><a href="${url.searchParams.get('to')}" target="_blank" style="display:block;width:160px;height:48px">Open</a></template></div>`),
+  '/escape-b10': page(`<div id="h"></div><script>const r=document.getElementById("h").attachShadow({mode:"closed"});r.innerHTML='<form method="GET" target="_blank"><button>go</button></form>';const f=r.querySelector("form");f.action=new URLSearchParams(location.search).get("to");f.requestSubmit();</script>`),
+  // A page that goes round the worker block: the prototype's own method, and deleting the page's copy.
+  '/worker-around': page(`<script>const to=new URLSearchParams(location.search).get("to");const go=async (register)=>{try{await register();await navigator.serviceWorker.ready;const sw=(await navigator.serviceWorker.getRegistration()).active;if(sw)sw.postMessage(to);}catch{}};go(()=>ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker,"/worker.js"));try{delete navigator.serviceWorker.register;}catch{}go(()=>navigator.serviceWorker.register("/worker.js"));try{new SharedWorker("/worker.js");}catch{}</script>`),
+  // A page showing whatever the query string names in a frame.
+  '/framing': page(`<iframe id="f"></iframe><script>document.getElementById("f").src=new URLSearchParams(location.search).get("src");</script>`),
+  // A page that starts a background worker and asks it to fetch wherever the query string names.
+  '/worker': page(`<script>navigator.serviceWorker.register("/worker.js").then(async () => {await navigator.serviceWorker.ready;const sw = (await navigator.serviceWorker.getRegistration()).active;if (sw) sw.postMessage(new URLSearchParams(location.search).get("to"));}).catch(() => { document.title = "refused"; });</script>`),
   '/cookie': page('<p id="who">?</p><script>document.getElementById("who").textContent="cookie is "+document.cookie</script>'),
   // A page that tries to claim the numbering for itself: a decoy wearing number 1 and a decoy
   // wearing the scratch attribute the numbering uses, both placed before the real button.
@@ -65,8 +93,16 @@ const routes = {
 async function fixture() {
   const server = createServer((request, response) => {
     const path = new URL(request.url, 'http://fixture').pathname;
+    if (path === '/worker.js') {
+      response.writeHead(200, {'content-type': 'text/javascript'});
+      response.end(`self.addEventListener('activate', event => event.waitUntil(clients.claim()));
+        self.addEventListener('message', event => { fetch(event.data).catch(() => undefined); });`);
+      return;
+    }
     response.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
-    response.end(routes[path] ?? routes['/']);
+    const answer = routes[path] ?? routes['/'];
+    // A route may be written from the address it was asked with (what a page opens, when the parser must see it).
+    response.end(typeof answer === 'function' ? answer(new URL(request.url, 'http://fixture')) : answer);
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -235,6 +271,147 @@ test('a renamed selector heals by name, the way that worked is recorded, and a h
       /after 4 tries \(selector, role, text, mark\)/);
     await h.registry.finishRun(context);
   } finally { await h.close(); }
+});
+
+test("in the owner's own browser, a tab Branch opens reaches nothing and is not left behind", async () => {
+  // Working in their browser means the guard is on Branch's tab alone: there is no context route,
+  // no page watcher and no worker block, because none of those may touch their other tabs. So a tab
+  // Branch's tab opened had neither the route nor the pause. Measured before the fix: the website
+  // the owner never allowed really served the page, and the tab was still sitting in their window.
+  //
+  // It cannot be fixed by reacting: the tab's first request is in flight before any guard can be put
+  // on it. It is stopped at the source instead, on Branch's tab only -- a window it asks for is not
+  // opened, and a link asking for a new tab opens in this one, where everything is already checked.
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => {
+    forbiddenHits += 1;
+    response.writeHead(200, {'content-type': 'text/html'});
+    response.end('<!doctype html><body><h1>must not load</h1>');
+  });
+  forbidden.listen(0, '127.0.0.1');
+  await once(forbidden, 'listening');
+  const elsewhere = `http://127.0.0.1:${forbidden.address().port}`;
+
+  const h = await harness('browser2-borrow-popup');
+  const port = 9414;
+  const owned = await chromium.launchPersistentContext('', {headless: true, args: [`--remote-debugging-port=${port}`]});
+  try {
+    const theirTabs = owned.pages().filter(page => !page.isClosed()).length;
+    h.browser.store = {get: () => ({data: {enabled: true, port, runId: 'run-borrow-popup',
+      grantedAt: new Date().toISOString()}}), save: () => undefined};
+    const context = runContext('run-borrow-popup');
+    ok(await h.registry.execute('browser.borrow', {action: 'borrow'}, context));
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/opens?to=${encodeURIComponent(elsewhere)}`}, context);
+    // Long enough that a request in flight would have landed and a tab would still be open.
+    await new Promise(resolve => { setTimeout(resolve, 2500); });
+
+    assert.equal(forbiddenHits, 0, 'the website that was not allowed was never asked for anything');
+    assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1,
+      "only Branch's own tab is added to their window");
+
+    // A form asking for a new tab is not a link, and one submitted by script raises no submit event
+    // at all. Both were measured escaping before they were covered, so both are asked for here.
+    await h.registry.execute('browser.navigate',
+      {url: `${h.origin}/opens-form?to=${encodeURIComponent(elsewhere)}`}, context);
+    await new Promise(resolve => { setTimeout(resolve, 2500); });
+
+    assert.equal(forbiddenHits, 0, 'nor by a form asking for a new tab, submitted by script');
+    assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1,
+      'and their window still has only their tabs and ours');
+
+    // A background worker answers requests from outside the page, where neither the route nor the
+    // pause can see it. Branch's own window blocks workers outright; the owner's cannot be
+    // reconfigured, so the page is stopped from starting one.
+    await h.registry.execute('browser.navigate',
+      {url: `${h.origin}/worker?to=${encodeURIComponent(`${elsewhere}/from-worker`)}`}, context);
+    await new Promise(resolve => { setTimeout(resolve, 4000); });
+
+    assert.equal(forbiddenHits, 0, 'nor by a background worker the page tried to start');
+
+    // Every other way a page says "open this in a new tab", and the ways round the worker block, measured
+    // escaping before this (NAS b7f2560): each one opens here or not at all, and reaches nothing.
+    let opened = 0;
+    owned.on('page', () => { opened += 1; });
+    for (const where of ['opens-base', 'opens-area', 'opens-formtarget', 'opens-detached', 'opens-detached-dispatch', 'opens-shadow']) {
+      await h.registry.execute('browser.navigate', {url: `${h.origin}/${where}?to=${encodeURIComponent(elsewhere)}`}, context);
+      await new Promise(resolve => { setTimeout(resolve, 2500); });
+      assert.equal(forbiddenHits, 0, `nor by ${where}`);
+      assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1, `and ${where} left no tab behind`);
+      assert.equal(opened, 0, `${where} opened in Branch's own tab, not a new one`);
+    }
+    // A real click (the assistant pressing it) on a link inside a closed shadow root: the window sees only the host.
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/opens-shadow-click?to=${encodeURIComponent(elsewhere)}`}, context);
+    await h.registry.execute('browser.act', {action: 'click', selector: '#h', name: 'Open'}, context).catch(() => undefined);
+    await new Promise(resolve => { setTimeout(resolve, 2500); });
+    assert.equal(forbiddenHits, 0, 'nor by a link clicked inside a closed shadow root');
+    assert.equal(opened, 0, "that link opened in Branch's own tab, not a new one");
+    // The page has the last word inside itself, so these may open a tab: the window's route gives it nothing,
+    // and it is closed. What matters is that the unlisted website is never asked and nothing is left behind.
+    const escapes = [['escape-b14', {tool: 'browser.click', args: {role: 'link', name: 'Next'}}],
+      ['escape-b16', {tool: 'browser.click', args: {role: 'button', name: 'Send it'}}],
+      ['escape-b12', {tool: 'browser.act', args: {action: 'click', selector: '#h', name: 'Open'}}], ['escape-b10', null]];
+    for (const [where, press] of escapes) {
+      await h.registry.execute('browser.navigate', {url: `${h.origin}/${where}?to=${encodeURIComponent(elsewhere)}`}, context);
+      if (press) await h.registry.execute(press.tool, press.args, context).catch(() => undefined);
+      await new Promise(resolve => { setTimeout(resolve, 2500); });
+      assert.equal(forbiddenHits, 0, `nor by ${where}`);
+      assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1, `and ${where} left no tab behind`);
+    }
+    await h.registry.execute('browser.navigate',
+      {url: `${h.origin}/worker-around?to=${encodeURIComponent(`${elsewhere}/from-worker`)}`}, context);
+    await new Promise(resolve => { setTimeout(resolve, 4000); });
+    assert.equal(forbiddenHits, 0, 'nor by a worker started round the block');
+  } finally {
+    await h.close();
+    await owned.close().catch(() => undefined);
+    forbidden.close();
+    await once(forbidden, 'close');
+  }
+});
+test("in the owner's own browser, a frame from another website cannot be sent to an unlisted one", async () => {
+  // The owner's Chrome keeps each website in a process of its own, so a frame from another website is outside
+  // the pause on Branch's tab, and Chromium follows its redirects there without asking (NAS 6e33be0). Its
+  // requests are sent with redirects refused instead. Branch's own window keeps such a frame in the page's
+  // process (measured), which is why this is asked of a browser started the way Chrome starts: --site-per-process.
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => { forbiddenHits += 1; response.end('must not load'); });
+  forbidden.listen(0, '127.0.0.1');
+  await once(forbidden, 'listening');
+  const elsewhere = `http://127.0.0.1:${forbidden.address().port}`;
+  const framedAsked = [];
+  const framed = createServer((request, response) => {
+    framedAsked.push(request.url);
+    if (request.url === '/f') {
+      response.writeHead(200, {'content-type': 'text/html'});
+      response.end('<!doctype html><script>fetch("/r").catch(() => {}); setTimeout(() => { location = "/r2"; }, 300);</script>');
+      return;
+    }
+    response.writeHead(302, {location: `${elsewhere}/stolen`});
+    response.end();
+  });
+  framed.listen(0, '127.0.0.1');
+  await once(framed, 'listening');
+  const framedOrigin = `http://localhost:${framed.address().port}`; // another website: a separate process in Chrome
+
+  const h = await harness('browser2-borrow-frame', {}, [framedOrigin]);
+  const port = 9415;
+  const owned = await chromium.launchPersistentContext('', {headless: true, args: [`--remote-debugging-port=${port}`, '--site-per-process']});
+  try {
+    h.browser.store = {get: () => ({data: {enabled: true, port, runId: 'run-borrow-frame',
+      grantedAt: new Date().toISOString()}}), save: () => undefined};
+    const context = runContext('run-borrow-frame');
+    ok(await h.registry.execute('browser.borrow', {action: 'borrow'}, context));
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/framing?src=${encodeURIComponent(`${framedOrigin}/f`)}`}, context);
+    for (let waited = 0; waited < 50 && !(framedAsked.includes('/r') && framedAsked.includes('/r2')); waited++)
+      await new Promise(resolve => { setTimeout(resolve, 100); });
+    await new Promise(resolve => { setTimeout(resolve, 500); });
+    assert.ok(framedAsked.includes('/r') && framedAsked.includes('/r2'), `the frame really asked: ${framedAsked.join(' ')}`);
+    assert.equal(forbiddenHits, 0, "neither the frame's fetch nor its own navigation was sent onwards");
+  } finally {
+    await h.close();
+    await owned.close().catch(() => undefined);
+    for (const server of [forbidden, framed]) { server.close(); await once(server, 'close'); }
+  }
 });
 
 test('the borrowed browser reuses its cookies, refuses a bank, and is let go without being closed', async () => {

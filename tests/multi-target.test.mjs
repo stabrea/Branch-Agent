@@ -225,7 +225,7 @@ test("only the tools that touch several things declare them; every other tool is
   const declared = app.registry.names().filter((name) => {
     try { return app.registry.targetsOf(name, {}, {}) !== null; } catch { return true; }
   }).sort();
-  const expected = ["channels.broadcast", "code.change_set", "code.patch", "documents.compare", "documents.edit", "files.patch", "knowledge.add", "knowledge.create",
+  const expected = ["channels.broadcast", "channels.digest", "code.change_set", "code.patch", "documents.compare", "documents.edit", "files.patch", "knowledge.add", "knowledge.create",
     "git.branch", "git.commit", "git.diff", "git.log", "git.status", "git.worktree_add", "git.worktree_list", "git.worktree_remove",
     "plans.diff", "plans.merge", "plans.try", "research.run"];
   // git.push / git.pull / github.publish_repo are registered only when the owner switches them on.

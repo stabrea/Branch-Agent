@@ -328,7 +328,7 @@
           "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
           "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
         ],
-        "detail": "Telegram Bot API adapter (long polling) behind a channel router; direct and group messages are answered through per-chat conversations; channel tasks never get host command permission. Only Telegram so far."
+        "detail": "Telegram Bot API adapter (long polling) behind a channel router; direct and group messages are answered through per-chat conversations, with forum topics isolated as distinct session addresses and replies routed to their thread; channel tasks never get host command permission. Only Telegram so far."
       },
       "remaining": ""
     },

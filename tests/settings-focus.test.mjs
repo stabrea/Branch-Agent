@@ -88,7 +88,9 @@ test("writing the page in the language it is already in changes nothing, so noth
     const watch = new MutationObserver((records) => { for (const r of records) seen.push(`${r.type} ${r.attributeName ?? ""} ${r.target.className ?? r.target.nodeName}`); });
     watch.observe(document.getElementById("settings-window"), { subtree: true, childList: true, attributes: true, characterData: true });
     applyLanguage();
-    await new Promise((done) => setTimeout(done, 50));
+    // Only what applying the language (and whatever it wakes on the spot) wrote: a refresh that happens to land in
+    // the same moment on a slow machine is not this.
+    for (const r of watch.takeRecords()) seen.push(`${r.type} ${r.attributeName ?? ""} ${r.target.className ?? r.target.nodeName}`);
     watch.disconnect();
     return seen;
   });

@@ -60,12 +60,21 @@ export function parseBackupArchive(input: unknown): BackupArchive {
   return BackupArchiveSchema.parse(input);
 }
 
+/**
+ * Sign-ins stay on this computer. A backup never carries these settings, and a restore neither writes nor removes them:
+ * a passkey the owner took away came back with an older backup, and one planted in a changed file let its holder sign in
+ * as a person here (Mac mini 6534228). The people's passkeys, whether they may sign in from elsewhere, OIDC sign-ins
+ * waiting, which steps a phone must pass, and the paired devices' secret fingerprints.
+ */
+export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth", "remote-devices"];
+const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && signInSettings.includes(String(row.id));
+
 /** Reads every backed-up table in insertion order. */
 export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchive {
   const tables: Record<string, Record<string, string | number | null>[]> = {};
   for (const table of backupTables) {
     if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) continue;
-    tables[table] = db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().map((row) => {
+    tables[table] = db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().filter((row) => !staysHere(table, row)).map((row) => {
       const out: Record<string, string | number | null> = {};
       for (const [key, value] of Object.entries(row)) out[key] = typeof value === "bigint" ? Number(value) : (value as string | number | null);
       return out;
@@ -97,7 +106,9 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
   try {
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
-        if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) db.exec(`DELETE FROM ${table}`);
+        if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
+          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`).run(...signInSettings);
+          else db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
     if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
     for (const table of backupTables) {
@@ -106,6 +117,7 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       const columns = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
       tables++;
       for (const row of list) {
+        if (staysHere(table, row)) continue;
         const keys = Object.keys(row).filter((k) => columns.has(k));
         if (keys.length !== Object.keys(row).length) throw new Error(`Backup row for ${table} has a column this version does not know`);
         // An append-only row gets a fresh id and is skipped when this install already has that revision.
