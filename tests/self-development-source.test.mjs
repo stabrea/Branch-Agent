@@ -91,8 +91,14 @@ test("the self-development tool appears only while remote Git is enabled", () =>
 
 test("Q187: a helper whose own context says owner, but whose task came from a chat, cannot prepare a source change", async () => {
   const registry = new ToolRegistry();
-  const records = { chat: [{ kind: "run.started", data: { source: "channel" } }], mine: [{ kind: "run.started", data: { source: "owner" } }] };
-  const store = { events: (runId) => records[runId] ?? [], run: () => undefined };
+  const records = { chat: [{ kind: "run.started", data: { source: "channel" } }], mine: [{ kind: "run.started", data: { source: "owner" } }],
+    // NAS c7bbf84: a household person's task, which records source "owner" too.
+    sam: [{ kind: "run.started", data: { source: "owner", personProfileId: "sam" } }],
+    // NAS c0c7ca1: records a key started, by its flag or only by its id.
+    keyFlag: [{ kind: "run.started", data: { source: "owner", shortLivedKey: true } }],
+    keyId: [{ kind: "run.started", data: { source: "owner", shortLivedKeyId: "k1" } }] };
+  let owner = true;
+  const store = { events: (runId) => records[runId] ?? [], run: () => undefined, profiles: { isOwner: () => owner } };
   const stop = offerSelfDevelopment({ workspace: "C:/owner/workspace", owner: "local", projects: {}, registry,
     policy: {}, git: async () => completed(), store, contracts: { current: () => null } });
   registry.register({ name: "git.push", permission: "git.remote", description: "test", parameters: z.object({}), execute: async () => ({}) });
@@ -100,6 +106,16 @@ test("Q187: a helper whose own context says owner, but whose task came from a ch
   const call = (runId) => registry.execute("branch.prepare_source_change", input,
     { source: "owner", runId, owner: "local", permissions: new Set(["git.remote"]), signal: AbortSignal.timeout(1000), budget: { step: () => undefined, charge: () => undefined } });
   await assert.rejects(call("chat"), /Only the owner in the Branch app/, "the record leads back to a chat");
+  await assert.rejects(call("sam"), /Only the owner in the Branch app/, "a household person's task");
+  await assert.rejects(call("keyFlag"), /Only the owner in the Branch app/, "a key's task, by its flag");
+  await assert.rejects(call("keyId"), /Only the owner in the Branch app/, "a key's task, by its id alone");
+  // The widening tool asks the same way.
+  await assert.rejects(registry.execute("branch.widen_source_contract", { name: "x", reason: "wider", changes: { allowedPaths: ["docs/**"] } },
+    { source: "owner", runId: "chat", owner: "local", permissions: new Set(["git.remote"]), signal: AbortSignal.timeout(1000), budget: { step: () => undefined, charge: () => undefined } }),
+    /Only the owner in the Branch app/, "widening a contract from a chat's task");
+  owner = false;
+  await assert.rejects(call("mine"), /Only the owner in the Branch app/, "a window switched to a household profile");
+  owner = true;
   await assert.rejects(call("mine"), (error) => !/Only the owner in the Branch app/.test(error.message), "control: the owner's own task gets past the check");
   stop();
 });

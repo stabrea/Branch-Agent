@@ -161,8 +161,10 @@ const contractDescription = "contract: the terms this change is held to, written
  */
 function ownerOnly(context: ToolContext, store: Store): void {
   const origin = context.runId ? runOrigin(store, context.runId) : null;
-  if (startedWithShortLivedKey() || (context.source && context.source !== "owner")
-    || (origin && (origin.source !== "owner" || origin.shortLivedKey || origin.keyIds.length > 0)))
+  // A household person's task records source "owner" too, so it is told apart by whose it is (NAS c7bbf84), and
+  // the window must be on the owner's profile, as `ownerWorkOnly` and `Runtime.ownersOwnTask` ask.
+  if (startedWithShortLivedKey() || (context.source && context.source !== "owner") || !store.profiles.isOwner()
+    || (origin && (origin.source !== "owner" || origin.shortLivedKey || origin.keyIds.length > 0 || origin.personProfileId || origin.lentTo)))
     throw new Error("Only the owner in the Branch app can prepare Branch Agent source changes.");
 }
 
