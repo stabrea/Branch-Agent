@@ -264,7 +264,7 @@ test("U3 an approval question appears in the conversation and the answer reaches
   assert.deepEqual(errors, []);
 });
 
-test("U4 the context meter fills in after a task and opens its numbers", async (t) => {
+test("U4 the context chip and the cost under the box fill in after a task (DG-101)", async (t) => {
   const { page, errors } = await fixture(t, {
     name: "scripted",
     async complete() { return { content: "A short answer.", toolCalls: [] }; },
@@ -273,16 +273,10 @@ test("U4 the context meter fills in after a task and opens its numbers", async (
   await page.locator("#prompt").fill("Hello there.");
   await page.locator("#send").click();
   await page.locator(".message.assistant").waitFor({ timeout: 30000 });
-  await page.locator("#meter-row").waitFor({ state: "visible" });
-  await page.waitForFunction(() => Number(document.getElementById("meter-row").dataset.share) >= 0 && document.getElementById("meter-text").textContent.length > 0);
-  assert.match(await page.locator("#meter-text").innerText(), /words of context/);
-  assert.match(await page.evaluate(() => document.getElementById("meter-cost").textContent), /so far|^$/, "a price shows only when one is known");
-  await page.locator("#meter-button").click();
-  await page.locator("#meter-popover").waitFor({ state: "visible" });
-  const rows = await page.locator(".meter-stat").allInnerTexts();
-  assert.ok(rows.some((row) => row.startsWith("Words in")), `the numbers are behind the bar: ${rows.join(" | ")}`);
-  await page.keyboard.press("Escape");
-  assert.ok(await page.locator("#meter-popover").isHidden());
+  await page.waitForFunction(() => Number(document.querySelector(".lx-foot-context")?.dataset.share) >= 0
+    && /Context used \d+%/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""));
+  assert.equal(await page.locator("#meter-row").count(), 0, "the old meter bar is gone");
+  assert.match(await page.evaluate(() => document.getElementById("conversation-cost").textContent), /^About .+ so far$|^$/, "a price shows only when one is known");
   assert.deepEqual(errors, []);
 });
 
@@ -389,7 +383,7 @@ test("U6 the shell fits a 400 pixel window with the new rows on screen", async (
   await page.locator("#prompt").fill("Hello.");
   await page.locator("#send").click();
   await page.locator(".message.assistant").waitFor({ timeout: 30000 });
-  await page.locator("#meter-row").waitFor({ state: "visible" });
+  await page.waitForFunction(() => /Context used/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""));
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 1, `no sideways scrolling at 400 px (overflow ${overflow})`);
 });

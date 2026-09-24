@@ -76,7 +76,7 @@ document.addEventListener("branch-language", () => wireLanguagePicker());
 await Promise.all([
   import("./inspector.js"),
   import("./live-run.js"),
-  import("./token-meter.js"),
+  import("./conversation-facts.js"),
   /* Wave 7: two tasks side by side, and the live feed of what is happening now. */
   import("./compare.js"),
   import("./activity-feed.js"),

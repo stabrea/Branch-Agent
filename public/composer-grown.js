@@ -195,7 +195,9 @@ function installFootChips() {
   const foot = document.querySelector(".composer-foot");
   if (!foot || foot.querySelector(".lx-foot-chips")) return;
   const chips = element("span", "lx-foot-chips");
-  chips.append(footChip("ask-first-toggle", "more.askFirst", "Ask me questions first"),
+  // DG-101: first, as in the sample, how much of the model's room the next request takes (public/conversation-facts.js fills it).
+  const context = element("span", "lx-foot-chip lx-foot-context", say("composer.contextUsed", "Context used 0%").replace("{share}", "0"));
+  chips.append(context, footChip("ask-first-toggle", "more.askFirst", "Ask me questions first"),
     footChip("temporary-toggle", "composer.chip.temporary", "Temporary"), element("span", "lx-foot-chip lx-foot-assistant"));
   foot.prepend(chips);
   document.addEventListener("change", (event) => {

@@ -665,7 +665,7 @@ async function staticFile(
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
-    "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/conversation-facts.js": ["conversation-facts.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
     // phase2/everywhere: the window at phone and tablet widths
@@ -1942,7 +1942,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context|cost))?$/.exec(path);
   // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
   if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
   if (match && match[2] === "merge-note" && request.method === "POST")
@@ -1953,6 +1953,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     return tokenReport(app.runtime, match[1]!, owner);
   }
+  // DG-101: what the whole conversation probably cost, for the line under the message box.
+  if (match && match[2] === "cost" && request.method === "GET") return conversationCost(app, owner, match[1]!);
   if (match && match[2] === "pins") {
     if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };
     if (request.method === "POST") {
@@ -2747,6 +2749,31 @@ function fileChanges(app: Branch, runId: string) {
     .map((e) => ({ path: e.data.path, versionId: e.data.versionId, existed: e.data.existed, added: e.data.added, removed: e.data.removed, diff: e.data.diff }));
 }
 /** What one task probably cost: a dollar figure when the model it used has a price on file. */
+/**
+ * DG-101: the whole conversation's probable cost, summed over every one of its tasks (never the recent-task window).
+ * One task with no price on file makes the whole answer unknown, so a partial sum is never shown as a total. The
+ * line asks every few seconds, so a finished task's cost is kept (keyed by the price overrides it was worked out
+ * with) rather than read again from its events each time (Q35).
+ */
+const finishedCosts = new Map<string, { prices: string; amount: number | null }>();
+function conversationCost(app: Branch, owner: string, sessionId: string): { amount: number | null; currency: "USD" } {
+  requireBoundSession(shortLivedKeyMark().sessionId, sessionId);
+  if (!app.store.ownsSession(owner, sessionId)) throw new HttpError(404, "Session not found");
+  const prices = JSON.stringify(pricingSettings(app.store, app.runtime.owner).overrides ?? {});
+  const runs = app.store.sessionRuns(owner, sessionId);
+  let amount = 0;
+  for (const run of runs) {
+    const kept = finishedCosts.get(run.id), fresh = !kept || kept.prices !== prices;
+    const cost = fresh ? runCost(app, run.id).amount : kept.amount;
+    if (fresh && ["completed", "failed", "cancelled", "budget_exceeded"].includes(run.status)) {
+      if (finishedCosts.size > 20000) finishedCosts.clear();
+      finishedCosts.set(run.id, { prices, amount: typeof cost === "number" ? cost : null });
+    }
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return { amount: null, currency: "USD" };
+    amount += cost;
+  }
+  return { amount: runs.length ? amount : null, currency: "USD" };
+}
 function runCost(app: Branch, runId: string) {
   const usage = app.store.usage(runId);
   const named = app.store.events(runId).filter((e) => e.kind.startsWith("model.") && e.data.model !== undefined);

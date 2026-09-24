@@ -17,7 +17,7 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
-  "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
+  "#ask-first-toggle", "#composer-specialist", "#new-session", "#conversation-cost", "#session-label",
   "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn",
 ];
@@ -666,12 +666,11 @@ test("every menu and popover closes on its own button, on Escape and on a click 
     /* The panel opens and closes on the next frame, so wait for it rather than read it once. */
     await f.page.locator("#context-panel").waitFor({ state: round === 0 ? "visible" : "hidden", timeout: 10000 });
   }
-  /* The full window's own: the workspace and project menus, the Lockdown shield, the room meter, labels. */
+  /* The full window's own: the workspace and project menus, the Lockdown shield, labels (DG-101: the room meter and its popover are gone). */
   await showEverything(f.page);
   await everyWayClosed(f.page, "#owner-menu-button", "#owner-menu", "the workspace menu");
   await everyWayClosed(f.page, "#app-switcher", "#app-menu", "the project menu");
   await everyWayClosed(f.page, "#lx-shield", "#lx-lock-pop", "the Lockdown shield");
-  await everyWayClosed(f.page, "#meter-button", "#meter-popover", "the room meter");
   await everyWayClosed(f.page, "#thread-labels", ".label-picker", "the label picker");
   await f.page.locator("#owner-menu-button").click();
   await f.page.locator("#lx-shield").click();

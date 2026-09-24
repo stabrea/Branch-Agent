@@ -113,6 +113,9 @@ body.lx :is(#composer-media, #composer-attach, .composer-temporary, .composer-sp
   font-size: 12px;
   font-weight: 400;
 }
+/* DG-101: the context chip is a reading, not a switch, so it has no pressed state; its ring is the limits glance's. */
+.lx-foot-context { cursor: default; font-variant-numeric: tabular-nums; }
+.lx-foot-context .glance-ring { flex: none; }
 .lx-foot-chip[aria-pressed="true"] {
   border-color: var(--copper-edge);
   background: var(--copper-tint);

@@ -1,5 +1,6 @@
 /**
- * The meter under the message box shows how full the NEXT request is, the same measure as /tokens:
+ * The "Context used" chip under the message box (DG-101, the old meter) shows how full the NEXT request is, the
+ * same measure as /tokens:
  * not the sum of everything spent (which re-counts the history on every task and every round), and
  * it drops once the conversation has been folded. Read through GET /api/sessions/<id>/context.
  */
@@ -85,7 +86,7 @@ test("a household person's conversation is measured with their own model choice,
   assert.equal(tokenReport(app.runtime, run.sessionId).model, "everyday-model", "under the owner's name the choice is not visible, as before");
 });
 
-test("one failed refresh keeps the meter's last reading instead of showing it empty", async (t) => {
+test("one failed refresh keeps the context chip's last reading instead of showing it empty", async (t) => {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-meter-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: reply("A fairly ordinary answer. ".repeat(40)) });
@@ -99,9 +100,10 @@ test("one failed refresh keeps the meter's last reading instead of showing it em
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
-  await page.waitForFunction(() => /[1-9]/.test(document.getElementById("meter-text")?.textContent ?? ""), null, { timeout: 20000 });
-  const before = await page.locator("#meter-text").textContent();
+  const chip = () => page.evaluate(() => document.querySelector(".lx-foot-context")?.textContent ?? "");
+  await page.waitForFunction(() => /Context used [1-9]/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""), null, { timeout: 20000 });
+  const before = await chip();
   await page.route("**/api/sessions/*/context", (route) => route.fulfill({ status: 503, body: JSON.stringify({ error: "busy" }) }));
-  await page.evaluate(() => globalThis.branchTokenMeter.refresh());
-  assert.equal(await page.locator("#meter-text").textContent(), before, "a failed refresh changes nothing on the meter");
+  await page.evaluate(() => globalThis.branchConversationFacts.refresh());
+  assert.equal(await chip(), before, "a failed refresh changes nothing on the chip");
 });
