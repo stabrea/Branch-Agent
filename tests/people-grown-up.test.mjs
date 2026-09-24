@@ -209,3 +209,24 @@ test("Settings › Trunks & people leads to each person's card; French and a pho
   assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll");
   assert.deepEqual(f.errors, []);
 });
+
+test("a person's card keeps the keyboard when an older draw of the People page finishes after it", async (t) => {
+  const f = await fixture(t, { width: 1280, height: 860 });
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
+  await f.open();
+  // The draw that opening the place starts is held back, so it finishes after the one that focuses the card.
+  let heldOne = false, release, arrived;
+  const released = new Promise((resolve) => { release = resolve; });
+  const reached = new Promise((resolve) => { arrived = resolve; });
+  await f.page.route("**/api/shell-look", async (route) => {
+    if (heldOne || route.request().method() !== "GET") return route.continue();
+    heldOne = true; arrived(); await released; return route.continue();
+  });
+  await f.page.evaluate(async () => (await import("/app.js")).displayView("household:people"));
+  await reached;
+  await f.page.evaluate(async (id) => (await import("/people-place.js")).showPerson(id), sam.id);
+  await f.page.waitForFunction((id) => document.activeElement?.dataset.person === id, sam.id);
+  release();
+  await f.page.waitForTimeout(1500); // the older draw lands now
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.person ?? null), sam.id, "the card still has the keyboard");
+});

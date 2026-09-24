@@ -7,6 +7,7 @@
  * Everything here only ever asks the same routes the assistant uses. Nothing is removed from
  * anywhere by any button on this panel: the limits button makes suggestions and stops there.
  */
+import { t } from "./i18n.js";
 import { api } from "/app.js";
 
 const $ = (id) => document.getElementById(id);
@@ -37,9 +38,9 @@ export function blocksFromLines(text) {
 async function writeDocument() {
   const path = $("docs3-write-path").value.trim(), title = $("docs3-write-title").value.trim();
   const out = $("docs3-write-result");
-  if (!path) { out.textContent = "Say what to call the file, ending in .docx, .xlsx, .pptx, .md or .html."; return; }
+  if (!path) { out.textContent = t("docs.status.nameTheFile"); return; }
   const blocks = blocksFromLines($("docs3-write-body").value);
-  out.textContent = "Writing it…";
+  out.textContent = t("docs.status.writing");
   try {
     const answer = await run("documents.write", { path, title, blocks });
     out.replaceChildren(el("p", `Saved ${answer.path} (${Math.round((answer.bytes ?? 0) / 1024)} KB).`));
@@ -50,8 +51,8 @@ async function writeDocument() {
 async function summarise() {
   const collection = $("docs3-summary-collection").value.trim();
   const out = $("docs3-summary-result");
-  if (!collection) { out.textContent = "Say which knowledge base."; return; }
-  out.textContent = "Reading it…";
+  if (!collection) { out.textContent = t("docs.status.whichKnowledgeBase"); return; }
+  out.textContent = t("docs.status.reading");
   try {
     const answer = await api("knowledge/summarise", { collection, focus: $("docs3-summary-focus").value.trim() });
     out.replaceChildren(el("p", answer.summary || "There is nothing in it yet."));
@@ -63,8 +64,8 @@ async function summarise() {
 async function showMap() {
   const collection = $("docs3-map-collection").value.trim(), entity = $("docs3-map-entity").value.trim();
   const out = $("docs3-map-result");
-  if (!collection || !entity) { out.textContent = "Say which knowledge base, and a name to look up."; return; }
-  out.textContent = "Looking…";
+  if (!collection || !entity) { out.textContent = t("docs.status.whichBaseAndName"); return; }
+  out.textContent = t("docs.status.looking");
   try {
     const answer = await api("knowledge/graph", { collection, entity, depth: 1 });
     out.replaceChildren();
@@ -117,10 +118,10 @@ function label(x, y, text, strong = false) {
 /** The limits check: it only ever writes suggestions into the Memory screen. */
 async function checkLimits() {
   const out = $("docs3-limits-result");
-  out.textContent = "Looking…";
+  out.textContent = t("docs.status.looking");
   try {
     const answer = await api("knowledge/retention/check", {});
-    if (!answer.proposals.length) { out.textContent = "Nothing is over the limits you set."; return; }
+    if (!answer.proposals.length) { out.textContent = t("docs.status.nothingOverLimits"); return; }
     out.replaceChildren(el("p", `${answer.proposals.length} knowledge base(s) are over. Nothing was removed; each is waiting in Memory for you to decide.`));
     for (const proposal of answer.proposals) out.append(el("p", proposal.note, "meta"));
   } catch (error) { out.textContent = error.message; }

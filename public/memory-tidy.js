@@ -4,6 +4,7 @@
  * provides the empty section.
  */
 import { api, toast } from "/app.js";
+import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 function el(tag, text, className) {
@@ -22,10 +23,10 @@ async function drawSettings() {
   const view = await api("memory/retrieval");
   $("memory-meaning").checked = view.settings.useEmbeddings;
   $("memory-meaning-note").textContent = view.meaningSearch
-    ? "This model can compare facts by meaning."
+    ? t("memory.meaning.on")
     : view.settings.useEmbeddings
-      ? "This model cannot compare facts by meaning, so facts are matched by their words."
-      : "Turned off: facts are matched by their words.";
+      ? t("memory.meaning.cannot")
+      : t("memory.meaning.off");
   $("memory-index").disabled = !view.meaningSearch;
 }
 function rows(group) {

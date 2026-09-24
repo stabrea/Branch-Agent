@@ -179,7 +179,7 @@ function buildCard(spec, reports, settings, save) {
     button.disabled = true;
     try {
       await save({ files: chosen });
-      status.textContent = "Saved. It applies to your next task.";
+      status.textContent = t("contextFiles.status.saved");
     } catch (error) {
       status.textContent = error.message;
     } finally { button.disabled = false; }

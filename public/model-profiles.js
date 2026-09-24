@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 /**
  * Which model does what. Two things live here: the "/model" command you can type in the message
  * box to change the model for the conversation you are in, and the Settings cards that hold your
@@ -157,19 +158,19 @@ async function loadGemini() {
     note.textContent = state.note;
     $("gemini-client-id").value = state.settings.clientId || "";
     $("gemini-signin-model").value = state.settings.model || "";
-    if (state.connected) $("gemini-signin-status").textContent = "Signed in with Google for Gemini.";
+    if (state.connected) $("gemini-signin-status").textContent = t("modelProfiles.status.geminiSignedIn");
   } catch (error) { note.textContent = error.message; }
 }
 
 async function signInWithGoogle() {
   const status = $("gemini-signin-status");
-  status.textContent = "Signing in…";
+  status.textContent = t("modelProfiles.status.signingIn");
   try {
     await request("/api/models/gemini-signin", {
       clientId: $("gemini-client-id").value.trim(),
       model: $("gemini-signin-model").value.trim() || "gemini-2.5-flash",
     });
-    status.textContent = "Signed in. Checking whether Google will actually take it…";
+    status.textContent = t("modelProfiles.status.checkingGoogle");
     await checkGemini(status);
   } catch (error) { status.textContent = error.message; }
 }

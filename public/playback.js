@@ -40,7 +40,9 @@ function renderComposerClips() {
     const remove = el("button");
     remove.type = "button";
     remove.textContent = "×";
-    remove.title = `Take ${clip.name} off this message`;
+    // The words come from the locale files once they load; this file also runs as a plain script (no static import).
+    remove.title = clip.name;
+    void import("./i18n.js").then(({ t }) => { remove.title = t("playback.remove-clip", { name: clip.name }); }, () => undefined);
     remove.addEventListener("click", () => {
       pending = pending.filter((other) => other !== clip);
       URL.revokeObjectURL(clip.url);

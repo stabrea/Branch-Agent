@@ -174,7 +174,7 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: PullR
   await gitText(deps, cwd, ["--literal-pathspecs", "add", "--", ...visible], input.signal);
   await gitText(deps, cwd, ["--literal-pathspecs", "commit", "--only", "--message", input.title.slice(0, 200), "--", ...visible], input.signal);
   // An explicit refspec: exactly this new line, to a branch of the same name, never anything else.
-  if (walked) await sendOnWalked(deps, cwd, settings.remote, head, walked, input.signal);
+  if (walked) await sendOnWalked(deps, cwd, settings.remote, head, walked, visible, input.signal);
   else await gitText(deps, cwd, ["push", "--set-upstream", settings.remote, `refs/heads/${head}:refs/heads/${head}`], input.signal, 180000);
   const pullRequest = await deps.runTool("github.open_pull_request", opening, input.runId);
   return { repository: where.repo, branch: head, base: where.base, files: visible, pullRequest };
@@ -186,16 +186,36 @@ const commitNamed = (deps: PullRequestDeps, cwd: string, revision: string, signa
 
 /**
  * From Branch's own source: sends the commit just made on `head`, read once from that branch, and only
- * when it sits right on the commit the contract walked, so nothing that moves `head` or HEAD
- * meanwhile changes what goes out. A push that names a commit sets no upstream, so the new line is
- * told where it went afterwards, as `push --set-upstream` did (a failure there leaves the push as it is).
+ * when it is one commit, right on the commit the contract walked, changing nothing but the named
+ * files, so nothing that moves `head` or HEAD meanwhile changes what goes out. A push that names a
+ * commit sets no upstream, so the new line is told where it went afterwards, as `push --set-upstream`
+ * did (a failure there leaves the push as it is).
  */
-async function sendOnWalked(deps: PullRequestDeps, cwd: string, remote: string, head: string, walked: string, signal: AbortSignal): Promise<void> {
+async function sendOnWalked(deps: PullRequestDeps, cwd: string, remote: string, head: string, walked: string, named: readonly string[], signal: AbortSignal): Promise<void> {
   const made = await commitNamed(deps, cwd, `refs/heads/${head}^{commit}`, signal);
-  if (!made || (await commitNamed(deps, cwd, `${made}^`, signal)) !== walked)
+  if (!made || !(await onlyNamedOnWalked(deps, cwd, made, walked, named, signal)))
     throw new Error(`"${head}" is not just one new commit on the checked work (something else changed the repository meanwhile), so nothing was sent.`);
   await gitText(deps, cwd, ["push", remote, `${made}:refs/heads/${head}`], signal, 180000);
   await deps.git({ cwd, args: ["branch", `--set-upstream-to=refs/remotes/${remote}/${head}`, head], timeoutMs: 30000 }, signal);
+}
+
+/**
+ * Whether `made` has exactly one parent, `walked`, and changes nothing against it but the `named`
+ * files. Both answers are read once each, from the commit itself, never from a branch.
+ */
+async function onlyNamedOnWalked(deps: PullRequestDeps, cwd: string, made: string, walked: string, named: readonly string[], signal: AbortSignal): Promise<boolean> {
+  // The commit, then each of its parents: exactly two names means exactly one parent. (Both reads end
+  // with "--", so a commit is never taken for a file of the same name.)
+  const line = await gitText(deps, cwd, ["rev-list", "--parents", "--max-count=1", made, "--"], signal).catch(() => "");
+  const [self, ...parents] = line.split(" ");
+  if (self !== made || parents.length !== 1 || parents[0] !== walked) return false;
+  // Every name as Git keeps it: no rename pairing, no quoting, and a submodule's pointer listed whatever its settings say.
+  const listed = await deps.git({ cwd, args: ["diff-tree", "-r", "--name-only", "--no-commit-id", "--no-renames", "--ignore-submodules=none", "-z", walked, made, "--"],
+    timeoutMs: 30000, maxOutputBytes: 1_048_576 }, signal);
+  if (listed.status !== "completed" || listed.truncated) return false;
+  // A name may be written with "." folders ("./src/a.ts"); Git keeps it without them.
+  const allowed = new Set(named.map((path) => path.split("/").filter((part) => part !== ".").join("/")));
+  return listed.stdout.split("\0").filter(Boolean).every((path) => allowed.has(path));
 }
 
 const issueArgument = (text: string): { issue?: string } => {

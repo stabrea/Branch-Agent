@@ -138,11 +138,17 @@ async function ownerFacts() {
   const settings = await api("people/settings").catch(() => null);
   return { people: new Map((settings?.people ?? []).map((person) => [person.id, person])), trunks: null };
 }
+/* Opening the People place draws it (branch-place, below), and showPerson draws it again to focus a card. The one
+   started last is the one that goes in: an older draw that finishes late would replace the page, and the card the
+   newer one focused with it. */
+let drawing = 0;
 export async function drawPeople() {
   const slot = $("lx-slot-household-people");
   if (!slot) return;
+  const mine = ++drawing;
   await refresh();
   const owner = isOwner(), facts = await ownerFacts();
+  if (mine !== drawing) return;
   const page = make("div", "shell-page people-page");
   const head = make("div", "shell-head");
   head.append(make("p", "shell-eyebrow", "household.eyebrow", "This computer"),

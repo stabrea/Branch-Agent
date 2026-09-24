@@ -323,14 +323,14 @@ async function saveMetering() {
       folder: $("metering-folder").value.trim() || "usage",
       every: $("metering-every").value,
     })).metering;
-    $("metering-status").textContent = "Saved.";
+    $("metering-status").textContent = t("usage.metering.saved");
   } catch (e) { $("metering-status").textContent = e.message; }
 }
 async function writeMeteringNow() {
   try {
     const written = await api("usage/metering/now", {});
     metering = written.metering;
-    $("metering-status").textContent = `Written to ${written.path} (${written.days} day(s)).`;
+    $("metering-status").textContent = t("usage.metering.written", { path: written.path, days: written.days });
   } catch (e) { $("metering-status").textContent = e.message; }
 }
 

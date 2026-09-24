@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { takeBackFact, visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
+import { MemoryDataSchema, reworded, takeBackFact, visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
 import { FactKindSchema } from "./memory-layers.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
@@ -22,6 +22,7 @@ export const LearningSettingsSchema = z.object({
 }).strict();
 export interface ConsolidationReport { runs: number; through: string | null; proposals: number; skipped: boolean; reason?: string }
 export type LearningSettings = z.infer<typeof LearningSettingsSchema>;
+const ProposedFactSchema = MemoryDataSchema.pick({ scope: true, entity: true, attribute: true, validFrom: true, kind: true, layer: true, project: true }).strict();
 export const ProposalSchema = z.object({
   /**
    * merge keeps one fact and sets the rest aside; archive and forget set facts aside with a note;
@@ -52,6 +53,11 @@ export const ProposalSchema = z.object({
     fingerprint: z.string().max(80).default(""),
   }).strict().nullable().default(null),
   memoryId: z.string().max(200).nullable().default(null),
+  /**
+   * For a put: whose the fact is and what it is about, as memory.put would have saved it, so accepting a
+   * Trunk's suggestion saves the Trunk's own fact rather than one of the owner's. Null for older suggestions.
+   */
+  fact: ProposedFactSchema.nullable().default(null),
   /** The other facts a tidying suggestion touches; every one of them is set aside, never deleted. */
   memoryIds: z.array(z.string().max(200)).max(50).default([]),
   skillId: z.string().max(200).nullable().default(null),
@@ -119,9 +125,12 @@ export class MemoryReview {
       .run(owner, JSON.stringify(value), now, now);
     return value;
   }
-  /** Stages a change for the owner to accept or reject. */
-  propose(owner: string, input: unknown): Proposal {
-    const data = ProposalSchema.parse(input);
+  /**
+   * Stages a change for the owner to accept or reject. Whose a suggested fact is comes only from `fact`, which
+   * memory.put passes, never from the suggestion itself, so nothing else can choose a Trunk's memory for it.
+   */
+  propose(owner: string, input: unknown, fact: unknown = null): Proposal {
+    const data = { ...ProposalSchema.parse(input), fact: fact === null ? null : ProposedFactSchema.parse(fact) };
     if ((data.kind === "put" || data.kind === "update") && !data.text) throw new Error("A memory suggestion needs text");
     if (tidyingKinds.includes(data.kind) && !data.memoryIds.length) throw new Error("A tidying suggestion needs the facts it applies to");
     const proposal: Proposal = { ...data, id: randomUUID(), status: "pending", createdAt: new Date().toISOString(), decidedAt: null };
@@ -163,7 +172,7 @@ export class MemoryReview {
       // A suggestion the assistant noticed for itself says what sort of fact it is; anything else
       // is saved exactly as it always was, as a fact about the world.
       const kind = FactKindSchema.safeParse(proposal.learned?.kind).data;
-      const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) };
+      const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}), ...proposal.fact };
       if (!outside) return this.memories.save(owner, randomUUID(), data);
       // As memory.put: a save reported as failed is never read back, even if the service applies it late.
       const id = randomUUID();
@@ -177,7 +186,8 @@ export class MemoryReview {
       const apply = async () => {
         const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
         if (!current) throw new Error("The memory this suggestion changes no longer exists");
-        const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId };
+        // Only the words change: an accepted change keeps whose fact it is, as memory.update does.
+        const data = reworded(current.data, { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
         return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
       };
       // Read and written under the same lock as memory.update, so neither overwrites the other unseen.
@@ -232,7 +242,10 @@ export class MemoryReview {
     const version = this.versions(owner, memoryId).find((v) => v.revision === revision);
     if (!version) throw new Error("That earlier version is not kept");
     const data = version.data as { text: string; source: string; sourceRunId?: string; originRunId?: string };
-    return this.memories.save(owner, memoryId, { text: data.text, source: data.source, sourceRunId: data.sourceRunId ?? "" });
+    const words = { text: data.text, source: data.source, sourceRunId: data.sourceRunId ?? "" };
+    // Only the words go back: the fact stays whose it is now, as with any other change.
+    const current = this.memories.get(owner, memoryId);
+    return this.memories.save(owner, memoryId, current ? reworded(current.data, words) : words);
   }
   /** Freezes every memory record and every skill's active version so both can be put back exactly. */
   checkpoint(owner: string, input: unknown): Checkpoint {

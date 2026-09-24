@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // Settings → Websites you stay signed in to. Each saved sign-in is the cookies a website uses to
 // remember you, kept scrambled on this computer. You type your password into a real browser window;
 // the assistant is not part of that and never sees it.
@@ -33,7 +34,7 @@ function row(profile, refresh) {
   const forget = el("button", "Forget this sign-in");
   forget.type = "button";
   forget.addEventListener("click", async () => {
-    if (!globalThis.confirm(`Forget the sign-in for "${profile.name}"? You would have to sign in again.`)) return;
+    if (!globalThis.confirm(t("browser.confirm.forgetSignIn", { name: profile.name }))) return;
     try { await api("browser/profiles/remove", { name: profile.name }); say(`Forgot "${profile.name}".`); await refresh(); }
     catch (error) { say(error.message); }
   });
